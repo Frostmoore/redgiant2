@@ -2,7 +2,7 @@
   "name": "redgiant",
   "private": true,
   "version": "0.1.0",
-  "description": "RedGiant 2 — an open-source, self-hosted agent harness for coding, daily assistance and automations.",
+  "description": "RedGiant 2 \u2014 an open-source, self-hosted agent harness for coding, daily assistance and automations.",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@12.16.1",
@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check .",
-    "format": "biome check --write ."
+    "format": "biome check --write .",
+    "test:live": "vitest run --config vitest.live.config.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.4",

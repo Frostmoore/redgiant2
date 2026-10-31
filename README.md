@@ -38,13 +38,18 @@ pnpm install
 pnpm build
 pnpm test
 pnpm lint
+
+# optional, spends real tokens:
+ANTHROPIC_API_KEY=... pnpm test:live
+REDGIANT_LIVE_OPENAI_BASE_URL=http://localhost:8080/v1 pnpm test:live
 ```
 
 The repository is a pnpm monorepo; packages live in `packages/`.
 
-| Package              | Purpose                                      |
-| -------------------- | -------------------------------------------- |
-| `@redgiant/protocol` | Shared event and message types (zod schemas) |
+| Package               | Purpose                                                                                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@redgiant/protocol`  | Shared event and message types (zod schemas)                                                                                                          |
+| `@redgiant/providers` | Model providers (Anthropic, any OpenAI-compatible server, a scripted fake), per-message metrics, effort mapping, fallback chains, pricing and budgets |
 
 ## License
 
