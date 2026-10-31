@@ -59,6 +59,30 @@ The repository is a pnpm monorepo; packages live in `packages/`.
 | `@redgiant/tools`     | Base tools every agent gets: read/write/edit files (whitespace-tolerant edits), glob, grep, bash, fetch, web search (SearXNG, Brave); compact descriptions for small models; workspace confinement                                                        |
 | `@redgiant/sandbox`   | One container per workspace on an internal network (no capabilities, CPU/RAM/PID limits, optional gVisor), an egress proxy with a domain allow list, SSRF protection and credential injection, git worktrees per agent, and an opt-in host ("metal") mode |
 | `@redgiant/hierarchy` | The agent tree (God, Demi-God, orchestrators, agents, sub-agents, inspectors) with scope rules, permission modes and user rules, a configurable danger classifier, approvals that escalate up the tree to the human, and persistent budgets               |
+| `@redgiant/server`    | HTTP API with OpenAPI (`/api/openapi.json`), WebSocket live channel (`/ws`), sessions that outlive clients, projects, approvals queue, token auth bound to owners                                                                                         |
+| `@redgiant/cli`       | `redgiant` command: projects, agents, live chat with an agent (with the per-message metrics line), approvals, log verification                                                                                                                            |
+
+## Running the server (preview)
+
+Until the setup wizard lands, the server is configured with environment variables:
+
+| Variable                                                           | Meaning                                                                                                        |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                     | Postgres connection string (required)                                                                          |
+| `REDGIANT_TOKEN`                                                   | API token, 16+ characters (required)                                                                           |
+| `REDGIANT_DATA_DIR`                                                | Workspaces and platform data (default `./data`)                                                                |
+| `REDGIANT_PORT` / `REDGIANT_HOST`                                  | Listen address (default `0.0.0.0:7600`)                                                                        |
+| `ANTHROPIC_API_KEY`                                                | Enables the Anthropic provider                                                                                 |
+| `REDGIANT_OPENAI_BASE_URL`, `REDGIANT_OPENAI_ID`, `OPENAI_API_KEY` | Any OpenAI-compatible server (llama.cpp, vLLM, Ollama, OpenRouter…)                                            |
+| `REDGIANT_DEFAULT_MODEL`                                           | `provider/model`, used when an agent and its ancestors set none                                                |
+| `REDGIANT_SANDBOX`                                                 | `host` (default) or `docker`, with `REDGIANT_SANDBOX_IMAGE`, `REDGIANT_SANDBOX_NETWORK`, `REDGIANT_EGRESS_URL` |
+| `REDGIANT_SEARXNG_URL`                                             | Enables web search through SearXNG                                                                             |
+
+```sh
+pnpm build
+DATABASE_URL=postgres://... REDGIANT_TOKEN=... ANTHROPIC_API_KEY=... node packages/server/dist/main.js
+REDGIANT_TOKEN=... node packages/cli/dist/main.js help
+```
 
 ## License
 

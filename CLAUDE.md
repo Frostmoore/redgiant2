@@ -20,3 +20,6 @@
 - After `pnpm format` lines move: edit JSON with a parser and check that every text replacement happened.
 - Scope rules live in one pure function (`can` in `packages/hierarchy/src/scopes.ts`) and are tested as a table;
   change the table first. Approvals never resolve to "allow" on a failure or timeout.
+- Server: one WebSocket connection handles its messages strictly in order; `RedGiantCore.send` returns `{ done }`
+  (never an async function returning a bare promise: it would wait for the whole turn).
+- Run programs with `Workspace.execFile` (no shell) whenever arguments may come from a model or a user.

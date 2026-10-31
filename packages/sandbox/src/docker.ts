@@ -167,6 +167,11 @@ export class ContainerWorkspace extends LocalWorkspace {
     super(localPath, readOnly);
   }
 
+  /** Arguments are quoted here, so nothing in them is interpreted by the container's shell. */
+  override execFile(file: string, args: string[], options: ExecOptions): Promise<ExecResult> {
+    return this.exec([file, ...args].map(shellQuote).join(" "), options);
+  }
+
   override async exec(command: string, { timeoutMs, signal }: ExecOptions): Promise<ExecResult> {
     const pidFile = `/tmp/rg-exec-${randomUUID()}.pid`;
     const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));

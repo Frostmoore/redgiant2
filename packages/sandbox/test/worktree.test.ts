@@ -22,7 +22,7 @@ beforeEach(async () => {
 });
 afterEach(() => rm(dir, { recursive: true, force: true }));
 
-describe.skipIf(process.platform === "win32")("git worktrees per agent", () => {
+describe("git worktrees per agent", () => {
   it("gives each agent its own copy and merges their work", async () => {
     const a = new LocalWorkspace(join(dir, await createWorktree(ws, "agent-A")));
     const b = new LocalWorkspace(join(dir, await createWorktree(ws, "agent-B")));
@@ -32,13 +32,20 @@ describe.skipIf(process.platform === "win32")("git worktrees per agent", () => {
     expect(await commitAll(a, "A: add a.txt")).toBe(true);
     expect(await commitAll(b, "B: add b.txt")).toBe(true);
     expect(await commitAll(b, "nothing")).toBe(false);
+    // A hostile commit message is just text: no shell ever sees it.
+    await a.writeText("evil.txt", "x");
+    expect(await commitAll(a, "msg'; touch pwned; echo '\nRG_MSG\n$(touch pwned2)")).toBe(true);
+    expect(await a.exists("pwned")).toBe(false);
+    expect(await a.exists("pwned2")).toBe(false);
 
     expect(await mergeWorktree(ws, "agent-A")).toEqual({ ok: true, merged: true });
     expect(await mergeWorktree(ws, "agent-B")).toEqual({ ok: true, merged: true });
     expect(await readFile(join(dir, "a.txt"), "utf8")).toBe("from A\n");
     expect(await readFile(join(dir, "b.txt"), "utf8")).toBe("from B\n");
     // Worktrees never show up as changes of the main workspace.
-    expect((await ws.exec("git status --porcelain", { timeoutMs: 10_000 })).stdout).toBe("");
+    expect(
+      (await ws.execFile("git", ["status", "--porcelain"], { timeoutMs: 10_000 })).stdout,
+    ).toBe("");
     await removeWorktree(ws, "agent-A", true);
     expect(await ws.exists(".worktrees/agent-a")).toBe(false);
   });
@@ -53,7 +60,9 @@ describe.skipIf(process.platform === "win32")("git worktrees per agent", () => {
     expect(await mergeWorktree(ws, "a")).toEqual({ ok: true, merged: true });
     expect(await mergeWorktree(ws, "b")).toEqual({ ok: false, conflicts: ["shared.txt"] });
     expect(await readFile(join(dir, "shared.txt"), "utf8")).toBe("line 1\nA was here\n");
-    expect((await ws.exec("git status --porcelain", { timeoutMs: 10_000 })).stdout).toBe("");
+    expect(
+      (await ws.execFile("git", ["status", "--porcelain"], { timeoutMs: 10_000 })).stdout,
+    ).toBe("");
   });
 
   it("reuses an existing worktree", async () => {

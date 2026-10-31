@@ -38,6 +38,11 @@ export interface Workspace {
   /** Files matching a glob pattern, relative to the root, sorted. */
   glob(pattern: string, under?: string): Promise<string[]>;
   exec(command: string, options: ExecOptions): Promise<ExecResult>;
+  /**
+   * Runs a program with arguments, without any shell: nothing is interpreted, so it is safe
+   * with untrusted arguments and works the same on every OS.
+   */
+  execFile(file: string, args: string[], options: ExecOptions): Promise<ExecResult>;
 }
 
 export class PathOutsideWorkspaceError extends Error {
@@ -155,9 +160,21 @@ export class LocalWorkspace implements Workspace {
     return out.sort();
   }
 
-  exec(command: string, { timeoutMs, signal }: ExecOptions): Promise<ExecResult> {
+  exec(command: string, options: ExecOptions): Promise<ExecResult> {
+    return this.run(this.shell.file, [...this.shell.args, command], options);
+  }
+
+  execFile(file: string, args: string[], options: ExecOptions): Promise<ExecResult> {
+    return this.run(file, args, options);
+  }
+
+  private run(
+    file: string,
+    args: string[],
+    { timeoutMs, signal }: ExecOptions,
+  ): Promise<ExecResult> {
     return new Promise((done) => {
-      const child = spawn(this.shell.file, [...this.shell.args, command], {
+      const child = spawn(file, args, {
         cwd: this.root,
         env: process.env,
         ...(signal && { signal }),
