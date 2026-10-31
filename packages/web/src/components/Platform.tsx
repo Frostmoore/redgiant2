@@ -31,7 +31,7 @@ const json = (v: unknown) => (v === undefined || v === null ? "—" : JSON.strin
 function ChangeCard({ c }: { c: PlatformChange }) {
   const canUndo = c.kind === "config" && c.stage === "promoted" && c.before !== null;
   const canDiscard =
-    c.kind === "code" && (c.stage === "proposed" || c.stage === "tested" || c.stage === "failed");
+    c.kind === "code" && ["proposed", "tested", "failed", "rolled_back"].includes(c.stage);
   return (
     <article class={`post ${c.stage === "failed" || c.stage === "rolled_back" ? "blocker" : ""}`}>
       <div class="post-head">

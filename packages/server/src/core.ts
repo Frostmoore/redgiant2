@@ -225,6 +225,13 @@ export class RedGiantCore implements OrchestrationHost {
           this.changes,
           (ownerId) => this.platformPath(ownerId),
           async (ownerId, text) => this.notify?.(ownerId, text),
+          // God finishes the turn the restart cut, and its answer reaches the owner.
+          async (ownerId, sessionId, text) => {
+            const { done } = await this.send(ownerId, sessionId, text);
+            await done;
+            const reply = await this.lastReply(sessionId);
+            if (reply) await this.notify?.(ownerId, reply);
+          },
         )
       : undefined;
     const boardModel = o.boardModel ?? o.defaultModel;

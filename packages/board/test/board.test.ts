@@ -106,6 +106,17 @@ describe("Board", () => {
     const dup = await board.similar("me", "p1", "Postgres schema migrations with Drizzle");
     expect(dup.map((t) => t.title)).toEqual(["Database migrations"]);
     expect(await board.similar("me", "p1", "Weekly coffee schedule")).toEqual([]);
+    // The global board (no project) has its own threads.
+    await board.createThread({
+      ownerId: "me",
+      projectId: null,
+      title: "Platform upgrade",
+      first: { author: "x", kind: "note", body: "Health endpoint reports uptime seconds now." },
+    });
+    expect(
+      (await board.similar("me", null, "uptime seconds health endpoint")).map((t) => t.title),
+    ).toEqual(["Platform upgrade"]);
+    expect(await board.similar("me", null, "Postgres schema migrations with Drizzle")).toEqual([]);
   });
 
   it("follows the tasks a thread refers to", async () => {

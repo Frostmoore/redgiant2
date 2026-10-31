@@ -285,7 +285,7 @@ export class Board {
     const rows = await this.db.query<ThreadRow & { rank: number }>(
       `SELECT t.*, max(ts_rank(p.search, q)) AS rank
        FROM rg_threads t JOIN rg_posts p ON p.thread_id = t.id, to_tsquery('simple', $3) q
-       WHERE t.owner_id = $1 AND t.status <> 'resolved' AND ${projectId === null ? "t.project_id IS NULL" : "t.project_id = $2"}
+       WHERE t.owner_id = $1 AND t.status <> 'resolved' AND t.project_id IS NOT DISTINCT FROM NULLIF($2::text, '')
          AND (p.search @@ q OR to_tsvector('simple', t.title) @@ q)
        GROUP BY t.id ORDER BY rank DESC LIMIT 5`,
       [ownerId, projectId ?? "", words.join(" | ")],

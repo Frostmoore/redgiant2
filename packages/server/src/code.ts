@@ -97,6 +97,10 @@ interface CodeState {
   path: string;
   commit?: string;
   passed?: boolean;
+  /** The live-branch commit the change was merged as, waiting for the supervisor's verdict. */
+  promoted?: string;
+  /** God's session that promoted it: the restart cuts that turn, God picks it up afterwards. */
+  sessionId?: string;
 }
 
 export class CodeChangeError extends Error {}
@@ -113,6 +117,8 @@ export class CodeChanges {
     /** God's workspace on the host: worktrees go under `changes/`. */
     private readonly workspace: (ownerId: string) => string,
     private readonly notify: (ownerId: string, text: string) => Promise<void>,
+    /** Hands God the outcome in the session that promoted the change (its turn was cut). */
+    private readonly resume?: (ownerId: string, sessionId: string, text: string) => Promise<void>,
   ) {}
 
   get supervised(): boolean {
@@ -135,9 +141,7 @@ export class CodeChanges {
   async start(ownerId: string, by: string, title: string) {
     const ws = this.workspace(ownerId);
     const pending = (await this.changes.list(ownerId)).filter(
-      (c) =>
-        c.kind === "code" &&
-        (c.stage === "proposed" || c.stage === "tested" || c.stage === "failed"),
+      (c) => c.kind === "code" && ["proposed", "tested", "failed", "rolled_back"].includes(c.stage),
     );
     if (pending.length >= 3)
       throw new CodeChangeError(
@@ -165,7 +169,7 @@ export class CodeChanges {
   /** Commits the worktree, runs the steps, starts a trial copy; the result is recorded. */
   async test(ownerId: string, by: string, id: string) {
     const { c, s } = await this.load(ownerId, id);
-    if (c.stage !== "proposed" && c.stage !== "tested" && c.stage !== "failed")
+    if (!["proposed", "tested", "failed", "rolled_back"].includes(c.stage))
       throw new CodeChangeError(`Change ${id} is ${c.stage}`);
     await this.git(s.path, "add", "-A");
     const dirty = await this.git(s.path, "status", "--porcelain");
@@ -274,7 +278,7 @@ export class CodeChanges {
    * Merges a tested change into the live branch and asks the supervisor to restart on it.
    * The supervisor rolls it back by itself if it does not come up.
    */
-  async promote(ownerId: string, by: string, id: string) {
+  async promote(ownerId: string, by: string, id: string, sessionId?: string) {
     const { c, s } = await this.load(ownerId, id);
     if (!this.o.restart)
       throw new CodeChangeError(
@@ -305,6 +309,7 @@ export class CodeChanges {
       kind: "code",
       change: c.change,
       stage: "tested",
+      after: { ...s, promoted: commit, ...(sessionId && { sessionId }) } satisfies CodeState,
       detail: `${c.detail ?? ""}\n## promotion: merged as ${commit.slice(0, 8)}, restarting`,
       by,
     });
@@ -363,7 +368,13 @@ export class CodeChanges {
     for (const h of state.history) {
       if (!h.changeId || !h.ownerId) continue;
       const c = await this.changes.get(h.ownerId, h.changeId);
-      if (!c || c.stage === "promoted" || c.stage === "rolled_back") continue;
+      const s = c?.after as CodeState | undefined;
+      // Only the verdict on this promotion (a change rolled back, fixed and promoted again has two).
+      if (!c || !s || c.stage !== "tested" || s.promoted !== h.commit) continue;
+      const owner = h.ownerId;
+      const tellGod = (text: string) => {
+        if (s.sessionId) void this.resume?.(owner, s.sessionId, text).catch(() => {});
+      };
       if (h.result === "promoted") {
         await this.changes.record(h.ownerId, {
           id: c.id,
@@ -374,11 +385,13 @@ export class CodeChanges {
           by: "supervisor",
         });
         // The worktree is done; the branch stays as history.
-        const s = c.after as CodeState;
         await this.git(this.o.dir, "worktree", "remove", "--force", s.path).catch(() => {});
         await this.notify(
           h.ownerId,
           `✅ Platform change live: ${c.change} (${h.commit.slice(0, 8)})`,
+        );
+        tellGod(
+          `Your platform change ${c.id} ("${c.change}") is live: RedGiant restarted on version ${h.commit.slice(0, 8)}, which interrupted your previous turn. Check that the change works, then give the user the result they asked for.`,
         );
       } else {
         await this.changes.record(h.ownerId, {
@@ -386,12 +399,16 @@ export class CodeChanges {
           kind: "code",
           change: c.change,
           stage: "rolled_back",
+          after: { ...s, passed: false } satisfies CodeState,
           detail: `${c.detail ?? ""}\n## rolled back: ${h.reason ?? "it did not come up"}`,
           by: "supervisor",
         });
         await this.notify(
           h.ownerId,
           `↩️ Platform change rolled back: ${c.change}\n${(h.reason ?? "").split("\n")[0]}\nThe previous version is running.`,
+        );
+        tellGod(
+          `Your platform change ${c.id} ("${c.change}") was rolled back by the supervisor: ${h.reason ?? "it did not come up"}. The previous version is running. Tell the user, then fix the change (it is still open: edit, test, promote again) or discard it.`,
         );
       }
     }
@@ -452,8 +469,8 @@ export function platformCodeTools(self: AgentRecord, code: CodeChanges | undefin
         },
       },
       schema: z.object({ change_id: z.string() }),
-      async run({ change_id }) {
-        const commit = await code.promote(owner, by, change_id);
+      async run({ change_id }, ctx) {
+        const commit = await code.promote(owner, by, change_id, ctx.sessionId);
         return `Merged as ${commit.slice(0, 8)}. RedGiant restarts on it in a moment; the outcome will be in platform_changes.`;
       },
     } as Tool,

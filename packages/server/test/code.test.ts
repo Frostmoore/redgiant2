@@ -141,7 +141,14 @@ describe("God's changes to RedGiant's own code", () => {
     await new Promise((r) => setTimeout(r, 300));
     core.code?.unwatch();
     expect((await core.changes.get("me", change?.id ?? ""))?.stage).toBe("promoted");
-    expect(notes).toEqual([`✅ Platform change live: Version v2 (${req?.commit.slice(0, 8)})`]);
+    // God picks up the turn the restart cut, and its answer reaches the owner too.
+    for (let i = 0; i < 100 && notes.length < 2; i++) await new Promise((r) => setTimeout(r, 30));
+    expect(notes[0]).toBe(`✅ Platform change live: Version v2 (${req?.commit.slice(0, 8)})`);
+    expect(notes.slice(1)).toHaveLength(1);
+    const godSession = (await core.history("me", (await core.listSessions("me"))[0]?.id ?? ""))
+      .filter((e) => e.type === "message.user")
+      .map((e) => (e.payload as { text: string }).text);
+    expect(godSession.at(-1)).toMatch(/is live: RedGiant restarted on version/);
   });
 
   it("records a failing change and never promotes it", async () => {
@@ -153,11 +160,16 @@ describe("God's changes to RedGiant's own code", () => {
     expect(git("log", "--oneline").split("\n")).toHaveLength(1);
   });
 
-  it("refuses to promote without a supervisor, and reports a rollback", async () => {
-    const { outputs, change, stateDir, core } = await run("v3", false);
+  it("refuses to promote without a supervisor", async () => {
+    const { outputs, change } = await run("v3", false);
     expect(outputs[2]?.output).toMatch(/^PASSED[\s\S]*not possible here/);
     expect(outputs[3]?.output).toMatch(/not running under the supervisor/);
+    expect(change?.stage).toBe("tested");
+  });
 
+  it("reports a rollback, and the change can be tested again", async () => {
+    const { change, stateDir, core } = await run("v3");
+    const req = await readRequest(stateDir);
     const notes: string[] = [];
     core.notify = async (_o, text) => {
       notes.push(text);
@@ -167,7 +179,7 @@ describe("God's changes to RedGiant's own code", () => {
       built: "abc",
       history: [
         {
-          commit: "def0000000",
+          commit: req?.commit,
           result: "rolled_back",
           reason: "the server exited (code 1)\nstack…",
           changeId: change?.id,
@@ -181,6 +193,11 @@ describe("God's changes to RedGiant's own code", () => {
     expect(notes[0]).toBe(
       "↩️ Platform change rolled back: Version v3\nthe server exited (code 1)\nThe previous version is running.",
     );
+    // The verdict is recorded once, and the change stays open: test it again.
+    await core.code?.reconcile();
+    expect(notes.filter((n) => n.startsWith("↩️"))).toHaveLength(1);
+    const again = await core.code?.test("me", "human", change?.id ?? "");
+    expect(again?.passed).toBe(true);
   });
 
   it("a trial copy that does not come up fails the test", async () => {
