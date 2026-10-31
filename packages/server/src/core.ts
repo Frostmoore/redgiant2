@@ -16,7 +16,13 @@ import {
 } from "@redgiant/hierarchy";
 import type { Event, ModelSpec, ServerMessage } from "@redgiant/protocol";
 import type { ProviderRegistry } from "@redgiant/providers";
-import { createWorktree, HostSandboxProvider, type SandboxProvider } from "@redgiant/sandbox";
+import {
+  createWorktree,
+  HostSandboxProvider,
+  type Sandbox,
+  type SandboxProvider,
+  type SandboxSpec,
+} from "@redgiant/sandbox";
 import {
   baseTools,
   type ModelProfile,
@@ -24,6 +30,13 @@ import {
   type Workspace,
 } from "@redgiant/tools";
 import { HumanApprovals } from "./approvals.js";
+import {
+  completeTaskTool,
+  modelApprover,
+  type OrchestrationHost,
+  orchestrationTools,
+  TaskTracker,
+} from "./orchestration.js";
 import { migrateProjects, ProjectStore } from "./projects.js";
 
 export interface CoreOptions {
@@ -37,7 +50,7 @@ export interface CoreOptions {
   /** Used when neither the agent nor its ancestors set a model. */
   defaultModel?: ModelSpec;
   policyFor?: (agent: AgentRecord) => PolicySettings;
-  /** How a parent agent answers a child's request; default: pass it up (G7 lets the model decide). */
+  /** How a parent agent answers a child's request; default: the parent's own model decides. */
   askAgent?: (approver: AgentRecord, request: ApprovalRequest) => Promise<AgentAnswer>;
   search?: WebSearchProvider;
   redactor?: Redactor;
@@ -76,15 +89,20 @@ const DEFAULT_PROMPTS: Record<AgentRecord["kind"], string> = {
 };
 
 /** Composition root: storage, hierarchy, approvals and live sessions. */
-export class RedGiantCore {
+export class RedGiantCore implements OrchestrationHost {
   readonly store: EventStore;
   readonly registry: AgentRegistry;
   readonly budget: PersistentBudget;
   readonly broker: PermissionBroker;
   readonly projects: ProjectStore;
   readonly approvals = new HumanApprovals();
+  readonly tasks: TaskTracker;
+  /** Where each agent receives delegated work. */
+  private readonly workSessions = new Map<string, string>();
   private readonly live = new Map<string, Live>();
   private readonly sandbox: SandboxProvider;
+  /** One sandbox per workspace, shared by every session that works there. */
+  private readonly sandboxes = new Map<string, Promise<Sandbox>>();
 
   private constructor(private readonly o: CoreOptions) {
     this.store = new EventStore(o.db, o.redactor ? { redactor: o.redactor } : {});
@@ -92,15 +110,24 @@ export class RedGiantCore {
     this.budget = new PersistentBudget(o.db, this.store);
     this.projects = new ProjectStore(o.db, o.workspacesDir);
     this.sandbox = o.sandbox ?? new HostSandboxProvider();
+    this.tasks = new TaskTracker(this.store);
     this.broker = new PermissionBroker({
       store: this.store,
       resolve: this.registry.resolve,
       settingsFor: (a) => o.policyFor?.(this.registry.get(a.id) as AgentRecord) ?? DEFAULT_POLICY,
       modeFor: (a) => this.registry.get(a.id)?.mode ?? "auto",
-      askAgent: (approver, req) =>
-        o.askAgent
-          ? o.askAgent(this.registry.get(approver.id) as AgentRecord, req)
-          : Promise.resolve("escalate"),
+      askAgent: (approver, req) => {
+        const a = this.registry.get(approver.id) as AgentRecord;
+        return o.askAgent
+          ? o.askAgent(a, req)
+          : modelApprover({
+              registry: this.registry,
+              providers: o.providers,
+              budget: this.budget,
+              ...(o.defaultModel && { defaultModel: o.defaultModel }),
+              systemFor: (x) => x.systemPrompt ?? DEFAULT_PROMPTS[x.kind],
+            })(a, req);
+      },
       askHuman: (req, signal) => this.approvals.ask(req, signal),
     });
     // Persisted events reach the followers of their session.
@@ -119,12 +146,43 @@ export class RedGiantCore {
     return core;
   }
 
+  /**
+   * Creating a sandbox twice with the same id would replace the container under a running
+   * session: sandboxes are created once and reused.
+   */
+  private sandboxFor(spec: SandboxSpec): Promise<Sandbox> {
+    let sb = this.sandboxes.get(spec.id);
+    if (!sb) {
+      sb = this.sandbox.create(spec);
+      sb.catch(() => this.sandboxes.delete(spec.id));
+      this.sandboxes.set(spec.id, sb);
+    }
+    return sb;
+  }
+
+  /** The project's main workspace and, for an agent, its own worktree. */
+  async projectWorkspaces(
+    agent: AgentRecord,
+  ): Promise<{ root: Workspace; worktree: (agentId: string) => Promise<Workspace> }> {
+    const project = agent.projectId
+      ? await this.projects.get(agent.ownerId, agent.projectId)
+      : undefined;
+    if (!project) throw new NotFoundError(`Project "${agent.projectId}" not found`);
+    const sb = await this.sandboxFor({
+      id: `${agent.ownerId}-${project.id}`,
+      localPath: project.path,
+      mount: { type: "bind", source: project.path },
+    });
+    const root = sb.workspace();
+    return { root, worktree: async (agentId) => sb.workspace(await createWorktree(root, agentId)) };
+  }
+
   /** The workspace an agent works in, and whether it may write there. */
   private async workspaceFor(agent: AgentRecord): Promise<Workspace | undefined> {
     if (agent.kind === "demigod") return undefined;
     if (agent.kind === "god") {
       await mkdir(this.o.platformDir, { recursive: true });
-      const sb = await this.sandbox.create({
+      const sb = await this.sandboxFor({
         id: `${agent.ownerId}-platform`,
         localPath: this.o.platformDir,
         mount: { type: "bind", source: this.o.platformDir },
@@ -136,7 +194,7 @@ export class RedGiantCore {
       : undefined;
     if (!project) throw new NotFoundError(`Project "${agent.projectId}" not found`);
     const readOnly = agent.kind === "inspector";
-    const sb = await this.sandbox.create({
+    const sb = await this.sandboxFor({
       id: `${agent.ownerId}-${project.id}${readOnly ? "-ro" : ""}`,
       localPath: project.path,
       mount: { type: "bind", source: project.path },
@@ -170,6 +228,9 @@ export class RedGiantCore {
           ...(this.o.search && { search: this.o.search }),
         })
       : [];
+    tools.push(...orchestrationTools(agent, this, this.tasks));
+    const receivesTasks = ["orchestrator", "agent", "subagent"].includes(agent.kind);
+    if (receivesTasks) tools.push(completeTaskTool(agent, ws, this.broker, this.tasks));
     const listeners = new Set<(m: ServerMessage) => void>();
     const options = {
       store: this.store,
@@ -177,6 +238,7 @@ export class RedGiantCore {
       model,
       system: agent.systemPrompt ?? DEFAULT_PROMPTS[agent.kind],
       tools,
+      ...(receivesTasks && { hooks: { stop: [this.tasks.stopHook(agentId)] } }),
       sessionId,
       ownerId,
       projectId: agent.projectId,
@@ -208,6 +270,15 @@ export class RedGiantCore {
       running: null,
       listeners,
     };
+  }
+
+  /** The session where an agent receives delegated work (created on first use). */
+  async workSession(agent: AgentRecord): Promise<string> {
+    const existing = this.workSessions.get(agent.id);
+    if (existing) return existing;
+    const id = await this.startSession(agent.ownerId, agent.id);
+    this.workSessions.set(agent.id, id);
+    return id;
   }
 
   /** Starts a new conversation with an agent. */
@@ -322,5 +393,7 @@ export class RedGiantCore {
   async close(): Promise<void> {
     for (const l of this.live.values()) l.running?.abort();
     this.approvals.denyAll();
+    for (const sb of this.sandboxes.values()) await (await sb.catch(() => undefined))?.destroy();
+    this.sandboxes.clear();
   }
 }

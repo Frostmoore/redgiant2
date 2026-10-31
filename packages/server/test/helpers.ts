@@ -8,25 +8,35 @@ import {
   type FakeScript,
   ProviderRegistry,
 } from "@redgiant/providers";
-import { RedGiantCore, type Running, serve, TokenAuth } from "../src/index.js";
+import { type CoreOptions, RedGiantCore, type Running, serve, TokenAuth } from "../src/index.js";
 import { memoryDb } from "./pglite.js";
 
 export const TOKEN = "test-token-0123456789";
 export const OTHER = "other-token-0123456789";
 
-export async function startServer(script: FakeScript, fake: FakeProviderOptions = {}) {
+/**
+ * `core.askAgent` defaults to "escalate" here so that parents' models do not consume the
+ * script; pass `{ askAgent: undefined }` to test approvals decided by the parent's model.
+ */
+export async function startServer(
+  script: FakeScript,
+  fake: FakeProviderOptions = {},
+  core: Partial<CoreOptions> = {},
+) {
   const dir = await mkdtemp(join(tmpdir(), "rg-server-"));
   const { db } = await memoryDb();
   const provider = new FakeProvider(script, fake);
-  const core = await RedGiantCore.create({
+  const redgiant = await RedGiantCore.create({
     db,
     providers: new ProviderRegistry().register(provider),
     workspacesDir: join(dir, "workspaces"),
     platformDir: join(dir, "platform"),
     defaultModel: { provider: "fake", model: "m" },
+    askAgent: async () => "escalate",
+    ...core,
   });
   const running: Running = await serve(
-    core,
+    redgiant,
     new TokenAuth({ [TOKEN]: "me", [OTHER]: "someone-else" }),
     { port: 0, host: "127.0.0.1" },
   );
@@ -47,7 +57,7 @@ export async function startServer(script: FakeScript, fake: FakeProviderOptions 
     return { status: r.status, body: (await r.json()) as T };
   };
   return {
-    core,
+    core: redgiant,
     provider,
     url: running.url,
     dir,

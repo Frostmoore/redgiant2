@@ -23,3 +23,7 @@
 - Server: one WebSocket connection handles its messages strictly in order; `RedGiantCore.send` returns `{ done }`
   (never an async function returning a bare promise: it would wait for the whole turn).
 - Run programs with `Workspace.execFile` (no shell) whenever arguments may come from a model or a user.
+- Tasks (RD17): `delegate` opens one; it closes only through `complete_task` with a verifier that exits 0, or a
+  justified "not testable"; the stop hook reminds the agent and gives up after three reminders ("abandoned").
+- Sandboxes are created once per workspace and reused (`RedGiantCore.sandboxFor`): never call
+  `SandboxProvider.create` twice for the same id while sessions run.

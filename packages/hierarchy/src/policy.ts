@@ -122,7 +122,17 @@ export const DEFAULT_POLICY: PolicySettings = {
 };
 
 /** Tools that cannot change anything; allowed in every mode. */
-export const READ_ONLY_TOOLS = new Set(["read_file", "glob", "grep", "web_search", "fetch"]);
+export const READ_ONLY_TOOLS = new Set([
+  "read_file",
+  "glob",
+  "grep",
+  "web_search",
+  "fetch",
+  "list_agents",
+  "read_agent",
+  // Closing a task changes nothing by itself; its verifier command is checked as a bash call.
+  "complete_task",
+]);
 
 const toolMatches = (pattern: string, tool: string) =>
   pattern === "*" ||
