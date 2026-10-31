@@ -14,3 +14,7 @@
 - Every agent gets every base tool (`baseTools`); model profiles change descriptions only, never the tool set.
 - Cache discipline: reasoning is always sent back (Anthropic native blocks; `reasoning_content` for local servers),
   effort/thinking stay fixed for a session, and compaction reuses the exact same request plus one message.
+- Sandboxes: file tools work on the shared directory, commands run in the container (`ContainerWorkspace`).
+  Secrets never go into sandbox env: credentials belong to egress routes. Docker tests: `*.docker.test.ts`,
+  run with `REDGIANT_DOCKER_TESTS=1 pnpm test:docker`.
+- After `pnpm format` lines move: edit JSON with a parser and check that every text replacement happened.
