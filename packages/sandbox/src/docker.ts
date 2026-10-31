@@ -1,0 +1,216 @@
+import { randomUUID } from "node:crypto";
+import { join, posix } from "node:path";
+import { PassThrough } from "node:stream";
+import { type ExecOptions, type ExecResult, LocalWorkspace } from "@redgiant/tools";
+import Docker from "dockerode";
+import type { Sandbox, SandboxLimits, SandboxProvider, SandboxSpec } from "./provider.js";
+
+export interface DockerSandboxOptions {
+  docker?: Docker;
+  image: string;
+  /** Internal network (no route outside) the sandboxes join; created if missing. */
+  network: string;
+  /** URL of the egress proxy as reachable from the network, e.g. `http://redgiant-egress:3128`. */
+  egressProxyUrl?: string;
+  /** `runsc` for gVisor; default is the engine's default runtime. */
+  runtime?: string;
+  defaultLimits?: SandboxLimits;
+  /** uid:gid inside the container; default: the uid:gid of this process, so file owners match. */
+  user?: string;
+  /** Container name prefix. */
+  prefix?: string;
+}
+
+const LABEL = "io.redgiant.sandbox";
+
+/** One container per workspace, on an internal network, with limits and no capabilities. */
+export class DockerSandboxProvider implements SandboxProvider {
+  readonly kind = "docker" as const;
+  private readonly docker: Docker;
+
+  constructor(private readonly o: DockerSandboxOptions) {
+    this.docker = o.docker ?? new Docker();
+  }
+
+  async ensureNetwork(): Promise<void> {
+    const existing = await this.docker.listNetworks({ filters: { name: [this.o.network] } });
+    if (existing.some((n) => n.Name === this.o.network)) return;
+    await this.docker.createNetwork({
+      Name: this.o.network,
+      Driver: "bridge",
+      Internal: true,
+      Labels: { [LABEL]: "network" },
+    });
+  }
+
+  async create(spec: SandboxSpec): Promise<Sandbox> {
+    await this.ensureNetwork();
+    const name = `${this.o.prefix ?? "rg-sbx"}-${spec.id.replace(/[^a-zA-Z0-9_.-]/g, "-")}`;
+    const old = this.docker.getContainer(name);
+    await old.remove({ force: true }).catch(() => {});
+
+    const limits = { ...this.o.defaultLimits, ...spec.limits };
+    const proxy = this.o.egressProxyUrl;
+    const env = {
+      ...(proxy && {
+        HTTP_PROXY: proxy,
+        HTTPS_PROXY: proxy,
+        http_proxy: proxy,
+        https_proxy: proxy,
+        // The proxy itself is reached directly (credential routes live on it).
+        NO_PROXY: `localhost,127.0.0.1,${new URL(proxy).hostname}`,
+        no_proxy: `localhost,127.0.0.1,${new URL(proxy).hostname}`,
+        REDGIANT_EGRESS: proxy,
+      }),
+      ...spec.env,
+    };
+    const user =
+      this.o.user ??
+      (process.getuid && process.getgid ? `${process.getuid()}:${process.getgid()}` : "1000:1000");
+    const mount: Docker.MountSettings =
+      spec.mount.type === "bind"
+        ? {
+            Type: "bind" as const,
+            Source: spec.mount.source,
+            Target: "/workspace",
+            ReadOnly: spec.readOnly ?? false,
+          }
+        : {
+            Type: "volume" as const,
+            Source: spec.mount.name,
+            Target: "/workspace",
+            ReadOnly: spec.readOnly ?? false,
+            ...(spec.mount.subpath && {
+              VolumeOptions: {
+                Subpath: spec.mount.subpath,
+              } as Docker.MountSettings["VolumeOptions"],
+            }),
+          };
+
+    const options: Docker.ContainerCreateOptions = {
+      name,
+      Image: this.o.image,
+      User: user,
+      WorkingDir: "/workspace",
+      Env: Object.entries(env).map(([k, v]) => `${k}=${v}`),
+      Labels: { [LABEL]: spec.id },
+      HostConfig: {
+        NetworkMode: this.o.network,
+        Mounts: [mount],
+        CapDrop: ["ALL"],
+        SecurityOpt: ["no-new-privileges"],
+        ...(this.o.runtime && { Runtime: this.o.runtime }),
+        ...(limits.cpus !== undefined && { NanoCpus: Math.round(limits.cpus * 1e9) }),
+        ...(limits.memoryMb !== undefined && {
+          Memory: limits.memoryMb * 1024 * 1024,
+          MemorySwap: limits.memoryMb * 1024 * 1024,
+        }),
+        ...(limits.pids !== undefined && { PidsLimit: limits.pids }),
+        Tmpfs: { "/tmp": "rw,nosuid,size=512m" },
+      },
+    };
+    const container: Docker.Container = await this.docker.createContainer(options);
+    await container.start();
+    return new DockerSandbox(spec, container);
+  }
+
+  /** Removes every sandbox container this provider created (e.g. at shutdown). */
+  async removeAll(): Promise<number> {
+    const list = await this.docker.listContainers({ all: true, filters: { label: [LABEL] } });
+    await Promise.all(
+      list.map((c) =>
+        this.docker
+          .getContainer(c.Id)
+          .remove({ force: true })
+          .catch(() => {}),
+      ),
+    );
+    return list.length;
+  }
+}
+
+class DockerSandbox implements Sandbox {
+  readonly id: string;
+
+  constructor(
+    private readonly spec: SandboxSpec,
+    readonly container: Docker.Container,
+  ) {
+    this.id = spec.id;
+  }
+
+  workspace(subdir = "."): ContainerWorkspace {
+    return new ContainerWorkspace(
+      join(this.spec.localPath, subdir),
+      posix.join("/workspace", subdir),
+      this.container,
+      this.spec.readOnly ?? false,
+    );
+  }
+
+  async destroy(): Promise<void> {
+    await this.container.remove({ force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Files are read and written through the shared directory (fast, path-confined by
+ * LocalWorkspace); commands run inside the container.
+ */
+export class ContainerWorkspace extends LocalWorkspace {
+  constructor(
+    localPath: string,
+    private readonly containerPath: string,
+    private readonly container: Docker.Container,
+    readOnly: boolean,
+  ) {
+    super(localPath, readOnly);
+  }
+
+  override async exec(command: string, { timeoutMs, signal }: ExecOptions): Promise<ExecResult> {
+    const pidFile = `/tmp/rg-exec-${randomUUID()}.pid`;
+    const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
+    // `timeout` kills the command (exit 137) when it runs too long; the pid file lets an
+    // abort kill it from outside.
+    const script = `echo $$ > ${pidFile}; exec timeout -s KILL ${seconds} bash -c ${shellQuote(command)}`;
+    const exec = await this.container.exec({
+      Cmd: ["bash", "-c", script],
+      WorkingDir: this.containerPath,
+      AttachStdout: true,
+      AttachStderr: true,
+    });
+    const stream = await exec.start({ hijack: true, stdin: false });
+    const out = new PassThrough();
+    const err = new PassThrough();
+    let stdout = "";
+    let stderr = "";
+    out.on("data", (d: Buffer) => {
+      stdout += d.toString();
+    });
+    err.on("data", (d: Buffer) => {
+      stderr += d.toString();
+    });
+    this.container.modem.demuxStream(stream, out, err);
+
+    const onAbort = () => {
+      void this.container
+        .exec({
+          Cmd: ["bash", "-c", `kill -9 -- -$(cat ${pidFile}) $(cat ${pidFile}) 2>/dev/null`],
+        })
+        .then((e) => e.start({ hijack: true, stdin: false }))
+        .catch(() => {});
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    await new Promise<void>((done) => {
+      stream.on("end", done);
+      stream.on("close", done);
+      stream.on("error", () => done());
+    });
+    signal?.removeEventListener("abort", onAbort);
+    const info = await exec.inspect();
+    const exitCode = info.ExitCode ?? null;
+    return { stdout, stderr, exitCode, timedOut: exitCode === 137 && !signal?.aborted };
+  }
+}
+
+const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;

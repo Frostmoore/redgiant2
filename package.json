@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "lint": "node scripts/check-references.mjs && biome check .",
     "format": "biome check --write .",
-    "test:live": "vitest run --config vitest.live.config.ts"
+    "test:live": "vitest run --config vitest.live.config.ts",
+    "test:docker": "vitest run --config vitest.docker.config.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.4",

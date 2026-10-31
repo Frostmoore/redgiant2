@@ -1,0 +1,26 @@
+{
+  "name": "@redgiant/sandbox",
+  "version": "0.1.0",
+  "description": "RedGiant sandboxes: one container per workspace, egress proxy with credential injection, git worktrees per agent.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "redgiant-egress": "./dist/egress-main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@redgiant/tools": "workspace:*",
+    "dockerode": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^4.0.2"
+  }
+}
