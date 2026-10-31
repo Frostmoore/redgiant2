@@ -5,14 +5,14 @@ RedGiant 1.16.0 (run before its commit), 2026-10-31. Each task runs in a fresh p
 written after the agents finish and decides alone. Cost and tokens are the project's budget.
 Run them yourself: `pnpm --filter @redgiant/evals start -- --models provider/model,…`.
 
-| Task | anthropic/claude-sonnet-5-5 | anthropic/claude-opus-5-5 |
-|---|---|---|
-| Fix a bug | ✅ 6 s · $0.009 | ✅ 6 s · $0.009 |
-| Implement a function from a spec | ✅ 12 s · $0.018 | ✅ 12 s · $0.026 |
-| Rename across files | ✅ 8 s · $0.008 | ✅ 6 s · $0.013 |
-| Summarise a CSV | ✅ 6 s · $0.008 | ✅ 9 s · $0.019 |
-| Write tests that catch a bug | ✅ 12 s · $0.021 | ✅ 17 s · $0.046 |
-| **Total** | **5/5** · $0.06 · 81k tokens · 0.7 min | **5/5** · $0.11 · 74k tokens · 0.8 min |
+| Task                             | anthropic/claude-sonnet-5-5            | anthropic/claude-opus-5-5              |
+| -------------------------------- | -------------------------------------- | -------------------------------------- |
+| Fix a bug                        | ✅ 6 s · $0.009                        | ✅ 6 s · $0.009                        |
+| Implement a function from a spec | ✅ 12 s · $0.018                       | ✅ 12 s · $0.026                       |
+| Rename across files              | ✅ 8 s · $0.008                        | ✅ 6 s · $0.013                        |
+| Summarise a CSV                  | ✅ 6 s · $0.008                        | ✅ 9 s · $0.019                        |
+| Write tests that catch a bug     | ✅ 12 s · $0.021                       | ✅ 17 s · $0.046                       |
+| **Total**                        | **5/5** · $0.06 · 81k tokens · 0.7 min | **5/5** · $0.11 · 74k tokens · 0.8 min |
 
 ## Tasks
 
