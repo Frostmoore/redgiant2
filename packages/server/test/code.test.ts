@@ -15,7 +15,8 @@ let dirs: string[] = [];
 afterEach(async () => {
   await s?.close();
   s = undefined;
-  for (const d of dirs) await rm(d, { recursive: true, force: true });
+  for (const d of dirs)
+    await rm(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   dirs = [];
 });
 

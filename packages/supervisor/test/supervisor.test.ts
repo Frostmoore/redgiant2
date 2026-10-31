@@ -37,7 +37,8 @@ let dirs: string[] = [];
 let sups: Supervisor[] = [];
 afterEach(async () => {
   for (const s of sups) await s.stop();
-  for (const d of dirs) await rm(d, { recursive: true, force: true });
+  for (const d of dirs)
+    await rm(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   dirs = [];
   sups = [];
 });

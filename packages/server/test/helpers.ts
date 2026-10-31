@@ -84,7 +84,8 @@ export async function startServer(
     api,
     close: async () => {
       await running.close();
-      await rm(dir, { recursive: true, force: true });
+      // Windows releases files a moment after their processes exit.
+      await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     },
   };
 }

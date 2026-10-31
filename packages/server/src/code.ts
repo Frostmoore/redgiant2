@@ -269,8 +269,14 @@ export class CodeChanges {
         output: `${output}\n${exited ? "the trial copy exited" : "no answer to the health check"}`,
       };
     } finally {
+      // Wait until it is really gone: on Windows a live process keeps its directory locked.
+      const gone = new Promise<void>((r) => {
+        if (exited) r();
+        else p.once("exit", () => r());
+      });
       p.kill("SIGKILL");
-      await rm(data, { recursive: true, force: true }).catch(() => {});
+      await Promise.race([gone, new Promise((r) => setTimeout(r, 10_000))]);
+      await rm(data, { recursive: true, force: true, maxRetries: 5 }).catch(() => {});
     }
   }
 
