@@ -37,3 +37,8 @@
 - Automations (`@redgiant/automations`): recipes choose an agent, never its tools; a run never overlaps the previous
   one; webhook bodies reach the agent as data, never as instructions. Test schedules with the service's fake clock
   (`now`, `tick`), never by waiting for real time.
+- Platform (G14): God's `platform_*` tools act with the human's authority because the human approves them (danger
+  `platform`, human only). Configuration changes keep their `before` and are undoable; code changes go through a
+  worktree, tests and a trial copy with a clean environment (no secrets), and only a supervised server may promote.
+  Never run God-written code with the server's environment.
+- Test SQL helpers reject unused parameters, as real Postgres does: keep it that way.

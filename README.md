@@ -66,6 +66,7 @@ The repository is a pnpm monorepo; packages live in `packages/`.
 | `@redgiant/extensions`   | MCP servers as agent tools (stdio and HTTP), skills loaded on demand (SKILL.md), custom tools that run in the sandbox, and a builder: agents propose tools and skills with tests, the builder runs them in a throwaway sandbox, the user approves                                                                                              |
 | `@redgiant/automations`  | YAML recipes run by an agent on a cron schedule (with time zones) or a webhook with its own secret: model and effort per recipe, fresh or continuing sessions, timeouts, no overlapping runs, missed runs after a restart, history, notifications on Telegram (examples in `recipes/`)                                                         |
 | `@redgiant/telegram`     | Demi-God on Telegram: polling or webhook (checked with Telegram's secret header), accounts linked with one-time pairing codes, Demi-God relays to God only, approvals with inline buttons                                                                                                                                                      |
+| `@redgiant/supervisor`   | `redgiant-supervisor`: runs the server, rebuilds it when God promotes a change to RedGiant's own code, and rolls back to the last good version by itself when the new one fails to build, to come up healthy or to stay up                                                                                                                     |
 | `@redgiant/hierarchy`    | The agent tree (God, Demi-God, orchestrators, agents, sub-agents, inspectors) with scope rules, permission modes and user rules, a configurable danger classifier, approvals that escalate up the tree to the human, and persistent budgets                                                                                                    |
 | `@redgiant/server`       | HTTP API with OpenAPI (`/api/openapi.json`), WebSocket live channel (`/ws`), sessions that outlive clients, projects, approvals queue, token auth bound to owners; orchestration tools (create, delegate, merge, stop agents; ephemeral sub-agents), tasks that close only with a passing verifier, approvals decided by parent agents' models |
 | `@redgiant/cli`          | `redgiant` command: projects, agents, live chat with an agent (with the per-message metrics line), approvals, log verification                                                                                                                                                                                                                 |
@@ -77,7 +78,7 @@ Until the setup wizard lands, the server is configured with environment variable
 
 | Variable                                                            | Meaning                                                                                                                                     |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                      | Postgres connection string (required)                                                                                                       |
+| `DATABASE_URL`                                                      | Postgres connection string (required); `memory:` for a throwaway in-process database (trial copies, demos)                                  |
 | `REDGIANT_TOKEN`                                                    | API token, 16+ characters (required)                                                                                                        |
 | `REDGIANT_DATA_DIR`                                                 | Workspaces and platform data (default `./data`)                                                                                             |
 | `REDGIANT_PORT` / `REDGIANT_HOST`                                   | Listen address (default `0.0.0.0:7600`)                                                                                                     |
@@ -90,10 +91,15 @@ Until the setup wizard lands, the server is configured with environment variable
 | `REDGIANT_WEB_DIR`                                                  | Built web UI to serve at `/` (default `packages/web/dist`)                                                                                  |
 | `REDGIANT_TELEGRAM_TOKEN` / `REDGIANT_TELEGRAM_TOKEN_FILE`          | Bot token from BotFather: enables Demi-God on Telegram (polling by default)                                                                 |
 | `REDGIANT_TELEGRAM_WEBHOOK_SECRET`                                  | Webhook mode instead of polling: Telegram must send this secret to `/api/telegram/webhook`                                                  |
+| `REDGIANT_SOURCE_DIR`, `REDGIANT_STATE_DIR`                         | RedGiant's own source (a git checkout) and the supervisor's state: enables God's code changes; promotion needs `redgiant-supervisor`        |
+| `REDGIANT_BUILD_COMMAND`                                            | Supervisor: how to build the source (default `pnpm install --frozen-lockfile && pnpm build`)                                                |
+| `REDGIANT_METAL`                                                    | `1`: God works on the real system even with Docker sandboxes; every change it makes asks you                                                |
 
 ```sh
 pnpm build
 DATABASE_URL=postgres://... REDGIANT_TOKEN=... ANTHROPIC_API_KEY=... node packages/server/dist/main.js
+# Supervised, so God can change RedGiant itself (broken versions roll back by themselves):
+REDGIANT_SOURCE_DIR=$PWD DATABASE_URL=... REDGIANT_TOKEN=... node packages/supervisor/dist/main.js
 REDGIANT_TOKEN=... node packages/cli/dist/main.js help
 ```
 
