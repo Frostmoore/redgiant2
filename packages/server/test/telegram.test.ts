@@ -32,6 +32,7 @@ async function setup(
     text?: string;
     toolCalls?: { name: string; input: unknown }[];
   },
+  godMode?: string,
 ) {
   tg = await fakeTelegram();
   s = await startServer(brain, {}, {}, undefined, tg.apiRoot);
@@ -39,6 +40,7 @@ async function setup(
     kind: "god",
     parentId: null,
     name: "God",
+    ...(godMode && { mode: godMode }),
   });
   await s.api("POST", "/api/agents", { kind: "demigod", parentId: god.body.id, name: "Demi-God" });
   return { god: god.body.id };
@@ -87,6 +89,7 @@ describe("Demi-God on Telegram", () => {
     });
     await pair();
     await s?.gateway?.handleUpdate(tg?.text(USER, "How is project X?") as never);
+    await s?.gateway?.idle();
     expect(tg?.sent(USER).at(-1)?.text).toBe(
       "Demi-God: God says the project is fine (you asked: How is project X?)",
     );
@@ -131,6 +134,34 @@ describe("Demi-God on Telegram", () => {
     expect((await turn)?.stopReason).toBe("end_turn");
     await new Promise((r) => setTimeout(r, 50));
     expect(tg?.calls.find((c) => c.method === "editMessageText")?.body.text).toMatch(/✅ Allowed$/);
+  });
+
+  it("lets the approval buttons through while it is still answering the same message", async () => {
+    await setup((req) => {
+      if (req.system.startsWith("You are Demi-God")) {
+        const r = toolResult(req);
+        return r === undefined
+          ? { toolCalls: [{ name: "ask_god", input: { message: lastText(req) } }] }
+          : { text: `Demi-God: ${r}` };
+      }
+      return toolResult(req) === undefined
+        ? { toolCalls: [{ name: "write_file", input: { path: "cpu.txt", content: "x" } }] }
+        : { text: "written" };
+    }, "manual");
+    await pair();
+    // Polling hands updates over one at a time: this must return before God has finished.
+    await s?.gateway?.handleUpdate(tg?.text(USER, "Write cpu.txt") as never);
+    let ask: Record<string, unknown> | undefined;
+    for (let i = 0; i < 100 && !ask; i++) {
+      await new Promise((r) => setTimeout(r, 30));
+      ask = tg?.sent(USER).find((m) => String(m.text).startsWith("🔔"));
+    }
+    const allow = (
+      ask?.reply_markup as { inline_keyboard: { callback_data: string }[][] } | undefined
+    )?.inline_keyboard[0]?.[0]?.callback_data;
+    await s?.gateway?.handleUpdate(tg?.button(USER, allow ?? "") as never);
+    await s?.gateway?.idle();
+    expect(tg?.sent(USER).at(-1)?.text).toBe("Demi-God: written");
   });
 
   it("accepts webhook updates only with Telegram's secret", async () => {

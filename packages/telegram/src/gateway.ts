@@ -73,6 +73,7 @@ export class TelegramGateway {
   /** Approval messages already sent, to edit them when the request closes. */
   private readonly sent = new Map<string, { chatId: number; messageId: number; text: string }[]>();
   private me: { username: string } | undefined;
+  private readonly inFlight = new Set<Promise<void>>();
 
   constructor(private readonly o: GatewayOptions) {
     this.bot = new Bot(o.token, o.apiRoot ? { client: { apiRoot: o.apiRoot } } : {});
@@ -170,21 +171,33 @@ export class TelegramGateway {
       );
       return;
     }
-    const chatId = ctx.chat.id;
+    // Not awaited: polling hands updates over one at a time, and the approval buttons of this
+    // very request must get through while God works (awaiting here would deadlock).
+    const work = this.relay(owner, ctx.chat.id, text).finally(() => this.inFlight.delete(work));
+    this.inFlight.add(work);
+  }
+
+  private async relay(owner: string, chatId: number, text: string) {
+    const api = this.bot.api;
     // "typing…" while Demi-God and God work (Telegram shows it for about 5 seconds).
     const typing = setInterval(
-      () => void ctx.api.sendChatAction(chatId, "typing").catch(() => {}),
+      () => void api.sendChatAction(chatId, "typing").catch(() => {}),
       4500,
     );
-    void ctx.api.sendChatAction(chatId, "typing").catch(() => {});
+    void api.sendChatAction(chatId, "typing").catch(() => {});
     try {
       const answer = await this.o.host.askDemigod(owner, chatId, text);
-      for (const part of splitMessage(answer)) await ctx.api.sendMessage(chatId, part);
+      for (const part of splitMessage(answer)) await api.sendMessage(chatId, part);
     } catch (err) {
-      await ctx.api.sendMessage(chatId, `⚠️ ${(err as Error).message}`);
+      await api.sendMessage(chatId, `⚠️ ${(err as Error).message}`).catch(() => {});
     } finally {
       clearInterval(typing);
     }
+  }
+
+  /** Resolves when every message being relayed has been answered (tests, shutdown). */
+  async idle(): Promise<void> {
+    while (this.inFlight.size > 0) await Promise.allSettled([...this.inFlight]);
   }
 
   private async sendApproval(ownerId: string, info: PermissionRequestInfo) {
