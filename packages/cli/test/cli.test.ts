@@ -111,7 +111,7 @@ describe("redgiant CLI", () => {
     const r = await run(["send", session, "hi"]);
     expect(r.code).toBe(0);
     expect(r.out()).toMatch(
-      /^Hello from the CLI test\n {2}↳ in \d+ · out \d+ · ctx \d+% of 8\.2k · prefill .+ · gen .+/,
+      /^Hello from the CLI test\n {2}↳ in [\d.]+k? · out \d+ · ctx \d+% of 8\.2k · prefill .+ · gen .+/,
     );
   });
 

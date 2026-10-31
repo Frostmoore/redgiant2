@@ -41,6 +41,12 @@ await page.click("text=Gerarchia");
 await page.waitForSelector(".node-row");
 await shot("05-hierarchy");
 
+await page.locator(".project").getByText("Bacheca").click();
+await page.waitForSelector(".thread-item");
+await page.locator(".thread-item", { hasText: "Output format" }).click();
+await page.waitForSelector(".post");
+await shot("06b-board");
+
 await page.click("text=Budget");
 await page.waitForSelector(".budgets");
 await shot("06-budgets");

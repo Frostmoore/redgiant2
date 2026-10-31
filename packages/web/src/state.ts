@@ -198,6 +198,9 @@ export function applyMessage(m: ServerMessage): void {
     case "permission.closed":
       approvals.value = approvals.value.filter((r) => r.requestId !== m.requestId);
       return;
+    case "board.changed":
+      boardVersion.value++;
+      return;
   }
 }
 
@@ -210,6 +213,8 @@ export const agents = signal<Agent[]>([]);
 export const approvals = signal<PermissionRequestInfo[]>([]);
 export const budgets = signal<Budget[]>([]);
 export const lastError = signal<string | null>(null);
+/** Bumped on every board change pushed by the server: board views reload. */
+export const boardVersion = signal(0);
 
 let api: Api | undefined;
 let live: Live | undefined;
@@ -271,6 +276,7 @@ export type Tab =
   | { id: string; type: "files"; title: string; scope: string }
   | { id: string; type: "editor"; title: string; scope: string; path: string }
   | { id: string; type: "terminal"; title: string; scope: string }
+  | { id: string; type: "board"; title: string; projectId: string | null }
   | { id: string; type: "hierarchy" | "approvals" | "budgets"; title: string };
 
 export interface Pane {

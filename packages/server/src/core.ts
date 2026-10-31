@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { AgentSession, type SendResult, type Tool } from "@redgiant/agent";
+import { Board, BoardSummarizer, boardTools, migrateBoard } from "@redgiant/board";
 import { EventStore, migrate, type Redactor, type SqlClient } from "@redgiant/events";
 import {
   type AgentAnswer,
@@ -56,6 +57,8 @@ export interface CoreOptions {
   search?: WebSearchProvider;
   redactor?: Redactor;
   profileFor?: (model: ModelSpec) => ModelProfile;
+  /** Model for board summaries and digests (default: `defaultModel`; none ⇒ no summaries). */
+  boardModel?: ModelSpec;
 }
 
 export class SessionBusyError extends Error {
@@ -111,6 +114,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly projects: ProjectStore;
   readonly approvals = new HumanApprovals();
   readonly tasks: TaskTracker;
+  readonly board: Board;
+  readonly summarizer: BoardSummarizer | undefined;
   /** Where each agent receives delegated work. */
   private readonly workSessions = new Map<string, string>();
   private readonly live = new Map<string, Live>();
@@ -125,6 +130,16 @@ export class RedGiantCore implements OrchestrationHost {
     this.projects = new ProjectStore(o.db, o.workspacesDir);
     this.sandbox = o.sandbox ?? new HostSandboxProvider();
     this.tasks = new TaskTracker(this.store);
+    this.board = new Board(o.db, this.store);
+    this.board.followTasks();
+    const boardModel = o.boardModel ?? o.defaultModel;
+    this.summarizer = boardModel
+      ? new BoardSummarizer(this.board, o.providers, boardModel)
+      : undefined;
+    // Long threads get summarised in the background, without slowing whoever posted.
+    this.board.onChange((ownerId, _project, threadId) => {
+      void this.summarizer?.maybeSummarize(ownerId, threadId).catch(() => {});
+    });
     this.broker = new PermissionBroker({
       store: this.store,
       resolve: this.registry.resolve,
@@ -155,6 +170,7 @@ export class RedGiantCore implements OrchestrationHost {
     await migrate(o.db);
     await migrateHierarchy(o.db);
     await migrateProjects(o.db);
+    await migrateBoard(o.db);
     const core = new RedGiantCore(o);
     await core.registry.load();
     return core;
@@ -271,7 +287,7 @@ export class RedGiantCore implements OrchestrationHost {
           ...(this.o.search && { search: this.o.search }),
         })
       : [];
-    tools.push(...orchestrationTools(agent, this, this.tasks));
+    tools.push(...orchestrationTools(agent, this, this.tasks), ...boardTools(agent, this.board));
     const receivesTasks = ["orchestrator", "agent", "subagent"].includes(agent.kind);
     if (receivesTasks) tools.push(completeTaskTool(agent, ws, this.broker, this.tasks));
     const listeners = new Set<(m: ServerMessage) => void>();

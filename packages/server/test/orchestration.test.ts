@@ -398,6 +398,115 @@ describe("orchestration", () => {
     expect(creates).toBe(1);
   });
 
+  it("lets three agents coordinate only through the board and the tree", async () => {
+    let builderSaw = "";
+    s = await startServer((req) => {
+      const { n, results } = step(req);
+      if (req.system.startsWith("You are the Designer")) {
+        if (n === 0)
+          return call("board_post", {
+            title: "Output format",
+            kind: "decision",
+            body: "Use JSON for the greeting output.",
+          });
+        if (n === 1)
+          return call("complete_task", {
+            not_testable_reason:
+              "A decision is checked by the builder who applies it, not by a command.",
+          });
+        return { text: "Decision posted." };
+      }
+      if (req.system.startsWith("You are the Builder")) {
+        if (n === 0) return call("board_search", { query: "format" });
+        if (n === 1) {
+          builderSaw = results[0] ?? "";
+          const content = builderSaw.includes("JSON") ? '{"greeting":"hello"}' : "hello";
+          return call("write_file", { path: "greeting.json", content });
+        }
+        if (n === 2)
+          return call("complete_task", {
+            verify_command: `node -e "JSON.parse(require('fs').readFileSync('greeting.json','utf8'))"`,
+          });
+        return { text: "Built as decided on the board." };
+      }
+      // The orchestrator: two agents, two delegations, never passing the format itself.
+      const id = (k: number) => idIn(results[k] ?? "", "agent");
+      if (n === 0)
+        return call("create_agent", {
+          kind: "agent",
+          name: "Designer",
+          role: "Decides formats",
+          system_prompt: "You are the Designer.",
+        });
+      if (n === 1)
+        return call("create_agent", {
+          kind: "agent",
+          name: "Builder",
+          role: "Builds",
+          system_prompt: "You are the Builder.",
+        });
+      if (n === 2)
+        return call("delegate", {
+          agent_id: id(0),
+          title: "Decide the output format",
+          task: "Decide it and post the decision on the board.",
+        });
+      if (n === 3)
+        return call("delegate", {
+          agent_id: id(1),
+          title: "Write greeting.json",
+          task: "Write the greeting in the format decided on the board.",
+        });
+      if (n === 4)
+        return call("complete_task", {
+          verify_command: exists(`.worktrees/${id(1)}/greeting.json`),
+        });
+      return { text: "Both done." };
+    });
+    const { core } = s;
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    await s.api("POST", "/api/projects", { name: "Coord" });
+    const orch = core.registry.get(
+      (
+        await s.api<{ id: string }>("POST", "/api/agents", {
+          kind: "orchestrator",
+          parentId: god.body.id,
+          projectId: "coord",
+          name: "O",
+        })
+      ).body.id,
+    );
+    if (!orch) throw new Error("no orchestrator");
+    const sid = await core.workSession(orch);
+    const task = await core.tasks.open(orch, sid, "Greeting in the agreed format");
+    await (await core.send("me", sid, "Coordinate the designer and the builder.")).done;
+
+    expect(builderSaw).toMatch(/Output format.*\[decision\].*Use JSON for the greeting output\./s);
+    const builder =
+      core.registry.list({ projectId: "coord" }).find((a) => a.name === "Builder")?.id ?? "";
+    expect(
+      JSON.parse(
+        await readFile(
+          join(s.dir, "workspaces", "me", "coord", ".worktrees", builder, "greeting.json"),
+          "utf8",
+        ),
+      ),
+    ).toEqual({ greeting: "hello" });
+    expect(core.tasks.get(task.id)?.outcome).toBe("verified");
+    const threads = (
+      await s.api<{ title: string; status: string }[]>("GET", "/api/board/threads?projectId=coord")
+    ).body;
+    expect(threads.map((t) => t.title)).toEqual(["Output format"]);
+    const outcomes = (await core.store.list({ projectId: "coord" }))
+      .filter((e) => e.type === "task.closed")
+      .map((e) => (e.payload as { outcome: string }).outcome);
+    expect(outcomes.sort()).toEqual(["not_testable", "verified", "verified"]);
+  });
+
   it("keeps delegation inside the hierarchy", async () => {
     s = await startServer((req) => {
       const { n, results } = step(req);

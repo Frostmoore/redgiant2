@@ -30,6 +30,9 @@
     },
     {
       "path": "packages/engine-local"
+    },
+    {
+      "path": "packages/board"
     }
   ]
 }

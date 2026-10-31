@@ -9,6 +9,7 @@ import {
   type Tab,
 } from "../state.js";
 import { Approvals } from "./Approvals.js";
+import { Board } from "./Board.js";
 import { Budgets } from "./Budgets.js";
 import { Chat } from "./Chat.js";
 import { Editor } from "./Editor.js";
@@ -32,6 +33,8 @@ function Content({ tab }: { tab: Tab }) {
       return <Approvals />;
     case "budgets":
       return <Budgets />;
+    case "board":
+      return <Board projectId={tab.projectId} />;
   }
 }
 

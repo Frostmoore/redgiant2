@@ -62,6 +62,20 @@ export function Sidebar({ onNavigate }: { onNavigate: () => void }) {
           class="side-item"
           onClick={open(() =>
             openTab({
+              id: "board:global",
+              type: "board",
+              title: `${t("board")} · ${t("platform")}`,
+              projectId: null,
+            }),
+          )}
+        >
+          📌 {t("board")}
+        </button>
+        <button
+          type="button"
+          class="side-item"
+          onClick={open(() =>
+            openTab({
               id: `term:platform:${Date.now()}`,
               type: "terminal",
               title: `${t("terminal")} · ${t("platform")}`,
@@ -132,6 +146,20 @@ export function Sidebar({ onNavigate }: { onNavigate: () => void }) {
                 )}
               >
                 📁 {t("files")}
+              </button>
+              <button
+                type="button"
+                class="side-item"
+                onClick={open(() =>
+                  openTab({
+                    id: `board:${p.id}`,
+                    type: "board",
+                    title: `${t("board")} · ${p.name}`,
+                    projectId: p.id,
+                  }),
+                )}
+              >
+                📌 {t("board")}
               </button>
               <button
                 type="button"

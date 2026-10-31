@@ -48,6 +48,26 @@ export interface Budget {
   used: { usd: number; tokens: number };
 }
 
+export interface BoardThread {
+  id: string;
+  projectId: string | null;
+  title: string;
+  status: "open" | "resolved" | "blocked";
+  createdBy: string;
+  updatedAt: string;
+  posts: number;
+  summary: string | null;
+}
+
+export interface BoardPost {
+  id: string;
+  threadId: string;
+  author: string;
+  kind: "task" | "result" | "question" | "decision" | "blocker" | "note";
+  body: string;
+  createdAt: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -94,6 +114,27 @@ export class Api {
   budgets = () => this.call<Budget[]>("GET", "/api/budgets");
   setBudget = (b: { scope: Budget["scope"]; id: string; usd?: number; tokens?: number }) =>
     this.call("PUT", "/api/budgets", b);
+  threads = (projectId: string | null) =>
+    this.call<BoardThread[]>(
+      "GET",
+      `/api/board/threads${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`,
+    );
+  thread = (id: string) =>
+    this.call<{ thread: BoardThread; posts: BoardPost[] }>("GET", `/api/board/threads/${id}`);
+  boardPost = (p: {
+    threadId?: string;
+    projectId?: string | null;
+    title?: string;
+    kind: BoardPost["kind"];
+    body: string;
+  }) => this.call<{ threadId: string; postId: string }>("POST", "/api/board/posts", p);
+  boardStatus = (id: string, status: BoardThread["status"]) =>
+    this.call("POST", `/api/board/threads/${id}/status`, { status });
+  boardSearch = (q: string) =>
+    this.call<(BoardPost & { title: string; projectId: string | null })[]>(
+      "GET",
+      `/api/board/search?q=${encodeURIComponent(q)}`,
+    );
   verify = () =>
     this.call<{ ok: boolean; checked?: number; seq?: number; reason?: string }>(
       "GET",

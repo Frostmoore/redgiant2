@@ -771,3 +771,142 @@ pre {
 .metrics-text .ssd {
   color: #9fd3c7;
 }
+
+/* Board */
+.board {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+.board-list {
+  width: 340px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  overflow: auto;
+}
+.board-list form input {
+  width: 100%;
+}
+.thread-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  background: var(--panel);
+}
+.thread-item.selected {
+  border-color: var(--accent);
+}
+.board-thread {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 10px 16px;
+  overflow: auto;
+}
+.board-thread h3 {
+  margin: 0;
+}
+.board-thread .spacer {
+  flex: 1;
+}
+.board-summary {
+  border-left: 2px solid var(--accent-2);
+  padding: 6px 10px;
+  margin: 10px 0;
+  background: var(--panel);
+  color: var(--dim);
+}
+.posts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+}
+.post {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--panel);
+}
+.post.decision {
+  border-color: #6b5a2a;
+}
+.post.blocker {
+  border-color: #5c2a2a;
+}
+.post.result {
+  border-color: #2a5c43;
+}
+.post-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12.5px;
+}
+.kind-badge,
+.status-chip {
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  color: var(--dim);
+}
+.kind-badge.decision {
+  color: var(--warn);
+}
+.kind-badge.blocker,
+.status-chip.blocked {
+  color: var(--err);
+}
+.kind-badge.result,
+.status-chip.resolved {
+  color: var(--ok);
+}
+.kind-badge.question {
+  color: #7cc6ff;
+}
+.board-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+.board-composer textarea {
+  flex: 1;
+}
+@media (max-width: 760px) {
+  .board {
+    flex-direction: column;
+  }
+  .board-list {
+    width: 100%;
+    max-height: 45%;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+/* Board in narrow panes: the list shrinks, headers wrap, the composer stacks. */
+.board-list {
+  width: auto;
+  flex: 0 1 340px;
+  min-width: 200px;
+}
+.board-thread header {
+  flex-wrap: wrap;
+}
+.board-composer textarea {
+  width: 100%;
+  min-height: 64px;
+}
+.board-composer .row select {
+  flex: 1;
+}

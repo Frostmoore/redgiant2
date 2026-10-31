@@ -96,7 +96,21 @@ export const EventBody = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("board.post"),
-    payload: z.object({ threadId: z.string(), postId: z.string() }),
+    payload: z.object({
+      threadId: z.string(),
+      postId: z.string(),
+      kind: z.enum(["task", "result", "question", "decision", "blocker", "note"]),
+      author: z.string(),
+      body: z.string(),
+    }),
+  }),
+  z.object({
+    type: z.literal("board.status"),
+    payload: z.object({
+      threadId: z.string(),
+      status: z.enum(["open", "resolved", "blocked"]),
+      by: z.string(),
+    }),
   }),
   z.object({
     type: z.literal("budget.exceeded"),

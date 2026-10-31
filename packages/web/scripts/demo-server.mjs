@@ -84,7 +84,7 @@ const orch = await core.registry.create(
     role: "Plans and delegates",
   },
 );
-await core.registry.create(
+const coder = await core.registry.create(
   { type: "agent", agent: orch },
   {
     kind: "agent",
@@ -94,6 +94,46 @@ await core.registry.create(
     mode: "manual",
   },
 );
+const fmt = await core.board.createThread({
+  ownerId: "local",
+  projectId: "demo",
+  title: "Output format",
+  first: {
+    author: orch.id,
+    kind: "question",
+    body: `Which format should \`src/app.py\` print? @${coder.id}`,
+  },
+});
+await core.board.reply("local", fmt.thread.id, {
+  author: coder.id,
+  kind: "decision",
+  body: "Plain text for humans, `--json` for scripts. I will add tests for both.",
+});
+await core.board.reply("local", fmt.thread.id, {
+  author: "human",
+  kind: "note",
+  body: "Fine by me.",
+});
+await core.board.createThread({
+  ownerId: "local",
+  projectId: "demo",
+  title: "Tests fail on Python 3.9",
+  first: {
+    author: coder.id,
+    kind: "blocker",
+    body: "`match` statements need Python 3.10+. Drop 3.9 or rewrite?",
+  },
+});
+await core.board.createThread({
+  ownerId: "local",
+  projectId: "demo",
+  title: "README rewritten",
+  first: {
+    author: coder.id,
+    kind: "result",
+    body: "README now explains install and usage. Verified with `python -m doctest README.md`.",
+  },
+});
 await core.registry.create(
   { type: "agent", agent: god },
   {

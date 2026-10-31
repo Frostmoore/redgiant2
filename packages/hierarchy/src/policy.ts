@@ -130,6 +130,11 @@ export const READ_ONLY_TOOLS = new Set([
   "fetch",
   "list_agents",
   "read_agent",
+  "board_list",
+  "board_read",
+  "board_search",
+  // Talking on the board changes no workspace.
+  "board_post",
   // Closing a task changes nothing by itself; its verifier command is checked as a bash call.
   "complete_task",
 ]);

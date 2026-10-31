@@ -27,6 +27,7 @@ export function attachWebSocket(
 
   function connection(ws: WebSocket) {
     let principal: Principal | null = null;
+    let offBoard: (() => void) | undefined;
     const follows = new Map<string, () => void>();
     const send = (m: ServerMessage) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
     const fail = (code: string, message: string) => send({ type: "error", code, message });
@@ -39,6 +40,9 @@ export function attachWebSocket(
     };
     const onClosed = (ownerId: string, requestId: string, decision: "allow" | "deny") => {
       if (principal?.ownerId === ownerId) send({ type: "permission.closed", requestId, decision });
+    };
+    const onBoard = (ownerId: string, projectId: string | null, threadId: string) => {
+      if (principal?.ownerId === ownerId) send({ type: "board.changed", projectId, threadId });
     };
     const helloTimer = setTimeout(() => ws.close(4001, "hello expected"), 10_000);
 
@@ -75,6 +79,7 @@ export function attachWebSocket(
           clearTimeout(helloTimer);
           core.approvals.on("request", onRequest);
           core.approvals.on("closed", onClosed);
+          offBoard = core.board.onChange(onBoard);
           send({ type: "welcome", protocolVersion: PROTOCOL_VERSION, ownerId: principal.ownerId });
           for (const r of core.approvals.list(principal.ownerId))
             send({ type: "permission.request", request: r });
@@ -115,6 +120,7 @@ export function attachWebSocket(
       for (const off of follows.values()) off();
       core.approvals.off("request", onRequest);
       core.approvals.off("closed", onClosed);
+      offBoard?.();
     });
   }
   return wss;

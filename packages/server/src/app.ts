@@ -346,6 +346,91 @@ const routes = {
     },
     responses: { 200: json(z.object({ ok: z.literal(true) }), "Saved"), ...errors },
   }),
+  boardThreads: createRoute({
+    method: "get",
+    path: "/api/board/threads",
+    security,
+    request: {
+      query: z.object({
+        projectId: z.string().optional(),
+        status: z.enum(["open", "resolved", "blocked"]).optional(),
+      }),
+    },
+    responses: {
+      200: json(z.array(z.unknown()), "Threads of a board (no projectId = the global board)"),
+      ...errors,
+    },
+  }),
+  boardThread: createRoute({
+    method: "get",
+    path: "/api/board/threads/{id}",
+    security,
+    request: { params: z.object({ id: z.string() }) },
+    responses: {
+      200: json(
+        z.object({ thread: z.unknown(), posts: z.array(z.unknown()) }),
+        "A thread and its posts",
+      ),
+      ...errors,
+    },
+  }),
+  boardPost: createRoute({
+    method: "post",
+    path: "/api/board/posts",
+    security,
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: z.object({
+              threadId: z.string().optional(),
+              projectId: z.string().nullable().optional(),
+              title: z.string().min(3).optional(),
+              kind: z.enum(["task", "result", "question", "decision", "blocker", "note"]),
+              body: z.string().min(1),
+            }),
+          },
+        },
+      },
+    },
+    responses: {
+      201: json(z.object({ threadId: z.string(), postId: z.string() }), "Posted"),
+      ...errors,
+    },
+  }),
+  boardStatus: createRoute({
+    method: "post",
+    path: "/api/board/threads/{id}/status",
+    security,
+    request: {
+      params: z.object({ id: z.string() }),
+      body: {
+        content: {
+          "application/json": {
+            schema: z.object({ status: z.enum(["open", "resolved", "blocked"]) }),
+          },
+        },
+      },
+    },
+    responses: { 200: json(z.object({ ok: z.literal(true) }), "Updated"), ...errors },
+  }),
+  boardSearch: createRoute({
+    method: "get",
+    path: "/api/board/search",
+    security,
+    request: { query: z.object({ q: z.string().min(1) }) },
+    responses: { 200: json(z.array(z.unknown()), "Matching posts"), ...errors },
+  }),
+  boardDigest: createRoute({
+    method: "get",
+    path: "/api/board/digest",
+    security,
+    request: { query: z.object({ projectId: z.string().optional(), since: z.string() }) },
+    responses: {
+      200: json(z.object({ digest: z.string() }), "A digest written by the board model"),
+      ...errors,
+    },
+  }),
   verifyLog: createRoute({
     method: "get",
     path: "/api/log/verify",
@@ -572,6 +657,59 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       },
     );
     return c.json({ ok: true as const }, 200);
+  });
+
+  const ownsProject = async (c: Context<Env>, projectId: string | null | undefined) =>
+    projectId === null ||
+    projectId === undefined ||
+    (await core.projects.get(owner(c), projectId)) !== undefined;
+  app.openapi(routes.boardThreads, async (c) => {
+    const q = c.req.valid("query");
+    if (!(await ownsProject(c, q.projectId))) return c.json({ error: "Project not found" }, 404);
+    return c.json(await core.board.threads(owner(c), q.projectId ?? null, q.status), 200);
+  });
+  app.openapi(routes.boardThread, async (c) => {
+    const id = c.req.valid("param").id;
+    const thread = await core.board.thread(owner(c), id);
+    if (!thread) return c.json({ error: "Thread not found" }, 404);
+    return c.json({ thread, posts: await core.board.posts(owner(c), id) }, 200);
+  });
+  app.openapi(routes.boardPost, async (c) => {
+    const b = c.req.valid("json");
+    const post = { author: "human", kind: b.kind, body: b.body };
+    if (b.threadId) {
+      if (!(await core.board.thread(owner(c), b.threadId)))
+        return c.json({ error: "Thread not found" }, 404);
+      const p = await core.board.reply(owner(c), b.threadId, post);
+      return c.json({ threadId: b.threadId, postId: p.id }, 201);
+    }
+    if (!b.title) return c.json({ error: "Give threadId to reply or title to open a thread" }, 400);
+    if (!(await ownsProject(c, b.projectId))) return c.json({ error: "Project not found" }, 404);
+    const r = await core.board.createThread({
+      ownerId: owner(c),
+      projectId: b.projectId ?? null,
+      title: b.title,
+      first: post,
+    });
+    return c.json({ threadId: r.thread.id, postId: r.post.id }, 201);
+  });
+  app.openapi(routes.boardStatus, async (c) => {
+    const id = c.req.valid("param").id;
+    if (!(await core.board.thread(owner(c), id))) return c.json({ error: "Thread not found" }, 404);
+    await core.board.setStatus(owner(c), id, c.req.valid("json").status, "human");
+    return c.json({ ok: true as const }, 200);
+  });
+  app.openapi(routes.boardSearch, async (c) =>
+    c.json(await core.board.search(owner(c), c.req.valid("query").q, "all"), 200),
+  );
+  app.openapi(routes.boardDigest, async (c) => {
+    const q = c.req.valid("query");
+    if (!core.summarizer) return c.json({ error: "No model is configured for the board" }, 400);
+    if (!(await ownsProject(c, q.projectId))) return c.json({ error: "Project not found" }, 404);
+    return c.json(
+      { digest: await core.summarizer.digest(owner(c), q.projectId ?? null, q.since) },
+      200,
+    );
   });
 
   app.openapi(routes.verifyLog, async (c) => c.json(await core.store.verify(), 200));

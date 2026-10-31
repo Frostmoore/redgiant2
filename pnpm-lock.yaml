@@ -198,6 +198,31 @@ importers:
         specifier: ^0.5.13
         version: 0.5.13
 
+  packages/board:
+    dependencies:
+      '@redgiant/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@redgiant/events':
+        specifier: workspace:*
+        version: link:../events
+      '@redgiant/hierarchy':
+        specifier: workspace:*
+        version: link:../hierarchy
+      '@redgiant/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@redgiant/providers':
+        specifier: workspace:*
+        version: link:../providers
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.5.13
+        version: 0.5.13
+
   packages/cli:
     dependencies:
       '@redgiant/protocol':
@@ -297,6 +322,9 @@ importers:
       '@redgiant/agent':
         specifier: workspace:*
         version: link:../agent
+      '@redgiant/board':
+        specifier: workspace:*
+        version: link:../board
       '@redgiant/engine-local':
         specifier: workspace:*
         version: link:../engine-local

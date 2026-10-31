@@ -58,6 +58,12 @@ export const ServerMessage = z.discriminatedUnion("type", [
     requestId: z.string(),
     decision: z.enum(["allow", "deny"]),
   }),
+  /** Something changed on a board (new post, status): clients reload what they show. */
+  z.object({
+    type: z.literal("board.changed"),
+    projectId: z.string().nullable(),
+    threadId: z.string(),
+  }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
