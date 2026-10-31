@@ -6,6 +6,7 @@ export * from "./fallback.js";
 export * from "./metrics.js";
 export * from "./openai-compat.js";
 export * from "./pricing.js";
+export * from "./record.js";
 export * from "./sse.js";
 export * from "./subscription.js";
 export * from "./types.js";

@@ -1,4 +1,9 @@
 {
   "files": [],
-  "references": [{ "path": "packages/protocol" }, { "path": "packages/providers" }]
+  "references": [
+    { "path": "packages/protocol" },
+    { "path": "packages/providers" },
+    { "path": "packages/events" },
+    { "path": "packages/agent" }
+  ]
 }

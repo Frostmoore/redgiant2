@@ -1,4 +1,19 @@
-import type { Effort, MessageMetrics } from "@redgiant/protocol";
+import type {
+  AssistantPart,
+  ChatMessage,
+  Effort,
+  MessageMetrics,
+  NativeContent,
+  StopReason,
+} from "@redgiant/protocol";
+
+export type {
+  AssistantPart,
+  ChatMessage,
+  NativeContent,
+  StopReason,
+  UserPart,
+} from "@redgiant/protocol";
 
 /** A tool the model may call. `inputSchema` is a JSON Schema object. */
 export interface ToolDef {
@@ -6,43 +21,6 @@ export interface ToolDef {
   description: string;
   inputSchema: Record<string, unknown>;
 }
-
-export type UserPart =
-  | { type: "text"; text: string }
-  | {
-      type: "tool_result";
-      callId: string;
-      content: string;
-      isError?: boolean | undefined;
-    };
-
-export type AssistantPart =
-  | { type: "text"; text: string }
-  | { type: "thinking"; text: string }
-  | {
-      type: "tool_call";
-      callId: string;
-      name: string;
-      /** Parsed arguments, or `undefined` when the model produced invalid JSON. */
-      input: unknown;
-      /** The raw argument string as produced by the model. */
-      rawInput: string;
-    };
-
-/**
- * Provider-native content of an assistant turn. Replayed verbatim to the same provider and
- * model (some providers bind thinking blocks to the model that produced them); other
- * providers rebuild the turn from the neutral `parts`.
- */
-export interface NativeContent {
-  provider: string;
-  model: string;
-  content: unknown;
-}
-
-export type ChatMessage =
-  | { role: "user"; parts: UserPart[] }
-  | { role: "assistant"; parts: AssistantPart[]; native?: NativeContent | undefined };
 
 export interface CompletionRequest {
   model: string;
@@ -56,15 +34,6 @@ export interface CompletionRequest {
   /** Stable per-session key, for providers that route by cache key. */
   cacheKey?: string | undefined;
 }
-
-export type StopReason =
-  | "end_turn"
-  | "tool_use"
-  | "max_tokens"
-  | "refusal"
-  | "pause"
-  | "aborted"
-  | "other";
 
 /** Token usage, normalised. `inputTokens` is the total prompt size, cached tokens included. */
 export interface Usage {

@@ -18,6 +18,8 @@ const envelope = {
   ownerId: LOCAL_OWNER_ID,
   projectId: "proj_1",
   agentId: "agent_1",
+  sessionId: "sess_1",
+  payloadHash: HASH,
   prevHash: null,
   hash: HASH,
 };
@@ -85,6 +87,44 @@ describe("Event", () => {
     ).toBe(false);
   });
 
+  it("accepts an erased payload as null, for any type", () => {
+    const e = Event.parse({ ...envelope, erased: true, type: "message.user", payload: null });
+    expect(e.erased).toBe(true);
+  });
+
+  it("parses an assistant message with parts, native content and metrics", () => {
+    const e = Event.safeParse({
+      ...envelope,
+      type: "message.assistant",
+      payload: {
+        parts: [
+          { type: "text", text: "ok" },
+          {
+            type: "tool_call",
+            callId: "c",
+            name: "read",
+            input: { path: "a" },
+            rawInput: '{"path":"a"}',
+          },
+        ],
+        native: { provider: "anthropic", model: "claude-opus-5-5", content: [] },
+        stopReason: "tool_use",
+        provider: "anthropic",
+        model: "claude-opus-5-5",
+        metrics: {
+          startedAt: "2026-10-31T10:00:00.000Z",
+          inputTokens: 1,
+          outputTokens: 1,
+          contextUsed: 2,
+          contextWindow: 10,
+          source: "client",
+        },
+        costUsd: 0,
+      },
+    });
+    expect(e.success).toBe(true);
+  });
+
   it("requires a justification to close a task as not testable", () => {
     const base = { ...envelope, type: "task.closed" };
     expect(
@@ -107,7 +147,11 @@ describe("wire messages", () => {
     const msg = ServerMessage.parse({
       type: "event",
       sessionId: "s1",
-      event: { ...envelope, type: "session.started", payload: { sessionId: "s1" } },
+      event: {
+        ...envelope,
+        type: "session.started",
+        payload: { sessionId: "s1", system: "", tools: [] },
+      },
     });
     expect(msg.type).toBe("event");
   });

@@ -1,0 +1,24 @@
+{
+  "name": "@redgiant/events",
+  "version": "0.1.0",
+  "description": "Append-only, hash-chained event log for RedGiant, on Postgres.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@redgiant/protocol": "workspace:*",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13",
+    "@types/pg": "^8.23.1"
+  }
+}

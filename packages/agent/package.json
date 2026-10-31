@@ -1,0 +1,25 @@
+{
+  "name": "@redgiant/agent",
+  "version": "0.1.0",
+  "description": "RedGiant agent runtime: the model/tool loop, hooks, compaction, event-sourced sessions.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@redgiant/events": "workspace:*",
+    "@redgiant/protocol": "workspace:*",
+    "@redgiant/providers": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13"
+  }
+}

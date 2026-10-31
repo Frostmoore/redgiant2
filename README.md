@@ -50,6 +50,8 @@ The repository is a pnpm monorepo; packages live in `packages/`.
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `@redgiant/protocol`  | Shared event and message types (zod schemas)                                                                                                          |
 | `@redgiant/providers` | Model providers (Anthropic, any OpenAI-compatible server, a scripted fake), per-message metrics, effort mapping, fallback chains, pricing and budgets |
+| `@redgiant/events`    | Append-only, hash-chained event log on Postgres: tamper detection, payload erasure that keeps the chain valid, secret redaction, JSONL export         |
+| `@redgiant/agent`     | The agent loop: parallel tool calls, hooks, permission check, compaction, sessions rebuilt from the log, record/replay                                |
 
 ## License
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentSpec } from "./agents.js";
+import { AssistantPart, NativeContent, StopReason } from "./messages.js";
 import { MessageMetrics } from "./metrics.js";
 
 /** Hex-encoded SHA-256. */
@@ -12,12 +13,31 @@ const text = z.object({ text: z.string() });
 
 /** Typed payloads, discriminated by `type`. */
 export const EventBody = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("session.started"), payload: z.object({ sessionId: z.string() }) }),
+  z.object({
+    type: z.literal("session.started"),
+    payload: z.object({ sessionId: z.string(), system: z.string(), tools: z.array(z.string()) }),
+  }),
+  z.object({
+    type: z.literal("session.ended"),
+    payload: z.object({ reason: z.string() }),
+  }),
+  z.object({
+    type: z.literal("hook.blocked"),
+    payload: z.object({ hook: z.string(), callId: z.string().optional(), reason: z.string() }),
+  }),
   z.object({ type: z.literal("message.user"), payload: text }),
   z.object({ type: z.literal("message.assistant.delta"), payload: text }),
   z.object({
     type: z.literal("message.assistant"),
-    payload: text.extend({ metrics: MessageMetrics.optional() }),
+    payload: z.object({
+      parts: z.array(AssistantPart),
+      native: NativeContent.optional(),
+      stopReason: StopReason,
+      provider: z.string(),
+      model: z.string(),
+      metrics: MessageMetrics,
+      costUsd: z.number().nonnegative(),
+    }),
   }),
   z.object({
     type: z.literal("tool.call"),
@@ -25,7 +45,7 @@ export const EventBody = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("tool.result"),
-    payload: z.object({ callId: z.string(), ok: z.boolean(), output: z.unknown() }),
+    payload: z.object({ callId: z.string(), ok: z.boolean(), output: z.string() }),
   }),
   z.object({
     type: z.literal("permission.requested"),
@@ -101,7 +121,13 @@ export const EventBody = z.discriminatedUnion("type", [
 export type EventBody = z.infer<typeof EventBody>;
 export type EventType = EventBody["type"];
 
-/** Envelope common to every event in the append-only log. */
+/**
+ * Envelope common to every event in the append-only log.
+ *
+ * `hash` covers the envelope and `payloadHash`, not the payload itself: a payload can be
+ * erased (e.g. a data-protection request) without breaking the chain, and the erasure is
+ * itself recorded as a `redaction` event.
+ */
 export const EventEnvelope = z.object({
   id: z.string().min(1),
   seq: z.number().int().nonnegative(),
@@ -109,9 +135,16 @@ export const EventEnvelope = z.object({
   ownerId: z.string().min(1),
   projectId: z.string().min(1).nullable(),
   agentId: z.string().min(1).nullable(),
+  sessionId: z.string().min(1).nullable(),
+  payloadHash: Sha256Hex,
   prevHash: Sha256Hex.nullable(),
   hash: Sha256Hex,
+  /** True when the payload has been erased; `payload` is then `null`. */
+  erased: z.boolean().default(false),
 });
 
-export const Event = z.intersection(EventEnvelope, EventBody);
+export const Event = z.intersection(
+  EventEnvelope,
+  z.union([EventBody, z.object({ type: z.string(), payload: z.null() })]),
+);
 export type Event = z.infer<typeof Event>;
