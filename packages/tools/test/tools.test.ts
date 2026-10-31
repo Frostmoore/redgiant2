@@ -199,6 +199,19 @@ describe("search tools", () => {
   });
 });
 
+describe("commands with quotes, on every OS", () => {
+  it("passes quoted arguments intact and reports a failing command as failing", async () => {
+    const ok = await ws.exec(`node -e "process.stdout.write('a b' + String(1 + 1))"`, {
+      timeoutMs: 20_000,
+    });
+    expect(ok).toMatchObject({ stdout: "a b2", exitCode: 0 });
+    const missing = await ws.exec(`node -e "require('fs').accessSync('no-such-file.txt')"`, {
+      timeoutMs: 20_000,
+    });
+    expect(missing.exitCode).not.toBe(0);
+  });
+});
+
 describe.skipIf(process.platform === "win32")("bash", () => {
   it("reports exit codes, output and timeouts", async () => {
     const ok = await run("bash", { command: "echo out; echo err >&2" });

@@ -75,9 +75,11 @@ export class LocalWorkspace implements Workspace {
   constructor(
     root: string,
     readonly readOnly = false,
-    private readonly shell: { file: string; args: string[] } = process.platform === "win32"
-      ? { file: "cmd.exe", args: ["/d", "/s", "/c"] }
-      : { file: "/bin/bash", args: ["-c"] },
+    /**
+     * Shell for `exec`. Node runs it the right way for each OS (on Windows it passes the
+     * command to cmd.exe verbatim; escaping it ourselves breaks commands with quotes).
+     */
+    private readonly shell: string = process.platform === "win32" ? "cmd.exe" : "/bin/bash",
   ) {
     this.root = resolve(root);
   }
@@ -161,7 +163,7 @@ export class LocalWorkspace implements Workspace {
   }
 
   exec(command: string, options: ExecOptions): Promise<ExecResult> {
-    return this.run(this.shell.file, [...this.shell.args, command], options);
+    return this.run(command, [], options, this.shell);
   }
 
   execFile(file: string, args: string[], options: ExecOptions): Promise<ExecResult> {
@@ -172,10 +174,12 @@ export class LocalWorkspace implements Workspace {
     file: string,
     args: string[],
     { timeoutMs, signal }: ExecOptions,
+    shell?: string,
   ): Promise<ExecResult> {
     return new Promise((done) => {
       const child = spawn(file, args, {
         cwd: this.root,
+        ...(shell && { shell }),
         env: process.env,
         ...(signal && { signal }),
       });
