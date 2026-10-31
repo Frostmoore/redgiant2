@@ -18,3 +18,5 @@
   Secrets never go into sandbox env: credentials belong to egress routes. Docker tests: `*.docker.test.ts`,
   run with `REDGIANT_DOCKER_TESTS=1 pnpm test:docker`.
 - After `pnpm format` lines move: edit JSON with a parser and check that every text replacement happened.
+- Scope rules live in one pure function (`can` in `packages/hierarchy/src/scopes.ts`) and are tested as a table;
+  change the table first. Approvals never resolve to "allow" on a failure or timeout.

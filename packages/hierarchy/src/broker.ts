@@ -1,0 +1,104 @@
+import { randomUUID } from "node:crypto";
+import type { PermissionDecision, ToolCallInfo } from "@redgiant/agent";
+import type { EventStore } from "@redgiant/events";
+import type { PermissionMode } from "@redgiant/protocol";
+import { evaluate, type PolicySettings } from "./policy.js";
+import { type AgentNode, approvalChain, type Resolve } from "./scopes.js";
+
+export interface ApprovalRequest {
+  requestId: string;
+  requester: AgentNode;
+  call: ToolCallInfo;
+  reasons: string[];
+  danger: string[];
+}
+
+export type AgentAnswer = "allow" | "deny" | "escalate";
+
+export interface PermissionBrokerOptions {
+  store: EventStore;
+  resolve: Resolve;
+  /** Settings and mode of an agent (from the registry and the user's configuration). */
+  settingsFor: (agent: AgentNode) => PolicySettings;
+  modeFor: (agent: AgentNode) => PermissionMode;
+  /** Asks a parent agent (normally by letting its model decide). */
+  askAgent: (approver: AgentNode, request: ApprovalRequest) => Promise<AgentAnswer>;
+  /** Asks the human (web UI, or Telegram via Demi-God); resolves when they answer. */
+  askHuman: (request: ApprovalRequest, signal: AbortSignal) => Promise<"allow" | "deny">;
+}
+
+/**
+ * Turns policy decisions into answers. A request that needs approval goes to the parent;
+ * each parent may allow, deny or pass it up, and the human is the last step. Dangers the
+ * user reserved for themself skip the agents entirely. Everything is logged.
+ */
+export class PermissionBroker {
+  constructor(private readonly o: PermissionBrokerOptions) {}
+
+  async check(agent: AgentNode, call: ToolCallInfo): Promise<PermissionDecision> {
+    const settings = this.o.settingsFor(agent);
+    const ev = evaluate(this.o.modeFor(agent), call, settings);
+    if (ev.decision === "allow") return { allow: true };
+    if (ev.decision === "deny") return { allow: false, reason: ev.reasons.join("; ") };
+
+    const request: ApprovalRequest = {
+      requestId: randomUUID(),
+      requester: agent,
+      call,
+      reasons: ev.reasons,
+      danger: ev.danger,
+    };
+    const humanOnly = ev.danger.some((d) => settings.humanOnly.includes(d));
+    for (const approver of approvalChain(agent, this.o.resolve)) {
+      if (approver && (humanOnly || !settings.approverKinds.includes(approver.kind))) continue;
+      await this.log(agent, {
+        type: "permission.requested",
+        payload: {
+          requestId: request.requestId,
+          callId: call.callId,
+          reason: ev.reasons.join("; "),
+          askedTo: approver?.id ?? "human",
+        },
+      });
+      const answer = approver
+        ? await this.o.askAgent(approver, request).catch(() => "escalate" as const)
+        : await this.human(request, settings);
+      await this.log(agent, {
+        type: "permission.resolved",
+        payload: { requestId: request.requestId, decision: answer, by: approver?.id ?? "human" },
+      });
+      if (answer === "allow") return { allow: true };
+      if (answer === "deny")
+        return { allow: false, reason: `denied by ${approver?.name ?? "the user"}` };
+    }
+    return { allow: false, reason: "nobody approved the request" };
+  }
+
+  private async human(request: ApprovalRequest, s: PolicySettings): Promise<"allow" | "deny"> {
+    const controller = new AbortController();
+    // A channel that fails or is cancelled counts as a refusal, never as an approval.
+    const asked = this.o.askHuman(request, controller.signal).catch(() => "deny" as const);
+    if (s.askTimeoutMs === undefined) return asked;
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<"deny">((ok) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        ok("deny");
+      }, s.askTimeoutMs);
+    });
+    try {
+      return await Promise.race([asked, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private log(agent: AgentNode, body: Parameters<EventStore["append"]>[0]["body"]) {
+    return this.o.store.append({
+      ownerId: agent.ownerId,
+      projectId: agent.projectId,
+      agentId: agent.id,
+      body,
+    });
+  }
+}

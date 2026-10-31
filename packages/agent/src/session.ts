@@ -47,11 +47,18 @@ export interface AgentSessionOptions {
   /** Live, non-persisted stream (text and thinking deltas) for connected clients. */
   live?: (event: StreamEvent) => void;
   /** Every completion, including summaries; budgets and counters plug in here. */
-  onCompletion?: (completion: Completion, costUsd: number) => void;
+  onCompletion?: (completion: Completion, costUsd: number) => Promise<void> | void;
+  /**
+   * Asked before every model call, summaries included; budgets plug in here. A refusal
+   * ends `send` with stopReason "budget".
+   */
+  beforeModelCall?: () => Promise<{ allow: boolean; reason?: string }>;
 }
 
 export interface SendResult {
-  stopReason: StopReason | "max_turns";
+  stopReason: StopReason | "max_turns" | "budget";
+  /** Why the loop stopped early (budget), when it did. */
+  reason?: string;
   turns: number;
   lastCompletion?: Completion;
 }
@@ -133,9 +140,10 @@ export class AgentSession {
     };
   }
 
-  private priced(c: Completion): number {
+  private async priced(c: Completion): Promise<number> {
     const usd = costUsd(c.usage, this.o.providers.get(c.provider).modelInfo(c.model).pricing);
-    this.o.onCompletion?.(c, usd);
+    // Awaited: the next turn's budget check must see this spend.
+    await this.o.onCompletion?.(c, usd);
     return usd;
   }
 
@@ -150,6 +158,15 @@ export class AgentSession {
 
     let last: Completion | undefined;
     for (let turn = 1; turn <= (this.o.maxTurns ?? 50); turn++) {
+      const gate = await this.o.beforeModelCall?.();
+      if (gate && !gate.allow) {
+        return {
+          stopReason: "budget",
+          turns: turn - 1,
+          ...(gate.reason && { reason: gate.reason }),
+          ...(last && { lastCompletion: last }),
+        };
+      }
       const m = this.lastMetrics;
       if (m && m.contextUsed >= (this.o.compactAt ?? 0.8) * m.contextWindow) {
         await this.compact(signal);
@@ -166,7 +183,7 @@ export class AgentSession {
           provider: completion.provider,
           model: completion.model,
           metrics: completion.metrics,
-          costUsd: this.priced(completion),
+          costUsd: await this.priced(completion),
         },
       });
       this.history.push({
@@ -355,7 +372,7 @@ export class AgentSession {
       streamWithFallback(this.o.providers, this.o.model, summaryRequest, signal),
     );
     if (c.message.parts.some((p) => p.type === "tool_call")) {
-      this.priced(c);
+      await this.priced(c);
       c = await complete(
         streamWithFallback(
           this.o.providers,
@@ -365,7 +382,7 @@ export class AgentSession {
         ),
       );
     }
-    this.priced(c);
+    await this.priced(c);
     const summary = c.message.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("");
     const fromSeq = toSummarise[0]?.firstSeq ?? 0;
     const toSeq = (kept[0]?.firstSeq ?? Number.MAX_SAFE_INTEGER) - 1;

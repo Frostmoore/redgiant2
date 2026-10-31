@@ -1,7 +1,15 @@
 import { z } from "zod";
 
 /** Position of an agent in the hierarchy (see plan §5.2). */
-export const AgentKind = z.enum(["god", "demigod", "orchestrator", "agent", "subagent"]);
+export const AgentKind = z.enum([
+  "god",
+  "demigod",
+  "orchestrator",
+  "agent",
+  "subagent",
+  /** Read-only observer of a project, outside the chain of command (RD30). */
+  "inspector",
+]);
 export type AgentKind = z.infer<typeof AgentKind>;
 
 /** Provider-independent reasoning effort; each provider adapter maps it to its own knobs. */

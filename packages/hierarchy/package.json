@@ -1,0 +1,25 @@
+{
+  "name": "@redgiant/hierarchy",
+  "version": "0.1.0",
+  "description": "RedGiant agent hierarchy: registry, scopes, permission policies with escalation, persistent budgets.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@redgiant/agent": "workspace:*",
+    "@redgiant/events": "workspace:*",
+    "@redgiant/protocol": "workspace:*",
+    "@redgiant/providers": "workspace:*"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13"
+  }
+}

@@ -214,6 +214,25 @@ importers:
         specifier: ^8.23.1
         version: 8.23.1
 
+  packages/hierarchy:
+    dependencies:
+      '@redgiant/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@redgiant/events':
+        specifier: workspace:*
+        version: link:../events
+      '@redgiant/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@redgiant/providers':
+        specifier: workspace:*
+        version: link:../providers
+    devDependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.5.13
+        version: 0.5.13
+
   packages/protocol:
     dependencies:
       zod:
