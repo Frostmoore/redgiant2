@@ -26,8 +26,12 @@ async function git(ws: Workspace, args: string[]): Promise<string> {
 
 /** Makes sure the workspace is a git repository with at least one commit. */
 export async function ensureRepo(ws: Workspace): Promise<void> {
-  if ((await run(ws, ["rev-parse", "--is-inside-work-tree"])).exitCode !== 0)
+  if ((await run(ws, ["rev-parse", "--is-inside-work-tree"])).exitCode !== 0) {
     await git(ws, ["init", "-q"]);
+    // Files stay exactly as agents write them (Windows git converts line endings by default).
+    // Only for repositories RedGiant creates: existing ones keep their own configuration.
+    await git(ws, ["config", "core.autocrlf", "false"]);
+  }
   const exclude = ".git/info/exclude";
   const current = (await ws.exists(exclude)) ? await ws.readText(exclude) : "";
   if (!current.split(/\r?\n/).includes(".worktrees/")) {
