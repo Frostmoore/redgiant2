@@ -22,6 +22,7 @@ export async function startServer(
   script: FakeScript,
   fake: FakeProviderOptions = {},
   core: Partial<CoreOptions> = {},
+  webDir?: string,
 ) {
   const dir = await mkdtemp(join(tmpdir(), "rg-server-"));
   const { db } = await memoryDb();
@@ -38,7 +39,7 @@ export async function startServer(
   const running: Running = await serve(
     redgiant,
     new TokenAuth({ [TOKEN]: "me", [OTHER]: "someone-else" }),
-    { port: 0, host: "127.0.0.1" },
+    { port: 0, host: "127.0.0.1", ...(webDir && { webDir }) },
   );
   const api = async <T = unknown>(
     method: string,

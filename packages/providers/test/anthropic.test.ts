@@ -143,6 +143,21 @@ describe("AnthropicProvider response", () => {
     expect(costUsd(c.usage, p.modelInfo("claude-opus-5-5").pricing)).toBeCloseTo(0.0077, 10);
   });
 
+  it("starts timing generation at the first content block, not the first text", async () => {
+    const events = anthropicEvents({
+      tool: { id: "t1", name: "a_tool", json: '{"x":1}' },
+      text: "after",
+      stop: "tool_use",
+    });
+    const { fetch } = fakeFetch(() => sseResponse(events));
+    const p = new AnthropicProvider({ apiKey: "t", fetch, maxRetries: 0 });
+    const c = await complete(
+      p.stream({ model: "claude-opus-5-5", system: "", tools: [], messages: [user("x")] }),
+    );
+    expect(c.metrics.firstTokenAt).toBeDefined();
+    expect(c.metrics.decodeMs).toBeGreaterThanOrEqual(0);
+  });
+
   it("does not retry a 400 as a retriable error", async () => {
     const { fetch } = fakeFetch(
       () =>

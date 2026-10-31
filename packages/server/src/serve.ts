@@ -15,9 +15,9 @@ export interface Running {
 export function serve(
   core: RedGiantCore,
   auth: AuthProvider,
-  listen: { port: number; host?: string },
+  listen: { port: number; host?: string; webDir?: string },
 ): Promise<Running> {
-  const app = createApp(core, auth);
+  const app = createApp(core, auth, listen.webDir ? { webDir: listen.webDir } : {});
   return new Promise((ok) => {
     const server = nodeServe(
       { fetch: app.fetch, port: listen.port, hostname: listen.host ?? "0.0.0.0" },

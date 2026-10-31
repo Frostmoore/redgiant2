@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { join, posix } from "node:path";
 import { PassThrough } from "node:stream";
-import { type ExecOptions, type ExecResult, LocalWorkspace } from "@redgiant/tools";
+import {
+  type ExecOptions,
+  type ExecResult,
+  LocalWorkspace,
+  type Terminal,
+  type TerminalOptions,
+} from "@redgiant/tools";
 import Docker from "dockerode";
 import type { Sandbox, SandboxLimits, SandboxProvider, SandboxSpec } from "./provider.js";
 
@@ -165,6 +171,47 @@ export class ContainerWorkspace extends LocalWorkspace {
     readOnly: boolean,
   ) {
     super(localPath, readOnly);
+  }
+
+  /** An interactive login shell in the container, with a real TTY and resizing. */
+  override async openTerminal({ cols, rows }: TerminalOptions): Promise<Terminal> {
+    const exec = await this.container.exec({
+      Cmd: ["bash", "-l"],
+      Tty: true,
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      WorkingDir: this.containerPath,
+      Env: ["TERM=xterm-256color"],
+    });
+    const stream = await exec.start({ hijack: true, stdin: true, Tty: true });
+    await exec.resize({ h: rows, w: cols }).catch(() => {});
+    const decoder = new TextDecoder();
+    const dataListeners: ((d: string) => void)[] = [];
+    const exitListeners: ((c: number | null) => void)[] = [];
+    stream.on("data", (b: Buffer) => {
+      const text = decoder.decode(b, { stream: true });
+      for (const l of dataListeners) l(text);
+    });
+    let exited = false;
+    const finish = async () => {
+      if (exited) return;
+      exited = true;
+      const code = (await exec.inspect().catch(() => undefined))?.ExitCode ?? null;
+      for (const l of exitListeners) l(code);
+    };
+    stream.on("end", () => void finish());
+    stream.on("close", () => void finish());
+    return {
+      write: (d) => stream.write(d),
+      resize: (c, r) => void exec.resize({ h: r, w: c }).catch(() => {}),
+      onData: (l) => dataListeners.push(l),
+      onExit: (l) => exitListeners.push(l),
+      kill: () => {
+        stream.write("\u0004exit\n");
+        stream.end();
+      },
+    };
   }
 
   /** Arguments are quoted here, so nothing in them is interpreted by the container's shell. */

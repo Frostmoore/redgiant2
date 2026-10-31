@@ -28,6 +28,27 @@ export class PersistentBudget {
     private readonly store: EventStore,
   ) {}
 
+  /** Every counter of an owner: its global key, its projects and its agents. */
+  async listFor(
+    ownerId: string,
+    projectIds: string[],
+    agentIds: string[],
+  ): Promise<(BudgetKey & { limit: BudgetLimit; used: Spend })[]> {
+    const rows = await this.db.query<Row>(
+      "SELECT * FROM rg_budgets WHERE (scope = 'global' AND key = $1) OR (scope = 'project' AND key = ANY($2)) OR (scope = 'agent' AND key = ANY($3)) ORDER BY scope, key",
+      [ownerId, projectIds, agentIds],
+    );
+    return rows.map((r) => ({
+      scope: r.scope,
+      id: r.key,
+      limit: {
+        ...(r.limit_usd !== null && { usd: r.limit_usd }),
+        ...(r.limit_tok !== null && { tokens: Number(r.limit_tok) }),
+      },
+      used: { usd: r.spent_usd, tokens: Number(r.spent_tok) },
+    }));
+  }
+
   async setLimit(key: BudgetKey, limit: BudgetLimit): Promise<void> {
     await this.db.query(
       `INSERT INTO rg_budgets (scope, key, limit_usd, limit_tok) VALUES ($1, $2, $3, $4)

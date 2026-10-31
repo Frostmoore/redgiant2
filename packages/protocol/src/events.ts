@@ -113,6 +113,25 @@ export const EventBody = z.discriminatedUnion("type", [
       stage: z.enum(["proposed", "tested", "promoted", "rolled_back"]),
     }),
   }),
+  /** A change made by the human through the file explorer (agents' changes are tool calls). */
+  z.object({
+    type: z.literal("workspace.changed"),
+    payload: z.object({
+      scope: z.string(),
+      action: z.enum(["write", "mkdir", "rename", "delete"]),
+      path: z.string(),
+      to: z.string().optional(),
+      by: z.string(),
+    }),
+  }),
+  z.object({
+    type: z.literal("terminal.opened"),
+    payload: z.object({ terminalId: z.string(), scope: z.string(), by: z.string() }),
+  }),
+  z.object({
+    type: z.literal("terminal.closed"),
+    payload: z.object({ terminalId: z.string(), exitCode: z.number().int().nullable() }),
+  }),
   z.object({
     type: z.literal("redaction"),
     payload: z.object({ targetSeq: z.number().int(), reason: z.string() }),

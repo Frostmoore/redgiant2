@@ -43,7 +43,25 @@ export interface Workspace {
    * with untrusted arguments and works the same on every OS.
    */
   execFile(file: string, args: string[], options: ExecOptions): Promise<ExecResult>;
+  /** Opens an interactive shell in the workspace root. */
+  openTerminal(options: TerminalOptions): Promise<Terminal>;
 }
+
+/** An interactive shell with a pseudo-terminal (the user's terminal in the web UI). */
+export interface Terminal {
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  onData(listener: (data: string) => void): void;
+  onExit(listener: (code: number | null) => void): void;
+  kill(): void;
+}
+
+export interface TerminalOptions {
+  cols: number;
+  rows: number;
+}
+
+export class TerminalUnavailableError extends Error {}
 
 export class PathOutsideWorkspaceError extends Error {
   constructor(path: string) {
@@ -170,6 +188,55 @@ export class LocalWorkspace implements Workspace {
     return this.run(file, args, options);
   }
 
+  /**
+   * A real pseudo-terminal without native modules: a tiny Python helper forks the shell on a
+   * pty and takes resize requests on fd 3. Linux and macOS (python3 required).
+   */
+  async openTerminal({ cols, rows }: TerminalOptions): Promise<Terminal> {
+    if (process.platform === "win32") {
+      throw new TerminalUnavailableError(
+        "The host terminal needs Linux or macOS; use the Docker sandbox on Windows.",
+      );
+    }
+    const shell =
+      process.env.SHELL && process.env.SHELL.length > 0 ? process.env.SHELL : "/bin/bash";
+    const child = spawn("python3", ["-c", PTY_HELPER, String(cols), String(rows), shell], {
+      cwd: this.root,
+      env: { ...process.env, TERM: "xterm-256color" },
+      stdio: ["pipe", "pipe", "pipe", "pipe"],
+    });
+    const control = child.stdio[3] as import("node:stream").Writable;
+    const decoder = new TextDecoder();
+    const dataListeners: ((d: string) => void)[] = [];
+    const exitListeners: ((c: number | null) => void)[] = [];
+    child.stdout?.on("data", (b: Buffer) => {
+      const text = decoder.decode(b, { stream: true });
+      for (const l of dataListeners) l(text);
+    });
+    child.stderr?.on("data", (b: Buffer) => {
+      for (const l of dataListeners) l(b.toString());
+    });
+    child.on("close", (code) => {
+      for (const l of exitListeners) l(code);
+    });
+    await new Promise<void>((ok, ko) => {
+      child.once("spawn", ok);
+      child.once("error", () =>
+        ko(new TerminalUnavailableError("python3 is required for the host terminal")),
+      );
+    });
+    return {
+      write: (d) => child.stdin?.write(d),
+      resize: (c, r) => control.write(`${JSON.stringify({ cols: c, rows: r })}\n`),
+      onData: (l) => dataListeners.push(l),
+      onExit: (l) => exitListeners.push(l),
+      kill: () => {
+        child.stdin?.end();
+        child.kill("SIGHUP");
+      },
+    };
+  }
+
   private run(
     file: string,
     args: string[],
@@ -211,3 +278,52 @@ const inside = (root: string, abs: string) => {
   const rel = relative(root, abs);
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 };
+
+/** Forks a shell on a pty; stdin/stdout are the terminal, fd 3 carries JSON resize requests. */
+const PTY_HELPER = `
+import os, pty, sys, select, json, fcntl, termios, struct, signal
+cols, rows, shell = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(shell, [shell])
+def setsize(c, r):
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", r, c, 0, 0))
+setsize(cols, rows)
+buf = b""
+inputs = [fd, 0, 3]
+while True:
+    try:
+        ready, _, _ = select.select(inputs, [], [])
+    except InterruptedError:
+        continue
+    if fd in ready:
+        try:
+            data = os.read(fd, 65536)
+        except OSError:
+            break
+        if not data:
+            break
+        os.write(1, data)
+    if 0 in ready:
+        data = os.read(0, 65536)
+        if not data:
+            os.kill(pid, signal.SIGHUP)
+            break
+        os.write(fd, data)
+    if 3 in ready:
+        data = os.read(3, 4096)
+        if not data:
+            inputs.remove(3)
+            continue
+        buf += data
+        while b"\\n" in buf:
+            line, buf = buf.split(b"\\n", 1)
+            try:
+                size = json.loads(line)
+                setsize(int(size["cols"]), int(size["rows"]))
+                os.kill(pid, signal.SIGWINCH)
+            except Exception:
+                pass
+_, status = os.waitpid(pid, 0)
+sys.exit(os.waitstatus_to_exitcode(status))
+`;

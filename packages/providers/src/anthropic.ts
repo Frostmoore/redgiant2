@@ -197,6 +197,9 @@ export class AnthropicProvider implements Provider {
 
     try {
       for await (const event of stream) {
+        // Generation starts with the first content block of any kind (thinking included):
+        // timing from the first text delta would hide reasoning and tool-call generation.
+        if (event.type === "content_block_start") clock.token();
         if (event.type !== "content_block_delta") continue;
         if (event.delta.type === "text_delta") {
           clock.token();

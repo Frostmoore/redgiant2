@@ -174,6 +174,30 @@ describe.skipIf(!env.REDGIANT_DOCKER_TESTS)("Docker sandbox", () => {
     await ro.destroy();
   });
 
+  it("opens an interactive terminal in the container, with resizing", async () => {
+    const term = await ws.openTerminal({ cols: 90, rows: 20 });
+    let out = "";
+    let exit: number | null | undefined;
+    term.onData((d) => {
+      out += d;
+    });
+    term.onExit((c) => {
+      exit = c;
+    });
+    const until = async (pred: () => boolean) => {
+      for (let i = 0; i < 100 && !pred(); i++) await new Promise((r) => setTimeout(r, 50));
+      expect(pred()).toBe(true);
+    };
+    term.write("echo in-container-$((6*7)); stty size\r");
+    await until(() => out.includes("in-container-42") && out.includes("20 90"));
+    term.resize(120, 33);
+    term.write("stty size\r");
+    await until(() => out.includes("33 120"));
+    term.write("exit\r");
+    await until(() => exit !== undefined);
+    expect(exit).toBe(0);
+  });
+
   it("gives two agents separate worktrees and merges them", async () => {
     await ensureRepo(ws);
     const a = sandbox.workspace(await createWorktree(ws, "alice"));

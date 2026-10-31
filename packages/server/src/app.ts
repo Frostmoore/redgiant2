@@ -1,3 +1,6 @@
+import { readFile, stat } from "node:fs/promises";
+import { extname, join, resolve, sep } from "node:path";
+import { Readable } from "node:stream";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HierarchyError } from "@redgiant/hierarchy";
 import {
@@ -9,9 +12,11 @@ import {
   PermissionRequestInfo,
   PROTOCOL_VERSION,
 } from "@redgiant/protocol";
+import { PathOutsideWorkspaceError } from "@redgiant/tools";
 import type { Context } from "hono";
 import { type AuthProvider, bearer, type Principal } from "./auth.js";
-import { NotFoundError, type RedGiantCore, SessionBusyError } from "./core.js";
+import { BadRequestError, NotFoundError, type RedGiantCore, SessionBusyError } from "./core.js";
+import { FileService } from "./files.js";
 
 type Env = { Variables: { principal: Principal } };
 
@@ -219,6 +224,128 @@ const routes = {
     },
     responses: { 200: json(z.object({ ok: z.literal(true) }), "Decided"), ...errors },
   }),
+  listFiles: createRoute({
+    method: "get",
+    path: "/api/files/list",
+    security,
+    request: { query: z.object({ scope: z.string(), path: z.string().default(".") }) },
+    responses: {
+      200: json(
+        z.array(
+          z.object({
+            name: z.string(),
+            path: z.string(),
+            type: z.enum(["file", "dir", "link"]),
+            size: z.number(),
+            modifiedAt: z.string(),
+          }),
+        ),
+        "Directory entries, folders first",
+      ),
+      ...errors,
+    },
+  }),
+  readFile: createRoute({
+    method: "get",
+    path: "/api/files/content",
+    security,
+    request: { query: z.object({ scope: z.string(), path: z.string() }) },
+    responses: {
+      200: json(
+        z.object({
+          path: z.string(),
+          encoding: z.enum(["utf8", "base64"]),
+          content: z.string(),
+          size: z.number(),
+        }),
+        "File content",
+      ),
+      ...errors,
+    },
+  }),
+  writeFile: createRoute({
+    method: "put",
+    path: "/api/files/content",
+    security,
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: z.object({
+              scope: z.string(),
+              path: z.string(),
+              content: z.string(),
+              encoding: z.enum(["utf8", "base64"]).default("utf8"),
+            }),
+          },
+        },
+      },
+    },
+    responses: { 200: json(z.object({ ok: z.literal(true) }), "Written"), ...errors },
+  }),
+  fileOp: createRoute({
+    method: "post",
+    path: "/api/files/op",
+    security,
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: z.discriminatedUnion("op", [
+              z.object({ op: z.literal("mkdir"), scope: z.string(), path: z.string() }),
+              z.object({
+                op: z.literal("rename"),
+                scope: z.string(),
+                path: z.string(),
+                to: z.string(),
+              }),
+              z.object({ op: z.literal("delete"), scope: z.string(), path: z.string() }),
+            ]),
+          },
+        },
+      },
+    },
+    responses: { 200: json(z.object({ ok: z.literal(true) }), "Done"), ...errors },
+  }),
+  budgets: createRoute({
+    method: "get",
+    path: "/api/budgets",
+    security,
+    responses: {
+      200: json(
+        z.array(
+          z.object({
+            scope: z.enum(["agent", "project", "global"]),
+            id: z.string(),
+            limit: z.object({ usd: z.number().optional(), tokens: z.number().optional() }),
+            used: z.object({ usd: z.number(), tokens: z.number() }),
+          }),
+        ),
+        "Spend and limits",
+      ),
+      ...errors,
+    },
+  }),
+  setBudget: createRoute({
+    method: "put",
+    path: "/api/budgets",
+    security,
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: z.object({
+              scope: z.enum(["agent", "project", "global"]),
+              id: z.string(),
+              usd: z.number().positive().optional(),
+              tokens: z.number().int().positive().optional(),
+            }),
+          },
+        },
+      },
+    },
+    responses: { 200: json(z.object({ ok: z.literal(true) }), "Saved"), ...errors },
+  }),
   verifyLog: createRoute({
     method: "get",
     path: "/api/log/verify",
@@ -244,7 +371,12 @@ const agentOut = (a: NonNullable<ReturnType<RedGiantCore["registry"]["get"]>>) =
 };
 
 /** The HTTP API. Every route but /api/health and /api/openapi.json needs a bearer token. */
-export function createApp(core: RedGiantCore, auth: AuthProvider) {
+export interface AppOptions {
+  /** Directory of the built web UI; served at / with a fallback to index.html. */
+  webDir?: string;
+}
+
+export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOptions = {}) {
   const app = new OpenAPIHono<Env>({
     defaultHook: (result, c) => {
       if (!result.success)
@@ -276,7 +408,17 @@ export function createApp(core: RedGiantCore, auth: AuthProvider) {
   app.onError((err, c) => {
     if (err instanceof NotFoundError) return c.json({ error: err.message }, 404);
     if (err instanceof SessionBusyError) return c.json({ error: err.message }, 409);
-    if (err instanceof HierarchyError) return c.json({ error: err.message }, 400);
+    if (
+      err instanceof HierarchyError ||
+      err instanceof BadRequestError ||
+      err instanceof PathOutsideWorkspaceError
+    ) {
+      return c.json({ error: err.message }, 400);
+    }
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return c.json({ error: "No such file or directory" }, 404);
+    if (code === "EEXIST" || code === "ENOTEMPTY" || code === "EISDIR" || code === "ENOTDIR")
+      return c.json({ error: err.message }, 400);
     console.error(err);
     return c.json({ error: "Internal error" }, 500);
   });
@@ -371,7 +513,102 @@ export function createApp(core: RedGiantCore, auth: AuthProvider) {
       ? c.json({ ok: true as const }, 200)
       : c.json({ error: "No such pending request" }, 404),
   );
+  const files = new FileService(core);
+  app.openapi(routes.listFiles, async (c) => {
+    const q = c.req.valid("query");
+    return c.json(await files.list(owner(c), q.scope, q.path), 200);
+  });
+  app.openapi(routes.readFile, async (c) => {
+    const q = c.req.valid("query");
+    return c.json(await files.read(owner(c), q.scope, q.path), 200);
+  });
+  app.openapi(routes.writeFile, async (c) => {
+    const b = c.req.valid("json");
+    await files.write(owner(c), b.scope, b.path, b.content, b.encoding);
+    return c.json({ ok: true as const }, 200);
+  });
+  app.openapi(routes.fileOp, async (c) => {
+    const b = c.req.valid("json");
+    if (b.op === "mkdir") await files.mkdir(owner(c), b.scope, b.path);
+    if (b.op === "rename") await files.rename(owner(c), b.scope, b.path, b.to);
+    if (b.op === "delete") await files.remove(owner(c), b.scope, b.path);
+    return c.json({ ok: true as const }, 200);
+  });
+  // Raw download (any size, any type): outside OpenAPI because it is not JSON.
+  app.get("/api/files/raw", async (c) => {
+    const { stream, size, name } = await files.download(
+      owner(c),
+      c.req.query("scope") ?? "",
+      c.req.query("path") ?? "",
+    );
+    return new Response(Readable.toWeb(stream) as ReadableStream, {
+      headers: {
+        "content-type": "application/octet-stream",
+        "content-length": String(size),
+        "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+      },
+    });
+  });
+
+  app.openapi(routes.budgets, async (c) => {
+    const o = owner(c);
+    const projects = (await core.projects.list(o)).map((p) => p.id);
+    const agents = core.registry.list({ ownerId: o }).map((a) => a.id);
+    return c.json(await core.budget.listFor(o, projects, agents), 200);
+  });
+  app.openapi(routes.setBudget, async (c) => {
+    const b = c.req.valid("json");
+    const o = owner(c);
+    const mine =
+      (b.scope === "global" && b.id === o) ||
+      (b.scope === "project" && (await core.projects.get(o, b.id)) !== undefined) ||
+      (b.scope === "agent" && core.registry.get(b.id)?.ownerId === o);
+    if (!mine) return c.json({ error: "Not found" }, 404);
+    await core.budget.setLimit(
+      { scope: b.scope, id: b.id },
+      {
+        ...(b.usd !== undefined && { usd: b.usd }),
+        ...(b.tokens !== undefined && { tokens: b.tokens }),
+      },
+    );
+    return c.json({ ok: true as const }, 200);
+  });
+
   app.openapi(routes.verifyLog, async (c) => c.json(await core.store.verify(), 200));
+
+  if (options.webDir) {
+    const root = options.webDir;
+    app.get("*", async (c) => {
+      if (c.req.path.startsWith("/api/")) return c.json({ error: "Not found" }, 404);
+      const rel = decodeURIComponent(c.req.path).replace(/^\/+/, "") || "index.html";
+      const file = resolve(root, rel);
+      const inside = file.startsWith(resolve(root) + sep);
+      const target =
+        inside && (await stat(file).catch(() => undefined))?.isFile()
+          ? file
+          : join(root, "index.html");
+      const body = await readFile(target).catch(() => undefined);
+      if (!body) return c.text("The web UI is not built (pnpm --filter @redgiant/web build).", 404);
+      const type = MIME[extname(target)] ?? "application/octet-stream";
+      // Hashed assets never change; index.html must always be fresh.
+      const cache = target.includes(`${sep}assets${sep}`)
+        ? "public, max-age=31536000, immutable"
+        : "no-cache";
+      return new Response(body, { headers: { "content-type": type, "cache-control": cache } });
+    });
+  }
 
   return app;
 }
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".webmanifest": "application/manifest+json",
+  ".woff2": "font/woff2",
+};

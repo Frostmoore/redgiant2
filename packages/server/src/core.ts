@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { AgentSession, type SendResult, type Tool } from "@redgiant/agent";
 import { EventStore, migrate, type Redactor, type SqlClient } from "@redgiant/events";
 import {
@@ -37,7 +38,7 @@ import {
   orchestrationTools,
   TaskTracker,
 } from "./orchestration.js";
-import { migrateProjects, ProjectStore } from "./projects.js";
+import { migrateProjects, ProjectStore, slug } from "./projects.js";
 
 export interface CoreOptions {
   db: SqlClient;
@@ -64,6 +65,9 @@ export class SessionBusyError extends Error {
 }
 
 export class NotFoundError extends Error {}
+
+/** A request that cannot be satisfied as asked (bad path, wrong kind of file, …). */
+export class BadRequestError extends Error {}
 
 interface Live {
   id: string;
@@ -160,6 +164,34 @@ export class RedGiantCore implements OrchestrationHost {
     return sb;
   }
 
+  /** God's workspace: one per owner, under the platform directory. */
+  platformPath(ownerId: string): string {
+    return join(this.o.platformDir, slug(ownerId) || "owner");
+  }
+
+  /** The workspace behind a file/terminal scope ("platform" or "project:<id>"), in its sandbox. */
+  async scopeWorkspace(ownerId: string, scope: string): Promise<Workspace> {
+    if (scope === "platform") {
+      const platform = this.platformPath(ownerId);
+      await mkdir(platform, { recursive: true });
+      const sb = await this.sandboxFor({
+        id: `${ownerId}-platform`,
+        localPath: platform,
+        mount: { type: "bind", source: platform },
+      });
+      return sb.workspace();
+    }
+    const id = scope.match(/^project:([a-z0-9-]+)$/)?.[1];
+    const project = id ? await this.projects.get(ownerId, id) : undefined;
+    if (!project) throw new NotFoundError(`No such scope "${scope}"`);
+    const sb = await this.sandboxFor({
+      id: `${ownerId}-${project.id}`,
+      localPath: project.path,
+      mount: { type: "bind", source: project.path },
+    });
+    return sb.workspace();
+  }
+
   /** The project's main workspace and, for an agent, its own worktree. */
   async projectWorkspaces(
     agent: AgentRecord,
@@ -181,11 +213,12 @@ export class RedGiantCore implements OrchestrationHost {
   private async workspaceFor(agent: AgentRecord): Promise<Workspace | undefined> {
     if (agent.kind === "demigod") return undefined;
     if (agent.kind === "god") {
-      await mkdir(this.o.platformDir, { recursive: true });
+      const platform = this.platformPath(agent.ownerId);
+      await mkdir(platform, { recursive: true });
       const sb = await this.sandboxFor({
         id: `${agent.ownerId}-platform`,
-        localPath: this.o.platformDir,
-        mount: { type: "bind", source: this.o.platformDir },
+        localPath: platform,
+        mount: { type: "bind", source: platform },
       });
       return sb.workspace();
     }

@@ -4,6 +4,7 @@ import { ClientMessage, PROTOCOL_VERSION, type ServerMessage } from "@redgiant/p
 import { type WebSocket, WebSocketServer } from "ws";
 import type { AuthProvider, Principal } from "./auth.js";
 import type { RedGiantCore } from "./core.js";
+import { handleTerminal } from "./terminal.js";
 
 /**
  * Live channel at `/ws`. The first message must be `hello` with a token; then the client
@@ -17,8 +18,11 @@ export function attachWebSocket(
 ): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-    if (new URL(req.url ?? "/", "http://x").pathname !== "/ws") return socket.destroy();
-    wss.handleUpgrade(req, socket, head, (ws) => connection(ws));
+    const path = new URL(req.url ?? "/", "http://x").pathname;
+    if (path === "/ws") return wss.handleUpgrade(req, socket, head, (ws) => connection(ws));
+    if (path === "/term")
+      return wss.handleUpgrade(req, socket, head, (ws) => handleTerminal(ws, core, auth));
+    socket.destroy();
   });
 
   function connection(ws: WebSocket) {

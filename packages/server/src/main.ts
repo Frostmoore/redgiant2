@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // RedGiant server. Configured by environment variables until the setup wizard (G17) exists.
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { pgPoolClient, Redactor } from "@redgiant/events";
 import type { ModelSpec } from "@redgiant/protocol";
 import { AnthropicProvider, OpenAICompatProvider, ProviderRegistry } from "@redgiant/providers";
@@ -71,6 +72,7 @@ const core = await RedGiantCore.create({
 const running = await serve(core, new TokenAuth({ [token]: env.REDGIANT_OWNER ?? "local" }), {
   port: Number(env.REDGIANT_PORT ?? 7600),
   host: env.REDGIANT_HOST ?? "0.0.0.0",
+  webDir: env.REDGIANT_WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 console.log(`RedGiant listening on ${running.url} (sandbox: ${sandbox.kind})`);
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
