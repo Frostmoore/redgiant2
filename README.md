@@ -46,6 +46,9 @@ REDGIANT_LIVE_OPENAI_BASE_URL=http://localhost:8080/v1 pnpm test:live
 # optional, needs Docker:
 docker build -t redgiant/sandbox:dev -f docker/sandbox.Dockerfile docker
 REDGIANT_DOCKER_TESTS=1 pnpm test:docker
+
+# web UI against a demo server (scripted model, in-process Postgres):
+pnpm build && node packages/web/scripts/demo-server.mjs 7650   # then open http://localhost:7650
 ```
 
 The repository is a pnpm monorepo; packages live in `packages/`.
@@ -61,6 +64,7 @@ The repository is a pnpm monorepo; packages live in `packages/`.
 | `@redgiant/hierarchy` | The agent tree (God, Demi-God, orchestrators, agents, sub-agents, inspectors) with scope rules, permission modes and user rules, a configurable danger classifier, approvals that escalate up the tree to the human, and persistent budgets                                                                                                    |
 | `@redgiant/server`    | HTTP API with OpenAPI (`/api/openapi.json`), WebSocket live channel (`/ws`), sessions that outlive clients, projects, approvals queue, token auth bound to owners; orchestration tools (create, delegate, merge, stop agents; ephemeral sub-agents), tasks that close only with a passing verifier, approvals decided by parent agents' models |
 | `@redgiant/cli`       | `redgiant` command: projects, agents, live chat with an agent (with the per-message metrics line), approvals, log verification                                                                                                                                                                                                                 |
+| `@redgiant/web`       | Web UI (Preact): tabs and up to three side-by-side panes, live chat with the per-message metrics bar, terminal (xterm.js) and file explorer with editor (CodeMirror) per project and for the platform, hierarchy, approvals, budgets; Italian and English; phone layout                                                                        |
 
 ## Running the server (preview)
 
@@ -77,6 +81,7 @@ Until the setup wizard lands, the server is configured with environment variable
 | `REDGIANT_DEFAULT_MODEL`                                           | `provider/model`, used when an agent and its ancestors set none                                                |
 | `REDGIANT_SANDBOX`                                                 | `host` (default) or `docker`, with `REDGIANT_SANDBOX_IMAGE`, `REDGIANT_SANDBOX_NETWORK`, `REDGIANT_EGRESS_URL` |
 | `REDGIANT_SEARXNG_URL`                                             | Enables web search through SearXNG                                                                             |
+| `REDGIANT_WEB_DIR`                                                 | Built web UI to serve at `/` (default `packages/web/dist`)                                                     |
 
 ```sh
 pnpm build

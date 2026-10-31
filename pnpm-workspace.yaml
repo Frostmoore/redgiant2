@@ -9,3 +9,4 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - ws@8.22.1
+  - preact@11.1.1

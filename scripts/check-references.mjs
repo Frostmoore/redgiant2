@@ -6,6 +6,10 @@ const referenced = new Set(root.references.map((r) => r.path));
 const missing = readdirSync("packages", { withFileTypes: true })
   .filter((d) => d.isDirectory())
   .map((d) => `packages/${d.name}`)
+  // Packages that type-check themselves (e.g. the Vite web app) declare it in package.json.
+  .filter(
+    (p) => JSON.parse(readFileSync(`${p}/package.json`, "utf8")).redgiant?.typecheck !== "own",
+  )
   .filter((p) => !referenced.has(p));
 if (missing.length > 0) {
   console.error(`Not referenced in tsconfig.json (never type-checked): ${missing.join(", ")}`);

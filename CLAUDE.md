@@ -27,3 +27,6 @@
   justified "not testable"; the stop hook reminds the agent and gives up after three reminders ("abandoned").
 - Sandboxes are created once per workspace and reused (`RedGiantCore.sandboxFor`): never call
   `SandboxProvider.create` twice for the same id while sessions run.
+- Web UI (`packages/web`): Preact + signals; all state in `src/state.ts` (pure `buildItems` turns events into chat
+  items); every text through `t()` with both `it` and `en`; rendered Markdown always through `renderMarkdown`
+  (DOMPurify). Look at it, don't guess: `scripts/demo-server.mjs` + `scripts/screenshots.mjs` (Playwright image).
