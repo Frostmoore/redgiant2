@@ -39,6 +39,9 @@
     },
     {
       "path": "packages/telegram"
+    },
+    {
+      "path": "packages/automations"
     }
   ]
 }

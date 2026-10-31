@@ -1,4 +1,6 @@
 import {
+  type Automation,
+  type AutomationRun,
   type ClientMessage,
   type Event,
   type PermissionRequestInfo,
@@ -178,6 +180,22 @@ export class Api {
     this.call("PUT", "/api/extensions/mcp", m);
   removeMcp = (name: string) =>
     this.call("DELETE", `/api/extensions/mcp/${encodeURIComponent(name)}`);
+  automations = () => this.call<Automation[]>("GET", "/api/automations");
+  createAutomation = (yaml: string) =>
+    this.call<{ automation: Automation; webhookSecret?: string }>("POST", "/api/automations", {
+      yaml,
+    });
+  updateAutomation = (id: string, yaml: string) =>
+    this.call<{ automation: Automation; webhookSecret?: string }>("PUT", `/api/automations/${id}`, {
+      yaml,
+    });
+  deleteAutomation = (id: string) => this.call("DELETE", `/api/automations/${id}`);
+  enableAutomation = (id: string, enabled: boolean) =>
+    this.call<Automation>("POST", `/api/automations/${id}/enabled`, { enabled });
+  runAutomation = (id: string) => this.call<AutomationRun>("POST", `/api/automations/${id}/run`);
+  rotateAutomationSecret = (id: string) =>
+    this.call<{ webhookSecret: string }>("POST", `/api/automations/${id}/secret`);
+  automationRuns = (id: string) => this.call<AutomationRun[]>("GET", `/api/automations/${id}/runs`);
   telegramPair = () =>
     this.call<{ code: string; expiresAt: string; bot: string; link: string }>(
       "POST",

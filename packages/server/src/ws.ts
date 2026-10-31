@@ -28,6 +28,7 @@ export function attachWebSocket(
   function connection(ws: WebSocket) {
     let principal: Principal | null = null;
     let offBoard: (() => void) | undefined;
+    let offAutomations: (() => void) | undefined;
     const follows = new Map<string, () => void>();
     const send = (m: ServerMessage) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
     const fail = (code: string, message: string) => send({ type: "error", code, message });
@@ -43,6 +44,9 @@ export function attachWebSocket(
     };
     const onBoard = (ownerId: string, projectId: string | null, threadId: string) => {
       if (principal?.ownerId === ownerId) send({ type: "board.changed", projectId, threadId });
+    };
+    const onAutomation = (ownerId: string, automationId: string) => {
+      if (principal?.ownerId === ownerId) send({ type: "automations.changed", automationId });
     };
     const helloTimer = setTimeout(() => ws.close(4001, "hello expected"), 10_000);
 
@@ -80,6 +84,7 @@ export function attachWebSocket(
           core.approvals.on("request", onRequest);
           core.approvals.on("closed", onClosed);
           offBoard = core.board.onChange(onBoard);
+          offAutomations = core.automations.onChange(onAutomation);
           send({ type: "welcome", protocolVersion: PROTOCOL_VERSION, ownerId: principal.ownerId });
           for (const r of core.approvals.list(principal.ownerId))
             send({ type: "permission.request", request: r });
@@ -121,6 +126,7 @@ export function attachWebSocket(
       core.approvals.off("request", onRequest);
       core.approvals.off("closed", onClosed);
       offBoard?.();
+      offAutomations?.();
     });
   }
   return wss;

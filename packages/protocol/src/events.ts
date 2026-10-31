@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentSpec } from "./agents.js";
+import { AutomationRunStatus, AutomationTrigger } from "./automations.js";
 import { AssistantPart, NativeContent, StopReason } from "./messages.js";
 import { MessageMetrics } from "./metrics.js";
 
@@ -166,6 +167,17 @@ export const EventBody = z.discriminatedUnion("type", [
       proposalId: z.string(),
       decision: z.enum(["approve", "reject"]),
       by: z.string(),
+    }),
+  }),
+  /** An automation started (status `running`) or ended; `skipped` when the previous run was still going. */
+  z.object({
+    type: z.literal("automation.run"),
+    payload: z.object({
+      automationId: z.string(),
+      name: z.string(),
+      runId: z.string(),
+      trigger: AutomationTrigger,
+      status: AutomationRunStatus,
     }),
   }),
   z.object({

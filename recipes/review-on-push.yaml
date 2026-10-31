@@ -1,0 +1,18 @@
+# Started by a webhook (for example a Git server's push hook): the project's orchestrator
+# reviews what arrived. The request body reaches the agent as data, never as instructions.
+#
+#   curl -X POST https://your-redgiant/api/automations/<id>/hook \
+#        -H "x-redgiant-secret: <secret shown when you saved the recipe>" \
+#        -H "content-type: application/json" -d @payload.json
+name: review-on-push
+description: Review every push to the project
+on:
+  webhook: true
+agent: orchestrator
+project: my-project
+instructions: |
+  New commits were pushed. Have them reviewed: build, tests, and anything that looks risky.
+  Post the outcome on the project board.
+timeoutMinutes: 60
+notify:
+  when: failure

@@ -9,6 +9,7 @@ import {
   type Tab,
 } from "../state.js";
 import { Approvals } from "./Approvals.js";
+import { Automations } from "./Automations.js";
 import { Board } from "./Board.js";
 import { Budgets } from "./Budgets.js";
 import { Chat } from "./Chat.js";
@@ -41,6 +42,8 @@ function Content({ tab }: { tab: Tab }) {
       return <Extensions />;
     case "telegram":
       return <Telegram />;
+    case "automations":
+      return <Automations />;
   }
 }
 

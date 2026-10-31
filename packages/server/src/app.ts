@@ -3,10 +3,13 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { AutomationNotFoundError, RecipeError, WebhookForbiddenError } from "@redgiant/automations";
 import { loadCustomTools, loadSkills } from "@redgiant/extensions";
 import { HierarchyError } from "@redgiant/hierarchy";
 import {
   AgentKind,
+  Automation,
+  AutomationRun,
   Effort,
   LOCAL_OWNER_ID,
   type ModelSpec as ModelSpecType,
@@ -83,7 +86,85 @@ const errors = {
 };
 const security = [{ bearer: [] }];
 
+const AutomationSaved = z.object({
+  automation: Automation,
+  /** Shown only now: RedGiant keeps a hash. */
+  webhookSecret: z.string().optional(),
+});
+const automationId = z.object({ id: z.string() });
+const yamlBody = {
+  body: { content: { "application/json": { schema: z.object({ yaml: z.string().min(1) }) } } },
+};
+
 const routes = {
+  listAutomations: createRoute({
+    method: "get",
+    path: "/api/automations",
+    security,
+    responses: { 200: json(z.array(Automation), "Automations"), ...errors },
+  }),
+  createAutomation: createRoute({
+    method: "post",
+    path: "/api/automations",
+    security,
+    request: yamlBody,
+    responses: { 201: json(AutomationSaved, "Created"), ...errors },
+  }),
+  getAutomation: createRoute({
+    method: "get",
+    path: "/api/automations/{id}",
+    security,
+    request: { params: automationId },
+    responses: { 200: json(Automation, "Automation"), ...errors },
+  }),
+  updateAutomation: createRoute({
+    method: "put",
+    path: "/api/automations/{id}",
+    security,
+    request: { params: automationId, ...yamlBody },
+    responses: { 200: json(AutomationSaved, "Updated"), ...errors },
+  }),
+  deleteAutomation: createRoute({
+    method: "delete",
+    path: "/api/automations/{id}",
+    security,
+    request: { params: automationId },
+    responses: { 200: json(z.object({ ok: z.literal(true) }), "Deleted"), ...errors },
+  }),
+  enableAutomation: createRoute({
+    method: "post",
+    path: "/api/automations/{id}/enabled",
+    security,
+    request: {
+      params: automationId,
+      body: { content: { "application/json": { schema: z.object({ enabled: z.boolean() }) } } },
+    },
+    responses: { 200: json(Automation, "Updated"), ...errors },
+  }),
+  runAutomation: createRoute({
+    method: "post",
+    path: "/api/automations/{id}/run",
+    security,
+    request: { params: automationId },
+    responses: { 202: json(AutomationRun, "Started (or skipped: already running)"), ...errors },
+  }),
+  rotateAutomationSecret: createRoute({
+    method: "post",
+    path: "/api/automations/{id}/secret",
+    security,
+    request: { params: automationId },
+    responses: {
+      200: json(z.object({ webhookSecret: z.string() }), "The new secret"),
+      ...errors,
+    },
+  }),
+  automationRuns: createRoute({
+    method: "get",
+    path: "/api/automations/{id}/runs",
+    security,
+    request: { params: automationId },
+    responses: { 200: json(z.array(AutomationRun), "Recent runs, newest first"), ...errors },
+  }),
   listProjects: createRoute({
     method: "get",
     path: "/api/projects",
@@ -598,7 +679,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
 
   app.use("/api/*", async (c, next) => {
     const open = ["/api/health", "/api/openapi.json", "/api/telegram/webhook"];
-    if (open.includes(c.req.path)) return next();
+    // Automation webhooks carry their own secret.
+    if (open.includes(c.req.path) || /^\/api\/automations\/[\w-]+\/hook$/.test(c.req.path))
+      return next();
     const principal = await auth.authenticate(bearer(c.req.header("authorization")));
     if (!principal) return c.json({ error: "Missing or invalid token" }, 401);
     c.set("principal", principal);
@@ -606,7 +689,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   });
 
   app.onError((err, c) => {
-    if (err instanceof NotFoundError) return c.json({ error: err.message }, 404);
+    if (err instanceof NotFoundError || err instanceof AutomationNotFoundError)
+      return c.json({ error: err.message }, 404);
+    if (err instanceof RecipeError) return c.json({ error: err.message }, 400);
     if (err instanceof SessionBusyError) return c.json({ error: err.message }, 409);
     if (
       err instanceof HierarchyError ||
@@ -959,6 +1044,61 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       .handleUpdate(await c.req.json())
       .catch((err) => console.error("telegram update:", err));
     return c.json({ ok: true }, 200);
+  });
+
+  // Automations (G13).
+  const autos = core.automations;
+  app.openapi(routes.listAutomations, async (c) => c.json(await autos.list(owner(c)), 200));
+  app.openapi(routes.createAutomation, async (c) =>
+    c.json(await autos.create(owner(c), c.req.valid("json").yaml), 201),
+  );
+  app.openapi(routes.getAutomation, async (c) =>
+    c.json(await autos.get(owner(c), c.req.valid("param").id), 200),
+  );
+  app.openapi(routes.updateAutomation, async (c) =>
+    c.json(await autos.update(owner(c), c.req.valid("param").id, c.req.valid("json").yaml), 200),
+  );
+  app.openapi(routes.deleteAutomation, async (c) => {
+    await autos.remove(owner(c), c.req.valid("param").id);
+    return c.json({ ok: true as const }, 200);
+  });
+  app.openapi(routes.enableAutomation, async (c) =>
+    c.json(
+      await autos.setEnabled(owner(c), c.req.valid("param").id, c.req.valid("json").enabled),
+      200,
+    ),
+  );
+  app.openapi(routes.runAutomation, async (c) => {
+    const { run, done } = await autos.runNow(owner(c), c.req.valid("param").id);
+    done.catch((err) => console.error("automation:", err));
+    return c.json(run, 202);
+  });
+  app.openapi(routes.rotateAutomationSecret, async (c) =>
+    c.json({ webhookSecret: await autos.rotateSecret(owner(c), c.req.valid("param").id) }, 200),
+  );
+  app.openapi(routes.automationRuns, async (c) =>
+    c.json(await autos.runs(owner(c), c.req.valid("param").id), 200),
+  );
+  // The webhook: the recipe's secret in a header; any body up to 64 kB (JSON, or kept as text).
+  app.post("/api/automations/:id/hook", async (c) => {
+    const body = await c.req.text();
+    if (body.length > 65_536) return c.json({ error: "Body larger than 64 kB" }, 413);
+    let payload: unknown = body;
+    try {
+      payload = body ? JSON.parse(body) : {};
+    } catch {}
+    try {
+      const { run, done } = await autos.webhook(
+        c.req.param("id"),
+        c.req.header("x-redgiant-secret") ?? "",
+        payload,
+      );
+      done.catch((err) => console.error("automation:", err));
+      return c.json({ runId: run.id, status: run.status }, 202);
+    } catch (err) {
+      if (err instanceof WebhookForbiddenError) return c.json({ error: "Forbidden" }, 403);
+      throw err;
+    }
   });
 
   app.openapi(routes.verifyLog, async (c) => c.json(await core.store.verify(), 200));

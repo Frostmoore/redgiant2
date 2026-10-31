@@ -200,6 +200,13 @@ export class TelegramGateway {
     while (this.inFlight.size > 0) await Promise.allSettled([...this.inFlight]);
   }
 
+  /** A message to every chat linked to the owner (automations' results…). */
+  async notify(ownerId: string, text: string): Promise<void> {
+    for (const link of await this.links(ownerId))
+      for (const part of splitMessage(text))
+        await this.bot.api.sendMessage(link.chatId, part).catch(() => {});
+  }
+
   private async sendApproval(ownerId: string, info: PermissionRequestInfo) {
     const input = JSON.stringify(info.input);
     const text =

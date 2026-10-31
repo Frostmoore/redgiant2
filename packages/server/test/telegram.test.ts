@@ -164,6 +164,19 @@ describe("Demi-God on Telegram", () => {
     expect(tg?.sent(USER).at(-1)?.text).toBe("Demi-God: written");
   });
 
+  it("sends notifications to every linked chat, split under Telegram's limit", async () => {
+    await setup(() => ({ text: "x" }));
+    await pair();
+    await s?.gateway?.notify("me", `⏰ digest: done\n\n${"a".repeat(3000)}\n\n${"b".repeat(3000)}`);
+    const sent = tg
+      ?.sent(USER)
+      .slice(-2)
+      .map((m) => String(m.text).length);
+    expect(sent).toEqual([3000 + "⏰ digest: done\n\n".length, 3000]);
+    await s?.gateway?.notify("nobody", "lost");
+    expect(tg?.sent(USER).at(-1)?.text).not.toBe("lost");
+  });
+
   it("accepts webhook updates only with Telegram's secret", async () => {
     await setup(() => ({ text: "x" }));
     const post = (secret?: string) =>

@@ -29,6 +29,8 @@ export async function migrateProjects(db: SqlClient): Promise<void> {
       project_id text,
       created_at timestamptz NOT NULL DEFAULT now()
     )`);
+  // A session can use its own model (automations); null = the agent's.
+  await db.query("ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS model jsonb");
 }
 
 export const slug = (name: string) =>

@@ -184,6 +184,26 @@ await core.setMcp("local", {
 const sid = await core.startSession("local", orch.id);
 await (await core.send("local", sid, "Give me a quick tour of the project.")).done;
 await core.budget.setLimit({ scope: "global", id: "local" }, { usd: 20 });
+const digest = await core.automations.create(
+  "local",
+  `name: morning-digest
+description: What happened yesterday, every weekday morning
+on:
+  cron: "0 8 * * 1-5"
+  timezone: Europe/Rome
+agent: god
+effort: low
+instructions: |
+  Summarise what happened yesterday on every project. Keep it short.
+notify:
+  when: always
+`,
+);
+await (await core.automations.runNow("local", digest.automation.id)).done;
+await core.automations.create(
+  "local",
+  "name: review-on-push\non:\n  webhook: true\nagent: orchestrator\nproject: demo\ninstructions: Review the new commits.\n",
+);
 
 const web = fileURLToPath(new URL("../dist", import.meta.url));
 const running = await serve(core, new TokenAuth({ [token]: "local" }), {

@@ -1,0 +1,25 @@
+{
+  "name": "@redgiant/automations",
+  "version": "0.1.0",
+  "description": "RedGiant automations: YAML recipes run by an agent on a schedule or a webhook.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@redgiant/events": "workspace:*",
+    "@redgiant/protocol": "workspace:*",
+    "croner": "^11.0.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13"
+  }
+}

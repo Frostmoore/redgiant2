@@ -201,6 +201,9 @@ export function applyMessage(m: ServerMessage): void {
     case "board.changed":
       boardVersion.value++;
       return;
+    case "automations.changed":
+      automationsVersion.value++;
+      return;
   }
 }
 
@@ -215,6 +218,8 @@ export const budgets = signal<Budget[]>([]);
 export const lastError = signal<string | null>(null);
 /** Bumped on every board change pushed by the server: board views reload. */
 export const boardVersion = signal(0);
+/** Bumped when an automation is edited or one of its runs starts or ends. */
+export const automationsVersion = signal(0);
 
 let api: Api | undefined;
 let live: Live | undefined;
@@ -279,6 +284,7 @@ export type Tab =
   | { id: string; type: "board"; title: string; projectId: string | null }
   | { id: string; type: "extensions"; title: string }
   | { id: string; type: "telegram"; title: string }
+  | { id: string; type: "automations"; title: string }
   | { id: string; type: "hierarchy" | "approvals" | "budgets"; title: string };
 
 export interface Pane {

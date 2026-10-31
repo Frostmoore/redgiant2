@@ -375,6 +375,8 @@ pre {
   flex: 1;
   min-height: 0;
   position: relative;
+  /* Views adapt to their pane's width, not the window's. */
+  container-type: inline-size;
 }
 .tab-body {
   position: absolute;
@@ -846,12 +848,14 @@ pre {
 }
 .post-head {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   font-size: 12.5px;
 }
 .kind-badge,
 .status-chip {
+  white-space: nowrap;
   font-size: 11px;
   border-radius: 999px;
   padding: 0 8px;
@@ -926,4 +930,32 @@ pre {
   font-size: 20px;
   letter-spacing: 0.08em;
   max-width: 320px;
+}
+
+/* Automations */
+textarea.recipe {
+  width: 100%;
+  margin: 10px 0 6px;
+  font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  resize: vertical;
+}
+.board-thread h4 {
+  margin: 16px 0 0;
+}
+.automations .board-list {
+  width: 280px;
+}
+/* Narrow panes: the list goes above the recipe. */
+@container (max-width: 760px) {
+  .automations {
+    flex-direction: column;
+  }
+  .automations .board-list {
+    width: auto;
+    max-height: 40%;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
 }

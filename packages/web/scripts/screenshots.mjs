@@ -51,6 +51,11 @@ await page.click("text=Estensioni");
 await page.waitForSelector(".extensions .approval");
 await shot("06c-extensions");
 
+await page.click("text=Automazioni");
+await page.locator(".thread-item", { hasText: "morning-digest" }).click();
+await page.waitForSelector("text=Apri la sessione");
+await shot("06d-automations");
+
 await page.click("text=Budget");
 await page.waitForSelector(".budgets");
 await shot("06-budgets");

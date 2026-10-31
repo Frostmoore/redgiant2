@@ -110,6 +110,8 @@ if (tgToken) {
       webhookSecret: env.REDGIANT_TELEGRAM_WEBHOOK_SECRET,
     }),
   };
+  // Automations report to the owner's Telegram.
+  core.notify = (ownerId, text) => gateway.notify(ownerId, text);
   if (!env.REDGIANT_TELEGRAM_WEBHOOK_SECRET) await gateway.startPolling();
   shutdownHooks.push(() => gateway.stop());
   console.log(
@@ -124,6 +126,7 @@ const running = await serve(core, new TokenAuth({ [token]: env.REDGIANT_OWNER ??
   webDir: env.REDGIANT_WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 console.log(`RedGiant listening on ${running.url} (sandbox: ${sandbox.kind})`);
+await core.automations.start();
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, async () => {
     for (const h of shutdownHooks) await h().catch(() => {});

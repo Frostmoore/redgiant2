@@ -1,0 +1,16 @@
+# Every weekday at 8:00, God sums up yesterday's work and sends it to your Telegram.
+name: morning-digest
+description: What happened yesterday, every weekday morning
+on:
+  cron: "0 8 * * 1-5"
+  timezone: Europe/Rome
+agent: god
+# A cheaper model is enough for a summary; the agent keeps its own otherwise.
+# model: anthropic/claude-sonnet-5-5
+effort: low
+instructions: |
+  Summarise what happened yesterday on every project: tasks finished and verified,
+  tasks still open, problems and decisions on the board. Short, one paragraph per project.
+missed: run
+notify:
+  when: always

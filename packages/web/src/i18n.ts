@@ -125,6 +125,26 @@ const en = {
   noLinks: "No account linked yet.",
   unlink: "Unlink",
   telegramOff: "Telegram is not configured on this server.",
+  automations: "Automations",
+  newAutomation: "New automation",
+  noAutomations:
+    "No automations yet. Write a recipe: when it runs, which agent works, what it is asked.",
+  runNow: "Run now",
+  enabled: "On",
+  disabled: "Off",
+  enable: "Turn on",
+  disable: "Turn off",
+  nextRun: "next",
+  neverScheduled: "webhook only",
+  runs: "Runs",
+  noRuns: "No runs yet.",
+  openSession: "Open the session",
+  webhookUrl: "Webhook",
+  webhookSecretOnce: "Secret (shown only now; send it in the x-redgiant-secret header):",
+  newSecret: "New secret",
+  deleteAutomationConfirm: "Delete this automation and its history?",
+  runStatus: "running,done,failed,timeout,skipped",
+  runTriggers: "schedule,webhook,by hand,missed run",
 } as const;
 
 export type Key = keyof typeof en;
@@ -252,6 +272,26 @@ const it: Record<Key, string> = {
   noLinks: "Ancora nessun account collegato.",
   unlink: "Scollega",
   telegramOff: "Telegram non è configurato su questo server.",
+  automations: "Automazioni",
+  newAutomation: "Nuova automazione",
+  noAutomations:
+    "Ancora nessuna automazione. Scrivi una ricetta: quando parte, quale agente lavora, cosa gli si chiede.",
+  runNow: "Esegui ora",
+  enabled: "Attiva",
+  disabled: "Spenta",
+  enable: "Accendi",
+  disable: "Spegni",
+  nextRun: "prossima",
+  neverScheduled: "solo webhook",
+  runs: "Esecuzioni",
+  noRuns: "Nessuna esecuzione.",
+  openSession: "Apri la sessione",
+  webhookUrl: "Webhook",
+  webhookSecretOnce: "Segreto (si vede solo ora; va mandato nell'header x-redgiant-secret):",
+  newSecret: "Nuovo segreto",
+  deleteAutomationConfirm: "Eliminare questa automazione e il suo storico?",
+  runStatus: "in corso,fatta,fallita,scaduta,saltata",
+  runTriggers: "orario,webhook,a mano,recuperata",
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, it };

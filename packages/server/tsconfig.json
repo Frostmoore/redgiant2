@@ -38,6 +38,9 @@
     },
     {
       "path": "../telegram"
+    },
+    {
+      "path": "../automations"
     }
   ]
 }
