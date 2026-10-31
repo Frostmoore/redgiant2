@@ -147,6 +147,24 @@ export const EventBody = z.discriminatedUnion("type", [
     payload: z.object({ terminalId: z.string(), exitCode: z.number().int().nullable() }),
   }),
   z.object({
+    type: z.literal("extension.proposed"),
+    payload: z.object({
+      proposalId: z.string(),
+      kind: z.enum(["tool", "skill"]),
+      name: z.string(),
+      author: z.string(),
+      status: z.enum(["failed", "pending", "installed"]),
+    }),
+  }),
+  z.object({
+    type: z.literal("extension.decided"),
+    payload: z.object({
+      proposalId: z.string(),
+      decision: z.enum(["approve", "reject"]),
+      by: z.string(),
+    }),
+  }),
+  z.object({
     type: z.literal("redaction"),
     payload: z.object({ targetSeq: z.number().int(), reason: z.string() }),
   }),

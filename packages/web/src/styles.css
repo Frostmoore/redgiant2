@@ -910,3 +910,14 @@ pre {
 .board-composer .row select {
   flex: 1;
 }
+
+.extensions h3 {
+  margin: 14px 0 4px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+}
+.form .wide {
+  grid-column: 1 / -1;
+}

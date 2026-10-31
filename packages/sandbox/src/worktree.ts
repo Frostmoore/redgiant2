@@ -34,10 +34,12 @@ export async function ensureRepo(ws: Workspace): Promise<void> {
   }
   const exclude = ".git/info/exclude";
   const current = (await ws.exists(exclude)) ? await ws.readText(exclude) : "";
-  if (!current.split(/\r?\n/).includes(".worktrees/")) {
+  // Agents' worktrees and RedGiant's own files (custom tools' copies) never show up in git.
+  const missing = [".worktrees/", ".redgiant/"].filter((x) => !current.split(/\r?\n/).includes(x));
+  if (missing.length > 0) {
     await ws.writeText(
       exclude,
-      `${current}${current && !current.endsWith("\n") ? "\n" : ""}.worktrees/\n`,
+      `${current}${current && !current.endsWith("\n") ? "\n" : ""}${missing.join("\n")}\n`,
     );
   }
   if ((await run(ws, ["rev-parse", "--verify", "-q", "HEAD"])).exitCode !== 0) {

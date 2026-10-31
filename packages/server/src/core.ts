@@ -1,9 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { AgentSession, type SendResult, type Tool } from "@redgiant/agent";
 import { Board, BoardSummarizer, boardTools, migrateBoard } from "@redgiant/board";
 import { EventStore, migrate, type Redactor, type SqlClient } from "@redgiant/events";
+import {
+  customTools,
+  ExtensionBuilder,
+  loadCustomTools,
+  loadSkills,
+  McpConnection,
+  type McpServerConfig,
+  migrateExtensions,
+  proposeTool,
+  skillsIndex,
+  skillTools,
+} from "@redgiant/extensions";
 import {
   type AgentAnswer,
   type AgentRecord,
@@ -115,6 +127,9 @@ export class RedGiantCore implements OrchestrationHost {
   readonly approvals = new HumanApprovals();
   readonly tasks: TaskTracker;
   readonly board: Board;
+  readonly extensions: ExtensionBuilder;
+  /** Connected MCP servers, by owner and name. */
+  private readonly mcp = new Map<string, McpConnection>();
   readonly summarizer: BoardSummarizer | undefined;
   /** Where each agent receives delegated work. */
   private readonly workSessions = new Map<string, string>();
@@ -132,6 +147,33 @@ export class RedGiantCore implements OrchestrationHost {
     this.tasks = new TaskTracker(this.store);
     this.board = new Board(o.db, this.store);
     this.board.followTasks();
+    this.extensions = new ExtensionBuilder({
+      db: o.db,
+      store: this.store,
+      // Each proposal is tested in its own throwaway sandbox.
+      testWorkspace: async (id) => {
+        const dir = join(o.platformDir, "_proposals", id);
+        await mkdir(dir, { recursive: true });
+        const sb = await this.sandbox.create({
+          id: `proposal-${id}`,
+          localPath: dir,
+          mount: { type: "bind", source: dir },
+        });
+        return {
+          workspace: sb.workspace(),
+          dispose: async () => {
+            await sb.destroy();
+            await rm(dir, { recursive: true, force: true });
+          },
+        };
+      },
+      installRoot: async (ownerId, projectId) => {
+        if (!projectId) return this.platformPath(ownerId);
+        const p = await this.projects.get(ownerId, projectId);
+        if (!p) throw new NotFoundError(`Project "${projectId}" not found`);
+        return join(p.path, ".redgiant");
+      },
+    });
     const boardModel = o.boardModel ?? o.defaultModel;
     this.summarizer = boardModel
       ? new BoardSummarizer(this.board, o.providers, boardModel)
@@ -171,6 +213,7 @@ export class RedGiantCore implements OrchestrationHost {
     await migrateHierarchy(o.db);
     await migrateProjects(o.db);
     await migrateBoard(o.db);
+    await migrateExtensions(o.db);
     const core = new RedGiantCore(o);
     await core.registry.load();
     return core;
@@ -288,6 +331,21 @@ export class RedGiantCore implements OrchestrationHost {
         })
       : [];
     tools.push(...orchestrationTools(agent, this, this.tasks), ...boardTools(agent, this.board));
+    // Extensions: skills for every agent; custom and MCP tools for those that act (RD8, RD30).
+    const project = agent.projectId ? await this.projects.get(ownerId, agent.projectId) : undefined;
+    const roots = [
+      { dir: this.platformPath(ownerId), scope: "platform" as const },
+      ...(project ? [{ dir: join(project.path, ".redgiant"), scope: "project" as const }] : []),
+    ];
+    const skills = agent.kind === "demigod" ? [] : await loadSkills(roots);
+    tools.push(...skillTools(skills));
+    if (agent.kind !== "demigod" && agent.kind !== "inspector") {
+      tools.push(
+        ...customTools(await loadCustomTools(roots), ws),
+        ...(await this.mcpTools(ownerId, agent.projectId)),
+        proposeTool(agent, this.extensions),
+      );
+    }
     const receivesTasks = ["orchestrator", "agent", "subagent"].includes(agent.kind);
     if (receivesTasks) tools.push(completeTaskTool(agent, ws, this.broker, this.tasks));
     const listeners = new Set<(m: ServerMessage) => void>();
@@ -295,7 +353,9 @@ export class RedGiantCore implements OrchestrationHost {
       store: this.store,
       providers: this.o.providers,
       model,
-      system: agent.systemPrompt ?? DEFAULT_PROMPTS[agent.kind],
+      system: [agent.systemPrompt ?? DEFAULT_PROMPTS[agent.kind], skillsIndex(skills)]
+        .filter(Boolean)
+        .join("\n\n"),
       tools,
       ...(receivesTasks && { hooks: { stop: [this.tasks.stopHook(agentId)] } }),
       sessionId,
@@ -331,6 +391,66 @@ export class RedGiantCore implements OrchestrationHost {
       running: null,
       listeners,
     };
+  }
+
+  /** MCP servers configured by the owner: global ones and the project's. Failing servers are skipped. */
+  private async mcpTools(ownerId: string, projectId: string | null): Promise<Tool[]> {
+    const rows = await this.o.db.query<{
+      name: string;
+      project_id: string | null;
+      transport: McpServerConfig["transport"] | string;
+    }>(
+      "SELECT name, project_id, transport FROM rg_mcp_servers WHERE owner_id = $1 AND (project_id IS NULL OR project_id = $2) ORDER BY name",
+      [ownerId, projectId ?? ""],
+    );
+    const out: Tool[] = [];
+    for (const r of rows) {
+      const key = `${ownerId}/${r.name}`;
+      let conn = this.mcp.get(key);
+      if (!conn) {
+        conn = new McpConnection({
+          name: r.name,
+          transport: typeof r.transport === "string" ? JSON.parse(r.transport) : r.transport,
+        });
+        this.mcp.set(key, conn);
+      }
+      try {
+        out.push(...(await conn.tools()));
+      } catch (err) {
+        console.warn(`MCP server "${r.name}" unavailable: ${(err as Error).message}`);
+        this.mcp.delete(key);
+      }
+    }
+    return out;
+  }
+
+  async listMcp(ownerId: string) {
+    return this.o.db.query<{ name: string; project_id: string | null; transport: unknown }>(
+      "SELECT name, project_id, transport FROM rg_mcp_servers WHERE owner_id = $1 ORDER BY name",
+      [ownerId],
+    );
+  }
+
+  async setMcp(
+    ownerId: string,
+    config: McpServerConfig & { projectId: string | null },
+  ): Promise<void> {
+    await this.o.db.query(
+      `INSERT INTO rg_mcp_servers (owner_id, name, project_id, transport) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (owner_id, name) DO UPDATE SET project_id = EXCLUDED.project_id, transport = EXCLUDED.transport`,
+      [ownerId, config.name, config.projectId, JSON.stringify(config.transport)],
+    );
+    await this.mcp.get(`${ownerId}/${config.name}`)?.close();
+    this.mcp.delete(`${ownerId}/${config.name}`);
+  }
+
+  async removeMcp(ownerId: string, name: string): Promise<void> {
+    await this.o.db.query("DELETE FROM rg_mcp_servers WHERE owner_id = $1 AND name = $2", [
+      ownerId,
+      name,
+    ]);
+    await this.mcp.get(`${ownerId}/${name}`)?.close();
+    this.mcp.delete(`${ownerId}/${name}`);
   }
 
   /** The session where an agent receives delegated work (created on first use). */
@@ -456,5 +576,7 @@ export class RedGiantCore implements OrchestrationHost {
     this.approvals.denyAll();
     for (const sb of this.sandboxes.values()) await (await sb.catch(() => undefined))?.destroy();
     this.sandboxes.clear();
+    for (const c of this.mcp.values()) await c.close();
+    this.mcp.clear();
   }
 }

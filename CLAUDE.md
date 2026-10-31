@@ -32,3 +32,5 @@
   (DOMPurify). Look at it, don't guess: `scripts/demo-server.mjs` + `scripts/screenshots.mjs` (Playwright image).
 - Local engines: llama.cpp must run with `--slot-save-path` (shared with the server) and `--swa-full` for
   sliding-window models (Gemma…), or prefixes beyond the window are recomputed every turn.
+- Extensions never install themselves: an agent's proposal is tested in a throwaway sandbox and waits for the
+  user (`ExtensionBuilder.decide`); only the user's own extensions install directly once their tests pass.

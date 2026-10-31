@@ -68,6 +68,37 @@ export interface BoardPost {
   createdAt: string;
 }
 
+export interface Proposal {
+  id: string;
+  projectId: string | null;
+  kind: "tool" | "skill";
+  name: string;
+  author: string;
+  status: "failed" | "pending" | "installed" | "rejected";
+  report: { name: string; passed: boolean; detail: string }[];
+  createdAt: string;
+  input: {
+    description?: string;
+    spec?: { description: string; command: string };
+    body?: string;
+    files?: Record<string, string>;
+  };
+}
+
+export interface Installed {
+  kind: "tool" | "skill";
+  name: string;
+  description: string;
+  scope: string;
+  path: string;
+}
+
+export interface McpEntry {
+  name: string;
+  project_id: string | null;
+  transport: { type: "stdio"; command: string; args?: string[] } | { type: "http"; url: string };
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -135,6 +166,18 @@ export class Api {
       "GET",
       `/api/board/search?q=${encodeURIComponent(q)}`,
     );
+  proposals = (status?: Proposal["status"]) =>
+    this.call<Proposal[]>("GET", `/api/extensions/proposals${status ? `?status=${status}` : ""}`);
+  createExtension = (projectId: string | null, input: unknown) =>
+    this.call<Proposal>("POST", "/api/extensions/proposals", { projectId, input });
+  decideExtension = (id: string, decision: "approve" | "reject") =>
+    this.call<Proposal>("POST", `/api/extensions/proposals/${id}/decision`, { decision });
+  installed = () => this.call<Installed[]>("GET", "/api/extensions/installed");
+  mcpServers = () => this.call<McpEntry[]>("GET", "/api/extensions/mcp");
+  setMcp = (m: { name: string; projectId: string | null; transport: McpEntry["transport"] }) =>
+    this.call("PUT", "/api/extensions/mcp", m);
+  removeMcp = (name: string) =>
+    this.call("DELETE", `/api/extensions/mcp/${encodeURIComponent(name)}`);
   verify = () =>
     this.call<{ ok: boolean; checked?: number; seq?: number; reason?: string }>(
       "GET",

@@ -1,0 +1,26 @@
+{
+  "name": "@redgiant/extensions",
+  "version": "0.1.0",
+  "description": "RedGiant extensions: MCP servers as tools, skills loaded on demand, custom tools that run in the sandbox, and a builder where agents propose them for approval.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@redgiant/agent": "workspace:*",
+    "@redgiant/events": "workspace:*",
+    "@redgiant/tools": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13"
+  }
+}

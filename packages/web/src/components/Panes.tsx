@@ -13,6 +13,7 @@ import { Board } from "./Board.js";
 import { Budgets } from "./Budgets.js";
 import { Chat } from "./Chat.js";
 import { Editor } from "./Editor.js";
+import { Extensions } from "./Extensions.js";
 import { Files } from "./Files.js";
 import { Hierarchy } from "./Hierarchy.js";
 import { TerminalView } from "./TerminalView.js";
@@ -35,6 +36,8 @@ function Content({ tab }: { tab: Tab }) {
       return <Budgets />;
     case "board":
       return <Board projectId={tab.projectId} />;
+    case "extensions":
+      return <Extensions />;
   }
 }
 

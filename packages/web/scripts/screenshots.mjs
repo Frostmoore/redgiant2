@@ -47,6 +47,10 @@ await page.locator(".thread-item", { hasText: "Output format" }).click();
 await page.waitForSelector(".post");
 await shot("06b-board");
 
+await page.click("text=Estensioni");
+await page.waitForSelector(".extensions .approval");
+await shot("06c-extensions");
+
 await page.click("text=Budget");
 await page.waitForSelector(".budgets");
 await shot("06-budgets");

@@ -2,6 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { loadCustomTools, loadSkills } from "@redgiant/extensions";
 import { HierarchyError } from "@redgiant/hierarchy";
 import {
   AgentKind,
@@ -431,6 +432,116 @@ const routes = {
       ...errors,
     },
   }),
+  proposals: createRoute({
+    method: "get",
+    path: "/api/extensions/proposals",
+    security,
+    request: {
+      query: z.object({
+        status: z.enum(["failed", "pending", "installed", "rejected"]).optional(),
+      }),
+    },
+    responses: {
+      200: json(z.array(z.unknown()), "Proposed tools and skills, with their test reports"),
+      ...errors,
+    },
+  }),
+  createExtension: createRoute({
+    method: "post",
+    path: "/api/extensions/proposals",
+    security,
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: z.object({ projectId: z.string().nullable(), input: z.unknown() }),
+          },
+        },
+      },
+    },
+    responses: {
+      201: json(z.unknown(), "Tested; installed if the tests pass (the user is the author)"),
+      ...errors,
+    },
+  }),
+  decideExtension: createRoute({
+    method: "post",
+    path: "/api/extensions/proposals/{id}/decision",
+    security,
+    request: {
+      params: z.object({ id: z.string() }),
+      body: {
+        content: {
+          "application/json": { schema: z.object({ decision: z.enum(["approve", "reject"]) }) },
+        },
+      },
+    },
+    responses: { 200: json(z.unknown(), "Decided"), ...errors },
+  }),
+  listMcp: createRoute({
+    method: "get",
+    path: "/api/extensions/mcp",
+    security,
+    responses: { 200: json(z.array(z.unknown()), "Configured MCP servers"), ...errors },
+  }),
+  setMcp: createRoute({
+    method: "put",
+    path: "/api/extensions/mcp",
+    security,
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: z.object({
+              name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,30}$/),
+              projectId: z.string().nullable(),
+              transport: z.discriminatedUnion("type", [
+                z.object({
+                  type: z.literal("stdio"),
+                  command: z.string().min(1),
+                  args: z.array(z.string()).optional(),
+                  env: z.record(z.string(), z.string()).optional(),
+                }),
+                z.object({
+                  type: z.literal("http"),
+                  url: z.url(),
+                  headers: z.record(z.string(), z.string()).optional(),
+                }),
+              ]),
+            }),
+          },
+        },
+      },
+    },
+    responses: { 200: json(z.object({ ok: z.literal(true) }), "Saved"), ...errors },
+  }),
+  deleteMcp: createRoute({
+    method: "delete",
+    path: "/api/extensions/mcp/{name}",
+    security,
+    request: { params: z.object({ name: z.string() }) },
+    responses: { 200: json(z.object({ ok: z.literal(true) }), "Removed"), ...errors },
+  }),
+  installed: createRoute({
+    method: "get",
+    path: "/api/extensions/installed",
+    security,
+    responses: {
+      200: json(
+        z.array(
+          z.object({
+            kind: z.enum(["tool", "skill"]),
+            name: z.string(),
+            description: z.string(),
+            scope: z.string(),
+            path: z.string(),
+          }),
+        ),
+        "Installed tools and skills",
+      ),
+      ...errors,
+    },
+  }),
   verifyLog: createRoute({
     method: "get",
     path: "/api/log/verify",
@@ -710,6 +821,101 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       { digest: await core.summarizer.digest(owner(c), q.projectId ?? null, q.since) },
       200,
     );
+  });
+
+  app.openapi(routes.proposals, async (c) =>
+    c.json(await core.extensions.list(owner(c), c.req.valid("query").status), 200),
+  );
+  app.openapi(routes.createExtension, async (c) => {
+    const b = c.req.valid("json");
+    if (!(await ownsProject(c, b.projectId))) return c.json({ error: "Project not found" }, 404);
+    try {
+      // The user is the author: if the tests pass there is nobody else to ask.
+      const p = await core.extensions.propose({
+        ownerId: owner(c),
+        projectId: b.projectId,
+        author: "human",
+        input: b.input as never,
+        autoInstall: true,
+      });
+      return c.json(p, 201);
+    } catch (err) {
+      const issues = (err as { issues?: { path: (string | number)[]; message: string }[] }).issues;
+      return c.json(
+        {
+          error: issues
+            ? issues.map((x) => `${x.path.join(".")}: ${x.message}`).join("; ")
+            : (err as Error).message,
+        },
+        400,
+      );
+    }
+  });
+  app.openapi(routes.decideExtension, async (c) => {
+    try {
+      return c.json(
+        await core.extensions.decide(
+          owner(c),
+          c.req.valid("param").id,
+          c.req.valid("json").decision,
+          "human",
+        ),
+        200,
+      );
+    } catch (err) {
+      return c.json(
+        { error: (err as Error).message },
+        /No proposal/.test((err as Error).message) ? 404 : 400,
+      );
+    }
+  });
+  app.openapi(routes.installed, async (c) => {
+    const o = owner(c);
+    const roots = [
+      { dir: core.platformPath(o), scope: "platform" as const, label: "platform" },
+      ...(await core.projects.list(o)).map((p) => ({
+        dir: join(p.path, ".redgiant"),
+        scope: "project" as const,
+        label: `project:${p.id}`,
+      })),
+    ];
+    const out: {
+      kind: "tool" | "skill";
+      name: string;
+      description: string;
+      scope: string;
+      path: string;
+    }[] = [];
+    for (const r of roots) {
+      for (const sk of await loadSkills([r]))
+        out.push({
+          kind: "skill",
+          name: sk.name,
+          description: sk.description,
+          scope: r.label,
+          path: `${r.scope === "platform" ? "" : ".redgiant/"}skills/${sk.name}/SKILL.md`,
+        });
+      for (const t of await loadCustomTools([r]))
+        out.push({
+          kind: "tool",
+          name: t.spec.name,
+          description: t.spec.description,
+          scope: r.label,
+          path: `${r.scope === "platform" ? "" : ".redgiant/"}tools/${t.spec.name}/tool.json`,
+        });
+    }
+    return c.json(out, 200);
+  });
+  app.openapi(routes.listMcp, async (c) => c.json(await core.listMcp(owner(c)), 200));
+  app.openapi(routes.setMcp, async (c) => {
+    const b = c.req.valid("json");
+    if (!(await ownsProject(c, b.projectId))) return c.json({ error: "Project not found" }, 404);
+    await core.setMcp(owner(c), b as never);
+    return c.json({ ok: true as const }, 200);
+  });
+  app.openapi(routes.deleteMcp, async (c) => {
+    await core.removeMcp(owner(c), c.req.valid("param").name);
+    return c.json({ ok: true as const }, 200);
   });
 
   app.openapi(routes.verifyLog, async (c) => c.json(await core.store.verify(), 200));

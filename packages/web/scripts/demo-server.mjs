@@ -144,6 +144,43 @@ await core.registry.create(
     role: "Answers questions about Demo",
   },
 );
+await core.extensions.propose({
+  ownerId: "local",
+  projectId: "demo",
+  author: coder.id,
+  input: {
+    kind: "tool",
+    spec: {
+      name: "word-count",
+      description: "Counts the words of a text",
+      inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+      command: "node count.mjs",
+    },
+    files: {
+      "count.mjs":
+        "import { readFileSync } from 'node:fs';\nconsole.log(JSON.parse(readFileSync(process.argv[2], 'utf8')).text.split(/\\s+/).length);\n",
+    },
+    tests: [{ input: { text: "a b c" }, expectStdoutContains: "3" }],
+  },
+});
+await core.extensions.propose({
+  ownerId: "local",
+  projectId: null,
+  author: "human",
+  autoInstall: true,
+  input: {
+    kind: "skill",
+    name: "release-notes",
+    description: "How we write release notes",
+    body: "Group changes by user impact; one line each.",
+    untestableReason: "Style is judged by reading.",
+  },
+});
+await core.setMcp("local", {
+  name: "docs",
+  projectId: null,
+  transport: { type: "http", url: "https://mcp.example.com/mcp" },
+});
 const sid = await core.startSession("local", orch.id);
 await (await core.send("local", sid, "Give me a quick tour of the project.")).done;
 await core.budget.setLimit({ scope: "global", id: "local" }, { usd: 20 });

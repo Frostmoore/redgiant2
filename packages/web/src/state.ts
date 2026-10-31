@@ -277,6 +277,7 @@ export type Tab =
   | { id: string; type: "editor"; title: string; scope: string; path: string }
   | { id: string; type: "terminal"; title: string; scope: string }
   | { id: string; type: "board"; title: string; projectId: string | null }
+  | { id: string; type: "extensions"; title: string }
   | { id: string; type: "hierarchy" | "approvals" | "budgets"; title: string };
 
 export interface Pane {
