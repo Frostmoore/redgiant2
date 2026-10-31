@@ -136,8 +136,10 @@ describe("God's changes to RedGiant's own code", () => {
       built: req?.commit,
       history: [{ ...req, result: "promoted", at: new Date().toISOString() }],
     });
-    await core.code?.reconcile();
-    await core.code?.reconcile(); // once only
+    // The supervisor confirms only after the new version stayed up: the server keeps watching.
+    core.code?.watch(50);
+    await new Promise((r) => setTimeout(r, 300));
+    core.code?.unwatch();
     expect((await core.changes.get("me", change?.id ?? ""))?.stage).toBe("promoted");
     expect(notes).toEqual([`✅ Platform change live: Version v2 (${req?.commit.slice(0, 8)})`]);
   });

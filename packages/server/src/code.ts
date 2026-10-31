@@ -328,11 +328,37 @@ export class CodeChanges {
     });
   }
 
+  private timer: NodeJS.Timeout | undefined;
+  private reconciling: Promise<void> | undefined;
+
   /**
-   * At startup: what the supervisor did while the server was down goes into the log, and the
-   * owner is told (promoted, or rolled back with the reason).
+   * Follows the supervisor's report. A promotion is confirmed only after the new version has
+   * stayed up for a while, that is after this server started: reading it once is not enough.
    */
-  async reconcile(): Promise<void> {
+  watch(everyMs = 5000): void {
+    this.unwatch();
+    void this.reconcile().catch(() => {});
+    this.timer = setInterval(() => void this.reconcile().catch(() => {}), everyMs);
+    this.timer.unref?.();
+  }
+
+  unwatch(): void {
+    clearInterval(this.timer);
+    this.timer = undefined;
+  }
+
+  /**
+   * What the supervisor did goes into the log, and the owner is told (promoted, or rolled back
+   * with the reason). Each outcome is recorded once, even when calls overlap.
+   */
+  reconcile(): Promise<void> {
+    this.reconciling ??= this.reconcileOnce().finally(() => {
+      this.reconciling = undefined;
+    });
+    return this.reconciling;
+  }
+
+  private async reconcileOnce(): Promise<void> {
     const state = await readRelease(this.o.stateDir);
     for (const h of state.history) {
       if (!h.changeId || !h.ownerId) continue;

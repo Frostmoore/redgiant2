@@ -836,6 +836,7 @@ export class RedGiantCore implements OrchestrationHost {
   /** Stops every running turn and denies every open approval (shutdown). */
   async close(): Promise<void> {
     await this.automations.stop();
+    this.code?.unwatch();
     for (const l of this.live.values()) l.running?.abort();
     this.approvals.denyAll();
     for (const sb of this.sandboxes.values()) await (await sb.catch(() => undefined))?.destroy();

@@ -163,8 +163,8 @@ if (metal)
 if (sandbox.kind === "host")
   console.warn("WARNING: host sandbox: agents run commands directly on this system, unisolated.");
 await core.automations.start();
-// What the supervisor did while the server was down (promotions, rollbacks) goes into the log.
-await core.code?.reconcile().catch((err) => console.error("release:", err));
+// What the supervisor does (promotions, rollbacks) goes into the log and reaches the owner.
+core.code?.watch();
 const shutdown = async () => {
   for (const h of shutdownHooks) await h().catch(() => {});
   await running.close();
