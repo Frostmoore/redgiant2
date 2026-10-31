@@ -79,6 +79,16 @@ interface Live {
   listeners: Set<(m: ServerMessage) => void>;
 }
 
+/** Who goes first on a shared local engine (RD16): the user's interlocutors, then the workers. */
+const PRIORITY: Record<AgentRecord["kind"], number> = {
+  god: 100,
+  demigod: 100,
+  orchestrator: 70,
+  inspector: 60,
+  agent: 50,
+  subagent: 30,
+};
+
 const DEFAULT_PROMPTS: Record<AgentRecord["kind"], string> = {
   god: "You are God, the main orchestrator of this RedGiant installation. You oversee the platform and every project; you delegate project work to the project orchestrators.",
   demigod:
@@ -276,6 +286,8 @@ export class RedGiantCore implements OrchestrationHost {
       ownerId,
       projectId: agent.projectId,
       agentId,
+      priority: PRIORITY[agent.kind],
+      cacheScope: agent.projectId ?? `platform-${agent.ownerId}`,
       live: (e: { type: string; text?: string }) => {
         if (e.type !== "text_delta" && e.type !== "thinking_delta") return;
         for (const f of listeners)

@@ -214,6 +214,15 @@ importers:
         specifier: workspace:*
         version: link:../server
 
+  packages/engine-local:
+    dependencies:
+      '@redgiant/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@redgiant/providers':
+        specifier: workspace:*
+        version: link:../providers
+
   packages/events:
     dependencies:
       '@redgiant/protocol':
@@ -288,6 +297,9 @@ importers:
       '@redgiant/agent':
         specifier: workspace:*
         version: link:../agent
+      '@redgiant/engine-local':
+        specifier: workspace:*
+        version: link:../engine-local
       '@redgiant/events':
         specifier: workspace:*
         version: link:../events

@@ -2,6 +2,7 @@
 // RedGiant server. Configured by environment variables until the setup wizard (G17) exists.
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { KvStore, LocalEngineProvider } from "@redgiant/engine-local";
 import { pgPoolClient, Redactor } from "@redgiant/events";
 import type { ModelSpec } from "@redgiant/protocol";
 import { AnthropicProvider, OpenAICompatProvider, ProviderRegistry } from "@redgiant/providers";
@@ -27,9 +28,29 @@ const dataDir = resolve(env.REDGIANT_DATA_DIR ?? "./data");
 const redactor = new Redactor().addSecret("redgiant-token", token);
 
 const providers = new ProviderRegistry();
+const shutdownHooks: (() => Promise<void>)[] = [];
 if (env.ANTHROPIC_API_KEY) {
   providers.register(new AnthropicProvider({ apiKey: env.ANTHROPIC_API_KEY }));
   redactor.addSecret("anthropic", env.ANTHROPIC_API_KEY);
+}
+// A llama.cpp engine shared by every agent: slots by priority, KV cache saved on the SSD.
+if (env.REDGIANT_LLAMACPP_URL) {
+  const kvDir = env.REDGIANT_KV_DIR;
+  const engine = new LocalEngineProvider({
+    id: env.REDGIANT_LLAMACPP_ID ?? "local",
+    baseURL: env.REDGIANT_LLAMACPP_URL,
+    ...(kvDir && { kv: new KvStore(kvDir) }),
+    ...(env.REDGIANT_KV_BUDGET_MB && {
+      kvBudgetBytes: Number(env.REDGIANT_KV_BUDGET_MB) * 1024 * 1024,
+    }),
+  });
+  await engine
+    .connect()
+    .catch((err) =>
+      console.warn(`llama.cpp engine not reachable at ${env.REDGIANT_LLAMACPP_URL}: ${err}`),
+    );
+  providers.register(engine);
+  shutdownHooks.push(() => engine.shutdown());
 }
 if (env.REDGIANT_OPENAI_BASE_URL) {
   const local = new OpenAICompatProvider({
@@ -76,5 +97,9 @@ const running = await serve(core, new TokenAuth({ [token]: env.REDGIANT_OWNER ??
 });
 console.log(`RedGiant listening on ${running.url} (sandbox: ${sandbox.kind})`);
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
-  process.on(sig, () => void running.close().then(() => process.exit(0)));
+  process.on(sig, async () => {
+    for (const h of shutdownHooks) await h().catch(() => {});
+    await running.close();
+    process.exit(0);
+  });
 }

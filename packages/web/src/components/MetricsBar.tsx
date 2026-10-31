@@ -57,6 +57,11 @@ export function MetricsBar({
           {t("generation")} {duration(m.decodeMs)}
           {m.tokPerSec ? ` · ${Math.round(m.tokPerSec)} tok/s` : ""}
         </span>
+        {m.kvRestoredTokens !== undefined && (
+          <span class="ssd" title={t("restoredFromDisk")}>
+            SSD {kTokens(m.kvRestoredTokens)} ({duration(m.kvRestoreMs)})
+          </span>
+        )}
         {costUsd !== undefined && costUsd > 0 && <span>{usd(costUsd)}</span>}
         <span class="dim">{clock(m.endedAt ?? m.startedAt)}</span>
       </div>

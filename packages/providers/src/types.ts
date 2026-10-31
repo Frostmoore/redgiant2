@@ -38,6 +38,10 @@ export interface CompletionRequest {
    * the cached prefix (tools come first) is reused. Default `auto`.
    */
   toolChoice?: "auto" | "none" | undefined;
+  /** Scheduling priority on shared local engines (higher first). */
+  priority?: number | undefined;
+  /** Where a local engine's saved KV cache belongs (a project); budgets are per scope. */
+  cacheScope?: string | undefined;
 }
 
 /** Token usage, normalised. `inputTokens` is the total prompt size, cached tokens included. */

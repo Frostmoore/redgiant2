@@ -21,6 +21,9 @@ export const MessageMetrics = z.object({
   prefillMs: ms.optional(),
   decodeMs: ms.optional(),
   tokPerSec: z.number().nonnegative().optional(),
+  /** Tokens whose KV cache was restored from disk (local engines) before this request. */
+  kvRestoredTokens: count.optional(),
+  kvRestoreMs: ms.optional(),
   source: z.enum(["server", "client"]),
 });
 export type MessageMetrics = z.infer<typeof MessageMetrics>;

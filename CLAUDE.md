@@ -30,3 +30,5 @@
 - Web UI (`packages/web`): Preact + signals; all state in `src/state.ts` (pure `buildItems` turns events into chat
   items); every text through `t()` with both `it` and `en`; rendered Markdown always through `renderMarkdown`
   (DOMPurify). Look at it, don't guess: `scripts/demo-server.mjs` + `scripts/screenshots.mjs` (Playwright image).
+- Local engines: llama.cpp must run with `--slot-save-path` (shared with the server) and `--swa-full` for
+  sliding-window models (Gemma…), or prefixes beyond the window are recomputed every turn.

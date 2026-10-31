@@ -33,6 +33,8 @@ export interface OpenAICompatOptions {
    * after it. Templates that strip old reasoning ignore the field.
    */
   replayReasoning?: boolean;
+  /** Extra fields for each request body (e.g. llama.cpp `id_slot`). */
+  extraBody?: (request: CompletionRequest) => Record<string, unknown>;
   headers?: Record<string, string>;
   fetch?: typeof fetch;
 }
@@ -169,6 +171,7 @@ export class OpenAICompatProvider implements Provider {
       ...(request.maxTokens !== undefined && { max_tokens: request.maxTokens }),
       ...openAiEffortFields(request.effort, this.options.effortStyle ?? "none"),
       ...(this.options.sendCacheKey && request.cacheKey && { prompt_cache_key: request.cacheKey }),
+      ...this.options.extraBody?.(request),
       stream: true,
       stream_options: { include_usage: true },
     };

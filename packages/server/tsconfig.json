@@ -6,12 +6,29 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../protocol" },
-    { "path": "../providers" },
-    { "path": "../events" },
-    { "path": "../agent" },
-    { "path": "../tools" },
-    { "path": "../sandbox" },
-    { "path": "../hierarchy" }
+    {
+      "path": "../protocol"
+    },
+    {
+      "path": "../providers"
+    },
+    {
+      "path": "../events"
+    },
+    {
+      "path": "../agent"
+    },
+    {
+      "path": "../tools"
+    },
+    {
+      "path": "../sandbox"
+    },
+    {
+      "path": "../hierarchy"
+    },
+    {
+      "path": "../engine-local"
+    }
   ]
 }

@@ -767,3 +767,7 @@ pre {
   border: none;
   padding: 0;
 }
+
+.metrics-text .ssd {
+  color: #9fd3c7;
+}

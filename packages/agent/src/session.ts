@@ -44,6 +44,10 @@ export interface AgentSessionOptions {
   /** Maximum model calls per `send` (default 50). */
   maxTurns?: number;
   maxTokens?: number;
+  /** Scheduling priority on shared local engines; set from the agent kind. */
+  priority?: number;
+  /** Scope of saved KV caches on local engines (normally the project). */
+  cacheScope?: string;
   /** Live, non-persisted stream (text and thinking deltas) for connected clients. */
   live?: (event: StreamEvent) => void;
   /** Every completion, including summaries; budgets and counters plug in here. */
@@ -137,6 +141,8 @@ export class AgentSession {
       messages: this.messages,
       ...(this.o.maxTokens !== undefined && { maxTokens: this.o.maxTokens }),
       cacheKey: this.ctx.sessionId,
+      ...(this.o.priority !== undefined && { priority: this.o.priority }),
+      ...(this.o.cacheScope !== undefined && { cacheScope: this.o.cacheScope }),
     };
   }
 

@@ -9,7 +9,8 @@ import { FakeProvider, ProviderRegistry } from "@redgiant/providers";
 import { RedGiantCore, serve, TokenAuth } from "@redgiant/server";
 
 const port = Number(process.argv[2] ?? 7650);
-const token = "demo-token-0123456789";
+// Set DEMO_TOKEN when the demo is reachable by others: the UI includes a terminal.
+const token = process.env.DEMO_TOKEN ?? "demo-token-0123456789";
 const dir = await mkdtemp(join(tmpdir(), "rg-demo-"));
 const pg = await PGlite.create();
 const wrap = (q) => ({

@@ -29,7 +29,8 @@
     "hono": "^4.13.14",
     "pg": "^8.23.1",
     "ws": "^8.22.1",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "@redgiant/engine-local": "workspace:*"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.13",
