@@ -77,6 +77,19 @@ describe("LocalWorkspace", () => {
     await expect(ws.glob("../**/*")).rejects.toBeInstanceOf(PathOutsideWorkspaceError);
   });
 
+  it("refuses dangling symlinks that point outside", async () => {
+    const outside = join(tmpdir(), `rg-outside-${Date.now()}`);
+    await symlink(outside, join(dir, "dangling"));
+    await expect(ws.writeText("dangling", "x")).rejects.toBeInstanceOf(PathOutsideWorkspaceError);
+    await expect(ws.writeText("dangling/inner.txt", "x")).rejects.toBeInstanceOf(
+      PathOutsideWorkspaceError,
+    );
+    await expect(readFile(outside)).rejects.toThrow(/ENOENT/);
+    // A symlink that stays inside is fine.
+    await symlink(join(dir, "src"), join(dir, "src-link"));
+    expect(await ws.readText("src-link/a.ts")).toContain("hello");
+  });
+
   it("refuses writes when read-only", async () => {
     const ro = new LocalWorkspace(dir, true);
     await expect(ro.writeText("x.txt", "y")).rejects.toThrow(/read-only/);

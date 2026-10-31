@@ -1,6 +1,15 @@
 import { spawn } from "node:child_process";
-import { glob as fsGlob, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import {
+  glob as fsGlob,
+  lstat,
+  mkdir,
+  readFile,
+  readlink,
+  realpath,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export interface ExecResult {
   stdout: string;
@@ -68,23 +77,33 @@ export class LocalWorkspace implements Workspace {
     this.root = resolve(root);
   }
 
-  /** Resolves a relative path, refusing anything that escapes the root (also via symlinks). */
+  /**
+   * Resolves a relative path, refusing anything that escapes the root. Every existing
+   * component is checked with lstat, so a symlink pointing outside is refused even when its
+   * target does not exist yet (writing through it would create a file outside).
+   */
   async resolve(path: string): Promise<string> {
     const abs = resolve(this.root, path);
     if (!inside(this.root, abs)) throw new PathOutsideWorkspaceError(path);
     const realRoot = await realpath(this.root);
-    // Walk up to the deepest existing ancestor and check where it really points.
-    let probe = abs;
-    while (true) {
+    let current = realRoot;
+    for (const segment of relative(this.root, abs).split(sep).filter(Boolean)) {
+      const next = join(current, segment);
+      let st: Awaited<ReturnType<typeof lstat>>;
       try {
-        const real = await realpath(probe);
-        if (!inside(realRoot, real)) throw new PathOutsideWorkspaceError(path);
-        break;
+        st = await lstat(next);
       } catch (err) {
-        if (err instanceof PathOutsideWorkspaceError) throw err;
-        const parent = dirname(probe);
-        if (parent === probe) break;
-        probe = parent;
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "ENOTDIR") break; // the rest does not exist yet
+        throw err;
+      }
+      if (st.isSymbolicLink()) {
+        const target = resolve(dirname(next), await readlink(next));
+        const real = await realpath(target).catch(() => target);
+        if (!inside(realRoot, real)) throw new PathOutsideWorkspaceError(path);
+        current = real;
+      } else {
+        current = next;
       }
     }
     return abs;

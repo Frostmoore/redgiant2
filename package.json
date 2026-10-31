@@ -14,7 +14,7 @@
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "biome check .",
+    "lint": "node scripts/check-references.mjs && biome check .",
     "format": "biome check --write .",
     "test:live": "vitest run --config vitest.live.config.ts"
   },
