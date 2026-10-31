@@ -1,0 +1,123 @@
+import { describe, expect, it } from "vitest";
+import {
+  ClientMessage,
+  Event,
+  LOCAL_OWNER_ID,
+  MessageMetrics,
+  ModelSpec,
+  PROTOCOL_VERSION,
+  ServerMessage,
+} from "../src/index.js";
+
+const HASH = "a".repeat(64);
+
+const envelope = {
+  id: "evt_1",
+  seq: 0,
+  ts: "2026-10-31T10:00:00.000Z",
+  ownerId: LOCAL_OWNER_ID,
+  projectId: "proj_1",
+  agentId: "agent_1",
+  prevHash: null,
+  hash: HASH,
+};
+
+describe("ModelSpec", () => {
+  it("accepts a nested fallback chain", () => {
+    const spec = ModelSpec.parse({
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+      effort: "high",
+      fallback: { provider: "local", model: "gemma-4", fallback: { provider: "x", model: "y" } },
+    });
+    expect(spec.fallback?.fallback?.model).toBe("y");
+  });
+
+  it("rejects an unknown effort", () => {
+    expect(ModelSpec.safeParse({ provider: "p", model: "m", effort: "extreme" }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe("MessageMetrics", () => {
+  it("defaults cache counters to zero", () => {
+    const m = MessageMetrics.parse({
+      startedAt: "2026-10-31T10:00:00.000Z",
+      inputTokens: 1200,
+      outputTokens: 80,
+      contextUsed: 1280,
+      contextWindow: 32768,
+      source: "client",
+    });
+    expect(m.cachedReadTokens).toBe(0);
+    expect(m.cacheWriteTokens).toBe(0);
+  });
+
+  it("rejects negative token counts", () => {
+    expect(
+      MessageMetrics.safeParse({
+        startedAt: "2026-10-31T10:00:00.000Z",
+        inputTokens: -1,
+        outputTokens: 0,
+        contextUsed: 0,
+        contextWindow: 1,
+        source: "server",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("Event", () => {
+  it("parses a typed event with its envelope", () => {
+    const e = Event.parse({ ...envelope, type: "message.user", payload: { text: "ciao" } });
+    expect(e.type).toBe("message.user");
+  });
+
+  it("rejects a payload that does not match its type", () => {
+    expect(Event.safeParse({ ...envelope, type: "message.user", payload: {} }).success).toBe(false);
+  });
+
+  it("rejects a malformed hash", () => {
+    expect(
+      Event.safeParse({ ...envelope, hash: "xyz", type: "message.user", payload: { text: "" } })
+        .success,
+    ).toBe(false);
+  });
+
+  it("requires a justification to close a task as not testable", () => {
+    const base = { ...envelope, type: "task.closed" };
+    expect(
+      Event.safeParse({ ...base, payload: { taskId: "t1", outcome: "not_testable" } }).success,
+    ).toBe(false);
+    expect(
+      Event.safeParse({
+        ...base,
+        payload: { taskId: "t1", outcome: "not_testable", justification: "visual review only" },
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe("wire messages", () => {
+  it("round-trips a welcome and an event", () => {
+    expect(ServerMessage.parse({ type: "welcome", protocolVersion: PROTOCOL_VERSION }).type).toBe(
+      "welcome",
+    );
+    const msg = ServerMessage.parse({
+      type: "event",
+      sessionId: "s1",
+      event: { ...envelope, type: "session.started", payload: { sessionId: "s1" } },
+    });
+    expect(msg.type).toBe("event");
+  });
+
+  it("defaults remember to false on permission decisions", () => {
+    const m = ClientMessage.parse({
+      type: "permission.resolve",
+      requestId: "r1",
+      decision: "allow",
+    });
+    expect(m.type === "permission.resolve" && m.remember).toBe(false);
+  });
+});

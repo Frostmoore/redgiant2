@@ -1,0 +1,117 @@
+import { z } from "zod";
+import { AgentSpec } from "./agents.js";
+import { MessageMetrics } from "./metrics.js";
+
+/** Hex-encoded SHA-256. */
+export const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/);
+
+/** Owner used while RedGiant runs single-user; every record still carries an owner id. */
+export const LOCAL_OWNER_ID = "local";
+
+const text = z.object({ text: z.string() });
+
+/** Typed payloads, discriminated by `type`. */
+export const EventBody = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("session.started"), payload: z.object({ sessionId: z.string() }) }),
+  z.object({ type: z.literal("message.user"), payload: text }),
+  z.object({ type: z.literal("message.assistant.delta"), payload: text }),
+  z.object({
+    type: z.literal("message.assistant"),
+    payload: text.extend({ metrics: MessageMetrics.optional() }),
+  }),
+  z.object({
+    type: z.literal("tool.call"),
+    payload: z.object({ callId: z.string(), tool: z.string(), input: z.unknown() }),
+  }),
+  z.object({
+    type: z.literal("tool.result"),
+    payload: z.object({ callId: z.string(), ok: z.boolean(), output: z.unknown() }),
+  }),
+  z.object({
+    type: z.literal("permission.requested"),
+    payload: z.object({
+      requestId: z.string(),
+      callId: z.string(),
+      reason: z.string(),
+      askedTo: z.string(),
+    }),
+  }),
+  z.object({
+    type: z.literal("permission.resolved"),
+    payload: z.object({
+      requestId: z.string(),
+      decision: z.enum(["allow", "deny", "escalate"]),
+      by: z.string(),
+    }),
+  }),
+  z.object({
+    type: z.literal("compaction"),
+    payload: z.object({ summary: z.string(), fromSeq: z.number().int(), toSeq: z.number().int() }),
+  }),
+  z.object({ type: z.literal("agent.spawned"), payload: z.object({ agent: AgentSpec }) }),
+  z.object({
+    type: z.literal("agent.stopped"),
+    payload: z.object({ agentId: z.string(), reason: z.string() }),
+  }),
+  z.object({
+    type: z.literal("task.opened"),
+    payload: z.object({ taskId: z.string(), title: z.string() }),
+  }),
+  z.object({
+    type: z.literal("task.verified"),
+    payload: z.object({ taskId: z.string(), verifier: z.string(), passed: z.boolean() }),
+  }),
+  z.object({
+    type: z.literal("task.closed"),
+    payload: z.discriminatedUnion("outcome", [
+      z.object({ taskId: z.string(), outcome: z.literal("verified") }),
+      // A task may close without a verifier only by stating why it is not testable.
+      z.object({
+        taskId: z.string(),
+        outcome: z.literal("not_testable"),
+        justification: z.string().min(1),
+      }),
+      z.object({ taskId: z.string(), outcome: z.literal("abandoned"), reason: z.string() }),
+    ]),
+  }),
+  z.object({
+    type: z.literal("board.post"),
+    payload: z.object({ threadId: z.string(), postId: z.string() }),
+  }),
+  z.object({
+    type: z.literal("budget.exceeded"),
+    payload: z.object({
+      scope: z.enum(["agent", "project", "global"]),
+      limit: z.number(),
+      used: z.number(),
+    }),
+  }),
+  z.object({
+    type: z.literal("platform.changed"),
+    payload: z.object({
+      change: z.string(),
+      stage: z.enum(["proposed", "tested", "promoted", "rolled_back"]),
+    }),
+  }),
+  z.object({
+    type: z.literal("redaction"),
+    payload: z.object({ targetSeq: z.number().int(), reason: z.string() }),
+  }),
+]);
+export type EventBody = z.infer<typeof EventBody>;
+export type EventType = EventBody["type"];
+
+/** Envelope common to every event in the append-only log. */
+export const EventEnvelope = z.object({
+  id: z.string().min(1),
+  seq: z.number().int().nonnegative(),
+  ts: z.iso.datetime(),
+  ownerId: z.string().min(1),
+  projectId: z.string().min(1).nullable(),
+  agentId: z.string().min(1).nullable(),
+  prevHash: Sha256Hex.nullable(),
+  hash: Sha256Hex,
+});
+
+export const Event = z.intersection(EventEnvelope, EventBody);
+export type Event = z.infer<typeof Event>;
