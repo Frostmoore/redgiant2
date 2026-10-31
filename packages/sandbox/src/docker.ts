@@ -25,6 +25,25 @@ export interface DockerSandboxOptions {
   user?: string;
   /** Container name prefix. */
   prefix?: string;
+  /**
+   * RedGiant itself runs in a container with its data in this volume, mounted at `mountPoint`:
+   * a workspace under it is mounted from the same volume (with a subpath), not by host path,
+   * so it works the same on Linux, macOS and Windows.
+   */
+  dataVolume?: { name: string; mountPoint: string };
+}
+
+/** A bind mount under the data volume becomes a volume mount with a subpath. */
+export function translateMount(
+  mount: SandboxSpec["mount"],
+  dataVolume?: { name: string; mountPoint: string },
+): SandboxSpec["mount"] {
+  if (mount.type !== "bind" || !dataVolume) return mount;
+  const root = posix.normalize(dataVolume.mountPoint).replace(/\/+$/, "");
+  const source = posix.normalize(mount.source.split("\\").join("/")).replace(/\/+$/, "");
+  if (source === root) return { type: "volume", name: dataVolume.name };
+  if (!source.startsWith(`${root}/`)) return mount;
+  return { type: "volume", name: dataVolume.name, subpath: source.slice(root.length + 1) };
 }
 
 const LABEL = "io.redgiant.sandbox";
@@ -49,8 +68,31 @@ export class DockerSandboxProvider implements SandboxProvider {
     });
   }
 
+  private imageReady: Promise<void> | undefined;
+
+  /** Pulls the sandbox image the first time it is needed (a fresh install has not got it). */
+  ensureImage(): Promise<void> {
+    this.imageReady ??= (async () => {
+      const present = await this.docker
+        .getImage(this.o.image)
+        .inspect()
+        .then(() => true)
+        .catch(() => false);
+      if (present) return;
+      const stream = await this.docker.pull(this.o.image);
+      await new Promise<void>((resolve, reject) =>
+        this.docker.modem.followProgress(stream, (err) => (err ? reject(err) : resolve())),
+      );
+    })().catch((err) => {
+      this.imageReady = undefined;
+      throw new Error(`Cannot get the sandbox image ${this.o.image}: ${(err as Error).message}`);
+    });
+    return this.imageReady;
+  }
+
   async create(spec: SandboxSpec): Promise<Sandbox> {
     await this.ensureNetwork();
+    await this.ensureImage();
     const name = `${this.o.prefix ?? "rg-sbx"}-${spec.id.replace(/[^a-zA-Z0-9_.-]/g, "-")}`;
     const old = this.docker.getContainer(name);
     await old.remove({ force: true }).catch(() => {});
@@ -73,24 +115,26 @@ export class DockerSandboxProvider implements SandboxProvider {
     const user =
       this.o.user ??
       (process.getuid && process.getgid ? `${process.getuid()}:${process.getgid()}` : "1000:1000");
+    const m = translateMount(spec.mount, this.o.dataVolume);
     const mount: Docker.MountSettings =
-      spec.mount.type === "bind"
+      m.type === "bind"
         ? {
             Type: "bind" as const,
-            Source: spec.mount.source,
+            Source: m.source,
             Target: "/workspace",
             ReadOnly: spec.readOnly ?? false,
           }
         : {
             Type: "volume" as const,
-            Source: spec.mount.name,
+            Source: m.name,
             Target: "/workspace",
             ReadOnly: spec.readOnly ?? false,
-            ...(spec.mount.subpath && {
-              VolumeOptions: {
-                Subpath: spec.mount.subpath,
-              } as Docker.MountSettings["VolumeOptions"],
-            }),
+            // NoCopy: Docker would otherwise copy the image's /workspace (owned by root) over
+            // the workspace, and the agent could no longer write in it.
+            VolumeOptions: {
+              NoCopy: true,
+              ...(m.subpath && { Subpath: m.subpath }),
+            } as Docker.MountSettings["VolumeOptions"],
           };
 
     const options: Docker.ContainerCreateOptions = {

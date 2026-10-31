@@ -1,0 +1,28 @@
+{
+  "name": "@redgiant/evals",
+  "version": "0.1.0",
+  "description": "RedGiant's evaluation suite: coding tasks with verifiers, run by a real project orchestrator, compared across models.",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "redgiant-evals": "./dist/main.js"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.13",
+    "@redgiant/events": "workspace:*",
+    "@redgiant/protocol": "workspace:*",
+    "@redgiant/providers": "workspace:*",
+    "@redgiant/sandbox": "workspace:*",
+    "@redgiant/server": "workspace:*"
+  },
+  "scripts": {
+    "start": "node dist/main.js"
+  }
+}

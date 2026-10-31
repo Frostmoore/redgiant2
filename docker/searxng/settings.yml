@@ -1,0 +1,9 @@
+# SearXNG for RedGiant's web_search tool: JSON answers, no rate limiter (only RedGiant calls it).
+use_default_settings: true
+server:
+  limiter: false
+  image_proxy: false
+search:
+  formats:
+    - html
+    - json

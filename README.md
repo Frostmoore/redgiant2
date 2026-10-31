@@ -29,6 +29,23 @@ ones — down to tiny models on a laptop CPU.
 - **Self-service install.** Installers for Windows, scripts for Linux and macOS, and a first-run
   wizard for models (including Hugging Face downloads), Telegram, names and prompts.
 
+## Install
+
+Linux and macOS (needs Docker; the script offers to install it on Linux):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Frostmoore/redgiant2/main/install.sh | bash
+```
+
+Windows (PowerShell; checks WSL 2 and Docker Desktop and offers to install them):
+
+```powershell
+irm https://raw.githubusercontent.com/Frostmoore/redgiant2/main/install.ps1 | iex
+```
+
+Everything runs in Docker (`compose.yaml`); options, updates, backups and uninstalling are in
+[docs/INSTALL.md](docs/INSTALL.md). How models do on RedGiant's own tasks: [docs/evals.md](docs/evals.md).
+
 ## Development
 
 Requirements: Node.js 22+ and pnpm (via `corepack enable`).
@@ -69,6 +86,7 @@ The repository is a pnpm monorepo; packages live in `packages/`.
 | `@redgiant/supervisor`   | `redgiant-supervisor`: runs the server, rebuilds it when God promotes a change to RedGiant's own code, and rolls back to the last good version by itself when the new one fails to build, to come up healthy or to stay up                                                                                                                     |
 | `@redgiant/hierarchy`    | The agent tree (God, Demi-God, orchestrators, agents, sub-agents, inspectors) with scope rules, permission modes and user rules, a configurable danger classifier, approvals that escalate up the tree to the human, and persistent budgets                                                                                                    |
 | `@redgiant/server`       | HTTP API with OpenAPI (`/api/openapi.json`), WebSocket live channel (`/ws`), sessions that outlive clients, projects, approvals queue, token auth bound to owners; orchestration tools (create, delegate, merge, stop agents; ephemeral sub-agents), tasks that close only with a passing verifier, approvals decided by parent agents' models |
+| `@redgiant/evals`        | Evaluation suite: coding tasks with hidden verifiers (each checked to reject the starting files and accept a right answer), run by a real project orchestrator per model; Markdown report with pass rate, tokens, cost and time                                                                                                                |
 | `@redgiant/cli`          | `redgiant` command: projects, agents, live chat with an agent (with the per-message metrics line), approvals, log verification                                                                                                                                                                                                                 |
 | `@redgiant/web`          | Web UI (Preact): tabs and up to three side-by-side panes, live chat with the per-message metrics bar, terminal (xterm.js) and file explorer with editor (CodeMirror) per project and for the platform, hierarchy, approvals, budgets; Italian and English; phone layout                                                                        |
 

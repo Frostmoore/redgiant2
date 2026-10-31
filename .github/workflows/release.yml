@@ -1,0 +1,76 @@
+# Publishes the images when a version tag is pushed (git tag v1.16.0 && git push --tags).
+name: Release images
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io/frostmoore
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: redgiant2
+            file: docker/redgiant.Dockerfile
+            context: .
+            platforms: linux/amd64,linux/arm64
+            suffix: ""
+          - name: redgiant2-sandbox
+            file: docker/sandbox.Dockerfile
+            context: docker
+            platforms: linux/amd64,linux/arm64
+            suffix: ""
+          - name: redgiant2-engine
+            file: docker/engine.Dockerfile
+            context: docker
+            platforms: linux/amd64,linux/arm64
+            suffix: cpu
+            variant: server
+          - name: redgiant2-engine
+            file: docker/engine.Dockerfile
+            context: docker
+            platforms: linux/amd64
+            suffix: cuda
+            variant: server-cuda
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: tags
+        shell: bash
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          image=$REGISTRY/${{ matrix.name }}
+          if [ -n "${{ matrix.suffix }}" ]; then
+            echo "tags=$image:${{ matrix.suffix }},$image:$version-${{ matrix.suffix }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=$image:latest,$image:$version" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: ${{ matrix.platforms }}
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            REDGIANT_VERSION=${{ steps.tags.outputs.version }}
+            ${{ matrix.variant && format('VARIANT={0}', matrix.variant) || '' }}
+          cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.suffix }}

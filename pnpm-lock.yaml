@@ -267,6 +267,27 @@ importers:
         specifier: workspace:*
         version: link:../providers
 
+  packages/evals:
+    dependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.5.13
+        version: 0.5.13
+      '@redgiant/events':
+        specifier: workspace:*
+        version: link:../events
+      '@redgiant/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@redgiant/providers':
+        specifier: workspace:*
+        version: link:../providers
+      '@redgiant/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
+      '@redgiant/server':
+        specifier: workspace:*
+        version: link:../server
+
   packages/events:
     dependencies:
       '@redgiant/protocol':

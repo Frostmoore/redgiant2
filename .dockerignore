@@ -1,0 +1,12 @@
+# Built inside the image; private notes never go in.
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+memory
+CLAUDE.local.md
+ciao.txt
+data
+.env
+.env.*
+coverage
+.git

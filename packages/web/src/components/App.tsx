@@ -24,6 +24,12 @@ export function App() {
   const [drawer, setDrawer] = useState(false);
 
   useEffect(() => {
+    // The installer opens the page with #token=…: signed in at once, then the address is cleaned.
+    const fromLink = new URLSearchParams(location.hash.slice(1)).get("token");
+    if (fromLink) {
+      history.replaceState(null, "", location.pathname + location.search);
+      token.value = fromLink;
+    }
     if (token.value)
       void signIn(token.value)
         .catch(() => signOut())

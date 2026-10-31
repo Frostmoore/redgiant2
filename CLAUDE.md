@@ -42,3 +42,7 @@
   worktree, tests and a trial copy with a clean environment (no secrets), and only a supervised server may promote.
   Never run God-written code with the server's environment.
 - Test SQL helpers reject unused parameters, as real Postgres does: keep it that way.
+- Packaging (G15): the server runs in Docker as `node` with the data in one volume; sandboxes mount their folders from
+  that volume (`dataVolume`, subpath, `NoCopy`). Never use host paths for sandbox mounts in the image.
+- Evals: every task's verifier must reject the starting files and accept a reference solution (tested); add both
+  when adding a task.

@@ -45,6 +45,9 @@
     },
     {
       "path": "packages/supervisor"
+    },
+    {
+      "path": "packages/evals"
     }
   ]
 }

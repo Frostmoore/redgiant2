@@ -22,3 +22,21 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm lint
+
+  installers:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - if: runner.os == 'Linux'
+        run: shellcheck install.sh docker/entrypoint.sh
+      - if: runner.os == 'Linux'
+        run: REDGIANT_TOKEN=x POSTGRES_PASSWORD=y docker compose config -q
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\install.ps1", [ref]$null, [ref]$errors)
+          if ($errors) { $errors; exit 1 }

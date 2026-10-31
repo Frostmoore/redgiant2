@@ -92,6 +92,11 @@ const sandbox =
         image: env.REDGIANT_SANDBOX_IMAGE ?? "redgiant/sandbox:latest",
         network: env.REDGIANT_SANDBOX_NETWORK ?? "redgiant-sandbox",
         ...(env.REDGIANT_EGRESS_URL && { egressProxyUrl: env.REDGIANT_EGRESS_URL }),
+        ...(env.REDGIANT_SANDBOX_USER && { user: env.REDGIANT_SANDBOX_USER }),
+        // In the official image the data lives in a named volume (see compose.yaml).
+        ...(env.REDGIANT_DATA_VOLUME && {
+          dataVolume: { name: env.REDGIANT_DATA_VOLUME, mountPoint: dataDir },
+        }),
       })
     : new HostSandboxProvider();
 

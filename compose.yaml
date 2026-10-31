@@ -1,0 +1,122 @@
+# RedGiant: `docker compose up -d` (the installer writes .env next to this file).
+# Optional parts are profiles:  --profile engine (llama.cpp on CPU), --profile engine-cuda (NVIDIA),
+#                               --profile search (SearXNG for web search).
+name: redgiant
+
+x-image: &image ${REDGIANT_IMAGE:-ghcr.io/frostmoore/redgiant2:latest}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: redgiant
+      POSTGRES_DB: redgiant
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run the installer or set POSTGRES_PASSWORD in .env}
+    volumes:
+      - redgiant-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U redgiant -d redgiant"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redgiant:
+    image: *image
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://redgiant:${POSTGRES_PASSWORD}@postgres:5432/redgiant
+      REDGIANT_TOKEN: ${REDGIANT_TOKEN:?run the installer or set REDGIANT_TOKEN in .env}
+      # Inside the container; REDGIANT_PORT and REDGIANT_BIND in .env choose the published port.
+      REDGIANT_PORT: "7600"
+      REDGIANT_HOST: 0.0.0.0
+      REDGIANT_SANDBOX: docker
+      REDGIANT_SANDBOX_IMAGE: ${REDGIANT_SANDBOX_IMAGE:-ghcr.io/frostmoore/redgiant2-sandbox:latest}
+      REDGIANT_SANDBOX_NETWORK: redgiant-sandbox
+      REDGIANT_EGRESS_URL: http://egress:3128
+      # Sandboxes mount their workspaces from the same volume (no host paths).
+      REDGIANT_DATA_VOLUME: redgiant-data
+      REDGIANT_KV_DIR: /kv
+    ports:
+      - "${REDGIANT_BIND:-127.0.0.1}:${REDGIANT_PORT:-7600}:7600"
+    volumes:
+      - redgiant-data:/data
+      - redgiant-kv:/kv
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [default, sandbox]
+
+  # The only way out for the sandboxes: an allow list of domains, no private addresses.
+  egress:
+    image: *image
+    restart: unless-stopped
+    command: ["egress", "/etc/redgiant/egress.json", "3128"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('net').connect(3128,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))",
+        ]
+      interval: 15s
+    volumes:
+      - ${REDGIANT_EGRESS_POLICY:-./docker/egress.json}:/etc/redgiant/egress.json:ro
+    networks: [default, sandbox]
+
+  engine:
+    profiles: [engine]
+    image: ${REDGIANT_ENGINE_IMAGE:-ghcr.io/frostmoore/redgiant2-engine:cpu}
+    restart: unless-stopped
+    command: ["-m", "/models/${REDGIANT_ENGINE_MODEL:-model.gguf}"]
+    volumes:
+      - redgiant-models:/models
+      - redgiant-kv:/kv
+
+  engine-cuda:
+    profiles: [engine-cuda]
+    image: ${REDGIANT_ENGINE_CUDA_IMAGE:-ghcr.io/frostmoore/redgiant2-engine:cuda}
+    restart: unless-stopped
+    command: ["-m", "/models/${REDGIANT_ENGINE_MODEL:-model.gguf}", "--n-gpu-layers", "999"]
+    volumes:
+      - redgiant-models:/models
+      - redgiant-kv:/kv
+    networks:
+      default:
+        aliases: [engine]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  searxng:
+    profiles: [search]
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-change-me}
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+
+networks:
+  default:
+  # No route outside: sandboxes reach the internet only through the egress proxy.
+  sandbox:
+    name: redgiant-sandbox
+    internal: true
+
+volumes:
+  redgiant-db:
+  redgiant-data:
+    name: redgiant-data
+  redgiant-kv:
+  redgiant-models:
+    name: redgiant-models

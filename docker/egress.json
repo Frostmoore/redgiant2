@@ -1,0 +1,25 @@
+{
+  "allow": [
+    "registry.npmjs.org",
+    "registry.yarnpkg.com",
+    "pypi.org",
+    "files.pythonhosted.org",
+    "github.com",
+    "*.github.com",
+    "codeload.github.com",
+    "objects.githubusercontent.com",
+    "raw.githubusercontent.com",
+    "*.githubusercontent.com",
+    "crates.io",
+    "static.crates.io",
+    "index.crates.io",
+    "proxy.golang.org",
+    "sum.golang.org",
+    "deb.debian.org",
+    "security.debian.org",
+    "repo.maven.apache.org",
+    "huggingface.co",
+    "*.huggingface.co",
+    "*.hf.co"
+  ]
+}
