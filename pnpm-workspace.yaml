@@ -1,2 +1,8 @@
 packages:
   - "packages/*"
+
+# Native/optional build scripts we do not need (pulled in by dockerode's ssh support).
+allowBuilds:
+  cpu-features: false
+  protobufjs: false
+  ssh2: false
