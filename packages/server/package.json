@@ -1,0 +1,39 @@
+{
+  "name": "@redgiant/server",
+  "version": "0.1.0",
+  "description": "RedGiant server: HTTP API (OpenAPI), WebSocket live stream, sessions, projects, approvals.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "redgiant-server": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "@hono/zod-openapi": "^1.6.3",
+    "@redgiant/agent": "workspace:*",
+    "@redgiant/events": "workspace:*",
+    "@redgiant/hierarchy": "workspace:*",
+    "@redgiant/protocol": "workspace:*",
+    "@redgiant/providers": "workspace:*",
+    "@redgiant/sandbox": "workspace:*",
+    "@redgiant/tools": "workspace:*",
+    "hono": "^4.13.14",
+    "pg": "^8.23.1",
+    "ws": "^8.22.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13",
+    "@types/pg": "^8.23.1",
+    "@types/ws": "^8.18.2"
+  }
+}

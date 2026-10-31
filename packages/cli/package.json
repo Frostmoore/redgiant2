@@ -1,0 +1,27 @@
+{
+  "name": "@redgiant/cli",
+  "version": "0.1.0",
+  "description": "RedGiant command line: projects, agents, live chat with agents, approvals.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "redgiant": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@redgiant/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13",
+    "@redgiant/providers": "workspace:*",
+    "@redgiant/server": "workspace:*"
+  }
+}

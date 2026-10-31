@@ -17,7 +17,7 @@ export function hierarchyGuards(o: {
   const keys = () => budgetKeys(o.agent, o.resolve);
   const at = { ownerId: o.agent.ownerId, projectId: o.agent.projectId, agentId: o.agent.id };
   return {
-    permission: (call) => o.broker.check(o.agent, call),
+    permission: (call, ctx) => o.broker.check(o.agent, call, ctx.sessionId),
     beforeModelCall: async () => {
       const breaches = await o.budget.check(keys());
       if (breaches.length === 0) return { allow: true };

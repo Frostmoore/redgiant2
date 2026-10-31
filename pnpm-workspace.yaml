@@ -6,3 +6,6 @@ allowBuilds:
   cpu-features: false
   protobufjs: false
   ssh2: false
+
+minimumReleaseAgeExclude:
+  - ws@8.22.1

@@ -141,9 +141,10 @@ describe("Event", () => {
 
 describe("wire messages", () => {
   it("round-trips a welcome and an event", () => {
-    expect(ServerMessage.parse({ type: "welcome", protocolVersion: PROTOCOL_VERSION }).type).toBe(
-      "welcome",
-    );
+    expect(
+      ServerMessage.parse({ type: "welcome", protocolVersion: PROTOCOL_VERSION, ownerId: "local" })
+        .type,
+    ).toBe("welcome");
     const msg = ServerMessage.parse({
       type: "event",
       sessionId: "s1",

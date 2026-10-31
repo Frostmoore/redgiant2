@@ -35,7 +35,12 @@ export interface PermissionBrokerOptions {
 export class PermissionBroker {
   constructor(private readonly o: PermissionBrokerOptions) {}
 
-  async check(agent: AgentNode, call: ToolCallInfo): Promise<PermissionDecision> {
+  /** `sessionId` ties the request events to the conversation that raised them. */
+  async check(
+    agent: AgentNode,
+    call: ToolCallInfo,
+    sessionId?: string,
+  ): Promise<PermissionDecision> {
     const settings = this.o.settingsFor(agent);
     const ev = evaluate(this.o.modeFor(agent), call, settings);
     if (ev.decision === "allow") return { allow: true };
@@ -51,7 +56,7 @@ export class PermissionBroker {
     const humanOnly = ev.danger.some((d) => settings.humanOnly.includes(d));
     for (const approver of approvalChain(agent, this.o.resolve)) {
       if (approver && (humanOnly || !settings.approverKinds.includes(approver.kind))) continue;
-      await this.log(agent, {
+      await this.log(agent, sessionId, {
         type: "permission.requested",
         payload: {
           requestId: request.requestId,
@@ -63,7 +68,7 @@ export class PermissionBroker {
       const answer = approver
         ? await this.o.askAgent(approver, request).catch(() => "escalate" as const)
         : await this.human(request, settings);
-      await this.log(agent, {
+      await this.log(agent, sessionId, {
         type: "permission.resolved",
         payload: { requestId: request.requestId, decision: answer, by: approver?.id ?? "human" },
       });
@@ -93,11 +98,16 @@ export class PermissionBroker {
     }
   }
 
-  private log(agent: AgentNode, body: Parameters<EventStore["append"]>[0]["body"]) {
+  private log(
+    agent: AgentNode,
+    sessionId: string | undefined,
+    body: Parameters<EventStore["append"]>[0]["body"],
+  ) {
     return this.o.store.append({
       ownerId: agent.ownerId,
       projectId: agent.projectId,
       agentId: agent.id,
+      sessionId: sessionId ?? null,
       body,
     });
   }

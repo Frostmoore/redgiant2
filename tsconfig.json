@@ -21,6 +21,12 @@
     },
     {
       "path": "packages/hierarchy"
+    },
+    {
+      "path": "packages/server"
+    },
+    {
+      "path": "packages/cli"
     }
   ]
 }
