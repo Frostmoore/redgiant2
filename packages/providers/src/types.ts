@@ -67,6 +67,8 @@ export interface AssistantMessage {
 export interface Completion {
   message: AssistantMessage;
   stopReason: StopReason;
+  /** For refusals: the provider's category and explanation, when given. */
+  stopDetails?: { category: string | null; explanation: string | null } | undefined;
   usage: Usage;
   metrics: MessageMetrics;
   /** Model that actually served the request (may differ from the requested one on fallback). */

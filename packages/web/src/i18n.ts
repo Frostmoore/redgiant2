@@ -118,6 +118,13 @@ const en = {
   failedTests: "Failed its tests",
   by: "by",
   scopePlatform: "platform",
+  telegram: "Telegram",
+  pair: "Pair a Telegram account",
+  pairHint: "Open the bot and send it this message within 10 minutes:",
+  linkedAccounts: "Linked accounts",
+  noLinks: "No account linked yet.",
+  unlink: "Unlink",
+  telegramOff: "Telegram is not configured on this server.",
 } as const;
 
 export type Key = keyof typeof en;
@@ -238,6 +245,13 @@ const it: Record<Key, string> = {
   failedTests: "Prove fallite",
   by: "da",
   scopePlatform: "piattaforma",
+  telegram: "Telegram",
+  pair: "Collega un account Telegram",
+  pairHint: "Apri il bot e mandagli questo messaggio entro 10 minuti:",
+  linkedAccounts: "Account collegati",
+  noLinks: "Ancora nessun account collegato.",
+  unlink: "Scollega",
+  telegramOff: "Telegram non è configurato su questo server.",
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, it };

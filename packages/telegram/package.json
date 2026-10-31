@@ -1,0 +1,25 @@
+{
+  "name": "@redgiant/telegram",
+  "version": "0.1.0",
+  "description": "Demi-God on Telegram: pairing, relaying to God, approvals with buttons.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@grammyjs/auto-retry": "^2.0.2",
+    "@redgiant/events": "workspace:*",
+    "@redgiant/protocol": "workspace:*",
+    "grammy": "^1.46.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13"
+  }
+}

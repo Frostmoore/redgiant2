@@ -1,7 +1,7 @@
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { serve as nodeServe } from "@hono/node-server";
-import { createApp } from "./app.js";
+import { type AppOptions, createApp } from "./app.js";
 import type { AuthProvider } from "./auth.js";
 import type { RedGiantCore } from "./core.js";
 import { attachWebSocket } from "./ws.js";
@@ -15,9 +15,12 @@ export interface Running {
 export function serve(
   core: RedGiantCore,
   auth: AuthProvider,
-  listen: { port: number; host?: string; webDir?: string },
+  listen: { port: number; host?: string; webDir?: string; telegram?: AppOptions["telegram"] },
 ): Promise<Running> {
-  const app = createApp(core, auth, listen.webDir ? { webDir: listen.webDir } : {});
+  const app = createApp(core, auth, {
+    ...(listen.webDir && { webDir: listen.webDir }),
+    ...(listen.telegram && { telegram: listen.telegram }),
+  });
   return new Promise((ok) => {
     const server = nodeServe(
       { fetch: app.fetch, port: listen.port, hostname: listen.host ?? "0.0.0.0" },

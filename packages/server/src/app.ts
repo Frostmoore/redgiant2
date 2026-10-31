@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -13,6 +14,7 @@ import {
   PermissionRequestInfo,
   PROTOCOL_VERSION,
 } from "@redgiant/protocol";
+import type { TelegramGateway } from "@redgiant/telegram";
 import { PathOutsideWorkspaceError } from "@redgiant/tools";
 import type { Context } from "hono";
 import { type AuthProvider, bearer, type Principal } from "./auth.js";
@@ -570,6 +572,7 @@ const agentOut = (a: NonNullable<ReturnType<RedGiantCore["registry"]["get"]>>) =
 export interface AppOptions {
   /** Directory of the built web UI; served at / with a fallback to index.html. */
   webDir?: string;
+  telegram?: { gateway: TelegramGateway; webhookSecret?: string };
 }
 
 export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOptions = {}) {
@@ -594,7 +597,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   });
 
   app.use("/api/*", async (c, next) => {
-    if (c.req.path === "/api/health" || c.req.path === "/api/openapi.json") return next();
+    const open = ["/api/health", "/api/openapi.json", "/api/telegram/webhook"];
+    if (open.includes(c.req.path)) return next();
     const principal = await auth.authenticate(bearer(c.req.header("authorization")));
     if (!principal) return c.json({ error: "Missing or invalid token" }, 401);
     c.set("principal", principal);
@@ -916,6 +920,45 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.openapi(routes.deleteMcp, async (c) => {
     await core.removeMcp(owner(c), c.req.valid("param").name);
     return c.json({ ok: true as const }, 200);
+  });
+
+  // Telegram: pairing, linked accounts, and the webhook (authenticated by Telegram's secret header).
+  const tg = options.telegram;
+  app.post("/api/telegram/pair", async (c) => {
+    if (!tg) return c.json({ error: "Telegram is not configured" }, 400);
+    const me = await tg.gateway.init();
+    return c.json(
+      {
+        ...tg.gateway.pairingCode(owner(c)),
+        bot: me.username,
+        link: `https://t.me/${me.username}`,
+      },
+      200,
+    );
+  });
+  app.get("/api/telegram/links", async (c) =>
+    c.json(tg ? await tg.gateway.links(owner(c)) : [], 200),
+  );
+  app.delete("/api/telegram/links/:userId", async (c) => {
+    if (tg) await tg.gateway.unlink(owner(c), Number(c.req.param("userId")));
+    return c.json({ ok: true }, 200);
+  });
+  app.post("/api/telegram/webhook", async (c) => {
+    const secret = c.req.header("x-telegram-bot-api-secret-token") ?? "";
+    const expected = tg?.webhookSecret ?? "";
+    if (
+      !tg ||
+      !expected ||
+      secret.length !== expected.length ||
+      !timingSafeEqual(Buffer.from(secret), Buffer.from(expected))
+    ) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+    // Answer Telegram at once; the agents may take minutes.
+    void tg.gateway
+      .handleUpdate(await c.req.json())
+      .catch((err) => console.error("telegram update:", err));
+    return c.json({ ok: true }, 200);
   });
 
   app.openapi(routes.verifyLog, async (c) => c.json(await core.store.verify(), 200));

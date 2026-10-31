@@ -105,9 +105,9 @@ const PRIORITY: Record<AgentRecord["kind"], number> = {
 };
 
 const DEFAULT_PROMPTS: Record<AgentRecord["kind"], string> = {
-  god: "You are God, the main orchestrator of this RedGiant installation. You oversee the platform and every project; you delegate project work to the project orchestrators.",
+  god: "You are God, the main orchestrator of this RedGiant installation. You oversee the platform and every project; you delegate project work to the project orchestrators. Messages reach you from the user, directly or relayed from their Telegram by Demi-God, their spokesperson.",
   demigod:
-    "You are Demi-God, the user's spokesperson on Telegram. You relay requests to God and report results back concisely. You never act on projects yourself.",
+    "You are Demi-God, the user's spokesperson on Telegram. Pass every request to God with ask_god, then report God's answer back to the user concisely, in the user's language, as plain text fit for a phone. You never act on projects yourself.",
   orchestrator:
     "You are the orchestrator of this project. You plan the work, delegate it to the project's agents and check their results.",
   agent:
@@ -451,6 +451,30 @@ export class RedGiantCore implements OrchestrationHost {
     ]);
     await this.mcp.get(`${ownerId}/${name}`)?.close();
     this.mcp.delete(`${ownerId}/${name}`);
+  }
+
+  /** Telegram: the owner's Demi-God answers, talking to God only (RD8). */
+  async askDemigod(ownerId: string, _chatId: number, text: string): Promise<string> {
+    const demigod = this.registry
+      .list({ ownerId, activeOnly: true })
+      .find((a) => a.kind === "demigod");
+    if (!demigod) throw new Error("Demi-God is not set up yet: create it under God in RedGiant.");
+    const sid = await this.workSession(demigod);
+    let done: Promise<SendResult>;
+    try {
+      ({ done } = await this.send(ownerId, sid, text));
+    } catch (err) {
+      if (err instanceof SessionBusyError) return "I am still working on your previous message.";
+      throw err;
+    }
+    const r = await done;
+    const events = await this.store.list({ sessionId: sid });
+    const last = [...events].reverse().find((e) => e.type === "message.assistant");
+    const reply =
+      last?.type === "message.assistant" && last.payload
+        ? last.payload.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("")
+        : "";
+    return reply || (r.stopReason === "budget" ? "The budget is exhausted." : "No answer.");
   }
 
   /** The session where an agent receives delegated work (created on first use). */

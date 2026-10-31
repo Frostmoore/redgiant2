@@ -110,6 +110,13 @@ export function Sidebar({ onNavigate }: { onNavigate: () => void }) {
         >
           🧩 {t("extensions")}
         </button>
+        <button
+          type="button"
+          class="side-item"
+          onClick={open(() => openTab({ id: "telegram", type: "telegram", title: t("telegram") }))}
+        >
+          ✈ {t("telegram")}
+        </button>
       </div>
       <div class="side-section">
         <div class="side-title">

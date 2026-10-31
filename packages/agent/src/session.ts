@@ -186,6 +186,7 @@ export class AgentSession {
           parts: completion.message.parts,
           ...(completion.message.native !== undefined && { native: completion.message.native }),
           stopReason: completion.stopReason,
+          ...(completion.stopDetails && { stopDetails: completion.stopDetails }),
           provider: completion.provider,
           model: completion.model,
           metrics: completion.metrics,

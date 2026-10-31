@@ -33,6 +33,10 @@ export const EventBody = z.discriminatedUnion("type", [
       parts: z.array(AssistantPart),
       native: NativeContent.optional(),
       stopReason: StopReason,
+      /** Why the provider refused (safety classifiers), when it says. */
+      stopDetails: z
+        .object({ category: z.string().nullable(), explanation: z.string().nullable() })
+        .optional(),
       provider: z.string(),
       model: z.string(),
       metrics: MessageMetrics,

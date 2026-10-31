@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // RedGiant server. Configured by environment variables until the setup wizard (G17) exists.
+import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KvStore, LocalEngineProvider } from "@redgiant/engine-local";
@@ -7,6 +8,7 @@ import { pgPoolClient, Redactor } from "@redgiant/events";
 import type { ModelSpec } from "@redgiant/protocol";
 import { AnthropicProvider, OpenAICompatProvider, ProviderRegistry } from "@redgiant/providers";
 import { DockerSandboxProvider, HostSandboxProvider } from "@redgiant/sandbox";
+import { migrateTelegram, TelegramGateway } from "@redgiant/telegram";
 import { SearxngSearch } from "@redgiant/tools";
 import pg from "pg";
 import { TokenAuth } from "./auth.js";
@@ -80,8 +82,9 @@ const sandbox =
       })
     : new HostSandboxProvider();
 
+const db = pgPoolClient(new pg.Pool({ connectionString: need("DATABASE_URL") }));
 const core = await RedGiantCore.create({
-  db: pgPoolClient(new pg.Pool({ connectionString: need("DATABASE_URL") })),
+  db,
   providers,
   workspacesDir: join(dataDir, "workspaces"),
   platformDir: join(dataDir, "platform"),
@@ -90,9 +93,34 @@ const core = await RedGiantCore.create({
   ...(defaultModel && { defaultModel }),
   ...(env.REDGIANT_SEARXNG_URL && { search: new SearxngSearch(env.REDGIANT_SEARXNG_URL) }),
 });
+// Demi-God on Telegram: polling by default (works behind NAT), webhook when a secret is set.
+const tgToken =
+  env.REDGIANT_TELEGRAM_TOKEN ??
+  (env.REDGIANT_TELEGRAM_TOKEN_FILE
+    ? (await readFile(env.REDGIANT_TELEGRAM_TOKEN_FILE, "utf8")).trim()
+    : undefined);
+let telegram: { gateway: TelegramGateway; webhookSecret?: string } | undefined;
+if (tgToken) {
+  redactor.addSecret("telegram-bot", tgToken);
+  await migrateTelegram(db);
+  const gateway = new TelegramGateway({ token: tgToken, db, host: core });
+  telegram = {
+    gateway,
+    ...(env.REDGIANT_TELEGRAM_WEBHOOK_SECRET && {
+      webhookSecret: env.REDGIANT_TELEGRAM_WEBHOOK_SECRET,
+    }),
+  };
+  if (!env.REDGIANT_TELEGRAM_WEBHOOK_SECRET) await gateway.startPolling();
+  shutdownHooks.push(() => gateway.stop());
+  console.log(
+    `Telegram bot @${(await gateway.init()).username} (${env.REDGIANT_TELEGRAM_WEBHOOK_SECRET ? "webhook" : "polling"})`,
+  );
+}
+
 const running = await serve(core, new TokenAuth({ [token]: env.REDGIANT_OWNER ?? "local" }), {
   port: Number(env.REDGIANT_PORT ?? 7600),
   host: env.REDGIANT_HOST ?? "0.0.0.0",
+  ...(telegram && { telegram }),
   webDir: env.REDGIANT_WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 console.log(`RedGiant listening on ${running.url} (sandbox: ${sandbox.kind})`);

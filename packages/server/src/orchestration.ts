@@ -196,7 +196,44 @@ export function orchestrationTools(
   const tools: Tool[] = [];
   const children = CHILD_KINDS[self.kind];
 
-  if (self.kind !== "subagent" && self.kind !== "inspector" && self.kind !== "demigod") {
+  // Demi-God is a spokesperson (RD8): its only tool talks to God.
+  if (self.kind === "demigod") {
+    const god = host.registry
+      .list({ ownerId: self.ownerId, activeOnly: true })
+      .find((a) => a.kind === "god");
+    if (!god) return [];
+    return [
+      {
+        def: {
+          name: "ask_god",
+          description:
+            "Pass the user's request to God and wait for God's answer. You can do nothing else yourself.",
+          inputSchema: {
+            type: "object",
+            properties: { message: { type: "string" } },
+            required: ["message"],
+          },
+        },
+        schema: z.object({ message: z.string().min(1) }),
+        async run({ message }: { message: string }) {
+          if (!can(me, "message", god, host.registry.resolve))
+            throw new Error("You cannot reach God.");
+          const sid = await host.workSession(god);
+          // The message goes as it is: who relays it is stated in God's system prompt (the
+          // operator channel). A "[forwarded by another agent]" prefix in the text looks like a
+          // prompt injection to safety classifiers and got refused as "cyber".
+          const { done } = await host.send(self.ownerId, sid, message);
+          const r = await done;
+          const answer = lastAssistantText(await host.store.list({ sessionId: sid }));
+          const d = r.lastCompletion?.stopDetails;
+          const why = d ? ` — ${[d.category, d.explanation].filter(Boolean).join(": ")}` : "";
+          return `${r.stopReason === "end_turn" ? "" : `(God stopped: ${r.stopReason}${why})\n`}${clip(answer, 6000) || "God gave no answer."}`;
+        },
+      } as Tool,
+    ];
+  }
+
+  if (self.kind !== "subagent" && self.kind !== "inspector") {
     tools.push({
       def: {
         name: "list_agents",

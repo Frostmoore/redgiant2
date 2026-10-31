@@ -35,6 +35,20 @@ describe("AnthropicProvider request", () => {
     expect(p.buildParams({ ...base, toolChoice: "none" }).tool_choice).toEqual({ type: "none" });
   });
 
+  it("asks for server-side fallback on models that support it", () => {
+    const msg = { system: "", tools: [], messages: [user("x")] };
+    expect(p.buildParams({ model: "claude-opus-5-5", ...msg })).toMatchObject({
+      fallbacks: "default",
+    });
+    expect(p.buildParams({ model: "claude-haiku-5-5", ...msg })).not.toHaveProperty("fallbacks");
+    expect(
+      new AnthropicProvider({ apiKey: "t", serverFallbacks: false }).buildParams({
+        model: "claude-opus-5-5",
+        ...msg,
+      }),
+    ).not.toHaveProperty("fallbacks");
+  });
+
   it("uses a 1h TTL for tools and system when longCache is on", () => {
     const params = new AnthropicProvider({ apiKey: "t", longCache: true }).buildParams({
       model: "claude-opus-5-5",

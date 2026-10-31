@@ -921,3 +921,9 @@ pre {
 .form .wide {
   grid-column: 1 / -1;
 }
+
+.pairing-code {
+  font-size: 20px;
+  letter-spacing: 0.08em;
+  max-width: 320px;
+}

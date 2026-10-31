@@ -32,7 +32,8 @@
     "zod": "^4.6.7",
     "@redgiant/engine-local": "workspace:*",
     "@redgiant/board": "workspace:*",
-    "@redgiant/extensions": "workspace:*"
+    "@redgiant/extensions": "workspace:*",
+    "@redgiant/telegram": "workspace:*"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.13",

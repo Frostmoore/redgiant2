@@ -16,6 +16,7 @@ import { Editor } from "./Editor.js";
 import { Extensions } from "./Extensions.js";
 import { Files } from "./Files.js";
 import { Hierarchy } from "./Hierarchy.js";
+import { Telegram } from "./Telegram.js";
 import { TerminalView } from "./TerminalView.js";
 
 function Content({ tab }: { tab: Tab }) {
@@ -38,6 +39,8 @@ function Content({ tab }: { tab: Tab }) {
       return <Board projectId={tab.projectId} />;
     case "extensions":
       return <Extensions />;
+    case "telegram":
+      return <Telegram />;
   }
 }
 

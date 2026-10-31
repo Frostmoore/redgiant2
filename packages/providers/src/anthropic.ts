@@ -77,6 +77,12 @@ export interface AnthropicProviderOptions {
   maxRetries?: number;
   /** Cache tools and system prompt for 1 hour instead of 5 minutes (writes cost 2x input). */
   longCache?: boolean;
+  /**
+   * Server-side fallback (`fallbacks: "default"`): when a model's safety classifiers decline,
+   * Anthropic re-runs the request on the model it recommends for that category, in the same
+   * call. On by default where supported, as Anthropic recommends.
+   */
+  serverFallbacks?: boolean;
   models?: Record<string, Partial<CatalogEntry>>;
 }
 
@@ -88,6 +94,16 @@ const STOP_REASONS: Record<string, StopReason> = {
   refusal: "refusal",
   pause_turn: "pause",
 };
+
+const FALLBACK_BETA = "server-side-fallback-2026-07-01";
+/** Models with server-side fallback on the Claude API (not Haiku 5.5, not older ones). */
+const SERVER_FALLBACK_MODELS = new Set([
+  "claude-fable-5-1",
+  "claude-fable-5",
+  "claude-opus-5-5",
+  "claude-opus-5",
+  "claude-sonnet-5-5",
+]);
 
 export class AnthropicProvider implements Provider {
   readonly id = "anthropic";
@@ -107,6 +123,10 @@ export class AnthropicProvider implements Provider {
   private entry(model: string): CatalogEntry | (typeof UNKNOWN_MODEL & { pricing?: Pricing }) {
     const base = ANTHROPIC_MODELS[model] ?? UNKNOWN_MODEL;
     return { ...base, ...this.options.models?.[model] };
+  }
+
+  private fallbacksFor(model: string): boolean {
+    return (this.options.serverFallbacks ?? true) && SERVER_FALLBACK_MODELS.has(model);
   }
 
   modelInfo(model: string): ModelInfo {
@@ -149,6 +169,8 @@ export class AnthropicProvider implements Provider {
     if (tools.length > 0) params.tools = tools;
     if (e.adaptiveThinking) params.thinking = { type: "adaptive", display: "summarized" };
     if (tools.length > 0 && request.toolChoice === "none") params.tool_choice = { type: "none" };
+    if (this.fallbacksFor(request.model))
+      (params as unknown as Record<string, unknown>).fallbacks = "default";
     if (e.supportsEffort && request.effort) {
       params.output_config = { effort: anthropicEffort(request.effort) };
     }
@@ -192,7 +214,10 @@ export class AnthropicProvider implements Provider {
   async *stream(request: CompletionRequest, signal?: AbortSignal): AsyncIterable<StreamEvent> {
     const info = this.modelInfo(request.model);
     const clock = new MetricsClock();
-    const stream = this.client.messages.stream(this.buildParams(request), { signal });
+    const stream = this.client.messages.stream(this.buildParams(request), {
+      signal,
+      ...(this.fallbacksFor(request.model) && { headers: { "anthropic-beta": FALLBACK_BETA } }),
+    });
     let text = "";
 
     try {
@@ -247,6 +272,16 @@ export class AnthropicProvider implements Provider {
             native: { provider: this.id, model: final.model, content: final.content },
           },
           stopReason: STOP_REASONS[final.stop_reason ?? ""] ?? "other",
+          ...(final.stop_reason === "refusal" && {
+            stopDetails: {
+              category:
+                (final as { stop_details?: { category?: string | null } }).stop_details?.category ??
+                null,
+              explanation:
+                (final as { stop_details?: { explanation?: string | null } }).stop_details
+                  ?.explanation ?? null,
+            },
+          }),
           usage,
           metrics: clock.finish(usage, info.contextWindow),
           model: final.model,

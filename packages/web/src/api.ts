@@ -178,6 +178,17 @@ export class Api {
     this.call("PUT", "/api/extensions/mcp", m);
   removeMcp = (name: string) =>
     this.call("DELETE", `/api/extensions/mcp/${encodeURIComponent(name)}`);
+  telegramPair = () =>
+    this.call<{ code: string; expiresAt: string; bot: string; link: string }>(
+      "POST",
+      "/api/telegram/pair",
+    );
+  telegramLinks = () =>
+    this.call<{ userId: number; chatId: number; username: string | null; linkedAt: string }[]>(
+      "GET",
+      "/api/telegram/links",
+    );
+  telegramUnlink = (userId: number) => this.call("DELETE", `/api/telegram/links/${userId}`);
   verify = () =>
     this.call<{ ok: boolean; checked?: number; seq?: number; reason?: string }>(
       "GET",
