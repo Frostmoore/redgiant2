@@ -8,6 +8,7 @@ import {
   getApi,
   lastError,
   openTab,
+  platformInfo,
   refresh,
   signIn,
   signOut,
@@ -122,6 +123,13 @@ export function App() {
           {t("logout")}
         </button>
       </header>
+      {platformInfo.value?.metal ? (
+        <div class="platform-warning metal">⚠ {t("metalWarning")}</div>
+      ) : (
+        platformInfo.value?.sandbox === "host" && (
+          <div class="platform-warning">{t("hostWarning")}</div>
+        )
+      )}
       <div class="body">
         <Sidebar onNavigate={() => setDrawer(false)} />
         <button

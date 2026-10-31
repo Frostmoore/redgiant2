@@ -125,11 +125,31 @@ export const EventBody = z.discriminatedUnion("type", [
       used: z.number(),
     }),
   }),
+  /**
+   * God (or the supervisor) changed the platform (RD9): configuration takes effect at once and
+   * keeps what it replaced; code goes through proposed → tested → promoted, or rolls back.
+   */
   z.object({
     type: z.literal("platform.changed"),
     payload: z.object({
+      changeId: z.string(),
+      kind: z.enum(["config", "code"]),
+      /** One line for people: what changed. */
       change: z.string(),
-      stage: z.enum(["proposed", "tested", "promoted", "rolled_back"]),
+      stage: z.enum([
+        "proposed",
+        "tested",
+        "failed",
+        "promoted",
+        "rolled_back",
+        "discarded",
+        "undone",
+      ]),
+      target: z.string().optional(),
+      before: z.unknown().optional(),
+      after: z.unknown().optional(),
+      detail: z.string().optional(),
+      by: z.string(),
     }),
   }),
   /** A change made by the human through the file explorer (agents' changes are tool calls). */

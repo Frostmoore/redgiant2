@@ -18,6 +18,8 @@ export interface DangerRule {
   /** Input field to test; the whole input as JSON when omitted. */
   field?: string;
   pattern: string;
+  /** Tools the rule never applies to (when `tool` is a prefix pattern). */
+  except?: string[];
   enabled?: boolean;
 }
 
@@ -88,6 +90,15 @@ export const DEFAULT_DANGER_RULES: DangerRule[] = [
       "\\b(npm\\s+publish|pnpm\\s+publish|cargo\\s+publish|terraform\\s+apply|fly\\s+deploy|vercel\\s+--prod)\\b",
   },
   {
+    // RD27: God changing the platform (configuration, policy, its own code) asks first.
+    id: "platform",
+    label: "Changes the platform",
+    tool: "platform_*",
+    pattern: ".*",
+    // Opening or dropping a code change touches nothing live; testing and promoting it do.
+    except: ["platform_code_start", "platform_code_discard"],
+  },
+  {
     id: "secrets-files",
     label: "Secret files",
     tool: "*",
@@ -117,6 +128,7 @@ export const DEFAULT_POLICY: PolicySettings = {
     "deploy",
     "database-drop",
     "secrets-files",
+    "platform",
   ],
   approverKinds: ["god", "orchestrator", "agent"],
 };
@@ -137,6 +149,8 @@ export const READ_ONLY_TOOLS = new Set([
   "board_post",
   // Closing a task changes nothing by itself; its verifier command is checked as a bash call.
   "complete_task",
+  "platform_status",
+  "platform_changes",
 ]);
 
 const toolMatches = (pattern: string, tool: string) =>
@@ -157,6 +171,7 @@ export function classify(call: ToolCallInfo, rules: DangerRule[]): DangerRule[] 
     (r) =>
       r.enabled !== false &&
       toolMatches(r.tool, call.name) &&
+      !r.except?.includes(call.name) &&
       new RegExp(r.pattern, "i").test(subject(call, r.field)),
   );
 }

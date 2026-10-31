@@ -126,6 +126,15 @@ export function Sidebar({ onNavigate }: { onNavigate: () => void }) {
         >
           ⏰ {t("automations")}
         </button>
+        <button
+          type="button"
+          class="side-item"
+          onClick={open(() =>
+            openTab({ id: "platform", type: "platform", title: t("platformView") }),
+          )}
+        >
+          ⚙ {t("platformView")}
+        </button>
       </div>
       <div class="side-section">
         <div class="side-title">

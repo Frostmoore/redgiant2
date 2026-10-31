@@ -17,6 +17,7 @@
     "dist"
   ],
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.13",
     "@hono/node-server": "^2.1.5",
     "@hono/zod-openapi": "^1.6.3",
     "@redgiant/agent": "workspace:*",
@@ -29,6 +30,7 @@
     "@redgiant/protocol": "workspace:*",
     "@redgiant/providers": "workspace:*",
     "@redgiant/sandbox": "workspace:*",
+    "@redgiant/supervisor": "workspace:*",
     "@redgiant/telegram": "workspace:*",
     "@redgiant/tools": "workspace:*",
     "hono": "^4.13.14",
@@ -37,7 +39,6 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.13",
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.2"
   }

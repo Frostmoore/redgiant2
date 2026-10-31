@@ -28,7 +28,7 @@ import {
   type AgentRecord,
   AgentRegistry,
   type ApprovalRequest,
-  DEFAULT_POLICY,
+  budgetKeys,
   hierarchyGuards,
   migrateHierarchy,
   PermissionBroker,
@@ -36,7 +36,7 @@ import {
   type PolicySettings,
 } from "@redgiant/hierarchy";
 import type { Event, ModelSpec, Recipe, ServerMessage } from "@redgiant/protocol";
-import type { ProviderRegistry } from "@redgiant/providers";
+import { complete, costUsd, type ProviderRegistry, streamWithFallback } from "@redgiant/providers";
 import {
   createWorktree,
   HostSandboxProvider,
@@ -44,6 +44,7 @@ import {
   type SandboxProvider,
   type SandboxSpec,
 } from "@redgiant/sandbox";
+import { readRelease } from "@redgiant/supervisor";
 import {
   baseTools,
   type ModelProfile,
@@ -51,6 +52,7 @@ import {
   type Workspace,
 } from "@redgiant/tools";
 import { HumanApprovals } from "./approvals.js";
+import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
 import {
   completeTaskTool,
   modelApprover,
@@ -58,6 +60,13 @@ import {
   orchestrationTools,
   TaskTracker,
 } from "./orchestration.js";
+import {
+  migratePlatform,
+  PlatformChanges,
+  PlatformConfig,
+  PolicyStore,
+  platformConfigTools,
+} from "./platform.js";
 import { migrateProjects, ProjectStore, slug } from "./projects.js";
 
 export interface CoreOptions {
@@ -78,6 +87,13 @@ export interface CoreOptions {
   profileFor?: (model: ModelSpec) => ModelProfile;
   /** Model for board summaries and digests (default: `defaultModel`; none ⇒ no summaries). */
   boardModel?: ModelSpec;
+  /**
+   * God works on the real system (G14.3): its workspace is on the host even with Docker
+   * sandboxes, and every change it makes asks the human.
+   */
+  metal?: boolean;
+  /** RedGiant's own source, for God's code changes (G14.2); none ⇒ no code tools. */
+  source?: SourceOptions;
 }
 
 export class SessionBusyError extends Error {
@@ -136,6 +152,10 @@ export class RedGiantCore implements OrchestrationHost {
   readonly board: Board;
   readonly extensions: ExtensionBuilder;
   readonly automations: AutomationService;
+  readonly policies: PolicyStore;
+  readonly changes: PlatformChanges;
+  readonly config: PlatformConfig;
+  readonly code: CodeChanges | undefined;
   /** How the owner is told about finished automations (set by the Telegram gateway). */
   notify: ((ownerId: string, text: string) => Promise<void>) | undefined;
   /** Connected MCP servers, by owner and name. */
@@ -196,6 +216,17 @@ export class RedGiantCore implements OrchestrationHost {
       notify: async (ownerId, text) => this.notify?.(ownerId, text),
     };
     this.automations = new AutomationService({ db: o.db, store: this.store, host });
+    this.policies = new PolicyStore(o.db);
+    this.changes = new PlatformChanges(o.db, this.store);
+    this.config = new PlatformConfig(this);
+    this.code = o.source
+      ? new CodeChanges(
+          o.source,
+          this.changes,
+          (ownerId) => this.platformPath(ownerId),
+          async (ownerId, text) => this.notify?.(ownerId, text),
+        )
+      : undefined;
     const boardModel = o.boardModel ?? o.defaultModel;
     this.summarizer = boardModel
       ? new BoardSummarizer(this.board, o.providers, boardModel)
@@ -207,7 +238,10 @@ export class RedGiantCore implements OrchestrationHost {
     this.broker = new PermissionBroker({
       store: this.store,
       resolve: this.registry.resolve,
-      settingsFor: (a) => o.policyFor?.(this.registry.get(a.id) as AgentRecord) ?? DEFAULT_POLICY,
+      settingsFor: (a) => {
+        const agent = this.registry.get(a.id) as AgentRecord;
+        return o.policyFor?.(agent) ?? this.policies.settingsFor(agent, o.metal === true);
+      },
       modeFor: (a) => this.registry.get(a.id)?.mode ?? "auto",
       askAgent: (approver, req) => {
         const a = this.registry.get(approver.id) as AgentRecord;
@@ -237,8 +271,10 @@ export class RedGiantCore implements OrchestrationHost {
     await migrateBoard(o.db);
     await migrateExtensions(o.db);
     await migrateAutomations(o.db);
+    await migratePlatform(o.db);
     const core = new RedGiantCore(o);
     await core.registry.load();
+    await core.policies.load();
     return core;
   }
 
@@ -246,10 +282,10 @@ export class RedGiantCore implements OrchestrationHost {
    * Creating a sandbox twice with the same id would replace the container under a running
    * session: sandboxes are created once and reused.
    */
-  private sandboxFor(spec: SandboxSpec): Promise<Sandbox> {
+  private sandboxFor(spec: SandboxSpec, provider = this.sandbox): Promise<Sandbox> {
     let sb = this.sandboxes.get(spec.id);
     if (!sb) {
-      sb = this.sandbox.create(spec);
+      sb = provider.create(spec);
       sb.catch(() => this.sandboxes.delete(spec.id));
       this.sandboxes.set(spec.id, sb);
     }
@@ -307,11 +343,15 @@ export class RedGiantCore implements OrchestrationHost {
     if (agent.kind === "god") {
       const platform = this.platformPath(agent.ownerId);
       await mkdir(platform, { recursive: true });
-      const sb = await this.sandboxFor({
-        id: `${agent.ownerId}-platform`,
-        localPath: platform,
-        mount: { type: "bind", source: platform },
-      });
+      // Metal: God works on the real system, whatever the other agents' sandbox (G14.3).
+      const sb = await this.sandboxFor(
+        {
+          id: `${agent.ownerId}-platform`,
+          localPath: platform,
+          mount: { type: "bind", source: platform },
+        },
+        this.o.metal ? new HostSandboxProvider() : this.sandbox,
+      );
       return sb.workspace();
     }
     const project = agent.projectId
@@ -354,7 +394,12 @@ export class RedGiantCore implements OrchestrationHost {
           ...(this.o.search && { search: this.o.search }),
         })
       : [];
-    tools.push(...orchestrationTools(agent, this, this.tasks), ...boardTools(agent, this.board));
+    tools.push(
+      ...orchestrationTools(agent, this, this.tasks),
+      ...boardTools(agent, this.board),
+      ...platformConfigTools(agent, this.config, this),
+      ...platformCodeTools(agent, this.code),
+    );
     // Extensions: skills for every agent; custom and MCP tools for those that act (RD8, RD30).
     const project = agent.projectId ? await this.projects.get(ownerId, agent.projectId) : undefined;
     const roots = [
@@ -494,6 +539,91 @@ export class RedGiantCore implements OrchestrationHost {
     const r = await done;
     const reply = await this.lastReply(sid);
     return reply || (r.stopReason === "budget" ? "The budget is exhausted." : "No answer.");
+  }
+
+  /** One short real request: a model that cannot answer it is not put on an agent. */
+  async trialModel(ownerId: string, spec: ModelSpec): Promise<void> {
+    const { fallback: _ignored, ...only } = spec;
+    let c: Awaited<ReturnType<typeof complete>>;
+    try {
+      this.o.providers.get(spec.provider);
+      c = await complete(
+        streamWithFallback(this.o.providers, only, {
+          system: "Health check.",
+          tools: [],
+          messages: [{ role: "user", parts: [{ type: "text", text: "Reply with the word OK." }] }],
+          maxTokens: 256,
+        }),
+      );
+    } catch (err) {
+      throw new BadRequestError(
+        `The model ${spec.provider}/${spec.model} did not answer a test request: ${(err as Error).message}`,
+      );
+    }
+    const god = this.registry.list({ ownerId }).find((a) => a.kind === "god");
+    if (god) {
+      const usd = costUsd(c.usage, this.o.providers.get(c.provider).modelInfo(c.model).pricing);
+      await this.budget.record(budgetKeys(god, this.registry.resolve), c.usage, usd, {
+        ownerId,
+        projectId: null,
+        agentId: god.id,
+      });
+    }
+  }
+
+  /** For the UI: how the platform runs (the metal and host warnings come from here). */
+  async platformInfo() {
+    const release = this.o.source ? await readRelease(this.o.source.stateDir) : undefined;
+    return {
+      sandbox: this.sandbox.kind,
+      metal: this.o.metal === true,
+      codeChanges: this.code !== undefined,
+      supervised: this.code?.supervised ?? false,
+      lastGood: release?.lastGood ?? null,
+      releases: release?.history.slice(-20).reverse() ?? [],
+    };
+  }
+
+  /** What God reads with platform_status. */
+  async status(ownerId: string): Promise<string> {
+    const agents = this.registry.list({ ownerId });
+    const model = (id: string) => {
+      const m = this.registry.effectiveModel(id) ?? this.o.defaultModel;
+      return m ? `${m.provider}/${m.model}${m.effort ? ` (${m.effort})` : ""}` : "none";
+    };
+    const budgets = await this.budget.listFor(
+      ownerId,
+      [...new Set(agents.flatMap((a) => (a.projectId ? [a.projectId] : [])))],
+      agents.map((a) => a.id),
+    );
+    const autos = await this.automations.list(ownerId);
+    return [
+      `Sandbox: ${this.sandbox.kind}${this.o.metal ? "; God works on the real system (metal)" : ""}`,
+      "",
+      "Agents (id, kind, name, project, status, model, mode):",
+      ...agents.map(
+        (a) =>
+          `${a.id}	${a.kind}	${a.name}	${a.projectId ?? "-"}	${a.status}	${model(a.id)}${a.model ? "" : " (inherited)"}	${a.mode ?? "auto"}`,
+      ),
+      "",
+      "Budgets:",
+      ...(budgets.length
+        ? budgets.map(
+            (b) =>
+              `${b.scope} ${b.id}: limit ${JSON.stringify(b.limit)}, used $${b.used.usd.toFixed(4)} / ${b.used.tokens} tokens`,
+          )
+        : ["none"]),
+      "",
+      "Automations:",
+      ...(autos.length
+        ? autos.map(
+            (a) =>
+              `${a.id}	${a.name}	${a.enabled ? "on" : "off"}	${a.recipe.on.cron ?? "webhook"}	last: ${a.lastRun?.status ?? "-"}`,
+          )
+        : ["none"]),
+      "",
+      `Permission policy: ${JSON.stringify(this.policies.get(ownerId))}`,
+    ].join("\n");
   }
 
   /** The text of the last assistant message of a session. */

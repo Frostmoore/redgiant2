@@ -354,6 +354,9 @@ importers:
 
   packages/server:
     dependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.5.13
+        version: 0.5.13
       '@hono/node-server':
         specifier: ^2.1.5
         version: 2.1.5(hono@4.13.14)
@@ -390,6 +393,9 @@ importers:
       '@redgiant/sandbox':
         specifier: workspace:*
         version: link:../sandbox
+      '@redgiant/supervisor':
+        specifier: workspace:*
+        version: link:../supervisor
       '@redgiant/telegram':
         specifier: workspace:*
         version: link:../telegram
@@ -409,15 +415,14 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
-      '@electric-sql/pglite':
-        specifier: ^0.5.13
-        version: 0.5.13
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
       '@types/ws':
         specifier: ^8.18.2
         version: 8.18.2
+
+  packages/supervisor: {}
 
   packages/telegram:
     dependencies:

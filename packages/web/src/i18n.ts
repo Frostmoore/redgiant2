@@ -145,6 +145,27 @@ const en = {
   deleteAutomationConfirm: "Delete this automation and its history?",
   runStatus: "running,done,failed,timeout,skipped",
   runTriggers: "schedule,webhook,by hand,missed run",
+  platformView: "Platform",
+  platformChanges: "Changes",
+  noChanges:
+    "No changes yet. God changes the platform with your approval; every change can be undone.",
+  changeStages: "proposed,tested,failed,live,rolled back,discarded,undone",
+  code: "code",
+  configuration: "configuration",
+  undo: "Undo",
+  discard: "Discard",
+  before: "before",
+  after: "after",
+  details: "Details",
+  sandbox: "Sandbox",
+  metal: "Metal: God on the real system",
+  supervised: "Supervised: broken updates roll back by themselves",
+  notSupervised: "Not supervised: God cannot put code changes live",
+  lastGood: "Last good version",
+  releases: "Releases",
+  metalWarning:
+    "Metal mode: God works directly on this system. Every change it makes asks you first.",
+  hostWarning: "No isolation: agents run commands directly on this system (sandbox: host).",
 } as const;
 
 export type Key = keyof typeof en;
@@ -292,6 +313,28 @@ const it: Record<Key, string> = {
   deleteAutomationConfirm: "Eliminare questa automazione e il suo storico?",
   runStatus: "in corso,fatta,fallita,scaduta,saltata",
   runTriggers: "orario,webhook,a mano,recuperata",
+  platformView: "Piattaforma",
+  platformChanges: "Modifiche",
+  noChanges:
+    "Ancora nessuna modifica. God cambia la piattaforma con il tuo permesso; ogni modifica si può annullare.",
+  changeStages: "proposta,provata,fallita,in uso,annullata dal supervisore,scartata,annullata",
+  code: "codice",
+  configuration: "configurazione",
+  undo: "Annulla",
+  discard: "Scarta",
+  before: "prima",
+  after: "dopo",
+  details: "Dettagli",
+  sandbox: "Sandbox",
+  metal: "Metallo: God sul sistema vero",
+  supervised: "Supervisionata: gli aggiornamenti rotti tornano indietro da soli",
+  notSupervised: "Non supervisionata: God non può mettere in uso modifiche al codice",
+  lastGood: "Ultima versione buona",
+  releases: "Rilasci",
+  metalWarning:
+    "Modalità metallo: God lavora direttamente su questo sistema. Ogni sua modifica ti chiede prima il permesso.",
+  hostWarning:
+    "Nessun isolamento: gli agenti eseguono comandi direttamente su questo sistema (sandbox: host).",
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, it };

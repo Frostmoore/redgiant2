@@ -4,10 +4,11 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KvStore, LocalEngineProvider } from "@redgiant/engine-local";
-import { pgPoolClient, Redactor } from "@redgiant/events";
+import { pgPoolClient, Redactor, type SqlClient } from "@redgiant/events";
 import type { ModelSpec } from "@redgiant/protocol";
 import { AnthropicProvider, OpenAICompatProvider, ProviderRegistry } from "@redgiant/providers";
 import { DockerSandboxProvider, HostSandboxProvider } from "@redgiant/sandbox";
+import { RESTART_EXIT_CODE } from "@redgiant/supervisor";
 import { migrateTelegram, TelegramGateway } from "@redgiant/telegram";
 import { SearxngSearch } from "@redgiant/tools";
 import pg from "pg";
@@ -16,6 +17,18 @@ import { RedGiantCore } from "./core.js";
 import { serve } from "./serve.js";
 
 const env = process.env;
+
+async function memoryDb(): Promise<SqlClient> {
+  const { PGlite } = await import("@electric-sql/pglite");
+  const pglite = await PGlite.create();
+  type Q = Pick<typeof pglite, "query">;
+  const wrap = (q: Q, top: boolean): SqlClient => ({
+    query: async <T>(text: string, params?: unknown[]) => (await q.query<T>(text, params)).rows,
+    transaction: (fn) =>
+      top ? pglite.transaction((tx) => fn(wrap(tx, false))) : fn(wrap(q, false)),
+  });
+  return wrap(pglite, true);
+}
 const need = (name: string) => {
   const v = env[name];
   if (!v) {
@@ -82,7 +95,24 @@ const sandbox =
       })
     : new HostSandboxProvider();
 
-const db = pgPoolClient(new pg.Pool({ connectionString: need("DATABASE_URL") }));
+// `memory:` is an in-process Postgres that vanishes on exit: for trial copies (G14) and demos.
+const databaseUrl = need("DATABASE_URL");
+// God on the real system (G14.3) and God's changes to RedGiant's own code (G14.2).
+const metal = env.REDGIANT_METAL === "1";
+let restart: (() => void) | undefined;
+const source = env.REDGIANT_SOURCE_DIR
+  ? {
+      dir: resolve(env.REDGIANT_SOURCE_DIR),
+      stateDir: resolve(env.REDGIANT_STATE_DIR ?? join(dataDir, "release")),
+      // Only a supervised server may restart onto new code: the supervisor rolls back.
+      ...(env.REDGIANT_SUPERVISED === "1" && { restart: () => restart?.() }),
+    }
+  : undefined;
+
+const db =
+  databaseUrl === "memory:"
+    ? await memoryDb()
+    : pgPoolClient(new pg.Pool({ connectionString: databaseUrl }));
 const core = await RedGiantCore.create({
   db,
   providers,
@@ -92,6 +122,8 @@ const core = await RedGiantCore.create({
   redactor,
   ...(defaultModel && { defaultModel }),
   ...(env.REDGIANT_SEARXNG_URL && { search: new SearxngSearch(env.REDGIANT_SEARXNG_URL) }),
+  ...(metal && { metal }),
+  ...(source && { source }),
 });
 // Demi-God on Telegram: polling by default (works behind NAT), webhook when a secret is set.
 const tgToken =
@@ -126,11 +158,18 @@ const running = await serve(core, new TokenAuth({ [token]: env.REDGIANT_OWNER ??
   webDir: env.REDGIANT_WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 console.log(`RedGiant listening on ${running.url} (sandbox: ${sandbox.kind})`);
+if (metal)
+  console.warn("WARNING: metal mode: God works directly on this system (every change asks you).");
+if (sandbox.kind === "host")
+  console.warn("WARNING: host sandbox: agents run commands directly on this system, unisolated.");
 await core.automations.start();
+// What the supervisor did while the server was down (promotions, rollbacks) goes into the log.
+await core.code?.reconcile().catch((err) => console.error("release:", err));
+const shutdown = async () => {
+  for (const h of shutdownHooks) await h().catch(() => {});
+  await running.close();
+};
+restart = () => void shutdown().finally(() => process.exit(RESTART_EXIT_CODE));
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
-  process.on(sig, async () => {
-    for (const h of shutdownHooks) await h().catch(() => {});
-    await running.close();
-    process.exit(0);
-  });
+  process.on(sig, () => void shutdown().finally(() => process.exit(0)));
 }

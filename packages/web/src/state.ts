@@ -6,7 +6,7 @@ import type {
   PermissionRequestInfo,
   ServerMessage,
 } from "@redgiant/protocol";
-import { type Agent, Api, type Budget, Live, type Project } from "./api.js";
+import { type Agent, Api, type Budget, Live, type PlatformInfo, type Project } from "./api.js";
 
 // ---------- Chat items (pure) ----------
 
@@ -204,6 +204,9 @@ export function applyMessage(m: ServerMessage): void {
     case "automations.changed":
       automationsVersion.value++;
       return;
+    case "platform.changed":
+      platformVersion.value++;
+      return;
   }
 }
 
@@ -220,6 +223,10 @@ export const lastError = signal<string | null>(null);
 export const boardVersion = signal(0);
 /** Bumped when an automation is edited or one of its runs starts or ends. */
 export const automationsVersion = signal(0);
+/** Bumped on every platform change; the platform view reloads. */
+export const platformVersion = signal(0);
+/** How the platform runs: the header warns about metal and unisolated sandboxes. */
+export const platformInfo = signal<PlatformInfo | null>(null);
 
 let api: Api | undefined;
 let live: Live | undefined;
@@ -235,12 +242,8 @@ export const getLive = (): Live => {
 
 export async function refresh(): Promise<void> {
   const a = getApi();
-  [projects.value, agents.value, approvals.value, budgets.value] = await Promise.all([
-    a.projects(),
-    a.agents(),
-    a.approvals(),
-    a.budgets(),
-  ]);
+  [projects.value, agents.value, approvals.value, budgets.value, platformInfo.value] =
+    await Promise.all([a.projects(), a.agents(), a.approvals(), a.budgets(), a.platform()]);
 }
 
 export async function signIn(t: string): Promise<void> {
@@ -285,6 +288,7 @@ export type Tab =
   | { id: string; type: "extensions"; title: string }
   | { id: string; type: "telegram"; title: string }
   | { id: string; type: "automations"; title: string }
+  | { id: string; type: "platform"; title: string }
   | { id: string; type: "hierarchy" | "approvals" | "budgets"; title: string };
 
 export interface Pane {

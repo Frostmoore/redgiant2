@@ -244,26 +244,41 @@ export class AgentRegistry {
     return stopped;
   }
 
-  /** Changes model, mode or prompt; only God (not on itself) and the human may. */
+  /**
+   * Changes model, mode or prompt; only God (not on itself) and the human may. `null` clears
+   * a field (the model is inherited again, the prompt is the default one).
+   */
   async configure(
     actor: Actor,
     id: string,
-    change: { model?: ModelSpec; mode?: PermissionMode; systemPrompt?: string },
+    change: {
+      model?: ModelSpec | null;
+      mode?: PermissionMode | null;
+      systemPrompt?: string | null;
+    },
   ): Promise<AgentRecord> {
     const target = this.cache.get(id);
     if (!target) throw new HierarchyError(`Unknown agent "${id}"`);
     if (!can(actor, "configure", target, this.resolve))
       throw new HierarchyError(`Not allowed to configure "${target.name}"`);
-    await this.db.query(
-      "UPDATE rg_agents SET model = COALESCE($2, model), mode = COALESCE($3, mode), system_prompt = COALESCE($4, system_prompt) WHERE id = $1",
-      [
-        id,
-        change.model ? JSON.stringify(change.model) : null,
-        change.mode ?? null,
-        change.systemPrompt ?? null,
-      ],
-    );
-    const updated = { ...target, ...change };
+    const columns = { model: "model", mode: "mode", systemPrompt: "system_prompt" } as const;
+    const sets: string[] = [];
+    const params: unknown[] = [id];
+    for (const [key, column] of Object.entries(columns) as [keyof typeof columns, string][]) {
+      if (change[key] === undefined) continue;
+      const v = change[key];
+      params.push(key === "model" && v !== null ? JSON.stringify(v) : v);
+      sets.push(`${column} = $${params.length}`);
+    }
+    if (sets.length > 0)
+      await this.db.query(`UPDATE rg_agents SET ${sets.join(", ")} WHERE id = $1`, params);
+    const updated: AgentRecord = { ...target };
+    for (const key of Object.keys(columns) as (keyof typeof columns)[]) {
+      const v = change[key];
+      if (v === undefined) continue;
+      if (v === null) delete updated[key];
+      else Object.assign(updated, { [key]: v });
+    }
     this.cache.set(id, updated);
     return updated;
   }

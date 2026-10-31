@@ -21,8 +21,10 @@ import type { TelegramGateway } from "@redgiant/telegram";
 import { PathOutsideWorkspaceError } from "@redgiant/tools";
 import type { Context } from "hono";
 import { type AuthProvider, bearer, type Principal } from "./auth.js";
+import { CodeChangeError } from "./code.js";
 import { BadRequestError, NotFoundError, type RedGiantCore, SessionBusyError } from "./core.js";
 import { FileService } from "./files.js";
+import { ConfigError, PlatformPolicy } from "./platform.js";
 
 type Env = { Variables: { principal: Principal } };
 
@@ -1044,6 +1046,33 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       .handleUpdate(await c.req.json())
       .catch((err) => console.error("telegram update:", err));
     return c.json({ ok: true }, 200);
+  });
+
+  // The platform (G14): how it runs, its changes, undo, the permission policy.
+  app.get("/api/platform", async (c) => c.json(await core.platformInfo(), 200));
+  app.get("/api/platform/changes", async (c) => c.json(await core.changes.list(owner(c)), 200));
+  app.post("/api/platform/changes/:id/undo", async (c) => {
+    try {
+      return c.json(await core.config.undo(owner(c), "human", c.req.param("id")), 200);
+    } catch (err) {
+      if (err instanceof ConfigError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
+  app.post("/api/platform/changes/:id/discard", async (c) => {
+    if (!core.code) return c.json({ error: "Code changes are not enabled" }, 400);
+    try {
+      return c.json(await core.code.discard(owner(c), "human", c.req.param("id")), 200);
+    } catch (err) {
+      if (err instanceof CodeChangeError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
+  app.get("/api/platform/policy", async (c) => c.json(core.policies.get(owner(c)), 200));
+  app.put("/api/platform/policy", async (c) => {
+    const parsed = PlatformPolicy.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    return c.json(await core.config.setPolicy(owner(c), "human", parsed.data), 200);
   });
 
   // Automations (G13).

@@ -1,0 +1,19 @@
+{
+  "name": "@redgiant/supervisor",
+  "version": "0.1.0",
+  "description": "Runs the RedGiant server, rebuilds it when God promotes a change, and rolls back to the last good version when the new one does not come up.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "redgiant-supervisor": "./dist/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ]
+}

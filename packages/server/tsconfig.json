@@ -41,6 +41,9 @@
     },
     {
       "path": "../automations"
+    },
+    {
+      "path": "../supervisor"
     }
   ]
 }

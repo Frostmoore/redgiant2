@@ -8,6 +8,35 @@ import {
   type ServerMessage,
 } from "@redgiant/protocol";
 
+export interface PlatformInfo {
+  sandbox: "host" | "docker";
+  metal: boolean;
+  codeChanges: boolean;
+  supervised: boolean;
+  lastGood: string | null;
+  releases: {
+    commit: string;
+    result: "promoted" | "rolled_back";
+    reason?: string;
+    changeId?: string;
+    at: string;
+  }[];
+}
+
+export interface PlatformChange {
+  id: string;
+  kind: "config" | "code";
+  change: string;
+  stage: "proposed" | "tested" | "failed" | "promoted" | "rolled_back" | "discarded" | "undone";
+  target: string | null;
+  before: unknown;
+  after: unknown;
+  detail: string | null;
+  by: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -180,6 +209,12 @@ export class Api {
     this.call("PUT", "/api/extensions/mcp", m);
   removeMcp = (name: string) =>
     this.call("DELETE", `/api/extensions/mcp/${encodeURIComponent(name)}`);
+  platform = () => this.call<PlatformInfo>("GET", "/api/platform");
+  platformChanges = () => this.call<PlatformChange[]>("GET", "/api/platform/changes");
+  undoChange = (id: string) =>
+    this.call<PlatformChange>("POST", `/api/platform/changes/${id}/undo`);
+  discardChange = (id: string) =>
+    this.call<PlatformChange>("POST", `/api/platform/changes/${id}/discard`);
   automations = () => this.call<Automation[]>("GET", "/api/automations");
   createAutomation = (yaml: string) =>
     this.call<{ automation: Automation; webhookSecret?: string }>("POST", "/api/automations", {

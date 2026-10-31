@@ -200,6 +200,11 @@ notify:
 `,
 );
 await (await core.automations.runNow("local", digest.automation.id)).done;
+await core.config.setBudget("local", god.id, { scope: "project", id: "demo" }, { usd: 5 });
+await core.config.configureAgent("local", god.id, coder.id, {
+  model: { provider: "fake", model: "demo-model-small", effort: "low" },
+  mode: "auto",
+});
 await core.automations.create(
   "local",
   "name: review-on-push\non:\n  webhook: true\nagent: orchestrator\nproject: demo\ninstructions: Review the new commits.\n",
