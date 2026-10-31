@@ -11,3 +11,6 @@
   rebuilt with `rebuildHistory`. Tests use an in-process Postgres (PGlite, see `test/pglite.ts`).
 - Keep the prompt prefix stable: tools are sorted by name (`canonicalTools`), the system prompt never
   changes inside a session, history is append-only (compaction is an explicit event).
+- Every agent gets every base tool (`baseTools`); model profiles change descriptions only, never the tool set.
+- Cache discipline: reasoning is always sent back (Anthropic native blocks; `reasoning_content` for local servers),
+  effort/thinking stay fixed for a session, and compaction reuses the exact same request plus one message.

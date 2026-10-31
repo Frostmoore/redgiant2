@@ -17,6 +17,7 @@ import {
 } from "@redgiant/providers";
 import type { Hooks, ToolCallInfo } from "./hooks.js";
 import { type HistoryEntry, rebuildHistory, summaryMessage } from "./rebuild.js";
+import { repairJson } from "./repair.js";
 import { canonicalTools, type Tool, type ToolContext } from "./tools.js";
 
 export interface PermissionDecision {
@@ -56,7 +57,7 @@ export interface SendResult {
 }
 
 const COMPACTION_PROMPT =
-  "Summarise the conversation so far for your own future use: the goal, decisions taken, " +
+  "Do not call any tool now. Summarise the conversation so far for your own future use: the goal, decisions taken, " +
   "work done (files, commands, results), open problems and the next steps. Be complete but " +
   "concise; this summary replaces the earlier messages.";
 
@@ -268,11 +269,14 @@ export class AgentSession {
     const fail = (content: string) => ({ content, isError: true });
     const tool = this.tools.find((t) => t.def.name === call.name);
     if (!tool) return fail(`Unknown tool "${call.name}".`);
-    if (call.input === undefined) {
-      return fail(`The arguments are not valid JSON. Received: ${rawInput.slice(0, 2000)}`);
-    }
-
     let input: unknown = call.input;
+    if (input === undefined) {
+      // Small models often write almost-JSON; repair it when that needs no guessing.
+      input = repairJson(rawInput);
+      if (input === undefined) {
+        return fail(`The arguments are not valid JSON. Received: ${rawInput.slice(0, 2000)}`);
+      }
+    }
     for (const h of this.o.hooks?.preToolUse ?? []) {
       const r = await h({ ...call, input }, ctx);
       if (r.action === "block") {
@@ -336,17 +340,31 @@ export class AgentSession {
     if (toSummarise.length === 0) return;
 
     const prompt = [COMPACTION_PROMPT, ...extra].join("\n\n");
+    // Same system, tools, effort and history as a normal turn, with only the summary prompt
+    // appended: the request reuses the whole cached prefix (prompt cache or KV cache).
+    // Changing tools or tool_choice would invalidate it, so `none` is only a fallback for a
+    // model that calls a tool anyway.
     const summaryRequest = {
-      system: this.o.system,
-      tools: [],
+      ...this.request(),
       messages: [
         ...toSummarise.map((h) => h.message),
         { role: "user" as const, parts: [{ type: "text" as const, text: prompt }] },
       ],
     };
-    const c = await complete(
+    let c = await complete(
       streamWithFallback(this.o.providers, this.o.model, summaryRequest, signal),
     );
+    if (c.message.parts.some((p) => p.type === "tool_call")) {
+      this.priced(c);
+      c = await complete(
+        streamWithFallback(
+          this.o.providers,
+          this.o.model,
+          { ...summaryRequest, toolChoice: "none" },
+          signal,
+        ),
+      );
+    }
     this.priced(c);
     const summary = c.message.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("");
     const fromSeq = toSummarise[0]?.firstSeq ?? 0;

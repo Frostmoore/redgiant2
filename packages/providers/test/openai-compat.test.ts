@@ -36,6 +36,7 @@ describe("OpenAICompatProvider request", () => {
       {
         role: "assistant",
         content: "calling",
+        reasoning_content: "hmm",
         tool_calls: [{ id: "c1", type: "function", function: { name: "t", arguments: "{}" } }],
       },
       { role: "tool", tool_call_id: "c1", content: "done" },
@@ -48,6 +49,30 @@ describe("OpenAICompatProvider request", () => {
       },
     ]);
     expect(body.stream_options).toEqual({ include_usage: true });
+  });
+
+  it("can stop replaying reasoning, and sends tool_choice none only when asked", () => {
+    const req = {
+      model: "m",
+      system: "",
+      tools: [{ name: "t", description: "d", inputSchema: {} }],
+      messages: [
+        user("x"),
+        {
+          role: "assistant" as const,
+          parts: [
+            { type: "thinking" as const, text: "r" },
+            { type: "text" as const, text: "a" },
+          ],
+        },
+      ],
+    };
+    const off = new OpenAICompatProvider({ baseURL: "x", replayReasoning: false }).buildBody(req);
+    expect((off.messages as unknown[])[1]).toEqual({ role: "assistant", content: "a" });
+    expect(off).not.toHaveProperty("tool_choice");
+    expect(
+      new OpenAICompatProvider({ baseURL: "x" }).buildBody({ ...req, toolChoice: "none" }),
+    ).toMatchObject({ tool_choice: "none" });
   });
 
   it("translates effort per server style", () => {

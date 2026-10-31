@@ -29,6 +29,12 @@ describe("AnthropicProvider request", () => {
     expect(params.cache_control).toEqual({ type: "ephemeral" });
   });
 
+  it("sets tool_choice none only when asked", () => {
+    const base = { model: "claude-opus-5-5", system: "S", tools, messages: [user("hi")] };
+    expect(p.buildParams(base).tool_choice).toBeUndefined();
+    expect(p.buildParams({ ...base, toolChoice: "none" }).tool_choice).toEqual({ type: "none" });
+  });
+
   it("uses a 1h TTL for tools and system when longCache is on", () => {
     const params = new AnthropicProvider({ apiKey: "t", longCache: true }).buildParams({
       model: "claude-opus-5-5",

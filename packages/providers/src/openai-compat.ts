@@ -26,6 +26,13 @@ export interface OpenAICompatOptions {
   defaultContextWindow?: number;
   /** Send `prompt_cache_key` (OpenAI); local servers usually ignore it. */
   sendCacheKey?: boolean;
+  /**
+   * Send previous turns' reasoning back as `reasoning_content` (default true). The KV cache
+   * of a local server holds the reasoning it generated; dropping it from the history makes
+   * the prompt diverge from the cache at that turn and forces a re-prefill of everything
+   * after it. Templates that strip old reasoning ignore the field.
+   */
+  replayReasoning?: boolean;
   headers?: Record<string, string>;
   fetch?: typeof fetch;
 }
@@ -36,6 +43,7 @@ type WireMessage =
   | {
       role: "assistant";
       content: string | null;
+      reasoning_content?: string;
       tool_calls?: {
         id: string;
         type: "function";
@@ -145,7 +153,9 @@ export class OpenAICompatProvider implements Provider {
   buildBody(request: CompletionRequest): Record<string, unknown> {
     const messages: WireMessage[] = [];
     if (request.system) messages.push({ role: "system", content: request.system });
-    for (const m of request.messages) messages.push(...toWire(m));
+    for (const m of request.messages) {
+      messages.push(...toWire(m, this.options.replayReasoning ?? true));
+    }
     return {
       model: request.model,
       messages,
@@ -155,6 +165,7 @@ export class OpenAICompatProvider implements Provider {
           function: { name: t.name, description: t.description, parameters: t.inputSchema },
         })),
       }),
+      ...(request.tools.length > 0 && request.toolChoice === "none" && { tool_choice: "none" }),
       ...(request.maxTokens !== undefined && { max_tokens: request.maxTokens }),
       ...openAiEffortFields(request.effort, this.options.effortStyle ?? "none"),
       ...(this.options.sendCacheKey && request.cacheKey && { prompt_cache_key: request.cacheKey }),
@@ -292,7 +303,7 @@ export class OpenAICompatProvider implements Provider {
   }
 }
 
-function toWire(m: ChatMessage): WireMessage[] {
+function toWire(m: ChatMessage, replayReasoning: boolean): WireMessage[] {
   if (m.role === "user") {
     const out: WireMessage[] = [];
     const texts: string[] = [];
@@ -311,6 +322,7 @@ function toWire(m: ChatMessage): WireMessage[] {
     return out;
   }
   const text = m.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("");
+  const reasoning = m.parts.flatMap((p) => (p.type === "thinking" ? [p.text] : [])).join("");
   const toolCalls = m.parts.flatMap((p) =>
     p.type === "tool_call"
       ? [
@@ -326,6 +338,7 @@ function toWire(m: ChatMessage): WireMessage[] {
     {
       role: "assistant",
       content: text || null,
+      ...(replayReasoning && reasoning && { reasoning_content: reasoning }),
       ...(toolCalls.length > 0 && { tool_calls: toolCalls }),
     },
   ];

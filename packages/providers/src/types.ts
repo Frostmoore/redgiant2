@@ -33,6 +33,11 @@ export interface CompletionRequest {
   maxTokens?: number | undefined;
   /** Stable per-session key, for providers that route by cache key. */
   cacheKey?: string | undefined;
+  /**
+   * `none` forbids tool calls for this request while still sending the same tool list, so
+   * the cached prefix (tools come first) is reused. Default `auto`.
+   */
+  toolChoice?: "auto" | "none" | undefined;
 }
 
 /** Token usage, normalised. `inputTokens` is the total prompt size, cached tokens included. */

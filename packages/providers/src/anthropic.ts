@@ -148,6 +148,7 @@ export class AnthropicProvider implements Provider {
     }
     if (tools.length > 0) params.tools = tools;
     if (e.adaptiveThinking) params.thinking = { type: "adaptive", display: "summarized" };
+    if (tools.length > 0 && request.toolChoice === "none") params.tool_choice = { type: "none" };
     if (e.supportsEffort && request.effort) {
       params.output_config = { effort: anthropicEffort(request.effort) };
     }

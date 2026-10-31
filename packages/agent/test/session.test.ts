@@ -65,6 +65,10 @@ function setup(
 }
 
 const types = (events: Event[]) => events.map((e) => e.type);
+const isSummary = (req: CompletionRequest) => {
+  const last = req.messages.at(-1)?.parts[0];
+  return last?.type === "text" && last.text.startsWith("Do not call any tool now.");
+};
 
 describe("AgentSession", () => {
   it("records a plain exchange and forwards deltas live", async () => {
@@ -255,7 +259,7 @@ describe("AgentSession", () => {
     const big = "lorem ipsum ".repeat(40);
     const { fake, options } = setup(
       (req, i) => {
-        if (req.tools.length === 0) return { text: "SUMMARY: user said hi twice" };
+        if (isSummary(req)) return { text: "SUMMARY: user said hi twice" };
         return i === 0 ? { text: big } : { text: "after compaction" };
       },
       {},
@@ -280,13 +284,39 @@ describe("AgentSession", () => {
       { role: "user", parts: [{ type: "text", text: "hi again" }] },
     ]);
     expect((await AgentSession.resume(options)).messages).toEqual(s.messages);
+
+    // The summary request is the previous request plus one message: the cached prefix holds.
+    const summaryReq = fake.requests.find(isSummary);
+    const before = fake.requests[fake.requests.indexOf(summaryReq as CompletionRequest) - 1];
+    expect(summaryReq?.tools).toEqual(before?.tools);
+    expect(summaryReq?.system).toBe(before?.system);
+    expect(summaryReq?.toolChoice).toBeUndefined();
+  });
+
+  it("falls back to toolChoice none if the model calls a tool instead of summarising", async () => {
+    const big = "lorem ipsum ".repeat(40);
+    const { fake, options } = setup(
+      (req, i) => {
+        if (isSummary(req))
+          return req.toolChoice === "none"
+            ? { text: "S" }
+            : { toolCalls: [{ name: "echo", input: { text: "x" } }] };
+        return { text: i === 0 ? big : "ok" };
+      },
+      {},
+      200,
+    );
+    const s = await AgentSession.start(options);
+    await s.send("one");
+    await s.send("two");
+    expect(fake.requests.filter(isSummary).map((r) => r.toolChoice)).toEqual([undefined, "none"]);
   });
 
   it("lets preCompact hooks postpone compaction or add instructions", async () => {
     const big = "lorem ipsum ".repeat(40);
     let allow = false;
     const { fake, options } = setup(
-      (req, i) => (req.tools.length === 0 ? { text: "S" } : { text: i === 0 ? big : "ok" }),
+      (req, i) => (isSummary(req) ? { text: "S" } : { text: i === 0 ? big : "ok" }),
       { hooks: { preCompact: [() => (allow ? "Keep the file list." : false)] } },
       200,
     );
@@ -298,7 +328,7 @@ describe("AgentSession", () => {
     );
     allow = true;
     await s.send("three");
-    const summaryReq = fake.requests.find((r) => r.tools.length === 0);
+    const summaryReq = fake.requests.find(isSummary);
     const lastPart = summaryReq?.messages.at(-1)?.parts[0];
     expect(lastPart?.type === "text" && lastPart.text).toMatch(/Keep the file list\.$/);
   });
