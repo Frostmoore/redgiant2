@@ -83,8 +83,6 @@ export async function loadCustomTools(
   return [...byName.values()].sort((a, b) => a.spec.name.localeCompare(b.spec.name));
 }
 
-const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-
 /** Copies the tool's files into the workspace (`.redgiant/tools/<name>`) and runs it there. */
 export async function runCustomTool(
   t: { spec: CustomToolSpec; files: Record<string, string> },
@@ -92,12 +90,13 @@ export async function runCustomTool(
   input: unknown,
   signal?: AbortSignal,
 ) {
+  // The name matches NAME_RE (letters, digits, dashes): safe unquoted in every shell (cmd.exe has no '…').
   const base = `.redgiant/tools/${t.spec.name}`;
   for (const [path, content] of Object.entries(t.files))
     await ws.writeText(`${base}/${path}`, content);
   const inputFile = `.input-${randomUUID().slice(0, 8)}.json`;
   await ws.writeText(`${base}/${inputFile}`, JSON.stringify(input ?? {}));
-  return ws.exec(`cd ${shellQuote(base)} && ${t.spec.command} ${inputFile}`, {
+  return ws.exec(`cd ${base} && ${t.spec.command} ${inputFile}`, {
     timeoutMs: t.spec.timeoutMs ?? 120_000,
     signal,
   });
