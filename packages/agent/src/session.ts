@@ -16,6 +16,7 @@ import {
   type StreamEvent,
   streamWithFallback,
 } from "@redgiant/providers";
+import type { Engine } from "./engine.js";
 import type { Hooks, ToolCallInfo } from "./hooks.js";
 import { type HistoryEntry, rebuildHistory, summaryMessage } from "./rebuild.js";
 import { repairJson } from "./repair.js";
@@ -58,6 +59,8 @@ export interface AgentSessionOptions {
    * ends `send` with stopReason "budget".
    */
   beforeModelCall?: () => Promise<{ allow: boolean; reason?: string }>;
+  /** A flat subscription's own agent runs the turns (G21); the tools stay these. */
+  engine?: Engine;
 }
 
 export interface SendResult {
@@ -83,6 +86,8 @@ export class AgentSession {
   private lastMetrics: MessageMetrics | undefined;
   private readonly tools: Tool[];
   private readonly ctx: ToolContext;
+  /** The engine's conversation id (G21), from the log. */
+  private engineSession: string | undefined;
 
   constructor(private readonly o: AgentSessionOptions) {
     this.tools = canonicalTools(o.tools);
@@ -117,6 +122,7 @@ export class AgentSession {
     for (const e of events) {
       if (e.type === "compaction") s.lastMetrics = undefined;
       if (e.type === "message.assistant" && e.payload) s.lastMetrics = e.payload.metrics;
+      if (e.type === "engine.session" && e.payload) s.engineSession = e.payload.id;
     }
     return s;
   }
@@ -174,6 +180,8 @@ export class AgentSession {
       message: { role: "user", parts: [{ type: "text", text }, ...images] },
       firstSeq: first.seq,
     });
+
+    if (this.o.engine) return this.sendToEngine(this.o.engine, text, images, ctx);
 
     let last: Completion | undefined;
     for (let turn = 1; turn <= (this.o.maxTurns ?? 50); turn++) {
@@ -241,6 +249,110 @@ export class AgentSession {
       turns: this.o.maxTurns ?? 50,
       ...(last && { lastCompletion: last }),
     };
+  }
+
+  /**
+   * A turn on an external engine (G21): the engine runs the model, RedGiant runs and logs the
+   * tools. Stop hooks still apply: their reminder is the next turn's message.
+   */
+  private async sendToEngine(
+    engine: Engine,
+    text: string,
+    images: ImagePart[],
+    ctx: ToolContext,
+  ): Promise<SendResult> {
+    let message = text;
+    let pictures = images;
+    for (let turn = 1; turn <= (this.o.maxTurns ?? 50); turn++) {
+      const gate = await this.o.beforeModelCall?.();
+      if (gate && !gate.allow)
+        return {
+          stopReason: "budget",
+          turns: turn - 1,
+          ...(gate.reason && { reason: gate.reason }),
+        };
+      const r = await engine.turn({
+        text: message,
+        images: pictures,
+        system: this.o.system,
+        tools: this.tools.map((t) => t.def),
+        model: this.o.model,
+        resume: this.engineSession,
+        signal: ctx.signal,
+        live: this.o.live,
+        onMessage: async (m) => {
+          this.lastMetrics = m.metrics;
+          const e = await this.record({
+            type: "message.assistant",
+            payload: {
+              parts: m.parts,
+              stopReason: m.stopReason,
+              provider: this.o.model.provider,
+              model: m.model,
+              metrics: m.metrics,
+              // A flat subscription: nothing is paid per token.
+              costUsd: 0,
+            },
+          });
+          this.history.push({ message: { role: "assistant", parts: m.parts }, firstSeq: e.seq });
+        },
+        runTool: async (call) => {
+          await this.record({
+            type: "tool.call",
+            payload: { callId: call.callId, tool: call.name, input: call.input },
+          });
+          const r = await this.runOne(
+            { callId: call.callId, name: call.name, input: call.input },
+            JSON.stringify(call.input ?? null),
+            ctx,
+          );
+          const e = await this.record({
+            type: "tool.result",
+            payload: { callId: call.callId, ok: !r.isError, output: r.content },
+          });
+          this.history.push({
+            message: {
+              role: "user",
+              parts: [
+                {
+                  type: "tool_result",
+                  callId: call.callId,
+                  content: r.content,
+                  ...(r.isError && { isError: true }),
+                },
+              ],
+            },
+            firstSeq: e.seq,
+          });
+          return r;
+        },
+      });
+      if (r.resume !== this.engineSession) {
+        this.engineSession = r.resume;
+        await this.record({ type: "engine.session", payload: { engine: engine.id, id: r.resume } });
+      }
+      if (r.stopReason !== "end_turn") return { stopReason: r.stopReason, turns: turn };
+      const more = await this.engineStopHooks(ctx);
+      if (more === undefined) return { stopReason: "end_turn", turns: turn };
+      const e = await this.record({ type: "message.user", payload: { text: more } });
+      this.history.push({
+        message: { role: "user", parts: [{ type: "text", text: more }] },
+        firstSeq: e.seq,
+      });
+      message = more;
+      pictures = [];
+    }
+    return { stopReason: "max_turns", turns: this.o.maxTurns ?? 50 };
+  }
+
+  /** Stop hooks for engines: they see the last assistant text as a completion. */
+  private async engineStopHooks(ctx: ToolContext): Promise<string | undefined> {
+    const last = [...this.history].reverse().find((h) => h.message.role === "assistant");
+    const completion = {
+      message: { role: "assistant", parts: last?.message.parts ?? [] },
+      stopReason: "end_turn",
+    } as unknown as Completion;
+    return this.stopHooks(completion, ctx);
   }
 
   private async callModel(signal?: AbortSignal): Promise<Completion> {

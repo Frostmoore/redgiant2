@@ -12,7 +12,13 @@ import {
 } from "@redgiant/providers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { AgentSession, type AgentSessionOptions, rebuildHistory, type Tool } from "../src/index.js";
+import {
+  AgentSession,
+  type AgentSessionOptions,
+  type Engine,
+  rebuildHistory,
+  type Tool,
+} from "../src/index.js";
 import { memoryDb } from "./pglite.js";
 
 let store: EventStore;
@@ -268,6 +274,76 @@ describe("AgentSession", () => {
     ]);
     const resumed = await AgentSession.resume(options);
     expect(resumed.messages).toEqual(s.messages);
+  });
+
+  it("lets an external engine run the turn while the tools, permissions and log stay RedGiant's", async () => {
+    const seen: { resume: string | undefined; tools: string[] }[] = [];
+    const metrics = {
+      startedAt: "2026-11-01T10:00:00.000Z",
+      endedAt: "2026-11-01T10:00:01.000Z",
+      inputTokens: 100,
+      cachedReadTokens: 0,
+      cacheWriteTokens: 0,
+      outputTokens: 10,
+      contextUsed: 110,
+      contextWindow: 200_000,
+      prefillMs: 0,
+      decodeMs: 0,
+      tokPerSec: 0,
+      source: "server" as const,
+    };
+    const engine: Engine = {
+      id: "fake-engine",
+      async turn(t) {
+        seen.push({ resume: t.resume, tools: t.tools.map((x) => x.name) });
+        await t.onMessage({
+          parts: [
+            { type: "tool_call", callId: "c1", name: "echo", input: { text: "hi" }, rawInput: "" },
+          ],
+          metrics,
+          stopReason: "tool_use",
+          model: "sub-model",
+        });
+        const ok = await t.runTool({ callId: "c1", name: "echo", input: { text: "hi" } });
+        const no = await t.runTool({ callId: "c2", name: "boom", input: {} });
+        await t.onMessage({
+          parts: [{ type: "text", text: `${ok.content} ${no.isError}` }],
+          metrics,
+          stopReason: "end_turn",
+          model: "sub-model",
+        });
+        return { resume: "thread-1", stopReason: "end_turn" };
+      },
+    };
+    const { options } = setup([], {
+      engine,
+      permission: async (call) =>
+        call.name === "boom" ? { allow: false, reason: "no" } : { allow: true },
+    });
+    const s = await AgentSession.start(options);
+    expect(await s.send("go")).toMatchObject({ stopReason: "end_turn", turns: 1 });
+    const events = await store.list({ sessionId: "s1" });
+    expect(types(events)).toEqual([
+      "session.started",
+      "message.user",
+      "message.assistant",
+      "tool.call",
+      "tool.result",
+      "tool.call",
+      "tool.result",
+      "message.assistant",
+      "engine.session",
+    ]);
+    const last = events.filter((e) => e.type === "message.assistant").at(-1);
+    expect(last?.payload).toMatchObject({ parts: [{ type: "text", text: "HI true" }], costUsd: 0 });
+    // The next message continues the engine's conversation, also after a restart.
+    const resumed = await AgentSession.resume(options);
+    await resumed.send("again");
+    expect(seen.map((x) => x.resume)).toEqual([undefined, "thread-1"]);
+    expect(seen[0]?.tools).toEqual(["boom", "echo"]);
+    expect(
+      types(await store.list({ sessionId: "s1" })).filter((t) => t === "engine.session"),
+    ).toHaveLength(1);
   });
 
   it("compacts when the context is nearly full and records it", async () => {

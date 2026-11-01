@@ -19,6 +19,11 @@ export const EventBody = z.discriminatedUnion("type", [
     type: z.literal("session.started"),
     payload: z.object({ sessionId: z.string(), system: z.string(), tools: z.array(z.string()) }),
   }),
+  /** A flat-subscription engine's own conversation id (G21): resuming continues it. */
+  z.object({
+    type: z.literal("engine.session"),
+    payload: z.object({ engine: z.string(), id: z.string() }),
+  }),
   z.object({
     type: z.literal("session.ended"),
     payload: z.object({ reason: z.string() }),
