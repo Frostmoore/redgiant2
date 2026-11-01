@@ -271,7 +271,9 @@ export class ClaudeEngine implements Engine {
             throw new ProviderError(
               `Claude subscription: ${text}`,
               false,
-              /401|authentication|invalid.*token|oauth/i.test(text) ? { status: 401 } : {},
+              /401|authentication|invalid.*token|oauth|logged in|\/login/i.test(text)
+                ? { status: 401 }
+                : {},
             );
           }
         }

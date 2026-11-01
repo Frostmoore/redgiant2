@@ -32,7 +32,7 @@ function fakeSdk(script: "tools" | "refused") {
             type: "result",
             subtype: "success",
             is_error: true,
-            result: "Invalid bearer token (401)",
+            result: "Not logged in · Please run /login",
             session_id: "s-x",
           };
           return;
