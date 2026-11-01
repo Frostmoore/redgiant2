@@ -313,10 +313,14 @@ export const IconLayers = ({ size = 14 }: P) => (
 );
 
 /** The RedGiant mark, drawn: a red giant star with its glow. */
+/** RedGiant's icon (the user's, 2026-11-01): the red giant with its orbits and network. */
 export const Logo = ({ size = 22 }: P) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" class="logo">
-    <circle cx="12" cy="12" r="11" fill="var(--accent-soft)" />
-    <circle cx="12" cy="12" r="7.5" fill="var(--accent)" />
-    <circle cx="9.5" cy="9.5" r="2.4" fill="#fff" opacity=".35" />
-  </svg>
+  <img
+    src={size > 64 ? "/icon-512.png" : "/icon-192.png"}
+    width={size}
+    height={size}
+    alt=""
+    aria-hidden="true"
+    class="logo"
+  />
 );

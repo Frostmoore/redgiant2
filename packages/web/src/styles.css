@@ -1717,12 +1717,11 @@ select.model:disabled {
   letter-spacing: 0.03em;
   font-size: 17px;
 }
-.sun {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 40% 38%, #ffb08a, var(--accent) 45%, #8e1b1b);
-  box-shadow: 0 0 14px #ef4b3a88;
+/* The icon itself is a rounded square: it keeps its own shape at every size. */
+img.logo {
+  display: block;
+  flex: none;
+  border-radius: 22%;
 }
 
 /* Metrics bar */

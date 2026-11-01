@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# RedGiant inside its WSL distribution (G22). The Windows launcher runs `redgiant-wsl run` and reads
+# the lines it prints: "STEP <text>" (shown to the user), "TOKEN=…", "PORT=…", "READY", "FAIL <text>".
+# `run` then stays alive: WSL keeps the distribution (and RedGiant) running as long as it does.
+set -uo pipefail
+HOME_DIR=/root/redgiant
+REF=$(cat /etc/redgiant-ref 2>/dev/null || echo main)
+
+step() { echo "STEP $*"; }
+fail() { echo "FAIL $*"; exit 1; }
+
+start_docker() {
+  if docker info >/dev/null 2>&1; then return 0; fi
+  if [ -d /run/systemd/system ]; then
+    systemctl start docker >/dev/null 2>&1
+  else
+    # No systemd (tests in a container): the daemon in the background.
+    (dockerd >/var/log/dockerd.log 2>&1 &)
+  fi
+  for _ in $(seq 1 60); do
+    docker info >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  return 1
+}
+
+wait_up() {
+  local port=$1
+  for _ in $(seq 1 180); do
+    curl -fsS "http://127.0.0.1:$port/api/health" >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  return 1
+}
+
+setting() { grep -E "^$1=" "$HOME_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-; }
+
+run() {
+  step "Avvio del motore di RedGiant"
+  start_docker || fail "Il motore dei container non parte."
+  if [ ! -f "$HOME_DIR/.env" ]; then
+    step "Prima preparazione: scarico RedGiant (qualche minuto, una volta sola)"
+    REDGIANT_YES=1 REDGIANT_NO_BROWSER=1 REDGIANT_REF="$REF" REDGIANT_HOME="$HOME_DIR" \
+      bash /usr/local/share/redgiant/install.sh >/var/log/redgiant-install.log 2>&1 \
+      || fail "La prima preparazione non è riuscita (registro: /var/log/redgiant-install.log)."
+  else
+    step "Avvio di RedGiant"
+    (cd "$HOME_DIR" && docker compose up -d >/var/log/redgiant-start.log 2>&1) \
+      || fail "RedGiant non parte (registro: /var/log/redgiant-start.log)."
+  fi
+  local port
+  port=$(setting REDGIANT_PORT)
+  port=${port:-7600}
+  step "Quasi pronto"
+  wait_up "$port" || fail "RedGiant non risponde."
+  echo "PORT=$port"
+  echo "TOKEN=$(setting REDGIANT_TOKEN)"
+  echo "READY"
+  exec sleep infinity
+}
+
+case "${1:-run}" in
+  run) run ;;
+  token) setting REDGIANT_TOKEN ;;
+  update)
+    start_docker || fail "Il motore dei container non parte."
+    cd "$HOME_DIR" && docker compose pull && docker compose up -d
+    ;;
+  stop) cd "$HOME_DIR" 2>/dev/null && docker compose stop ;;
+  *) echo "usage: redgiant-wsl run|token|update|stop" >&2; exit 2 ;;
+esac

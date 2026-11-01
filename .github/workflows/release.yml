@@ -74,3 +74,53 @@ jobs:
             ${{ matrix.variant && format('VARIANT={0}', matrix.variant) || '' }}
           cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.suffix }}
+
+  # RedGiant-Setup.exe (G22): the WSL distribution, the launcher and the installer, attached to the
+  # tag's GitHub Release.
+  windows-rootfs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and export the WSL distribution
+        run: |
+          docker build -f packaging/windows/rootfs.Dockerfile --build-arg REDGIANT_REF=${{ github.ref_name }} -t redgiant-rootfs .
+          cid=$(docker create redgiant-rootfs)
+          docker export "$cid" | gzip -6 > redgiant-rootfs.tar.gz
+          ls -la redgiant-rootfs.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: redgiant-rootfs
+          path: redgiant-rootfs.tar.gz
+          compression-level: 0
+
+  windows-installer:
+    needs: windows-rootfs
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: redgiant-rootfs
+          path: packaging/windows
+      - name: Build the launcher (C# of .NET Framework, on every Windows)
+        shell: pwsh
+        working-directory: packaging/windows
+        run: |
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll launcher\RedGiant.cs
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Build the installer (Inno Setup)
+        shell: pwsh
+        working-directory: packaging/windows
+        run: |
+          choco install innosetup -y --no-progress
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$version" RedGiant.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Item dist\RedGiant-Setup.exe | Format-List Name, Length
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: packaging/windows/dist/RedGiant-Setup.exe
+          generate_release_notes: true

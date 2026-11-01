@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { claimDevice, deviceName } from "../api.js";
 import { t } from "../i18n.js";
+import { Logo } from "../icons.js";
 import { signIn } from "../state.js";
 
 export function Login() {
@@ -20,7 +21,7 @@ export function Login() {
     <div class="login">
       <form onSubmit={(e) => void submit(e)}>
         <div class="logo">
-          <span class="sun" /> RedGiant
+          <Logo size={40} /> RedGiant
         </div>
         <p class="dim">{t("loginHint")}</p>
         <input
