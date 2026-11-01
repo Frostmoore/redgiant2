@@ -204,3 +204,16 @@ describe("splitMessage", () => {
     expect(splitMessage("")).toEqual(["…"]);
   });
 });
+
+describe("toTelegramHtml", () => {
+  it("turns the usual Markdown into Telegram's HTML and escapes the rest", async () => {
+    const { toTelegramHtml } = await import("@redgiant/telegram");
+    expect(
+      toTelegramHtml(
+        '**Fatto**: `cart.py` <ok> & *bene*\n- uno\n## Titolo\n[link](https://x.y/a)\n```py\nprint("**no**")\n```',
+      ),
+    ).toBe(
+      '<b>Fatto</b>: <code>cart.py</code> &lt;ok&gt; &amp; <i>bene</i>\n• uno\n<b>Titolo</b>\n<a href="https://x.y/a">link</a>\n<pre>print("**no**")</pre>',
+    );
+  });
+});

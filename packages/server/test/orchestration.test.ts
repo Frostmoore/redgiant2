@@ -555,3 +555,30 @@ describe("orchestration", () => {
     });
   });
 });
+
+describe("tasks after a restart", () => {
+  it("come back from the log while still open", async () => {
+    const { db } = await (await import("./pglite.js")).memoryDb();
+    const { EventStore, migrate } = await import("@redgiant/events");
+    const { TaskTracker } = await import("../src/index.js");
+    await migrate(db);
+    const store = new EventStore(db);
+    const at = { ownerId: "me", projectId: "p", agentId: "agent_1", sessionId: "sess_1" };
+    await store.append({
+      ...at,
+      body: { type: "task.opened", payload: { taskId: "t1", title: "Open" } },
+    });
+    await store.append({
+      ...at,
+      body: { type: "task.opened", payload: { taskId: "t2", title: "Done" } },
+    });
+    await store.append({
+      ...at,
+      body: { type: "task.closed", payload: { taskId: "t2", outcome: "verified" } },
+    });
+    const tracker = new TaskTracker(store);
+    expect(await tracker.rebuild()).toBe(1);
+    expect(tracker.openFor("agent_1", "sess_1")?.title).toBe("Open");
+    expect(tracker.get("t2")).toBeUndefined();
+  });
+});

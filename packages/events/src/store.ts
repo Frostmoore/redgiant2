@@ -17,6 +17,8 @@ export interface AppendInput {
 export interface EventFilter {
   sessionId?: string;
   projectId?: string;
+  /** Only these event types. */
+  types?: string[];
   fromSeq?: number;
   limit?: number;
 }
@@ -119,6 +121,7 @@ export class EventStore {
     if (filter.projectId !== undefined)
       where.push(`project_id = $${params.push(filter.projectId)}`);
     if (filter.fromSeq !== undefined) where.push(`seq >= $${params.push(filter.fromSeq)}`);
+    if (filter.types !== undefined) where.push(`type = ANY($${params.push(filter.types)})`);
     const limit = filter.limit !== undefined ? ` LIMIT $${params.push(filter.limit)}` : "";
     const rows = await this.db.query<Row>(
       `SELECT * FROM rg_events${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY seq${limit}`,

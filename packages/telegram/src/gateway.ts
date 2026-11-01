@@ -53,6 +53,29 @@ export function splitMessage(text: string, max = 4000): string[] {
   return out;
 }
 
+/**
+ * Models write Markdown; Telegram shows it raw. The common parts (bold, italics, code, links,
+ * headings) become Telegram's HTML; everything else is escaped and stays as text.
+ */
+export function toTelegramHtml(md: string): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const blocks: string[] = [];
+  // Code blocks first: nothing inside them is formatting.
+  let text = md.replace(/```[\w-]*\n?([\s\S]*?)```/g, (_, code: string) => {
+    blocks.push(`<pre>${esc(code.replace(/\n$/, ""))}</pre>`);
+    return `\uE000${blocks.length - 1}\uE000`;
+  });
+  text = esc(text)
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
+    .replace(/__([^_\n]+)__/g, "<b>$1</b>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/gm, "$1<i>$2</i>")
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>')
+    .replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>")
+    .replace(/^\s*[-*]\s+/gm, "• ");
+  return text.replace(/\uE000(\d+)\uE000/g, (_, i: string) => blocks[Number(i)] ?? "");
+}
+
 export interface GatewayOptions {
   token: string;
   db: SqlClient;
@@ -187,7 +210,7 @@ export class TelegramGateway {
     void api.sendChatAction(chatId, "typing").catch(() => {});
     try {
       const answer = await this.o.host.askDemigod(owner, chatId, text);
-      for (const part of splitMessage(answer)) await api.sendMessage(chatId, part);
+      for (const part of splitMessage(answer)) await this.sendFormatted(chatId, part);
     } catch (err) {
       await api.sendMessage(chatId, `⚠️ ${(err as Error).message}`).catch(() => {});
     } finally {
@@ -204,7 +227,19 @@ export class TelegramGateway {
   async notify(ownerId: string, text: string): Promise<void> {
     for (const link of await this.links(ownerId))
       for (const part of splitMessage(text))
-        await this.bot.api.sendMessage(link.chatId, part).catch(() => {});
+        await this.sendFormatted(link.chatId, part).catch(() => {});
+  }
+
+  /** As HTML when Telegram accepts it, as plain text otherwise (it rejects broken markup). */
+  private async sendFormatted(chatId: number, text: string) {
+    try {
+      await this.bot.api.sendMessage(chatId, toTelegramHtml(text), {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      });
+    } catch {
+      await this.bot.api.sendMessage(chatId, text);
+    }
   }
 
   private async sendApproval(ownerId: string, info: PermissionRequestInfo) {

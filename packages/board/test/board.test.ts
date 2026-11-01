@@ -12,8 +12,9 @@ let registry: AgentRegistry;
 const ctx: ToolContext = { ownerId: "me", projectId: "p1", agentId: "a", sessionId: "s" };
 const human = { type: "human" as const, ownerId: "me" };
 
+let db: Awaited<ReturnType<typeof memoryDb>>["db"];
 beforeEach(async () => {
-  const { db } = await memoryDb();
+  ({ db } = await memoryDb());
   await migrate(db);
   await migrateHierarchy(db);
   await migrateBoard(db);
@@ -150,6 +151,36 @@ describe("Board", () => {
     });
     await new Promise((r) => setTimeout(r, 50));
     expect((await board.thread("me", t2.thread.id))?.status).toBe("blocked");
+    stop();
+  });
+
+  it("remembers tasks closed before a restart", async () => {
+    const { thread } = await board.createThread({
+      ownerId: "me",
+      projectId: "p1",
+      title: "Two steps",
+      first: { author: "o", kind: "task", body: "a and b", refs: { taskId: "task_a" } },
+    });
+    await board.reply("me", thread.id, {
+      author: "o",
+      kind: "task",
+      body: "b",
+      refs: { taskId: "task_b" },
+    });
+    // task_a closes while nobody follows (the server was down), task_b after the restart.
+    await store.append({
+      ownerId: "me",
+      projectId: "p1",
+      body: { type: "task.closed", payload: { taskId: "task_a", outcome: "verified" } },
+    });
+    const stop = new Board(db, store).followTasks();
+    await store.append({
+      ownerId: "me",
+      projectId: "p1",
+      body: { type: "task.closed", payload: { taskId: "task_b", outcome: "verified" } },
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    expect((await board.thread("me", thread.id))?.status).toBe("resolved");
     stop();
   });
 

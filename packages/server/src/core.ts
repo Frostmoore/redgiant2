@@ -305,6 +305,7 @@ export class RedGiantCore implements OrchestrationHost {
     const core = new RedGiantCore(o);
     await core.registry.load();
     await core.policies.load();
+    await core.tasks.rebuild();
     return core;
   }
 

@@ -345,6 +345,13 @@ export class Board {
           "SELECT * FROM rg_threads WHERE owner_id = $1 AND $2 = ANY(task_ids)",
           [e.ownerId, (e.payload as { taskId: string }).taskId],
         );
+        // Tasks closed before a restart are not in memory: their outcome comes from the log (S40).
+        const missing = rows.flatMap((t) => t.task_ids).filter((id) => !closed.has(id));
+        if (missing.length > 0)
+          for (const old of await this.store.list({ types: ["task.closed"] })) {
+            const p = old.payload as { taskId: string; outcome: string } | null;
+            if (p && missing.includes(p.taskId)) closed.set(p.taskId, p.outcome);
+          }
         for (const t of rows) {
           const outcomes = t.task_ids.map((id) => closed.get(id));
           const next: ThreadStatus | undefined = outcomes.includes("abandoned")

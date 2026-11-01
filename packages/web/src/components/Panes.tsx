@@ -1,3 +1,5 @@
+import { h, type JSX } from "preact";
+import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import {
   activateTab,
@@ -14,14 +16,37 @@ import { Board } from "./Board.js";
 import { Budgets } from "./Budgets.js";
 import { Chat } from "./Chat.js";
 import { DailyChat } from "./DailyChat.js";
-import { Editor } from "./Editor.js";
 import { Extensions } from "./Extensions.js";
 import { Files } from "./Files.js";
 import { Hierarchy } from "./Hierarchy.js";
 import { Platform } from "./Platform.js";
 import { Setup } from "./Setup.js";
 import { Telegram } from "./Telegram.js";
-import { TerminalView } from "./TerminalView.js";
+
+/**
+ * Loads a heavy view (CodeMirror, xterm.js) the first time it is shown, not with the page:
+ * most sessions never open an editor or a terminal.
+ */
+function lazy<P extends object>(load: () => Promise<(props: P) => JSX.Element | null>) {
+  let loaded: ((props: P) => JSX.Element | null) | undefined;
+  return function Lazy(props: P) {
+    const [view, setView] = useState(() => loaded);
+    useEffect(() => {
+      if (!view)
+        void load().then((v) => {
+          loaded = v;
+          setView(() => v);
+        });
+    }, [view]);
+    return view ? h(view, props) : <div class="empty">…</div>;
+  };
+}
+const Editor = lazy<{ scope: string; path: string }>(() =>
+  import("./Editor.js").then((m) => m.Editor),
+);
+const TerminalView = lazy<{ scope: string }>(() =>
+  import("./TerminalView.js").then((m) => m.TerminalView),
+);
 
 function Content({ tab }: { tab: Tab }) {
   switch (tab.type) {

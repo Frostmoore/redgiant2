@@ -74,6 +74,30 @@ export class TaskTracker {
     return task;
   }
 
+  /**
+   * After a restart: the tasks still open come back from the log (S27), so the stop hook keeps
+   * reminding their agents and complete_task can close them.
+   */
+  async rebuild(): Promise<number> {
+    const events = await this.store.list({ types: ["task.opened", "task.closed"] });
+    for (const e of events) {
+      const p = e.payload as { taskId: string; title?: string } | null;
+      if (!p) continue;
+      if (e.type === "task.opened" && e.agentId && e.sessionId)
+        this.tasks.set(p.taskId, {
+          id: p.taskId,
+          title: p.title ?? "",
+          agentId: e.agentId,
+          sessionId: e.sessionId,
+          ownerId: e.ownerId,
+          projectId: e.projectId,
+          reminders: 0,
+        });
+      else if (e.type === "task.closed") this.tasks.delete(p.taskId);
+    }
+    return this.tasks.size;
+  }
+
   get(id: string): Task | undefined {
     return this.tasks.get(id);
   }
