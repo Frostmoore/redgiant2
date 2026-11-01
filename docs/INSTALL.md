@@ -5,7 +5,7 @@ back broken updates by itself), an egress proxy that is the sandboxes' only way 
 container per workspace, created on demand. Everything lives in Docker volumes; nothing is written
 to your system outside the installation folder.
 
-**You need:** Docker Engine 26 or newer with Compose v2 (Docker Desktop on Windows and macOS),
+**You need:** Docker Engine 26 or newer with Compose v2 (Docker Desktop or OrbStack on macOS; on Windows the setup program brings its own),
 4 GB of RAM, 10 GB of disk (more for local models). An API key for a cloud model, or a GGUF model
 for the local engine.
 
@@ -36,7 +36,16 @@ at it).
 
 ## Windows
 
-In PowerShell:
+Download `RedGiant-Setup.exe` from the [latest release](https://github.com/Frostmoore/redgiant2/releases/latest)
+and run it. It switches WSL on if needed (the only step that asks for administrator rights; if Windows
+needs a restart, setup continues by itself afterwards), imports RedGiant's own WSL distribution with
+Docker inside (no Docker Desktop), and adds a RedGiant icon to the desktop and the Start menu, optionally
+starting with Windows. The icon starts RedGiant, opens the browser signed in and stays next to the clock
+("Open RedGiant", "Quit"). Running the setup again updates RedGiant and keeps its data; uninstalling asks
+whether to keep conversations, projects and settings. The installer is not code-signed yet: if SmartScreen
+says "Windows protected your PC", click "More info", then "Run anyway". Windows 10 2004 or newer, x64.
+
+Alternatively, with Docker Desktop, in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/Frostmoore/redgiant2/main/install.ps1 | iex
@@ -115,3 +124,64 @@ docker compose down -v                      # also deletes the database and the 
 then delete the installation folder. The local engine started by the setup wizard is a container of its
 own: remove it first with `docker rm -f redgiant-engine`. The sandbox containers (`rg-sbx-*`) are removed by
 RedGiant; any left over can be removed with `docker rm -f`.
+
+## Running from source
+
+Without the installer (for development, or your own deployment), the server is configured with
+environment variables. Requirements: Node.js 22+ and pnpm (`corepack enable`).
+
+| Variable                                                            | Meaning                                                                                                                                     |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                      | Postgres connection string (required); `memory:` for a throwaway in-process database (trial copies, demos)                                  |
+| `REDGIANT_TOKEN`                                                    | API token, 16+ characters (required)                                                                                                        |
+| `REDGIANT_DATA_DIR`                                                 | Workspaces and platform data (default `./data`)                                                                                             |
+| `REDGIANT_PORT` / `REDGIANT_HOST`                                   | Listen address (default `0.0.0.0:7600`)                                                                                                     |
+| `ANTHROPIC_API_KEY`                                                 | Enables the Anthropic provider                                                                                                              |
+| `REDGIANT_OPENAI_BASE_URL`, `REDGIANT_OPENAI_ID`, `OPENAI_API_KEY`  | Any OpenAI-compatible server (llama.cpp, vLLM, Ollama, OpenRouter…)                                                                         |
+| `REDGIANT_DEFAULT_MODEL`                                            | `provider/model`, used when an agent and its ancestors set none                                                                             |
+| `REDGIANT_SANDBOX`                                                  | `host` (default) or `docker`, with `REDGIANT_SANDBOX_IMAGE`, `REDGIANT_SANDBOX_NETWORK`, `REDGIANT_EGRESS_URL`                              |
+| `REDGIANT_SEARXNG_URL`                                              | Enables web search through SearXNG                                                                                                          |
+| `REDGIANT_WHISPER_URL` (`_API`, `_KEY`, `_MODEL`)                   | Voice messages: whisper-asr-webservice, or an OpenAI-compatible transcription API with `_API=openai`                                        |
+| `REDGIANT_NTFY_URL` (`_TOKEN`)                                      | Push notifications through ntfy (approvals, questions, long or failed turns, budgets, proposals, automations)                               |
+| `REDGIANT_PUBLIC_URL`                                               | Where RedGiant is reached: notifications open it when tapped                                                                                |
+| `REDGIANT_OPENAI_IMAGES_KEY` (`REDGIANT_IMAGES_MODEL`)              | Pictures with `generate_image` (OpenAI Images; default model gpt-image-2.5-flare)                                                           |
+| `REDGIANT_LLAMACPP_URL`, `REDGIANT_KV_DIR`, `REDGIANT_KV_BUDGET_MB` | A llama.cpp engine (see `docker/engine.Dockerfile`) and the directory where it saves KV caches (`--slot-save-path`, shared with the server) |
+| `REDGIANT_WEB_DIR`                                                  | Built web UI to serve at `/` (default `packages/web/dist`)                                                                                  |
+| `REDGIANT_TELEGRAM_TOKEN` / `REDGIANT_TELEGRAM_TOKEN_FILE`          | Bot token from BotFather: enables Demi-God on Telegram (polling by default)                                                                 |
+| `REDGIANT_TELEGRAM_WEBHOOK_SECRET`                                  | Webhook mode instead of polling: Telegram must send this secret to `/api/telegram/webhook`                                                  |
+| `REDGIANT_SOURCE_DIR`, `REDGIANT_STATE_DIR`                         | RedGiant's own source (a git checkout) and the supervisor's state: enables God's code changes; promotion needs `redgiant-supervisor`        |
+| `REDGIANT_BUILD_COMMAND`                                            | Supervisor: how to build the source (default `pnpm install --frozen-lockfile && pnpm build`)                                                |
+| `REDGIANT_METAL`                                                    | `1`: God works on the real system even with Docker sandboxes; every change it makes asks you                                                |
+
+```sh
+pnpm build
+DATABASE_URL=postgres://... REDGIANT_TOKEN=... ANTHROPIC_API_KEY=... node packages/server/dist/main.js
+# Supervised, so God can change RedGiant itself (broken versions roll back by themselves):
+REDGIANT_SOURCE_DIR=$PWD DATABASE_URL=... REDGIANT_TOKEN=... node packages/supervisor/dist/main.js
+REDGIANT_TOKEN=... node packages/cli/dist/main.js help
+```
+
+## Packages
+
+The repository is a pnpm monorepo; packages live in `packages/`.
+
+| Package                   | Purpose                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@redgiant/protocol`      | Shared event and message types (zod schemas)                                                                                                                                                                                                                                                                                                   |
+| `@redgiant/providers`     | Model providers (Anthropic, any OpenAI-compatible server, a scripted fake), per-message metrics, effort mapping, fallback chains, pricing and budgets                                                                                                                                                                                          |
+| `@redgiant/events`        | Append-only, hash-chained event log on Postgres: tamper detection, payload erasure that keeps the chain valid, secret redaction, JSONL export                                                                                                                                                                                                  |
+| `@redgiant/agent`         | The agent loop: parallel tool calls, hooks, permission check, compaction, sessions rebuilt from the log, record/replay, repair of malformed tool arguments                                                                                                                                                                                     |
+| `@redgiant/tools`         | Base tools every agent gets: read/write/edit files (whitespace-tolerant edits), glob, grep, bash, fetch, web search (SearXNG, Brave); compact descriptions for small models; workspace confinement                                                                                                                                             |
+| `@redgiant/sandbox`       | One container per workspace on an internal network (no capabilities, CPU/RAM/PID limits, optional gVisor), an egress proxy with a domain allow list, SSRF protection and credential injection, git worktrees per agent, and an opt-in host ("metal") mode                                                                                      |
+| `@redgiant/engine-local`  | Local llama.cpp engines shared by every agent: slots scheduled by priority, and a KV cache saved on the SSD (inspired by DwarfStar 4): restored by prefix, even across sessions and engine restarts, evicted by hits and recency within a per-project budget                                                                                   |
+| `@redgiant/board`         | The agents' forum: threads per project and a global one, typed posts (task, result, question, decision, blocker, note) with mentions and task links, full-text search, duplicate detection, status that follows tasks, summaries and digests by a configurable model                                                                           |
+| `@redgiant/extensions`    | MCP servers as agent tools (stdio and HTTP), skills loaded on demand (SKILL.md), custom tools that run in the sandbox, and a builder: agents propose tools and skills with tests, the builder runs them in a throwaway sandbox, the user approves                                                                                              |
+| `@redgiant/automations`   | YAML recipes run by an agent on a cron schedule (with time zones) or a webhook with its own secret: model and effort per recipe, fresh or continuing sessions, timeouts, no overlapping runs, missed runs after a restart, history, notifications on Telegram (examples in `recipes/`)                                                         |
+| `@redgiant/telegram`      | Demi-God on Telegram: polling or webhook (checked with Telegram's secret header), accounts linked with one-time pairing codes, Demi-God relays to God only, approvals with inline buttons                                                                                                                                                      |
+| `@redgiant/subscriptions` | Flat subscriptions as providers: Claude through Anthropic's Claude Agent SDK, ChatGPT through OpenAI's Codex app server, with the plan's limits                                                                                                                                                                                                |
+| `@redgiant/supervisor`    | `redgiant-supervisor`: runs the server, rebuilds it when God promotes a change to RedGiant's own code, and rolls back to the last good version by itself when the new one fails to build, to come up healthy or to stay up                                                                                                                     |
+| `@redgiant/hierarchy`     | The agent tree (God, Demi-God, orchestrators, agents, sub-agents, inspectors) with scope rules, permission modes and user rules, a configurable danger classifier, approvals that escalate up the tree to the human, and persistent budgets                                                                                                    |
+| `@redgiant/server`        | HTTP API with OpenAPI (`/api/openapi.json`), WebSocket live channel (`/ws`), sessions that outlive clients, projects, approvals queue, token auth bound to owners; orchestration tools (create, delegate, merge, stop agents; ephemeral sub-agents), tasks that close only with a passing verifier, approvals decided by parent agents' models |
+| `@redgiant/evals`         | Evaluation suite: coding tasks with hidden verifiers (each checked to reject the starting files and accept a right answer), run by a real project orchestrator per model; Markdown report with pass rate, tokens, cost and time                                                                                                                |
+| `@redgiant/cli`           | `redgiant` command: projects, agents, live chat with an agent (with the per-message metrics line), approvals, log verification                                                                                                                                                                                                                 |
+| `@redgiant/web`           | Web UI (Preact): tabs and up to three side-by-side panes, live chat with the per-message metrics bar, terminal (xterm.js) and file explorer with editor (CodeMirror) per project and for the platform, hierarchy, approvals, budgets; Italian and English; phone layout                                                                        |
