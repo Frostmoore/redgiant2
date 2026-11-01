@@ -123,6 +123,8 @@ describe("ntfy", () => {
     cleanup.push(async () => c.close());
     c.send({ type: "session.follow", sessionId: sid });
     await c.waitFor("session.synced");
+    // The follow also reports the session's current state: it must not pass for the end of a turn.
+    await c.waitFor("session.state");
     // The turn that starts now ends: an idle state after the message was sent.
     const idleAfter = async (from: number) =>
       until(() =>

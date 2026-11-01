@@ -115,7 +115,8 @@ describe("questions to the human", () => {
     await c.waitFor("question.request");
     c.send({ type: "session.interrupt", sessionId: g.sessionId });
     await c.waitFor("question.closed");
-    await c.waitFor("session.state", (m) => m.state === "idle");
+    // The answer (none) is logged after the question closes: wait for that event itself.
+    await c.waitFor("event", (m) => m.event.type === "question.answered");
     const answered = (await s.core.history("me", g.sessionId)).find(
       (e) => e.type === "question.answered",
     );
