@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { CompletionRequest } from "@redgiant/providers";
 import { splitMessage } from "@redgiant/telegram";
 import { afterEach, describe, expect, it } from "vitest";
@@ -295,5 +297,89 @@ describe("toTelegramHtml", () => {
     ).toBe(
       '<b>Fatto</b>: <code>cart.py</code> &lt;ok&gt; &amp; <i>bene</i>\n• uno\n<b>Titolo</b>\n<a href="https://x.y/a">link</a>\n<pre>print("**no**")</pre>',
     );
+  });
+
+  it("takes photos, documents and voice notes to God, and answers /status, /stop and /new", async () => {
+    const seenByGod: CompletionRequest[] = [];
+    await setup((req) => {
+      if (req.system.startsWith("You are Demi-God")) {
+        const r = toolResult(req);
+        return r === undefined
+          ? { toolCalls: [{ name: "ask_god", input: { message: lastText(req) } }] }
+          : { text: r };
+      }
+      seenByGod.push(req);
+      return { text: "seen" };
+    });
+    await pair();
+    (s as Server).core.setLanguage("it");
+    const last = () => String(tg?.sent(USER).at(-1)?.text ?? "");
+    const settle = async (n: number) => {
+      for (let i = 0; i < 200 && (tg?.sent(USER).length ?? 0) < n; i++)
+        await new Promise((r) => setTimeout(r, 20));
+      await s?.gateway?.idle();
+    };
+
+    // A photo: Demi-God sees it, and God gets it with the message, labelled as from Telegram.
+    tg?.files.set("ph1", Buffer.from("fake-jpeg"));
+    let before = tg?.sent(USER).length ?? 0;
+    await s?.gateway?.handleUpdate(tg?.media(USER, "photo", "ph1", { caption: "Cos'è?" }) as never);
+    await settle(before + 1);
+    const godMsg = seenByGod.at(-1)?.messages.at(-1);
+    expect(godMsg?.parts).toEqual([
+      { type: "text", text: "Cos'è?" },
+      { type: "image", mediaType: "image/jpeg", data: Buffer.from("fake-jpeg").toString("base64") },
+    ]);
+    const godSession = (await s?.core.listSessions("me"))?.find(
+      (r) => s?.core.registry.get(r.agent_id)?.kind === "god",
+    );
+    const fromLabel = (await s?.core.history("me", godSession?.id ?? "")).find(
+      (e) => e.type === "message.user",
+    );
+    expect(fromLabel?.payload).toMatchObject({ from: "Telegram" });
+
+    // A document: saved where God works, its path in the message.
+    tg?.files.set("doc1", Buffer.from("%PDF-1.4 fake"));
+    before = tg?.sent(USER).length ?? 0;
+    await s?.gateway?.handleUpdate(
+      tg?.media(USER, "document", "doc1", {
+        file_name: "fattura.pdf",
+        mime_type: "application/pdf",
+      }) as never,
+    );
+    await settle(before + 1);
+    const text = seenByGod
+      .at(-1)
+      ?.messages.at(-1)
+      ?.parts.find((p) => p.type === "text");
+    const path = (text?.type === "text" ? text.text : "").match(/path="([^"]+)"/)?.[1] ?? "";
+    expect(path).toMatch(/^\.attachments\/\d{4}-\d{2}-\d{2}\/[a-z0-9]+-fattura\.pdf$/);
+    expect((await readFile(join((s as Server).core.platformPath("me"), path))).toString()).toBe(
+      "%PDF-1.4 fake",
+    );
+
+    // A voice note without a transcription service: said plainly.
+    tg?.files.set("v1", Buffer.from("ogg"));
+    await s?.gateway?.handleUpdate(tg?.media(USER, "voice", "v1") as never);
+    expect(last()).toMatch(/servizio di trascrizione/);
+
+    // Commands.
+    await s?.gateway?.handleUpdate(tg?.text(USER, "/status") as never);
+    expect(last()).toBe(
+      "Nessuno sta lavorando adesso.\nTi aspettano: 0 approvazioni, 0 domande.\nSpeso: $0.00.",
+    );
+    await s?.gateway?.handleUpdate(tg?.text(USER, "/stop") as never);
+    expect(last()).toBe("Non c'era niente in corso.");
+    const oldGod = godSession?.id;
+    await s?.gateway?.handleUpdate(tg?.text(USER, "/new") as never);
+    expect(last()).toMatch(/^Nuova conversazione/);
+    before = tg?.sent(USER).length ?? 0;
+    await s?.gateway?.handleUpdate(tg?.text(USER, "ciao") as never);
+    await settle(before + 1);
+    const godSessions = (await s?.core.listSessions("me"))?.filter(
+      (r) => s?.core.registry.get(r.agent_id)?.kind === "god",
+    );
+    expect(godSessions?.length).toBe(2);
+    expect(godSessions?.at(-1)?.id).not.toBe(oldGod);
   });
 });

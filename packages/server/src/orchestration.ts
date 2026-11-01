@@ -12,7 +12,7 @@ import {
   type PermissionBroker,
   type PersistentBudget,
 } from "@redgiant/hierarchy";
-import type { Event, ModelSpec } from "@redgiant/protocol";
+import type { Event, ImagePart, ModelSpec } from "@redgiant/protocol";
 import { complete, costUsd, type ProviderRegistry, streamWithFallback } from "@redgiant/providers";
 import { commitAll, mergeWorktree } from "@redgiant/sandbox";
 import type { Workspace } from "@redgiant/tools";
@@ -29,7 +29,14 @@ export interface OrchestrationHost {
   workSession(agent: AgentRecord): Promise<string>;
   /** A brand-new session: isolated context. */
   startSession(ownerId: string, agentId: string): Promise<string>;
-  send(ownerId: string, sessionId: string, text: string): Promise<{ done: Promise<SendResult> }>;
+  send(
+    ownerId: string,
+    sessionId: string,
+    text: string,
+    extra?: { images?: ImagePart[]; from?: string },
+  ): Promise<{ done: Promise<SendResult> }>;
+  /** What came with the user's Telegram message (photos, saved files) for God, taken once. */
+  takeRelay?(ownerId: string): { images: ImagePart[]; text: string } | undefined;
   projectWorkspaces(
     agent: AgentRecord,
   ): Promise<{ root: Workspace; worktree: (agentId: string) => Promise<Workspace> }>;
@@ -246,7 +253,13 @@ export function orchestrationTools(
           // The message goes as it is: who relays it is stated in God's system prompt (the
           // operator channel). A "[forwarded by another agent]" prefix in the text looks like a
           // prompt injection to safety classifiers and got refused as "cyber".
-          const { done } = await host.send(self.ownerId, sid, message);
+          // Photos and files the user sent on Telegram go to God with the message, whatever
+          // Demi-God wrote: it relays, it does not filter.
+          const relay = host.takeRelay?.(self.ownerId);
+          const { done } = await host.send(self.ownerId, sid, `${message}${relay?.text ?? ""}`, {
+            from: "Telegram",
+            ...(relay?.images.length ? { images: relay.images } : {}),
+          });
           const r = await done;
           const answer = lastAssistantText(await host.store.list({ sessionId: sid }));
           const d = r.lastCompletion?.stopDetails;

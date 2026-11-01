@@ -660,15 +660,38 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /** Telegram: the owner's Demi-God answers, talking to God only (RD8). */
-  async askDemigod(ownerId: string, _chatId: number, text: string): Promise<string> {
+  async askDemigod(
+    ownerId: string,
+    _chatId: number,
+    text: string,
+    extra: { images?: ImagePart[]; files?: { name: string; data: Buffer }[] } = {},
+  ): Promise<string> {
     const demigod = this.registry
       .list({ ownerId, activeOnly: true })
       .find((a) => a.kind === "demigod");
     if (!demigod) throw new Error("Demi-God is not set up yet: create it under God in RedGiant.");
     const sid = await this.workSession(demigod);
+    // Files are saved where God works; their paths travel with the message.
+    let lines = "";
+    if (extra.files?.length) {
+      const day = new Date().toISOString().slice(0, 10);
+      const ws = new LocalWorkspace(this.platformPath(ownerId));
+      for (const f of extra.files) {
+        const safe = f.name.replace(/[^\p{L}\p{N}._\- ()]+/gu, "_").replace(/^\.+/, "") || "file";
+        const rel = `.attachments/${day}/${Date.now().toString(36)}-${safe}`;
+        const abs = await ws.resolve(rel);
+        await mkdir(dirname(abs), { recursive: true });
+        await writeFile(abs, f.data);
+        lines += `\n\n<attachment name="${f.name}" path="${rel}" size="${f.data.length}" />`;
+      }
+    }
+    const images = extra.images ?? [];
+    if (images.length || lines) this.relay.set(ownerId, { images, text: lines });
     let done: Promise<SendResult>;
     try {
-      ({ done } = await this.send(ownerId, sid, text));
+      ({ done } = await this.send(ownerId, sid, `${text}${lines}`, {
+        ...(images.length && { images }),
+      }));
     } catch (err) {
       if (err instanceof SessionBusyError) return "I am still working on your previous message.";
       throw err;
@@ -676,6 +699,59 @@ export class RedGiantCore implements OrchestrationHost {
     const r = await done;
     const reply = await this.lastReply(sid);
     return reply || (r.stopReason === "budget" ? "The budget is exhausted." : "No answer.");
+  }
+
+  /** Telegram's photos and files waiting for Demi-God's next ask_god. */
+  private readonly relay = new Map<string, { images: ImagePart[]; text: string }>();
+  takeRelay(ownerId: string): { images: ImagePart[]; text: string } | undefined {
+    const r = this.relay.get(ownerId);
+    this.relay.delete(ownerId);
+    return r;
+  }
+
+  /** Telegram's /new: Demi-God and God start fresh conversations (the old ones stay in the log). */
+  newConversation(ownerId: string): void {
+    for (const a of this.registry.list({ ownerId, activeOnly: true }))
+      if (a.kind === "demigod" || a.kind === "god") this.workSessions.delete(a.id);
+    this.relay.delete(ownerId);
+  }
+
+  /** Telegram's /stop: interrupts what Demi-God and God are doing for it. */
+  async stopWork(ownerId: string): Promise<boolean> {
+    let stopped = false;
+    for (const a of this.registry.list({ ownerId, activeOnly: true })) {
+      if (a.kind !== "demigod" && a.kind !== "god") continue;
+      const sid = this.workSessions.get(a.id);
+      if (sid && (await this.interrupt(ownerId, sid))) stopped = true;
+    }
+    return stopped;
+  }
+
+  /** Telegram's /status, in numbers: the gateway words it. */
+  async statusSummary(ownerId: string): Promise<{
+    working: string[];
+    approvals: number;
+    questions: number;
+    spentUsd: number;
+    limitUsd: number | null;
+  }> {
+    const working = [
+      ...new Set(
+        [...this.live.values()]
+          .filter((l) => l.ownerId === ownerId && l.running)
+          .map((l) => this.registry.get(l.agentId)?.name ?? l.agentId),
+      ),
+    ];
+    const [global] = (await this.budget.listFor(ownerId, [], [])).filter(
+      (b) => b.scope === "global",
+    );
+    return {
+      working,
+      approvals: this.approvals.list(ownerId).length,
+      questions: this.questions.list(ownerId).length,
+      spentUsd: global?.used.usd ?? 0,
+      limitUsd: global?.limit.usd ?? null,
+    };
   }
 
   /** One short real request: a model that cannot answer it is not put on an agent. */

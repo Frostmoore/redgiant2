@@ -10,10 +10,19 @@ export interface ApiCall {
 /** The Telegram Bot API in miniature: records every call and answers like Telegram. */
 export async function fakeTelegram() {
   const calls: ApiCall[] = [];
+  /** Files users "sent", by file id. */
+  const files = new Map<string, Buffer>();
   let messageId = 100;
   const server = http.createServer(async (req, res) => {
     let raw = "";
     for await (const c of req) raw += c;
+    // Downloads: /file/bot<token>/files/<id> serves what the test put in `files`.
+    const download = (req.url ?? "").match(/^\/file\/bot[^/]+\/files\/(.+)$/);
+    if (download) {
+      const data = files.get(decodeURIComponent(download[1] ?? ""));
+      res.writeHead(data ? 200 : 404).end(data ?? "");
+      return;
+    }
     const method = (req.url ?? "").split("/").pop() ?? "";
     const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
     const call: ApiCall = { method, body };
@@ -29,14 +38,16 @@ export async function fakeTelegram() {
             can_read_all_group_messages: false,
             supports_inline_queries: false,
           }
-        : method === "sendMessage" || method === "editMessageText"
-          ? {
-              message_id: method === "sendMessage" ? ++messageId : Number(body.message_id),
-              date: 0,
-              chat: { id: body.chat_id, type: "private" },
-              text: body.text,
-            }
-          : true;
+        : method === "getFile"
+          ? { file_id: body.file_id, file_unique_id: "u", file_path: `files/${body.file_id}` }
+          : method === "sendMessage" || method === "editMessageText"
+            ? {
+                message_id: method === "sendMessage" ? ++messageId : Number(body.message_id),
+                date: 0,
+                chat: { id: body.chat_id, type: "private" },
+                text: body.text,
+              }
+            : true;
     if (method === "sendMessage") call.messageId = messageId;
     res
       .writeHead(200, { "content-type": "application/json" })
@@ -71,6 +82,47 @@ export async function fakeTelegram() {
             { type: "bot_command" as const, offset: 0, length: text.split(" ")[0]?.length ?? 0 },
           ],
         }),
+      },
+    }),
+    files,
+    /** A photo, a document or a voice note (its bytes go in `files` under `fileId`). */
+    media: (
+      userId: number,
+      kind: "photo" | "document" | "voice",
+      fileId: string,
+      extra: { caption?: string; mime_type?: string; file_name?: string } = {},
+    ) => ({
+      update_id: updateId++,
+      message: {
+        message_id: updateId,
+        date: 0,
+        chat: { id: userId, type: "private" as const, first_name: "User" },
+        from: from(userId),
+        ...(extra.caption && { caption: extra.caption }),
+        ...(kind === "photo"
+          ? {
+              photo: [
+                { file_id: `${fileId}-small`, file_unique_id: "s", width: 90, height: 90 },
+                { file_id: fileId, file_unique_id: "b", width: 1280, height: 960 },
+              ],
+            }
+          : kind === "voice"
+            ? {
+                voice: {
+                  file_id: fileId,
+                  file_unique_id: "v",
+                  duration: 3,
+                  mime_type: extra.mime_type ?? "audio/ogg",
+                },
+              }
+            : {
+                document: {
+                  file_id: fileId,
+                  file_unique_id: "d",
+                  ...(extra.file_name && { file_name: extra.file_name }),
+                  ...(extra.mime_type && { mime_type: extra.mime_type }),
+                },
+              }),
       },
     }),
     /** A text sent as a reply to one of the bot's messages. */

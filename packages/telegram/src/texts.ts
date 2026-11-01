@@ -28,6 +28,22 @@ const en = {
   noAnswer: "Closed without an answer.",
   pickFirst: "Pick at least one option.",
   saved: "Saved",
+  seeAttached: "(see the attachment)",
+  noTranscription:
+    "Voice messages need a transcription service: set one in RedGiant's configuration.",
+  heard: "I heard: {text}",
+  heardNothing: "I could not make out any words.",
+  newConversation: "New conversation: God and I start fresh.",
+  stopped: "Stopped.",
+  nothingToStop: "Nothing was running.",
+  working: "Working now: {names}.",
+  idle: "Nobody is working right now.",
+  waiting: "Waiting for you: {approvals} approvals, {questions} questions.",
+  spent: "Spent: ${spent}.",
+  spentOf: "Spent: ${spent} of ${limit}.",
+  cmdNew: "Start a new conversation",
+  cmdStatus: "What is running and what waits for you",
+  cmdStop: "Stop what is running",
 } as const;
 
 export type TextKey = keyof typeof en;
@@ -59,6 +75,22 @@ const it: Record<TextKey, string> = {
   noAnswer: "Chiusa senza risposta.",
   pickFirst: "Scegli almeno un'opzione.",
   saved: "Salvato",
+  seeAttached: "(vedi l'allegato)",
+  noTranscription:
+    "Per i vocali serve un servizio di trascrizione: impostalo nella configurazione di RedGiant.",
+  heard: "Ho capito: {text}",
+  heardNothing: "Non sono riuscito a capire nessuna parola.",
+  newConversation: "Nuova conversazione: io e God ripartiamo da capo.",
+  stopped: "Fermato.",
+  nothingToStop: "Non c'era niente in corso.",
+  working: "Al lavoro adesso: {names}.",
+  idle: "Nessuno sta lavorando adesso.",
+  waiting: "Ti aspettano: {approvals} approvazioni, {questions} domande.",
+  spent: "Speso: ${spent}.",
+  spentOf: "Speso: ${spent} su ${limit}.",
+  cmdNew: "Inizia una nuova conversazione",
+  cmdStatus: "Cosa è in corso e cosa ti aspetta",
+  cmdStop: "Ferma quello che è in corso",
 };
 
 export type Language = "it" | "en";

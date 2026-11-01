@@ -3,6 +3,7 @@ import { autoRetry } from "@grammyjs/auto-retry";
 import type { SqlClient } from "@redgiant/events";
 import {
   type Answers,
+  type ImagePart,
   type PermissionRequestInfo,
   PLAN_APPROVE,
   PLAN_REVISE,
@@ -15,7 +16,27 @@ import { type Language, say, type TextKey } from "./texts.js";
 /** What the gateway needs from the RedGiant core. */
 export interface TelegramHost {
   /** Hands a message to the owner's Demi-God (session per chat) and returns its reply. */
-  askDemigod(ownerId: string, chatId: number, text: string): Promise<string>;
+  askDemigod(
+    ownerId: string,
+    chatId: number,
+    text: string,
+    extra?: { images?: ImagePart[]; files?: { name: string; data: Buffer }[] },
+  ): Promise<string>;
+  /** Voice notes to text (the server's transcription service), when one is set. */
+  transcribe?(audio: Uint8Array, mime: string, language?: string): Promise<string>;
+  readonly transcription?: unknown;
+  /** /new: fresh conversations with Demi-God and God. */
+  newConversation?(ownerId: string): void;
+  /** /stop: interrupts what is running for Telegram; false when nothing was. */
+  stopWork?(ownerId: string): Promise<boolean>;
+  /** /status, in numbers. */
+  statusSummary?(ownerId: string): Promise<{
+    working: string[];
+    approvals: number;
+    questions: number;
+    spentUsd: number;
+    limitUsd: number | null;
+  }>;
   approvals: {
     on(event: "request", l: (ownerId: string, info: PermissionRequestInfo) => void): unknown;
     on(
@@ -128,7 +149,12 @@ export class TelegramGateway {
     this.bot = new Bot(o.token, o.apiRoot ? { client: { apiRoot: o.apiRoot } } : {});
     this.bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
     this.bot.command("start", (ctx) => this.onStart(ctx));
+    this.bot.command("new", (ctx) => this.onCommand(ctx, "new"));
+    this.bot.command("status", (ctx) => this.onCommand(ctx, "status"));
+    this.bot.command("stop", (ctx) => this.onCommand(ctx, "stop"));
     this.bot.on("message:text", (ctx) => this.onText(ctx));
+    this.bot.on(["message:photo", "message:document"], (ctx) => this.onFile(ctx));
+    this.bot.on(["message:voice", "message:audio"], (ctx) => this.onVoice(ctx));
     this.bot.on("callback_query:data", (ctx) => this.onButton(ctx));
     this.bot.catch((err) => console.error("telegram:", err.message));
     o.host.approvals.on(
@@ -232,13 +258,149 @@ export class TelegramGateway {
     const replyTo = ctx.message?.reply_to_message?.message_id;
     if (replyTo !== undefined && (await this.answerByText(owner, ctx.chat.id, replyTo, text)))
       return;
-    // Not awaited: polling hands updates over one at a time, and the approval buttons of this
-    // very request must get through while God works (awaiting here would deadlock).
-    const work = this.relay(owner, ctx.chat.id, text).finally(() => this.inFlight.delete(work));
+    this.background(this.relay(owner, ctx.chat.id, text));
+  }
+
+  /**
+   * Not awaited: polling hands updates over one at a time, and the approval buttons of this
+   * very request must get through while God works (awaiting here would deadlock).
+   */
+  private background(job: Promise<void>) {
+    const work = job.finally(() => this.inFlight.delete(work));
     this.inFlight.add(work);
   }
 
-  private async relay(owner: string, chatId: number, text: string) {
+  /** A linked owner, or a reply that the chat is not linked. */
+  private async linked(ctx: Context): Promise<string | undefined> {
+    const owner = await this.ownerOf(ctx.from?.id);
+    if (!owner || !ctx.chat) {
+      await ctx.reply(this.say(undefined, "notLinked"));
+      return undefined;
+    }
+    return owner;
+  }
+
+  /** A file the user sent, from Telegram's servers (bots may fetch up to 20 MB). */
+  private async download(fileId: string): Promise<Buffer> {
+    const file = await this.bot.api.getFile(fileId);
+    if (!file.file_path) throw new Error("Telegram gave no file path");
+    const root = this.o.apiRoot ?? "https://api.telegram.org";
+    const r = await fetch(`${root}/file/bot${this.o.token}/${file.file_path}`);
+    if (!r.ok) throw new Error(`Telegram answered ${r.status} for the file`);
+    return Buffer.from(await r.arrayBuffer());
+  }
+
+  /** Photos and documents go to Demi-God (and, through it, to God) with their caption. */
+  private async onFile(ctx: Context) {
+    const owner = await this.linked(ctx);
+    const msg = ctx.message;
+    if (!owner || !ctx.chat || !msg) return;
+    const chatId = ctx.chat.id;
+    const caption = msg.caption ?? "";
+    this.background(
+      (async () => {
+        try {
+          const photo = msg.photo?.at(-1);
+          const doc = msg.document;
+          const data = await this.download(photo?.file_id ?? doc?.file_id ?? "");
+          const mime = photo ? "image/jpeg" : (doc?.mime_type ?? "application/octet-stream");
+          const asImage = ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(mime);
+          await this.relay(owner, chatId, caption || this.say(owner, "seeAttached"), {
+            ...(asImage
+              ? {
+                  images: [
+                    {
+                      type: "image" as const,
+                      mediaType: mime as ImagePart["mediaType"],
+                      data: data.toString("base64"),
+                      ...(doc?.file_name && { name: doc.file_name }),
+                    },
+                  ],
+                }
+              : { files: [{ name: doc?.file_name ?? "file", data }] }),
+          });
+        } catch (err) {
+          await this.bot.api
+            .sendMessage(chatId, this.say(owner, "error", { error: (err as Error).message }))
+            .catch(() => {});
+        }
+      })(),
+    );
+  }
+
+  /** Voice notes: transcribed, shown back, then handled like a text message. */
+  private async onVoice(ctx: Context) {
+    const owner = await this.linked(ctx);
+    const msg = ctx.message;
+    if (!owner || !ctx.chat || !msg) return;
+    const chatId = ctx.chat.id;
+    const host = this.o.host;
+    if (!host.transcribe || host.transcription === undefined) {
+      await ctx.reply(this.say(owner, "noTranscription"));
+      return;
+    }
+    this.background(
+      (async () => {
+        try {
+          const audio = msg.voice ?? msg.audio;
+          const data = await this.download(audio?.file_id ?? "");
+          const text = await host.transcribe?.(
+            data,
+            audio?.mime_type ?? "audio/ogg",
+            host.language?.(owner) ?? "en",
+          );
+          if (!text) {
+            await this.bot.api.sendMessage(chatId, this.say(owner, "heardNothing"));
+            return;
+          }
+          await this.bot.api.sendMessage(chatId, this.say(owner, "heard", { text }));
+          await this.relay(owner, chatId, text);
+        } catch (err) {
+          await this.bot.api
+            .sendMessage(chatId, this.say(owner, "error", { error: (err as Error).message }))
+            .catch(() => {});
+        }
+      })(),
+    );
+  }
+
+  private async onCommand(ctx: Context, cmd: "new" | "status" | "stop") {
+    const owner = await this.linked(ctx);
+    if (!owner) return;
+    const h = this.o.host;
+    if (cmd === "new") {
+      h.newConversation?.(owner);
+      await ctx.reply(this.say(owner, "newConversation"));
+    } else if (cmd === "stop") {
+      const stopped = (await h.stopWork?.(owner)) ?? false;
+      await ctx.reply(this.say(owner, stopped ? "stopped" : "nothingToStop"));
+    } else {
+      const s = await h.statusSummary?.(owner);
+      if (!s) return;
+      await ctx.reply(
+        [
+          s.working.length
+            ? this.say(owner, "working", { names: s.working.join(", ") })
+            : this.say(owner, "idle"),
+          this.say(owner, "waiting", {
+            approvals: String(s.approvals),
+            questions: String(s.questions),
+          }),
+          this.say(owner, s.limitUsd === null ? "spent" : "spentOf", {
+            spent: s.spentUsd.toFixed(2),
+            limit: (s.limitUsd ?? 0).toFixed(2),
+          }),
+        ].join("\n"),
+      );
+    }
+  }
+
+  private async relay(
+    owner: string,
+    chatId: number,
+    text: string,
+    extra?: { images?: ImagePart[]; files?: { name: string; data: Buffer }[] },
+  ) {
     const api = this.bot.api;
     // "typing…" while Demi-God and God work (Telegram shows it for about 5 seconds).
     const typing = setInterval(
@@ -247,7 +409,7 @@ export class TelegramGateway {
     );
     void api.sendChatAction(chatId, "typing").catch(() => {});
     try {
-      const answer = await this.o.host.askDemigod(owner, chatId, text);
+      const answer = await this.o.host.askDemigod(owner, chatId, text, extra);
       for (const part of splitMessage(answer)) await this.sendFormatted(chatId, part);
     } catch (err) {
       await api
@@ -486,6 +648,15 @@ export class TelegramGateway {
     });
   }
 
+  /** The command menu Telegram shows next to the text box, in the wizard's language. */
+  async setCommands(ownerId?: string): Promise<void> {
+    await this.bot.api.setMyCommands([
+      { command: "new", description: this.say(ownerId, "cmdNew") },
+      { command: "status", description: this.say(ownerId, "cmdStatus") },
+      { command: "stop", description: this.say(ownerId, "cmdStop") },
+    ]);
+  }
+
   /** Webhook mode: hand each update received over HTTPS to the bot. */
   async handleUpdate(update: Update): Promise<void> {
     await this.init();
@@ -495,6 +666,7 @@ export class TelegramGateway {
   /** Polling mode: works behind NAT, no public URL needed. */
   async startPolling(): Promise<void> {
     await this.init();
+    await this.setCommands().catch(() => {});
     await this.bot.api.deleteWebhook().catch(() => {});
     void this.bot.start({
       drop_pending_updates: false,
