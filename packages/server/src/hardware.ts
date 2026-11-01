@@ -21,7 +21,10 @@ export interface Hardware {
     engine: "cuda" | "cpu";
     /** Largest model file that fits comfortably, in GB. */
     maxModelGb: number;
-    note: string;
+    /** What the numbers mean, for the page to say in its language: a GPU with its memory, a GPU
+     * whose memory is unknown, or none (small models on the CPU, up to `maxModelGb`). */
+    kind: "gpu" | "gpu-unknown" | "cpu";
+    vramGb: number;
   };
 }
 
@@ -51,6 +54,21 @@ function nvidiaSmi(): Promise<Gpu[]> {
   });
 }
 
+/** "NVIDIA GeForce RTX 4080 SUPER:16;…" (memory in GB) as GPUs; anything malformed is skipped. */
+export function hostGpus(text: string | undefined): Gpu[] {
+  return (text ?? "")
+    .split(";")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .flatMap((x) => {
+      const i = x.lastIndexOf(":");
+      const vram = Number(x.slice(i + 1));
+      return i > 0 && Number.isFinite(vram) && vram > 0
+        ? [{ name: x.slice(0, i).trim(), vramGb: round(vram) }]
+        : [];
+    });
+}
+
 /**
  * What this machine can run (G17.1). Inside a container the GPU is often invisible: Docker's
  * NVIDIA runtime then tells that one can be handed to the engine.
@@ -59,12 +77,16 @@ export async function detectHardware(o: {
   dataDir: string;
   dockerRuntimes?: () => Promise<string[]>;
   gpus?: () => Promise<Gpu[]>;
+  hostGpus?: string | undefined;
 }): Promise<Hardware> {
   const list = cpus();
   const disk = await statfs(o.dataDir)
     .then((s) => round((s.bavail * s.bsize) / GB))
     .catch(() => null);
-  const gpus = await (o.gpus ?? nvidiaSmi)();
+  // In a container (Windows' WSL distribution included) nvidia-smi is not there: the host says
+  // which GPUs it has in REDGIANT_HOST_GPUS ("name:GB;name:GB").
+  let gpus = await (o.gpus ?? nvidiaSmi)();
+  if (gpus.length === 0) gpus = hostGpus(o.hostGpus ?? process.env.REDGIANT_HOST_GPUS);
   const runtimes: string[] = await (o.dockerRuntimes?.() ?? Promise.resolve([])).catch(() => []);
   const dockerGpu = runtimes.includes("nvidia");
   const ramGb = round(totalmem() / GB);
@@ -83,12 +105,9 @@ export async function detectHardware(o: {
     dockerGpu,
     suggestion: {
       engine: cuda ? "cuda" : "cpu",
-      maxModelGb,
-      note: cuda
-        ? vram > 0
-          ? `NVIDIA GPU with ${vram} GB: models up to about ${maxModelGb} GB run on it.`
-          : "Docker can use an NVIDIA GPU; check its memory and pick a model that fits."
-        : `No GPU: small models (up to about ${Math.min(maxModelGb, 6)} GB) run on the CPU, slowly. A cloud model is faster.`,
+      maxModelGb: cuda ? maxModelGb : Math.min(maxModelGb, 6),
+      kind: cuda ? (vram > 0 ? "gpu" : "gpu-unknown") : "cpu",
+      vramGb: vram,
     },
   };
 }

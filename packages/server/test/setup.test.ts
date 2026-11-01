@@ -2,8 +2,10 @@ import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  detectHardware,
   type GgufFile,
   HuggingFace,
+  hostGpus,
   quantOf,
   type SetupHooks,
   SetupService,
@@ -215,6 +217,25 @@ describe("the setup wizard", () => {
     expect((await store.list({})).filter((e) => e.erased)).toEqual([]); // nothing is a day old yet
     expect(await store.eraseBefore(new Date(Date.now() + 1000), "test")).toBe(1);
     service.stop();
+  });
+});
+
+describe("the GPUs of the host", () => {
+  it("come from REDGIANT_HOST_GPUS when the server cannot see them, and say so in data, not words", async () => {
+    expect(hostGpus("NVIDIA GeForce RTX 4080 SUPER:16;bad;Other:0;Second GPU:8.5")).toEqual([
+      { name: "NVIDIA GeForce RTX 4080 SUPER", vramGb: 16 },
+      { name: "Second GPU", vramGb: 8.5 },
+    ]);
+    const h = await detectHardware({
+      dataDir: "/tmp",
+      gpus: async () => [],
+      hostGpus: "NVIDIA GeForce RTX 4080 SUPER:16",
+      dockerRuntimes: async () => ["nvidia", "runc"],
+    });
+    expect(h.suggestion).toEqual({ engine: "cuda", maxModelGb: 12.8, kind: "gpu", vramGb: 16 });
+    const cpu = await detectHardware({ dataDir: "/tmp", gpus: async () => [], hostGpus: "" });
+    expect(cpu.suggestion).toMatchObject({ engine: "cpu", kind: "cpu", vramGb: 0 });
+    expect(cpu.suggestion.maxModelGb).toBeLessThanOrEqual(6);
   });
 });
 

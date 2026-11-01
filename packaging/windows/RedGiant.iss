@@ -136,6 +136,7 @@ begin
     { An update: the distribution and its data stay; its script and RedGiant's images are renewed. }
     RunHidden('-d ' + Distro + ' -u root --cd "' + ExpandConstant('{app}') +
       '" -- sh -c "cp redgiant-wsl /usr/local/bin/redgiant-wsl && chmod 755 /usr/local/bin/redgiant-wsl"');
+    RunHidden('-d ' + Distro + ' -u root -- sh -c "echo v{#AppVersion} > /etc/redgiant-ref"');
     RunHidden('-d ' + Distro + ' -u root -- /usr/local/bin/redgiant-wsl update');
   end else begin
     Code := RunHidden('--import ' + Distro + ' "' + ExpandConstant('{app}\wsl') + '" "' +

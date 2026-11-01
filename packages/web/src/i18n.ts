@@ -296,6 +296,10 @@ const en = {
   wzImagesKey: "OpenAI key for pictures (generate_image)",
   wzImagesModel: "Picture model",
   newReminder: "New reminder",
+  hw_gpu: "NVIDIA GPU with {vram} GB: models up to about {max} GB run on it.",
+  "hw_gpu-unknown": "Docker can use an NVIDIA GPU; check its memory and pick a model that fits.",
+  hw_cpu:
+    "No GPU: small models (up to about {max} GB) run on the CPU, slowly. A cloud model is faster.",
   subscriptions: "Subscriptions",
   viaSubscription: "subscription",
   viaLocal: "local",
@@ -689,6 +693,11 @@ const it: Record<Key, string> = {
   wzImagesKey: "Chiave OpenAI per le immagini (generate_image)",
   wzImagesModel: "Modello per le immagini",
   newReminder: "Nuovo promemoria",
+  hw_gpu: "Scheda video NVIDIA con {vram} GB: ci girano modelli fino a circa {max} GB.",
+  "hw_gpu-unknown":
+    "Docker può usare una scheda video NVIDIA; controlla quanta memoria ha e scegli un modello che ci stia.",
+  hw_cpu:
+    "Nessuna scheda video: i modelli piccoli (fino a circa {max} GB) girano sul processore, lentamente. Un modello cloud è più veloce.",
   subscriptions: "Abbonamenti",
   viaSubscription: "abbonamento",
   viaLocal: "locale",

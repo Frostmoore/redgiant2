@@ -37,6 +37,8 @@ services:
       REDGIANT_PORT: "7600"
       REDGIANT_HOST: 0.0.0.0
       REDGIANT_SANDBOX: docker
+      # The host's GPUs when the server cannot see them itself (Windows: "name:GB;…").
+      REDGIANT_HOST_GPUS: ${REDGIANT_HOST_GPUS:-}
       REDGIANT_SANDBOX_IMAGE: ${REDGIANT_SANDBOX_IMAGE:-ghcr.io/frostmoore/redgiant2-sandbox:latest}
       REDGIANT_SANDBOX_NETWORK: redgiant-sandbox
       REDGIANT_EGRESS_URL: http://egress:3128

@@ -603,7 +603,12 @@ export function Setup({ onDone }: { onDone?: () => void }) {
                 </div>
               ))}
               {h.dockerGpu && <div>{t("wzDockerGpu")}</div>}
-              <div class="dim">{h.suggestion.note}</div>
+              <div class="dim">
+                {t(`hw_${h.suggestion.kind}` as never, {
+                  vram: String(h.suggestion.vramGb),
+                  max: String(h.suggestion.maxModelGb),
+                })}
+              </div>
             </div>
             <div class="row wide">
               <button type="button" class="primary" onClick={next}>

@@ -79,7 +79,12 @@ export interface SetupState {
     diskFreeGb: number | null;
     gpus: { name: string; vramGb: number }[];
     dockerGpu: boolean;
-    suggestion: { engine: "cuda" | "cpu"; maxModelGb: number; note: string };
+    suggestion: {
+      engine: "cuda" | "cpu";
+      maxModelGb: number;
+      kind: "gpu" | "gpu-unknown" | "cpu";
+      vramGb: number;
+    };
   };
   names: { god: string | null; demigod: string | null; godPrompt: string | null };
   policy: {
