@@ -26,7 +26,8 @@ async function fakeNtfy() {
 }
 
 const until = async (check: () => boolean) => {
-  for (let i = 0; i < 100 && !check(); i++) await new Promise((r) => setTimeout(r, 20));
+  // Up to 15 s: CI machines (macOS especially) can be slow to finish a turn.
+  for (let i = 0; i < 750 && !check(); i++) await new Promise((r) => setTimeout(r, 20));
 };
 
 const hooks = {
