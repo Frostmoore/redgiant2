@@ -53,6 +53,8 @@ function Content({ tab }: { tab: Tab }) {
       return <DailyChat />;
     case "setup":
       return <Setup />;
+    case "inspector":
+      return <DailyChat projectId={tab.projectId} />;
   }
 }
 

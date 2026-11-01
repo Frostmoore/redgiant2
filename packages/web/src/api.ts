@@ -284,8 +284,24 @@ export class Api {
     this.call("PUT", "/api/extensions/mcp", m);
   removeMcp = (name: string) =>
     this.call("DELETE", `/api/extensions/mcp/${encodeURIComponent(name)}`);
-  chats = () => this.call<ChatSummary[]>("GET", "/api/chats");
-  createChat = () => this.call<ChatSummary>("POST", "/api/chats");
+  chats = (projectId?: string) =>
+    this.call<ChatSummary[]>(
+      "GET",
+      projectId ? `/api/projects/${encodeURIComponent(projectId)}/inspector/chats` : "/api/chats",
+    );
+  createChat = (projectId?: string) =>
+    this.call<ChatSummary>(
+      "POST",
+      projectId ? `/api/projects/${encodeURIComponent(projectId)}/inspector/chats` : "/api/chats",
+    );
+  inspectorSettings = (projectId: string) =>
+    this.call<{
+      alerts?: boolean;
+      summaryHour?: number;
+      model?: { provider: string; model: string };
+    }>("GET", `/api/projects/${encodeURIComponent(projectId)}/inspector/settings`);
+  setInspectorSettings = (projectId: string, s: Record<string, unknown>) =>
+    this.call("PUT", `/api/projects/${encodeURIComponent(projectId)}/inspector/settings`, s);
   chat = (id: string) => this.call<ChatEntry[]>("GET", `/api/chats/${id}`);
   renameChat = (id: string, title: string) => this.call("PATCH", `/api/chats/${id}`, { title });
   deleteChat = (id: string) => this.call("DELETE", `/api/chats/${id}`);

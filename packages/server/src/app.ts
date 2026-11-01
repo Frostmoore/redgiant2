@@ -1160,6 +1160,45 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     });
   });
 
+  // The project inspector (G18): its chats and its settings (alerts, daily summary, model).
+  const inspectorScope = (c: Context<Env>) => ({
+    kind: "inspector" as const,
+    projectId: c.req.param("id") as string,
+  });
+  const knownProject = async (c: Context<Env>) => {
+    if (!(await core.projects.get(owner(c), c.req.param("id") as string)))
+      throw new NotFoundError(`Project "${c.req.param("id")}" not found`);
+  };
+  app.get("/api/projects/:id/inspector/chats", async (c) => {
+    await knownProject(c);
+    return c.json(await core.chat.list(owner(c), inspectorScope(c)), 200);
+  });
+  app.post("/api/projects/:id/inspector/chats", async (c) => {
+    await knownProject(c);
+    return c.json(await core.chat.create(owner(c), "New chat", inspectorScope(c)), 201);
+  });
+  app.get("/api/projects/:id/inspector/settings", async (c) => {
+    await knownProject(c);
+    return c.json(await core.inspector.settings(owner(c), c.req.param("id")), 200);
+  });
+  app.put("/api/projects/:id/inspector/settings", async (c) => {
+    await knownProject(c);
+    const b = z
+      .object({
+        model: ModelSpec.optional(),
+        alerts: z.boolean().optional(),
+        summaryHour: z.number().int().min(0).max(23).optional(),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: b.error.message }, 400);
+    await core.inspector.setSettings(owner(c), c.req.param("id"), {
+      ...(b.data.model && { model: b.data.model }),
+      ...(b.data.alerts !== undefined && { alerts: b.data.alerts }),
+      ...(b.data.summaryHour !== undefined && { summaryHour: b.data.summaryHour }),
+    });
+    return c.json({ ok: true }, 200);
+  });
+
   // The setup wizard (G17).
   const setup = options.setup;
   const hf = options.hf;

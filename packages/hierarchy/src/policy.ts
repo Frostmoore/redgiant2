@@ -151,6 +151,8 @@ export const READ_ONLY_TOOLS = new Set([
   "complete_task",
   "platform_status",
   "platform_changes",
+  // The inspector only reads.
+  "ask_inspector",
 ]);
 
 const toolMatches = (pattern: string, tool: string) =>

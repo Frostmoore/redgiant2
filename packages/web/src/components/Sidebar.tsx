@@ -225,6 +225,20 @@ export function Sidebar({ onNavigate }: { onNavigate: () => void }) {
               >
                 ⌨ {t("terminal")}
               </button>
+              <button
+                type="button"
+                class="side-item"
+                onClick={open(() =>
+                  openTab({
+                    id: `inspector:${p.id}`,
+                    type: "inspector",
+                    title: `${t("inspector")} · ${p.name}`,
+                    projectId: p.id,
+                  }),
+                )}
+              >
+                🔍 {t("inspector")}
+              </button>
             </details>
           );
         })}

@@ -51,9 +51,11 @@ import {
   type WebSearchProvider,
   type Workspace,
 } from "@redgiant/tools";
+import { z } from "zod";
 import { HumanApprovals } from "./approvals.js";
 import { DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
+import { Inspector } from "./inspector.js";
 import {
   completeTaskTool,
   modelApprover,
@@ -163,6 +165,7 @@ export class RedGiantCore implements OrchestrationHost {
   readonly config: PlatformConfig;
   readonly code: CodeChanges | undefined;
   readonly chat: DailyChat;
+  readonly inspector: Inspector;
   /** How the owner is told about finished automations (set by the Telegram gateway). */
   notify: ((ownerId: string, text: string) => Promise<void>) | undefined;
   /** Connected MCP servers, by owner and name. */
@@ -232,7 +235,12 @@ export class RedGiantCore implements OrchestrationHost {
       budget: this.budget,
       search: () => this.o.search,
       defaultModel: () => this.o.defaultModel,
+      profile: (ownerId, scope) =>
+        scope.kind === "inspector"
+          ? this.inspector.profile(ownerId, scope.projectId)
+          : Promise.reject(new Error("No profile for the daily chat")),
     });
+    this.inspector = new Inspector(this);
     this.code = o.source
       ? new CodeChanges(
           o.source,
@@ -422,6 +430,23 @@ export class RedGiantCore implements OrchestrationHost {
       ...platformConfigTools(agent, this.config, this),
       ...platformCodeTools(agent, this.code),
     );
+    // God asks a project's inspector (RD30): outside the chain of command, read-only.
+    if (agent.kind === "god")
+      tools.push({
+        def: {
+          name: "ask_inspector",
+          description:
+            "Ask a project's inspector about the state of the project (files, git, activity, tasks, board, budget). It only reads.",
+          inputSchema: {
+            type: "object",
+            properties: { project_id: { type: "string" }, question: { type: "string" } },
+            required: ["project_id", "question"],
+          },
+        },
+        schema: z.object({ project_id: z.string(), question: z.string().min(1) }),
+        run: ({ project_id, question }: { project_id: string; question: string }) =>
+          this.inspector.ask(ownerId, project_id, question),
+      } as Tool);
     // Extensions: skills for every agent; custom and MCP tools for those that act (RD8, RD30).
     const project = agent.projectId ? await this.projects.get(ownerId, agent.projectId) : undefined;
     const roots = [
@@ -888,6 +913,7 @@ export class RedGiantCore implements OrchestrationHost {
   /** Stops every running turn and denies every open approval (shutdown). */
   async close(): Promise<void> {
     await this.automations.stop();
+    this.inspector.stop();
     this.code?.unwatch();
     for (const l of this.live.values()) l.running?.abort();
     this.approvals.denyAll();

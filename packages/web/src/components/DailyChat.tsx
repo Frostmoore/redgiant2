@@ -120,8 +120,65 @@ function Settings({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** The daily chat: an assistant with web search, outside the agents' hierarchy and log. */
-export function DailyChat() {
+/** The inspector's own settings: alerts and a daily summary on Telegram. */
+function InspectorSettings({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+  const [alerts, setAlerts] = useState(false);
+  const [hour, setHour] = useState("");
+  useEffect(() => {
+    void attempt(() => getApi().inspectorSettings(projectId)).then((s) => {
+      if (!s) return;
+      setAlerts(s.alerts ?? false);
+      setHour(s.summaryHour?.toString() ?? "");
+    });
+  }, [projectId]);
+  const save = async (e: Event) => {
+    e.preventDefault();
+    const ok = await attempt(() =>
+      getApi().setInspectorSettings(projectId, {
+        alerts,
+        ...(hour !== "" && { summaryHour: Number(hour) }),
+      }),
+    );
+    if (ok !== undefined) onClose();
+  };
+  return (
+    <form class="form dc-settings" onSubmit={(e) => void save(e)}>
+      <label class="wide row">
+        <input
+          type="checkbox"
+          checked={alerts}
+          onChange={(e) => setAlerts((e.target as HTMLInputElement).checked)}
+        />
+        {t("inspectorAlerts")}
+      </label>
+      <label>
+        {t("inspectorSummary")}
+        <select value={hour} onChange={(e) => setHour((e.target as HTMLSelectElement).value)}>
+          <option value="">—</option>
+          {Array.from({ length: 24 }, (_, h) => (
+            <option key={h} value={String(h)}>
+              {String(h).padStart(2, "0")}:00
+            </option>
+          ))}
+        </select>
+      </label>
+      <div class="row">
+        <button type="submit" class="primary">
+          {t("save")}
+        </button>
+        <button type="button" onClick={onClose}>
+          {t("cancel")}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * The daily chat (an assistant with web search, outside the agents' hierarchy and log) or,
+ * with a project, that project's inspector (it only reads).
+ */
+export function DailyChat({ projectId }: { projectId?: string } = {}) {
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [entries, setEntries] = useState<ChatEntry[]>([]);
@@ -135,8 +192,8 @@ export function DailyChat() {
   const [settings, setSettings] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
 
-  const reload = () => void attempt(() => getApi().chats()).then((l) => l && setChats(l));
-  useEffect(reload, []);
+  const reload = () => void attempt(() => getApi().chats(projectId)).then((l) => l && setChats(l));
+  useEffect(reload, [projectId]);
   useEffect(() => {
     if (open) void attempt(() => getApi().chat(open)).then((e) => e && setEntries(e));
     else setEntries([]);
@@ -159,7 +216,7 @@ export function DailyChat() {
     if (!text.trim() || live) return;
     let id = open;
     if (!id) {
-      const created = await attempt(() => getApi().createChat());
+      const created = await attempt(() => getApi().createChat(projectId));
       if (!created) return;
       id = created.id;
       setOpen(id);
@@ -223,7 +280,12 @@ export function DailyChat() {
         ))}
       </aside>
       <section class="board-thread dc-thread">
-        {settings && <Settings onClose={() => setSettings(false)} />}
+        {settings &&
+          (projectId ? (
+            <InspectorSettings projectId={projectId} onClose={() => setSettings(false)} />
+          ) : (
+            <Settings onClose={() => setSettings(false)} />
+          ))}
         {open && (
           <header class="row">
             <div class="spacer" />
@@ -244,7 +306,7 @@ export function DailyChat() {
         )}
         <div class="dc-messages">
           {!open && entries.length === 0 && !live && (
-            <div class="empty logo-empty">{t("chatHint")}</div>
+            <div class="empty logo-empty">{t(projectId ? "inspectorHint" : "chatHint")}</div>
           )}
           {entries.map((e) => (
             <Entry key={e.id} e={e} />

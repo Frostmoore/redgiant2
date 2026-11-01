@@ -7,6 +7,7 @@ export * from "./core.js";
 export * from "./files.js";
 export * from "./hardware.js";
 export * from "./hf.js";
+export * from "./inspector.js";
 export * from "./orchestration.js";
 export * from "./platform.js";
 export * from "./projects.js";

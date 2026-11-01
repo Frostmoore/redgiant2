@@ -198,6 +198,12 @@ const en = {
   wzLocalModel: "Local model",
   wzRunAgain: "You can run this setup again from the menu at any time.",
   wzFinish: "Start using RedGiant",
+  inspector: "Inspector",
+  inspectorAlerts:
+    "Tell me on Telegram when something goes wrong (abandoned task, budget exceeded, blocker, failed automation)",
+  inspectorSummary: "Daily summary at",
+  inspectorHint:
+    "Ask the inspector about this project: it reads files, git, the activity log, tasks, the board and the budget, and changes nothing.",
   dailyChat: "Chat",
   systemPrompt: "System prompt",
   settings: "Settings",
@@ -429,6 +435,12 @@ const it: Record<Key, string> = {
   wzLocalModel: "Modello locale",
   wzRunAgain: "Puoi rifare questa configurazione dal menu quando vuoi.",
   wzFinish: "Inizia a usare RedGiant",
+  inspector: "Inspector",
+  inspectorAlerts:
+    "Avvisami su Telegram quando qualcosa va storto (task abbandonato, budget superato, blocco, automazione fallita)",
+  inspectorSummary: "Riepilogo del giorno alle",
+  inspectorHint:
+    "Chiedi all'inspector di questo progetto: legge file, git, il log delle attività, i task, la bacheca e il budget, e non cambia niente.",
   dailyChat: "Chat",
   systemPrompt: "Prompt di sistema",
   settings: "Impostazioni",

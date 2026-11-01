@@ -210,6 +210,7 @@ if (metal)
 if (sandbox.kind === "host")
   console.warn("WARNING: host sandbox: agents run commands directly on this system, unisolated.");
 await core.automations.start();
+core.inspector.start();
 // What the supervisor does (promotions, rollbacks) goes into the log and reaches the owner.
 core.code?.watch();
 const shutdown = async () => {

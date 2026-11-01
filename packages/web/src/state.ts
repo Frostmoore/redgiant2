@@ -295,6 +295,7 @@ export type Tab =
   | { id: string; type: "platform"; title: string }
   | { id: string; type: "dailychat"; title: string }
   | { id: string; type: "setup"; title: string }
+  | { id: string; type: "inspector"; title: string; projectId: string }
   | { id: string; type: "hierarchy" | "approvals" | "budgets"; title: string };
 
 export interface Pane {

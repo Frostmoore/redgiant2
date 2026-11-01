@@ -65,6 +65,11 @@ await page.locator(".dailychat .thread-item").first().click();
 await page.waitForSelector(".dc-user");
 await shot("06f-daily-chat");
 
+await page.locator(".project .side-item", { hasText: "🔍 Inspector" }).click();
+await page.locator(".dailychat .thread-item", { hasText: "Stato" }).click();
+await page.locator(".dc-user", { hasText: "A che punto" }).waitFor();
+await shot("06g-inspector");
+
 await page.click("text=Budget");
 await page.waitForSelector(".budgets");
 await shot("06-budgets");

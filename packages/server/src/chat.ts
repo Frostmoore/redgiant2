@@ -19,6 +19,11 @@ export async function migrateChat(db: SqlClient): Promise<void> {
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )`);
+  // The project inspector (G18) uses the same history: its chats belong to a project.
+  await db.query(
+    "ALTER TABLE rg_chats ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'daily'",
+  );
+  await db.query("ALTER TABLE rg_chats ADD COLUMN IF NOT EXISTS project_id text");
   await db.query(`
     CREATE TABLE IF NOT EXISTS rg_chat_messages (
       id         bigserial PRIMARY KEY,
@@ -42,8 +47,20 @@ export interface ChatSettings {
   systemPrompt?: string;
 }
 
+/** Which assistant a chat talks to: the daily one, or a project's inspector. */
+export type ChatScope = { kind: "daily" } | { kind: "inspector"; projectId: string };
+
+/** What a kind of chat answers with (the daily chat's own settings apply when absent). */
+export interface ChatProfile {
+  system: string;
+  tools: Tool[];
+  model?: ModelSpec | undefined;
+}
+
 export interface ChatSummary {
   id: string;
+  kind: "daily" | "inspector";
+  projectId: string | null;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -94,6 +111,8 @@ export class DailyChat {
       /** Read at each message: the setup wizard can change them while the server runs. */
       search: () => WebSearchProvider | undefined;
       defaultModel: () => ModelSpec | undefined;
+      /** Instructions, tools and model of the other kinds of chat (the project inspector). */
+      profile?: (ownerId: string, scope: ChatScope) => Promise<ChatProfile>;
     },
   ) {}
 
@@ -113,36 +132,50 @@ export class DailyChat {
     );
   }
 
-  async list(ownerId: string): Promise<ChatSummary[]> {
+  async list(ownerId: string, scope: ChatScope = { kind: "daily" }): Promise<ChatSummary[]> {
     const rows = await this.o.db.query<{
       id: string;
+      kind: "daily" | "inspector";
+      project_id: string | null;
       title: string;
       created_at: Date;
       updated_at: Date;
-    }>("SELECT * FROM rg_chats WHERE owner_id = $1 ORDER BY updated_at DESC", [ownerId]);
+    }>(
+      "SELECT * FROM rg_chats WHERE owner_id = $1 AND kind = $2 AND project_id IS NOT DISTINCT FROM $3 ORDER BY updated_at DESC",
+      [ownerId, scope.kind, scope.kind === "inspector" ? scope.projectId : null],
+    );
     return rows.map((r) => ({
       id: r.id,
+      kind: r.kind,
+      projectId: r.project_id,
       title: r.title,
       createdAt: new Date(r.created_at).toISOString(),
       updatedAt: new Date(r.updated_at).toISOString(),
     }));
   }
 
-  async create(ownerId: string, title = "New chat"): Promise<ChatSummary> {
+  async create(
+    ownerId: string,
+    title = "New chat",
+    scope: ChatScope = { kind: "daily" },
+  ): Promise<ChatSummary> {
     const id = `chat_${randomUUID().slice(0, 12)}`;
-    await this.o.db.query("INSERT INTO rg_chats (id, owner_id, title) VALUES ($1, $2, $3)", [
-      id,
-      ownerId,
-      title,
-    ]);
-    return (await this.list(ownerId)).find((c) => c.id === id) as ChatSummary;
+    await this.o.db.query(
+      "INSERT INTO rg_chats (id, owner_id, title, kind, project_id) VALUES ($1, $2, $3, $4, $5)",
+      [id, ownerId, title, scope.kind, scope.kind === "inspector" ? scope.projectId : null],
+    );
+    return (await this.list(ownerId, scope)).find((c) => c.id === id) as ChatSummary;
   }
 
   private async own(ownerId: string, chatId: string) {
-    const [r] = await this.o.db.query<{ title: string }>(
-      "SELECT title FROM rg_chats WHERE id = $1 AND owner_id = $2",
-      [chatId, ownerId],
-    );
+    const [r] = await this.o.db.query<{
+      title: string;
+      kind: "daily" | "inspector";
+      project_id: string | null;
+    }>("SELECT title, kind, project_id FROM rg_chats WHERE id = $1 AND owner_id = $2", [
+      chatId,
+      ownerId,
+    ]);
     if (!r) throw new ChatError(`Chat "${chatId}" not found`);
     return r;
   }
@@ -227,7 +260,12 @@ export class DailyChat {
   ): Promise<void> {
     const chat = await this.own(ownerId, chatId);
     const settings = await this.settings(ownerId);
-    const model = settings.model ?? this.o.defaultModel();
+    const scope: ChatScope =
+      chat.kind === "inspector" && chat.project_id
+        ? { kind: "inspector", projectId: chat.project_id }
+        : { kind: "daily" };
+    const profile = scope.kind === "daily" ? undefined : await this.o.profile?.(ownerId, scope);
+    const model = profile?.model ?? settings.model ?? this.o.defaultModel();
     if (!model) throw new ChatError("No model for the chat: choose one in its settings");
     const breached = await this.o.budget.check([{ scope: "global", id: ownerId }]);
     if (breached.length > 0) throw new ChatError("The global budget is exhausted");
@@ -251,8 +289,8 @@ export class DailyChat {
     onEvent({ type: "entry", entry: await this.store(chatId, user, { shown: text }) });
     history.push(user);
 
-    const tools = this.tools();
-    const system = settings.systemPrompt ?? DEFAULT_CHAT_PROMPT;
+    const tools = profile?.tools ?? this.tools();
+    const system = profile?.system ?? settings.systemPrompt ?? DEFAULT_CHAT_PROMPT;
     for (let step = 0; step < MAX_STEPS; step++) {
       const completion = await relay(
         onEvent,
@@ -303,7 +341,7 @@ export class DailyChat {
             const input = tool.schema ? tool.schema.parse(c.input) : c.input;
             const out = await tool.run(input, {
               ownerId,
-              projectId: null,
+              projectId: chat.project_id,
               agentId: null,
               sessionId: chatId,
               signal,
