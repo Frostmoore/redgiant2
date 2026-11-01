@@ -14,3 +14,7 @@ coverage/
 packaging/windows/dist/
 packaging/windows/RedGiant.exe
 packaging/windows/redgiant-rootfs.tar.gz
+
+# Local secrets: never in git
+wordpress.key
+*.key
