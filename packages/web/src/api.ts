@@ -108,6 +108,8 @@ export interface PlatformInfo {
   supervised: boolean;
   /** A transcription service is set: the microphone records and the server transcribes. */
   voice?: boolean;
+  /** Providers whose key was refused (a banner until a new key works). */
+  keyProblems?: { provider: string; message: string }[];
   lastGood: string | null;
   releases: {
     commit: string;
@@ -161,6 +163,13 @@ export interface SessionInfo {
   pinned: boolean;
   archived: boolean;
   running: boolean;
+  model: { provider: string; model: string; effort?: string } | null;
+}
+
+export interface ModelChoice {
+  provider: string;
+  model: string;
+  effort: boolean;
 }
 
 export interface SearchHit {
@@ -293,8 +302,16 @@ export class Api {
     });
   sessions = (agentId?: string) =>
     this.call<SessionInfo[]>("GET", `/api/sessions${agentId ? `?agentId=${agentId}` : ""}`);
-  updateSession = (id: string, change: { title?: string; pinned?: boolean; archived?: boolean }) =>
-    this.call("PATCH", `/api/sessions/${id}`, change);
+  updateSession = (
+    id: string,
+    change: {
+      title?: string;
+      pinned?: boolean;
+      archived?: boolean;
+      model?: { provider: string; model: string; effort?: string } | null;
+    },
+  ) => this.call("PATCH", `/api/sessions/${id}`, change);
+  models = () => this.call<ModelChoice[]>("GET", "/api/models");
   search = (q: string) => this.call<SearchHit[]>("GET", `/api/search?q=${encodeURIComponent(q)}`);
   startSession = (agentId: string) =>
     this.call<{ sessionId: string }>("POST", "/api/sessions", { agentId });
@@ -479,6 +496,19 @@ export class Api {
       | { op: "mkdir" | "delete"; scope: string; path: string }
       | { op: "rename"; scope: string; path: string; to: string },
   ) => this.call("POST", "/api/files/op", op);
+  /** A conversation as a Markdown file. */
+  async exportSession(id: string): Promise<{ blob: Blob; name: string }> {
+    const r = await fetch(`/api/sessions/${id}/export`, {
+      headers: { authorization: `Bearer ${this.token}` },
+    });
+    if (!r.ok) throw new ApiError(r.status, `HTTP ${r.status}`);
+    const header = r.headers.get("content-disposition") ?? "";
+    const name = decodeURIComponent(
+      header.match(/filename\*=UTF-8''([^;]+)/)?.[1] ?? "conversation.md",
+    );
+    return { blob: await r.blob(), name };
+  }
+
   async download(scope: string, path: string): Promise<Blob> {
     const r = await fetch(
       `/api/files/raw?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,

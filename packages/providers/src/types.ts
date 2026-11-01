@@ -101,17 +101,27 @@ export interface Pricing {
 export interface Provider {
   readonly id: string;
   modelInfo(model: string): ModelInfo;
+  /** The models one can pick (the composer's menu); best known first. */
+  models?(signal?: AbortSignal): Promise<string[]>;
   stream(request: CompletionRequest, signal?: AbortSignal): AsyncIterable<StreamEvent>;
 }
 
 /** Thrown by providers for failures that another model may succeed on. */
 export class ProviderError extends Error {
+  /** The HTTP status, when the server answered. */
+  readonly status: number | undefined;
   constructor(
     message: string,
     readonly retriable: boolean,
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; status?: number },
   ) {
     super(message, options);
     this.name = "ProviderError";
+    this.status = options?.status;
+  }
+
+  /** The server refused the credentials: a new key is needed, retrying will not help. */
+  get rejectedKey(): boolean {
+    return this.status === 401 || this.status === 403;
   }
 }

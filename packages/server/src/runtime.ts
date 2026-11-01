@@ -44,6 +44,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       }
       o.redactor.addSecret("anthropic", key);
       o.providers.register(new AnthropicProvider({ apiKey: key }));
+      o.core.clearKeyProblem("anthropic");
     },
 
     async openai(cfg) {
@@ -59,6 +60,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       });
       const models = await p.discover();
       o.providers.register(p);
+      o.core.clearKeyProblem("openai");
       return models.map((m) => m.id);
     },
 

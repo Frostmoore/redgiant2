@@ -23,6 +23,40 @@ const brain = (req) => {
   const last = req.messages.at(-1);
   const results = last?.role === "user" && last.parts.every((p) => p.type === "tool_result");
   turn++;
+  const said = last?.parts.find((p) => p.type === "text")?.text ?? "";
+  // God asks before planning: a question card waits for the human.
+  if (said.startsWith("Plan the export feature")) {
+    return {
+      text: "Before I plan it, two choices are yours.",
+      toolCalls: [
+        {
+          name: "ask_user",
+          input: {
+            questions: [
+              {
+                question: "Which format should the export produce first?",
+                header: "Format",
+                options: [
+                  { label: "CSV", description: "Opens in every spreadsheet" },
+                  { label: "JSON", description: "For other programs" },
+                  { label: "Both" },
+                ],
+              },
+              {
+                question: "Which extras do you want?",
+                options: [
+                  { label: "Filters by date" },
+                  { label: "Scheduled export" },
+                  { label: "Email the file" },
+                ],
+                multi_select: true,
+              },
+            ],
+          },
+        },
+      ],
+    };
+  }
   if (!results) {
     return {
       thinking:
@@ -51,6 +85,7 @@ const core = await RedGiantCore.create({
   providers: new ProviderRegistry().register(
     new FakeProvider(brain, {
       contextWindow: 32_768,
+      models: ["demo-model", "demo-large", "demo-small"],
       tick: () => new Promise((r) => setTimeout(r, 15)),
     }),
   ),
@@ -174,6 +209,11 @@ await core.setMcp("local", {
 const sid = await core.startSession("local", orch.id);
 await (await core.send("local", sid, "Give me a quick tour of the project.")).done;
 await core.budget.setLimit({ scope: "global", id: "local" }, { usd: 20 });
+// Left waiting on purpose: the question card in God's conversation.
+const godSid = await core.startSession("local", god.id);
+void (await core.send("local", godSid, "Plan the export feature for the reports.")).done.catch(
+  () => {},
+);
 const insp = await core.chat.create("local", "Stato", { kind: "inspector", projectId: "demo" });
 await core.chat.send("local", insp.id, "A che punto è il progetto?", [], () => {});
 const daily = await core.chat.create("local");

@@ -7,6 +7,7 @@ import {
   IconArrowDown,
   IconCheck,
   IconClose,
+  IconDownload,
   IconFile,
   IconInfo,
   IconShield,
@@ -23,11 +24,13 @@ import {
   getLive,
   questions,
   refresh,
+  sessionRows,
   sessionView,
 } from "../state.js";
 import { Composer, packMessage } from "./Composer.js";
 import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
+import { ModelMenu } from "./ModelMenu.js";
 import { QuestionCard } from "./QuestionCard.js";
 
 const time = (iso: string) =>
@@ -225,7 +228,8 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
 
   const v = view.value;
   const mode = agent?.mode ?? "auto";
-  const model = agent?.model ?? inheritedModel(agentId);
+  const own = sessionRows.value.find((r) => r.id === sessionId)?.model ?? undefined;
+  const model = own ?? agent?.model ?? inheritedModel(agentId);
   return (
     <div class="chat">
       <div class="chat-body">
@@ -304,12 +308,30 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
               >
                 <IconShield size={12} /> {t(`mode_${mode}` as never)}
               </button>
-              {model && (
-                <span class="model" title={t("modelHint")}>
-                  {model.model}
-                  {model.effort ? ` · ${model.effort}` : ""}
-                </span>
-              )}
+              <button
+                type="button"
+                class="icon-button"
+                title={t("exportMd")}
+                aria-label={t("exportMd")}
+                onClick={() =>
+                  void attempt(() => getApi().exportSession(sessionId)).then((r) => {
+                    if (!r) return;
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(r.blob);
+                    a.download = r.name;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+                  })
+                }
+              >
+                <IconDownload size={15} />
+              </button>
+              <ModelMenu
+                sessionId={sessionId}
+                current={model}
+                own={own !== undefined}
+                disabled={v.state === "running"}
+              />
             </>
           )
         }

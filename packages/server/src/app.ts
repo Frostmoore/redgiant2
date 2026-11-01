@@ -26,6 +26,7 @@ import { type AuthProvider, bearer, type Principal } from "./auth.js";
 import { ChatError } from "./chat.js";
 import { CodeChangeError } from "./code.js";
 import { BadRequestError, NotFoundError, type RedGiantCore, SessionBusyError } from "./core.js";
+import { sessionMarkdown } from "./export.js";
 import { FileService } from "./files.js";
 import type { HuggingFace } from "./hf.js";
 import { ntfyText, publishNtfy } from "./ntfy.js";
@@ -257,6 +258,8 @@ const routes = {
             pinned: z.boolean(),
             archived: z.boolean(),
             running: z.boolean(),
+            /** The session's own model, when it does not use the agent's. */
+            model: ModelSpec.nullable(),
           }),
         ),
         "Sessions",
@@ -802,6 +805,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         pinned: r.pinned,
         archived: r.archived,
         running: core.isRunning(r.id),
+        model: (typeof r.model === "string"
+          ? JSON.parse(r.model)
+          : r.model) as ModelSpecType | null,
       })),
       200,
     );
@@ -812,9 +818,12 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         title: z.string().trim().min(1).max(120).optional(),
         pinned: z.boolean().optional(),
         archived: z.boolean().optional(),
+        model: ModelSpec.nullable().optional(),
       })
       .safeParse(await c.req.json().catch(() => ({})));
     if (!b.success) return c.json({ error: b.error.message }, 400);
+    if (b.data.model !== undefined)
+      await core.setSessionModel(owner(c), c.req.param("id"), b.data.model);
     await core.updateSession(owner(c), c.req.param("id"), {
       ...(b.data.title !== undefined && { title: b.data.title }),
       ...(b.data.pinned !== undefined && { pinned: b.data.pinned }),
@@ -822,6 +831,32 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     });
     return c.json({ ok: true }, 200);
   });
+  // A conversation as a Markdown file.
+  app.get("/api/sessions/:id/export", async (c) => {
+    const o = owner(c);
+    const id = c.req.param("id");
+    const events = await core.history(o, id);
+    const row = (await core.listSessions(o)).find((r) => r.id === id);
+    const agent = core.registry.get(row?.agent_id ?? "");
+    const title = row?.title ?? agent?.name ?? id;
+    const md = sessionMarkdown(events, {
+      title,
+      agentName: agent?.name ?? "",
+      language: core.language(o),
+    });
+    const file = `${
+      title
+        .replace(/[^\p{L}\p{N} _-]+/gu, "")
+        .trim()
+        .slice(0, 60) || "conversation"
+    }.md`;
+    return c.body(md, 200, {
+      "content-type": "text/markdown; charset=utf-8",
+      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file)}`,
+    });
+  });
+  // What the composer offers: every provider's models, and whether they take an effort.
+  app.get("/api/models", async (c) => c.json(await core.models(), 200));
   app.get("/api/search", async (c) =>
     c.json(await core.search(owner(c), c.req.query("q") ?? ""), 200),
   );

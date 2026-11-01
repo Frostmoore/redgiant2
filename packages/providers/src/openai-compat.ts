@@ -129,6 +129,10 @@ export class OpenAICompatProvider implements Provider {
    * Reads context windows from `GET /models`: `meta.n_ctx` (llama.cpp), `max_model_len`
    * (vLLM) or `context_length` (OpenRouter). Returns the models found.
    */
+  async models(signal?: AbortSignal): Promise<string[]> {
+    return (await this.discover(signal)).map((m) => m.id);
+  }
+
   async discover(signal?: AbortSignal): Promise<{ id: string; contextWindow?: number }[]> {
     const response = await this.fetchImpl(`${this.options.baseURL.replace(/\/$/, "")}/models`, {
       headers: {
@@ -216,6 +220,7 @@ export class OpenAICompatProvider implements Provider {
         throw new ProviderError(
           `${this.id}: HTTP ${response.status} ${detail.slice(0, 500)}`,
           retriable,
+          { status: response.status },
         );
       }
 

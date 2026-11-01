@@ -64,6 +64,10 @@ export class LocalEngineProvider implements Provider {
     return this.props;
   }
 
+  models(signal?: AbortSignal): Promise<string[]> {
+    return this.inner.models(signal);
+  }
+
   modelInfo(model: string): ModelInfo {
     const info = this.inner.modelInfo(model);
     return this.props ? { ...info, contextWindow: this.props.ctxPerSlot } : info;

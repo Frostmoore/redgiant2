@@ -27,6 +27,7 @@ import {
   explorerOpen,
   firstRun,
   lastError,
+  openTab,
   platformInfo,
   questions,
   refresh,
@@ -289,6 +290,21 @@ export function App() {
           </button>
         </div>
       )}
+      {info?.keyProblems?.map((k) => (
+        <div key={k.provider} class="banner error">
+          <IconAlert />{" "}
+          {t("keyRefused", { provider: k.provider, message: k.message.slice(0, 160) })}
+          <button
+            type="button"
+            class="link"
+            onClick={() =>
+              openTab({ id: "settings", type: "settings", title: t("settings"), section: "setup" })
+            }
+          >
+            {t("openSetup")}
+          </button>
+        </div>
+      ))}
       {info?.metal && (
         <div class="banner error">
           <IconAlert /> {t("metalWarning")}

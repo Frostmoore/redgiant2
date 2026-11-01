@@ -27,6 +27,20 @@ for (const scheme of ["dark", "light"]) {
   await page.waitForSelector(".bubble.assistant");
   await page.waitForTimeout(400);
   await shot("02-conversation");
+  // The composer's model menu.
+  await page.locator(".composer button.model").click();
+  await page.waitForSelector(".model-menu .menu [role=menuitem]");
+  await shot("02b-model-menu");
+  await page.keyboard.press("Escape");
+  await page.mouse.click(5, 300);
+  // God's question, waiting for the human.
+  await page.locator(".session-row .open", { hasText: "Plan the export" }).click();
+  await page.waitForSelector(".question-card .option");
+  await page.locator(".question-card .option", { hasText: "Both" }).click();
+  await page.locator(".question-card .option", { hasText: "Filters by date" }).click();
+  await page.waitForTimeout(300);
+  await shot("02c-question");
+  await page.locator(".session-row .open", { hasText: "Give me a quick tour" }).click();
 
   // The project's files on the right, a file and a terminal next to the chat.
   await page.locator('button[aria-label="File del progetto e terminale"]').click();

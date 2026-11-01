@@ -36,7 +36,13 @@ import {
   type PolicySettings,
 } from "@redgiant/hierarchy";
 import type { Event, ImagePart, ModelSpec, Recipe, ServerMessage } from "@redgiant/protocol";
-import { complete, costUsd, type ProviderRegistry, streamWithFallback } from "@redgiant/providers";
+import {
+  complete,
+  costUsd,
+  ProviderError,
+  type ProviderRegistry,
+  streamWithFallback,
+} from "@redgiant/providers";
 import {
   createWorktree,
   HostSandboxProvider,
@@ -134,6 +140,9 @@ interface Live {
   session: AgentSession;
   running: AbortController | null;
   listeners: Set<(m: ServerMessage) => void>;
+  model: ModelSpec;
+  /** When it last worked or was followed: idle sessions leave memory (their log stays). */
+  usedAt: number;
 }
 
 /** Who goes first on a shared local engine (RD16): the user's interlocutors, then the workers. */
@@ -320,6 +329,9 @@ export class RedGiantCore implements OrchestrationHost {
           }),
         });
     });
+    // Conversations nobody uses leave memory; the next message rebuilds them from the log.
+    this.sweeper = setInterval(() => this.closeIdle(), 5 * 60_000);
+    this.sweeper.unref();
     // What waits for the human reaches the phone too.
     this.approvals.on("request", (ownerId, info) =>
       this.push(ownerId, {
@@ -561,6 +573,8 @@ export class RedGiantCore implements OrchestrationHost {
       session,
       running: null,
       listeners,
+      model,
+      usedAt: Date.now(),
     };
   }
 
@@ -749,6 +763,27 @@ export class RedGiantCore implements OrchestrationHost {
     await this.notify?.(ownerId, text);
   }
 
+  /** Providers whose key was refused, with the provider's words (shown in the web UI). */
+  private readonly keyProblems = new Map<string, string>();
+
+  private readonly sweeper: NodeJS.Timeout;
+
+  /** Drops live sessions idle for longer than `idleMs` that nobody follows; returns how many. */
+  closeIdle(idleMs = 30 * 60_000): number {
+    let closed = 0;
+    for (const [id, l] of this.live) {
+      if (l.running || l.listeners.size > 0 || Date.now() - l.usedAt < idleMs) continue;
+      this.live.delete(id);
+      closed++;
+    }
+    return closed;
+  }
+
+  /** A new key was saved: the banner goes until it is refused again. */
+  clearKeyProblem(provider: string): void {
+    this.keyProblems.delete(provider);
+  }
+
   /** Budgets crossing 80 % or 95 % after a turn: told once per level. */
   private readonly budgetLevels = new Map<string, number>();
   private async checkBudgets(ownerId: string, agent: AgentRecord): Promise<void> {
@@ -816,6 +851,7 @@ export class RedGiantCore implements OrchestrationHost {
       codeChanges: this.code !== undefined,
       supervised: this.code?.supervised ?? false,
       voice: this.o.transcription !== undefined,
+      keyProblems: [...this.keyProblems].map(([provider, message]) => ({ provider, message })),
       lastGood: release?.lastGood ?? null,
       releases: release?.history.slice(-20).reverse() ?? [],
     };
@@ -1004,13 +1040,55 @@ export class RedGiantCore implements OrchestrationHost {
       pinned: boolean;
       archived: boolean;
       last_at: Date | null;
+      model: ModelSpec | string | null;
     }>(
-      `SELECT id, agent_id, project_id, created_at, title, pinned, archived, last_at FROM rg_sessions WHERE owner_id = $1${agentId ? " AND agent_id = $2" : ""} ORDER BY created_at`,
+      `SELECT id, agent_id, project_id, created_at, title, pinned, archived, last_at, model FROM rg_sessions WHERE owner_id = $1${agentId ? " AND agent_id = $2" : ""} ORDER BY created_at`,
       agentId ? [ownerId, agentId] : [ownerId],
     );
   }
 
   /** The list's own data: a title, pinned, archived (the session's log is never changed). */
+  /** The models one can pick, by provider; a provider that does not answer offers none. */
+  async models(): Promise<{ provider: string; model: string; effort: boolean }[]> {
+    const out: { provider: string; model: string; effort: boolean }[] = [];
+    for (const p of this.o.providers.list()) {
+      const ids = (await p.models?.(AbortSignal.timeout(5000)).catch(() => [])) ?? [];
+      for (const model of ids)
+        out.push({ provider: p.id, model, effort: p.modelInfo(model).supportsEffort });
+    }
+    return out;
+  }
+
+  /**
+   * The model (and effort) of one conversation, chosen in the composer; null goes back to the
+   * agent's. The next turn uses it; the conversation's history is kept as it is.
+   */
+  async setSessionModel(
+    ownerId: string,
+    sessionId: string,
+    model: ModelSpec | null,
+  ): Promise<void> {
+    const [row] = await this.o.db.query<{ id: string }>(
+      "SELECT id FROM rg_sessions WHERE id = $1 AND owner_id = $2",
+      [sessionId, ownerId],
+    );
+    if (!row) throw new NotFoundError(`Session "${sessionId}" not found`);
+    if (this.live.get(sessionId)?.running) throw new SessionBusyError();
+    if (model && !this.o.providers.has(model.provider))
+      throw new BadRequestError(`No provider "${model.provider}"`);
+    await this.o.db.query("UPDATE rg_sessions SET model = $2 WHERE id = $1", [
+      sessionId,
+      model ? JSON.stringify(model) : null,
+    ]);
+    // A live session is rebuilt with the new model; whoever follows it keeps following.
+    const old = this.live.get(sessionId);
+    if (old) {
+      this.live.delete(sessionId);
+      const fresh = await this.open(ownerId, sessionId);
+      for (const f of old.listeners) fresh.listeners.add(f);
+    }
+  }
+
   async updateSession(
     ownerId: string,
     sessionId: string,
@@ -1160,8 +1238,19 @@ export class RedGiantCore implements OrchestrationHost {
     result?: SendResult,
     error?: unknown,
   ): Promise<void> {
-    const agent = this.registry.get(this.live.get(sessionId)?.agentId ?? "");
+    const live = this.live.get(sessionId);
+    if (live) live.usedAt = Date.now();
+    const agent = this.registry.get(live?.agentId ?? "");
     if (!agent) return;
+    // A refused key shows as a banner until a turn with that provider works again.
+    const provider = live?.model.provider;
+    if (provider) {
+      const refused = [error, (error as { cause?: unknown } | undefined)?.cause].find(
+        (e): e is ProviderError => e instanceof ProviderError && e.rejectedKey,
+      );
+      if (refused) this.keyProblems.set(provider, refused.message);
+      else if (result) this.keyProblems.delete(provider);
+    }
     await this.checkBudgets(ownerId, agent).catch(() => {});
     if (!watch || !this.o.ntfy) return;
     const minutes = (Date.now() - started) / 60_000;
@@ -1210,6 +1299,7 @@ export class RedGiantCore implements OrchestrationHost {
     let replaying = true;
     const relay = (m: ServerMessage) => (replaying ? buffered.push(m) : listener(m));
     l.listeners.add(relay);
+    l.usedAt = Date.now();
     const past = await this.store.list({ sessionId });
     for (const e of past) listener({ type: "event", sessionId, event: e });
     const lastSeq = past.at(-1)?.seq ?? -1;
@@ -1217,12 +1307,16 @@ export class RedGiantCore implements OrchestrationHost {
     replaying = false;
     for (const m of buffered) if (m.type !== "event" || m.event.seq > lastSeq) listener(m);
     listener({ type: "session.state", sessionId, state: l.running ? "running" : "idle" });
-    return () => l.listeners.delete(relay);
+    return () => {
+      l.listeners.delete(relay);
+      l.usedAt = Date.now();
+    };
   }
 
   /** Stops every running turn and denies every open approval (shutdown). */
   async close(): Promise<void> {
     await this.automations.stop();
+    clearInterval(this.sweeper);
     this.inspector.stop();
     this.code?.unwatch();
     for (const l of this.live.values()) l.running?.abort();

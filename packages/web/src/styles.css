@@ -740,6 +740,77 @@ pre {
 .md pre {
   max-width: 100%;
 }
+/* Code blocks: always on the dark code background, so one palette serves both themes. */
+.code {
+  margin: 0.5em 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--code);
+}
+.code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 4px 12px;
+  font-size: 11px;
+  color: #8f96a3;
+  border-bottom: 1px solid #ffffff14;
+}
+.copy-code {
+  border: 1px solid #ffffff26;
+  border-radius: 6px;
+  padding: 2px 8px;
+  background: none;
+  color: #c9ced8;
+  font-size: 11px;
+}
+.copy-code:hover {
+  border-color: var(--accent);
+  color: #fff;
+}
+.code pre {
+  margin: 0;
+  border-radius: 0;
+  max-height: 480px;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in,
+.hljs-type {
+  color: #ff7b72;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute {
+  color: #a5d6ff;
+}
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-variable.language_ {
+  color: #79c0ff;
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-section {
+  color: #d2a8ff;
+}
+.hljs-comment,
+.hljs-quote,
+.hljs-meta {
+  color: #8b949e;
+  font-style: italic;
+}
+.hljs-attr,
+.hljs-property,
+.hljs-name,
+.hljs-selector-class {
+  color: #7ee787;
+}
+.hljs-deletion {
+  color: #ffa198;
+}
 .md blockquote {
   margin: 0.5em 0;
   padding-left: 12px;
@@ -1028,7 +1099,8 @@ pre {
   gap: 6px;
   padding: 4px 6px 6px;
   min-width: 0;
-  overflow: hidden;
+  /* Not hidden: the model menu opens upwards out of the bar. */
+  flex-wrap: wrap;
 }
 .box-bar .icon-button {
   width: 32px;
@@ -1103,6 +1175,87 @@ pre {
   max-height: 220px;
   border-radius: 8px;
   object-fit: cover;
+}
+.model-menu {
+  position: relative;
+}
+button.model {
+  color: inherit;
+  cursor: pointer;
+}
+button.model.own {
+  border-color: var(--accent);
+}
+.model-menu .menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 240px;
+  max-height: 60vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+}
+.model-menu .menu > div:not(.menu-row) > button,
+.model-menu .menu > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+}
+.model-menu .menu button:hover {
+  background: var(--panel-2);
+}
+.model-menu .menu .on {
+  color: var(--accent);
+  font-weight: 600;
+}
+.model-menu .mark {
+  width: 14px;
+}
+.menu-title {
+  padding: 8px 8px 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--dim);
+}
+.menu-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 6px;
+}
+.model-menu .pill {
+  padding: 2px 10px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: inherit;
+}
+.model-menu .pill.on {
+  border-color: var(--accent);
+}
+.model-menu .reset {
+  margin-top: 4px;
+  border-top: 1px solid var(--line) !important;
+}
+.menu-note {
+  padding: 6px 8px 2px;
+  font-size: 11px;
 }
 .composer-problem {
   padding: 8px 12px 0;

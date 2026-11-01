@@ -497,6 +497,7 @@ export interface SessionRow {
   pinned: boolean;
   archived: boolean;
   running: boolean;
+  model?: { provider: string; model: string; effort?: string } | null;
 }
 
 export const sessionRows = signal<SessionRow[]>([]);

@@ -29,6 +29,8 @@ export interface FakeProviderOptions {
   now?: () => number;
   /** Awaited between streamed chunks; lets tests abort mid-stream. */
   tick?: () => Promise<void>;
+  /** What `models()` offers (the composer's menu). */
+  models?: string[];
 }
 
 /**
@@ -46,6 +48,10 @@ export class FakeProvider implements Provider {
   ) {
     this.id = options.id ?? "fake";
     this.contextWindow = options.contextWindow ?? 8192;
+  }
+
+  async models(): Promise<string[]> {
+    return this.options.models ?? [];
   }
 
   modelInfo(model: string): ModelInfo {

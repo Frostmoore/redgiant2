@@ -13,7 +13,7 @@
   changes inside a session, history is append-only (compaction is an explicit event).
 - Every agent gets every base tool (`baseTools`); model profiles change descriptions only, never the tool set.
 - Cache discipline: reasoning is always sent back (Anthropic native blocks; `reasoning_content` for local servers),
-  effort/thinking stay fixed for a session, and compaction reuses the exact same request plus one message.
+  effort/thinking stay fixed for a session (only the human changes the model or effort, from the composer: `setSessionModel`), and compaction reuses the exact same request plus one message.
 - Sandboxes: file tools work on the shared directory, commands run in the container (`ContainerWorkspace`).
   Secrets never go into sandbox env: credentials belong to egress routes. Docker tests: `*.docker.test.ts`,
   run with `REDGIANT_DOCKER_TESTS=1 pnpm test:docker`.

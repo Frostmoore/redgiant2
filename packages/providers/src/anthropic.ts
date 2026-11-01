@@ -129,6 +129,11 @@ export class AnthropicProvider implements Provider {
     return (this.options.serverFallbacks ?? true) && SERVER_FALLBACK_MODELS.has(model);
   }
 
+  async models(): Promise<string[]> {
+    // The current generation: older ones still work when named, but are not offered.
+    return ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"];
+  }
+
   modelInfo(model: string): ModelInfo {
     const e = this.entry(model);
     return {
@@ -328,6 +333,7 @@ function toProviderError(err: unknown): ProviderError {
     const retriable = status === 408 || status === 409 || status === 429 || status >= 500;
     return new ProviderError(`Anthropic API error ${status}: ${err.message}`, retriable, {
       cause: err,
+      status,
     });
   }
   // A tool input that could not be parsed at all: re-issuing the turn may succeed.

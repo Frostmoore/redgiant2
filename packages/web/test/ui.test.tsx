@@ -161,6 +161,15 @@ describe("markdown", () => {
     expect(html).toContain("<strong>hi</strong>");
     expect(html).not.toMatch(/script|onerror/);
   });
+
+  it("highlights code blocks, names their language and adds a copy button", () => {
+    const html = renderMarkdown("```python\ndef f():\n    return '<b>'\n```");
+    expect(html).toContain('<span class="hljs-keyword">def</span>');
+    expect(html).toContain("<span>python</span>");
+    expect(html).toContain('class="copy-code"');
+    expect(html).toContain("&lt;b&gt;");
+    expect(renderMarkdown("```\n<script>x</script>\n```")).not.toContain("<script>");
+  });
 });
 
 describe("i18n", () => {
