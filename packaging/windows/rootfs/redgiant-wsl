@@ -35,12 +35,90 @@ wait_up() {
 
 setting() { grep -E "^$1=" "$HOME_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-; }
 
+# --- Downloads with real progress -------------------------------------------------------------
+# The images the first start needs (the same ones install.sh would pull).
+IMAGES=${REDGIANT_PULL_IMAGES:-"ghcr.io/frostmoore/redgiant2:latest postgres:17-alpine ghcr.io/frostmoore/redgiant2-sandbox:latest"}
+
+# registry, repository and tag of an image reference.
+split_ref() {
+  local ref=$1 reg repo tag
+  tag=${ref##*:}; ref=${ref%:*}
+  case "$ref" in
+    *.*/*) reg=${ref%%/*}; repo=${ref#*/} ;;
+    */*) reg=registry-1.docker.io; repo=$ref ;;
+    *) reg=registry-1.docker.io; repo=library/$ref ;;
+  esac
+  echo "$reg $repo $tag"
+}
+
+# "<12-char layer id> <bytes>" for every layer of an image (linux/amd64), from its registry.
+layer_sizes() {
+  local reg repo tag token accept index digest
+  read -r reg repo tag < <(split_ref "$1")
+  if [ "$reg" = registry-1.docker.io ]; then
+    token=$(curl -fsS "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$repo:pull" | jq -r .token)
+  else
+    token=$(curl -fsS "https://$reg/token?scope=repository:$repo:pull" | jq -r .token)
+  fi
+  accept="application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json"
+  index=$(curl -fsS -H "Authorization: Bearer $token" -H "Accept: $accept" "https://$reg/v2/$repo/manifests/$tag") || return 1
+  digest=$(echo "$index" | jq -r '[.manifests[]? | select(.platform.os=="linux" and .platform.architecture=="amd64") | .digest][0] // empty')
+  if [ -n "$digest" ]; then
+    index=$(curl -fsS -H "Authorization: Bearer $token" -H "Accept: $accept" "https://$reg/v2/$repo/manifests/$digest") || return 1
+  fi
+  echo "$index" | jq -r '.layers[] | "\(.digest[7:19]) \(.size)"'
+}
+
+# Pulls the images through the Docker API (it reports bytes per layer) and prints
+# "PROGRESS <done> <total>" about once a second. Without the sizes it still pulls, without numbers.
+pull_with_progress() {
+  declare -A size=() got=()
+  local total=0 id bytes img now last=0 done_bytes status current err
+  for img in $IMAGES; do
+    while read -r id bytes; do
+      [ -n "$id" ] || continue
+      [ -n "${size[$id]:-}" ] && continue
+      size[$id]=$bytes; total=$((total + bytes))
+    done < <(layer_sizes "$img" 2>/dev/null)
+  done
+  for img in $IMAGES; do
+    local repo_tag=$img
+    while IFS=$'\t' read -r id status current err; do
+      if [ -n "$err" ]; then echo "FAIL Download non riuscito: $err"; return 1; fi
+      [ -n "$id" ] || continue
+      case "$status" in
+        Downloading) got[$id]=$current ;;
+        "Download complete"|"Already exists"|"Pull complete"|Extracting|"Verifying Checksum") got[$id]=${size[$id]:-${got[$id]:-0}} ;;
+      esac
+      printf -v now '%(%s)T' -1
+      if [ "$now" != "$last" ] && [ "$total" -gt 0 ]; then
+        last=$now; done_bytes=0
+        for id in "${!got[@]}"; do done_bytes=$((done_bytes + got[$id])); done
+        [ "$done_bytes" -gt "$total" ] && done_bytes=$total
+        echo "PROGRESS $done_bytes $total"
+      fi
+    done < <(curl -sS --unix-socket /var/run/docker.sock -X POST \
+      "http://localhost/images/create?fromImage=${repo_tag%:*}&tag=${repo_tag##*:}" |
+      jq --unbuffered -r '[.id // "", .status // "", ((.progressDetail.current // 0) | tostring), (.error // "")] | @tsv')
+    docker image inspect "$img" >/dev/null 2>&1 || { echo "FAIL Download non riuscito: $img"; return 1; }
+  done
+  [ "$total" -gt 0 ] && echo "PROGRESS $total $total"
+  return 0
+}
+
 run() {
   step "Avvio del motore di RedGiant"
   start_docker || fail "Il motore dei container non parte."
   if [ ! -f "$HOME_DIR/.env" ]; then
-    step "Prima preparazione: scarico RedGiant (qualche minuto, una volta sola)"
-    REDGIANT_YES=1 REDGIANT_NO_BROWSER=1 REDGIANT_REF="$REF" REDGIANT_HOME="$HOME_DIR" \
+    step "Prima preparazione: scarico RedGiant (una volta sola)"
+    local no_pull=0
+    # With jq the download shows its progress; an older distribution without it pulls as before.
+    if command -v jq >/dev/null 2>&1; then
+      pull_with_progress || exit 1
+      no_pull=1
+      step "Preparo RedGiant"
+    fi
+    REDGIANT_YES=1 REDGIANT_NO_PULL=$no_pull REDGIANT_NO_BROWSER=1 REDGIANT_REF="$REF" REDGIANT_HOME="$HOME_DIR" \
       bash /usr/local/share/redgiant/install.sh >/var/log/redgiant-install.log 2>&1 \
       || fail "La prima preparazione non è riuscita (registro: /var/log/redgiant-install.log)."
   else
@@ -62,10 +140,14 @@ run() {
 case "${1:-run}" in
   run) run ;;
   token) setting REDGIANT_TOKEN ;;
+  pull)
+    start_docker || fail "Il motore dei container non parte."
+    pull_with_progress
+    ;;
   update)
     start_docker || fail "Il motore dei container non parte."
     cd "$HOME_DIR" && docker compose pull && docker compose up -d
     ;;
   stop) cd "$HOME_DIR" 2>/dev/null && docker compose stop ;;
-  *) echo "usage: redgiant-wsl run|token|update|stop" >&2; exit 2 ;;
+  *) echo "usage: redgiant-wsl run|token|pull|update|stop" >&2; exit 2 ;;
 esac

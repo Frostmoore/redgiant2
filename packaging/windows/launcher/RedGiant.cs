@@ -7,6 +7,7 @@
 //   RedGiant.exe --background  start without opening the browser (start with Windows)
 using System;
 using System.Diagnostics;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
@@ -23,6 +24,16 @@ static class Texts
     public static string Restart { get { return It ? "Riavvia" : "Restart"; } }
     public static string Quit { get { return It ? "Esci" : "Quit"; } }
     public static string Running { get { return It ? "RedGiant è acceso" : "RedGiant is running"; } }
+    public static string Of { get { return It ? "di" : "of"; } }
+    public static string Downloaded { get { return It ? "Scaricati" : "Downloaded"; } }
+    public static string Left(double seconds)
+    {
+        if (seconds < 60) return It ? "manca meno di un minuto" : "less than a minute left";
+        int min = (int)Math.Round(seconds / 60);
+        if (min < 60) return It ? ("mancano circa " + min + " min") : ("about " + min + " min left");
+        int h = min / 60, m = min % 60;
+        return It ? ("mancano circa " + h + " h " + m + " min") : ("about " + h + " h " + m + " min left");
+    }
     public static string Details { get { return It ? "Dettagli per chi ti aiuta:" : "Details for whoever helps you:"; } }
     public static string NotInstalled
     {
@@ -51,6 +62,11 @@ sealed class Launcher : ApplicationContext
     readonly NotifyIcon tray;
     readonly Form splash;
     readonly Label status;
+    readonly Label detail;
+    readonly ProgressBar bar;
+    // The last seconds of the download (time, bytes): the speed is their average, so it does not jump.
+    readonly Queue<KeyValuePair<DateTime, long>> samples =
+        new Queue<KeyValuePair<DateTime, long>>();
     Process engine;
     string url;
     readonly StringBuilder log = new StringBuilder();
@@ -68,13 +84,15 @@ sealed class Launcher : ApplicationContext
             MaximizeBox = false,
             MinimizeBox = false,
             StartPosition = FormStartPosition.CenterScreen,
-            ClientSize = new Size(440, 130),
+            ClientSize = new Size(480, 150),
             BackColor = Color.FromArgb(21, 23, 28),
             ForeColor = Color.FromArgb(232, 230, 227),
             Font = new Font("Segoe UI", 11f),
         };
-        status = new Label { Text = Texts.Starting, Dock = DockStyle.Top, Height = 70, Padding = new Padding(18, 22, 18, 0) };
-        var bar = new ProgressBar { Style = ProgressBarStyle.Marquee, Dock = DockStyle.Bottom, Height = 8, MarqueeAnimationSpeed = 30 };
+        status = new Label { Text = Texts.Starting, Dock = DockStyle.Top, Height = 58, Padding = new Padding(18, 20, 18, 0) };
+        detail = new Label { Text = "", Dock = DockStyle.Top, Height = 40, Padding = new Padding(18, 4, 18, 0), Font = new Font("Segoe UI", 9.5f), ForeColor = Color.FromArgb(160, 166, 178) };
+        bar = new ProgressBar { Style = ProgressBarStyle.Marquee, Dock = DockStyle.Bottom, Height = 10, MarqueeAnimationSpeed = 30, Maximum = 1000 };
+        splash.Controls.Add(detail);
         splash.Controls.Add(status);
         splash.Controls.Add(bar);
         splash.FormClosing += (s, e) =>
@@ -144,7 +162,14 @@ sealed class Launcher : ApplicationContext
             if (e.Data == null) return;
             string line = e.Data.Trim();
             lock (log) log.AppendLine(line);
-            if (line.StartsWith("STEP ")) Ui(() => status.Text = line.Substring(5));
+            if (line.StartsWith("STEP "))
+                Ui(() =>
+                {
+                    status.Text = line.Substring(5);
+                    detail.Text = "";
+                    bar.Style = ProgressBarStyle.Marquee;
+                });
+            else if (line.StartsWith("PROGRESS ")) Progress(line);
             else if (line.StartsWith("PORT=")) port = line.Substring(5);
             else if (line.StartsWith("TOKEN=")) token = line.Substring(6);
             else if (line == "READY")
@@ -168,6 +193,43 @@ sealed class Launcher : ApplicationContext
         engine.Start();
         engine.BeginOutputReadLine();
         engine.BeginErrorReadLine();
+    }
+
+    static string Mb(long bytes)
+    {
+        return (bytes / 1048576.0).ToString(bytes < 10 * 1048576L ? "0.0" : "0", CultureInfo.CurrentCulture) + " MB";
+    }
+
+    /// "PROGRESS done total": the bar, the amounts, the speed of the last seconds and the time left.
+    void Progress(string line)
+    {
+        var parts = line.Split(' ');
+        long done, total;
+        if (parts.Length < 3 || !long.TryParse(parts[1], out done) || !long.TryParse(parts[2], out total) || total <= 0) return;
+        var now = DateTime.UtcNow;
+        string speedText = "", leftText = "";
+        lock (samples)
+        {
+            samples.Enqueue(new KeyValuePair<DateTime, long>(now, done));
+            while (samples.Count > 1 && (now - samples.Peek().Key).TotalSeconds > 8) samples.Dequeue();
+            var first = samples.Peek();
+            double secs = (now - first.Key).TotalSeconds;
+            if (secs >= 1.5 && done > first.Value)
+            {
+                double speed = (done - first.Value) / secs;
+                speedText = (speed / 1048576.0).ToString(speed < 1048576 ? "0.00" : "0.0", CultureInfo.CurrentCulture) + " MB/s";
+                leftText = done >= total ? "" : Texts.Left((total - done) / speed);
+            }
+        }
+        string text = Texts.Downloaded + " " + Mb(done) + " " + Texts.Of + " " + Mb(total)
+            + (speedText != "" ? " · " + speedText : "") + (leftText != "" ? " · " + leftText : "");
+        int value = (int)Math.Min(1000, done * 1000 / total);
+        Ui(() =>
+        {
+            bar.Style = ProgressBarStyle.Continuous;
+            bar.Value = value;
+            detail.Text = text;
+        });
     }
 
     void ShowFailure(string why)

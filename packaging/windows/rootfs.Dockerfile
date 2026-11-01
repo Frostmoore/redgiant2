@@ -3,7 +3,7 @@
 FROM debian:trixie-slim
 ARG REDGIANT_REF=main
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl gnupg systemd systemd-sysv dbus iptables procps \
+ && apt-get install -y --no-install-recommends ca-certificates curl gnupg jq systemd systemd-sysv dbus iptables procps \
  && install -m 0755 -d /etc/apt/keyrings \
  && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
  && echo "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian trixie stable" > /etc/apt/sources.list.d/docker.list \

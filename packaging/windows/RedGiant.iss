@@ -64,6 +64,8 @@ Name: "autostart"; Description: "{cm:Autostart}"; GroupDescription: "{cm:Additio
 [Files]
 Source: "RedGiant.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "redgiant.ico"; DestDir: "{app}"; Flags: ignoreversion
+; The script inside the distribution, for updates of an already installed one.
+Source: "rootfs\redgiant-wsl"; DestDir: "{app}"; Flags: ignoreversion
 ; Already compressed; removed once imported.
 Source: "redgiant-rootfs.tar.gz"; DestDir: "{app}"; Flags: nocompression deleteafterinstall
 
@@ -131,7 +133,9 @@ begin
   if CurStep <> ssPostInstall then Exit;
   WizardForm.StatusLabel.Caption := CustomMessage('Importing');
   if DistroExists() then begin
-    { An update: the distribution and its data stay; RedGiant inside gets the new images. }
+    { An update: the distribution and its data stay; its script and RedGiant's images are renewed. }
+    RunHidden('-d ' + Distro + ' -u root --cd "' + ExpandConstant('{app}') +
+      '" -- sh -c "cp redgiant-wsl /usr/local/bin/redgiant-wsl && chmod 755 /usr/local/bin/redgiant-wsl"');
     RunHidden('-d ' + Distro + ' -u root -- /usr/local/bin/redgiant-wsl update');
   end else begin
     Code := RunHidden('--import ' + Distro + ' "' + ExpandConstant('{app}\wsl') + '" "' +
