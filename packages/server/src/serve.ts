@@ -4,6 +4,7 @@ import { serve as nodeServe } from "@hono/node-server";
 import { type AppOptions, createApp } from "./app.js";
 import type { AuthProvider } from "./auth.js";
 import type { RedGiantCore } from "./core.js";
+import { DeviceAuth } from "./devices.js";
 import { attachWebSocket } from "./ws.js";
 
 export interface Running {
@@ -24,7 +25,9 @@ export function serve(
     hf?: AppOptions["hf"];
   },
 ): Promise<Running> {
-  const app = createApp(core, auth, {
+  // Paired devices sign in with their own tokens, next to the installation's.
+  const full = new DeviceAuth(auth, core.devices);
+  const app = createApp(core, full, {
     ...(listen.webDir && { webDir: listen.webDir }),
     ...(listen.telegram && { telegram: listen.telegram }),
     ...(listen.setup && { setup: listen.setup }),
@@ -34,7 +37,7 @@ export function serve(
     const server = nodeServe(
       { fetch: app.fetch, port: listen.port, hostname: listen.host ?? "0.0.0.0" },
       (info: AddressInfo) => {
-        const wss = attachWebSocket(server as unknown as Server, core, auth);
+        const wss = attachWebSocket(server as unknown as Server, core, full);
         const host = listen.host && listen.host !== "0.0.0.0" ? listen.host : "127.0.0.1";
         ok({
           url: `http://${host}:${info.port}`,

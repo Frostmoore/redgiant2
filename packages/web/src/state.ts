@@ -376,6 +376,7 @@ export type SettingsSection =
   | "extensions"
   | "telegram"
   | "notifications"
+  | "devices"
   | "budgets"
   | "platform";
 

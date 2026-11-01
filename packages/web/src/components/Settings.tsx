@@ -9,6 +9,7 @@ import {
   IconLogout,
   IconMonitor,
   IconMoon,
+  IconPhone,
   IconPuzzle,
   IconSettings,
   IconSun,
@@ -19,6 +20,7 @@ import { openTab, type SettingsSection, signOut } from "../state.js";
 import { setTheme, theme } from "../theme.js";
 import { Automations } from "./Automations.js";
 import { Budgets } from "./Budgets.js";
+import { Devices } from "./Devices.js";
 import { Extensions } from "./Extensions.js";
 import { Hierarchy } from "./Hierarchy.js";
 import { Notifications } from "./Notifications.js";
@@ -34,6 +36,7 @@ const SECTIONS: { id: SettingsSection; label: () => string; icon: ComponentChild
   { id: "extensions", label: () => t("extensions"), icon: <IconPuzzle size={15} /> },
   { id: "telegram", label: () => t("telegram"), icon: <IconTelegram size={15} /> },
   { id: "notifications", label: () => t("notifications"), icon: <IconBell size={15} /> },
+  { id: "devices", label: () => t("devices"), icon: <IconPhone size={15} /> },
   { id: "budgets", label: () => t("budgets"), icon: <IconDollar size={15} /> },
   { id: "platform", label: () => t("platformView"), icon: <IconLayers size={15} /> },
 ];
@@ -115,6 +118,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "extensions" && <Extensions />}
         {section === "telegram" && <Telegram />}
         {section === "notifications" && <Notifications />}
+        {section === "devices" && <Devices />}
         {section === "budgets" && <Budgets />}
         {section === "platform" && <Platform />}
       </div>

@@ -254,6 +254,12 @@ export const IconMonitor = ({ size = 15 }: P) => (
     <path d="M8 21h8M12 17v4" />
   </Svg>
 );
+export const IconPhone = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <rect x="6" y="2" width="12" height="20" rx="2.5" />
+    <path d="M11 18h2" />
+  </Svg>
+);
 export const IconLogout = ({ size = 15 }: P) => (
   <Svg size={size}>
     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />

@@ -1,4 +1,5 @@
 import { useState } from "preact/hooks";
+import { claimDevice, deviceName } from "../api.js";
 import { t } from "../i18n.js";
 import { signIn } from "../state.js";
 
@@ -8,7 +9,9 @@ export function Login() {
   const submit = async (e: Event) => {
     e.preventDefault();
     try {
-      await signIn(value.trim());
+      const v = value.trim();
+      // Tokens are long; a pairing code is ten letters and digits.
+      await signIn(v.length <= 12 ? await claimDevice(v, deviceName()) : v);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -22,7 +25,7 @@ export function Login() {
         <p class="dim">{t("loginHint")}</p>
         <input
           type="password"
-          placeholder={t("token")}
+          placeholder={t("tokenOrCode")}
           value={value}
           onInput={(e) => setValue((e.target as HTMLInputElement).value)}
         />

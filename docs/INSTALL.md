@@ -73,6 +73,9 @@ there. The main settings:
   `docker compose --profile engine up -d` (or `--profile engine-cuda` with an NVIDIA GPU and the
   NVIDIA Container Toolkit).
 - **Web search**: `docker compose --profile search up -d` and `REDGIANT_SEARXNG_URL=http://searxng:8080`.
+- **Phones**: Settings > Devices shows a QR code; the phone opens RedGiant signed in with a token of its own
+  (revocable there). To install it as an app the page must be served over HTTPS (Tailscale Serve, Caddy…):
+  browsers allow installing only from secure addresses.
 - **Voice messages**: `docker compose --profile voice up -d` and `http://whisper-asr:9000` in the wizard
   (or `REDGIANT_WHISPER_URL`). Any OpenAI-compatible transcription API works too
   (`REDGIANT_WHISPER_API=openai`, `REDGIANT_WHISPER_KEY`, `REDGIANT_WHISPER_MODEL`).

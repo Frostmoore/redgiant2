@@ -62,6 +62,7 @@ import { z } from "zod";
 import { HumanApprovals } from "./approvals.js";
 import { DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
+import { DeviceStore, migrateDevices } from "./devices.js";
 import {
   type GeneratedImage,
   generateImage,
@@ -193,6 +194,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly projects: ProjectStore;
   readonly approvals = new HumanApprovals();
   readonly questions = new HumanQuestions();
+  /** Phones and browsers paired by QR code, each with its own revocable token. */
+  readonly devices: DeviceStore;
   readonly tasks: TaskTracker;
   readonly board: Board;
   readonly extensions: ExtensionBuilder;
@@ -217,6 +220,7 @@ export class RedGiantCore implements OrchestrationHost {
 
   private constructor(private readonly o: CoreOptions) {
     this.store = new EventStore(o.db, o.redactor ? { redactor: o.redactor } : {});
+    this.devices = new DeviceStore(o.db);
     if (o.ntfy?.token) o.redactor?.addSecret("ntfy", o.ntfy.token);
     if (o.transcription?.key) o.redactor?.addSecret("transcription", o.transcription.key);
     if (o.images?.key) o.redactor?.addSecret("openai-images", o.images.key);
@@ -377,6 +381,7 @@ export class RedGiantCore implements OrchestrationHost {
     await migrateAutomations(o.db);
     await migratePlatform(o.db);
     await migrateChat(o.db);
+    await migrateDevices(o.db);
     const core = new RedGiantCore(o);
     await core.registry.load();
     await core.policies.load();

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
+import { claimDevice, deviceName } from "../api.js";
 import { usd } from "../format.js";
 import { t } from "../i18n.js";
 import {
@@ -184,10 +185,20 @@ export function App() {
 
   useEffect(() => {
     // The installer opens the page with #token=…: signed in at once, then the address is cleaned.
-    const fromLink = new URLSearchParams(location.hash.slice(1)).get("token");
-    if (fromLink) {
-      history.replaceState(null, "", location.pathname + location.search);
-      token.value = fromLink;
+    const hash = new URLSearchParams(location.hash.slice(1));
+    const fromLink = hash.get("token");
+    const pairCode = hash.get("pair");
+    if (fromLink || pairCode) history.replaceState(null, "", location.pathname + location.search);
+    if (fromLink) token.value = fromLink;
+    // A phone that scanned the QR code: it trades the code for a token of its own.
+    if (pairCode) {
+      void claimDevice(pairCode, deviceName())
+        .then((t) => signIn(t))
+        .catch((err: Error) => {
+          lastError.value = err.message;
+        })
+        .finally(() => setReady(true));
+      return;
     }
     if (token.value)
       void signIn(token.value)

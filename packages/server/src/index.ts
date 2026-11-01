@@ -4,6 +4,7 @@ export * from "./auth.js";
 export * from "./chat.js";
 export * from "./code.js";
 export * from "./core.js";
+export * from "./devices.js";
 export * from "./export.js";
 export * from "./files.js";
 export * from "./hardware.js";

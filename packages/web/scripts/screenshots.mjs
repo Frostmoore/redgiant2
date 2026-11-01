@@ -105,11 +105,16 @@ for (const scheme of ["dark", "light"]) {
     ["Estensioni", "13-settings-extensions"],
     ["Piattaforma", "14-settings-platform"],
     ["Configurazione", "15-settings-setup"],
+    ["Notifiche", "16-settings-notifications"],
+    ["Dispositivi", "17-settings-devices"],
   ]) {
     await page.locator(".settings-nav button", { hasText: section }).click();
     await page.waitForTimeout(500);
     await shot(name);
   }
+  await page.locator(".settings button", { hasText: "Abbina un dispositivo" }).click();
+  await page.waitForSelector(".qr svg");
+  await shot("18-pairing");
   await page.close();
 }
 
