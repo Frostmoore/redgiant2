@@ -18,6 +18,8 @@ export interface SetupHooks {
   search(url: string | null): Promise<void>;
   /** Claude on a flat subscription (G21): its token, "" for the login already in its folder, null off. */
   claudeSubscription?(token: string | null): Promise<void>;
+  /** ChatGPT on a flat subscription (G21): its login lives in Codex's own folder. */
+  chatgptSubscription?(on: boolean): Promise<void>;
   /** Starts the local engine container with this model file (null stops it). */
   engine(o: { variant: "cpu" | "cuda"; model: string } | null): Promise<void>;
   dockerRuntimes?(): Promise<string[]>;
@@ -172,6 +174,8 @@ export class SetupService {
     if (!this.locked.voice && c.transcription) this.applyTranscription();
     if (!this.locked.notifications && c.ntfyUrl) this.applyNtfy();
     if (!this.locked.images && s.openaiImagesKey) this.applyImages();
+    if (c.subscriptions?.chatgpt && h.chatgptSubscription)
+      await run("ChatGPT subscription", h.chatgptSubscription(true));
     if (c.subscriptions?.claude && h.claudeSubscription)
       await run("Claude subscription", h.claudeSubscription(s.claudeSubscriptionToken ?? ""));
     if (!this.locked.defaultModel && c.defaultModel) this.o.core.setDefaultModel(c.defaultModel);
@@ -351,7 +355,16 @@ export class SetupService {
    */
   async saveSubscriptions(s: {
     claude?: { token?: string | undefined } | null | undefined;
+    chatgpt?: boolean | undefined;
   }): Promise<void> {
+    if (s.chatgpt !== undefined) {
+      if (s.chatgpt && !this.config.subscriptionAck)
+        throw new SetupError("Read and accept the warning on the providers' terms first");
+      if (!this.o.hooks.chatgptSubscription)
+        throw new SetupError("This installation cannot run subscription engines");
+      await this.o.hooks.chatgptSubscription(s.chatgpt);
+      this.config.subscriptions = { ...this.config.subscriptions, chatgpt: s.chatgpt };
+    }
     if (s.claude !== undefined) {
       if (s.claude && !this.config.subscriptionAck)
         throw new SetupError("Read and accept the warning on the providers' terms first");

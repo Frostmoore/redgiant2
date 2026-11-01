@@ -7,7 +7,7 @@ import {
   OpenAICompatProvider,
   type ProviderRegistry,
 } from "@redgiant/providers";
-import { ClaudeSubscriptionProvider } from "@redgiant/subscriptions";
+import { ChatgptSubscriptionProvider, ClaudeSubscriptionProvider } from "@redgiant/subscriptions";
 import { migrateTelegram, TelegramGateway } from "@redgiant/telegram";
 import { SearxngSearch } from "@redgiant/tools";
 import type Docker from "dockerode";
@@ -96,6 +96,18 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         new ClaudeSubscriptionProvider({ token, configDir: dir, cwd: join(dir, "work") }),
       );
       o.core.clearKeyProblem("claude-subscription");
+    },
+
+    async chatgptSubscription(on) {
+      const old = o.providers.has("chatgpt-subscription")
+        ? (o.providers.get("chatgpt-subscription") as ChatgptSubscriptionProvider)
+        : undefined;
+      old?.stop();
+      o.providers.remove("chatgpt-subscription");
+      if (!on) return;
+      const home = join(o.dataDir ?? ".", "engines", "codex");
+      o.providers.register(new ChatgptSubscriptionProvider({ home, cwd: join(home, "work") }));
+      o.core.clearKeyProblem("chatgpt-subscription");
     },
 
     async search(url) {

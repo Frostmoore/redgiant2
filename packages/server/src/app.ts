@@ -892,6 +892,31 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file)}`,
     });
   });
+  // ChatGPT's login (G21): a device code the human types at OpenAI; Codex keeps the login.
+  const chatgpt = () => {
+    if (!core.providers.has("chatgpt-subscription")) return undefined;
+    return core.providers.get("chatgpt-subscription") as unknown as {
+      account(): Promise<{ email: string | null; plan: string | null } | null>;
+      login(): Promise<{ url: string; code: string; done: Promise<boolean> }>;
+      logout(): Promise<void>;
+    };
+  };
+  app.get("/api/subscriptions/chatgpt", async (c) => {
+    const p = chatgpt();
+    if (!p) return c.json({ on: false, account: null }, 200);
+    return c.json({ on: true, account: await p.account().catch(() => null) }, 200);
+  });
+  app.post("/api/subscriptions/chatgpt/login", async (c) => {
+    const p = chatgpt();
+    if (!p) return c.json({ error: "Switch the ChatGPT subscription on first" }, 400);
+    const { url, code, done } = await p.login();
+    done.catch(() => {});
+    return c.json({ url, code }, 200);
+  });
+  app.post("/api/subscriptions/chatgpt/logout", async (c) => {
+    await chatgpt()?.logout();
+    return c.json({ ok: true }, 200);
+  });
   // The plans' limits of the flat subscriptions (the header's bars).
   app.get("/api/limits", async (c) => c.json(await core.limits(), 200));
   // What the composer offers: every provider's models, and whether they take an effort.
@@ -1428,6 +1453,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
               .object({ token: z.string().min(20).optional() })
               .nullable()
               .optional(),
+            chatgpt: z.boolean().optional(),
           }),
         ),
       ),
