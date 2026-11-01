@@ -112,7 +112,23 @@ const core = await RedGiantCore.create({
       models: ["demo-model", "demo-large", "demo-small"],
       tick: () => new Promise((r) => setTimeout(r, 15)),
     }),
-  ),
+  )
+    // A Claude subscription stand-in: God runs on it, so the header shows the plan's limits.
+    .register(
+      Object.assign(
+        new FakeProvider(brain, {
+          id: "claude-subscription",
+          contextWindow: 200_000,
+          models: ["claude-opus-5-5", "claude-sonnet-5-5"],
+        }),
+        {
+          limits: async () => [
+            { id: "7d", label: "7g", usedPct: 36, resetsAt: "2026-11-03T18:00:00.000Z" },
+            { id: "model:Fable", label: "Fable", usedPct: 30 },
+          ],
+        },
+      ),
+    ),
   workspacesDir: join(dir, "workspaces"),
   platformDir: join(dir, "platform"),
   defaultModel: { provider: "fake", model: "demo-model" },
@@ -137,7 +153,7 @@ const god = await core.registry.create(me, {
   kind: "god",
   parentId: null,
   name: "God",
-  model: { provider: "fake", model: "demo-model", effort: "high" },
+  model: { provider: "claude-subscription", model: "claude-opus-5-5", effort: "high" },
 });
 await core.registry.create(me, { kind: "demigod", parentId: god.id, name: "Demi-God" });
 const orch = await core.registry.create(
@@ -148,6 +164,7 @@ const orch = await core.registry.create(
     projectId: "demo",
     name: "Demo orchestrator",
     role: "Plans and delegates",
+    model: { provider: "fake", model: "demo-model", effort: "high" },
   },
 );
 const coder = await core.registry.create(

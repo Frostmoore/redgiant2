@@ -18,6 +18,7 @@ import {
 } from "../icons.js";
 import {
   activateTab,
+  activeChat,
   activeTab,
   agents,
   approvals,
@@ -28,11 +29,13 @@ import {
   explorerOpen,
   firstRun,
   lastError,
+  limits,
   openTab,
   platformInfo,
   questions,
   refresh,
   sessionRows,
+  sessionView,
   signIn,
   signOut,
   status,
@@ -53,8 +56,88 @@ import { Setup } from "./Setup.js";
 import { SideArea } from "./SideArea.js";
 import { Sidebar } from "./Sidebar.js";
 
-/** Spending against the limits, like Officina's usage bars; the global budget first. */
+const level = (pct: number) => (pct >= 90 ? "high" : pct >= 70 ? "medium" : "");
+
+/** One bar of the header: a name, how full, the percentage. */
+function Bar({ name, pct, title }: { name: string; pct: number | null; title: string }) {
+  return (
+    <span class={`limit ${pct === null ? "" : level(pct)}`} title={title}>
+      <span class="limit-name">{name}</span>
+      <span class="limit-bar">
+        <span style={{ width: `${Math.min(100, pct ?? 0)}%` }} />
+      </span>
+      <span class="limit-num">{pct === null ? "–" : `${Math.round(pct)}%`}</span>
+    </span>
+  );
+}
+
+const resetAt = (iso?: string) =>
+  iso
+    ? new Date(iso).toLocaleString([], {
+        weekday: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+
+/**
+ * The header's bars follow how the open conversation is connected (G21): a flat subscription shows
+ * its plan's windows (5h, 7d, per-model), a local model how full the context is before automatic
+ * compaction, anything paid per token the budgets.
+ */
 function Limits() {
+  const chat = activeChat();
+  const provider = chat?.model?.provider;
+  const plan = limits.value.find((l) => l.provider === provider);
+  if (plan) {
+    const has = (id: string) => plan.windows.some((w) => w.id === id);
+    const windows = [
+      ...(has("5h")
+        ? []
+        : [{ id: "5h", label: "5h", usedPct: null as number | null, resetsAt: undefined }]),
+      ...plan.windows,
+    ].sort((a, b) => (a.id === "5h" ? -1 : b.id === "5h" ? 1 : 0));
+    return (
+      <div class="limits">
+        {windows.map((w) => (
+          <Bar
+            key={w.id}
+            name={w.label}
+            pct={w.usedPct}
+            title={`${w.label}: ${w.usedPct === null ? "–" : `${w.usedPct}%`}${w.resetsAt ? ` · reset ${resetAt(w.resetsAt)}` : ""}`}
+          />
+        ))}
+      </div>
+    );
+  }
+  if (provider === "local" || provider === "openai") {
+    const events = chat ? sessionView(chat.sessionId).value.events : [];
+    const last = [...events].reverse().find((e) => e.type === "message.assistant");
+    const m = last?.type === "message.assistant" ? last.payload?.metrics : undefined;
+    const threshold = m ? Math.round(m.contextWindow * 0.8) : 0;
+    return (
+      <div class="limits">
+        <Bar
+          name={t("contextLeft")}
+          pct={m ? (m.contextUsed / threshold) * 100 : 0}
+          title={
+            m
+              ? t("contextHint", {
+                  used: String(m.contextUsed),
+                  window: String(m.contextWindow),
+                  threshold: String(threshold),
+                })
+              : t("contextLeft")
+          }
+        />
+      </div>
+    );
+  }
+  return <Budgets />;
+}
+
+/** Spending against the limits, like Officina's usage bars; the global budget first. */
+function Budgets() {
   const limited = budgets.value.filter(
     (b) => b.limit.usd !== undefined || b.limit.tokens !== undefined,
   );

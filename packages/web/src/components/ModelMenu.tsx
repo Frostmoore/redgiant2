@@ -15,6 +15,16 @@ export function modelName(id: string): string {
   return `${family} ${m[2]}${m[3] ? `.${m[3]}` : ""}`;
 }
 
+/** How a model is reached, in a word next to its name. */
+const via = (provider: string) =>
+  provider.endsWith("-subscription")
+    ? t("viaSubscription")
+    : provider === "anthropic"
+      ? "API"
+      : provider === "local" || provider === "openai"
+        ? t("viaLocal")
+        : provider;
+
 /** The models the server offers, loaded once and shared by every composer. */
 let cache: Promise<ModelChoice[]> | undefined;
 const loadModels = () => {
@@ -86,7 +96,7 @@ export function ModelMenu({
         {models.map((m) => (
           <option key={key(m)} value={key(m)}>
             {modelName(m.model)}
-            {models.some((x) => x.provider !== m.provider) ? ` (${m.provider})` : ""}
+            {models.some((x) => x.provider !== m.provider) ? ` · ${via(m.provider)}` : ""}
           </option>
         ))}
       </select>

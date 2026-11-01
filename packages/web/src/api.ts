@@ -42,6 +42,7 @@ export interface SetupState {
     transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
     ntfyUrl?: string;
     imagesModel?: string;
+    subscriptions?: { claude?: boolean; chatgpt?: boolean };
     engine?: { variant: "cpu" | "cuda"; model: string };
     retentionDays?: number;
     subscriptionAck?: boolean;
@@ -53,6 +54,7 @@ export interface SetupState {
     transcription?: boolean;
     ntfy?: boolean;
     images?: boolean;
+    claudeSubscription?: boolean;
   };
   locked: Partial<
     Record<
@@ -167,6 +169,12 @@ export interface SessionInfo {
   archived: boolean;
   running: boolean;
   model: { provider: string; model: string; effort?: string } | null;
+}
+
+/** A flat subscription's usage windows (5 hours, 7 days, per-model ones). */
+export interface PlanLimits {
+  provider: string;
+  windows: { id: string; label: string; usedPct: number; resetsAt?: string }[];
 }
 
 export interface Device {
@@ -443,6 +451,17 @@ export class Api {
   setupTelegram = (token: string | null) =>
     this.call<{ username: string } | null>("PUT", "/api/setup/telegram", { token });
   setupSafety = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/safety", b);
+  setupSubscriptions = (b: Record<string, unknown>) =>
+    this.call("PUT", "/api/setup/subscriptions", b);
+  chatgptStatus = () =>
+    this.call<{ on: boolean; account: { email: string | null; plan: string | null } | null }>(
+      "GET",
+      "/api/subscriptions/chatgpt",
+    );
+  chatgptLogin = () =>
+    this.call<{ url: string; code: string }>("POST", "/api/subscriptions/chatgpt/login");
+  chatgptLogout = () => this.call("POST", "/api/subscriptions/chatgpt/logout");
+  limits = () => this.call<PlanLimits[]>("GET", "/api/limits");
   setupComplete = () => this.call("POST", "/api/setup/complete");
   hfSearch = (q: string) =>
     this.call<{ id: string; downloads: number; likes: number }[]>(

@@ -296,6 +296,26 @@ const en = {
   wzImagesKey: "OpenAI key for pictures (generate_image)",
   wzImagesModel: "Picture model",
   newReminder: "New reminder",
+  subscriptions: "Subscriptions",
+  viaSubscription: "subscription",
+  viaLocal: "local",
+  subsHint:
+    "Use a flat subscription instead of paying per token: Claude through Anthropic's Agent SDK, ChatGPT through OpenAI's Codex. Pick their models in the composer; the bars at the top then show the plan's limits instead of the budget.",
+  termsOf: "{name}'s terms",
+  subsAck: "I have read the warning and I take responsibility for it",
+  subsClaudeHint:
+    "On a computer where Claude Code is installed, run claude setup-token and paste the token here (it lasts a year).",
+  subsClaudeToken: "Claude subscription token",
+  subsChatgptHint:
+    "Switch it on, then sign in with your ChatGPT account: you get an address and a code to type there, from any device.",
+  switchOn: "Switch on",
+  subsActive: "active",
+  subsLogin: "Sign in with ChatGPT",
+  subsLoggedAs: "Signed in: {who} {plan}",
+  subsDeviceStep: "Open this address, sign in to ChatGPT and type the code:",
+  subsDeviceWait: "This page notices by itself when you are done.",
+  contextLeft: "Context",
+  contextHint: "{used} of {window} tokens: automatic compaction at {threshold}",
   tokenOrCode: "Token, or a device's pairing code",
   devices: "Devices",
   devicesHint:
@@ -669,6 +689,26 @@ const it: Record<Key, string> = {
   wzImagesKey: "Chiave OpenAI per le immagini (generate_image)",
   wzImagesModel: "Modello per le immagini",
   newReminder: "Nuovo promemoria",
+  subscriptions: "Abbonamenti",
+  viaSubscription: "abbonamento",
+  viaLocal: "locale",
+  subsHint:
+    "Usa un abbonamento flat invece di pagare a consumo: Claude tramite l'Agent SDK di Anthropic, ChatGPT tramite Codex di OpenAI. Scegli i loro modelli nel compositore; le barre in alto mostreranno i limiti del piano invece del budget.",
+  termsOf: "Termini di {name}",
+  subsAck: "Ho letto l'avviso e me ne prendo la responsabilità",
+  subsClaudeHint:
+    "Su un computer dove c'è Claude Code esegui claude setup-token e incolla qui il token (dura un anno).",
+  subsClaudeToken: "Token dell'abbonamento Claude",
+  subsChatgptHint:
+    "Attivalo, poi accedi con il tuo account ChatGPT: ricevi un indirizzo e un codice da scrivere lì, da qualsiasi dispositivo.",
+  switchOn: "Attiva",
+  subsActive: "attivo",
+  subsLogin: "Accedi con ChatGPT",
+  subsLoggedAs: "Collegato: {who} {plan}",
+  subsDeviceStep: "Apri questo indirizzo, accedi a ChatGPT e scrivi il codice:",
+  subsDeviceWait: "Questa pagina se ne accorge da sola quando hai finito.",
+  contextLeft: "Contesto",
+  contextHint: "{used} di {window} token: compattazione automatica a {threshold}",
   tokenOrCode: "Token, o il codice di abbinamento di un dispositivo",
   devices: "Dispositivi",
   devicesHint:

@@ -34,6 +34,7 @@ for (const scheme of ["dark", "light"]) {
   await page.locator(".question-card .option", { hasText: "Filters by date" }).click();
   await page.waitForTimeout(300);
   await shot("02c-question");
+  await page.locator(".top .limits").screenshot({ path: `${out}/${scheme}-02d-limits-subscription.png` });
   await page.locator(".session-row .open", { hasText: "Give me a quick tour" }).click();
 
   // The project's files on the right, a file and a terminal next to the chat.

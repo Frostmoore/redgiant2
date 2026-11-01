@@ -21,6 +21,7 @@ import {
   type ChatItem,
   getApi,
   getLive,
+  inheritedModel,
   questions,
   refresh,
   sessionRows,
@@ -349,14 +350,4 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
       />
     </div>
   );
-}
-
-/** The model an agent inherits from its ancestors (RD13). */
-function inheritedModel(agentId: string) {
-  let a = agents.value.find((x) => x.id === agentId);
-  while (a) {
-    if (a.model) return a.model;
-    a = agents.value.find((x) => x.id === a?.parentId);
-  }
-  return undefined;
 }

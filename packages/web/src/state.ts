@@ -246,6 +246,8 @@ export function applyMessage(m: ServerMessage): void {
     }
     case "session.state":
       sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, state: m.state };
+      // A turn just ended: the plan's limits may have moved.
+      if (m.state === "idle") void refreshLimits().catch(() => {});
       sessionRows.value = sessionRows.value.map((r) =>
         r.id === m.sessionId ? { ...r, running: m.state === "running" } : r,
       );
@@ -313,11 +315,39 @@ export const getLive = (): Live => {
   return live;
 };
 
+/** The flat subscriptions' windows (the header's bars when the open chat uses one). */
+export const limits = signal<import("./api.js").PlanLimits[]>([]);
+export async function refreshLimits(): Promise<void> {
+  limits.value = await getApi()
+    .limits()
+    .catch(() => limits.value);
+}
+
+/** The model an agent inherits from its ancestors (RD13). */
+export function inheritedModel(agentId: string) {
+  let a = agents.value.find((x) => x.id === agentId);
+  while (a) {
+    if (a.model) return a.model;
+    a = agents.value.find((x) => x.id === a?.parentId);
+  }
+  return undefined;
+}
+
+/** The open conversation and the model it uses (its own, or its agent's). */
+export function activeChat() {
+  const tab = tabs.value.find((x) => x.id === activeTab.value);
+  if (tab?.type !== "chat") return undefined;
+  const own = sessionRows.value.find((r) => r.id === tab.sessionId)?.model ?? undefined;
+  const agent = agents.value.find((a) => a.id === tab.agentId);
+  return { sessionId: tab.sessionId, model: own ?? agent?.model ?? inheritedModel(tab.agentId) };
+}
+
 export async function refresh(): Promise<void> {
   const a = getApi();
   [projects.value, agents.value, approvals.value, budgets.value, platformInfo.value] =
     await Promise.all([a.projects(), a.agents(), a.approvals(), a.budgets(), a.platform()]);
   await refreshConversations().catch(() => {});
+  await refreshLimits();
 }
 
 export async function signIn(t: string): Promise<void> {
@@ -378,6 +408,7 @@ export type SettingsSection =
   | "notifications"
   | "devices"
   | "budgets"
+  | "subscriptions"
   | "platform";
 
 /** Older ways to open things, still used by the views: they land in the new places. */

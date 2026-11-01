@@ -2,6 +2,7 @@ import type { ComponentChildren } from "preact";
 import { lang, setLang, t } from "../i18n.js";
 import {
   IconBell,
+  IconCard,
   IconClock,
   IconCompass,
   IconDollar,
@@ -26,6 +27,7 @@ import { Hierarchy } from "./Hierarchy.js";
 import { Notifications } from "./Notifications.js";
 import { Platform } from "./Platform.js";
 import { Setup } from "./Setup.js";
+import { Subscriptions } from "./Subscriptions.js";
 import { Telegram } from "./Telegram.js";
 
 const SECTIONS: { id: SettingsSection; label: () => string; icon: ComponentChildren }[] = [
@@ -37,6 +39,7 @@ const SECTIONS: { id: SettingsSection; label: () => string; icon: ComponentChild
   { id: "telegram", label: () => t("telegram"), icon: <IconTelegram size={15} /> },
   { id: "notifications", label: () => t("notifications"), icon: <IconBell size={15} /> },
   { id: "devices", label: () => t("devices"), icon: <IconPhone size={15} /> },
+  { id: "subscriptions", label: () => t("subscriptions"), icon: <IconCard size={15} /> },
   { id: "budgets", label: () => t("budgets"), icon: <IconDollar size={15} /> },
   { id: "platform", label: () => t("platformView"), icon: <IconLayers size={15} /> },
 ];
@@ -119,6 +122,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "telegram" && <Telegram />}
         {section === "notifications" && <Notifications />}
         {section === "devices" && <Devices />}
+        {section === "subscriptions" && <Subscriptions />}
         {section === "budgets" && <Budgets />}
         {section === "platform" && <Platform />}
       </div>
