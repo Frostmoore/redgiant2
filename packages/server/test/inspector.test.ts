@@ -124,6 +124,7 @@ describe("the project inspector", () => {
       "project_activity",
       "project_board",
       "project_budget",
+      "project_summary",
       "project_tasks",
       "read_file",
     ]);
@@ -188,5 +189,44 @@ describe("the project inspector", () => {
     await core.inspector.summaries(now); // once a day
     expect(notes.filter((n) => n.startsWith("Summary of shop"))).toHaveLength(1);
     expect(notes.at(-1)).toMatch(/^Summary of shop\n\nINSPECTOR: /);
+  });
+});
+
+describe("the inspector's running summary", () => {
+  it("folds only the events it has not read yet, starting from its previous summary", async () => {
+    const asked: string[] = [];
+    s = await startServer((req) => {
+      if (req.system.startsWith("You keep a running summary")) {
+        const text = lastText(req);
+        asked.push(text);
+        const events = text.split("New events:\n")[1]?.split("\n").length ?? 0;
+        return { text: `SUMMARY ${asked.length}: ${events} events` };
+      }
+      return { text: "x" };
+    });
+    const core = s.core;
+    await core.projects.create("me", "Shop");
+    const at = { ownerId: "me", projectId: "shop", agentId: "agent_x" };
+    for (let i = 0; i < 3; i++)
+      await core.store.append({
+        ...at,
+        body: { type: "message.user", payload: { text: `step ${i}` } },
+      });
+    expect(await core.inspector.summary("me", "shop")).toBe("SUMMARY 1: 3 events");
+    // Nothing new: the saved summary, no model call.
+    expect(await core.inspector.summary("me", "shop")).toBe("SUMMARY 1: 3 events");
+    expect(asked).toHaveLength(1);
+    await core.store.append({ ...at, body: { type: "message.user", payload: { text: "step 3" } } });
+    // Two questions at once share one update.
+    const [a, b] = await Promise.all([
+      core.inspector.summary("me", "shop"),
+      core.inspector.summary("me", "shop"),
+    ]);
+    expect([a, b]).toEqual(["SUMMARY 2: 1 events", "SUMMARY 2: 1 events"]);
+    expect(asked[1]).toMatch(
+      /^Summary so far:\nSUMMARY 1: 3 events\n\nNew events:\n#\d+ .* step 3$/,
+    );
+    // Its cost counts in the project's budget.
+    expect((await core.budget.used({ scope: "project", id: "shop" })).tokens).toBeGreaterThan(0);
   });
 });

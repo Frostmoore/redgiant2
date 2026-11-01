@@ -2,6 +2,7 @@
 import type { Event } from "@redgiant/protocol";
 import { render } from "@testing-library/preact";
 import { beforeEach, describe, expect, it } from "vitest";
+import { packMessage } from "../src/components/Composer.js";
 import { MetricsBar } from "../src/components/MetricsBar.js";
 import { dictionaries, lang, t } from "../src/i18n.js";
 import { renderMarkdown } from "../src/markdown.js";
@@ -83,6 +84,14 @@ describe("buildItems", () => {
     expect(assistant?.kind === "assistant" && assistant.parts).toEqual([
       { type: "text", text: "ok" },
     ]);
+  });
+
+  it("keeps a message's images and sender", () => {
+    const image = { type: "image", mediaType: "image/png", data: "iVBOR" };
+    const [item] = buildItems([
+      env(1, "message.user", { text: "x", images: [image], from: "God" }),
+    ]);
+    expect(item).toMatchObject({ kind: "user", images: [image], from: "God" });
   });
 
   it("deduplicates replayed events and clears the stream when the message lands", () => {
@@ -175,5 +184,31 @@ describe("layout", () => {
     expect(explorerOpen.value).toBe(true);
     closeTab("chat:s1");
     expect(tabs.value.map((x) => x.id)).toEqual(["board:p", "settings"]);
+  });
+});
+
+describe("packMessage", () => {
+  it("puts text files inline, photos as parts and saves the other files in .attachments", async () => {
+    const uploads: [string, string][] = [];
+    const pdf = new File([new Uint8Array([37, 80, 68, 70])], "My report.pdf");
+    const msg = await packMessage(
+      "look",
+      [
+        { kind: "text", name: "a.txt", content: "AAA" },
+        { kind: "image", name: "p.jpg", mediaType: "image/jpeg", data: "/9j/", url: "blob:x" },
+        { kind: "file", name: "My report.pdf", file: pdf },
+      ],
+      async (path, data) => void uploads.push([path, data]),
+    );
+    expect(msg.images).toEqual([
+      { type: "image", mediaType: "image/jpeg", data: "/9j/", name: "p.jpg" },
+    ]);
+    expect(uploads).toHaveLength(1);
+    const [path, data] = uploads[0] ?? ["", ""];
+    expect(path).toMatch(/^\.attachments\/\d{4}-\d{2}-\d{2}\/[a-z0-9]+-My report\.pdf$/);
+    expect(data).toBe("JVBERg==");
+    expect(msg.text).toBe(
+      `look\n\n<attachment name="a.txt">\nAAA\n</attachment>\n\n<attachment name="My report.pdf" path="${path}" size="4" />`,
+    );
   });
 });

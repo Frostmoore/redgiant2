@@ -40,7 +40,13 @@ export interface OpenAICompatOptions {
 }
 
 type WireMessage =
-  | { role: "system" | "user"; content: string }
+  | { role: "system"; content: string }
+  | {
+      role: "user";
+      content:
+        | string
+        | ({ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } })[];
+    }
   | { role: "tool"; tool_call_id: string; content: string }
   | {
       role: "assistant";
@@ -310,6 +316,7 @@ function toWire(m: ChatMessage, replayReasoning: boolean): WireMessage[] {
   if (m.role === "user") {
     const out: WireMessage[] = [];
     const texts: string[] = [];
+    const images: string[] = [];
     for (const p of m.parts) {
       if (p.type === "tool_result") {
         out.push({
@@ -317,11 +324,22 @@ function toWire(m: ChatMessage, replayReasoning: boolean): WireMessage[] {
           tool_call_id: p.callId,
           content: p.isError ? `ERROR: ${p.content}` : p.content,
         });
+      } else if (p.type === "image") {
+        images.push(`data:${p.mediaType};base64,${p.data}`);
       } else {
         texts.push(p.text);
       }
     }
-    if (texts.length > 0) out.push({ role: "user", content: texts.join("\n\n") });
+    // Pictures go as parts (vision models); text-only messages stay a plain string.
+    if (images.length > 0)
+      out.push({
+        role: "user",
+        content: [
+          ...(texts.length > 0 ? [{ type: "text" as const, text: texts.join("\n\n") }] : []),
+          ...images.map((url) => ({ type: "image_url" as const, image_url: { url } })),
+        ],
+      });
+    else if (texts.length > 0) out.push({ role: "user", content: texts.join("\n\n") });
     return out;
   }
   const text = m.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("");

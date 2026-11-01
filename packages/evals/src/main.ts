@@ -12,7 +12,10 @@ import { AnthropicProvider, OpenAICompatProvider, ProviderRegistry } from "@redg
 import { report, runEvals } from "./run.js";
 import { TASKS } from "./tasks.js";
 
+// `pnpm start -- --models …` passes the separator through: drop it.
+const args = process.argv.slice(2).filter((a, i) => !(i === 0 && a === "--"));
 const { values } = parseArgs({
+  args,
   options: {
     models: { type: "string" },
     tasks: { type: "string" },

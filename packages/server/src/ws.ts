@@ -16,7 +16,7 @@ export function attachWebSocket(
   core: RedGiantCore,
   auth: AuthProvider,
 ): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 32 * 1024 * 1024 });
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const path = new URL(req.url ?? "/", "http://x").pathname;
     if (path === "/ws") return wss.handleUpgrade(req, socket, head, (ws) => connection(ws));
@@ -108,7 +108,9 @@ export function attachWebSocket(
             follows.delete(msg.sessionId);
             return;
           case "session.send": {
-            const { done } = await core.send(owner, msg.sessionId, msg.text);
+            const { done } = await core.send(owner, msg.sessionId, msg.text, {
+              ...(msg.images?.length ? { images: msg.images } : {}),
+            });
             done.catch((err) => fail("session_failed", String(err)));
             return;
           }

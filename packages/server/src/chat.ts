@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { canonicalTools, type Tool } from "@redgiant/agent";
 import type { SqlClient } from "@redgiant/events";
 import type { PersistentBudget } from "@redgiant/hierarchy";
-import type { ChatMessage, MessageMetrics, ModelSpec } from "@redgiant/protocol";
+import type { ChatMessage, ImagePart, MessageMetrics, ModelSpec } from "@redgiant/protocol";
 import { costUsd, type ProviderRegistry, streamWithFallback } from "@redgiant/providers";
 import { fetchTool, type WebSearchProvider, webSearchTool } from "@redgiant/tools";
 
@@ -254,7 +254,7 @@ export class DailyChat {
     ownerId: string,
     chatId: string,
     text: string,
-    attachments: { name: string; content: string }[],
+    attachments: ({ name: string; content: string } | ImagePart)[],
     onEvent: (e: ChatEvent) => void,
     signal?: AbortSignal,
   ): Promise<void> {
@@ -274,7 +274,9 @@ export class DailyChat {
       await this.rename(ownerId, chatId, text.trim().split("\n")[0]?.slice(0, 60) || "Chat");
 
     // The date goes in the message, not in the system prompt, which stays cacheable.
+    const images = attachments.filter((a): a is ImagePart => "type" in a && a.type === "image");
     const files = attachments
+      .flatMap((a) => ("content" in a ? [a] : []))
       .map(
         (a) =>
           `\n\n<attachment name="${a.name}">\n${a.content.slice(0, MAX_ATTACHMENT)}\n</attachment>`,
@@ -284,6 +286,7 @@ export class DailyChat {
       role: "user",
       parts: [
         { type: "text", text: `Date: ${new Date().toISOString().slice(0, 10)}\n\n${text}${files}` },
+        ...images,
       ],
     };
     onEvent({ type: "entry", entry: await this.store(chatId, user, { shown: text }) });

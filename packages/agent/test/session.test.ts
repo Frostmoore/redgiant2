@@ -255,6 +255,21 @@ describe("AgentSession", () => {
     );
   });
 
+  it("sends images and the sender with a message, and rebuilds them from the log", async () => {
+    const { fake, options } = setup([{ text: "a cat" }]);
+    const s = await AgentSession.start(options);
+    const image = { type: "image" as const, mediaType: "image/png" as const, data: "iVBOR" };
+    await s.send("what is it?", undefined, { images: [image], from: "Telegram" });
+    const user = (await store.list({ sessionId: "s1" })).find((e) => e.type === "message.user");
+    expect(user?.payload).toEqual({ text: "what is it?", images: [image], from: "Telegram" });
+    expect(fake.requests[0]?.messages.at(-1)?.parts).toEqual([
+      { type: "text", text: "what is it?" },
+      image,
+    ]);
+    const resumed = await AgentSession.resume(options);
+    expect(resumed.messages).toEqual(s.messages);
+  });
+
   it("compacts when the context is nearly full and records it", async () => {
     const big = "lorem ipsum ".repeat(40);
     const { fake, options } = setup(

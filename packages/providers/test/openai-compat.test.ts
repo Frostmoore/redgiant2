@@ -51,6 +51,35 @@ describe("OpenAICompatProvider request", () => {
     expect(body.stream_options).toEqual({ include_usage: true });
   });
 
+  it("sends images as data URLs, plain text when there are none", () => {
+    const p = new OpenAICompatProvider({ baseURL: "x" });
+    const body = p.buildBody({
+      model: "m",
+      system: "",
+      tools: [],
+      messages: [
+        { role: "user", parts: [{ type: "text", text: "plain" }] },
+        {
+          role: "user",
+          parts: [
+            { type: "text", text: "look" },
+            { type: "image", mediaType: "image/jpeg", data: "/9j/" },
+          ],
+        },
+      ],
+    });
+    expect(body.messages).toEqual([
+      { role: "user", content: "plain" },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "look" },
+          { type: "image_url", image_url: { url: "data:image/jpeg;base64,/9j/" } },
+        ],
+      },
+    ]);
+  });
+
   it("can stop replaying reasoning, and sends tool_choice none only when asked", () => {
     const req = {
       model: "m",

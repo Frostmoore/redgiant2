@@ -185,12 +185,17 @@ export class AnthropicProvider implements Provider {
           (p): Anthropic.ContentBlockParam =>
             p.type === "text"
               ? { type: "text", text: p.text }
-              : {
-                  type: "tool_result",
-                  tool_use_id: p.callId,
-                  content: p.content,
-                  ...(p.isError && { is_error: true }),
-                },
+              : p.type === "image"
+                ? {
+                    type: "image",
+                    source: { type: "base64", media_type: p.mediaType, data: p.data },
+                  }
+                : {
+                    type: "tool_result",
+                    tool_use_id: p.callId,
+                    content: p.content,
+                    ...(p.isError && { is_error: true }),
+                  },
         ),
       };
     }

@@ -1,7 +1,17 @@
 import { z } from "zod";
 
+/** A picture the user attached (base64, already resized by the client). */
+export const ImagePart = z.object({
+  type: z.literal("image"),
+  mediaType: z.enum(["image/jpeg", "image/png", "image/gif", "image/webp"]),
+  data: z.string(),
+  name: z.string().optional(),
+});
+export type ImagePart = z.infer<typeof ImagePart>;
+
 export const UserPart = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: z.string() }),
+  ImagePart,
   z.object({
     type: z.literal("tool_result"),
     callId: z.string(),

@@ -29,6 +29,30 @@ describe("AnthropicProvider request", () => {
     expect(params.cache_control).toEqual({ type: "ephemeral" });
   });
 
+  it("sends images as base64 image blocks after the text", () => {
+    const params = p.buildParams({
+      model: "claude-opus-5-5",
+      system: "S",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          parts: [
+            { type: "text", text: "what is this?" },
+            { type: "image", mediaType: "image/png", data: "iVBOR", name: "a.png" },
+          ],
+        },
+      ],
+    });
+    expect(params.messages[0]?.content).toEqual([
+      { type: "text", text: "what is this?" },
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "iVBOR" },
+      },
+    ]);
+  });
+
   it("sets tool_choice none only when asked", () => {
     const base = { model: "claude-opus-5-5", system: "S", tools, messages: [user("hi")] };
     expect(p.buildParams(base).tool_choice).toBeUndefined();

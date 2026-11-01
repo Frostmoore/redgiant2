@@ -995,6 +995,43 @@ pre {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.attachment.image {
+  padding-left: 4px;
+}
+.attachment img {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 5px;
+}
+.bubble .attachments {
+  padding: 8px 0 0;
+}
+.msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.msg-images img {
+  display: block;
+  max-width: 220px;
+  max-height: 220px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.composer-problem {
+  padding: 8px 12px 0;
+  color: var(--err);
+  font-size: 12px;
+}
+.from {
+  align-self: flex-end;
+  font-size: 11px;
+  color: var(--dim);
+  margin-bottom: -6px;
+  padding-right: 4px;
+}
 .mode,
 .model {
   display: inline-flex;

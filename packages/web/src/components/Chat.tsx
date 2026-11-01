@@ -7,6 +7,7 @@ import {
   IconArrowDown,
   IconCheck,
   IconClose,
+  IconFile,
   IconInfo,
   IconShield,
   IconSpinner,
@@ -23,7 +24,8 @@ import {
   refresh,
   sessionView,
 } from "../state.js";
-import { Composer, withAttachments } from "./Composer.js";
+import { Composer, packMessage } from "./Composer.js";
+import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
 
 const time = (iso: string) =>
@@ -129,12 +131,34 @@ export function PermissionCard({ r }: { r: PermissionRequestInfo }) {
   );
 }
 
+/** The attachments travel inside the text; the bubble shows their names instead. */
+const splitAttachments = (text: string) => {
+  const cut = text.search(/\n\n<attachment name="/);
+  if (cut < 0) return { text, names: [] as string[] };
+  const names = [...text.slice(cut).matchAll(/<attachment name="([^"]*)"/g)].map((m) => m[1] ?? "");
+  return { text: text.slice(0, cut), names };
+};
+
 function Item({ item }: { item: ChatItem }) {
   switch (item.kind) {
     case "user":
       return (
         <>
-          <div class="bubble user">{item.text}</div>
+          {item.from && <div class="from">{item.from}</div>}
+          <div class="bubble user">
+            <Images images={item.images} />
+            {splitAttachments(item.text).text}
+            {splitAttachments(item.text).names.length > 0 && (
+              <div class="attachments">
+                {splitAttachments(item.text).names.map((n) => (
+                  <span key={n} class="attachment">
+                    <IconFile size={13} />
+                    <span>{n}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
           <div class="time">{time(item.ts)}</div>
         </>
       );
@@ -234,9 +258,19 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
         lang={lang.value}
         placeholder={t("writeTo", { name: agent?.name ?? "" })}
         running={v.state === "running"}
-        onSend={(text, files) =>
-          getLive().send({ type: "session.send", sessionId, text: withAttachments(text, files) })
-        }
+        onSend={async (text, files) => {
+          // Other files land in the workspace the agent works in: its project's, or God's.
+          const scope = agent?.projectId ? `project:${agent.projectId}` : "platform";
+          const msg = await packMessage(text, files, (path, data) =>
+            getApi().write(scope, path, data, "base64"),
+          );
+          getLive().send({
+            type: "session.send",
+            sessionId,
+            text: msg.text,
+            ...(msg.images.length ? { images: msg.images } : {}),
+          });
+        }}
         onStop={() => getLive().send({ type: "session.interrupt", sessionId })}
         chips={
           agent && (

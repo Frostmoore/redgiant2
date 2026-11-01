@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { canonicalTools, type Tool } from "@redgiant/agent";
 import type { Event, ModelSpec } from "@redgiant/protocol";
+import { complete, costUsd, streamWithFallback } from "@redgiant/providers";
 import { globTool, grepTool, LocalWorkspace, readFileTool } from "@redgiant/tools";
 import { z } from "zod";
 import type { ChatProfile } from "./chat.js";
@@ -22,7 +23,15 @@ export interface InspectorSettings {
 const PROMPT = (project: string, path: string) =>
   `You are the inspector of the project "${project}". You can only read: its files (in ${path}), its git history, ` +
   "its activity log, its tasks, its board and its budget. Answer questions about the state of the project precisely and " +
-  "briefly, in the user's language, citing files, commits, tasks or events. Say so when you do not know. You never change anything.";
+  "briefly, in the user's language, citing files, commits, tasks or events. Say so when you do not know. You never change anything. " +
+  "Start from project_summary (a running summary of everything that happened), then read what you need to be precise.";
+
+const SUMMARISE =
+  "You keep a running summary of the state of a software project, for its inspector. Rewrite the summary to include the new " +
+  "events: the goal, what is done and verified, open tasks, blockers, decisions, recent changes to the code, notable failures, " +
+  "spending. Drop what no longer matters. At most 400 words, plain text, no preamble.";
+/** Events summarised per request: a long history is folded in a few steps. */
+const CHUNK = 150;
 
 function git(cwd: string, args: string[]): Promise<string> {
   return new Promise((resolve) => {
@@ -67,6 +76,88 @@ export class Inspector {
   private readonly listeners: (() => void)[] = [];
   private timer: NodeJS.Timeout | undefined;
   private readonly summarised = new Map<string, string>();
+  private readonly folding = new Map<string, Promise<string>>();
+
+  /**
+   * The project's running summary (G18.3): kept in the database, and brought up to date with
+   * only the events that happened since it was written, so a long history is not read again
+   * at every question. Calls overlapping on one project share the same update.
+   */
+  summary(ownerId: string, projectId: string): Promise<string> {
+    const key = `${ownerId}/${projectId}`;
+    let running = this.folding.get(key);
+    if (!running) {
+      running = this.fold(ownerId, projectId).finally(() => this.folding.delete(key));
+      this.folding.set(key, running);
+    }
+    return running;
+  }
+
+  private async fold(ownerId: string, projectId: string): Promise<string> {
+    const key = `inspector-summary:${projectId}`;
+    const [row] = await this.core.db.query<{ value: unknown }>(
+      "SELECT value FROM rg_settings WHERE owner_id = $1 AND key = $2",
+      [ownerId, key],
+    );
+    const saved = row
+      ? ((typeof row.value === "string" ? JSON.parse(row.value) : row.value) as {
+          summary: string;
+          seq: number;
+        })
+      : { summary: "", seq: -1 };
+    const fresh = (await this.core.store.list({ projectId, fromSeq: saved.seq + 1 })).filter(
+      (e) => e.type !== "message.assistant.delta",
+    );
+    if (fresh.length === 0) return saved.summary || "Nothing has happened in this project yet.";
+    const model = (await this.settings(ownerId, projectId)).model ?? this.core.defaultModel;
+    // Without a model, the latest events themselves are the summary.
+    if (!model) return fresh.slice(-40).map(describeEvent).join("\n");
+    let summary = saved.summary;
+    for (let i = 0; i < fresh.length; i += CHUNK) {
+      const part = fresh.slice(i, i + CHUNK);
+      const c = await complete(
+        streamWithFallback(this.core.providers, model, {
+          system: SUMMARISE,
+          tools: [],
+          messages: [
+            {
+              role: "user",
+              parts: [
+                {
+                  type: "text",
+                  text: `Summary so far:\n${summary || "(none yet)"}\n\nNew events:\n${part.map(describeEvent).join("\n")}`,
+                },
+              ],
+            },
+          ],
+          maxTokens: 1200,
+          cacheScope: projectId,
+        }),
+      );
+      const text = c.message.parts
+        .flatMap((p) => (p.type === "text" ? [p.text] : []))
+        .join("")
+        .trim();
+      if (text) summary = text;
+      const usd = costUsd(c.usage, this.core.providers.get(c.provider).modelInfo(c.model).pricing);
+      await this.core.budget.record(
+        [
+          { scope: "project", id: projectId },
+          { scope: "global", id: ownerId },
+        ],
+        c.usage,
+        usd,
+        { ownerId, projectId, agentId: null },
+      );
+    }
+    const last = fresh.at(-1) as Event;
+    await this.core.db.query(
+      `INSERT INTO rg_settings (owner_id, key, value) VALUES ($1, $2, $3)
+       ON CONFLICT (owner_id, key) DO UPDATE SET value = EXCLUDED.value`,
+      [ownerId, key, JSON.stringify({ summary, seq: last.seq, at: new Date().toISOString() })],
+    );
+    return summary;
+  }
 
   constructor(private readonly core: RedGiantCore) {}
 
@@ -103,6 +194,16 @@ export class Inspector {
     const ws = new LocalWorkspace(p.path, true);
     const core = this.core;
     const tools: Tool[] = [
+      {
+        def: {
+          name: "project_summary",
+          description:
+            "A running summary of everything that happened in the project, brought up to date with the latest events. Start here.",
+          inputSchema: { type: "object", properties: {} },
+        },
+        schema: z.object({}),
+        run: () => this.summary(ownerId, projectId),
+      } as Tool,
       readFileTool(ws, "full") as Tool,
       globTool(ws, "full") as Tool,
       grepTool(ws, "full") as Tool,

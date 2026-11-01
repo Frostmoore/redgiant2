@@ -1,3 +1,4 @@
+import type { ImagePart } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ChatEntry, ChatSummary } from "../api.js";
 import { lang, t } from "../i18n.js";
@@ -5,7 +6,19 @@ import { IconChat, IconEye, IconFile, IconSearch, IconSettings, IconTrash } from
 import { renderMarkdown } from "../markdown.js";
 import { attempt, closeTab, getApi, openTab, refreshConversations } from "../state.js";
 import { type Attachment, Composer } from "./Composer.js";
+
+import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
+
+/** The chat has no workspace: text files and images travel with the message, nothing else. */
+const chatAttachments = (files: Attachment[]) =>
+  files.flatMap((f): ({ name: string; content: string } | ImagePart)[] =>
+    f.kind === "text"
+      ? [{ name: f.name, content: f.content }]
+      : f.kind === "image"
+        ? [{ type: "image" as const, mediaType: f.mediaType, data: f.data, name: f.name }]
+        : [{ name: f.name, content: `(${t("notSent")})` }],
+  );
 
 function ToolChip({ name, input }: { name: string; input: unknown }) {
   const i = (input ?? {}) as { query?: string; url?: string };
@@ -22,7 +35,12 @@ function Entry({ e }: { e: ChatEntry }) {
   if (m.role === "user") {
     // Tool results are for the model; the chips on the answer say what was done.
     if (e.shown === null) return null;
-    return <div class="bubble user">{e.shown}</div>;
+    return (
+      <div class="bubble user">
+        <Images images={m.parts.flatMap((p) => (p.type === "image" ? [p] : []))} />
+        {e.shown}
+      </div>
+    );
   }
   const text = m.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("");
   const thinking = m.parts.flatMap((p) => (p.type === "thinking" ? [p.text] : [])).join("");
@@ -226,7 +244,7 @@ export function DailyChat({
     }
     setLive({ text: "", thinking: "", tools: [] });
     await attempt(() =>
-      getApi().sendChat(id as string, text, attachments, (ev) => {
+      getApi().sendChat(id as string, text, chatAttachments(attachments), (ev) => {
         if (ev.type === "entry") {
           setEntries((es) => [...es, ev.entry]);
           if (ev.entry.message.role === "assistant") setLive({ text: "", thinking: "", tools: [] });

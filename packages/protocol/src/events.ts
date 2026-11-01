@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AgentSpec } from "./agents.js";
 import { AutomationRunStatus, AutomationTrigger } from "./automations.js";
-import { AssistantPart, NativeContent, StopReason } from "./messages.js";
+import { AssistantPart, ImagePart, NativeContent, StopReason } from "./messages.js";
 import { MessageMetrics } from "./metrics.js";
 
 /** Hex-encoded SHA-256. */
@@ -26,7 +26,15 @@ export const EventBody = z.discriminatedUnion("type", [
     type: z.literal("hook.blocked"),
     payload: z.object({ hook: z.string(), callId: z.string().optional(), reason: z.string() }),
   }),
-  z.object({ type: z.literal("message.user"), payload: text }),
+  z.object({
+    type: z.literal("message.user"),
+    payload: z.object({
+      text: z.string(),
+      images: z.array(ImagePart).optional(),
+      /** Who wrote it when not the user: an agent's id, "automation:<name>", "telegram"… */
+      from: z.string().optional(),
+    }),
+  }),
   z.object({ type: z.literal("message.assistant.delta"), payload: text }),
   z.object({
     type: z.literal("message.assistant"),

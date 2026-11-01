@@ -35,7 +35,10 @@ export function rebuildHistory(events: Iterable<Event>): HistoryEntry[] {
       case "message.user":
         flushResults();
         history.push({
-          message: { role: "user", parts: [{ type: "text", text: e.payload.text }] },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: e.payload.text }, ...(e.payload.images ?? [])],
+          },
           firstSeq: e.seq,
         });
         break;

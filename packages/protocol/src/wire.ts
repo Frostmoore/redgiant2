@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Event } from "./events.js";
+import { ImagePart } from "./messages.js";
 
 /** Bumped on every breaking change of the client/server protocol. */
 export const PROTOCOL_VERSION = 2;
@@ -22,7 +23,12 @@ export const ClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("hello"), protocolVersion: z.number().int(), token: z.string() }),
   z.object({ type: z.literal("session.follow"), sessionId: z.string() }),
   z.object({ type: z.literal("session.unfollow"), sessionId: z.string() }),
-  z.object({ type: z.literal("session.send"), sessionId: z.string(), text: z.string() }),
+  z.object({
+    type: z.literal("session.send"),
+    sessionId: z.string(),
+    text: z.string(),
+    images: z.array(ImagePart).max(10).optional(),
+  }),
   z.object({ type: z.literal("session.interrupt"), sessionId: z.string() }),
   z.object({
     type: z.literal("permission.resolve"),

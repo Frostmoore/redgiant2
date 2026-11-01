@@ -2,6 +2,7 @@ import type { EventStore } from "@redgiant/events";
 import {
   type ChatMessage,
   type EventBody,
+  type ImagePart,
   LOCAL_OWNER_ID,
   type MessageMetrics,
   type ModelSpec,
@@ -154,11 +155,23 @@ export class AgentSession {
   }
 
   /** Sends a user message and runs the model/tool loop until the model stops. */
-  async send(text: string, signal?: AbortSignal): Promise<SendResult> {
+  async send(
+    text: string,
+    signal?: AbortSignal,
+    extra: { images?: ImagePart[]; from?: string } = {},
+  ): Promise<SendResult> {
     const ctx = { ...this.ctx, signal };
-    const first = await this.record({ type: "message.user", payload: { text } });
+    const images = extra.images ?? [];
+    const first = await this.record({
+      type: "message.user",
+      payload: {
+        text,
+        ...(images.length > 0 && { images }),
+        ...(extra.from && { from: extra.from }),
+      },
+    });
     this.history.push({
-      message: { role: "user", parts: [{ type: "text", text }] },
+      message: { role: "user", parts: [{ type: "text", text }, ...images] },
       firstSeq: first.seq,
     });
 

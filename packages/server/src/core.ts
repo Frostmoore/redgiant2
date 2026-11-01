@@ -35,7 +35,7 @@ import {
   PersistentBudget,
   type PolicySettings,
 } from "@redgiant/hierarchy";
-import type { Event, ModelSpec, Recipe, ServerMessage } from "@redgiant/protocol";
+import type { Event, ImagePart, ModelSpec, Recipe, ServerMessage } from "@redgiant/protocol";
 import { complete, costUsd, type ProviderRegistry, streamWithFallback } from "@redgiant/providers";
 import {
   createWorktree,
@@ -630,6 +630,10 @@ export class RedGiantCore implements OrchestrationHost {
     return defaultPrompt(agent, name("god", "God"), name("demigod", "Demi-God"));
   }
 
+  get providers(): ProviderRegistry {
+    return this.o.providers;
+  }
+
   providerIds(): string[] {
     return this.o.providers.list().map((p) => p.id);
   }
@@ -959,6 +963,7 @@ export class RedGiantCore implements OrchestrationHost {
     ownerId: string,
     sessionId: string,
     text: string,
+    extra: { images?: ImagePart[]; from?: string } = {},
   ): Promise<{ done: Promise<SendResult> }> {
     const l = await this.open(ownerId, sessionId);
     if (l.running) throw new SessionBusyError();
@@ -974,7 +979,7 @@ export class RedGiantCore implements OrchestrationHost {
     };
     notify("running");
     // Wrapped: an async function returning a bare promise would wait for the whole turn.
-    const done = l.session.send(text, controller.signal).finally(() => {
+    const done = l.session.send(text, controller.signal, extra).finally(() => {
       l.running = null;
       notify("idle");
     });

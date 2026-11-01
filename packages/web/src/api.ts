@@ -333,7 +333,7 @@ export class Api {
   async sendChat(
     id: string,
     text: string,
-    attachments: { name: string; content: string }[],
+    attachments: ({ name: string; content: string } | import("@redgiant/protocol").ImagePart)[],
     onEvent: (e: ChatStreamEvent) => void,
     signal?: AbortSignal,
   ): Promise<void> {

@@ -11,6 +11,7 @@ import {
   Automation,
   AutomationRun,
   Effort,
+  ImagePart,
   LOCAL_OWNER_ID,
   type ModelSpec as ModelSpecType,
   PermissionMode,
@@ -283,7 +284,16 @@ const routes = {
     security,
     request: {
       params: z.object({ id: z.string() }),
-      body: { content: { "application/json": { schema: z.object({ text: z.string().min(1) }) } } },
+      body: {
+        content: {
+          "application/json": {
+            schema: z.object({
+              text: z.string().min(1),
+              images: z.array(ImagePart).max(10).optional(),
+            }),
+          },
+        },
+      },
     },
     responses: {
       202: json(z.object({ accepted: z.literal(true) }), "The agent is working"),
@@ -820,7 +830,10 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     c.json(await core.history(owner(c), c.req.valid("param").id), 200),
   );
   app.openapi(routes.sendMessage, async (c) => {
-    const { done } = await core.send(owner(c), c.req.valid("param").id, c.req.valid("json").text);
+    const { text, images } = c.req.valid("json");
+    const { done } = await core.send(owner(c), c.req.valid("param").id, text, {
+      ...(images?.length ? { images } : {}),
+    });
     done.catch((err) => console.error("session failed:", err));
     return c.json({ accepted: true as const }, 202);
   });
@@ -1157,7 +1170,12 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       .object({
         text: z.string().min(1).max(100_000),
         attachments: z
-          .array(z.object({ name: z.string().max(200), content: z.string().max(400_000) }))
+          .array(
+            z.union([
+              z.object({ name: z.string().max(200), content: z.string().max(400_000) }),
+              ImagePart,
+            ]),
+          )
           .max(10)
           .default([]),
       })

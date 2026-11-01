@@ -270,7 +270,11 @@ const en = {
   chatHint:
     "Ask anything: the assistant searches the web and cites its sources. This chat stays outside the agents and their log; you can delete it.",
   chatPlaceholder: "Write a message (Enter to send, Shift+Enter for a new line)",
-  attach: "Attach text files",
+  attach: "Attach files and photos",
+  notSent: "not sent: this chat has no folder for files",
+  tooBig: "Too big (25 MB at most): {names}",
+  tooMany: "{n} attachments at most",
+  seeAttachments: "(see the attachments)",
   platformView: "Platform",
   platformChanges: "Changes",
   noChanges:
@@ -566,7 +570,11 @@ const it: Record<Key, string> = {
   chatHint:
     "Chiedi quello che vuoi: l'assistente cerca sul web e cita le fonti. Questa chat sta fuori dagli agenti e dal loro log; la puoi cancellare.",
   chatPlaceholder: "Scrivi un messaggio (Invio per mandare, Maiusc+Invio per andare a capo)",
-  attach: "Allega file di testo",
+  attach: "Allega file e foto",
+  notSent: "non inviato: questa chat non ha una cartella per i file",
+  tooBig: "Troppo grande (al massimo 25 MB): {names}",
+  tooMany: "Al massimo {n} allegati",
+  seeAttachments: "(vedi gli allegati)",
   platformView: "Piattaforma",
   platformChanges: "Modifiche",
   noChanges:

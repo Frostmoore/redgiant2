@@ -2,6 +2,7 @@ import { type Signal, signal } from "@preact/signals";
 import type {
   AssistantPart,
   Event,
+  ImagePart,
   MessageMetrics,
   PermissionRequestInfo,
   ServerMessage,
@@ -11,7 +12,7 @@ import { type Agent, Api, type Budget, Live, type PlatformInfo, type Project } f
 // ---------- Chat items (pure) ----------
 
 export type ChatItem =
-  | { kind: "user"; key: string; text: string; ts: string }
+  | { kind: "user"; key: string; text: string; ts: string; images: ImagePart[]; from?: string }
   | {
       kind: "assistant";
       key: string;
@@ -43,7 +44,14 @@ export function buildItems(events: Event[]): ChatItem[] {
     }
     switch (e.type) {
       case "message.user":
-        items.push({ kind: "user", key, text: e.payload.text, ts: e.ts });
+        items.push({
+          kind: "user",
+          key,
+          text: e.payload.text,
+          ts: e.ts,
+          images: e.payload.images ?? [],
+          ...(e.payload.from && { from: e.payload.from }),
+        });
         break;
       case "message.assistant":
         items.push({

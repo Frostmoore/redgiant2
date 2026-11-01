@@ -20,6 +20,91 @@ const temp = async () => {
 
 /** What a correct answer looks like, per task: the verifiers must accept these. */
 const SOLUTIONS: Record<string, Record<string, string>> = {
+  "multi-bug": {
+    "inventory.js": `export class Inventory {
+  constructor() {
+    this.items = new Map();
+  }
+  add(name, qty) {
+    if (qty <= 0) throw new Error("quantity must be positive");
+    this.items.set(name, (this.items.get(name) ?? 0) + qty);
+  }
+  remove(name, qty) {
+    const have = this.items.get(name) ?? 0;
+    if (qty > have) throw new Error("not enough " + name);
+    if (have === qty) this.items.delete(name);
+    else this.items.set(name, have - qty);
+  }
+  total() {
+    let sum = 0;
+    for (const q of this.items.values()) sum += q;
+    return sum;
+  }
+  names() {
+    return [...this.items.keys()].sort();
+  }
+}
+`,
+  },
+  "feature-cli": {
+    "todo.py": `"""A tiny to-do list kept in todo.json. Usage: python3 todo.py add <text> | done <id> | list [--pending]"""
+import json, sys, os
+
+FILE = "todo.json"
+
+def load():
+    return json.load(open(FILE)) if os.path.exists(FILE) else []
+
+def save(items):
+    json.dump(items, open(FILE, "w"), indent=2)
+
+def main(argv):
+    items = load()
+    if argv[:1] == ["add"]:
+        items.append({"id": len(items) + 1, "text": " ".join(argv[1:]), "done": False})
+        save(items)
+    elif argv[:1] == ["done"] and len(argv) == 2:
+        for it in items:
+            if str(it["id"]) == argv[1]:
+                it["done"] = True
+                save(items)
+                return 0
+        print("no item " + argv[1])
+        return 1
+    elif argv[:1] == ["list"]:
+        for it in items:
+            if "--pending" in argv and it["done"]:
+                continue
+            print(f"{it['id']}. {'[x]' if it['done'] else '[ ]'} {it['text']}")
+    else:
+        print(__doc__)
+        return 1
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+`,
+    "README.md": "# todo\n\n`add <text>`, `done <id>`, `list`, `list --pending`.\n",
+  },
+  "debug-log": {
+    "report.py": `import csv, sys
+
+def average(values):
+    return sum(values) / len(values)
+
+def main(path):
+    by_city = {}
+    for row in csv.DictReader(open(path)):
+        if not row["temp"].strip():
+            continue
+        by_city.setdefault(row["city"], []).append(float(row["temp"]))
+    for city in sorted(by_city):
+        print(f"{city}: {average(by_city[city]):.1f}")
+
+if __name__ == "__main__":
+    main(sys.argv[1])
+`,
+  },
   "fix-bug": {
     "stats.py": `def median(values):
     s = sorted(values)
