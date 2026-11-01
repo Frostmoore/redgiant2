@@ -106,13 +106,14 @@ const brain = (req) => {
 
 const core = await RedGiantCore.create({
   db: wrap(pg),
-  providers: new ProviderRegistry().register(
-    new FakeProvider(brain, {
-      contextWindow: 32_768,
-      models: ["demo-model", "demo-large", "demo-small"],
-      tick: () => new Promise((r) => setTimeout(r, 15)),
-    }),
-  )
+  providers: new ProviderRegistry()
+    .register(
+      new FakeProvider(brain, {
+        contextWindow: 32_768,
+        models: ["demo-model", "demo-large", "demo-small"],
+        tick: () => new Promise((r) => setTimeout(r, 15)),
+      }),
+    )
     // A Claude subscription stand-in: God runs on it, so the header shows the plan's limits.
     .register(
       Object.assign(
