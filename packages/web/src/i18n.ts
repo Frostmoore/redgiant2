@@ -307,7 +307,7 @@ const en = {
     "On a computer where Claude Code is installed, run claude setup-token and paste the token here (it lasts a year).",
   subsClaudeToken: "Claude subscription token",
   subsChatgptHint:
-    "Switch it on, then sign in with your ChatGPT account: you get an address and a code to type there, from any device.",
+    "First, in ChatGPT: Settings, Security, switch on device code sign-in for Codex. Then switch it on here and sign in with your ChatGPT account: you get an address and a code to type there, from any device.",
   switchOn: "Switch on",
   subsActive: "active",
   subsLogin: "Sign in with ChatGPT",
@@ -700,7 +700,7 @@ const it: Record<Key, string> = {
     "Su un computer dove c'è Claude Code esegui claude setup-token e incolla qui il token (dura un anno).",
   subsClaudeToken: "Token dell'abbonamento Claude",
   subsChatgptHint:
-    "Attivalo, poi accedi con il tuo account ChatGPT: ricevi un indirizzo e un codice da scrivere lì, da qualsiasi dispositivo.",
+    "Prima, in ChatGPT: Impostazioni, Sicurezza, abilita l'accesso tramite codice dispositivo per Codex. Poi attivalo qui e accedi con il tuo account ChatGPT: ricevi un indirizzo e un codice da scrivere lì, da qualsiasi dispositivo.",
   switchOn: "Attiva",
   subsActive: "attivo",
   subsLogin: "Accedi con ChatGPT",
