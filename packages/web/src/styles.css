@@ -1249,9 +1249,10 @@ button.model.own {
 .model-menu .pill.on {
   border-color: var(--accent);
 }
-.model-menu .reset {
+.model-menu .menu > button.reset {
   margin-top: 4px;
-  border-top: 1px solid var(--line) !important;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 6px 6px;
 }
 .menu-note {
   padding: 6px 8px 2px;
