@@ -333,7 +333,7 @@ describe("toTelegramHtml", () => {
     const godSession = (await s?.core.listSessions("me"))?.find(
       (r) => s?.core.registry.get(r.agent_id)?.kind === "god",
     );
-    const fromLabel = (await s?.core.history("me", godSession?.id ?? "")).find(
+    const fromLabel = (await (s as Server).core.history("me", godSession?.id ?? "")).find(
       (e) => e.type === "message.user",
     );
     expect(fromLabel?.payload).toMatchObject({ from: "Telegram" });
