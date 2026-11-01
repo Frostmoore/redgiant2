@@ -379,23 +379,33 @@ export class AutomationService {
     const done = (async () => {
       let outcome: { status: AutomationRunStatus; summary: string };
       try {
-        const r = await this.o.host.run(row.owner_id, recipe, {
-          trigger,
-          ...(payload !== undefined && { payload }),
-          sessionId: recipe.session === "continue" ? row.session_id : null,
-          onSession: (sid) => {
-            sessionId = sid;
-            void this.o.db
-              .query("UPDATE rg_automation_runs SET session_id = $2 WHERE id = $1", [runId, sid])
-              .then(() => this.changed(row.owner_id, row.id))
-              .catch(() => {});
-            if (recipe.session === "continue")
-              void this.o.db
-                .query("UPDATE rg_automations SET session_id = $2 WHERE id = $1", [row.id, sid])
-                .catch(() => {});
-          },
-          signal: controller.signal,
-        });
+        // A reminder is its own message: no agent, no model.
+        const r =
+          recipe.reminder !== undefined
+            ? { ok: true, summary: recipe.reminder }
+            : await this.o.host.run(row.owner_id, recipe, {
+                trigger,
+                ...(payload !== undefined && { payload }),
+                sessionId: recipe.session === "continue" ? row.session_id : null,
+                onSession: (sid) => {
+                  sessionId = sid;
+                  void this.o.db
+                    .query("UPDATE rg_automation_runs SET session_id = $2 WHERE id = $1", [
+                      runId,
+                      sid,
+                    ])
+                    .then(() => this.changed(row.owner_id, row.id))
+                    .catch(() => {});
+                  if (recipe.session === "continue")
+                    void this.o.db
+                      .query("UPDATE rg_automations SET session_id = $2 WHERE id = $1", [
+                        row.id,
+                        sid,
+                      ])
+                      .catch(() => {});
+                },
+                signal: controller.signal,
+              });
         outcome = controller.signal.aborted
           ? aborted(controller.signal, recipe)
           : { status: r.ok ? "ok" : "failed", summary: r.summary };
@@ -434,9 +444,14 @@ export class AutomationService {
     const when = recipe.notify.when;
     if (when === "always" || (when === "failure" && outcome.status !== "ok")) {
       const head = `Automation ${recipe.name}: ${outcome.status === "ok" ? "done" : outcome.status}`;
-      await this.o.host
-        .notify?.(row.owner_id, summary ? `${head}\n\n${summary}` : head)
-        .catch(() => {});
+      // A reminder is sent as written: it is the message.
+      const text =
+        recipe.reminder !== undefined && outcome.status === "ok"
+          ? recipe.reminder
+          : summary
+            ? `${head}\n\n${summary}`
+            : head;
+      await this.o.host.notify?.(row.owner_id, text).catch(() => {});
     }
   }
 

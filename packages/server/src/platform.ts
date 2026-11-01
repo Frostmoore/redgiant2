@@ -574,7 +574,7 @@ export function platformConfigTools(
       def: {
         name: "platform_automation",
         description:
-          "Create, update, enable, disable, delete or run an automation. A recipe is YAML: name, on (cron + timezone, webhook), agent, project, model, effort, instructions, session, timeoutMinutes, missed, notify.when.",
+          "Create, update, enable, disable, delete or run an automation. A recipe is YAML: name, on (cron + timezone, or at: a date and time for once, webhook), agent, project, model, effort, instructions, session, timeoutMinutes, missed, notify.when. For a plain reminder use `reminder: <text>` instead of instructions: it is sent as written, with no agent and no cost.",
         inputSchema: {
           type: "object",
           properties: {

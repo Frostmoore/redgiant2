@@ -40,7 +40,7 @@ instructions: Summarise yesterday's work on every project.
   it("reports every problem by field", () => {
     const bad = (yaml: string) => () => parseRecipe(yaml);
     expect(bad("name: Bad Name\non: {cron: '* * * * *'}\ninstructions: x")).toThrow(/^name:/);
-    expect(bad("name: a\non: {}\ninstructions: x")).toThrow(/cron expression, a webhook/);
+    expect(bad("name: a\non: {}\ninstructions: x")).toThrow(/cron expression, a date/);
     expect(bad("name: a\non: {cron: 'every day'}\ninstructions: x")).toThrow(/^on: /);
     expect(bad("name: a\non: {cron: '0 8 * * *', timezone: Mars/Base}\ninstructions: x")).toThrow(
       /timezone/i,
@@ -48,6 +48,26 @@ instructions: Summarise yesterday's work on every project.
     expect(bad("name: a\non: {webhook: true}\ninstructions: x\ntools: [bash]")).toThrow(/tools/);
     expect(bad("name: a\non: {webhook: true}\ninstructions: '  '")).toThrow(/instructions/);
     expect(bad("name: [")).toThrow(/^YAML:/);
+  });
+
+  it("takes a one-shot date or a reminder, never both kinds of schedule or of work", () => {
+    const once = parseRecipe(
+      "name: once\non: {at: '2026-11-02T09:00', timezone: Europe/Rome}\nreminder: Call Anna",
+    );
+    expect(once).toMatchObject({ missed: "run", reminder: "Call Anna" });
+    expect(nextRun(once, new Date("2026-11-01T00:00:00Z"))?.toISOString()).toBe(
+      "2026-11-02T08:00:00.000Z",
+    );
+    expect(nextRun(once, new Date("2026-11-02T08:00:00Z"))).toBeNull();
+    const bad = (yaml: string) => () => parseRecipe(yaml);
+    expect(bad("name: a\non: {at: 'tomorrow'}\nreminder: x")).toThrow(/on.at/);
+    expect(bad("name: a\non: {at: '2026-11-02T09:00', cron: '* * * * *'}\nreminder: x")).toThrow(
+      /cron or at/,
+    );
+    expect(bad("name: a\non: {webhook: true}\ninstructions: x\nreminder: y")).toThrow(
+      /instructions/,
+    );
+    expect(bad("name: a\non: {webhook: true}")).toThrow(/instructions/);
   });
 
   it("accepts every example in recipes/", () => {
@@ -182,6 +202,27 @@ describe("AutomationService", () => {
     expect(fake.notes).toEqual(["Automation digest: done\n\ndigest via cron"]);
     const logged = (await store.list({})).filter((e) => e.type === "automation.run");
     expect(logged.map((e) => (e.payload as { status: string }).status)).toEqual(["running", "ok"]);
+  });
+
+  it("sends a reminder once, at its time, without any agent", async () => {
+    const { svc, clock, fake } = await setup("2026-11-01T20:00:00Z");
+    await svc.start();
+    const { automation } = await svc.create(
+      OWNER,
+      "name: call\non: {at: '2026-11-02T09:00', timezone: Europe/Rome}\nreminder: Call the accountant",
+    );
+    expect(automation.nextRunAt).toBe("2026-11-02T08:00:00.000Z");
+    clock.now = new Date("2026-11-02T08:00:00Z");
+    await svc.tick();
+    await svc.idle();
+    expect(fake.calls).toHaveLength(0);
+    expect(fake.notes).toEqual(["Call the accountant"]);
+    const after = await svc.get(OWNER, automation.id);
+    expect(after).toMatchObject({ nextRunAt: null, lastRun: { status: "ok" } });
+    clock.now = new Date("2026-11-03T08:00:00Z");
+    await svc.tick();
+    await svc.idle();
+    expect(fake.notes).toHaveLength(1);
   });
 
   it("never runs a recipe twice at once", async () => {

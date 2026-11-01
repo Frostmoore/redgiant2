@@ -15,15 +15,18 @@ export const Recipe = z
       .object({
         /** Five fields (minute…weekday) or six (with seconds first). */
         cron: z.string().min(1).optional(),
+        /** Once, at this date and time (ISO 8601, e.g. 2026-11-02T09:00; in `timezone` without an offset). */
+        at: z.string().min(1).optional(),
         /** IANA time zone of the cron expression (default: the server's). */
         timezone: z.string().min(1).optional(),
         /** Also runs on POST /api/automations/{id}/hook with the recipe's secret. */
         webhook: z.boolean().default(false),
       })
       .refine(
-        (o) => o.cron !== undefined || o.webhook,
-        "set a cron expression, a webhook, or both",
-      ),
+        (o) => o.cron !== undefined || o.at !== undefined || o.webhook,
+        "set a cron expression, a date (at), a webhook, or a schedule and a webhook",
+      )
+      .refine((o) => o.cron === undefined || o.at === undefined, "cron or at, not both"),
     /** `god`, `orchestrator` (of `project`), or an agent's id or name. */
     agent: z.string().min(1).default("god"),
     project: z.string().min(1).nullable().default(null),
@@ -33,7 +36,10 @@ export const Recipe = z
       .regex(/^[^/\s]+\/\S+$/, "provider/model")
       .optional(),
     effort: Effort.optional(),
-    instructions: z.string().trim().min(1),
+    /** What the agent is asked. */
+    instructions: z.string().trim().min(1).optional(),
+    /** A reminder: this text is sent as it is (Telegram, notifications), no agent and no model. */
+    reminder: z.string().trim().min(1).max(4000).optional(),
     /** `new`: a fresh session every run; `continue`: one session that remembers past runs. */
     session: z.enum(["new", "continue"]).default("new"),
     timeoutMinutes: z.number().int().min(1).max(1440).default(30),
@@ -43,7 +49,11 @@ export const Recipe = z
       .object({ when: z.enum(["always", "failure", "never"]).default("always") })
       .default({ when: "always" }),
   })
-  .strict();
+  .strict()
+  .refine((r) => (r.instructions === undefined) !== (r.reminder === undefined), {
+    message: "set instructions (for an agent) or reminder (a message), one of the two",
+    path: ["instructions"],
+  });
 export type Recipe = z.infer<typeof Recipe>;
 
 export const AutomationTrigger = z.enum(["cron", "webhook", "manual", "missed"]);

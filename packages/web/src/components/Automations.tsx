@@ -1,7 +1,7 @@
 import type { Automation, AutomationRun } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
-import { IconPlay } from "../icons.js";
+import { IconClock, IconPlay, IconPlus } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
 import { agents, attempt, automationsVersion, getApi, openTab } from "../state.js";
 
@@ -34,6 +34,18 @@ missed: skip
 notify:
   when: always
 `;
+
+/** A reminder for tomorrow at 9: sent as written, no agent and no model. */
+const reminderTemplate = () => {
+  const d = new Date(Date.now() + 86_400_000);
+  const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return `name: reminder-${day}
+on:
+  at: "${day}T09:00"
+  timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"}
+reminder: Write here what to remind you of.
+`;
+};
 
 /** The agent a recipe talks to, as the server resolves it (for opening its sessions). */
 function agentOf(a: Automation): string {
@@ -110,7 +122,13 @@ export function Automations() {
   useEffect(reload, [version]);
   useEffect(() => {
     setSecret(null);
-    setYaml(open === "new" ? template() : (list.find((a) => a.id === open)?.yaml ?? ""));
+    setYaml(
+      open === "new"
+        ? template()
+        : open === "reminder"
+          ? reminderTemplate()
+          : (list.find((a) => a.id === open)?.yaml ?? ""),
+    );
     // Only when another automation is opened: edits in progress survive live updates.
   }, [open]);
 
@@ -130,7 +148,10 @@ export function Automations() {
     <div class="board automations">
       <aside class="board-list">
         <button type="button" class="primary" onClick={() => setOpen("new")}>
-          + {t("newAutomation")}
+          <IconPlus /> {t("newAutomation")}
+        </button>
+        <button type="button" onClick={() => setOpen("reminder")}>
+          <IconClock /> {t("newReminder")}
         </button>
         {list.length === 0 ? (
           <div class="empty">{t("noAutomations")}</div>

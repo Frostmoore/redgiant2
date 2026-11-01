@@ -1,0 +1,6 @@
+# Once, tomorrow morning: a reminder sent as it is, to Telegram and the phone. No agent, no model.
+name: call-the-accountant
+on:
+  at: "2026-11-02T09:00"
+  timezone: Europe/Rome
+reminder: Call the accountant about the VAT return.
