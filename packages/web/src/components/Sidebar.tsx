@@ -7,6 +7,7 @@ import {
   IconChat,
   IconChevron,
   IconCrown,
+  IconDownload,
   IconEye,
   IconPin,
   IconPlus,
@@ -72,6 +73,23 @@ function SessionLine({ row }: { row: SessionRow }) {
           onClick={() => update({ archived: !row.archived })}
         >
           <IconArchive />
+        </button>
+        <button
+          type="button"
+          class="icon-button"
+          title={t("exportMd")}
+          onClick={() =>
+            void attempt(() => getApi().exportSession(row.id)).then((r) => {
+              if (!r) return;
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(r.blob);
+              a.download = r.name;
+              a.click();
+              setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+            })
+          }
+        >
+          <IconDownload size={13} />
         </button>
       </span>
     </div>

@@ -7,7 +7,6 @@ import {
   IconArrowDown,
   IconCheck,
   IconClose,
-  IconDownload,
   IconFile,
   IconInfo,
   IconShield,
@@ -336,25 +335,7 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
                   );
                 }}
               >
-                <IconShield size={12} /> {t(`mode_${mode}` as never)}
-              </button>
-              <button
-                type="button"
-                class="icon-button"
-                title={t("exportMd")}
-                aria-label={t("exportMd")}
-                onClick={() =>
-                  void attempt(() => getApi().exportSession(sessionId)).then((r) => {
-                    if (!r) return;
-                    const a = document.createElement("a");
-                    a.href = URL.createObjectURL(r.blob);
-                    a.download = r.name;
-                    a.click();
-                    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-                  })
-                }
-              >
-                <IconDownload size={15} />
+                <IconShield size={13} /> <span class="mode-name">{t(`mode_${mode}` as never)}</span>
               </button>
               <ModelMenu
                 sessionId={sessionId}

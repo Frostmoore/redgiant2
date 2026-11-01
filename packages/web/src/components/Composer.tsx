@@ -321,7 +321,9 @@ export function Composer({
               }
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+              // On a phone Enter is a new line (as in Officina): the send button sends.
+              const touch = matchMedia("(pointer: coarse)").matches;
+              if (e.key === "Enter" && !e.shiftKey && !touch && !e.isComposing) {
                 e.preventDefault();
                 void send();
               }

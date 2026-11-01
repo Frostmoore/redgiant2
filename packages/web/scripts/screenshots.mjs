@@ -27,12 +27,6 @@ for (const scheme of ["dark", "light"]) {
   await page.waitForSelector(".bubble.assistant");
   await page.waitForTimeout(400);
   await shot("02-conversation");
-  // The composer's model menu.
-  await page.locator(".composer button.model").click();
-  await page.waitForSelector(".model-menu .menu [role=menuitem]");
-  await shot("02b-model-menu");
-  await page.keyboard.press("Escape");
-  await page.mouse.click(5, 300);
   // God's question, waiting for the human.
   await page.locator(".session-row .open", { hasText: "Plan the export" }).click();
   await page.waitForSelector(".question-card .option");
@@ -134,6 +128,9 @@ await phone.locator(".bar-item", { hasText: "Demo" }).click();
 await phone.locator(".session-row .open", { hasText: "Give me a quick tour" }).click();
 await phone.waitForTimeout(600);
 await phone.screenshot({ path: `${out}/phone-03-conversation.png` });
+await phone.locator(".composer textarea").click();
+await phone.waitForTimeout(300);
+await phone.locator(".composer").screenshot({ path: `${out}/phone-04-composer.png` });
 
 await browser.close();
 console.log("done");

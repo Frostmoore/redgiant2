@@ -1099,8 +1099,8 @@ pre {
   gap: 6px;
   padding: 4px 6px 6px;
   min-width: 0;
-  /* Not hidden: the model menu opens upwards out of the bar. */
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 .box-bar .icon-button {
   width: 32px;
@@ -1176,87 +1176,41 @@ pre {
   border-radius: 8px;
   object-fit: cover;
 }
-.model-menu {
-  position: relative;
-}
-button.model {
-  color: inherit;
-  cursor: pointer;
-}
-button.model.own {
-  border-color: var(--accent);
-}
-.model-menu .menu {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  z-index: 20;
-  min-width: 240px;
-  max-height: 60vh;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
-}
-.model-menu .menu > div:not(.menu-row) > button,
-.model-menu .menu > button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  text-align: left;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: inherit;
-}
-.model-menu .menu button:hover {
-  background: var(--panel-2);
-}
-.model-menu .menu .on {
-  color: var(--accent);
-  font-weight: 600;
-}
-.model-menu .mark {
-  width: 14px;
-}
-.menu-title {
-  padding: 8px 8px 2px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--dim);
-}
-.menu-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px 6px;
-}
-.model-menu .pill {
-  padding: 2px 10px;
+select.model {
+  /* Native menus: on a phone the system's own picker opens. */
+  appearance: none;
+  padding: 3px 24px 3px 10px;
+  background: var(--panel-2)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%238f96a3' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right 8px center;
+  color: var(--text);
+  font: inherit;
   font-size: 12px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel-2);
-  color: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 34vw;
+  text-overflow: ellipsis;
 }
-.model-menu .pill.on {
+select.model.own {
   border-color: var(--accent);
 }
-.model-menu .menu > button.reset {
-  margin-top: 4px;
-  border-top: 1px solid var(--line);
-  border-radius: 0 0 6px 6px;
+select.model:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
-.menu-note {
-  padding: 6px 8px 2px;
-  font-size: 11px;
+@media (max-width: 480px) {
+  /* On a phone the bar stays on one line: the mode shows as its icon (its name is in the title). */
+  .box-bar .mode-name {
+    display: none;
+  }
+  .box-bar .mode {
+    padding: 2px 8px;
+  }
+  select.model {
+    max-width: 38vw;
+  }
 }
 .drawing,
 .generated {
