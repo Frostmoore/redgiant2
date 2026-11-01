@@ -9,3 +9,8 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# Windows installer build outputs (G22)
+packaging/windows/dist/
+packaging/windows/RedGiant.exe
+packaging/windows/redgiant-rootfs.tar.gz
