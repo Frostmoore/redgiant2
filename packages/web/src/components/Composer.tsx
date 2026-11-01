@@ -2,7 +2,16 @@ import type { ImagePart } from "@redgiant/protocol";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n.js";
-import { IconClose, IconFile, IconMic, IconPaperclip, IconSend, IconStop } from "../icons.js";
+import {
+  IconClose,
+  IconFile,
+  IconMic,
+  IconPaperclip,
+  IconSend,
+  IconSpinner,
+  IconStop,
+} from "../icons.js";
+import { getApi, platformInfo } from "../state.js";
 
 /**
  * What the composer holds: small text files go inside the message, photos go to the model as
@@ -191,7 +200,54 @@ export function Composer({
   };
 
   const Speech = speechRecognition();
+  const serverVoice = platformInfo.value?.voice === true && typeof MediaRecorder !== "undefined";
+  const recorder = useRef<MediaRecorder | null>(null);
+  const [transcribing, setTranscribing] = useState(false);
+  const append = (heard: string) =>
+    setText((now) => `${now}${now && !now.endsWith(" ") && heard ? " " : ""}${heard}`);
+
+  // With a transcription service: record, then the server turns it into text in the box,
+  // where it can be corrected before sending (as Officina does with its voice notes).
+  const record = async () => {
+    if (recorder.current) {
+      recorder.current.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const r = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      r.ondataavailable = (e) => chunks.push(e.data);
+      r.onstop = async () => {
+        for (const track of stream.getTracks()) track.stop();
+        recorder.current = null;
+        setRecording(false);
+        const blob = new Blob(chunks, { type: (r.mimeType || "audio/webm").split(";")[0] });
+        if (blob.size === 0) return;
+        setTranscribing(true);
+        try {
+          append(await getApi().transcribe(blob, lang));
+          area.current?.focus();
+        } catch (err) {
+          setProblem(t("transcriptionFailed", { error: (err as Error).message }));
+        } finally {
+          setTranscribing(false);
+        }
+      };
+      recorder.current = r;
+      r.start();
+      setRecording(true);
+      setProblem(null);
+    } catch (err) {
+      setProblem(t("noMicrophone", { error: (err as Error).message }));
+    }
+  };
+
   const toggleMic = () => {
+    if (serverVoice) {
+      void record();
+      return;
+    }
     if (recording) {
       recognition.current?.stop();
       return;
@@ -271,14 +327,17 @@ export function Composer({
               }
             }}
           />
-          {Speech && (
+          {(serverVoice || Speech) && (
             <button
               type="button"
               class={`icon-button ${recording ? "recording" : ""}`}
-              title={recording ? t("stopDictation") : t("dictate")}
+              title={
+                transcribing ? t("transcribing") : recording ? t("stopDictation") : t("dictate")
+              }
+              disabled={transcribing}
               onClick={toggleMic}
             >
-              <IconMic />
+              {transcribing ? <IconSpinner /> : <IconMic />}
             </button>
           )}
         </div>

@@ -30,6 +30,7 @@ import { FileService } from "./files.js";
 import type { HuggingFace } from "./hf.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
 import type { SetupService } from "./setup.js";
+import { MAX_AUDIO_BYTES, TranscriptionError } from "./voice.js";
 
 type Env = { Variables: { principal: Principal } };
 
@@ -1099,6 +1100,22 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
 
   // The platform (G14): how it runs, its changes, undo, the permission policy.
   app.get("/api/platform", async (c) => c.json(await core.platformInfo(), 200));
+  // A voice message: the raw audio in, its text out (the client shows it before sending).
+  app.post("/api/transcribe", async (c) => {
+    const audio = new Uint8Array(await c.req.arrayBuffer());
+    if (audio.length > MAX_AUDIO_BYTES) return c.json({ error: "The recording is too long" }, 413);
+    try {
+      const text = await core.transcribe(
+        audio,
+        c.req.header("content-type") ?? "application/octet-stream",
+        c.req.query("lang"),
+      );
+      return c.json({ text }, 200);
+    } catch (err) {
+      if (err instanceof TranscriptionError) return c.json({ error: err.message }, 502);
+      throw err;
+    }
+  });
   app.get("/api/platform/changes", async (c) => c.json(await core.changes.list(owner(c)), 200));
   app.post("/api/platform/changes/:id/undo", async (c) => {
     try {
@@ -1275,6 +1292,15 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
               .nullable()
               .optional(),
             searxngUrl: z.url().nullable().optional(),
+            transcription: z
+              .object({
+                api: z.enum(["whisper-asr", "openai"]),
+                url: z.url(),
+                model: z.string().min(1).optional(),
+                key: z.string().optional(),
+              })
+              .nullable()
+              .optional(),
             defaultModel: ModelSpec.optional(),
           }),
         ),

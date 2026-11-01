@@ -136,7 +136,12 @@ describe("the setup wizard", () => {
       subscriptionAck: true,
       engine: { variant: "cuda", model: "gemma.gguf" },
     });
-    expect(state.secretsSet).toEqual({ anthropic: true, openai: false, telegram: true });
+    expect(state.secretsSet).toEqual({
+      anthropic: true,
+      openai: false,
+      telegram: true,
+      transcription: false,
+    });
     expect(state.budgetUsd).toBe(25);
     expect(state.policy.humanOnly).toEqual(["git-push", "platform"]);
     expect(calls).toEqual([

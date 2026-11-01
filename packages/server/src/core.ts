@@ -71,6 +71,7 @@ import {
   platformConfigTools,
 } from "./platform.js";
 import { migrateProjects, ProjectStore, slug } from "./projects.js";
+import { type TranscriptionConfig, transcribe } from "./voice.js";
 
 export interface CoreOptions {
   db: SqlClient;
@@ -86,6 +87,8 @@ export interface CoreOptions {
   /** How a parent agent answers a child's request; default: the parent's own model decides. */
   askAgent?: (approver: AgentRecord, request: ApprovalRequest) => Promise<AgentAnswer>;
   search?: WebSearchProvider;
+  /** Speech to text for voice messages (G20.2). */
+  transcription?: TranscriptionConfig;
   redactor?: Redactor;
   profileFor?: (model: ModelSpec) => ModelProfile;
   /** Model for board summaries and digests (default: `defaultModel`; none ⇒ no summaries). */
@@ -648,6 +651,22 @@ export class RedGiantCore implements OrchestrationHost {
     else delete this.o.defaultModel;
   }
 
+  get transcription(): TranscriptionConfig | undefined {
+    return this.o.transcription;
+  }
+
+  setTranscription(t: TranscriptionConfig | undefined): void {
+    if (t) this.o.transcription = t;
+    else delete this.o.transcription;
+  }
+
+  /** A voice message as text; the language helps the service (it, en…). */
+  async transcribe(audio: Uint8Array, mime: string, language?: string): Promise<string> {
+    if (!this.o.transcription)
+      throw new BadRequestError("No transcription service: set one in the configuration");
+    return transcribe(audio, mime, this.o.transcription, language ? { language } : {});
+  }
+
   setSearch(search: WebSearchProvider | undefined): void {
     if (search) this.o.search = search;
     else delete this.o.search;
@@ -661,6 +680,7 @@ export class RedGiantCore implements OrchestrationHost {
       metal: this.o.metal === true,
       codeChanges: this.code !== undefined,
       supervised: this.code?.supervised ?? false,
+      voice: this.o.transcription !== undefined,
       lastGood: release?.lastGood ?? null,
       releases: release?.history.slice(-20).reverse() ?? [],
     };

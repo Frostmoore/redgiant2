@@ -14,4 +14,5 @@ export * from "./projects.js";
 export * from "./serve.js";
 export * from "./setup.js";
 export * from "./terminal.js";
+export * from "./voice.js";
 export * from "./ws.js";

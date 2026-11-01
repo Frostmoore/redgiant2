@@ -73,6 +73,9 @@ there. The main settings:
   `docker compose --profile engine up -d` (or `--profile engine-cuda` with an NVIDIA GPU and the
   NVIDIA Container Toolkit).
 - **Web search**: `docker compose --profile search up -d` and `REDGIANT_SEARXNG_URL=http://searxng:8080`.
+- **Voice messages**: `docker compose --profile voice up -d` and `http://whisper-asr:9000` in the wizard
+  (or `REDGIANT_WHISPER_URL`). Any OpenAI-compatible transcription API works too
+  (`REDGIANT_WHISPER_API=openai`, `REDGIANT_WHISPER_KEY`, `REDGIANT_WHISPER_MODEL`).
 - **Telegram**: `REDGIANT_TELEGRAM_TOKEN` (from @BotFather), then pair your account from the web UI.
 - **Reaching it from other devices**: `REDGIANT_BIND=0.0.0.0` publishes the port on your network.
   Put HTTPS in front of it (Caddy, Traefik, a Tailscale/Cloudflare tunnel) before exposing it to the

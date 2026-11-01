@@ -27,6 +27,8 @@ export interface SetupConfig {
   defaultModel?: ModelSpec;
   openaiBaseUrl?: string;
   searxngUrl?: string;
+  /** Speech to text for voice messages; its key, if any, is in the secrets. */
+  transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
   engine?: { variant: "cpu" | "cuda"; model: string };
   retentionDays?: number;
   /** The user read that a personal subscription may not be allowed in third-party tools (RD23). */
@@ -37,6 +39,7 @@ interface Secrets {
   anthropicKey?: string;
   openaiKey?: string;
   telegramToken?: string;
+  transcriptionKey?: string;
 }
 
 /** What the environment already sets: the wizard shows it and does not change it. */
@@ -47,11 +50,12 @@ export interface Locked {
   defaultModel?: boolean;
   search?: boolean;
   engine?: boolean;
+  voice?: boolean;
 }
 
 export interface SetupState {
   config: SetupConfig;
-  secretsSet: { anthropic: boolean; openai: boolean; telegram: boolean };
+  secretsSet: { anthropic: boolean; openai: boolean; telegram: boolean; transcription: boolean };
   locked: Locked;
   providers: string[];
   hardware: Hardware;
@@ -144,6 +148,7 @@ export class SetupService {
       );
     if (!this.locked.search && c.searxngUrl) await run("search", h.search(c.searxngUrl));
     if (!this.locked.engine && c.engine) await run("engine", h.engine(c.engine));
+    if (!this.locked.voice && c.transcription) this.applyTranscription();
     if (!this.locked.defaultModel && c.defaultModel) this.o.core.setDefaultModel(c.defaultModel);
     if (!this.locked.telegram && s.telegramToken)
       await run("Telegram", h.telegram(s.telegramToken));
@@ -165,6 +170,7 @@ export class SetupService {
         anthropic: Boolean(this.secrets.anthropicKey),
         openai: Boolean(this.secrets.openaiKey),
         telegram: Boolean(this.secrets.telegramToken),
+        transcription: Boolean(this.secrets.transcriptionKey),
       },
       locked: this.locked,
       providers: this.o.core.providerIds(),
@@ -191,6 +197,15 @@ export class SetupService {
     anthropicKey?: string | null | undefined;
     openai?: { baseUrl: string; key?: string | undefined } | null | undefined;
     searxngUrl?: string | null | undefined;
+    transcription?:
+      | {
+          api: "whisper-asr" | "openai";
+          url: string;
+          model?: string | undefined;
+          key?: string | undefined;
+        }
+      | null
+      | undefined;
     defaultModel?: ModelSpec | undefined;
   }): Promise<{ openaiModels: string[] }> {
     let openaiModels: string[] = [];
@@ -214,6 +229,18 @@ export class SetupService {
       if (m.searxngUrl) this.config.searxngUrl = m.searxngUrl;
       else delete this.config.searxngUrl;
     }
+    if (m.transcription !== undefined && !this.locked.voice) {
+      if (m.transcription) {
+        const { key, model, ...rest } = m.transcription;
+        this.config.transcription = { ...rest, ...(model && { model }) };
+        // An empty key keeps the one saved before; null-ing the service removes it.
+        if (key) this.secrets.transcriptionKey = key;
+      } else {
+        delete this.config.transcription;
+        delete this.secrets.transcriptionKey;
+      }
+      this.applyTranscription();
+    }
     if (m.defaultModel && !this.locked.defaultModel) {
       // A model that cannot answer is not made the default.
       await this.o.core.trialModel(this.o.ownerId, m.defaultModel);
@@ -222,6 +249,13 @@ export class SetupService {
     }
     await this.save();
     return { openaiModels };
+  }
+
+  private applyTranscription(): void {
+    const t = this.config.transcription;
+    this.o.core.setTranscription(
+      t && { ...t, ...(this.secrets.transcriptionKey && { key: this.secrets.transcriptionKey }) },
+    );
   }
 
   async saveEngine(e: { variant: "cpu" | "cuda"; model: string } | null): Promise<void> {

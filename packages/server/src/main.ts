@@ -131,6 +131,15 @@ const core = await RedGiantCore.create({
   redactor,
   ...(defaultModel && { defaultModel }),
   ...(env.REDGIANT_SEARXNG_URL && { search: new SearxngSearch(env.REDGIANT_SEARXNG_URL) }),
+  // Voice messages: whisper-asr-webservice by URL, or an OpenAI-compatible transcription API.
+  ...(env.REDGIANT_WHISPER_URL && {
+    transcription: {
+      api: env.REDGIANT_WHISPER_API === "openai" ? ("openai" as const) : ("whisper-asr" as const),
+      url: env.REDGIANT_WHISPER_URL,
+      ...(env.REDGIANT_WHISPER_MODEL && { model: env.REDGIANT_WHISPER_MODEL }),
+      ...(env.REDGIANT_WHISPER_KEY && { key: env.REDGIANT_WHISPER_KEY }),
+    },
+  }),
   ...(metal && { metal }),
   ...(source && { source }),
 });
@@ -190,6 +199,7 @@ const setup = new SetupService({
     defaultModel: Boolean(defaultModel),
     search: Boolean(env.REDGIANT_SEARXNG_URL),
     engine: Boolean(env.REDGIANT_LLAMACPP_URL),
+    voice: Boolean(env.REDGIANT_WHISPER_URL),
   },
 });
 await setup.applyAtStartup();

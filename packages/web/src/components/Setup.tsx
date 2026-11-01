@@ -41,6 +41,10 @@ function Models({ s, next }: { s: SetupState; next: () => void }) {
   const [openaiUrl, setOpenaiUrl] = useState(s.config.openaiBaseUrl ?? "");
   const [openaiKey, setOpenaiKey] = useState("");
   const [searx, setSearx] = useState(s.config.searxngUrl ?? "");
+  const [voiceApi, setVoiceApi] = useState(s.config.transcription?.api ?? "whisper-asr");
+  const [voiceUrl, setVoiceUrl] = useState(s.config.transcription?.url ?? "");
+  const [voiceModel, setVoiceModel] = useState(s.config.transcription?.model ?? "");
+  const [voiceKey, setVoiceKey] = useState("");
   const current = s.config.defaultModel;
   const [model, setModel] = useState(
     current ? `${current.provider}/${current.model}` : (CLOUD_MODELS[0] ?? ""),
@@ -60,6 +64,17 @@ function Models({ s, next }: { s: SetupState; next: () => void }) {
             openai: { baseUrl: openaiUrl.trim(), ...(openaiKey && { key: openaiKey }) },
           }),
         ...(searx.trim() && searx !== s.config.searxngUrl && { searxngUrl: searx.trim() }),
+        ...(!s.locked.voice &&
+          (voiceUrl.trim()
+            ? {
+                transcription: {
+                  api: voiceApi,
+                  url: voiceUrl.trim(),
+                  ...(voiceModel.trim() && { model: voiceModel.trim() }),
+                  ...(voiceKey && { key: voiceKey }),
+                },
+              }
+            : s.config.transcription && { transcription: null })),
         ...(!s.locked.defaultModel && {
           defaultModel: { provider, model: rest.join("/"), ...(effort && { effort }) },
         }),
@@ -112,6 +127,52 @@ function Models({ s, next }: { s: SetupState; next: () => void }) {
         />
         <Locked on={s.locked.search} />
       </Field>
+      <Field label={t("wzVoice")}>
+        <div class="row">
+          <select
+            disabled={s.locked.voice}
+            value={voiceApi}
+            onChange={(e) =>
+              setVoiceApi((e.target as HTMLSelectElement).value as "whisper-asr" | "openai")
+            }
+          >
+            <option value="whisper-asr">whisper-asr-webservice</option>
+            <option value="openai">{t("wzVoiceOpenai")}</option>
+          </select>
+          <input
+            placeholder={
+              voiceApi === "openai" ? "https://api.openai.com/v1" : "http://whisper-asr:9000"
+            }
+            disabled={s.locked.voice}
+            value={voiceUrl}
+            onInput={(e) => setVoiceUrl((e.target as HTMLInputElement).value)}
+          />
+        </div>
+        <Locked on={s.locked.voice} />
+      </Field>
+      {voiceApi === "openai" && (
+        <>
+          <Field label={t("wzVoiceModel")}>
+            <input
+              placeholder="whisper-1"
+              disabled={s.locked.voice}
+              value={voiceModel}
+              onInput={(e) => setVoiceModel((e.target as HTMLInputElement).value)}
+            />
+          </Field>
+          <Field
+            label={`${t("wzVoiceKey")}${s.secretsSet.transcription ? ` (${t("wzAlreadySet")})` : ""}`}
+          >
+            <input
+              type="password"
+              autocomplete="off"
+              disabled={s.locked.voice}
+              value={voiceKey}
+              onInput={(e) => setVoiceKey((e.target as HTMLInputElement).value)}
+            />
+          </Field>
+        </>
+      )}
       <Field label={t("wzDefaultModel")}>
         <input
           list="wz-models"

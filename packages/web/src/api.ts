@@ -39,13 +39,17 @@ export interface SetupState {
     defaultModel?: { provider: string; model: string; effort?: string };
     openaiBaseUrl?: string;
     searxngUrl?: string;
+    transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
     engine?: { variant: "cpu" | "cuda"; model: string };
     retentionDays?: number;
     subscriptionAck?: boolean;
   };
-  secretsSet: { anthropic: boolean; openai: boolean; telegram: boolean };
+  secretsSet: { anthropic: boolean; openai: boolean; telegram: boolean; transcription?: boolean };
   locked: Partial<
-    Record<"anthropic" | "openai" | "telegram" | "defaultModel" | "search" | "engine", boolean>
+    Record<
+      "anthropic" | "openai" | "telegram" | "defaultModel" | "search" | "engine" | "voice",
+      boolean
+    >
   >;
   providers: string[];
   hardware: {
@@ -88,6 +92,8 @@ export interface PlatformInfo {
   metal: boolean;
   codeChanges: boolean;
   supervised: boolean;
+  /** A transcription service is set: the microphone records and the server transcribes. */
+  voice?: boolean;
   lastGood: string | null;
   releases: {
     commit: string;
@@ -244,6 +250,21 @@ export class Api {
     const data = (await r.json().catch(() => ({}))) as { error?: string };
     if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
     return data as T;
+  }
+
+  /** A recording to text (the server's transcription service). */
+  async transcribe(audio: Blob, lang: string): Promise<string> {
+    const r = await fetch(`/api/transcribe?lang=${encodeURIComponent(lang)}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${this.token}`,
+        "content-type": audio.type || "application/octet-stream",
+      },
+      body: audio,
+    });
+    const data = (await r.json().catch(() => ({}))) as { text?: string; error?: string };
+    if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
+    return data.text ?? "";
   }
 
   projects = () => this.call<Project[]>("GET", "/api/projects");

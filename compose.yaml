@@ -112,6 +112,18 @@ services:
     volumes:
       - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
 
+  # Voice messages (profile "voice"): set http://whisper-asr:9000 in the wizard, or
+  # REDGIANT_WHISPER_URL. Models download on first use into their own volume.
+  whisper-asr:
+    profiles: [voice]
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    restart: unless-stopped
+    environment:
+      ASR_ENGINE: faster_whisper
+      ASR_MODEL: ${WHISPER_MODEL:-small}
+    volumes:
+      - redgiant-whisper:/root/.cache
+
 networks:
   default:
   # No route outside: sandboxes reach the internet only through the egress proxy.
@@ -127,3 +139,4 @@ volumes:
     name: redgiant-kv
   redgiant-models:
     name: redgiant-models
+  redgiant-whisper:
