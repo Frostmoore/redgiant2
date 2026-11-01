@@ -1,6 +1,11 @@
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
-import { ClientMessage, PROTOCOL_VERSION, type ServerMessage } from "@redgiant/protocol";
+import {
+  ClientMessage,
+  PROTOCOL_VERSION,
+  type QuestionRequestInfo,
+  type ServerMessage,
+} from "@redgiant/protocol";
 import { type WebSocket, WebSocketServer } from "ws";
 import type { AuthProvider, Principal } from "./auth.js";
 import type { RedGiantCore } from "./core.js";
@@ -42,6 +47,12 @@ export function attachWebSocket(
     };
     const onClosed = (ownerId: string, requestId: string, decision: "allow" | "deny") => {
       if (principal?.ownerId === ownerId) send({ type: "permission.closed", requestId, decision });
+    };
+    const onQuestion = (ownerId: string, request: QuestionRequestInfo) => {
+      if (principal?.ownerId === ownerId) send({ type: "question.request", request });
+    };
+    const onQuestionClosed = (ownerId: string, requestId: string) => {
+      if (principal?.ownerId === ownerId) send({ type: "question.closed", requestId });
     };
     const onBoard = (ownerId: string, projectId: string | null, threadId: string) => {
       if (principal?.ownerId === ownerId) send({ type: "board.changed", projectId, threadId });
@@ -87,12 +98,16 @@ export function attachWebSocket(
           clearTimeout(helloTimer);
           core.approvals.on("request", onRequest);
           core.approvals.on("closed", onClosed);
+          core.questions.on("request", onQuestion);
+          core.questions.on("closed", onQuestionClosed);
           offBoard = core.board.onChange(onBoard);
           offAutomations = core.automations.onChange(onAutomation);
           offPlatform = core.changes.onChange(onPlatform);
           send({ type: "welcome", protocolVersion: PROTOCOL_VERSION, ownerId: principal.ownerId });
           for (const r of core.approvals.list(principal.ownerId))
             send({ type: "permission.request", request: r });
+          for (const q of core.questions.list(principal.ownerId))
+            send({ type: "question.request", request: q });
           return;
         }
         const owner = principal.ownerId;
@@ -114,6 +129,10 @@ export function attachWebSocket(
             done.catch((err) => fail("session_failed", String(err)));
             return;
           }
+          case "question.answer":
+            if (!core.questions.answer(owner, msg.requestId, msg.answers))
+              return fail("not_found", "No such open question");
+            return;
           case "session.interrupt":
             await core.interrupt(owner, msg.sessionId);
             return;
@@ -153,6 +172,8 @@ export function attachWebSocket(
       for (const off of follows.values()) off();
       core.approvals.off("request", onRequest);
       core.approvals.off("closed", onClosed);
+      core.questions.off("request", onQuestion);
+      core.questions.off("closed", onQuestionClosed);
       offBoard?.();
       offAutomations?.();
       offPlatform?.();

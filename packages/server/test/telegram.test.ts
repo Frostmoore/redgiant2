@@ -136,6 +136,83 @@ describe("Demi-God on Telegram", () => {
     expect(tg?.calls.find((c) => c.method === "editMessageText")?.body.text).toMatch(/Allowed$/);
   });
 
+  it("asks God's questions with buttons, in the wizard's language, and takes replies as answers", async () => {
+    const { god } = await setup((req) =>
+      toolResult(req) === undefined
+        ? {
+            toolCalls: [
+              {
+                name: "ask_user",
+                input: {
+                  questions: [
+                    { question: "Colore?", options: [{ label: "Rosso" }, { label: "Blu" }] },
+                    {
+                      question: "Extra?",
+                      options: [{ label: "A" }, { label: "B" }, { label: "C" }],
+                      multi_select: true,
+                    },
+                    { question: "Nome?", options: [{ label: "X" }, { label: "Y" }] },
+                  ],
+                },
+              },
+            ],
+          }
+        : { text: `got: ${toolResult(req)}` },
+    );
+    await pair();
+    (s as Server).core.setLanguage("it");
+    const sid =
+      (await s?.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: god }))?.body
+        .sessionId ?? "";
+    const turn = (await s?.core.send("me", sid, "go"))?.done;
+    const asks = () =>
+      tg?.calls.filter((c) => c.method === "sendMessage" && /chiede/.test(String(c.body.text))) ??
+      [];
+    for (let i = 0; i < 100 && asks().length < 3; i++) await new Promise((r) => setTimeout(r, 30));
+    const [first, second, third] = asks();
+    expect(first?.body.text).toMatch(/^God chiede:\nColore\?/);
+    const buttons = (c: typeof first) =>
+      (
+        c?.body.reply_markup as
+          | { inline_keyboard: { text: string; callback_data: string }[][] }
+          | undefined
+      )?.inline_keyboard.flat() ?? [];
+    // One choice.
+    await s?.gateway?.handleUpdate(
+      tg?.button(USER, buttons(first)[1]?.callback_data ?? "") as never,
+    );
+    // Several choices, then Send.
+    await s?.gateway?.handleUpdate(
+      tg?.button(USER, buttons(second)[0]?.callback_data ?? "") as never,
+    );
+    await s?.gateway?.handleUpdate(
+      tg?.button(USER, buttons(second)[2]?.callback_data ?? "") as never,
+    );
+    const marks = tg?.calls.filter((c) => c.method === "editMessageReplyMarkup").at(-1);
+    expect(
+      (
+        marks?.body.reply_markup as { inline_keyboard: { text: string }[][] } | undefined
+      )?.inline_keyboard
+        .flat()
+        .map((b) => b.text),
+    ).toEqual(["[x] A", "[ ] B", "[x] C", "Invia"]);
+    await s?.gateway?.handleUpdate(
+      tg?.button(USER, buttons(second).at(-1)?.callback_data ?? "") as never,
+    );
+    // A reply to the message is a free answer, not a message for Demi-God.
+    await s?.gateway?.handleUpdate(tg?.reply(USER, "Zeta", third?.messageId ?? 0) as never);
+    expect((await turn)?.stopReason).toBe("end_turn");
+    const results = (await s?.core.history("me", sid))?.flatMap((e) =>
+      e.type === "tool.result" ? [e.payload.output] : [],
+    );
+    expect(results).toEqual(["Colore?\n-> Blu\n\nExtra?\n-> A; C\n\nNome?\n-> Zeta"]);
+    expect(
+      tg?.calls
+        .filter((c) => c.method === "editMessageText")
+        .map((c) => String(c.body.text).split("\n\n").at(-1)),
+    ).toEqual(["Risposta: Blu", "Risposta: A; C", "Risposta: Zeta"]);
+  });
+
   it("lets the approval buttons through while it is still answering the same message", async () => {
     await setup((req) => {
       if (req.system.startsWith("You are Demi-God")) {

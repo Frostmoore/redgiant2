@@ -153,6 +153,9 @@ export const READ_ONLY_TOOLS = new Set([
   "platform_changes",
   // The inspector only reads.
   "ask_inspector",
+  // Asking the human changes nothing; approving a plan is the human's own decision.
+  "ask_user",
+  "propose_plan",
 ]);
 
 const toolMatches = (pattern: string, tool: string) =>
@@ -201,7 +204,10 @@ export function evaluate(mode: PermissionMode, call: ToolCallInfo, s: PolicySett
   });
 
   if ((mode === "plan" || mode === "readonly") && !readOnly) {
-    return out("deny", `"${call.name}" can modify the workspace and the agent is in ${mode} mode`);
+    return out(
+      "deny",
+      `"${call.name}" can modify the workspace and the agent is in ${mode} mode${mode === "plan" ? " (explore, then present the plan with propose_plan if you have it)" : ""}`,
+    );
   }
   const rules = s.rules.filter(
     (r) =>

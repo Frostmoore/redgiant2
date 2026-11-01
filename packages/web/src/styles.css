@@ -857,6 +857,90 @@ pre {
   background: var(--err);
   color: #fff;
 }
+.permission-actions button:disabled {
+  opacity: 0.5;
+}
+.question-card {
+  align-self: stretch;
+  max-width: 860px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: var(--accent-soft);
+}
+.question-card.done {
+  gap: 6px;
+  border-width: 1px;
+  border-color: var(--line);
+  background: var(--panel);
+}
+.question-card textarea,
+.question-card .other {
+  width: 100%;
+}
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.question-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: inherit;
+}
+.option.on {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.option .mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border: 1px solid var(--dim);
+  border-radius: 4px;
+}
+.option.one .mark {
+  border-radius: 50%;
+}
+.option.on .mark {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.question-done {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+}
 .to-bottom {
   position: absolute;
   left: 50%;

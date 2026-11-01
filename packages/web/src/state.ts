@@ -1,10 +1,13 @@
 import { type Signal, signal } from "@preact/signals";
 import type {
+  Answers,
   AssistantPart,
   Event,
   ImagePart,
   MessageMetrics,
   PermissionRequestInfo,
+  Question,
+  QuestionRequestInfo,
   ServerMessage,
 } from "@redgiant/protocol";
 import { type Agent, Api, type Budget, Live, type PlatformInfo, type Project } from "./api.js";
@@ -30,12 +33,25 @@ export type ChatItem =
       input: unknown;
       result?: { ok: boolean; output: string };
     }
+  | {
+      kind: "question";
+      key: string;
+      requestId: string;
+      questions: Question[];
+      plan?: string;
+      /** undefined: still open; null: nobody answered. */
+      answers?: Answers | null;
+    }
   | { kind: "notice"; key: string; tone: "info" | "warn" | "ok" | "error"; text: string };
+
+/** Their question card stands for these calls: no tool line for them. */
+const QUESTION_TOOLS = new Set(["ask_user", "propose_plan"]);
 
 /** Turns a session's events into what the chat shows. Pure: tested without a browser. */
 export function buildItems(events: Event[]): ChatItem[] {
   const items: ChatItem[] = [];
   const tools = new Map<string, Extract<ChatItem, { kind: "tool" }>>();
+  const asked = new Map<string, Extract<ChatItem, { kind: "question" }>>();
   for (const e of events) {
     const key = `e${e.seq}`;
     if (e.payload === null) {
@@ -65,6 +81,7 @@ export function buildItems(events: Event[]): ChatItem[] {
         });
         break;
       case "tool.call": {
+        if (QUESTION_TOOLS.has(e.payload.tool)) break;
         const item = {
           kind: "tool" as const,
           key,
@@ -79,6 +96,23 @@ export function buildItems(events: Event[]): ChatItem[] {
       case "tool.result": {
         const call = tools.get(e.payload.callId);
         if (call) call.result = { ok: e.payload.ok, output: e.payload.output };
+        break;
+      }
+      case "question.asked": {
+        const item = {
+          kind: "question" as const,
+          key,
+          requestId: e.payload.requestId,
+          questions: e.payload.questions,
+          ...(e.payload.plan !== undefined && { plan: e.payload.plan }),
+        };
+        asked.set(e.payload.requestId, item);
+        items.push(item);
+        break;
+      }
+      case "question.answered": {
+        const item = asked.get(e.payload.requestId);
+        if (item) item.answers = e.payload.answers;
         break;
       }
       case "permission.requested":
@@ -209,6 +243,13 @@ export function applyMessage(m: ServerMessage): void {
     case "permission.closed":
       approvals.value = approvals.value.filter((r) => r.requestId !== m.requestId);
       return;
+    case "question.request":
+      if (!questions.value.some((q) => q.requestId === m.request.requestId))
+        questions.value = [...questions.value, m.request];
+      return;
+    case "question.closed":
+      questions.value = questions.value.filter((q) => q.requestId !== m.requestId);
+      return;
     case "board.changed":
       boardVersion.value++;
       return;
@@ -228,6 +269,8 @@ export const status = signal<"online" | "offline" | "connecting">("offline");
 export const projects = signal<Project[]>([]);
 export const agents = signal<Agent[]>([]);
 export const approvals = signal<PermissionRequestInfo[]>([]);
+/** Questions and plans waiting for the human (G20.3). */
+export const questions = signal<QuestionRequestInfo[]>([]);
 export const budgets = signal<Budget[]>([]);
 export const lastError = signal<string | null>(null);
 /** Bumped on every board change pushed by the server: board views reload. */

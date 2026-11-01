@@ -150,6 +150,7 @@ export class SetupService {
     if (!this.locked.engine && c.engine) await run("engine", h.engine(c.engine));
     if (!this.locked.voice && c.transcription) this.applyTranscription();
     if (!this.locked.defaultModel && c.defaultModel) this.o.core.setDefaultModel(c.defaultModel);
+    if (c.language) this.o.core.setLanguage(c.language);
     if (!this.locked.telegram && s.telegramToken)
       await run("Telegram", h.telegram(s.telegramToken));
     this.scheduleRetention();
@@ -286,7 +287,10 @@ export class SetupService {
     else if (demigod.name !== n.demigod) await reg.rename(demigod.id, n.demigod);
     if (n.godPrompt !== undefined)
       await reg.configure(human, god.id, { systemPrompt: n.godPrompt });
-    if (n.language) this.config.language = n.language;
+    if (n.language) {
+      this.config.language = n.language;
+      this.o.core.setLanguage(n.language);
+    }
     await this.save();
   }
 

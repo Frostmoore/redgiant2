@@ -2,8 +2,18 @@ import { useEffect, useState } from "preact/hooks";
 import type { Proposal } from "../api.js";
 import { t } from "../i18n.js";
 import { IconClose } from "../icons.js";
-import { agents, approvals, attempt, getApi, openSession, openTab, sessionRows } from "../state.js";
+import {
+  agents,
+  approvals,
+  attempt,
+  getApi,
+  openSession,
+  openTab,
+  questions,
+  sessionRows,
+} from "../state.js";
 import { PermissionCard } from "./Chat.js";
+import { QuestionCard } from "./QuestionCard.js";
 
 /**
  * Everything that waits for the human or is running now (Officina's bell): permission requests,
@@ -31,6 +41,32 @@ export function Bell({ close }: { close: () => void }) {
         <div class="dim">{t("noApprovals")}</div>
       ) : (
         approvals.value.map((r) => <PermissionCard key={r.requestId} r={r} />)
+      )}
+      <h3>
+        {t("questions")} ({questions.value.length})
+      </h3>
+      {questions.value.length === 0 ? (
+        <div class="dim">{t("noQuestions")}</div>
+      ) : (
+        questions.value.map((q) => (
+          <div key={q.requestId} class="card">
+            <div class="card-head">
+              <strong>{q.agentName}</strong>
+              <button
+                type="button"
+                class="link"
+                onClick={() => {
+                  const row = sessionRows.value.find((r) => r.id === q.sessionId);
+                  if (row) openSession(row);
+                  close();
+                }}
+              >
+                {t("open")}
+              </button>
+            </div>
+            <QuestionCard requestId={q.requestId} questions={q.questions} plan={q.plan} open />
+          </div>
+        ))
       )}
       <h3>
         {t("proposals")} ({proposals.length})

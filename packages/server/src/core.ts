@@ -71,6 +71,7 @@ import {
   platformConfigTools,
 } from "./platform.js";
 import { migrateProjects, ProjectStore, slug } from "./projects.js";
+import { HumanQuestions, questionTools } from "./questions.js";
 import { type TranscriptionConfig, transcribe } from "./voice.js";
 
 export interface CoreOptions {
@@ -159,6 +160,7 @@ export class RedGiantCore implements OrchestrationHost {
   readonly broker: PermissionBroker;
   readonly projects: ProjectStore;
   readonly approvals = new HumanApprovals();
+  readonly questions = new HumanQuestions();
   readonly tasks: TaskTracker;
   readonly board: Board;
   readonly extensions: ExtensionBuilder;
@@ -433,6 +435,13 @@ export class RedGiantCore implements OrchestrationHost {
       ...boardTools(agent, this.board),
       ...platformConfigTools(agent, this.config, this),
       ...platformCodeTools(agent, this.code),
+      ...questionTools(agent, {
+        store: this.store,
+        questions: this.questions,
+        modeOf: (id) => this.registry.get(id)?.mode ?? "auto",
+        leavePlanMode: async (owner, id) =>
+          void (await this.config.configureAgent(owner, "human", id, { mode: "auto" })),
+      }),
     );
     // God asks a project's inspector (RD30): outside the chain of command, read-only.
     if (agent.kind === "god")
@@ -649,6 +658,15 @@ export class RedGiantCore implements OrchestrationHost {
   setDefaultModel(model: ModelSpec | undefined): void {
     if (model) this.o.defaultModel = model;
     else delete this.o.defaultModel;
+  }
+
+  /** The language chosen in the setup wizard: what Telegram writes in. */
+  private uiLanguage: "it" | "en" = "en";
+  language(_ownerId: string): "it" | "en" {
+    return this.uiLanguage;
+  }
+  setLanguage(language: "it" | "en"): void {
+    this.uiLanguage = language;
   }
 
   get transcription(): TranscriptionConfig | undefined {
@@ -1047,6 +1065,7 @@ export class RedGiantCore implements OrchestrationHost {
     this.code?.unwatch();
     for (const l of this.live.values()) l.running?.abort();
     this.approvals.denyAll();
+    this.questions.closeAll();
     for (const sb of this.sandboxes.values()) await (await sb.catch(() => undefined))?.destroy();
     this.sandboxes.clear();
     for (const c of this.mcp.values()) await c.close();

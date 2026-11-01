@@ -3,6 +3,8 @@ import http from "node:http";
 export interface ApiCall {
   method: string;
   body: Record<string, unknown>;
+  /** For sendMessage: the id Telegram gave the message. */
+  messageId?: number;
 }
 
 /** The Telegram Bot API in miniature: records every call and answers like Telegram. */
@@ -14,7 +16,8 @@ export async function fakeTelegram() {
     for await (const c of req) raw += c;
     const method = (req.url ?? "").split("/").pop() ?? "";
     const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    calls.push({ method, body });
+    const call: ApiCall = { method, body };
+    calls.push(call);
     const result =
       method === "getMe"
         ? {
@@ -34,6 +37,7 @@ export async function fakeTelegram() {
               text: body.text,
             }
           : true;
+    if (method === "sendMessage") call.messageId = messageId;
     res
       .writeHead(200, { "content-type": "application/json" })
       .end(JSON.stringify({ ok: true, result }));
@@ -67,6 +71,22 @@ export async function fakeTelegram() {
             { type: "bot_command" as const, offset: 0, length: text.split(" ")[0]?.length ?? 0 },
           ],
         }),
+      },
+    }),
+    /** A text sent as a reply to one of the bot's messages. */
+    reply: (userId: number, text: string, replyTo: number) => ({
+      update_id: updateId++,
+      message: {
+        message_id: updateId,
+        date: 0,
+        chat: { id: userId, type: "private" as const, first_name: "User" },
+        from: from(userId),
+        text,
+        reply_to_message: {
+          message_id: replyTo,
+          date: 0,
+          chat: { id: userId, type: "private" as const, first_name: "User" },
+        },
       },
     }),
     button: (userId: number, data: string) => ({

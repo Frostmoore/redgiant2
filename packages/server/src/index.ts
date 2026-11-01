@@ -11,6 +11,7 @@ export * from "./inspector.js";
 export * from "./orchestration.js";
 export * from "./platform.js";
 export * from "./projects.js";
+export * from "./questions.js";
 export * from "./serve.js";
 export * from "./setup.js";
 export * from "./terminal.js";

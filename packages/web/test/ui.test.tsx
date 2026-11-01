@@ -4,6 +4,7 @@ import { render } from "@testing-library/preact";
 import { beforeEach, describe, expect, it } from "vitest";
 import { packMessage } from "../src/components/Composer.js";
 import { MetricsBar } from "../src/components/MetricsBar.js";
+import { QuestionCard } from "../src/components/QuestionCard.js";
 import { dictionaries, lang, t } from "../src/i18n.js";
 import { renderMarkdown } from "../src/markdown.js";
 import {
@@ -92,6 +93,28 @@ describe("buildItems", () => {
       env(1, "message.user", { text: "x", images: [image], from: "God" }),
     ]);
     expect(item).toMatchObject({ kind: "user", images: [image], from: "God" });
+  });
+
+  it("shows a question with its answer instead of the ask_user tool line", () => {
+    const q = {
+      question: "A or B?",
+      options: [{ label: "A" }, { label: "B" }],
+      multiSelect: false,
+    };
+    const items = buildItems([
+      env(1, "tool.call", { callId: "c", tool: "ask_user", input: {} }),
+      env(2, "question.asked", { requestId: "r", questions: [q] }),
+      env(3, "question.answered", { requestId: "r", answers: [["B"]], by: "human" }),
+      env(4, "tool.result", { callId: "c", ok: true, output: "A or B?\n-> B" }),
+    ]);
+    expect(items).toEqual([
+      { kind: "question", key: "e2", requestId: "r", questions: [q], answers: [["B"]] },
+    ]);
+    const { container } = render(
+      <QuestionCard requestId="r" questions={[q]} answers={[["B"]]} open={false} />,
+    );
+    expect(container.textContent).toContain("A or B?");
+    expect(container.textContent).toContain("B");
   });
 
   it("deduplicates replayed events and clears the stream when the message lands", () => {

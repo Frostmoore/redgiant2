@@ -28,6 +28,7 @@ import {
   firstRun,
   lastError,
   platformInfo,
+  questions,
   refresh,
   sessionRows,
   signIn,
@@ -200,7 +201,7 @@ export function App() {
     return () => clearInterval(timer);
   }, [token.value]);
 
-  const waiting = approvals.value.length;
+  const waiting = approvals.value.length + questions.value.length;
   useEffect(() => {
     document.title = waiting ? `(${waiting}) RedGiant` : "RedGiant";
   }, [waiting]);

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Event } from "./events.js";
 import { ImagePart } from "./messages.js";
+import { Answers, QuestionRequestInfo } from "./questions.js";
 
 /** Bumped on every breaking change of the client/server protocol. */
 export const PROTOCOL_VERSION = 2;
@@ -30,6 +31,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
     images: z.array(ImagePart).max(10).optional(),
   }),
   z.object({ type: z.literal("session.interrupt"), sessionId: z.string() }),
+  z.object({ type: z.literal("question.answer"), requestId: z.string(), answers: Answers }),
   z.object({
     type: z.literal("permission.resolve"),
     requestId: z.string(),
@@ -64,6 +66,9 @@ export const ServerMessage = z.discriminatedUnion("type", [
     requestId: z.string(),
     decision: z.enum(["allow", "deny"]),
   }),
+  /** A question or plan that waits for the human; answered with `question.answer`. */
+  z.object({ type: z.literal("question.request"), request: QuestionRequestInfo }),
+  z.object({ type: z.literal("question.closed"), requestId: z.string() }),
   /** Something changed on a board (new post, status): clients reload what they show. */
   z.object({
     type: z.literal("board.changed"),

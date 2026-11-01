@@ -3,6 +3,7 @@ import { AgentSpec } from "./agents.js";
 import { AutomationRunStatus, AutomationTrigger } from "./automations.js";
 import { AssistantPart, ImagePart, NativeContent, StopReason } from "./messages.js";
 import { MessageMetrics } from "./metrics.js";
+import { Answers, Question } from "./questions.js";
 
 /** Hex-encoded SHA-256. */
 export const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/);
@@ -74,6 +75,24 @@ export const EventBody = z.discriminatedUnion("type", [
     payload: z.object({
       requestId: z.string(),
       decision: z.enum(["allow", "deny", "escalate"]),
+      by: z.string(),
+    }),
+  }),
+  /** An agent asked the human (ask_user) or proposed a plan (propose_plan). */
+  z.object({
+    type: z.literal("question.asked"),
+    payload: z.object({
+      requestId: z.string(),
+      questions: z.array(Question),
+      plan: z.string().optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal("question.answered"),
+    payload: z.object({
+      requestId: z.string(),
+      /** null: nobody answered (the turn was interrupted). */
+      answers: Answers.nullable(),
       by: z.string(),
     }),
   }),

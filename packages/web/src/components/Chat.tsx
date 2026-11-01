@@ -21,12 +21,14 @@ import {
   type ChatItem,
   getApi,
   getLive,
+  questions,
   refresh,
   sessionView,
 } from "../state.js";
 import { Composer, packMessage } from "./Composer.js";
 import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
+import { QuestionCard } from "./QuestionCard.js";
 
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -171,6 +173,19 @@ function Item({ item }: { item: ChatItem }) {
       );
     case "tool":
       return <ToolLine item={item} />;
+    case "question":
+      return (
+        <QuestionCard
+          requestId={item.requestId}
+          questions={item.questions}
+          plan={item.plan}
+          answers={item.answers}
+          open={
+            item.answers === undefined &&
+            questions.value.some((q) => q.requestId === item.requestId)
+          }
+        />
+      );
     case "notice":
       return (
         <div class={`notice ${item.tone}`}>

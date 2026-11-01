@@ -1,9 +1,16 @@
 import { randomInt } from "node:crypto";
 import { autoRetry } from "@grammyjs/auto-retry";
 import type { SqlClient } from "@redgiant/events";
-import type { PermissionRequestInfo } from "@redgiant/protocol";
+import {
+  type Answers,
+  type PermissionRequestInfo,
+  PLAN_APPROVE,
+  PLAN_REVISE,
+  type QuestionRequestInfo,
+} from "@redgiant/protocol";
 import { Bot, type Context, InlineKeyboard } from "grammy";
 import type { Update } from "grammy/types";
+import { type Language, say, type TextKey } from "./texts.js";
 
 /** What the gateway needs from the RedGiant core. */
 export interface TelegramHost {
@@ -17,6 +24,23 @@ export interface TelegramHost {
     ): unknown;
     decide(ownerId: string, requestId: string, decision: "allow" | "deny"): boolean;
   };
+  /** Questions and plans from the agents (ask_user, propose_plan), answered with buttons. */
+  questions?: {
+    on(event: "request", l: (ownerId: string, info: QuestionRequestInfo) => void): unknown;
+    on(event: "closed", l: (ownerId: string, requestId: string) => void): unknown;
+    answer(ownerId: string, requestId: string, answers: Answers): boolean;
+  };
+  /** The language chosen in the setup wizard. */
+  language?(ownerId: string): Language;
+}
+
+/** A question being answered on Telegram: one message per question. */
+interface Asking {
+  ownerId: string;
+  info: QuestionRequestInfo;
+  answers: (string[] | null)[];
+  picks: string[][];
+  messages: { chatId: number; messageId: number; index: number; text: string }[];
 }
 
 export interface TelegramLink {
@@ -95,8 +119,10 @@ export class TelegramGateway {
   private readonly codes = new Map<string, { ownerId: string; expires: number }>();
   /** Approval messages already sent, to edit them when the request closes. */
   private readonly sent = new Map<string, { chatId: number; messageId: number; text: string }[]>();
+  private readonly sentOwner = new Map<string, string>();
   private me: { username: string } | undefined;
   private readonly inFlight = new Set<Promise<void>>();
+  private readonly asking = new Map<string, Asking>();
 
   constructor(private readonly o: GatewayOptions) {
     this.bot = new Bot(o.token, o.apiRoot ? { client: { apiRoot: o.apiRoot } } : {});
@@ -114,6 +140,18 @@ export class TelegramGateway {
       (_ownerId, requestId, decision) =>
         void this.closeApproval(requestId, decision).catch(() => {}),
     );
+    o.host.questions?.on(
+      "request",
+      (ownerId, info) => void this.sendQuestion(ownerId, info).catch(() => {}),
+    );
+    o.host.questions?.on(
+      "closed",
+      (_ownerId, requestId) => void this.closeQuestion(requestId).catch(() => {}),
+    );
+  }
+
+  private say(ownerId: string | undefined, key: TextKey, vars?: Record<string, string>) {
+    return say((ownerId && this.o.host.language?.(ownerId)) || "en", key, vars);
   }
 
   /** Reads the bot's identity (also validates the token). */
@@ -170,9 +208,7 @@ export class TelegramGateway {
     const code = (ctx.match as string | undefined)?.trim() ?? "";
     const entry = this.codes.get(code);
     if (!entry || entry.expires < Date.now() || !ctx.from || !ctx.chat) {
-      await ctx.reply(
-        "To link this chat, open RedGiant, Settings, Telegram, Pair, then send /start <code> here.",
-      );
+      await ctx.reply(this.say(entry?.ownerId, "linkHow"));
       return;
     }
     this.codes.delete(code);
@@ -181,7 +217,7 @@ export class TelegramGateway {
        ON CONFLICT (user_id) DO UPDATE SET owner_id = EXCLUDED.owner_id, chat_id = EXCLUDED.chat_id, username = EXCLUDED.username, linked_at = now()`,
       [ctx.from.id, entry.ownerId, ctx.chat.id, ctx.from.username ?? null],
     );
-    await ctx.reply("Linked. Write to me and I will pass it on to God.");
+    await ctx.reply(this.say(entry.ownerId, "linked"));
   }
 
   private async onText(ctx: Context) {
@@ -189,11 +225,13 @@ export class TelegramGateway {
     if (text.startsWith("/")) return;
     const owner = await this.ownerOf(ctx.from?.id);
     if (!owner || !ctx.chat) {
-      await ctx.reply(
-        "This chat is not linked to RedGiant. Open RedGiant, Settings, Telegram, Pair, then send /start <code>.",
-      );
+      await ctx.reply(this.say(undefined, "notLinked"));
       return;
     }
+    // A reply to a question's message is its answer, not a message for Demi-God.
+    const replyTo = ctx.message?.reply_to_message?.message_id;
+    if (replyTo !== undefined && (await this.answerByText(owner, ctx.chat.id, replyTo, text)))
+      return;
     // Not awaited: polling hands updates over one at a time, and the approval buttons of this
     // very request must get through while God works (awaiting here would deadlock).
     const work = this.relay(owner, ctx.chat.id, text).finally(() => this.inFlight.delete(work));
@@ -212,7 +250,9 @@ export class TelegramGateway {
       const answer = await this.o.host.askDemigod(owner, chatId, text);
       for (const part of splitMessage(answer)) await this.sendFormatted(chatId, part);
     } catch (err) {
-      await api.sendMessage(chatId, `Error: ${(err as Error).message}`).catch(() => {});
+      await api
+        .sendMessage(chatId, this.say(owner, "error", { error: (err as Error).message }))
+        .catch(() => {});
     } finally {
       clearInterval(typing);
     }
@@ -244,13 +284,21 @@ export class TelegramGateway {
 
   private async sendApproval(ownerId: string, info: PermissionRequestInfo) {
     const input = JSON.stringify(info.input);
-    const text =
-      `Approval needed: ${info.agentName}${info.projectId ? ` (${info.projectId})` : ""} wants ${info.tool}\n` +
-      `${input.length > 600 ? `${input.slice(0, 600)}…` : input}\n` +
-      `Why: ${info.reasons.join("; ")}${info.danger.length ? `\nDanger: ${info.danger.join(", ")}` : ""}`;
+    const s = (key: TextKey, vars?: Record<string, string>) => this.say(ownerId, key, vars);
+    const text = [
+      s("approvalNeeded", {
+        agent: info.agentName,
+        project: info.projectId ? ` (${info.projectId})` : "",
+        tool: info.tool,
+      }),
+      input.length > 600 ? `${input.slice(0, 600)}…` : input,
+      s("why", { reasons: info.reasons.join("; ") }),
+      ...(info.danger.length ? [s("danger", { danger: info.danger.join(", ") })] : []),
+    ].join("\n");
     const keyboard = new InlineKeyboard()
-      .text("Allow", `perm:${info.requestId}:allow`)
-      .text("Deny", `perm:${info.requestId}:deny`);
+      .text(s("allow"), `perm:${info.requestId}:allow`)
+      .text(s("deny"), `perm:${info.requestId}:deny`);
+    this.sentOwner.set(info.requestId, ownerId);
     for (const link of await this.links(ownerId)) {
       const m = await this.bot.api.sendMessage(link.chatId, text, { reply_markup: keyboard });
       this.sent.set(info.requestId, [
@@ -261,29 +309,170 @@ export class TelegramGateway {
   }
 
   private async closeApproval(requestId: string, decision: "allow" | "deny") {
+    const owner = this.sentOwner.get(requestId);
     for (const m of this.sent.get(requestId) ?? []) {
       await this.bot.api
         .editMessageText(
           m.chatId,
           m.messageId,
-          `${m.text}\n\n${decision === "allow" ? "Allowed" : "Denied"}`,
+          `${m.text}\n\n${this.say(owner, decision === "allow" ? "allowed" : "denied")}`,
         )
         .catch(() => {});
     }
     this.sent.delete(requestId);
+    this.sentOwner.delete(requestId);
+  }
+
+  // ---------- Questions (ask_user, propose_plan) ----------
+
+  private optionLabel(owner: string, label: string) {
+    return label === PLAN_APPROVE
+      ? this.say(owner, "approvePlan")
+      : label === PLAN_REVISE
+        ? this.say(owner, "revisePlan")
+        : label;
+  }
+
+  private keyboard(a: Asking, index: number) {
+    const q = a.info.questions[index];
+    const k = new InlineKeyboard();
+    if (!q) return k;
+    q.options.forEach((o, i) => {
+      const on = a.picks[index]?.includes(o.label);
+      const label = this.optionLabel(a.ownerId, o.label);
+      k.text(
+        q.multiSelect ? `${on ? "[x]" : "[ ]"} ${label}` : label,
+        `q:${a.info.requestId}:${index}:${i}`,
+      ).row();
+    });
+    if (q.multiSelect) k.text(this.say(a.ownerId, "send"), `q:${a.info.requestId}:${index}:send`);
+    return k;
+  }
+
+  private async sendQuestion(ownerId: string, info: QuestionRequestInfo) {
+    const a: Asking = {
+      ownerId,
+      info,
+      answers: info.questions.map(() => null),
+      picks: info.questions.map(() => []),
+      messages: [],
+    };
+    this.asking.set(info.requestId, a);
+    const s = (key: TextKey, vars?: Record<string, string>) => this.say(ownerId, key, vars);
+    for (const link of await this.links(ownerId)) {
+      for (const [index, q] of info.questions.entries()) {
+        const head =
+          info.plan !== undefined
+            ? `${s("planFrom", { agent: info.agentName })}\n\n${info.plan.length > 3000 ? `${info.plan.slice(0, 3000)}…` : info.plan}`
+            : `${s("questionFrom", { agent: info.agentName })}\n${q.header ? `[${q.header}] ` : ""}${q.question}`;
+        const details = q.options
+          .filter((o) => o.description)
+          .map((o) => `- ${o.label}: ${o.description}`)
+          .join("\n");
+        const text = [
+          head,
+          ...(details ? [details] : []),
+          ...(q.multiSelect ? [s("manyAnswers")] : []),
+          s("replyToAnswer"),
+        ].join("\n\n");
+        const m = await this.bot.api.sendMessage(link.chatId, text, {
+          reply_markup: this.keyboard(a, index),
+        });
+        a.messages.push({ chatId: link.chatId, messageId: m.message_id, index, text });
+      }
+    }
+  }
+
+  /** One question answered: its messages show the answer; all answered: it goes to the agent. */
+  private async settle(a: Asking, index: number, answer: string[]) {
+    a.answers[index] = answer;
+    for (const m of a.messages.filter((x) => x.index === index))
+      await this.bot.api
+        .editMessageText(
+          m.chatId,
+          m.messageId,
+          `${m.text}\n\n${this.say(a.ownerId, "answered", {
+            answer: answer.map((x) => this.optionLabel(a.ownerId, x)).join("; "),
+          })}`,
+        )
+        .catch(() => {});
+    if (a.answers.every((x) => x !== null)) {
+      this.asking.delete(a.info.requestId);
+      this.o.host.questions?.answer(a.ownerId, a.info.requestId, a.answers as Answers);
+    }
+  }
+
+  private async answerByText(owner: string, chatId: number, replyTo: number, text: string) {
+    for (const a of this.asking.values()) {
+      if (a.ownerId !== owner) continue;
+      const m = a.messages.find((x) => x.chatId === chatId && x.messageId === replyTo);
+      if (!m || a.answers[m.index] !== null) continue;
+      await this.settle(a, m.index, [text.trim()]);
+      return true;
+    }
+    return false;
+  }
+
+  private async closeQuestion(requestId: string) {
+    const a = this.asking.get(requestId);
+    if (!a) return;
+    this.asking.delete(requestId);
+    for (const m of a.messages.filter((x) => a.answers[x.index] === null))
+      await this.bot.api
+        .editMessageText(m.chatId, m.messageId, `${m.text}\n\n${this.say(a.ownerId, "noAnswer")}`)
+        .catch(() => {});
+  }
+
+  private async onQuestionButton(ctx: Context, owner: string, data: string) {
+    const [, requestId = "", indexText = "", pick = ""] = data.split(":");
+    const a = this.asking.get(requestId);
+    const index = Number(indexText);
+    const q = a?.info.questions[index];
+    if (!a || a.ownerId !== owner || !q || a.answers[index] !== null) {
+      await ctx.answerCallbackQuery({ text: this.say(owner, "closedAlready") });
+      return;
+    }
+    if (pick === "send") {
+      const chosen = a.picks[index] ?? [];
+      if (chosen.length === 0) {
+        await ctx.answerCallbackQuery({ text: this.say(owner, "pickFirst") });
+        return;
+      }
+      await ctx.answerCallbackQuery({ text: this.say(owner, "saved") });
+      await this.settle(a, index, chosen);
+      return;
+    }
+    const label = q.options[Number(pick)]?.label;
+    if (label === undefined) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!q.multiSelect) {
+      await ctx.answerCallbackQuery({ text: this.say(owner, "saved") });
+      await this.settle(a, index, [label]);
+      return;
+    }
+    const now = a.picks[index] ?? [];
+    a.picks[index] = now.includes(label) ? now.filter((x) => x !== label) : [...now, label];
+    await ctx.answerCallbackQuery();
+    for (const m of a.messages.filter((x) => x.index === index))
+      await this.bot.api
+        .editMessageReplyMarkup(m.chatId, m.messageId, { reply_markup: this.keyboard(a, index) })
+        .catch(() => {});
   }
 
   private async onButton(ctx: Context) {
     const data = ctx.callbackQuery?.data ?? "";
-    const m = data.match(/^perm:([\w-]+):(allow|deny)$/);
     const owner = await this.ownerOf(ctx.from?.id);
+    if (owner && data.startsWith("q:")) return this.onQuestionButton(ctx, owner, data);
+    const m = data.match(/^perm:([\w-]+):(allow|deny)$/);
     if (!m || !owner) {
-      await ctx.answerCallbackQuery({ text: "Not allowed." });
+      await ctx.answerCallbackQuery({ text: this.say(owner, "notAllowed") });
       return;
     }
     const ok = this.o.host.approvals.decide(owner, m[1] as string, m[2] as "allow" | "deny");
     await ctx.answerCallbackQuery({
-      text: ok ? (m[2] === "allow" ? "Allowed" : "Denied") : "This request is already closed.",
+      text: this.say(owner, ok ? (m[2] === "allow" ? "allowed" : "denied") : "closedAlready"),
     });
   }
 
