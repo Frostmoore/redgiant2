@@ -1,11 +1,12 @@
 import { useEffect, useState } from "preact/hooks";
-import type { FileEntry } from "../api.js";
+import { ApiError, type FileEntry } from "../api.js";
 import { bytes } from "../format.js";
 import { t } from "../i18n.js";
 import {
   IconChevron,
   IconClose,
   IconDownload,
+  IconEye,
   IconFile,
   IconFilePlus,
   IconFolder,
@@ -18,6 +19,17 @@ import {
 } from "../icons.js";
 import { attempt, currentScope, getApi, openTab, toggleExplorer } from "../state.js";
 
+/** A file's content as base64 (FileReader: fast even for large files). */
+const asBase64 = (file: File) =>
+  new Promise<string>((ok, ko) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result).split(",")[1] ?? "");
+    r.onerror = () => ko(r.error);
+    r.readAsDataURL(file);
+  });
+
+const HIDDEN_KEY = "rg.showHidden";
+
 const openFile = (scope: string, e: FileEntry) =>
   openTab({ id: `edit:${scope}:${e.path}`, type: "editor", title: e.name, scope, path: e.path });
 
@@ -29,6 +41,8 @@ function Folder({
   selected,
   select,
   act,
+  hidden,
+  dropInto,
 }: {
   scope: string;
   path: string;
@@ -37,6 +51,8 @@ function Folder({
   selected: string | null;
   select: (e: FileEntry) => void;
   act: (f: () => Promise<unknown>) => void;
+  hidden: boolean;
+  dropInto: (dir: string, files: FileList) => void;
 }) {
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -65,10 +81,11 @@ function Folder({
         …
       </div>
     );
-  if (entries.length === 0 && depth === 0) return <div class="empty">{t("emptyFolder")}</div>;
+  const shown = hidden ? entries : entries.filter((e) => !e.name.startsWith("."));
+  if (shown.length === 0 && depth === 0) return <div class="empty">{t("emptyFolder")}</div>;
   return (
     <>
-      {entries.map((e) => (
+      {shown.map((e) => (
         <div key={e.path}>
           <div
             role="treeitem"
@@ -77,6 +94,21 @@ function Folder({
             {...(e.type === "dir" && { "aria-expanded": open.has(e.path) })}
             class={`tree-row${selected === e.path ? " selected" : ""}`}
             style={{ paddingLeft: `${depth * 14 + 8}px` }}
+            {...(e.type === "dir" && {
+              onDragOver: (ev: DragEvent) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                (ev.currentTarget as HTMLElement).classList.add("drop");
+              },
+              onDragLeave: (ev: DragEvent) =>
+                (ev.currentTarget as HTMLElement).classList.remove("drop"),
+              onDrop: (ev: DragEvent) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                (ev.currentTarget as HTMLElement).classList.remove("drop");
+                if (ev.dataTransfer?.files.length) dropInto(e.path, ev.dataTransfer.files);
+              },
+            })}
             onClick={() => {
               select(e);
               if (e.type === "dir") toggle(e.path);
@@ -130,7 +162,10 @@ function Folder({
                 title={t("delete")}
                 onClick={(ev) => {
                   ev.stopPropagation();
-                  if (confirm(t("confirmDelete", { path: e.path })))
+                  const forGood = e.path === ".trash" || e.path.startsWith(".trash/");
+                  if (
+                    confirm(t(forGood ? "confirmDeleteForGood" : "confirmDelete", { path: e.path }))
+                  )
                     act(() => api.fileOp({ op: "delete", scope, path: e.path }));
                 }}
               >
@@ -148,6 +183,8 @@ function Folder({
               selected={selected}
               select={select}
               act={act}
+              hidden={hidden}
+              dropInto={dropInto}
             />
           )}
         </div>
@@ -171,18 +208,47 @@ export function Explorer() {
     : "";
   const join = (name: string) => (base ? `${base}/${name}` : name);
   useEffect(() => setSelected(null), [scope]);
+  const [hidden, setHidden] = useState(localStorage.getItem(HIDDEN_KEY) === "1");
+  const [dragging, setDragging] = useState(false);
+  /** A name already taken: the human picks keep both, replace or skip. */
+  const [taken, setTaken] = useState<{
+    name: string;
+    choose: (c: "keep-both" | "replace" | null) => void;
+  } | null>(null);
+  const ask = (name: string) =>
+    new Promise<"keep-both" | "replace" | null>((resolve) =>
+      setTaken({
+        name,
+        choose: (c) => {
+          setTaken(null);
+          resolve(c);
+        },
+      }),
+    );
+  /** Uploads one by one; a taken name asks before anything is overwritten. */
+  const uploadInto = async (dir: string, files: File[]) => {
+    for (const file of files) {
+      const path = dir && dir !== "." ? `${dir}/${file.name}` : file.name;
+      const data = await asBase64(file);
+      try {
+        await api.write(scope, path, data, "base64", { ifExists: "fail" });
+      } catch (err) {
+        if (!(err instanceof ApiError && err.status === 409)) {
+          await attempt(() => Promise.reject(err));
+          continue;
+        }
+        const choice = await ask(path);
+        if (choice)
+          await attempt(() => api.write(scope, path, data, "base64", { ifExists: choice }));
+      }
+    }
+    reload();
+  };
   const upload = () => {
     const input = document.createElement("input");
     input.type = "file";
     input.multiple = true;
-    input.onchange = () => {
-      for (const file of Array.from(input.files ?? []))
-        void file.arrayBuffer().then((buf) => {
-          let binary = "";
-          for (const b of new Uint8Array(buf)) binary += String.fromCharCode(b);
-          act(() => api.write(scope, join(file.name), btoa(binary), "base64"));
-        });
-    };
+    input.onchange = () => void uploadInto(base, Array.from(input.files ?? []));
     input.click();
   };
   return (
@@ -214,6 +280,18 @@ export function Explorer() {
         <button type="button" class="icon-button" title={t("upload")} onClick={upload}>
           <IconUpload />
         </button>
+        <button
+          type="button"
+          class={`icon-button ${hidden ? "on" : ""}`}
+          title={hidden ? t("hideHidden") : t("showHidden")}
+          aria-pressed={hidden}
+          onClick={() => {
+            localStorage.setItem(HIDDEN_KEY, hidden ? "0" : "1");
+            setHidden(!hidden);
+          }}
+        >
+          <IconEye />
+        </button>
         <button type="button" class="icon-button" title={t("refresh")} onClick={reload}>
           <IconRefresh />
         </button>
@@ -244,7 +322,37 @@ export function Explorer() {
       <div class="explorer-where">
         {t("folder")}: <code>/{base}</code>
       </div>
-      <div class="tree">
+      {taken && (
+        <div class="taken">
+          <div>{t("fileExists", { name: taken.name })}</div>
+          <div class="row">
+            <button type="button" class="primary" onClick={() => taken.choose("keep-both")}>
+              {t("keepBoth")}
+            </button>
+            <button type="button" class="danger" onClick={() => taken.choose("replace")}>
+              {t("replace")}
+            </button>
+            <button type="button" onClick={() => taken.choose(null)}>
+              {t("cancel")}
+            </button>
+          </div>
+        </div>
+      )}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target; the upload button does the same by keyboard. */}
+      <div
+        class={`tree ${dragging ? "drop" : ""}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          if (e.dataTransfer?.files.length) void uploadInto(base, Array.from(e.dataTransfer.files));
+        }}
+      >
+        {dragging && <div class="drop-hint">{t("dropHere")}</div>}
         <Folder
           scope={scope}
           path="."
@@ -253,6 +361,8 @@ export function Explorer() {
           selected={selected?.path ?? null}
           select={setSelected}
           act={act}
+          hidden={hidden}
+          dropInto={(dir, files) => void uploadInto(dir, Array.from(files))}
         />
       </div>
     </aside>

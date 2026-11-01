@@ -485,12 +485,33 @@ export class Api {
       `/api/files/list?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
     );
   read = (scope: string, path: string) =>
-    this.call<{ path: string; encoding: "utf8" | "base64"; content: string; size: number }>(
+    this.call<{
+      path: string;
+      encoding: "utf8" | "base64";
+      content: string;
+      size: number;
+      modifiedAt: string;
+    }>(
       "GET",
       `/api/files/content?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
     );
-  write = (scope: string, path: string, content: string, encoding: "utf8" | "base64" = "utf8") =>
-    this.call("PUT", "/api/files/content", { scope, path, content, encoding });
+  write = (
+    scope: string,
+    path: string,
+    content: string,
+    encoding: "utf8" | "base64" = "utf8",
+    opts: {
+      expectedModifiedAt?: string | null;
+      ifExists?: "replace" | "keep-both" | "fail";
+    } = {},
+  ) =>
+    this.call<{ path: string; modifiedAt: string }>("PUT", "/api/files/content", {
+      scope,
+      path,
+      content,
+      encoding,
+      ...opts,
+    });
   fileOp = (
     op:
       | { op: "mkdir" | "delete"; scope: string; path: string }

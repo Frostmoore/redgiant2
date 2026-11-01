@@ -27,7 +27,7 @@ import { ChatError } from "./chat.js";
 import { CodeChangeError } from "./code.js";
 import { BadRequestError, NotFoundError, type RedGiantCore, SessionBusyError } from "./core.js";
 import { sessionMarkdown } from "./export.js";
-import { FileService } from "./files.js";
+import { ConflictError, FileService } from "./files.js";
 import type { HuggingFace } from "./hf.js";
 import { ntfyText, publishNtfy } from "./ntfy.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
@@ -366,6 +366,7 @@ const routes = {
           encoding: z.enum(["utf8", "base64"]),
           content: z.string(),
           size: z.number(),
+          modifiedAt: z.string(),
         }),
         "File content",
       ),
@@ -385,12 +386,21 @@ const routes = {
               path: z.string(),
               content: z.string(),
               encoding: z.enum(["utf8", "base64"]).default("utf8"),
+              expectedModifiedAt: z.string().nullable().optional(),
+              ifExists: z.enum(["replace", "keep-both", "fail"]).optional(),
             }),
           },
         },
       },
     },
-    responses: { 200: json(z.object({ ok: z.literal(true) }), "Written"), ...errors },
+    responses: {
+      200: json(z.object({ path: z.string(), modifiedAt: z.string() }), "Written"),
+      409: json(
+        z.object({ error: z.string(), modifiedAt: z.string().nullable() }),
+        "Changed since it was read, or the name is taken",
+      ),
+      ...errors,
+    },
   }),
   fileOp: createRoute({
     method: "post",
@@ -896,8 +906,17 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   });
   app.openapi(routes.writeFile, async (c) => {
     const b = c.req.valid("json");
-    await files.write(owner(c), b.scope, b.path, b.content, b.encoding);
-    return c.json({ ok: true as const }, 200);
+    try {
+      const r = await files.write(owner(c), b.scope, b.path, b.content, b.encoding, {
+        ...(b.expectedModifiedAt !== undefined && { expectedModifiedAt: b.expectedModifiedAt }),
+        ...(b.ifExists && { ifExists: b.ifExists }),
+      });
+      return c.json(r, 200);
+    } catch (err) {
+      if (err instanceof ConflictError)
+        return c.json({ error: err.message, modifiedAt: err.modifiedAt }, 409);
+      throw err;
+    }
   });
   app.openapi(routes.fileOp, async (c) => {
     const b = c.req.valid("json");
@@ -1530,6 +1549,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json",
   ".svg": "image/svg+xml",

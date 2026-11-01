@@ -179,7 +179,7 @@ describe("i18n", () => {
     for (const l of ["en", "it"] as const)
       for (const k of keys) expect(dictionaries[l][k as keyof typeof dictionaries.en]).not.toBe("");
     lang.value = "it";
-    expect(t("confirmDelete", { path: "a.txt" })).toBe("Eliminare a.txt?");
+    expect(t("confirmDelete", { path: "a.txt" })).toBe("Spostare a.txt nel cestino (.trash)?");
   });
 });
 

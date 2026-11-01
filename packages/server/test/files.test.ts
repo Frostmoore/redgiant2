@@ -55,6 +55,55 @@ describe("file explorer API", () => {
     expect(changes).toEqual(["write", "mkdir", "rename", "delete"]);
   });
 
+  it("detects save conflicts, keeps both on upload, and moves deleted files to the trash", async () => {
+    s = await startServer([]);
+    await s.api("POST", "/api/projects", { name: "Files" });
+    const scope = "project:files";
+    const put = (body: Record<string, unknown>) =>
+      s?.api<{ path: string; modifiedAt: string; error?: string }>("PUT", "/api/files/content", {
+        scope,
+        ...body,
+      });
+    const first = await put({ path: "notes.md", content: "one" });
+    const read = await s.api<{ modifiedAt: string }>(
+      "GET",
+      `/api/files/content?scope=${scope}&path=notes.md`,
+    );
+    expect(read.body.modifiedAt).toBe(first?.body.modifiedAt);
+    // An agent writes meanwhile (a different time); the human's save is refused.
+    await new Promise((r) => setTimeout(r, 20));
+    await put({ path: "notes.md", content: "agent" });
+    const stale = await put({
+      path: "notes.md",
+      content: "human",
+      expectedModifiedAt: read.body.modifiedAt,
+    });
+    expect(stale?.status).toBe(409);
+    expect(stale?.body.modifiedAt).not.toBe(read.body.modifiedAt);
+    // Uploads: fail, keep both, replace.
+    expect((await put({ path: "notes.md", content: "x", ifExists: "fail" }))?.status).toBe(409);
+    expect((await put({ path: "notes.md", content: "x", ifExists: "keep-both" }))?.body.path).toBe(
+      "notes (2).md",
+    );
+    expect((await put({ path: "notes.md", content: "x", ifExists: "keep-both" }))?.body.path).toBe(
+      "notes (3).md",
+    );
+    expect((await put({ path: "notes.md", content: "new", ifExists: "replace" }))?.status).toBe(
+      200,
+    );
+    // Deleting moves to .trash; deleting there is for good.
+    await s.api("POST", "/api/files/op", { op: "delete", scope, path: "notes.md" });
+    const names = async (path: string) =>
+      (
+        await s?.api<{ path: string }[]>("GET", `/api/files/list?scope=${scope}&path=${path}`)
+      )?.body.map((e) => e.path);
+    expect(await names(".")).toEqual([".trash", "notes (2).md", "notes (3).md"]);
+    const [stamp] = (await names(".trash")) ?? [];
+    expect(await names(stamp ?? "")).toEqual([`${stamp}/notes.md`]);
+    await s.api("POST", "/api/files/op", { op: "delete", scope, path: stamp });
+    expect(await names(".trash")).toEqual([]);
+  });
+
   it("serves binary files as base64 and as raw downloads", async () => {
     s = await startServer([]);
     await s.api("POST", "/api/projects", { name: "Bin" });

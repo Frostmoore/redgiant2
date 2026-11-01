@@ -5,8 +5,12 @@ import { keymap } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { basicSetup, EditorView } from "codemirror";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { ApiError } from "../api.js";
 import { t } from "../i18n.js";
 import { attempt, getApi } from "../state.js";
+
+/** Above this, the editor would crawl: the file is offered for download instead. */
+const MAX_EDIT_BYTES = 1024 * 1024;
 
 const dark = EditorView.theme(
   {
@@ -55,59 +59,91 @@ const highlight = HighlightStyle.define([
 export function Editor({ scope, path }: { scope: string; path: string }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
-  const [state, setState] = useState<"loading" | "clean" | "dirty" | "binary" | "error">("loading");
+  const [state, setState] = useState<
+    "loading" | "clean" | "dirty" | "binary" | "large" | "error" | "conflict"
+  >("loading");
+  const [reload, setReload] = useState(0);
+  /** The file's time when it was read: a save that finds another one is a conflict. */
+  const seen = useRef<string | null>(null);
 
-  const save = async () => {
+  const save = async (force = false) => {
     if (!view.current) return;
-    const ok = await attempt(() =>
-      getApi().write(scope, path, view.current?.state.doc.toString() ?? ""),
-    );
-    if (ok) setState("clean");
+    try {
+      const r = await getApi().write(
+        scope,
+        path,
+        view.current.state.doc.toString(),
+        "utf8",
+        force ? {} : { expectedModifiedAt: seen.current },
+      );
+      seen.current = r.modifiedAt;
+      setState("clean");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) setState("conflict");
+      else await attempt(() => Promise.reject(err));
+    }
+  };
+  const download = async () => {
+    const blob = await attempt(() => getApi().download(scope, path));
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = path.split("/").pop() ?? "file";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
 
   useEffect(() => {
     let cancelled = false;
     const language = new Compartment();
-    void attempt(() => getApi().read(scope, path)).then(async (file) => {
-      if (cancelled || !host.current) return;
-      if (!file) return setState("error");
-      if (file.encoding === "base64") return setState("binary");
-      view.current = new EditorView({
-        parent: host.current,
-        state: EditorState.create({
-          doc: file.content,
-          extensions: [
-            basicSetup,
-            dark,
-            syntaxHighlighting(highlight),
-            language.of([]),
-            keymap.of([
-              {
-                key: "Mod-s",
-                preventDefault: true,
-                run: () => {
-                  void save();
-                  return true;
+    void getApi()
+      .read(scope, path)
+      .catch((err: Error) =>
+        err instanceof ApiError && /larger/.test(err.message) ? "large" : null,
+      )
+      .then(async (file) => {
+        if (cancelled || !host.current) return;
+        if (file === "large") return setState("large");
+        if (!file) return setState("error");
+        if (file.encoding === "base64") return setState("binary");
+        if (file.size > MAX_EDIT_BYTES) return setState("large");
+        seen.current = file.modifiedAt;
+        view.current = new EditorView({
+          parent: host.current,
+          state: EditorState.create({
+            doc: file.content,
+            extensions: [
+              basicSetup,
+              dark,
+              syntaxHighlighting(highlight),
+              language.of([]),
+              keymap.of([
+                {
+                  key: "Mod-s",
+                  preventDefault: true,
+                  run: () => {
+                    void save();
+                    return true;
+                  },
                 },
-              },
-            ]),
-            EditorView.updateListener.of((u) => u.docChanged && setState("dirty")),
-          ],
-        }),
+              ]),
+              EditorView.updateListener.of((u) => u.docChanged && setState("dirty")),
+            ],
+          }),
+        });
+        setState("clean");
+        const desc = LanguageDescription.matchFilename(languages, path);
+        if (desc) {
+          const support = await desc.load();
+          if (!cancelled) view.current.dispatch({ effects: language.reconfigure(support) });
+        }
       });
-      setState("clean");
-      const desc = LanguageDescription.matchFilename(languages, path);
-      if (desc) {
-        const support = await desc.load();
-        if (!cancelled) view.current.dispatch({ effects: language.reconfigure(support) });
-      }
-    });
     return () => {
       cancelled = true;
       view.current?.destroy();
       view.current = null;
     };
-  }, [scope, path]);
+  }, [scope, path, reload]);
 
   return (
     <div class="editor">
@@ -123,8 +159,24 @@ export function Editor({ scope, path }: { scope: string; path: string }) {
           {t("save")}
         </button>
       </div>
-      {state === "binary" ? (
-        <div class="empty">{t("binaryFile")}</div>
+      {state === "conflict" && (
+        <div class="banner error">
+          {t("fileChanged")}
+          <button type="button" class="danger" onClick={() => void save(true)}>
+            {t("overwrite")}
+          </button>
+          <button type="button" onClick={() => setReload((n) => n + 1)}>
+            {t("reloadFile")}
+          </button>
+        </div>
+      )}
+      {state === "binary" || state === "large" ? (
+        <div class="empty">
+          <p>{t(state === "binary" ? "binaryFile" : "tooLargeToEdit")}</p>
+          <button type="button" onClick={() => void download()}>
+            {t("download")}
+          </button>
+        </div>
       ) : (
         <div class="cm-host" ref={host} />
       )}

@@ -22,6 +22,9 @@ function lazy<P extends object>(load: () => Promise<(props: P) => JSX.Element | 
     return view ? h(view, props) : <div class="empty">…</div>;
   };
 }
+
+import { Preview, previewKind } from "./Preview.js";
+
 const Editor = lazy<{ scope: string; path: string }>(() =>
   import("./Editor.js").then((m) => m.Editor),
 );
@@ -66,7 +69,11 @@ export function SideArea() {
       {views.map((v) => (
         <div key={v.id} class="side-content" hidden={activeSide.value !== v.id}>
           {v.type === "editor" ? (
-            <Editor scope={v.scope} path={v.path} />
+            previewKind(v.path) ? (
+              <Preview scope={v.scope} path={v.path} />
+            ) : (
+              <Editor scope={v.scope} path={v.path} />
+            )
           ) : (
             <TerminalView scope={v.scope} />
           )}

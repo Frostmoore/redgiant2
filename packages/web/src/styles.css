@@ -1757,6 +1757,7 @@ button.model.own {
   font-family: var(--mono);
   font-size: 12.5px;
   flex: 1;
+  color: var(--text);
 }
 .files,
 .editor {
@@ -1783,6 +1784,60 @@ button.model.own {
 }
 .tree-row.selected {
   background: var(--accent-dim);
+}
+.tree.drop,
+.tree-row.drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+.tree {
+  position: relative;
+}
+.drop-hint {
+  position: sticky;
+  top: 0;
+  padding: 6px 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+}
+.taken {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  font-size: 13px;
+}
+.preview {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px;
+  background: var(--panel-2);
+}
+.preview img {
+  max-width: 100%;
+  height: auto;
+  background: repeating-conic-gradient(#8882 0 25%, transparent 0 50%) 0 0 / 16px 16px;
+}
+.pdf-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pdf-pages canvas {
+  box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+  background: #fff;
+}
+.editor .empty .button,
+.editor .empty button {
+  margin-top: 8px;
 }
 .tree-row .icon {
   width: 12px;

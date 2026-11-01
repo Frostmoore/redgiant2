@@ -18,6 +18,30 @@ const wrap = (q) => ({
   transaction: (fn) => (q instanceof PGlite ? q.transaction((tx) => fn(wrap(tx))) : fn(wrap(q))),
 });
 
+/** A one-page PDF with a line of text (offsets computed, so readers accept it). */
+function demoPdf(line) {
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    null,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  const stream = `BT /F1 24 Tf 72 760 Td (${line}) Tj ET`;
+  objects[3] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+  let out = "%PDF-1.4\n";
+  const offsets = [];
+  objects.forEach((o, i) => {
+    offsets.push(out.length);
+    out += `${i + 1} 0 obj\n${o}\nendobj\n`;
+  });
+  const xref = out.length;
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const o of offsets) out += `${String(o).padStart(10, "0")} 00000 n \n`;
+  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return out;
+}
+
 let turn = 0;
 const brain = (req) => {
   const last = req.messages.at(-1);
@@ -98,6 +122,13 @@ const me = { type: "human", ownerId: "local" };
 const project = await core.projects.create("local", "Demo");
 await mkdir(join(project.path, "src"), { recursive: true });
 await writeFile(join(project.path, "README.md"), "# Demo\n\nA small project to show RedGiant.\n");
+// A picture and a PDF for the previews.
+await mkdir(join(project.path, "docs"), { recursive: true });
+await writeFile(
+  join(project.path, "docs", "diagram.svg"),
+  '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="240"><rect width="480" height="240" rx="16" fill="#1c1f26"/><circle cx="120" cy="120" r="70" fill="#ef4b3a"/><text x="220" y="130" font-family="sans-serif" font-size="32" fill="#e8e6e3">RedGiant</text></svg>',
+);
+await writeFile(join(project.path, "docs", "report.pdf"), demoPdf("Demo report: all tests pass."));
 await writeFile(
   join(project.path, "src", "app.py"),
   'def main():\n    print("Hello RedGiant")\n\n\nif __name__ == "__main__":\n    main()\n',

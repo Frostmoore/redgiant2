@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, relative, sep } from "node:path";
+import { basename, dirname, extname, relative, sep } from "node:path";
 import type { Readable } from "node:stream";
 import { LocalWorkspace } from "@redgiant/tools";
 import type { RedGiantCore } from "./core.js";
@@ -26,6 +26,19 @@ export interface Entry {
 
 /** Files are sent as text when they decode as UTF-8, as base64 otherwise; above this, download them. */
 export const MAX_READ_BYTES = 5 * 1024 * 1024;
+
+/** Deleted files go here (G20.6); deleting inside it is for good. */
+export const TRASH = ".trash";
+
+/** Someone else changed the file since it was read: the human chooses what wins. */
+export class ConflictError extends Error {
+  constructor(
+    message: string,
+    readonly modifiedAt: string | null,
+  ) {
+    super(message);
+  }
+}
 
 /**
  * The human's file explorer: a project's workspace, or God's platform directory. Every path
@@ -95,7 +108,13 @@ export class FileService {
     ownerId: string,
     scopeText: string,
     path: string,
-  ): Promise<{ path: string; encoding: "utf8" | "base64"; content: string; size: number }> {
+  ): Promise<{
+    path: string;
+    encoding: "utf8" | "base64";
+    content: string;
+    size: number;
+    modifiedAt: string;
+  }> {
     const { ws } = await this.root(ownerId, parseScope(scopeText));
     const abs = await ws.resolve(path);
     const st = await stat(abs);
@@ -107,9 +126,15 @@ export class FileService {
     try {
       const content = text.decode(bytes);
       if (content.includes("\u0000")) throw new BadRequestError("binary");
-      return { path, encoding: "utf8", content, size: st.size };
+      return { path, encoding: "utf8", content, size: st.size, modifiedAt: st.mtime.toISOString() };
     } catch {
-      return { path, encoding: "base64", content: bytes.toString("base64"), size: st.size };
+      return {
+        path,
+        encoding: "base64",
+        content: bytes.toString("base64"),
+        size: st.size,
+        modifiedAt: st.mtime.toISOString(),
+      };
     }
   }
 
@@ -119,12 +144,42 @@ export class FileService {
     path: string,
     content: string,
     encoding: "utf8" | "base64" = "utf8",
-  ): Promise<void> {
+    opts: {
+      /** The file's time when it was read: if it changed since, nothing is written (409). */
+      expectedModifiedAt?: string | null | undefined;
+      /** For uploads: what to do when the name is taken. */
+      ifExists?: "replace" | "keep-both" | "fail" | undefined;
+    } = {},
+  ): Promise<{ path: string; modifiedAt: string }> {
     const { ws, projectId } = await this.root(ownerId, parseScope(scopeText));
-    const abs = await ws.resolve(path);
+    let target = path;
+    let abs = await ws.resolve(target);
+    const now = await stat(abs).catch(() => undefined);
+    if (opts.expectedModifiedAt !== undefined) {
+      const current = now?.mtime.toISOString() ?? null;
+      if (current !== opts.expectedModifiedAt)
+        throw new ConflictError(`${path} changed since it was opened`, current);
+    }
+    if (now && opts.ifExists === "fail")
+      throw new ConflictError(`${path} already exists`, now.mtime.toISOString());
+    if (now && opts.ifExists === "keep-both") {
+      const dir = dirname(target);
+      const ext = extname(target);
+      const stem = basename(target, ext);
+      for (let n = 2; ; n++) {
+        const candidate = `${dir === "." ? "" : `${dir}/`}${stem} (${n})${ext}`;
+        const candAbs = await ws.resolve(candidate);
+        if (!(await stat(candAbs).catch(() => undefined))) {
+          target = candidate;
+          abs = candAbs;
+          break;
+        }
+      }
+    }
     await mkdir(dirname(abs), { recursive: true });
     await writeFile(abs, encoding === "base64" ? Buffer.from(content, "base64") : content);
-    await this.log(ownerId, projectId, scopeText, "write", path);
+    await this.log(ownerId, projectId, scopeText, "write", target);
+    return { path: target, modifiedAt: (await stat(abs)).mtime.toISOString() };
   }
 
   async mkdir(ownerId: string, scopeText: string, path: string): Promise<void> {
@@ -148,8 +203,20 @@ export class FileService {
     const { ws, projectId } = await this.root(ownerId, parseScope(scopeText));
     const abs = await ws.resolve(path);
     if (abs === ws.root) throw new BadRequestError("The workspace root cannot be deleted");
-    await rm(abs, { recursive: true, force: false });
-    await this.log(ownerId, projectId, scopeText, "delete", path);
+    const trashRoot = await ws.resolve(TRASH);
+    if (abs === trashRoot || abs.startsWith(`${trashRoot}${sep}`)) {
+      // Already in the trash: this time it is for good.
+      await rm(abs, { recursive: true, force: false });
+      await this.log(ownerId, projectId, scopeText, "delete", path);
+      return;
+    }
+    await lstat(abs); // a missing path fails here, like rm would
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const to = `${TRASH}/${stamp}/${relative(ws.root, abs).split(sep).join("/")}`;
+    const dst = await ws.resolve(to);
+    await mkdir(dirname(dst), { recursive: true });
+    await rename(abs, dst);
+    await this.log(ownerId, projectId, scopeText, "delete", path, to);
   }
 
   /** A stream for downloads (any size). */

@@ -54,6 +54,16 @@ for (const scheme of ["dark", "light"]) {
   await page.waitForSelector(".xterm");
   await page.waitForTimeout(800);
   await shot("04-terminal");
+  // Previews: a picture and a PDF.
+  await page.locator(".tree-row", { hasText: "docs" }).click();
+  await page.locator(".tree-row", { hasText: "report.pdf" }).click();
+  await page.waitForSelector(".pdf-pages canvas");
+  await page.waitForTimeout(500);
+  await shot("04b-pdf");
+  await page.locator(".tree-row", { hasText: "diagram.svg" }).click();
+  await page.waitForSelector(".preview img");
+  await page.waitForTimeout(300);
+  await shot("04c-image");
   await page.locator('.explorer button[title="Chiudi"]').click();
   while (await page.locator(".side-tab .icon-button").count())
     await page.locator(".side-tab .icon-button").first().click();
