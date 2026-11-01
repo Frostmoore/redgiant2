@@ -18,7 +18,8 @@ curl -fsSL https://raw.githubusercontent.com/Frostmoore/redgiant2/main/install.s
 If Docker is missing, the installer offers to install it with Docker's official script (it asks
 first, and needs `sudo`). It creates `~/redgiant`, writes the settings in `~/redgiant/.env`
 (readable only by you), downloads the images, starts everything, waits until RedGiant answers and
-opens the web UI already signed in.
+opens the web UI already signed in, where the setup wizard asks for the rest (models, a local model from
+Hugging Face, names, Telegram, safety and costs).
 
 ## macOS
 
@@ -105,5 +106,6 @@ cd ~/redgiant && docker compose down        # stops RedGiant, keeps the data
 docker compose down -v                      # also deletes the database and the projects
 ```
 
-then delete the installation folder. The sandbox containers (`rg-sbx-*`) are removed by RedGiant;
-any left over can be removed with `docker rm -f`.
+then delete the installation folder. The local engine started by the setup wizard is a container of its
+own: remove it first with `docker rm -f redgiant-engine`. The sandbox containers (`rg-sbx-*`) are removed by
+RedGiant; any left over can be removed with `docker rm -f`.

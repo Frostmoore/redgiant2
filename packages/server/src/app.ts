@@ -26,7 +26,9 @@ import { ChatError } from "./chat.js";
 import { CodeChangeError } from "./code.js";
 import { BadRequestError, NotFoundError, type RedGiantCore, SessionBusyError } from "./core.js";
 import { FileService } from "./files.js";
+import type { HuggingFace } from "./hf.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
+import type { SetupService } from "./setup.js";
 
 type Env = { Variables: { principal: Principal } };
 
@@ -657,7 +659,10 @@ const agentOut = (a: NonNullable<ReturnType<RedGiantCore["registry"]["get"]>>) =
 export interface AppOptions {
   /** Directory of the built web UI; served at / with a fallback to index.html. */
   webDir?: string;
-  telegram?: { gateway: TelegramGateway; webhookSecret?: string };
+  /** Mutable: the setup wizard can start the bot while the server runs. */
+  telegram?: { gateway?: TelegramGateway; webhookSecret?: string };
+  setup?: SetupService;
+  hf?: HuggingFace;
 }
 
 export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOptions = {}) {
@@ -1014,11 +1019,12 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   // Telegram: pairing, linked accounts, and the webhook (authenticated by Telegram's secret header).
   const tg = options.telegram;
   app.post("/api/telegram/pair", async (c) => {
-    if (!tg) return c.json({ error: "Telegram is not configured" }, 400);
-    const me = await tg.gateway.init();
+    const gateway = tg?.gateway;
+    if (!gateway) return c.json({ error: "Telegram is not configured" }, 400);
+    const me = await gateway.init();
     return c.json(
       {
-        ...tg.gateway.pairingCode(owner(c)),
+        ...gateway.pairingCode(owner(c)),
         bot: me.username,
         link: `https://t.me/${me.username}`,
       },
@@ -1026,17 +1032,18 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     );
   });
   app.get("/api/telegram/links", async (c) =>
-    c.json(tg ? await tg.gateway.links(owner(c)) : [], 200),
+    c.json(tg?.gateway ? await tg.gateway.links(owner(c)) : [], 200),
   );
   app.delete("/api/telegram/links/:userId", async (c) => {
-    if (tg) await tg.gateway.unlink(owner(c), Number(c.req.param("userId")));
+    if (tg?.gateway) await tg.gateway.unlink(owner(c), Number(c.req.param("userId")));
     return c.json({ ok: true }, 200);
   });
   app.post("/api/telegram/webhook", async (c) => {
     const secret = c.req.header("x-telegram-bot-api-secret-token") ?? "";
     const expected = tg?.webhookSecret ?? "";
+    const gateway = tg?.gateway;
     if (
-      !tg ||
+      !gateway ||
       !expected ||
       secret.length !== expected.length ||
       !timingSafeEqual(Buffer.from(secret), Buffer.from(expected))
@@ -1044,7 +1051,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       return c.json({ error: "Forbidden" }, 403);
     }
     // Answer Telegram at once; the agents may take minutes.
-    void tg.gateway
+    void gateway
       .handleUpdate(await c.req.json())
       .catch((err) => console.error("telegram update:", err));
     return c.json({ ok: true }, 200);
@@ -1152,6 +1159,114 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       }
     });
   });
+
+  // The setup wizard (G17).
+  const setup = options.setup;
+  const hf = options.hf;
+  const wizard = async (c: Context<Env>, f: () => Promise<unknown>) => {
+    if (!setup) return c.json({ error: "Setup is not available" }, 400);
+    try {
+      return c.json((await f()) ?? { ok: true }, 200);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  };
+  const parsed = async <T extends z.ZodType>(c: Context<Env>, schema: T): Promise<z.infer<T>> => {
+    const r = schema.safeParse(await c.req.json().catch(() => ({})));
+    if (!r.success)
+      throw new Error(r.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+    return r.data;
+  };
+  const Engine = z.object({ variant: z.enum(["cpu", "cuda"]), model: z.string().min(1) });
+  app.get("/api/setup", (c) => wizard(c, () => (setup as SetupService).state()));
+  app.put("/api/setup/models", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).saveModels(
+        await parsed(
+          c,
+          z.object({
+            anthropicKey: z.string().min(10).nullable().optional(),
+            openai: z
+              .object({ baseUrl: z.url(), key: z.string().optional() })
+              .nullable()
+              .optional(),
+            searxngUrl: z.url().nullable().optional(),
+            defaultModel: ModelSpec.optional(),
+          }),
+        ),
+      ),
+    ),
+  );
+  app.put("/api/setup/engine", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).saveEngine(
+        (await parsed(c, z.object({ engine: Engine.nullable() }))).engine,
+      ),
+    ),
+  );
+  app.put("/api/setup/names", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).saveNames(
+        await parsed(
+          c,
+          z.object({
+            god: z.string().trim().min(1).max(40),
+            demigod: z.string().trim().min(1).max(40),
+            godPrompt: z.string().min(1).nullable().optional(),
+            language: z.enum(["it", "en"]).optional(),
+          }),
+        ),
+      ),
+    ),
+  );
+  app.put("/api/setup/telegram", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).saveTelegram(
+        (
+          await parsed(
+            c,
+            z.object({
+              token: z
+                .string()
+                .regex(/^\d+:[\w-]+$/)
+                .nullable(),
+            }),
+          )
+        ).token,
+      ),
+    ),
+  );
+  app.put("/api/setup/safety", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).saveSafety(
+        await parsed(
+          c,
+          z.object({
+            humanOnly: z.array(z.string()).optional(),
+            disabledDanger: z.array(z.string()).optional(),
+            budgetUsd: z.number().positive().nullable().optional(),
+            retentionDays: z.number().int().min(1).max(3650).nullable().optional(),
+            subscriptionAck: z.boolean().optional(),
+          }),
+        ),
+      ),
+    ),
+  );
+  app.post("/api/setup/complete", (c) => wizard(c, () => (setup as SetupService).complete()));
+  app.get("/api/setup/hf/search", (c) =>
+    wizard(c, async () => (hf ? hf.search(c.req.query("q") ?? "") : [])),
+  );
+  app.get("/api/setup/hf/files", (c) =>
+    wizard(c, async () => (hf ? hf.files(c.req.query("repo") ?? "") : [])),
+  );
+  app.post("/api/setup/hf/download", (c) =>
+    wizard(c, async () => {
+      if (!hf) throw new Error("No models folder");
+      const b = await parsed(c, z.object({ repo: z.string(), file: z.string() }));
+      return hf.start(b.repo, b.file);
+    }),
+  );
+  app.get("/api/setup/hf/downloads", (c) => wizard(c, async () => hf?.list() ?? []));
 
   // Automations (G13).
   const autos = core.automations;

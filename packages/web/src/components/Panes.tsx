@@ -19,6 +19,7 @@ import { Extensions } from "./Extensions.js";
 import { Files } from "./Files.js";
 import { Hierarchy } from "./Hierarchy.js";
 import { Platform } from "./Platform.js";
+import { Setup } from "./Setup.js";
 import { Telegram } from "./Telegram.js";
 import { TerminalView } from "./TerminalView.js";
 
@@ -50,6 +51,8 @@ function Content({ tab }: { tab: Tab }) {
       return <Platform />;
     case "dailychat":
       return <DailyChat />;
+    case "setup":
+      return <Setup />;
   }
 }
 

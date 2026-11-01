@@ -96,11 +96,6 @@ if (-not (Test-Path $envFile)) {
   }
   if ($env:REDGIANT_IMAGE) { $values.REDGIANT_IMAGE = $env:REDGIANT_IMAGE }
   if ($env:REDGIANT_SANDBOX_IMAGE) { $values.REDGIANT_SANDBOX_IMAGE = $env:REDGIANT_SANDBOX_IMAGE }
-  if (-not $Yes) {
-    $key = Read-Host "Anthropic API key (Enter to skip; you can add it later in .env)" -AsSecureString
-    $plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($key))
-    if ($plain) { $values.ANTHROPIC_API_KEY = $plain }
-  }
   $seen = @{}
   $out = foreach ($line in $lines) {
     $k = ($line -split "=", 2)[0]

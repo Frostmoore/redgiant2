@@ -91,8 +91,9 @@ export class DailyChat {
       db: SqlClient;
       providers: ProviderRegistry;
       budget: PersistentBudget;
-      search?: WebSearchProvider;
-      defaultModel?: ModelSpec;
+      /** Read at each message: the setup wizard can change them while the server runs. */
+      search: () => WebSearchProvider | undefined;
+      defaultModel: () => ModelSpec | undefined;
     },
   ) {}
 
@@ -209,7 +210,7 @@ export class DailyChat {
   }
 
   private tools(): Tool[] {
-    return canonicalTools([webSearchTool(this.o.search, "full"), fetchTool("full")] as Tool[]);
+    return canonicalTools([webSearchTool(this.o.search(), "full"), fetchTool("full")] as Tool[]);
   }
 
   /**
@@ -226,7 +227,7 @@ export class DailyChat {
   ): Promise<void> {
     const chat = await this.own(ownerId, chatId);
     const settings = await this.settings(ownerId);
-    const model = settings.model ?? this.o.defaultModel;
+    const model = settings.model ?? this.o.defaultModel();
     if (!model) throw new ChatError("No model for the chat: choose one in its settings");
     const breached = await this.o.budget.check([{ scope: "global", id: ownerId }]);
     if (breached.length > 0) throw new ChatError("The global budget is exhausted");

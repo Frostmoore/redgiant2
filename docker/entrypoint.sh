@@ -59,6 +59,10 @@ fi
 # The server runs as "node"; it may use the Docker socket (sandboxes) when one is mounted.
 chown node:node "$DATA"
 for d in workspaces platform release; do mkdir -p "$DATA/$d" && chown node:node "$DATA/$d"; done
+# Model files (downloaded by the setup wizard) and saved KV caches, when their volumes are mounted.
+for d in "${REDGIANT_MODELS_DIR:-}" "${REDGIANT_KV_DIR:-}"; do
+  if [ -n "$d" ] && [ -d "$d" ]; then chown node:node "$d"; fi
+done
 if [ -S /var/run/docker.sock ]; then
   groups=(--groups "$(stat -c %g /var/run/docker.sock)")
 else

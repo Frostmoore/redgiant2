@@ -227,6 +227,8 @@ export const automationsVersion = signal(0);
 export const platformVersion = signal(0);
 /** How the platform runs: the header warns about metal and unisolated sandboxes. */
 export const platformInfo = signal<PlatformInfo | null>(null);
+/** The setup wizard has never been completed: it takes the whole page. */
+export const firstRun = signal(false);
 
 let api: Api | undefined;
 let live: Live | undefined;
@@ -256,6 +258,8 @@ export async function signIn(t: string): Promise<void> {
     status.value = s;
   });
   await refresh();
+  firstRun.value = !(await api.setup().catch(() => ({ config: { completed: true } }))).config
+    .completed;
 }
 
 export function signOut(): void {
@@ -290,6 +294,7 @@ export type Tab =
   | { id: string; type: "automations"; title: string }
   | { id: string; type: "platform"; title: string }
   | { id: string; type: "dailychat"; title: string }
+  | { id: string; type: "setup"; title: string }
   | { id: string; type: "hierarchy" | "approvals" | "budgets"; title: string };
 
 export interface Pane {

@@ -84,6 +84,26 @@ describe("EventStore", () => {
     expect(await store.verify()).toEqual({ ok: true, checked: 3 });
   });
 
+  it("erases old payloads for retention, in one go, and the chain stays valid", async () => {
+    let now = new Date("2026-01-01T00:00:00Z");
+    const s = new EventStore(db, { now: () => now });
+    const before = (await s.list({})).length;
+    await s.append({ body: user("old 1") });
+    await s.append({ body: user("old 2") });
+    now = new Date("2026-03-01T00:00:00Z");
+    await s.append({ body: user("recent") });
+    const cutoff = new Date("2026-02-01T00:00:00Z");
+    expect(await s.eraseBefore(cutoff, "retention 30 days")).toBe(before + 2);
+    const all = await s.list({});
+    expect(all.map((e) => e.erased)).toEqual([...Array(before + 2).fill(true), false, false]);
+    expect(all.at(-1)).toMatchObject({
+      type: "redaction",
+      payload: { reason: `retention 30 days (${before + 2} events)` },
+    });
+    expect(await s.eraseBefore(cutoff, "again")).toBe(0);
+    expect(await s.verify()).toEqual({ ok: true, checked: before + 4 });
+  });
+
   it("redacts secrets before they are hashed and stored", async () => {
     const redactor = new Redactor().addSecret("telegram", "my-very-private-value");
     const s = new EventStore(db, { redactor });

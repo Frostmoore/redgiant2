@@ -283,6 +283,16 @@ export class AgentRegistry {
     return updated;
   }
 
+  /** Renames an agent (the setup wizard names God and Demi-God). */
+  async rename(id: string, name: string): Promise<AgentRecord> {
+    const a = this.cache.get(id);
+    if (!a) throw new HierarchyError(`Unknown agent "${id}"`);
+    await this.db.query("UPDATE rg_agents SET name = $2 WHERE id = $1", [id, name]);
+    const updated = { ...a, name };
+    this.cache.set(id, updated);
+    return updated;
+  }
+
   /** Effective model of an agent: its own fields, the missing ones inherited up the tree (RD13). */
   effectiveModel(id: string): ModelSpec | undefined {
     const chain: AgentRecord[] = [];

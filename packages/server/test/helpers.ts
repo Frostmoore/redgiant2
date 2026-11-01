@@ -9,7 +9,14 @@ import {
   ProviderRegistry,
 } from "@redgiant/providers";
 import { migrateTelegram, TelegramGateway } from "@redgiant/telegram";
-import { type CoreOptions, RedGiantCore, type Running, serve, TokenAuth } from "../src/index.js";
+import {
+  type AppOptions,
+  type CoreOptions,
+  RedGiantCore,
+  type Running,
+  serve,
+  TokenAuth,
+} from "../src/index.js";
 import { memoryDb } from "./pglite.js";
 
 export const TOKEN = "test-token-0123456789";
@@ -26,6 +33,8 @@ export async function startServer(
   webDir?: string,
   /** A fake Telegram Bot API to connect Demi-God's gateway to. */
   telegramApiRoot?: string,
+  /** Extra parts of the app built on the core (the setup wizard, Hugging Face). */
+  extra?: (core: RedGiantCore, dir: string) => Promise<Pick<AppOptions, "setup" | "hf">>,
 ) {
   const dir = await mkdtemp(join(tmpdir(), "rg-server-"));
   const { db } = await memoryDb();
@@ -49,6 +58,7 @@ export async function startServer(
       apiRoot: telegramApiRoot,
     });
   }
+  const parts = extra ? await extra(redgiant, dir) : {};
   const running: Running = await serve(
     redgiant,
     new TokenAuth({ [TOKEN]: "me", [OTHER]: "someone-else" }),
@@ -57,6 +67,7 @@ export async function startServer(
       host: "127.0.0.1",
       ...(webDir && { webDir }),
       ...(gateway && { telegram: { gateway, webhookSecret: "webhook-secret-for-tests" } }),
+      ...parts,
     },
   );
   const api = async <T = unknown>(

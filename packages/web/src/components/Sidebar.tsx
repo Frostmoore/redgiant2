@@ -144,6 +144,13 @@ export function Sidebar({ onNavigate }: { onNavigate: () => void }) {
         >
           ⚙ {t("platformView")}
         </button>
+        <button
+          type="button"
+          class="side-item"
+          onClick={open(() => openTab({ id: "setup", type: "setup", title: t("setupWizard") }))}
+        >
+          🧭 {t("setupWizard")}
+        </button>
       </div>
       <div class="side-section">
         <div class="side-title">

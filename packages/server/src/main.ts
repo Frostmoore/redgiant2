@@ -9,12 +9,16 @@ import type { ModelSpec } from "@redgiant/protocol";
 import { AnthropicProvider, OpenAICompatProvider, ProviderRegistry } from "@redgiant/providers";
 import { DockerSandboxProvider, HostSandboxProvider } from "@redgiant/sandbox";
 import { RESTART_EXIT_CODE } from "@redgiant/supervisor";
-import { migrateTelegram, TelegramGateway } from "@redgiant/telegram";
+import type { TelegramGateway } from "@redgiant/telegram";
 import { SearxngSearch } from "@redgiant/tools";
+import Docker from "dockerode";
 import pg from "pg";
 import { TokenAuth } from "./auth.js";
 import { RedGiantCore } from "./core.js";
+import { HuggingFace } from "./hf.js";
+import { runtimeHooks } from "./runtime.js";
 import { serve } from "./serve.js";
+import { SetupService } from "./setup.js";
 
 const env = process.env;
 
@@ -131,35 +135,73 @@ const core = await RedGiantCore.create({
   ...(source && { source }),
 });
 // Demi-God on Telegram: polling by default (works behind NAT), webhook when a secret is set.
+// The holder is shared with the HTTP app, so the setup wizard can start the bot later.
+const telegram: { gateway?: TelegramGateway; webhookSecret?: string } = {
+  ...(env.REDGIANT_TELEGRAM_WEBHOOK_SECRET && {
+    webhookSecret: env.REDGIANT_TELEGRAM_WEBHOOK_SECRET,
+  }),
+};
+const owner = env.REDGIANT_OWNER ?? "local";
+const docker = sandbox.kind === "docker" ? new Docker() : undefined;
+const hooks = runtimeHooks({
+  core,
+  providers,
+  db,
+  redactor,
+  telegram,
+  // The wizard can start a local engine container next to RedGiant (Docker installs).
+  ...(docker &&
+    env.REDGIANT_ENGINE_NETWORK && {
+      engine: {
+        docker,
+        image: {
+          cpu: env.REDGIANT_ENGINE_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:cpu",
+          cuda: env.REDGIANT_ENGINE_CUDA_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:cuda",
+        },
+        network: env.REDGIANT_ENGINE_NETWORK,
+        modelsVolume: env.REDGIANT_MODELS_VOLUME ?? "redgiant-models",
+        kvVolume: env.REDGIANT_KV_VOLUME ?? "redgiant-kv",
+        kvDir: env.REDGIANT_KV_DIR ?? "/kv",
+      },
+    }),
+});
 const tgToken =
   env.REDGIANT_TELEGRAM_TOKEN ??
   (env.REDGIANT_TELEGRAM_TOKEN_FILE
     ? (await readFile(env.REDGIANT_TELEGRAM_TOKEN_FILE, "utf8")).trim()
     : undefined);
-let telegram: { gateway: TelegramGateway; webhookSecret?: string } | undefined;
 if (tgToken) {
-  redactor.addSecret("telegram-bot", tgToken);
-  await migrateTelegram(db);
-  const gateway = new TelegramGateway({ token: tgToken, db, host: core });
-  telegram = {
-    gateway,
-    ...(env.REDGIANT_TELEGRAM_WEBHOOK_SECRET && {
-      webhookSecret: env.REDGIANT_TELEGRAM_WEBHOOK_SECRET,
-    }),
-  };
-  // Automations report to the owner's Telegram.
-  core.notify = (ownerId, text) => gateway.notify(ownerId, text);
-  if (!env.REDGIANT_TELEGRAM_WEBHOOK_SECRET) await gateway.startPolling();
-  shutdownHooks.push(() => gateway.stop());
-  console.log(
-    `Telegram bot @${(await gateway.init()).username} (${env.REDGIANT_TELEGRAM_WEBHOOK_SECRET ? "webhook" : "polling"})`,
-  );
+  const me = await hooks.telegram(tgToken);
+  console.log(`Telegram bot @${me?.username} (${telegram.webhookSecret ? "webhook" : "polling"})`);
 }
+shutdownHooks.push(async () => void (await telegram.gateway?.stop()));
 
-const running = await serve(core, new TokenAuth({ [token]: env.REDGIANT_OWNER ?? "local" }), {
+// The setup wizard (G17): what it set is applied again at every start; the environment wins.
+const setup = new SetupService({
+  db,
+  core,
+  dataDir,
+  ownerId: owner,
+  hooks,
+  locked: {
+    anthropic: Boolean(env.ANTHROPIC_API_KEY),
+    openai: Boolean(env.REDGIANT_OPENAI_BASE_URL),
+    telegram: Boolean(tgToken),
+    defaultModel: Boolean(defaultModel),
+    search: Boolean(env.REDGIANT_SEARXNG_URL),
+    engine: Boolean(env.REDGIANT_LLAMACPP_URL),
+  },
+});
+await setup.applyAtStartup();
+shutdownHooks.push(async () => setup.stop());
+const modelsDir = env.REDGIANT_MODELS_DIR ?? join(dataDir, "models");
+
+const running = await serve(core, new TokenAuth({ [token]: owner }), {
   port: Number(env.REDGIANT_PORT ?? 7600),
   host: env.REDGIANT_HOST ?? "0.0.0.0",
-  ...(telegram && { telegram }),
+  telegram,
+  setup,
+  hf: new HuggingFace(modelsDir),
   webDir: env.REDGIANT_WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 console.log(`RedGiant listening on ${running.url} (sandbox: ${sandbox.kind})`);

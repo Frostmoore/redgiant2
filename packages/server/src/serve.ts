@@ -15,11 +15,20 @@ export interface Running {
 export function serve(
   core: RedGiantCore,
   auth: AuthProvider,
-  listen: { port: number; host?: string; webDir?: string; telegram?: AppOptions["telegram"] },
+  listen: {
+    port: number;
+    host?: string;
+    webDir?: string;
+    telegram?: AppOptions["telegram"];
+    setup?: AppOptions["setup"];
+    hf?: AppOptions["hf"];
+  },
 ): Promise<Running> {
   const app = createApp(core, auth, {
     ...(listen.webDir && { webDir: listen.webDir }),
     ...(listen.telegram && { telegram: listen.telegram }),
+    ...(listen.setup && { setup: listen.setup }),
+    ...(listen.hf && { hf: listen.hf }),
   });
   return new Promise((ok) => {
     const server = nodeServe(

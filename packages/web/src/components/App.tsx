@@ -5,6 +5,7 @@ import {
   approvals,
   attempt,
   budgets,
+  firstRun,
   getApi,
   lastError,
   openTab,
@@ -17,6 +18,7 @@ import {
 } from "../state.js";
 import { Login } from "./Login.js";
 import { Panes } from "./Panes.js";
+import { Setup } from "./Setup.js";
 import { Sidebar } from "./Sidebar.js";
 
 export function App() {
@@ -45,6 +47,17 @@ export function App() {
 
   if (!ready) return null;
   if (!token.value) return <Login />;
+  // First run: the wizard takes the whole page until it is completed.
+  if (firstRun.value)
+    return (
+      <div class="app">
+        <Setup
+          onDone={() => {
+            firstRun.value = false;
+          }}
+        />
+      </div>
+    );
 
   const global = budgets.value.find((b) => b.scope === "global");
   return (

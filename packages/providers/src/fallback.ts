@@ -9,6 +9,18 @@ export class ProviderRegistry {
     return this;
   }
 
+  remove(id: string): void {
+    this.providers.delete(id);
+  }
+
+  has(id: string): boolean {
+    return this.providers.has(id);
+  }
+
+  list(): Provider[] {
+    return [...this.providers.values()];
+  }
+
   get(id: string): Provider {
     const p = this.providers.get(id);
     if (!p) throw new Error(`Unknown provider "${id}"`);

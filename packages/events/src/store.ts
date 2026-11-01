@@ -148,6 +148,27 @@ export class EventStore {
     });
   }
 
+  /**
+   * Retention: erases the payloads of every event older than `before` (the chain stays
+   * verifiable) and records it with one `redaction` event. Returns how many were erased.
+   */
+  async eraseBefore(before: Date, reason: string, ownerId = "local"): Promise<number> {
+    const rows = await this.db.query<{ seq: string | number }>(
+      "UPDATE rg_events SET payload = NULL, erased = true WHERE ts < $1 AND NOT erased AND type <> 'redaction' RETURNING seq",
+      [before.toISOString()],
+    );
+    if (rows.length === 0) return 0;
+    const last = Math.max(...rows.map((r) => Number(r.seq)));
+    await this.append({
+      ownerId,
+      body: {
+        type: "redaction",
+        payload: { targetSeq: last, reason: `${reason} (${rows.length} events)` },
+      },
+    });
+    return rows.length;
+  }
+
   /** JSON Lines export, verifiable offline with `verifyEvents`. */
   async *exportJsonl(filter: EventFilter = {}): AsyncGenerator<string> {
     for (const e of await this.list(filter)) yield `${JSON.stringify(e)}\n`;

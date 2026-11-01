@@ -1046,3 +1046,65 @@ textarea.recipe {
     border-bottom: 1px solid var(--line);
   }
 }
+
+/* Setup wizard */
+.setup {
+  display: flex;
+  height: 100%;
+  overflow: auto;
+}
+.wz-steps {
+  list-style: none;
+  margin: 0;
+  padding: 16px 10px;
+  border-right: 1px solid var(--line);
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wz-steps button {
+  width: 100%;
+  text-align: left;
+}
+.wz-steps li.on button {
+  border-color: var(--accent);
+}
+.wz-steps li.done button::before {
+  content: "✓ ";
+  color: var(--ok);
+}
+.wz-body {
+  flex: 1;
+  max-width: 860px;
+  padding: 16px 24px;
+}
+.wz-files {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.wz-files .row,
+.wz-checks label {
+  gap: 8px;
+  align-items: center;
+}
+.wz-best code {
+  color: var(--ok);
+}
+@media (max-width: 760px) {
+  .setup {
+    flex-direction: column;
+  }
+  .wz-steps {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+  .wz-steps button {
+    width: auto;
+  }
+}

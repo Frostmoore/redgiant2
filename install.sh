@@ -90,11 +90,6 @@ if [ ! -f .env ]; then
   set_env REDGIANT_PORT "$PORT"
   [ -n "${REDGIANT_IMAGE:-}" ] && set_env REDGIANT_IMAGE "$REDGIANT_IMAGE"
   [ -n "${REDGIANT_SANDBOX_IMAGE:-}" ] && set_env REDGIANT_SANDBOX_IMAGE "$REDGIANT_SANDBOX_IMAGE"
-  if [ "${REDGIANT_YES:-}" != 1 ] && [ -r /dev/tty ]; then
-    read -r -s -p "Anthropic API key (Enter to skip; you can add it later in .env): " key </dev/tty || key=""
-    echo
-    [ -n "$key" ] && set_env ANTHROPIC_API_KEY "$key"
-  fi
   chmod 600 .env
   say "Settings written to $HOME_DIR/.env (keep it private: it holds your token)"
 else

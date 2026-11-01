@@ -43,11 +43,17 @@ services:
       # Sandboxes mount their workspaces from the same volume (no host paths).
       REDGIANT_DATA_VOLUME: redgiant-data
       REDGIANT_KV_DIR: /kv
+      # The setup wizard downloads models here and starts the engine container next to RedGiant.
+      REDGIANT_MODELS_DIR: /models
+      REDGIANT_MODELS_VOLUME: redgiant-models
+      REDGIANT_KV_VOLUME: redgiant-kv
+      REDGIANT_ENGINE_NETWORK: redgiant_default
     ports:
       - "${REDGIANT_BIND:-127.0.0.1}:${REDGIANT_PORT:-7600}:7600"
     volumes:
       - redgiant-data:/data
       - redgiant-kv:/kv
+      - redgiant-models:/models
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [default, sandbox]
 
@@ -118,5 +124,6 @@ volumes:
   redgiant-data:
     name: redgiant-data
   redgiant-kv:
+    name: redgiant-kv
   redgiant-models:
     name: redgiant-models

@@ -128,18 +128,23 @@ const PRIORITY: Record<AgentRecord["kind"], number> = {
   subagent: 30,
 };
 
-const DEFAULT_PROMPTS: Record<AgentRecord["kind"], string> = {
-  god: "You are God, the main orchestrator of this RedGiant installation. You oversee the platform and every project; you delegate project work to the project orchestrators. Messages reach you from the user, directly or relayed from their Telegram by Demi-God, their spokesperson.",
-  demigod:
-    "You are Demi-God, the user's spokesperson on Telegram. Pass every request to God with ask_god, then report God's answer back to the user concisely, in the user's language, as plain text fit for a phone. You never act on projects yourself.",
-  orchestrator:
-    "You are the orchestrator of this project. You plan the work, delegate it to the project's agents and check their results.",
-  agent:
-    "You are a coding agent working in your own git worktree of the project. Every result that can be tested must be tested before you say it is done.",
-  subagent: "You are a sub-agent with one task. Do it, verify it, and report the result briefly.",
-  inspector:
-    "You are the project's inspector. You can only read. Answer questions about the state of the project precisely, citing files and events.",
-};
+/** The built-in instructions, with the agents' own names (the setup wizard lets you choose them). */
+function defaultPrompt(agent: AgentRecord, god: string, demigod: string): string {
+  switch (agent.kind) {
+    case "god":
+      return `You are ${agent.name}, the main orchestrator of this RedGiant installation. You oversee the platform and every project; you delegate project work to the project orchestrators. Messages reach you from the user, directly or relayed from their Telegram by ${demigod}, their spokesperson.`;
+    case "demigod":
+      return `You are ${agent.name}, the user's spokesperson on Telegram. Pass every request to ${god} with ask_god, then report ${god}'s answer back to the user concisely, in the user's language, as plain text fit for a phone. You never act on projects yourself.`;
+    case "orchestrator":
+      return "You are the orchestrator of this project. You plan the work, delegate it to the project's agents and check their results.";
+    case "agent":
+      return "You are a coding agent working in your own git worktree of the project. Every result that can be tested must be tested before you say it is done.";
+    case "subagent":
+      return "You are a sub-agent with one task. Do it, verify it, and report the result briefly.";
+    case "inspector":
+      return "You are the project's inspector. You can only read. Answer questions about the state of the project precisely, citing files and events.";
+  }
+}
 
 /** Composition root: storage, hierarchy, approvals and live sessions. */
 export class RedGiantCore implements OrchestrationHost {
@@ -225,8 +230,8 @@ export class RedGiantCore implements OrchestrationHost {
       db: o.db,
       providers: o.providers,
       budget: this.budget,
-      ...(o.search && { search: o.search }),
-      ...(o.defaultModel && { defaultModel: o.defaultModel }),
+      search: () => this.o.search,
+      defaultModel: () => this.o.defaultModel,
     });
     this.code = o.source
       ? new CodeChanges(
@@ -268,7 +273,7 @@ export class RedGiantCore implements OrchestrationHost {
               providers: o.providers,
               budget: this.budget,
               ...(o.defaultModel && { defaultModel: o.defaultModel }),
-              systemFor: (x) => x.systemPrompt ?? DEFAULT_PROMPTS[x.kind],
+              systemFor: (x) => this.systemFor(x),
             })(a, req);
       },
       askHuman: (req, signal) => this.approvals.ask(req, signal),
@@ -439,9 +444,7 @@ export class RedGiantCore implements OrchestrationHost {
       store: this.store,
       providers: this.o.providers,
       model,
-      system: [agent.systemPrompt ?? DEFAULT_PROMPTS[agent.kind], skillsIndex(skills)]
-        .filter(Boolean)
-        .join("\n\n"),
+      system: [this.systemFor(agent), skillsIndex(skills)].filter(Boolean).join("\n\n"),
       tools,
       ...(receivesTasks && { hooks: { stop: [this.tasks.stopHook(agentId)] } }),
       sessionId,
@@ -586,6 +589,38 @@ export class RedGiantCore implements OrchestrationHost {
         agentId: god.id,
       });
     }
+  }
+
+  get db(): SqlClient {
+    return this.o.db;
+  }
+
+  /** An agent's instructions: its own, or the built-in ones with the current names. */
+  systemFor(agent: AgentRecord): string {
+    if (agent.systemPrompt) return agent.systemPrompt;
+    const all = this.registry.list({ ownerId: agent.ownerId });
+    const name = (kind: AgentRecord["kind"], fallback: string) =>
+      all.find((a) => a.kind === kind)?.name ?? fallback;
+    return defaultPrompt(agent, name("god", "God"), name("demigod", "Demi-God"));
+  }
+
+  providerIds(): string[] {
+    return this.o.providers.list().map((p) => p.id);
+  }
+
+  get defaultModel(): ModelSpec | undefined {
+    return this.o.defaultModel;
+  }
+
+  /** The setup wizard changes these while the server runs; new sessions use them. */
+  setDefaultModel(model: ModelSpec | undefined): void {
+    if (model) this.o.defaultModel = model;
+    else delete this.o.defaultModel;
+  }
+
+  setSearch(search: WebSearchProvider | undefined): void {
+    if (search) this.o.search = search;
+    else delete this.o.search;
   }
 
   /** For the UI: how the platform runs (the metal and host warnings come from here). */

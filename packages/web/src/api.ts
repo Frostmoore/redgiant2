@@ -32,6 +32,57 @@ export type ChatStreamEvent =
   | { type: "done" }
   | { type: "error"; error: string };
 
+export interface SetupState {
+  config: {
+    completed: boolean;
+    language?: "it" | "en";
+    defaultModel?: { provider: string; model: string; effort?: string };
+    openaiBaseUrl?: string;
+    searxngUrl?: string;
+    engine?: { variant: "cpu" | "cuda"; model: string };
+    retentionDays?: number;
+    subscriptionAck?: boolean;
+  };
+  secretsSet: { anthropic: boolean; openai: boolean; telegram: boolean };
+  locked: Partial<
+    Record<"anthropic" | "openai" | "telegram" | "defaultModel" | "search" | "engine", boolean>
+  >;
+  providers: string[];
+  hardware: {
+    os: string;
+    cpu: string;
+    cores: number;
+    ramGb: number;
+    diskFreeGb: number | null;
+    gpus: { name: string; vramGb: number }[];
+    dockerGpu: boolean;
+    suggestion: { engine: "cuda" | "cpu"; maxModelGb: number; note: string };
+  };
+  names: { god: string | null; demigod: string | null; godPrompt: string | null };
+  policy: {
+    humanOnly: string[];
+    disabledDanger: string[];
+    dangers: { id: string; label: string }[];
+  };
+  budgetUsd: number | null;
+}
+
+export interface GgufFile {
+  file: string;
+  sizeGb: number;
+  quant: string | null;
+}
+
+export interface ModelDownload {
+  repo: string;
+  file: string;
+  target: string;
+  bytes: number;
+  total: number | null;
+  state: "running" | "done" | "failed";
+  error?: string;
+}
+
 export interface PlatformInfo {
   sandbox: "host" | "docker";
   metal: boolean;
@@ -282,6 +333,26 @@ export class Api {
     }
   }
 
+  setup = () => this.call<SetupState>("GET", "/api/setup");
+  setupModels = (b: Record<string, unknown>) =>
+    this.call<{ openaiModels: string[] }>("PUT", "/api/setup/models", b);
+  setupEngine = (engine: { variant: "cpu" | "cuda"; model: string } | null) =>
+    this.call("PUT", "/api/setup/engine", { engine });
+  setupNames = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/names", b);
+  setupTelegram = (token: string | null) =>
+    this.call<{ username: string } | null>("PUT", "/api/setup/telegram", { token });
+  setupSafety = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/safety", b);
+  setupComplete = () => this.call("POST", "/api/setup/complete");
+  hfSearch = (q: string) =>
+    this.call<{ id: string; downloads: number; likes: number }[]>(
+      "GET",
+      `/api/setup/hf/search?q=${encodeURIComponent(q)}`,
+    );
+  hfFiles = (repo: string) =>
+    this.call<GgufFile[]>("GET", `/api/setup/hf/files?repo=${encodeURIComponent(repo)}`);
+  hfDownload = (repo: string, file: string) =>
+    this.call<ModelDownload>("POST", "/api/setup/hf/download", { repo, file });
+  hfDownloads = () => this.call<ModelDownload[]>("GET", "/api/setup/hf/downloads");
   platform = () => this.call<PlatformInfo>("GET", "/api/platform");
   platformChanges = () => this.call<PlatformChange[]>("GET", "/api/platform/changes");
   undoChange = (id: string) =>
