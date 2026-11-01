@@ -125,6 +125,7 @@ export function attachWebSocket(
           case "session.send": {
             const { done } = await core.send(owner, msg.sessionId, msg.text, {
               ...(msg.images?.length ? { images: msg.images } : {}),
+              watch: true,
             });
             done.catch((err) => fail("session_failed", String(err)));
             return;

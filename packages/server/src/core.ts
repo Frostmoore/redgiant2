@@ -57,6 +57,14 @@ import { DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
 import { Inspector } from "./inspector.js";
 import {
+  type Notification,
+  type NotificationKind,
+  type NtfyConfig,
+  type NtfyText,
+  ntfyText,
+  publishNtfy,
+} from "./ntfy.js";
+import {
   completeTaskTool,
   modelApprover,
   type OrchestrationHost,
@@ -90,6 +98,10 @@ export interface CoreOptions {
   search?: WebSearchProvider;
   /** Speech to text for voice messages (G20.2). */
   transcription?: TranscriptionConfig;
+  /** Push notifications (G20.4). */
+  ntfy?: NtfyConfig;
+  /** Where people open RedGiant (links in notifications). */
+  publicUrl?: string;
   redactor?: Redactor;
   profileFor?: (model: ModelSpec) => ModelProfile;
   /** Model for board summaries and digests (default: `defaultModel`; none ⇒ no summaries). */
@@ -185,6 +197,8 @@ export class RedGiantCore implements OrchestrationHost {
 
   private constructor(private readonly o: CoreOptions) {
     this.store = new EventStore(o.db, o.redactor ? { redactor: o.redactor } : {});
+    if (o.ntfy?.token) o.redactor?.addSecret("ntfy", o.ntfy.token);
+    if (o.transcription?.key) o.redactor?.addSecret("transcription", o.transcription.key);
     this.registry = new AgentRegistry(o.db, this.store);
     this.budget = new PersistentBudget(o.db, this.store);
     this.projects = new ProjectStore(o.db, o.workspacesDir);
@@ -228,7 +242,7 @@ export class RedGiantCore implements OrchestrationHost {
         o.providers.get(model.provider);
       },
       run: (ownerId, recipe, ctx) => this.runAutomation(ownerId, recipe, ctx),
-      notify: async (ownerId, text) => this.notify?.(ownerId, text),
+      notify: async (ownerId, text) => this.tell(ownerId, text, "automation"),
     };
     this.automations = new AutomationService({ db: o.db, store: this.store, host });
     this.policies = new PolicyStore(o.db);
@@ -251,13 +265,13 @@ export class RedGiantCore implements OrchestrationHost {
           o.source,
           this.changes,
           (ownerId) => this.platformPath(ownerId),
-          async (ownerId, text) => this.notify?.(ownerId, text),
+          async (ownerId, text) => this.tell(ownerId, text),
           // God finishes the turn the restart cut, and its answer reaches the owner.
           async (ownerId, sessionId, text) => {
             const { done } = await this.send(ownerId, sessionId, text);
             await done;
             const reply = await this.lastReply(sessionId);
-            if (reply) await this.notify?.(ownerId, reply);
+            if (reply) await this.tell(ownerId, reply);
           },
         )
       : undefined;
@@ -295,7 +309,37 @@ export class RedGiantCore implements OrchestrationHost {
     this.store.subscribe((e: Event) => {
       const l = e.sessionId ? this.live.get(e.sessionId) : undefined;
       if (l) for (const f of l.listeners) f({ type: "event", sessionId: l.id, event: e });
+      if (e.type === "extension.proposed" && e.payload?.status === "pending" && e.ownerId)
+        this.push(e.ownerId, {
+          kind: "proposal",
+          title: this.say(e.ownerId, "proposal"),
+          message: this.say(e.ownerId, "proposalBody", {
+            kind: e.payload.kind,
+            name: e.payload.name,
+            author: this.registry.get(e.payload.author)?.name ?? e.payload.author,
+          }),
+        });
     });
+    // What waits for the human reaches the phone too.
+    this.approvals.on("request", (ownerId, info) =>
+      this.push(ownerId, {
+        kind: "approval",
+        title: this.say(ownerId, "approval"),
+        message: this.say(ownerId, "approvalBody", { agent: info.agentName, tool: info.tool }),
+      }),
+    );
+    this.questions.on("request", (ownerId, info) =>
+      this.push(ownerId, {
+        kind: "question",
+        title: this.say(ownerId, info.plan !== undefined ? "plan" : "question", {
+          agent: info.agentName,
+        }),
+        message:
+          info.plan !== undefined
+            ? info.plan.slice(0, 500)
+            : info.questions.map((q) => q.question).join("\n"),
+      }),
+    );
   }
 
   static async create(o: CoreOptions): Promise<RedGiantCore> {
@@ -669,11 +713,84 @@ export class RedGiantCore implements OrchestrationHost {
     this.uiLanguage = language;
   }
 
+  private say(ownerId: string, key: NtfyText, vars?: Record<string, string | number>) {
+    return ntfyText(this.language(ownerId), key, vars);
+  }
+
+  get ntfy(): NtfyConfig | undefined {
+    return this.o.ntfy;
+  }
+
+  setNtfy(cfg: NtfyConfig | undefined): void {
+    // Secrets never reach the log, whatever an agent copies there.
+    if (cfg?.token) this.o.redactor?.addSecret("ntfy", cfg.token);
+    if (cfg) this.o.ntfy = cfg;
+    else delete this.o.ntfy;
+  }
+
+  /** A push notification, when ntfy is set; a failure is logged, never thrown at the caller. */
+  push(_ownerId: string, n: Notification): void {
+    const cfg = this.o.ntfy;
+    if (!cfg) return;
+    const click = n.click ?? this.o.publicUrl;
+    void publishNtfy(cfg, { ...n, ...(click && { click }) }).catch((err) =>
+      console.warn(`ntfy: ${(err as Error).message}`),
+    );
+  }
+
+  /** Tells the owner something: on Telegram (when linked) and as a push notification. */
+  async tell(ownerId: string, text: string, kind: NotificationKind = "message"): Promise<void> {
+    const [title = "", ...rest] = text.trim().split("\n");
+    this.push(ownerId, {
+      kind,
+      title: title.slice(0, 120),
+      message: rest.join("\n").trim() || title,
+    });
+    await this.notify?.(ownerId, text);
+  }
+
+  /** Budgets crossing 80 % or 95 % after a turn: told once per level. */
+  private readonly budgetLevels = new Map<string, number>();
+  private async checkBudgets(ownerId: string, agent: AgentRecord): Promise<void> {
+    if (!this.o.ntfy) return;
+    const budgets = await this.budget.listFor(ownerId, agent.projectId ? [agent.projectId] : [], [
+      agent.id,
+    ]);
+    for (const b of budgets) {
+      const pct =
+        b.limit.usd !== undefined && b.limit.usd > 0
+          ? (b.used.usd / b.limit.usd) * 100
+          : b.limit.tokens !== undefined && b.limit.tokens > 0
+            ? (b.used.tokens / b.limit.tokens) * 100
+            : 0;
+      const level = pct >= 95 ? 95 : pct >= 80 ? 80 : 0;
+      const key = `${ownerId}:${b.scope}:${b.id}`;
+      const before = this.budgetLevels.get(key) ?? 0;
+      this.budgetLevels.set(key, level);
+      if (level <= before) continue;
+      const name =
+        b.scope === "global"
+          ? "global"
+          : b.scope === "agent"
+            ? (this.registry.get(b.id)?.name ?? b.id)
+            : b.id;
+      this.push(ownerId, {
+        kind: "budget",
+        title: this.say(ownerId, "budget", { name, pct: Math.round(pct) }),
+        message: this.say(ownerId, "budgetBody", {
+          used: b.used.usd.toFixed(2),
+          limit: (b.limit.usd ?? 0).toFixed(2),
+        }),
+      });
+    }
+  }
+
   get transcription(): TranscriptionConfig | undefined {
     return this.o.transcription;
   }
 
   setTranscription(t: TranscriptionConfig | undefined): void {
+    if (t?.key) this.o.redactor?.addSecret("transcription", t.key);
     if (t) this.o.transcription = t;
     else delete this.o.transcription;
   }
@@ -1001,7 +1118,12 @@ export class RedGiantCore implements OrchestrationHost {
     ownerId: string,
     sessionId: string,
     text: string,
-    extra: { images?: ImagePart[]; from?: string } = {},
+    extra: {
+      images?: ImagePart[];
+      from?: string;
+      /** The human sent it: a long or failed turn is notified when it ends. */
+      watch?: boolean;
+    } = {},
   ): Promise<{ done: Promise<SendResult> }> {
     const l = await this.open(ownerId, sessionId);
     if (l.running) throw new SessionBusyError();
@@ -1017,11 +1139,51 @@ export class RedGiantCore implements OrchestrationHost {
     };
     notify("running");
     // Wrapped: an async function returning a bare promise would wait for the whole turn.
-    const done = l.session.send(text, controller.signal, extra).finally(() => {
+    const started = Date.now();
+    const { watch, ...message } = extra;
+    const done = l.session.send(text, controller.signal, message).finally(() => {
       l.running = null;
       notify("idle");
     });
+    void done.then(
+      (r) => this.afterTurn(ownerId, sessionId, started, watch === true, r),
+      (err) => this.afterTurn(ownerId, sessionId, started, watch === true, undefined, err),
+    );
     return { done };
+  }
+
+  private async afterTurn(
+    ownerId: string,
+    sessionId: string,
+    started: number,
+    watch: boolean,
+    result?: SendResult,
+    error?: unknown,
+  ): Promise<void> {
+    const agent = this.registry.get(this.live.get(sessionId)?.agentId ?? "");
+    if (!agent) return;
+    await this.checkBudgets(ownerId, agent).catch(() => {});
+    if (!watch || !this.o.ntfy) return;
+    const minutes = (Date.now() - started) / 60_000;
+    const failed =
+      error !== undefined ||
+      (result !== undefined && !["end_turn", "aborted"].includes(result.stopReason));
+    if (!failed && minutes < 2) return;
+    const reply = failed
+      ? String(
+          error instanceof Error ? error.message : (result?.reason ?? result?.stopReason ?? ""),
+        )
+      : ((await this.lastReply(sessionId).catch(() => undefined)) ?? "");
+    this.push(ownerId, {
+      kind: failed ? "failed" : "turn",
+      title: this.say(ownerId, failed ? "failed" : "turn", { agent: agent.name }),
+      message: failed
+        ? reply
+        : this.say(ownerId, "turnBody", {
+            minutes: Math.round(minutes),
+            text: reply.slice(0, 300),
+          }),
+    });
   }
 
   async interrupt(ownerId: string, sessionId: string): Promise<boolean> {

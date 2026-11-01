@@ -141,6 +141,7 @@ describe("the setup wizard", () => {
       openai: false,
       telegram: true,
       transcription: false,
+      ntfy: false,
     });
     expect(state.budgetUsd).toBe(25);
     expect(state.policy.humanOnly).toEqual(["git-push", "platform"]);

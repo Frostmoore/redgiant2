@@ -399,7 +399,7 @@ export class Inspector {
         if (!text) return;
         void this.settings(e.ownerId, e.projectId)
           .then((s) =>
-            s.alerts ? this.core.notify?.(e.ownerId, `Alert, ${e.projectId}: ${text}`) : undefined,
+            s.alerts ? this.core.tell(e.ownerId, `Alert, ${e.projectId}: ${text}`) : undefined,
           )
           .catch(() => {});
       }),
@@ -427,7 +427,7 @@ export class Inspector {
         "Summarise today's activity in this project in a few lines: what was done and verified, what is open or blocked, the spending. Plain text for a phone.",
         `Summary ${day}`,
       );
-      await this.core.notify?.(r.owner_id, `Summary of ${projectId}\n\n${text}`);
+      await this.core.tell(r.owner_id, `Summary of ${projectId}\n\n${text}`);
     }
   }
 

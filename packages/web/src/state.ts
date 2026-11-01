@@ -358,6 +358,7 @@ export type SettingsSection =
   | "automations"
   | "extensions"
   | "telegram"
+  | "notifications"
   | "budgets"
   | "platform";
 

@@ -29,6 +29,8 @@ export interface SetupConfig {
   searxngUrl?: string;
   /** Speech to text for voice messages; its key, if any, is in the secrets. */
   transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
+  /** Push notifications: the ntfy topic's URL (its token, if any, is in the secrets). */
+  ntfyUrl?: string;
   engine?: { variant: "cpu" | "cuda"; model: string };
   retentionDays?: number;
   /** The user read that a personal subscription may not be allowed in third-party tools (RD23). */
@@ -40,6 +42,7 @@ interface Secrets {
   openaiKey?: string;
   telegramToken?: string;
   transcriptionKey?: string;
+  ntfyToken?: string;
 }
 
 /** What the environment already sets: the wizard shows it and does not change it. */
@@ -51,11 +54,18 @@ export interface Locked {
   search?: boolean;
   engine?: boolean;
   voice?: boolean;
+  notifications?: boolean;
 }
 
 export interface SetupState {
   config: SetupConfig;
-  secretsSet: { anthropic: boolean; openai: boolean; telegram: boolean; transcription: boolean };
+  secretsSet: {
+    anthropic: boolean;
+    openai: boolean;
+    telegram: boolean;
+    transcription: boolean;
+    ntfy: boolean;
+  };
   locked: Locked;
   providers: string[];
   hardware: Hardware;
@@ -149,6 +159,7 @@ export class SetupService {
     if (!this.locked.search && c.searxngUrl) await run("search", h.search(c.searxngUrl));
     if (!this.locked.engine && c.engine) await run("engine", h.engine(c.engine));
     if (!this.locked.voice && c.transcription) this.applyTranscription();
+    if (!this.locked.notifications && c.ntfyUrl) this.applyNtfy();
     if (!this.locked.defaultModel && c.defaultModel) this.o.core.setDefaultModel(c.defaultModel);
     if (c.language) this.o.core.setLanguage(c.language);
     if (!this.locked.telegram && s.telegramToken)
@@ -172,6 +183,7 @@ export class SetupService {
         openai: Boolean(this.secrets.openaiKey),
         telegram: Boolean(this.secrets.telegramToken),
         transcription: Boolean(this.secrets.transcriptionKey),
+        ntfy: Boolean(this.secrets.ntfyToken),
       },
       locked: this.locked,
       providers: this.o.core.providerIds(),
@@ -302,6 +314,27 @@ export class SetupService {
     else delete this.secrets.telegramToken;
     await this.save();
     return bot;
+  }
+
+  /** Push notifications through ntfy; null turns them off. An empty token keeps the saved one. */
+  async saveNotifications(n: { url: string; token?: string | undefined } | null): Promise<void> {
+    if (this.locked.notifications) throw new SetupError("Notifications are set by the environment");
+    if (n) {
+      this.config.ntfyUrl = n.url;
+      if (n.token) this.secrets.ntfyToken = n.token;
+    } else {
+      delete this.config.ntfyUrl;
+      delete this.secrets.ntfyToken;
+    }
+    this.applyNtfy();
+    await this.save();
+  }
+
+  private applyNtfy(): void {
+    const url = this.config.ntfyUrl;
+    this.o.core.setNtfy(
+      url ? { url, ...(this.secrets.ntfyToken && { token: this.secrets.ntfyToken }) } : undefined,
+    );
   }
 
   /** Step "safety and costs": what only you approve, a global budget, how long the log keeps details. */
