@@ -1,4 +1,4 @@
-// Screenshots of the web UI against a running (demo) server.
+// Screenshots of the web UI against a running (demo) server, light and dark, desktop and phone.
 // Usage: node screenshots.mjs <url> <token> <outdir>   (needs a Chromium: the Playwright image has one)
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright-core";
@@ -6,80 +6,105 @@ import { chromium } from "playwright-core";
 const [url, token, out] = process.argv.slice(2);
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "it-IT" });
-page.on("pageerror", (e) => console.error("pageerror:", e.message));
-const shot = (name) => page.screenshot({ path: `${out}/${name}.png` });
 
-await page.goto(url);
-await shot("01-login");
-await page.fill("input[type=password]", token);
-await page.click("button[type=submit]");
-await page.waitForSelector(".sidebar");
+for (const scheme of ["dark", "light"]) {
+  const page = await browser.newPage({
+    viewport: { width: 1440, height: 900 },
+    colorScheme: scheme,
+    locale: "it-IT",
+  });
+  page.on("pageerror", (e) => console.error("pageerror:", e.message));
+  const shot = (name) => page.screenshot({ path: `${out}/${scheme}-${name}.png` });
+  await page.goto(`${url}/#token=${token}`);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${url}/#token=${token}`);
+  await page.waitForSelector(".bar");
+  await shot("01-home");
 
-await page.click("text=Demo orchestrator");
-await page.waitForSelector("[data-testid=metrics]");
-await page.waitForTimeout(500);
-await shot("02-chat");
+  // A project's conversation with its orchestrator.
+  await page.locator(".bar-item", { hasText: "Demo" }).click();
+  await page.locator(".session-row .open", { hasText: "Give me a quick tour" }).click();
+  await page.waitForSelector(".bubble.assistant");
+  await page.waitForTimeout(400);
+  await shot("02-conversation");
 
-await page.locator(".project").getByText("File").click();
-await page.waitForSelector(".tree-row");
-await page.locator(".tree-row", { hasText: "src" }).click();
-await page.locator(".tree-row", { hasText: "app.py" }).dblclick();
-await page.waitForSelector(".cm-content");
-await page.locator(".tab.active button[title='Dividi a destra']").click();
-await page.waitForTimeout(400);
-await shot("03-split-chat-files-editor");
+  // The project's files on the right, a file and a terminal next to the chat.
+  await page.locator('button[aria-label="File del progetto e terminale"]').click();
+  await page.waitForSelector(".explorer .tree-row");
+  await page.locator(".tree-row", { hasText: "src" }).click();
+  await page.locator(".tree-row", { hasText: "app.py" }).click();
+  await page.waitForSelector(".cm-content");
+  await page.waitForTimeout(300);
+  await shot("03-files-editor");
+  await page.locator('.explorer button[title="Terminale"]').click();
+  await page.waitForSelector(".xterm");
+  await page.waitForTimeout(800);
+  await shot("04-terminal");
+  await page.locator('.explorer button[title="Chiudi"]').click();
+  while (await page.locator(".side-tab .icon-button").count())
+    await page.locator(".side-tab .icon-button").first().click();
 
-await page.locator(".project").getByText("Terminale").click();
-await page.waitForSelector(".xterm");
-await page.waitForTimeout(800);
-await page.keyboard.type("ls -la && python3 src/app.py\n");
-await page.waitForTimeout(1200);
-await shot("04-terminal");
+  await page.locator('button[aria-label="Da approvare"]').click();
+  await page.waitForSelector(".panel");
+  await shot("05-bell");
+  await page.locator('.panel button[title="Chiudi"]').click();
 
-await page.click("text=Gerarchia");
-await page.waitForSelector(".node-row");
-await shot("05-hierarchy");
+  await page.locator('button[aria-label="Cerca nelle conversazioni"]').click();
+  await page.fill(".search input", "project");
+  await page.locator(".search button[type=submit]").click();
+  await page.waitForTimeout(600);
+  await shot("06-search");
+  await page.locator('.search button[title="Chiudi"]').click();
 
-await page.locator(".project").getByText("Bacheca").click();
-await page.waitForSelector(".thread-item");
-await page.locator(".thread-item", { hasText: "Output format" }).click();
-await page.waitForSelector(".post");
-await shot("06b-board");
+  // The daily chat and a project's inspector.
+  await page.locator(".bar-item", { hasText: "Chat" }).click();
+  await page.locator(".sessions .session-row .open", { hasText: "moka" }).click();
+  await page.waitForSelector(".dailychat .bubble.user");
+  await shot("07-daily-chat");
+  await page.locator(".bar-row", { hasText: "Demo" }).hover();
+  await page.locator('.project-actions button[title="Inspector"]').click();
+  await page.waitForTimeout(400);
+  await page.locator(".dailychat select").last().selectOption({ index: 1 });
+  await page.waitForTimeout(600);
+  await shot("08-inspector");
+  await page.locator('.project-actions button[title="Bacheca"]').click();
+  await page.waitForSelector(".thread-item");
+  await shot("09-board");
 
-await page.click("text=Estensioni");
-await page.waitForSelector(".extensions .approval");
-await shot("06c-extensions");
+  // Settings: every section.
+  await page.locator('button[title="Impostazioni"]').first().click();
+  await page.waitForSelector(".settings");
+  await shot("10-settings-general");
+  for (const [section, name] of [
+    ["Agenti", "11-settings-agents"],
+    ["Automazioni", "12-settings-automations"],
+    ["Estensioni", "13-settings-extensions"],
+    ["Piattaforma", "14-settings-platform"],
+    ["Configurazione", "15-settings-setup"],
+  ]) {
+    await page.locator(".settings-nav button", { hasText: section }).click();
+    await page.waitForTimeout(500);
+    await shot(name);
+  }
+  await page.close();
+}
 
-await page.click("text=Automazioni");
-await page.locator(".thread-item", { hasText: "morning-digest" }).click();
-await page.waitForSelector("text=Apri la sessione");
-await shot("06d-automations");
-
-await page.locator(".side-item", { hasText: "Piattaforma" }).click();
-await page.waitForSelector(".platform .post");
-await shot("06e-platform");
-
-await page.locator(".side-item", { hasText: "Chat" }).click();
-await page.locator(".dailychat .thread-item").first().click();
-await page.waitForSelector(".dc-user");
-await shot("06f-daily-chat");
-
-await page.locator(".project .side-item", { hasText: "🔍 Inspector" }).click();
-await page.locator(".dailychat .thread-item", { hasText: "Stato" }).click();
-await page.locator(".dc-user", { hasText: "A che punto" }).waitFor();
-await shot("06g-inspector");
-
-await page.click("text=Budget");
-await page.waitForSelector(".budgets");
-await shot("06-budgets");
-
-await page.setViewportSize({ width: 390, height: 844 });
-await page.waitForTimeout(300);
-await shot("07-mobile");
-await page.click(".hamburger");
-await page.waitForTimeout(300);
-await shot("08-mobile-menu");
+const phone = await browser.newPage({
+  viewport: { width: 390, height: 844 },
+  colorScheme: "dark",
+  locale: "it-IT",
+});
+await phone.goto(`${url}/#token=${token}`);
+await phone.waitForSelector(".top");
+await phone.waitForTimeout(500);
+await phone.screenshot({ path: `${out}/phone-01.png` });
+await phone.locator('button[aria-label="Menu"]').click();
+await phone.waitForTimeout(400);
+await phone.screenshot({ path: `${out}/phone-02-menu.png` });
+await phone.locator(".bar-item", { hasText: "Demo" }).click();
+await phone.locator(".session-row .open", { hasText: "Give me a quick tour" }).click();
+await phone.waitForTimeout(600);
+await phone.screenshot({ path: `${out}/phone-03-conversation.png` });
 
 await browser.close();
 console.log("done");

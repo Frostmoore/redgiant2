@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Installed, McpEntry, Proposal } from "../api.js";
 import { t } from "../i18n.js";
+import { IconCheck, IconClose } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
 import { agents, attempt, getApi, openTab, projects } from "../state.js";
 
@@ -9,7 +10,7 @@ const scopeLabel = (projectId: string | null) =>
     ? (projects.value.find((p) => p.id === projectId)?.name ?? projectId)
     : t("scopePlatform");
 const who = (id: string) =>
-  id === "human" ? "👤" : (agents.value.find((a) => a.id === id)?.name ?? id);
+  id === "human" ? t("you") : (agents.value.find((a) => a.id === id)?.name ?? id);
 
 function ProposalCard({ p, onDone }: { p: Proposal; onDone: () => void }) {
   const decide = (d: "approve" | "reject") =>
@@ -44,7 +45,7 @@ function ProposalCard({ p, onDone }: { p: Proposal; onDone: () => void }) {
       <div>
         {p.report.map((r) => (
           <div key={r.name} class={`notice ${r.passed ? "ok" : "error"}`}>
-            {r.passed ? "✓" : "✗"} {r.name}: {r.detail.split("\n")[0]}
+            {r.passed ? <IconCheck /> : <IconClose />} {r.name}: {r.detail.split("\n")[0]}
           </div>
         ))}
       </div>

@@ -119,7 +119,7 @@ describe("Demi-God on Telegram", () => {
     let ask: Record<string, unknown> | undefined;
     for (let i = 0; i < 100 && !ask; i++) {
       await new Promise((r) => setTimeout(r, 30));
-      ask = tg?.sent(USER).find((m) => String(m.text).startsWith("🔔"));
+      ask = tg?.sent(USER).find((m) => String(m.text).startsWith("Approval needed"));
     }
     expect(ask?.text).toMatch(/O \(p\) wants write_file/);
     const keyboard = (
@@ -133,7 +133,7 @@ describe("Demi-God on Telegram", () => {
     await s?.gateway?.handleUpdate(tg?.button(USER, keyboard?.[0]?.callback_data ?? "") as never);
     expect((await turn)?.stopReason).toBe("end_turn");
     await new Promise((r) => setTimeout(r, 50));
-    expect(tg?.calls.find((c) => c.method === "editMessageText")?.body.text).toMatch(/✅ Allowed$/);
+    expect(tg?.calls.find((c) => c.method === "editMessageText")?.body.text).toMatch(/Allowed$/);
   });
 
   it("lets the approval buttons through while it is still answering the same message", async () => {
@@ -154,7 +154,7 @@ describe("Demi-God on Telegram", () => {
     let ask: Record<string, unknown> | undefined;
     for (let i = 0; i < 100 && !ask; i++) {
       await new Promise((r) => setTimeout(r, 30));
-      ask = tg?.sent(USER).find((m) => String(m.text).startsWith("🔔"));
+      ask = tg?.sent(USER).find((m) => String(m.text).startsWith("Approval needed"));
     }
     const allow = (
       ask?.reply_markup as { inline_keyboard: { callback_data: string }[][] } | undefined
@@ -167,12 +167,15 @@ describe("Demi-God on Telegram", () => {
   it("sends notifications to every linked chat, split under Telegram's limit", async () => {
     await setup(() => ({ text: "x" }));
     await pair();
-    await s?.gateway?.notify("me", `⏰ digest: done\n\n${"a".repeat(3000)}\n\n${"b".repeat(3000)}`);
+    await s?.gateway?.notify(
+      "me",
+      `Automation digest: done\n\n${"a".repeat(3000)}\n\n${"b".repeat(3000)}`,
+    );
     const sent = tg
       ?.sent(USER)
       .slice(-2)
       .map((m) => String(m.text).length);
-    expect(sent).toEqual([3000 + "⏰ digest: done\n\n".length, 3000]);
+    expect(sent).toEqual([3000 + "Automation digest: done\n\n".length, 3000]);
     await s?.gateway?.notify("nobody", "lost");
     expect(tg?.sent(USER).at(-1)?.text).not.toBe("lost");
   });

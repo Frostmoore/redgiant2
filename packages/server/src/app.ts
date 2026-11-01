@@ -249,6 +249,10 @@ const routes = {
             agentId: z.string(),
             projectId: z.string().nullable(),
             createdAt: z.string(),
+            lastAt: z.string().nullable(),
+            title: z.string().nullable(),
+            pinned: z.boolean(),
+            archived: z.boolean(),
             running: z.boolean(),
           }),
         ),
@@ -781,11 +785,34 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         agentId: r.agent_id,
         projectId: r.project_id,
         createdAt: new Date(r.created_at).toISOString(),
+        lastAt: r.last_at ? new Date(r.last_at).toISOString() : null,
+        title: r.title,
+        pinned: r.pinned,
+        archived: r.archived,
         running: core.isRunning(r.id),
       })),
       200,
     );
   });
+  app.patch("/api/sessions/:id", async (c) => {
+    const b = z
+      .object({
+        title: z.string().trim().min(1).max(120).optional(),
+        pinned: z.boolean().optional(),
+        archived: z.boolean().optional(),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: b.error.message }, 400);
+    await core.updateSession(owner(c), c.req.param("id"), {
+      ...(b.data.title !== undefined && { title: b.data.title }),
+      ...(b.data.pinned !== undefined && { pinned: b.data.pinned }),
+      ...(b.data.archived !== undefined && { archived: b.data.archived }),
+    });
+    return c.json({ ok: true }, 200);
+  });
+  app.get("/api/search", async (c) =>
+    c.json(await core.search(owner(c), c.req.query("q") ?? ""), 200),
+  );
   app.openapi(routes.startSession, async (c) =>
     c.json({ sessionId: await core.startSession(owner(c), c.req.valid("json").agentId) }, 201),
   );

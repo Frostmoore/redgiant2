@@ -144,7 +144,7 @@ describe("God's changes to RedGiant's own code", () => {
     expect((await core.changes.get("me", change?.id ?? ""))?.stage).toBe("promoted");
     // God picks up the turn the restart cut, and its answer reaches the owner too.
     for (let i = 0; i < 100 && notes.length < 2; i++) await new Promise((r) => setTimeout(r, 30));
-    expect(notes[0]).toBe(`✅ Platform change live: Version v2 (${req?.commit.slice(0, 8)})`);
+    expect(notes[0]).toBe(`Platform change live: Version v2 (${req?.commit.slice(0, 8)})`);
     expect(notes.slice(1)).toHaveLength(1);
     const godSession = (await core.history("me", (await core.listSessions("me"))[0]?.id ?? ""))
       .filter((e) => e.type === "message.user")
@@ -192,11 +192,11 @@ describe("God's changes to RedGiant's own code", () => {
     await core.code?.reconcile();
     expect((await core.changes.get("me", change?.id ?? ""))?.stage).toBe("rolled_back");
     expect(notes[0]).toBe(
-      "↩️ Platform change rolled back: Version v3\nthe server exited (code 1)\nThe previous version is running.",
+      "Platform change rolled back: Version v3\nthe server exited (code 1)\nThe previous version is running.",
     );
     // The verdict is recorded once, and the change stays open: test it again.
     await core.code?.reconcile();
-    expect(notes.filter((n) => n.startsWith("↩️"))).toHaveLength(1);
+    expect(notes.filter((n) => n.startsWith("Platform change rolled back"))).toHaveLength(1);
     const again = await core.code?.test("me", "human", change?.id ?? "");
     expect(again?.passed).toBe(true);
   });

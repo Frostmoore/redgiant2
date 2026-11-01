@@ -22,9 +22,9 @@ const stageClass = (s: PlatformChange["stage"]) =>
       : "";
 const who = (id: string) =>
   id === "human"
-    ? "👤"
+    ? t("you")
     : id === "supervisor"
-      ? "⚙"
+      ? t("supervisorName")
       : (agents.value.find((a) => a.id === id)?.name ?? id);
 const json = (v: unknown) => (v === undefined || v === null ? "—" : JSON.stringify(v, null, 2));
 
@@ -48,7 +48,7 @@ function ChangeCard({ c }: { c: PlatformChange }) {
             class="tiny"
             onClick={() => void attempt(() => getApi().undoChange(c.id))}
           >
-            ↶ {t("undo")}
+            {t("undo")}
           </button>
         )}
         {canDiscard && (

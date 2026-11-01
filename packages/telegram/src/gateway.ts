@@ -171,7 +171,7 @@ export class TelegramGateway {
     const entry = this.codes.get(code);
     if (!entry || entry.expires < Date.now() || !ctx.from || !ctx.chat) {
       await ctx.reply(
-        "To link this chat, open RedGiant → Telegram → Pair, then send /start <code> here.",
+        "To link this chat, open RedGiant, Settings, Telegram, Pair, then send /start <code> here.",
       );
       return;
     }
@@ -190,7 +190,7 @@ export class TelegramGateway {
     const owner = await this.ownerOf(ctx.from?.id);
     if (!owner || !ctx.chat) {
       await ctx.reply(
-        "This chat is not linked to RedGiant. Open RedGiant → Telegram → Pair, then send /start <code>.",
+        "This chat is not linked to RedGiant. Open RedGiant, Settings, Telegram, Pair, then send /start <code>.",
       );
       return;
     }
@@ -212,7 +212,7 @@ export class TelegramGateway {
       const answer = await this.o.host.askDemigod(owner, chatId, text);
       for (const part of splitMessage(answer)) await this.sendFormatted(chatId, part);
     } catch (err) {
-      await api.sendMessage(chatId, `⚠️ ${(err as Error).message}`).catch(() => {});
+      await api.sendMessage(chatId, `Error: ${(err as Error).message}`).catch(() => {});
     } finally {
       clearInterval(typing);
     }
@@ -245,12 +245,12 @@ export class TelegramGateway {
   private async sendApproval(ownerId: string, info: PermissionRequestInfo) {
     const input = JSON.stringify(info.input);
     const text =
-      `🔔 ${info.agentName}${info.projectId ? ` (${info.projectId})` : ""} wants ${info.tool}\n` +
+      `Approval needed: ${info.agentName}${info.projectId ? ` (${info.projectId})` : ""} wants ${info.tool}\n` +
       `${input.length > 600 ? `${input.slice(0, 600)}…` : input}\n` +
       `Why: ${info.reasons.join("; ")}${info.danger.length ? `\nDanger: ${info.danger.join(", ")}` : ""}`;
     const keyboard = new InlineKeyboard()
-      .text("✅ Allow", `perm:${info.requestId}:allow`)
-      .text("⛔ Deny", `perm:${info.requestId}:deny`);
+      .text("Allow", `perm:${info.requestId}:allow`)
+      .text("Deny", `perm:${info.requestId}:deny`);
     for (const link of await this.links(ownerId)) {
       const m = await this.bot.api.sendMessage(link.chatId, text, { reply_markup: keyboard });
       this.sent.set(info.requestId, [
@@ -266,7 +266,7 @@ export class TelegramGateway {
         .editMessageText(
           m.chatId,
           m.messageId,
-          `${m.text}\n\n${decision === "allow" ? "✅ Allowed" : "⛔ Denied"}`,
+          `${m.text}\n\n${decision === "allow" ? "Allowed" : "Denied"}`,
         )
         .catch(() => {});
     }

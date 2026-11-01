@@ -61,7 +61,7 @@ describe("automations end to end", () => {
     expect((await s.api("POST", `/api/automations/${id}/run`)).status).toBe(202);
     const run = await waitRun(id, (r) => r.status === "ok");
     expect(run.summary).toBe("Digest: Summarise every project.");
-    expect(notes).toEqual(["⏰ digest: done\n\nDigest: Summarise every project."]);
+    expect(notes).toEqual(["Automation digest: done\n\nDigest: Summarise every project."]);
     await ws.waitFor("automations.changed", (m) => m.automationId === id);
     ws.close();
 

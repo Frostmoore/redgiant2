@@ -115,10 +115,31 @@ export function attachWebSocket(
           case "session.interrupt":
             await core.interrupt(owner, msg.sessionId);
             return;
-          case "permission.resolve":
+          case "permission.resolve": {
+            const pending = core.approvals.list(owner).find((r) => r.requestId === msg.requestId);
             if (!core.approvals.decide(owner, msg.requestId, msg.decision))
-              fail("not_found", "No such pending request");
+              return fail("not_found", "No such pending request");
+            // "Always": an allow rule for that tool, recorded and undoable like any platform change.
+            // Never for dangerous calls: those ask every time.
+            if (
+              msg.remember &&
+              msg.decision === "allow" &&
+              pending &&
+              pending.danger.length === 0
+            ) {
+              const policy = core.policies.get(owner);
+              if (
+                !policy.rules.some(
+                  (r) => r.tool === pending.tool && !r.match && r.decision === "allow",
+                )
+              )
+                await core.config.setPolicy(owner, "human", {
+                  ...policy,
+                  rules: [...policy.rules, { tool: pending.tool, decision: "allow" }],
+                });
+            }
             return;
+          }
         }
       } catch (err) {
         fail("error", (err as Error).message);

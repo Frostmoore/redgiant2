@@ -392,10 +392,7 @@ export class CodeChanges {
         });
         // The worktree is done; the branch stays as history.
         await this.git(this.o.dir, "worktree", "remove", "--force", s.path).catch(() => {});
-        await this.notify(
-          h.ownerId,
-          `✅ Platform change live: ${c.change} (${h.commit.slice(0, 8)})`,
-        );
+        await this.notify(h.ownerId, `Platform change live: ${c.change} (${h.commit.slice(0, 8)})`);
         tellGod(
           `Your platform change ${c.id} ("${c.change}") is live: RedGiant restarted on version ${h.commit.slice(0, 8)}, which interrupted your previous turn. Check that the change works, then give the user the result they asked for.`,
         );
@@ -411,7 +408,7 @@ export class CodeChanges {
         });
         await this.notify(
           h.ownerId,
-          `↩️ Platform change rolled back: ${c.change}\n${(h.reason ?? "").split("\n")[0]}\nThe previous version is running.`,
+          `Platform change rolled back: ${c.change}\n${(h.reason ?? "").split("\n")[0]}\nThe previous version is running.`,
         );
         tellGod(
           `Your platform change ${c.id} ("${c.change}") was rolled back by the supervisor: ${h.reason ?? "it did not come up"}. The previous version is running. Tell the user, then fix the change (it is still open: edit, test, promote again) or discard it.`,

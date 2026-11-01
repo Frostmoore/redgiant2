@@ -433,7 +433,7 @@ export class AutomationService {
     this.changed(row.owner_id, row.id);
     const when = recipe.notify.when;
     if (when === "always" || (when === "failure" && outcome.status !== "ok")) {
-      const head = `⏰ ${recipe.name}: ${outcome.status === "ok" ? "done" : outcome.status}`;
+      const head = `Automation ${recipe.name}: ${outcome.status === "ok" ? "done" : outcome.status}`;
       await this.o.host
         .notify?.(row.owner_id, summary ? `${head}\n\n${summary}` : head)
         .catch(() => {});

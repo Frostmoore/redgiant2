@@ -15,7 +15,7 @@ const withNames = (body: string) =>
     return a ? `**@${a.name}**` : m;
   });
 const authorName = (id: string) =>
-  id === "human" ? "👤" : (agents.value.find((a) => a.id === id)?.name ?? id);
+  id === "human" ? t("you") : (agents.value.find((a) => a.id === id)?.name ?? id);
 
 function Composer({
   onSend,

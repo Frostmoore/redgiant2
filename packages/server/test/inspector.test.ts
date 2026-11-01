@@ -183,10 +183,10 @@ describe("the project inspector", () => {
     });
     await blocker();
     await new Promise((r) => setTimeout(r, 50));
-    expect(notes[0]).toBe("⚠️ shop: blocker on the board: The staging server does not answer.");
+    expect(notes[0]).toBe("Alert, shop: blocker on the board: The staging server does not answer.");
     await core.inspector.summaries(now);
     await core.inspector.summaries(now); // once a day
-    expect(notes.filter((n) => n.startsWith("📋 shop"))).toHaveLength(1);
-    expect(notes.at(-1)).toMatch(/^📋 shop\n\nINSPECTOR: /);
+    expect(notes.filter((n) => n.startsWith("Summary of shop"))).toHaveLength(1);
+    expect(notes.at(-1)).toMatch(/^Summary of shop\n\nINSPECTOR: /);
   });
 });

@@ -30,6 +30,10 @@
 - Web UI (`packages/web`): Preact + signals; all state in `src/state.ts` (pure `buildItems` turns events into chat
   items); every text through `t()` with both `it` and `en`; rendered Markdown always through `renderMarkdown`
   (DOMPurify). Look at it, don't guess: `scripts/demo-server.mjs` + `scripts/screenshots.mjs` (Playwright image).
+  The layout follows Officina (the user's request): left bar with conversations and settings only, tabs in the middle,
+  the project's files and an area for open files and terminals on the right, everything else in Settings. No emoji
+  and no symbol characters as icons anywhere (UI and Telegram texts): drawn icons from `src/icons.tsx`. Light and
+  dark themes (or the system's) through the CSS variables in `styles.css`.
 - Local engines: llama.cpp must run with `--slot-save-path` (shared with the server) and `--swa-full` for
   sliding-window models (Gemma…), or prefixes beyond the window are recomputed every turn.
 - Extensions never install themselves: an agent's proposal is tested in a throwaway sandbox and waits for the

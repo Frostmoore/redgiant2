@@ -78,7 +78,7 @@ export function buildItems(events: Event[]): ChatItem[] {
           kind: "notice",
           key,
           tone: "warn",
-          text: `⏳ ${e.payload.reason} → ${e.payload.askedTo}`,
+          text: `${e.payload.reason} (${e.payload.askedTo})`,
         });
         break;
       case "permission.resolved":
@@ -95,14 +95,14 @@ export function buildItems(events: Event[]): ChatItem[] {
         });
         break;
       case "hook.blocked":
-        items.push({ kind: "notice", key, tone: "error", text: `⛔ ${e.payload.reason}` });
+        items.push({ kind: "notice", key, tone: "error", text: e.payload.reason });
         break;
       case "compaction":
         items.push({
           kind: "notice",
           key,
           tone: "info",
-          text: `⇣ compaction: ${e.payload.summary.slice(0, 200)}`,
+          text: `compaction: ${e.payload.summary.slice(0, 200)}`,
         });
         break;
       case "task.opened":
@@ -110,7 +110,7 @@ export function buildItems(events: Event[]): ChatItem[] {
           kind: "notice",
           key,
           tone: "info",
-          text: `☐ ${e.payload.taskId}: ${e.payload.title}`,
+          text: `${e.payload.taskId}: ${e.payload.title}`,
         });
         break;
       case "task.verified":
@@ -118,7 +118,7 @@ export function buildItems(events: Event[]): ChatItem[] {
           kind: "notice",
           key,
           tone: e.payload.passed ? "ok" : "error",
-          text: `${e.payload.passed ? "✓" : "✗"} ${e.payload.verifier}`,
+          text: e.payload.verifier,
         });
         break;
       case "task.closed":
@@ -126,7 +126,7 @@ export function buildItems(events: Event[]): ChatItem[] {
           kind: "notice",
           key,
           tone: e.payload.outcome === "abandoned" ? "error" : "ok",
-          text: `☑ ${e.payload.taskId}: ${e.payload.outcome}`,
+          text: `${e.payload.taskId}: ${e.payload.outcome}`,
         });
         break;
       case "budget.exceeded":
@@ -187,6 +187,9 @@ export function applyMessage(m: ServerMessage): void {
     }
     case "session.state":
       sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, state: m.state };
+      sessionRows.value = sessionRows.value.map((r) =>
+        r.id === m.sessionId ? { ...r, running: m.state === "running" } : r,
+      );
       return;
     case "session.synced":
       sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, synced: true };
@@ -246,6 +249,7 @@ export async function refresh(): Promise<void> {
   const a = getApi();
   [projects.value, agents.value, approvals.value, budgets.value, platformInfo.value] =
     await Promise.all([a.projects(), a.agents(), a.approvals(), a.budgets(), a.platform()]);
+  await refreshConversations().catch(() => {});
 }
 
 export async function signIn(t: string): Promise<void> {
@@ -281,110 +285,196 @@ export async function attempt<T>(f: () => Promise<T>): Promise<T | undefined> {
   }
 }
 
-// ---------- Layout: panes with tabs ----------
+// ---------- Layout (as in Officina): tabs in the middle, files and terminals on the right ----------
 
+/** What the middle shows. */
 export type Tab =
   | { id: string; type: "chat"; title: string; sessionId: string; agentId: string }
-  | { id: string; type: "files"; title: string; scope: string }
-  | { id: string; type: "editor"; title: string; scope: string; path: string }
-  | { id: string; type: "terminal"; title: string; scope: string }
+  | { id: string; type: "dailychat"; title: string; chatId: string | null }
   | { id: string; type: "board"; title: string; projectId: string | null }
-  | { id: string; type: "extensions"; title: string }
-  | { id: string; type: "telegram"; title: string }
-  | { id: string; type: "automations"; title: string }
-  | { id: string; type: "platform"; title: string }
-  | { id: string; type: "dailychat"; title: string }
-  | { id: string; type: "setup"; title: string }
   | { id: string; type: "inspector"; title: string; projectId: string }
-  | { id: string; type: "hierarchy" | "approvals" | "budgets"; title: string };
+  | { id: string; type: "settings"; title: string; section?: SettingsSection };
 
-export interface Pane {
-  id: string;
-  tabs: Tab[];
-  active: string | null;
-}
+/** What the area on the right shows, next to the chat. */
+export type SideView =
+  | { id: string; type: "editor"; title: string; scope: string; path: string }
+  | { id: string; type: "terminal"; title: string; scope: string };
 
-const MAX_PANES = 3;
+export type SettingsSection =
+  | "general"
+  | "setup"
+  | "agents"
+  | "automations"
+  | "extensions"
+  | "telegram"
+  | "budgets"
+  | "platform";
 
-const loadLayout = (): { panes: Pane[]; focused: string } => {
-  try {
-    const saved = JSON.parse(localStorage.getItem("rg.layout") ?? "") as {
-      panes: Pane[];
-      focused: string;
+/** Older ways to open things, still used by the views: they land in the new places. */
+export type OpenRequest =
+  | Tab
+  | SideView
+  | {
+      id: string;
+      type:
+        | "files"
+        | "extensions"
+        | "telegram"
+        | "automations"
+        | "platform"
+        | "setup"
+        | "hierarchy"
+        | "approvals"
+        | "budgets";
+      title: string;
+      scope?: string;
     };
-    // Terminals do not survive a reload: their shells are gone.
-    const panes = saved.panes.map((p) => ({
-      ...p,
-      tabs: p.tabs.filter((t) => t.type !== "terminal"),
-    }));
-    if (panes.length > 0) return { panes, focused: saved.focused };
+
+const loadTabs = (): { tabs: Tab[]; active: string | null } => {
+  try {
+    const saved = JSON.parse(localStorage.getItem("rg.tabs") ?? "") as {
+      tabs: Tab[];
+      active: string | null;
+    };
+    if (Array.isArray(saved.tabs)) return saved;
   } catch {
     // fresh layout
   }
-  return { panes: [{ id: "p1", tabs: [], active: null }], focused: "p1" };
+  return { tabs: [], active: null };
 };
 
-const initial = loadLayout();
-export const panes = signal<Pane[]>(initial.panes);
-export const focusedPane = signal<string>(initial.focused);
+const initialTabs = loadTabs();
+export const tabs = signal<Tab[]>(initialTabs.tabs);
+export const activeTab = signal<string | null>(initialTabs.active);
+/** Files and terminals open on the right (terminals never survive a reload: their shells are gone). */
+export const sideViews = signal<SideView[]>([]);
+export const activeSide = signal<string | null>(null);
+/** The project's file explorer on the right. */
+export const explorerOpen = signal(localStorage.getItem("rg.explorer") === "1");
+/** The phone's drawer with the left bar. */
+export const drawerOpen = signal(false);
 
-const persist = () =>
-  localStorage.setItem(
-    "rg.layout",
-    JSON.stringify({ panes: panes.value, focused: focusedPane.value }),
-  );
+const persistTabs = () =>
+  localStorage.setItem("rg.tabs", JSON.stringify({ tabs: tabs.value, active: activeTab.value }));
 
-/** Opens a tab in the focused pane, or focuses it where it is already open. */
-export function openTab(tab: Tab): void {
-  for (const p of panes.value) {
-    if (p.tabs.some((t) => t.id === tab.id)) {
-      panes.value = panes.value.map((x) => (x.id === p.id ? { ...x, active: tab.id } : x));
-      focusedPane.value = p.id;
-      persist();
-      return;
-    }
+export function toggleExplorer(open = !explorerOpen.value): void {
+  explorerOpen.value = open;
+  localStorage.setItem("rg.explorer", open ? "1" : "0");
+}
+
+const SECTIONS: Record<string, SettingsSection> = {
+  extensions: "extensions",
+  telegram: "telegram",
+  automations: "automations",
+  platform: "platform",
+  setup: "setup",
+  hierarchy: "agents",
+  budgets: "budgets",
+};
+
+/** Opens something where it belongs: a tab in the middle, or a file or terminal on the right. */
+export function openTab(req: OpenRequest): void {
+  drawerOpen.value = false;
+  if (req.type === "editor" || req.type === "terminal") {
+    if (!sideViews.value.some((v) => v.id === req.id)) sideViews.value = [...sideViews.value, req];
+    activeSide.value = req.id;
+    return;
   }
-  const target = panes.value.find((p) => p.id === focusedPane.value) ?? panes.value[0];
-  if (!target) return;
-  panes.value = panes.value.map((p) =>
-    p.id === target.id ? { ...p, tabs: [...p.tabs, tab], active: tab.id } : p,
-  );
-  persist();
+  if (req.type === "files") {
+    toggleExplorer(true);
+    return;
+  }
+  if (req.type === "approvals") return;
+  const tab: Tab =
+    req.type in SECTIONS
+      ? {
+          id: "settings",
+          type: "settings",
+          title: "",
+          section: SECTIONS[req.type] as SettingsSection,
+        }
+      : (req as Tab);
+  const existing = tabs.value.find((x) => x.id === tab.id);
+  tabs.value = existing ? tabs.value.map((x) => (x.id === tab.id ? tab : x)) : [...tabs.value, tab];
+  activeTab.value = tab.id;
+  persistTabs();
 }
 
-export function activateTab(paneId: string, tabId: string): void {
-  panes.value = panes.value.map((p) => (p.id === paneId ? { ...p, active: tabId } : p));
-  focusedPane.value = paneId;
-  persist();
+export function activateTab(id: string): void {
+  activeTab.value = id;
+  persistTabs();
 }
 
-export function closeTab(paneId: string, tabId: string): void {
-  let next = panes.value.map((p) => {
-    if (p.id !== paneId) return p;
-    const tabs = p.tabs.filter((t) => t.id !== tabId);
-    return { ...p, tabs, active: p.active === tabId ? (tabs.at(-1)?.id ?? null) : p.active };
+export function closeTab(id: string): void {
+  const index = tabs.value.findIndex((x) => x.id === id);
+  tabs.value = tabs.value.filter((x) => x.id !== id);
+  if (activeTab.value === id)
+    activeTab.value = tabs.value[Math.min(index, tabs.value.length - 1)]?.id ?? null;
+  persistTabs();
+}
+
+export function closeSide(id: string): void {
+  const index = sideViews.value.findIndex((x) => x.id === id);
+  sideViews.value = sideViews.value.filter((x) => x.id !== id);
+  if (activeSide.value === id)
+    activeSide.value = sideViews.value[Math.min(index, sideViews.value.length - 1)]?.id ?? null;
+}
+
+/** The scope the explorer shows: the active conversation's project, or God's platform. */
+export function currentScope(): { scope: string; title: string } {
+  const tab = tabs.value.find((x) => x.id === activeTab.value);
+  const projectOf = (id: string | null | undefined) => projects.value.find((p) => p.id === id);
+  let projectId: string | null | undefined;
+  if (tab?.type === "chat") projectId = agents.value.find((a) => a.id === tab.agentId)?.projectId;
+  else if (tab?.type === "board" || tab?.type === "inspector") projectId = tab.projectId;
+  const project = projectOf(projectId ?? undefined);
+  return project
+    ? { scope: `project:${project.id}`, title: project.name }
+    : { scope: "platform", title: "Platform" };
+}
+
+// ---------- Conversations for the left bar ----------
+
+export interface SessionRow {
+  id: string;
+  agentId: string;
+  projectId: string | null;
+  createdAt: string;
+  lastAt: string | null;
+  title: string | null;
+  pinned: boolean;
+  archived: boolean;
+  running: boolean;
+}
+
+export const sessionRows = signal<SessionRow[]>([]);
+export const chatRows = signal<import("./api.js").ChatSummary[]>([]);
+
+export async function refreshConversations(): Promise<void> {
+  const a = getApi();
+  [sessionRows.value, chatRows.value] = await Promise.all([
+    a.sessions() as Promise<SessionRow[]>,
+    a.chats(),
+  ]);
+}
+
+/** Opens one of an agent's conversations in the middle. */
+export function openSession(row: { id: string; agentId: string; title: string | null }): void {
+  const agent = agents.value.find((a) => a.id === row.agentId);
+  openTab({
+    id: `chat:${row.id}`,
+    type: "chat",
+    title: row.title ?? agent?.name ?? "",
+    sessionId: row.id,
+    agentId: row.agentId,
   });
-  // An empty pane disappears, unless it is the last one.
-  if (next.length > 1) next = next.filter((p) => p.tabs.length > 0);
-  panes.value = next;
-  if (!next.some((p) => p.id === focusedPane.value)) focusedPane.value = next[0]?.id ?? "p1";
-  persist();
 }
 
-/** Moves a tab into a new pane on the right (at most three panes). */
-export function splitRight(paneId: string, tabId: string): void {
-  const from = panes.value.find((p) => p.id === paneId);
-  const tab = from?.tabs.find((t) => t.id === tabId);
-  if (!from || !tab || panes.value.length >= MAX_PANES || from.tabs.length < 2) return;
-  const id = `p${Date.now()}`;
-  const index = panes.value.indexOf(from);
-  const rest = from.tabs.filter((t) => t.id !== tabId);
-  const next = [...panes.value];
-  next[index] = { ...from, tabs: rest, active: rest.at(-1)?.id ?? null };
-  next.splice(index + 1, 0, { id, tabs: [tab], active: tab.id });
-  panes.value = next;
-  focusedPane.value = id;
-  persist();
+/** A new conversation with an agent. */
+export async function newSession(agent: Agent): Promise<void> {
+  const { sessionId } = await getApi().startSession(agent.id);
+  await refreshConversations();
+  openSession({ id: sessionId, agentId: agent.id, title: null });
 }
 
 /** Opens the latest conversation with an agent, or starts one. */

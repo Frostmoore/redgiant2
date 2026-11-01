@@ -179,7 +179,7 @@ describe("AutomationService", () => {
       sessionId: "sess_1",
       summary: "digest via cron",
     });
-    expect(fake.notes).toEqual(["⏰ digest: done\n\ndigest via cron"]);
+    expect(fake.notes).toEqual(["Automation digest: done\n\ndigest via cron"]);
     const logged = (await store.list({})).filter((e) => e.type === "automation.run");
     expect(logged.map((e) => (e.payload as { status: string }).status)).toEqual(["running", "ok"]);
   });
@@ -209,7 +209,7 @@ describe("AutomationService", () => {
       status: "timeout",
       summary: "Stopped after 1 minutes.",
     });
-    expect(fake.notes[0]).toMatch(/^⏰ digest: timeout/);
+    expect(fake.notes[0]).toMatch(/^Automation digest: timeout/);
     fake.release();
   });
 
@@ -228,7 +228,7 @@ describe("AutomationService", () => {
       "name: loud\non: {webhook: true}\ninstructions: fail\nnotify: {when: failure}\n",
     );
     await (await svc.runNow(OWNER, loud.automation.id)).done;
-    expect(fake.notes).toEqual(["⏰ loud: failed\n\nIt did not work."]);
+    expect(fake.notes).toEqual(["Automation loud: failed\n\nIt did not work."]);
     // Editing a recipe forgets its session (the agent or the model may have changed).
     await svc.update(OWNER, quiet.automation.id, `${quiet.automation.yaml}description: edited\n`);
     await (await svc.runNow(OWNER, quiet.automation.id)).done;

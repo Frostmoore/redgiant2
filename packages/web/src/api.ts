@@ -136,7 +136,21 @@ export interface SessionInfo {
   agentId: string;
   projectId: string | null;
   createdAt: string;
+  lastAt: string | null;
+  title: string | null;
+  pinned: boolean;
+  archived: boolean;
   running: boolean;
+}
+
+export interface SearchHit {
+  kind: "session" | "chat" | "inspector";
+  id: string;
+  agentId: string | null;
+  projectId: string | null;
+  title: string | null;
+  at: string;
+  excerpt: string;
 }
 
 export interface FileEntry {
@@ -244,6 +258,9 @@ export class Api {
     });
   sessions = (agentId?: string) =>
     this.call<SessionInfo[]>("GET", `/api/sessions${agentId ? `?agentId=${agentId}` : ""}`);
+  updateSession = (id: string, change: { title?: string; pinned?: boolean; archived?: boolean }) =>
+    this.call("PATCH", `/api/sessions/${id}`, change);
+  search = (q: string) => this.call<SearchHit[]>("GET", `/api/search?q=${encodeURIComponent(q)}`);
   startSession = (agentId: string) =>
     this.call<{ sessionId: string }>("POST", "/api/sessions", { agentId });
   events = (sessionId: string) => this.call<Event[]>("GET", `/api/sessions/${sessionId}/events`);

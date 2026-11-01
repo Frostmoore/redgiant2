@@ -841,10 +841,109 @@ export class RedGiantCore implements OrchestrationHost {
       agent_id: string;
       project_id: string | null;
       created_at: Date;
+      title: string | null;
+      pinned: boolean;
+      archived: boolean;
+      last_at: Date | null;
     }>(
-      `SELECT id, agent_id, project_id, created_at FROM rg_sessions WHERE owner_id = $1${agentId ? " AND agent_id = $2" : ""} ORDER BY created_at`,
+      `SELECT id, agent_id, project_id, created_at, title, pinned, archived, last_at FROM rg_sessions WHERE owner_id = $1${agentId ? " AND agent_id = $2" : ""} ORDER BY created_at`,
       agentId ? [ownerId, agentId] : [ownerId],
     );
+  }
+
+  /** The list's own data: a title, pinned, archived (the session's log is never changed). */
+  async updateSession(
+    ownerId: string,
+    sessionId: string,
+    change: { title?: string; pinned?: boolean; archived?: boolean },
+  ): Promise<void> {
+    const [row] = await this.o.db.query<{ id: string }>(
+      "SELECT id FROM rg_sessions WHERE id = $1 AND owner_id = $2",
+      [sessionId, ownerId],
+    );
+    if (!row) throw new NotFoundError(`Session "${sessionId}" not found`);
+    await this.o.db.query(
+      "UPDATE rg_sessions SET title = COALESCE($2, title), pinned = COALESCE($3, pinned), archived = COALESCE($4, archived) WHERE id = $1",
+      [sessionId, change.title ?? null, change.pinned ?? null, change.archived ?? null],
+    );
+  }
+
+  /**
+   * Searches what was said in the owner's conversations: agents' sessions and daily chats.
+   * Newest first; each hit names its conversation and carries a short excerpt.
+   */
+  async search(ownerId: string, query: string, limit = 50) {
+    const q = query.trim();
+    if (q.length < 2) return [];
+    const like = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    const sessions = await this.o.db.query<{
+      session_id: string;
+      agent_id: string;
+      project_id: string | null;
+      ts: string;
+      payload: string;
+      title: string | null;
+    }>(
+      `SELECT e.session_id, s.agent_id, s.project_id, e.ts, e.payload, s.title
+       FROM rg_events e JOIN rg_sessions s ON s.id = e.session_id
+       WHERE e.owner_id = $1 AND e.type IN ('message.user', 'message.assistant') AND e.payload ILIKE $2
+       ORDER BY e.seq DESC LIMIT $3`,
+      [ownerId, like, limit],
+    );
+    const chats = await this.o.db.query<{
+      chat_id: string;
+      kind: string;
+      project_id: string | null;
+      title: string;
+      created_at: Date;
+      message: unknown;
+    }>(
+      `SELECT m.chat_id, c.kind, c.project_id, c.title, m.created_at, m.message
+       FROM rg_chat_messages m JOIN rg_chats c ON c.id = m.chat_id
+       WHERE c.owner_id = $1 AND m.message::text ILIKE $2
+       ORDER BY m.id DESC LIMIT $3`,
+      [ownerId, like, limit],
+    );
+    const text = (payload: unknown): string => {
+      const p = (typeof payload === "string" ? JSON.parse(payload) : payload) as {
+        text?: string;
+        parts?: { type: string; text?: string }[];
+      } | null;
+      if (!p) return "";
+      return (
+        p.text ??
+        (p.parts ?? []).flatMap((x) => (x.type === "text" && x.text ? [x.text] : [])).join(" ")
+      );
+    };
+    const excerpt = (t: string) => {
+      const i = t.toLowerCase().indexOf(q.toLowerCase());
+      if (i < 0) return t.slice(0, 160);
+      const from = Math.max(0, i - 60);
+      return `${from > 0 ? "…" : ""}${t.slice(from, i + q.length + 100)}${i + q.length + 100 < t.length ? "…" : ""}`;
+    };
+    return [
+      ...sessions.map((r) => ({
+        kind: "session" as const,
+        id: r.session_id,
+        agentId: r.agent_id,
+        projectId: r.project_id,
+        title: r.title,
+        at: r.ts,
+        excerpt: excerpt(text(r.payload)),
+      })),
+      ...chats.map((r) => ({
+        kind: (r.kind === "inspector" ? "inspector" : "chat") as "chat" | "inspector",
+        id: r.chat_id,
+        agentId: null,
+        projectId: r.project_id,
+        title: r.title,
+        at: new Date(r.created_at).toISOString(),
+        excerpt: excerpt(text(r.message)),
+      })),
+    ]
+      .filter((h) => h.excerpt.toLowerCase().includes(q.toLowerCase()))
+      .sort((a, b) => (a.at < b.at ? 1 : -1))
+      .slice(0, limit);
   }
 
   async history(ownerId: string, sessionId: string): Promise<Event[]> {
@@ -863,6 +962,11 @@ export class RedGiantCore implements OrchestrationHost {
   ): Promise<{ done: Promise<SendResult> }> {
     const l = await this.open(ownerId, sessionId);
     if (l.running) throw new SessionBusyError();
+    // The first message names the conversation in the list; every message moves it up.
+    await this.o.db.query(
+      "UPDATE rg_sessions SET title = COALESCE(title, $2), last_at = now() WHERE id = $1",
+      [sessionId, text.trim().split("\n")[0]?.slice(0, 80) || null],
+    );
     const controller = new AbortController();
     l.running = controller;
     const notify = (state: "idle" | "running") => {

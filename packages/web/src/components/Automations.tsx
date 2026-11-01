@@ -1,6 +1,7 @@
 import type { Automation, AutomationRun } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
+import { IconPlay } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
 import { agents, attempt, automationsVersion, getApi, openTab } from "../state.js";
 
@@ -77,7 +78,7 @@ function Runs({ a }: { a: Automation }) {
                   openTab({
                     id: `chat:${r.sessionId}`,
                     type: "chat",
-                    title: `⏰ ${a.name}`,
+                    title: a.name,
                     sessionId: r.sessionId ?? "",
                     agentId: agentOf(a),
                   })
@@ -174,7 +175,7 @@ export function Automations() {
                     type="button"
                     onClick={() => void attempt(() => getApi().runAutomation(current.id))}
                   >
-                    ▶ {t("runNow")}
+                    <IconPlay /> {t("runNow")}
                   </button>
                   <button
                     type="button"

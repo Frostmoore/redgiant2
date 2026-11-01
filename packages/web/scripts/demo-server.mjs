@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { FakeProvider, ProviderRegistry } from "@redgiant/providers";
-import { RedGiantCore, serve, TokenAuth } from "@redgiant/server";
+import { RedGiantCore, SetupService, serve, TokenAuth } from "@redgiant/server";
 
 const port = Number(process.argv[2] ?? 7650);
 // Set DEMO_TOKEN when the demo is reachable by others: the UI includes a terminal.
@@ -205,10 +205,27 @@ await core.automations.create(
 );
 
 const web = fileURLToPath(new URL("../dist", import.meta.url));
+// The setup wizard, already completed, with hooks that change nothing (no keys, no engine).
+const setup = new SetupService({
+  db: core.db,
+  core,
+  dataDir: join(dir, "data"),
+  ownerId: "local",
+  hooks: {
+    anthropic: async () => {},
+    openai: async () => [],
+    telegram: async () => null,
+    search: async () => {},
+    engine: async () => {},
+  },
+});
+await setup.applyAtStartup();
+await setup.complete();
 const running = await serve(core, new TokenAuth({ [token]: "local" }), {
   port,
   host: "0.0.0.0",
   webDir: web,
+  setup,
 });
 console.log(
   JSON.stringify({

@@ -31,6 +31,15 @@ export async function migrateProjects(db: SqlClient): Promise<void> {
     )`);
   // A session can use its own model (automations); null = the agent's.
   await db.query("ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS model jsonb");
+  // For the list of conversations (the log itself is never touched): a title, pinned, archived.
+  await db.query("ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS title text");
+  await db.query(
+    "ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS pinned boolean NOT NULL DEFAULT false",
+  );
+  await db.query(
+    "ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false",
+  );
+  await db.query("ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS last_at timestamptz");
 }
 
 export const slug = (name: string) =>

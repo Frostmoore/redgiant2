@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { GgufFile, ModelDownload, SetupState } from "../api.js";
 import { lang, setLang, t } from "../i18n.js";
+import { IconDownload, IconPlay } from "../icons.js";
 import { attempt, getApi, platformInfo, refresh } from "../state.js";
 
 const STEPS = [
@@ -213,7 +214,7 @@ function Local({ s, next, reload }: { s: SetupState; next: () => void; reload: (
           <option value="">{t("wzPickRepo")}</option>
           {repos.map((r) => (
             <option key={r.id} value={r.id}>
-              {r.id} · {r.downloads.toLocaleString()} ↓
+              {r.id} · {r.downloads.toLocaleString()} {t("downloads")}
             </option>
           ))}
         </select>
@@ -232,7 +233,7 @@ function Local({ s, next, reload }: { s: SetupState; next: () => void; reload: (
                 class="tiny"
                 onClick={() => void attempt(() => getApi().hfDownload(repo, f.file))}
               >
-                ⬇ {t("wzDownload")}
+                <IconDownload /> {t("wzDownload")}
               </button>
             </div>
           ))}
@@ -247,8 +248,8 @@ function Local({ s, next, reload }: { s: SetupState; next: () => void; reload: (
                 ? `${Math.round((d.bytes / d.total) * 100)} %`
                 : gb(d.bytes / 1024 ** 3)
               : d.state === "done"
-                ? "✓"
-                : `✗ ${d.error ?? ""}`}
+                ? t("downloaded")
+                : `${t("failed")}: ${d.error ?? ""}`}
           </span>
         </div>
       ))}
@@ -272,7 +273,7 @@ function Local({ s, next, reload }: { s: SetupState; next: () => void; reload: (
                 })
               }
             >
-              ▶ {t("wzStartEngine", { model: d.target })}
+              <IconPlay /> {t("wzStartEngine", { model: d.target })}
             </button>
           ))}
         </div>
@@ -542,7 +543,7 @@ export function Setup({ onDone }: { onDone?: () => void }) {
               <li>
                 {t("wzNames")}: {s.names.god ?? "—"} · {s.names.demigod ?? "—"}
               </li>
-              <li>Telegram: {s.secretsSet.telegram || s.locked.telegram ? "✓" : "—"}</li>
+              <li>Telegram: {s.secretsSet.telegram || s.locked.telegram ? t("yes") : "—"}</li>
               <li>
                 {t("wzBudget")}: {s.budgetUsd !== null ? `$${s.budgetUsd}` : "—"}
               </li>
