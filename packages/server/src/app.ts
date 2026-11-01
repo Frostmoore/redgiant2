@@ -20,7 +20,9 @@ import {
 import type { TelegramGateway } from "@redgiant/telegram";
 import { PathOutsideWorkspaceError } from "@redgiant/tools";
 import type { Context } from "hono";
+import { streamSSE } from "hono/streaming";
 import { type AuthProvider, bearer, type Principal } from "./auth.js";
+import { ChatError } from "./chat.js";
 import { CodeChangeError } from "./code.js";
 import { BadRequestError, NotFoundError, type RedGiantCore, SessionBusyError } from "./core.js";
 import { FileService } from "./files.js";
@@ -1073,6 +1075,82 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     const parsed = PlatformPolicy.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     return c.json(await core.config.setPolicy(owner(c), "human", parsed.data), 200);
+  });
+
+  // The daily chat (G16): ordinary history, outside the event log.
+  const chatError = (err: unknown) => {
+    if (err instanceof ChatError) return new NotFoundError(err.message);
+    return err;
+  };
+  app.get("/api/chats", async (c) => c.json(await core.chat.list(owner(c)), 200));
+  app.post("/api/chats", async (c) => c.json(await core.chat.create(owner(c)), 201));
+  app.get("/api/chats/:id", async (c) => {
+    try {
+      return c.json(await core.chat.entries(owner(c), c.req.param("id")), 200);
+    } catch (err) {
+      throw chatError(err);
+    }
+  });
+  app.patch("/api/chats/:id", async (c) => {
+    const { title } = (await c.req.json()) as { title?: string };
+    if (!title?.trim()) return c.json({ error: "title is required" }, 400);
+    await core.chat.rename(owner(c), c.req.param("id"), title.trim().slice(0, 120)).catch((e) => {
+      throw chatError(e);
+    });
+    return c.json({ ok: true }, 200);
+  });
+  app.delete("/api/chats/:id", async (c) => {
+    await core.chat.remove(owner(c), c.req.param("id")).catch((e) => {
+      throw chatError(e);
+    });
+    return c.json({ ok: true }, 200);
+  });
+  app.get("/api/chat/settings", async (c) => c.json(await core.chat.settings(owner(c)), 200));
+  app.put("/api/chat/settings", async (c) => {
+    const body = z
+      .object({ model: ModelSpec.optional(), systemPrompt: z.string().min(1).optional() })
+      .safeParse(await c.req.json());
+    if (!body.success) return c.json({ error: body.error.message }, 400);
+    await core.chat.setSettings(owner(c), {
+      ...(body.data.model && { model: body.data.model }),
+      ...(body.data.systemPrompt && { systemPrompt: body.data.systemPrompt }),
+    });
+    return c.json({ ok: true }, 200);
+  });
+  // A message: the answer streams back as server-sent events (delta, tool, entry, done, error).
+  app.post("/api/chats/:id/messages", async (c) => {
+    const body = z
+      .object({
+        text: z.string().min(1).max(100_000),
+        attachments: z
+          .array(z.object({ name: z.string().max(200), content: z.string().max(400_000) }))
+          .max(10)
+          .default([]),
+      })
+      .safeParse(await c.req.json());
+    if (!body.success) return c.json({ error: body.error.message }, 400);
+    const ownerId = owner(c);
+    const chatId = c.req.param("id");
+    return streamSSE(c, async (stream) => {
+      const abort = new AbortController();
+      stream.onAbort(() => abort.abort());
+      try {
+        await core.chat.send(
+          ownerId,
+          chatId,
+          body.data.text,
+          body.data.attachments,
+          (e) => void stream.writeSSE({ event: e.type, data: JSON.stringify(e) }),
+          abort.signal,
+        );
+        await stream.writeSSE({ event: "done", data: "{}" });
+      } catch (err) {
+        await stream.writeSSE({
+          event: "error",
+          data: JSON.stringify({ error: (err as Error).message }),
+        });
+      }
+    });
   });
 
   // Automations (G13).

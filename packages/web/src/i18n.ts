@@ -145,6 +145,15 @@ const en = {
   deleteAutomationConfirm: "Delete this automation and its history?",
   runStatus: "running,done,failed,timeout,skipped",
   runTriggers: "schedule,webhook,by hand,missed run",
+  dailyChat: "Chat",
+  systemPrompt: "System prompt",
+  settings: "Settings",
+  newChat: "New chat",
+  deleteChatConfirm: "Delete this chat for good?",
+  chatHint:
+    "Ask anything: the assistant searches the web and cites its sources. This chat stays outside the agents and their log; you can delete it.",
+  chatPlaceholder: "Write a message (Enter to send, Shift+Enter for a new line)",
+  attach: "Attach text files",
   platformView: "Platform",
   platformChanges: "Changes",
   noChanges:
@@ -313,6 +322,15 @@ const it: Record<Key, string> = {
   deleteAutomationConfirm: "Eliminare questa automazione e il suo storico?",
   runStatus: "in corso,fatta,fallita,scaduta,saltata",
   runTriggers: "orario,webhook,a mano,recuperata",
+  dailyChat: "Chat",
+  systemPrompt: "Prompt di sistema",
+  settings: "Impostazioni",
+  newChat: "Nuova chat",
+  deleteChatConfirm: "Eliminare questa chat per sempre?",
+  chatHint:
+    "Chiedi quello che vuoi: l'assistente cerca sul web e cita le fonti. Questa chat sta fuori dagli agenti e dal loro log; la puoi cancellare.",
+  chatPlaceholder: "Scrivi un messaggio (Invio per mandare, Maiusc+Invio per andare a capo)",
+  attach: "Allega file di testo",
   platformView: "Piattaforma",
   platformChanges: "Modifiche",
   noChanges:

@@ -1,6 +1,7 @@
 export * from "./app.js";
 export * from "./approvals.js";
 export * from "./auth.js";
+export * from "./chat.js";
 export * from "./code.js";
 export * from "./core.js";
 export * from "./files.js";

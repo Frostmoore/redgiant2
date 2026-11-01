@@ -289,6 +289,7 @@ export type Tab =
   | { id: string; type: "telegram"; title: string }
   | { id: string; type: "automations"; title: string }
   | { id: string; type: "platform"; title: string }
+  | { id: string; type: "dailychat"; title: string }
   | { id: string; type: "hierarchy" | "approvals" | "budgets"; title: string };
 
 export interface Pane {

@@ -47,6 +47,15 @@ export function Sidebar({ onNavigate }: { onNavigate: () => void }) {
           type="button"
           class="side-item"
           onClick={open(() =>
+            openTab({ id: "dailychat", type: "dailychat", title: t("dailyChat") }),
+          )}
+        >
+          💬 {t("dailyChat")}
+        </button>
+        <button
+          type="button"
+          class="side-item"
+          onClick={open(() =>
             openTab({
               id: "files:platform",
               type: "files",

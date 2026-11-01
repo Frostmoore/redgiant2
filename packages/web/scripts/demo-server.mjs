@@ -184,6 +184,8 @@ await core.setMcp("local", {
 const sid = await core.startSession("local", orch.id);
 await (await core.send("local", sid, "Give me a quick tour of the project.")).done;
 await core.budget.setLimit({ scope: "global", id: "local" }, { usd: 20 });
+const daily = await core.chat.create("local");
+await core.chat.send("local", daily.id, "Come preparo un buon caffè con la moka?", [], () => {});
 const digest = await core.automations.create(
   "local",
   `name: morning-digest

@@ -13,6 +13,7 @@ import { Automations } from "./Automations.js";
 import { Board } from "./Board.js";
 import { Budgets } from "./Budgets.js";
 import { Chat } from "./Chat.js";
+import { DailyChat } from "./DailyChat.js";
 import { Editor } from "./Editor.js";
 import { Extensions } from "./Extensions.js";
 import { Files } from "./Files.js";
@@ -47,6 +48,8 @@ function Content({ tab }: { tab: Tab }) {
       return <Automations />;
     case "platform":
       return <Platform />;
+    case "dailychat":
+      return <DailyChat />;
   }
 }
 

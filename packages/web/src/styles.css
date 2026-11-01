@@ -995,3 +995,54 @@ textarea.recipe {
   color: #ffb3a8;
   font-weight: 600;
 }
+
+/* Daily chat */
+.dc-thread {
+  padding: 0;
+}
+.dc-thread > header,
+.dc-thread > .row,
+.dc-settings {
+  padding: 8px 16px;
+}
+.dc-messages {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dc-user {
+  align-self: flex-end;
+  max-width: 80%;
+  white-space: pre-wrap;
+  background: var(--accent-soft, #3a1714);
+  border: 1px solid var(--line);
+  border-radius: 12px 12px 2px 12px;
+  padding: 8px 12px;
+}
+.dc-assistant {
+  max-width: 92%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.row.wrap {
+  flex-wrap: wrap;
+}
+.attach {
+  cursor: pointer;
+  align-self: center;
+}
+@container (max-width: 760px) {
+  .dailychat {
+    flex-direction: column;
+  }
+  .dailychat .board-list {
+    width: auto;
+    max-height: 30%;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+}

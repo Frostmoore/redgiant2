@@ -60,6 +60,11 @@ await page.locator(".side-item", { hasText: "Piattaforma" }).click();
 await page.waitForSelector(".platform .post");
 await shot("06e-platform");
 
+await page.locator(".side-item", { hasText: "Chat" }).click();
+await page.locator(".dailychat .thread-item").first().click();
+await page.waitForSelector(".dc-user");
+await shot("06f-daily-chat");
+
 await page.click("text=Budget");
 await page.waitForSelector(".budgets");
 await shot("06-budgets");

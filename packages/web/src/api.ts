@@ -8,6 +8,30 @@ import {
   type ServerMessage,
 } from "@redgiant/protocol";
 
+export interface ChatSummary {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatEntry {
+  id: number;
+  message: import("@redgiant/protocol").ChatMessage;
+  shown: string | null;
+  metrics: import("@redgiant/protocol").MessageMetrics | null;
+  costUsd: number | null;
+  model: string | null;
+  createdAt: string;
+}
+
+export type ChatStreamEvent =
+  | { type: "delta"; kind: "text" | "thinking"; text: string }
+  | { type: "tool"; name: string; input: unknown }
+  | { type: "entry"; entry: ChatEntry }
+  | { type: "done" }
+  | { type: "error"; error: string };
+
 export interface PlatformInfo {
   sandbox: "host" | "docker";
   metal: boolean;
@@ -209,6 +233,55 @@ export class Api {
     this.call("PUT", "/api/extensions/mcp", m);
   removeMcp = (name: string) =>
     this.call("DELETE", `/api/extensions/mcp/${encodeURIComponent(name)}`);
+  chats = () => this.call<ChatSummary[]>("GET", "/api/chats");
+  createChat = () => this.call<ChatSummary>("POST", "/api/chats");
+  chat = (id: string) => this.call<ChatEntry[]>("GET", `/api/chats/${id}`);
+  renameChat = (id: string, title: string) => this.call("PATCH", `/api/chats/${id}`, { title });
+  deleteChat = (id: string) => this.call("DELETE", `/api/chats/${id}`);
+  chatSettings = () =>
+    this.call<{
+      model?: { provider: string; model: string; effort?: string };
+      systemPrompt?: string;
+    }>("GET", "/api/chat/settings");
+  setChatSettings = (s: Record<string, unknown>) => this.call("PUT", "/api/chat/settings", s);
+
+  /** Sends a chat message; the answer arrives as server-sent events. */
+  async sendChat(
+    id: string,
+    text: string,
+    attachments: { name: string; content: string }[],
+    onEvent: (e: ChatStreamEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const r = await fetch(`/api/chats/${id}/messages`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ text, attachments }),
+      ...(signal && { signal }),
+    });
+    if (!r.ok || !r.body) {
+      const data = (await r.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
+    }
+    const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let cut = buffer.indexOf("\n\n");
+      while (cut >= 0) {
+        const block = buffer.slice(0, cut);
+        buffer = buffer.slice(cut + 2);
+        const event = block.match(/^event: (.*)$/m)?.[1];
+        const data = block.match(/^data: (.*)$/m)?.[1];
+        if (event && data)
+          onEvent({ ...(JSON.parse(data) as object), type: event } as ChatStreamEvent);
+        cut = buffer.indexOf("\n\n");
+      }
+    }
+  }
+
   platform = () => this.call<PlatformInfo>("GET", "/api/platform");
   platformChanges = () => this.call<PlatformChange[]>("GET", "/api/platform/changes");
   undoChange = (id: string) =>

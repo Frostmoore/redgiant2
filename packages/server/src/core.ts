@@ -52,6 +52,7 @@ import {
   type Workspace,
 } from "@redgiant/tools";
 import { HumanApprovals } from "./approvals.js";
+import { DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
 import {
   completeTaskTool,
@@ -156,6 +157,7 @@ export class RedGiantCore implements OrchestrationHost {
   readonly changes: PlatformChanges;
   readonly config: PlatformConfig;
   readonly code: CodeChanges | undefined;
+  readonly chat: DailyChat;
   /** How the owner is told about finished automations (set by the Telegram gateway). */
   notify: ((ownerId: string, text: string) => Promise<void>) | undefined;
   /** Connected MCP servers, by owner and name. */
@@ -219,6 +221,13 @@ export class RedGiantCore implements OrchestrationHost {
     this.policies = new PolicyStore(o.db);
     this.changes = new PlatformChanges(o.db, this.store);
     this.config = new PlatformConfig(this);
+    this.chat = new DailyChat({
+      db: o.db,
+      providers: o.providers,
+      budget: this.budget,
+      ...(o.search && { search: o.search }),
+      ...(o.defaultModel && { defaultModel: o.defaultModel }),
+    });
     this.code = o.source
       ? new CodeChanges(
           o.source,
@@ -279,6 +288,7 @@ export class RedGiantCore implements OrchestrationHost {
     await migrateExtensions(o.db);
     await migrateAutomations(o.db);
     await migratePlatform(o.db);
+    await migrateChat(o.db);
     const core = new RedGiantCore(o);
     await core.registry.load();
     await core.policies.load();
