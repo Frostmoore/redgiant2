@@ -8,7 +8,7 @@ import {
   PLAN_REVISE,
   type QuestionRequestInfo,
 } from "@redgiant/protocol";
-import { Bot, type Context, InlineKeyboard } from "grammy";
+import { Bot, type Context, InlineKeyboard, InputFile } from "grammy";
 import type { Update } from "grammy/types";
 import { type Language, say, type TextKey } from "./texts.js";
 
@@ -268,6 +268,16 @@ export class TelegramGateway {
     for (const link of await this.links(ownerId))
       for (const part of splitMessage(text))
         await this.sendFormatted(link.chatId, part).catch(() => {});
+  }
+
+  /** A picture to every chat linked to the owner (generate_image asked from Telegram). */
+  async sendPhoto(ownerId: string, png: Buffer, caption: string): Promise<void> {
+    for (const link of await this.links(ownerId))
+      await this.bot.api
+        .sendPhoto(link.chatId, new InputFile(png, "image.png"), {
+          caption: caption.slice(0, 1000),
+        })
+        .catch(() => {});
   }
 
   /** As HTML when Telegram accepts it, as plain text otherwise (it rejects broken markup). */

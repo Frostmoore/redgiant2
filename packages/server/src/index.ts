@@ -8,6 +8,7 @@ export * from "./export.js";
 export * from "./files.js";
 export * from "./hardware.js";
 export * from "./hf.js";
+export * from "./images.js";
 export * from "./inspector.js";
 export * from "./ntfy.js";
 export * from "./orchestration.js";

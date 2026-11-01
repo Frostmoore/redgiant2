@@ -45,6 +45,8 @@ function Models({ s, next }: { s: SetupState; next: () => void }) {
   const [voiceUrl, setVoiceUrl] = useState(s.config.transcription?.url ?? "");
   const [voiceModel, setVoiceModel] = useState(s.config.transcription?.model ?? "");
   const [voiceKey, setVoiceKey] = useState("");
+  const [imagesKey, setImagesKey] = useState("");
+  const [imagesModel, setImagesModel] = useState(s.config.imagesModel ?? "");
   const current = s.config.defaultModel;
   const [model, setModel] = useState(
     current ? `${current.provider}/${current.model}` : (CLOUD_MODELS[0] ?? ""),
@@ -64,6 +66,13 @@ function Models({ s, next }: { s: SetupState; next: () => void }) {
             openai: { baseUrl: openaiUrl.trim(), ...(openaiKey && { key: openaiKey }) },
           }),
         ...(searx.trim() && searx !== s.config.searxngUrl && { searxngUrl: searx.trim() }),
+        ...(!s.locked.images &&
+          (imagesKey || imagesModel !== (s.config.imagesModel ?? "")) && {
+            images: {
+              ...(imagesKey && { key: imagesKey }),
+              ...(imagesModel.trim() && { model: imagesModel.trim() }),
+            },
+          }),
         ...(!s.locked.voice &&
           (voiceUrl.trim()
             ? {
@@ -173,6 +182,25 @@ function Models({ s, next }: { s: SetupState; next: () => void }) {
           </Field>
         </>
       )}
+      <Field label={`${t("wzImagesKey")}${s.secretsSet.images ? ` (${t("wzAlreadySet")})` : ""}`}>
+        <input
+          type="password"
+          autocomplete="off"
+          placeholder="sk-…"
+          disabled={s.locked.images}
+          value={imagesKey}
+          onInput={(e) => setImagesKey((e.target as HTMLInputElement).value)}
+        />
+        <Locked on={s.locked.images} />
+      </Field>
+      <Field label={t("wzImagesModel")}>
+        <input
+          placeholder="gpt-image-2.5-flare"
+          disabled={s.locked.images}
+          value={imagesModel}
+          onInput={(e) => setImagesModel((e.target as HTMLInputElement).value)}
+        />
+      </Field>
       <Field label={t("wzDefaultModel")}>
         <input
           list="wz-models"

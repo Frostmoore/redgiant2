@@ -29,6 +29,8 @@ export interface SetupConfig {
   searxngUrl?: string;
   /** Speech to text for voice messages; its key, if any, is in the secrets. */
   transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
+  /** Image generation: the model, when not the default (the OpenAI key is in the secrets). */
+  imagesModel?: string;
   /** Push notifications: the ntfy topic's URL (its token, if any, is in the secrets). */
   ntfyUrl?: string;
   engine?: { variant: "cpu" | "cuda"; model: string };
@@ -43,6 +45,7 @@ interface Secrets {
   telegramToken?: string;
   transcriptionKey?: string;
   ntfyToken?: string;
+  openaiImagesKey?: string;
 }
 
 /** What the environment already sets: the wizard shows it and does not change it. */
@@ -55,6 +58,7 @@ export interface Locked {
   engine?: boolean;
   voice?: boolean;
   notifications?: boolean;
+  images?: boolean;
 }
 
 export interface SetupState {
@@ -65,6 +69,7 @@ export interface SetupState {
     telegram: boolean;
     transcription: boolean;
     ntfy: boolean;
+    images: boolean;
   };
   locked: Locked;
   providers: string[];
@@ -160,6 +165,7 @@ export class SetupService {
     if (!this.locked.engine && c.engine) await run("engine", h.engine(c.engine));
     if (!this.locked.voice && c.transcription) this.applyTranscription();
     if (!this.locked.notifications && c.ntfyUrl) this.applyNtfy();
+    if (!this.locked.images && s.openaiImagesKey) this.applyImages();
     if (!this.locked.defaultModel && c.defaultModel) this.o.core.setDefaultModel(c.defaultModel);
     if (c.language) this.o.core.setLanguage(c.language);
     if (!this.locked.telegram && s.telegramToken)
@@ -184,6 +190,7 @@ export class SetupService {
         telegram: Boolean(this.secrets.telegramToken),
         transcription: Boolean(this.secrets.transcriptionKey),
         ntfy: Boolean(this.secrets.ntfyToken),
+        images: Boolean(this.secrets.openaiImagesKey),
       },
       locked: this.locked,
       providers: this.o.core.providerIds(),
@@ -210,6 +217,8 @@ export class SetupService {
     anthropicKey?: string | null | undefined;
     openai?: { baseUrl: string; key?: string | undefined } | null | undefined;
     searxngUrl?: string | null | undefined;
+    /** null removes the key; a model alone keeps the saved key. */
+    images?: { key?: string | undefined; model?: string | undefined } | null | undefined;
     transcription?:
       | {
           api: "whisper-asr" | "openai";
@@ -241,6 +250,17 @@ export class SetupService {
       await this.o.hooks.search(m.searxngUrl);
       if (m.searxngUrl) this.config.searxngUrl = m.searxngUrl;
       else delete this.config.searxngUrl;
+    }
+    if (m.images !== undefined && !this.locked.images) {
+      if (m.images) {
+        if (m.images.key) this.secrets.openaiImagesKey = m.images.key;
+        if (m.images.model) this.config.imagesModel = m.images.model;
+        else delete this.config.imagesModel;
+      } else {
+        delete this.secrets.openaiImagesKey;
+        delete this.config.imagesModel;
+      }
+      this.applyImages();
     }
     if (m.transcription !== undefined && !this.locked.voice) {
       if (m.transcription) {
@@ -328,6 +348,13 @@ export class SetupService {
     }
     this.applyNtfy();
     await this.save();
+  }
+
+  private applyImages(): void {
+    const key = this.secrets.openaiImagesKey;
+    this.o.core.setImages(
+      key ? { key, ...(this.config.imagesModel && { model: this.config.imagesModel }) } : undefined,
+    );
   }
 
   private applyNtfy(): void {

@@ -147,6 +147,12 @@ const core = await RedGiantCore.create({
     },
   }),
   ...(env.REDGIANT_PUBLIC_URL && { publicUrl: env.REDGIANT_PUBLIC_URL }),
+  ...(env.REDGIANT_OPENAI_IMAGES_KEY && {
+    images: {
+      key: env.REDGIANT_OPENAI_IMAGES_KEY,
+      ...(env.REDGIANT_IMAGES_MODEL && { model: env.REDGIANT_IMAGES_MODEL }),
+    },
+  }),
   ...(metal && { metal }),
   ...(source && { source }),
 });
@@ -208,6 +214,7 @@ const setup = new SetupService({
     engine: Boolean(env.REDGIANT_LLAMACPP_URL),
     voice: Boolean(env.REDGIANT_WHISPER_URL),
     notifications: Boolean(env.REDGIANT_NTFY_URL),
+    images: Boolean(env.REDGIANT_OPENAI_IMAGES_KEY),
   },
 });
 await setup.applyAtStartup();

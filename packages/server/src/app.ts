@@ -1348,6 +1348,10 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
               .nullable()
               .optional(),
             searxngUrl: z.url().nullable().optional(),
+            images: z
+              .object({ key: z.string().min(10).optional(), model: z.string().min(1).optional() })
+              .nullable()
+              .optional(),
             transcription: z
               .object({
                 api: z.enum(["whisper-asr", "openai"]),

@@ -66,6 +66,13 @@ export const ServerMessage = z.discriminatedUnion("type", [
     requestId: z.string(),
     decision: z.enum(["allow", "deny"]),
   }),
+  /** generate_image at work: steps and blurry-to-sharp previews (base64 PNG), not persisted. */
+  z.object({
+    type: z.literal("image.progress"),
+    sessionId: z.string(),
+    percent: z.number(),
+    preview: z.string().optional(),
+  }),
   /** A question or plan that waits for the human; answered with `question.answer`. */
   z.object({ type: z.literal("question.request"), request: QuestionRequestInfo }),
   z.object({ type: z.literal("question.closed"), requestId: z.string() }),

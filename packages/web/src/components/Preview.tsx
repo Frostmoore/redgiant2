@@ -10,7 +10,7 @@ export const previewKind = (path: string): "image" | "pdf" | null =>
   IMAGE.test(path) ? "image" : PDF.test(path) ? "pdf" : null;
 
 /** Downloads a workspace file as a blob URL, released when the view goes. */
-function useBlobUrl(scope: string, path: string) {
+export function useBlobUrl(scope: string, path: string) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -79,6 +79,18 @@ function PdfPages({ url }: { url: string }) {
       {pages === null && !error && <div class="empty">{t("loading")}</div>}
       <div class="pdf-pages" ref={host} />
     </>
+  );
+}
+
+/** A picture from the workspace inside the chat (generate_image's result); a click opens it. */
+export function WorkspaceImage({ scope, path }: { scope: string; path: string }) {
+  const { url, failed } = useBlobUrl(scope, path);
+  if (failed) return <div class="dim">{path}</div>;
+  if (!url) return <div class="drawing-frame" />;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" class="generated">
+      <img src={url} alt={path} />
+    </a>
   );
 }
 

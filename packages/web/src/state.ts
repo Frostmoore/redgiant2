@@ -192,6 +192,8 @@ export interface SessionView {
   thinking: string;
   state: "idle" | "running";
   synced: boolean;
+  /** generate_image at work: its step and latest preview (base64 PNG). */
+  drawing?: { percent: number; preview?: string } | undefined;
 }
 
 const sessions = new Map<string, Signal<SessionView>>();
@@ -216,6 +218,21 @@ export function applyMessage(m: ServerMessage): void {
         ...v.value,
         events: [...v.value.events, m.event],
         ...(done && { text: "", thinking: "" }),
+        // The picture is in the tool's result now: the live preview goes.
+        ...(m.event.type === "tool.result" && { drawing: undefined }),
+      };
+      return;
+    }
+    case "image.progress": {
+      const v = sessionView(m.sessionId);
+      v.value = {
+        ...v.value,
+        drawing: {
+          percent: m.percent,
+          ...((m.preview ?? v.value.drawing?.preview) && {
+            preview: m.preview ?? v.value.drawing?.preview,
+          }),
+        },
       };
       return;
     }

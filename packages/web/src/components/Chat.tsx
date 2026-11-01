@@ -31,6 +31,7 @@ import { Composer, packMessage } from "./Composer.js";
 import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
 import { ModelMenu } from "./ModelMenu.js";
+import { WorkspaceImage } from "./Preview.js";
 import { QuestionCard } from "./QuestionCard.js";
 
 const time = (iso: string) =>
@@ -56,7 +57,19 @@ function Parts({ parts }: { parts: AssistantPart[] }) {
 }
 
 /** A tool call in one line (name and a summary of its input); its input and result unfold. */
-function ToolLine({ item }: { item: Extract<ChatItem, { kind: "tool" }> }) {
+/** Where an agent's files are, for the pictures it draws: its project, or God's platform. */
+const scopeOf = (agentId: string) => {
+  const projectId = agents.value.find((a) => a.id === agentId)?.projectId;
+  return projectId ? `project:${projectId}` : "platform";
+};
+
+function ToolLine({
+  item,
+  agentId,
+}: {
+  item: Extract<ChatItem, { kind: "tool" }>;
+  agentId: string;
+}) {
   const [open, setOpen] = useState(false);
   const input = item.input as Record<string, unknown> | undefined;
   const summary =
@@ -71,6 +84,7 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: "tool" }> }) {
         )
       : "";
   const state = !item.result ? "running" : item.result.ok ? "done" : "failed";
+  const picture = item.result?.output.match(/^Saved (images\/\S+\.png)/)?.[1];
   return (
     <div class={`tool ${state}`}>
       <button type="button" class="tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -85,6 +99,9 @@ function ToolLine({ item }: { item: Extract<ChatItem, { kind: "tool" }> }) {
           <pre>{JSON.stringify(item.input, null, 2)}</pre>
           {item.result && <pre>{item.result.output}</pre>}
         </>
+      )}
+      {item.tool === "generate_image" && item.result?.ok && picture && (
+        <WorkspaceImage scope={scopeOf(agentId)} path={picture} />
       )}
     </div>
   );
@@ -144,7 +161,7 @@ const splitAttachments = (text: string) => {
   return { text: text.slice(0, cut), names };
 };
 
-function Item({ item }: { item: ChatItem }) {
+function Item({ item, agentId }: { item: ChatItem; agentId: string }) {
   switch (item.kind) {
     case "user":
       return (
@@ -175,7 +192,7 @@ function Item({ item }: { item: ChatItem }) {
         </div>
       );
     case "tool":
-      return <ToolLine item={item} />;
+      return <ToolLine item={item} agentId={agentId} />;
     case "question":
       return (
         <QuestionCard
@@ -245,8 +262,21 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
             <div class="empty">{t("startConversation", { name: agent?.name ?? "" })}</div>
           )}
           {items.value.map((item) => (
-            <Item key={item.key} item={item} />
+            <Item key={item.key} item={item} agentId={agentId} />
           ))}
+          {v.drawing && (
+            <div class="drawing">
+              {v.drawing.preview ? (
+                <img src={`data:image/png;base64,${v.drawing.preview}`} alt="" />
+              ) : (
+                <div class="drawing-frame" />
+              )}
+              <div class="drawing-bar">
+                <span style={{ width: `${v.drawing.percent}%` }} />
+              </div>
+              <div class="dim">{t("drawing", { percent: String(v.drawing.percent) })}</div>
+            </div>
+          )}
           {(v.thinking || v.text) && (
             <div class="bubble assistant streaming">
               {v.thinking && !v.text && <div class="dim">{t("thinking")}…</div>}

@@ -142,6 +142,7 @@ describe("the setup wizard", () => {
       telegram: true,
       transcription: false,
       ntfy: false,
+      images: false,
     });
     expect(state.budgetUsd).toBe(25);
     expect(state.policy.humanOnly).toEqual(["git-push", "platform"]);

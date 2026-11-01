@@ -41,6 +41,7 @@ export interface SetupState {
     searxngUrl?: string;
     transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
     ntfyUrl?: string;
+    imagesModel?: string;
     engine?: { variant: "cpu" | "cuda"; model: string };
     retentionDays?: number;
     subscriptionAck?: boolean;
@@ -51,6 +52,7 @@ export interface SetupState {
     telegram: boolean;
     transcription?: boolean;
     ntfy?: boolean;
+    images?: boolean;
   };
   locked: Partial<
     Record<
@@ -61,7 +63,8 @@ export interface SetupState {
       | "search"
       | "engine"
       | "voice"
-      | "notifications",
+      | "notifications"
+      | "images",
       boolean
     >
   >;

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { AgentSession, type SendResult, type Tool } from "@redgiant/agent";
 import {
   type AutomationHost,
@@ -53,6 +53,7 @@ import {
 import { readRelease } from "@redgiant/supervisor";
 import {
   baseTools,
+  LocalWorkspace,
   type ModelProfile,
   type WebSearchProvider,
   type Workspace,
@@ -61,6 +62,14 @@ import { z } from "zod";
 import { HumanApprovals } from "./approvals.js";
 import { DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
+import {
+  type GeneratedImage,
+  generateImage,
+  IMAGE_QUALITIES,
+  IMAGE_SIZES,
+  type ImageProgress,
+  imageFileName,
+} from "./images.js";
 import { Inspector } from "./inspector.js";
 import {
   type Notification,
@@ -106,6 +115,8 @@ export interface CoreOptions {
   transcription?: TranscriptionConfig;
   /** Push notifications (G20.4). */
   ntfy?: NtfyConfig;
+  /** Image generation (G20.7): an OpenAI key, and the model if not the default. */
+  images?: { key: string; model?: string; baseUrl?: string };
   /** Where people open RedGiant (links in notifications). */
   publicUrl?: string;
   redactor?: Redactor;
@@ -208,6 +219,7 @@ export class RedGiantCore implements OrchestrationHost {
     this.store = new EventStore(o.db, o.redactor ? { redactor: o.redactor } : {});
     if (o.ntfy?.token) o.redactor?.addSecret("ntfy", o.ntfy.token);
     if (o.transcription?.key) o.redactor?.addSecret("transcription", o.transcription.key);
+    if (o.images?.key) o.redactor?.addSecret("openai-images", o.images.key);
     this.registry = new AgentRegistry(o.db, this.store);
     this.budget = new PersistentBudget(o.db, this.store);
     this.projects = new ProjectStore(o.db, o.workspacesDir);
@@ -525,6 +537,8 @@ export class RedGiantCore implements OrchestrationHost {
     const skills = agent.kind === "demigod" ? [] : await loadSkills(roots);
     tools.push(...skillTools(skills));
     if (agent.kind !== "demigod" && agent.kind !== "inspector") {
+      // Always offered (the tool list never depends on settings); without a key it says so.
+      if (ws) tools.push(this.imageTool(agent, ws.root));
       tools.push(
         ...customTools(await loadCustomTools(roots), ws),
         ...(await this.mcpTools(ownerId, agent.projectId)),
@@ -763,6 +777,98 @@ export class RedGiantCore implements OrchestrationHost {
     await this.notify?.(ownerId, text);
   }
 
+  get images(): { key: string; model?: string; baseUrl?: string } | undefined {
+    return this.o.images;
+  }
+
+  setImages(cfg: { key: string; model?: string; baseUrl?: string } | undefined): void {
+    if (cfg?.key) this.o.redactor?.addSecret("openai-images", cfg.key);
+    if (cfg) this.o.images = cfg;
+    else delete this.o.images;
+  }
+
+  /** Sends a picture to the owner's Telegram (set by the gateway). */
+  sendPhoto: ((ownerId: string, png: Buffer, caption: string) => Promise<void>) | undefined;
+
+  private imageTool(agent: AgentRecord, root: string): Tool {
+    const Input = z.object({
+      prompt: z.string().min(1),
+      size: z.enum(IMAGE_SIZES).optional(),
+      quality: z.enum(IMAGE_QUALITIES).optional(),
+    });
+    return {
+      def: {
+        name: "generate_image",
+        description:
+          "Draw a picture from a description (OpenAI Images) and save it as a PNG in the workspace (images/<date>/). Describe subject, style, colours and text precisely. It costs money: use it when a picture is asked for.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            prompt: { type: "string", description: "What to draw, in detail" },
+            size: { type: "string", enum: [...IMAGE_SIZES] },
+            quality: { type: "string", enum: [...IMAGE_QUALITIES] },
+          },
+          required: ["prompt"],
+        },
+      },
+      schema: Input,
+      run: async (input: z.infer<typeof Input>, ctx) => {
+        const cfg = this.o.images;
+        if (!cfg)
+          return {
+            content:
+              "Image generation is not set up: the human adds an OpenAI key in the configuration.",
+            isError: true,
+          };
+        const keys = budgetKeys(agent, this.registry.resolve);
+        if ((await this.budget.check(keys)).length > 0)
+          return { content: "The budget is exhausted.", isError: true };
+        const live = this.live.get(ctx.sessionId);
+        const progress = (p: ImageProgress) => {
+          for (const f of live?.listeners ?? [])
+            f({ type: "image.progress", sessionId: ctx.sessionId, ...p });
+        };
+        let image: GeneratedImage;
+        try {
+          image = await generateImage(input.prompt, {
+            key: cfg.key,
+            model: cfg.model,
+            baseUrl: cfg.baseUrl,
+            size: input.size,
+            quality: input.quality,
+            onProgress: progress,
+            signal: ctx.signal,
+          });
+        } catch (err) {
+          return { content: (err as Error).message, isError: true };
+        }
+        const now = new Date();
+        const rel = `images/${now.toISOString().slice(0, 10)}/${now.toISOString().slice(11, 19).replace(/:/g, "")}-${imageFileName(input.prompt)}.png`;
+        const abs = await new LocalWorkspace(root).resolve(rel);
+        await mkdir(dirname(abs), { recursive: true });
+        const png = Buffer.from(image.base64, "base64");
+        await writeFile(abs, png);
+        if (image.costUsd !== null || image.tokens > 0)
+          await this.budget.record(
+            keys,
+            {
+              inputTokens: image.tokens,
+              cachedReadTokens: 0,
+              cacheWriteTokens: 0,
+              outputTokens: 0,
+            },
+            image.costUsd ?? 0,
+            { ownerId: ctx.ownerId, projectId: agent.projectId, agentId: agent.id },
+          );
+        // Asked from Telegram (God's work session, fed by Demi-God): the picture goes there too.
+        if (agent.kind === "god" && this.workSessions.get(agent.id) === ctx.sessionId)
+          await this.sendPhoto?.(ctx.ownerId, png, input.prompt.slice(0, 200)).catch(() => {});
+        const cost = image.costUsd !== null ? `, about $${image.costUsd.toFixed(3)}` : "";
+        return `Saved ${rel} (${image.model}${cost}). The human sees it in the chat.`;
+      },
+    } as Tool;
+  }
+
   /** Providers whose key was refused, with the provider's words (shown in the web UI). */
   private readonly keyProblems = new Map<string, string>();
 
@@ -851,6 +957,7 @@ export class RedGiantCore implements OrchestrationHost {
       codeChanges: this.code !== undefined,
       supervised: this.code?.supervised ?? false,
       voice: this.o.transcription !== undefined,
+      images: this.o.images !== undefined,
       keyProblems: [...this.keyProblems].map(([provider, message]) => ({ provider, message })),
       lastGood: release?.lastGood ?? null,
       releases: release?.history.slice(-20).reverse() ?? [],
