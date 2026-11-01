@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { AgentSession, type SendResult, type Tool } from "@redgiant/agent";
+import { AgentSession, type Engine, type SendResult, type Tool } from "@redgiant/agent";
 import {
   type AutomationHost,
   AutomationService,
@@ -39,8 +39,10 @@ import type { Event, ImagePart, ModelSpec, Recipe, ServerMessage } from "@redgia
 import {
   complete,
   costUsd,
+  hasLimits,
   ProviderError,
   type ProviderRegistry,
+  type SubscriptionWindow,
   streamWithFallback,
 } from "@redgiant/providers";
 import {
@@ -555,10 +557,15 @@ export class RedGiantCore implements OrchestrationHost {
     const receivesTasks = ["orchestrator", "agent", "subagent"].includes(agent.kind);
     if (receivesTasks) tools.push(completeTaskTool(agent, ws, this.broker, this.tasks));
     const listeners = new Set<(m: ServerMessage) => void>();
+    // A flat subscription's engine runs the turns (G21); everything else stays the same.
+    const engine = this.o.providers.has(model.provider)
+      ? (this.o.providers.get(model.provider) as { engine?: Engine }).engine
+      : undefined;
     const options = {
       store: this.store,
       providers: this.o.providers,
       model,
+      ...(engine && { engine }),
       system: [this.systemFor(agent), skillsIndex(skills)].filter(Boolean).join("\n\n"),
       tools,
       ...(receivesTasks && { hooks: { stop: [this.tasks.stopHook(agentId)] } }),
@@ -1238,6 +1245,14 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /** The list's own data: a title, pinned, archived (the session's log is never changed). */
+  /** The plans' limits of the flat subscriptions in use (G21); a provider that fails shows none. */
+  async limits(): Promise<{ provider: string; windows: SubscriptionWindow[] }[]> {
+    const out: { provider: string; windows: SubscriptionWindow[] }[] = [];
+    for (const p of this.o.providers.list())
+      if (hasLimits(p)) out.push({ provider: p.id, windows: await p.limits().catch(() => []) });
+    return out;
+  }
+
   /** The models one can pick, by provider; a provider that does not answer offers none. */
   async models(): Promise<{ provider: string; model: string; effort: boolean }[]> {
     const out: { provider: string; model: string; effort: boolean }[] = [];

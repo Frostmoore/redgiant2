@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { KvStore, LocalEngineProvider } from "@redgiant/engine-local";
 import type { Redactor, SqlClient } from "@redgiant/events";
 import {
@@ -5,6 +7,7 @@ import {
   OpenAICompatProvider,
   type ProviderRegistry,
 } from "@redgiant/providers";
+import { ClaudeSubscriptionProvider } from "@redgiant/subscriptions";
 import { migrateTelegram, TelegramGateway } from "@redgiant/telegram";
 import { SearxngSearch } from "@redgiant/tools";
 import type Docker from "dockerode";
@@ -19,6 +22,8 @@ export interface RuntimeOptions {
   redactor: Redactor;
   /** Shared with the HTTP app: the bot can start after the server. */
   telegram: NonNullable<AppOptions["telegram"]>;
+  /** Where the subscription engines keep their own state (`$DATA/engines/…`). */
+  dataDir?: string;
   /** The local engine, when the wizard starts it (Docker installs). */
   engine?: {
     docker: Docker;
@@ -79,6 +84,18 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       gateway = g;
       o.telegram.gateway = g;
       return me;
+    },
+
+    async claudeSubscription(token) {
+      o.providers.remove("claude-subscription");
+      if (token === null) return;
+      if (token) o.redactor.addSecret("claude-subscription", token);
+      const dir = join(o.dataDir ?? ".", "engines", "claude");
+      await mkdir(join(dir, "work"), { recursive: true });
+      o.providers.register(
+        new ClaudeSubscriptionProvider({ token, configDir: dir, cwd: join(dir, "work") }),
+      );
+      o.core.clearKeyProblem("claude-subscription");
     },
 
     async search(url) {

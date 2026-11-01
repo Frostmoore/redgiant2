@@ -38,7 +38,8 @@
     "pg": "^8.23.1",
     "ws": "^8.22.1",
     "yaml": "^2.9.1",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "@redgiant/subscriptions": "workspace:*"
   },
   "devDependencies": {
     "@types/dockerode": "^4.0.2",

@@ -143,6 +143,7 @@ describe("the setup wizard", () => {
       transcription: false,
       ntfy: false,
       images: false,
+      claudeSubscription: false,
     });
     expect(state.budgetUsd).toBe(25);
     expect(state.policy.humanOnly).toEqual(["git-push", "platform"]);

@@ -44,6 +44,9 @@
     },
     {
       "path": "../supervisor"
+    },
+    {
+      "path": "../subscriptions"
     }
   ]
 }

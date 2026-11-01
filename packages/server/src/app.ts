@@ -892,6 +892,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file)}`,
     });
   });
+  // The plans' limits of the flat subscriptions (the header's bars).
+  app.get("/api/limits", async (c) => c.json(await core.limits(), 200));
   // What the composer offers: every provider's models, and whether they take an effort.
   app.get("/api/models", async (c) => c.json(await core.models(), 200));
   app.get("/api/search", async (c) =>
@@ -1411,6 +1413,21 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
             demigod: z.string().trim().min(1).max(40),
             godPrompt: z.string().min(1).nullable().optional(),
             language: z.enum(["it", "en"]).optional(),
+          }),
+        ),
+      ),
+    ),
+  );
+  app.put("/api/setup/subscriptions", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).saveSubscriptions(
+        await parsed(
+          c,
+          z.object({
+            claude: z
+              .object({ token: z.string().min(20).optional() })
+              .nullable()
+              .optional(),
           }),
         ),
       ),

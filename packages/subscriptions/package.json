@@ -1,0 +1,23 @@
+{
+  "name": "@redgiant/subscriptions",
+  "version": "0.1.0",
+  "description": "RedGiant on flat subscriptions through the vendors' own agents: Claude (Agent SDK) and ChatGPT (Codex app server), with RedGiant's tools and the plans' usage limits.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.316",
+    "@redgiant/agent": "workspace:*",
+    "@redgiant/protocol": "workspace:*",
+    "@redgiant/providers": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

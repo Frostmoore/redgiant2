@@ -48,6 +48,9 @@
     },
     {
       "path": "packages/evals"
+    },
+    {
+      "path": "packages/subscriptions"
     }
   ]
 }

@@ -166,6 +166,7 @@ const telegram: { gateway?: TelegramGateway; webhookSecret?: string } = {
 const owner = env.REDGIANT_OWNER ?? "local";
 const docker = sandbox.kind === "docker" ? new Docker() : undefined;
 const hooks = runtimeHooks({
+  dataDir,
   core,
   providers,
   db,
@@ -218,6 +219,9 @@ const setup = new SetupService({
   },
 });
 await setup.applyAtStartup();
+// Claude on a flat subscription from the environment (the wizard's choice otherwise).
+if (env.REDGIANT_CLAUDE_SUBSCRIPTION_TOKEN)
+  await hooks.claudeSubscription?.(env.REDGIANT_CLAUDE_SUBSCRIPTION_TOKEN);
 shutdownHooks.push(async () => setup.stop());
 const modelsDir = env.REDGIANT_MODELS_DIR ?? join(dataDir, "models");
 

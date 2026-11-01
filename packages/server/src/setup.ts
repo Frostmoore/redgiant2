@@ -16,6 +16,8 @@ export interface SetupHooks {
   /** Starts Demi-God's bot (null stops it); returns the bot's username. */
   telegram(token: string | null): Promise<{ username: string } | null>;
   search(url: string | null): Promise<void>;
+  /** Claude on a flat subscription (G21): its token, "" for the login already in its folder, null off. */
+  claudeSubscription?(token: string | null): Promise<void>;
   /** Starts the local engine container with this model file (null stops it). */
   engine(o: { variant: "cpu" | "cuda"; model: string } | null): Promise<void>;
   dockerRuntimes?(): Promise<string[]>;
@@ -29,6 +31,8 @@ export interface SetupConfig {
   searxngUrl?: string;
   /** Speech to text for voice messages; its key, if any, is in the secrets. */
   transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
+  /** Flat subscriptions switched on (their tokens are in the secrets). */
+  subscriptions?: { claude?: boolean; chatgpt?: boolean };
   /** Image generation: the model, when not the default (the OpenAI key is in the secrets). */
   imagesModel?: string;
   /** Push notifications: the ntfy topic's URL (its token, if any, is in the secrets). */
@@ -46,6 +50,7 @@ interface Secrets {
   transcriptionKey?: string;
   ntfyToken?: string;
   openaiImagesKey?: string;
+  claudeSubscriptionToken?: string;
 }
 
 /** What the environment already sets: the wizard shows it and does not change it. */
@@ -70,6 +75,7 @@ export interface SetupState {
     transcription: boolean;
     ntfy: boolean;
     images: boolean;
+    claudeSubscription: boolean;
   };
   locked: Locked;
   providers: string[];
@@ -166,6 +172,8 @@ export class SetupService {
     if (!this.locked.voice && c.transcription) this.applyTranscription();
     if (!this.locked.notifications && c.ntfyUrl) this.applyNtfy();
     if (!this.locked.images && s.openaiImagesKey) this.applyImages();
+    if (c.subscriptions?.claude && h.claudeSubscription)
+      await run("Claude subscription", h.claudeSubscription(s.claudeSubscriptionToken ?? ""));
     if (!this.locked.defaultModel && c.defaultModel) this.o.core.setDefaultModel(c.defaultModel);
     if (c.language) this.o.core.setLanguage(c.language);
     if (!this.locked.telegram && s.telegramToken)
@@ -191,6 +199,7 @@ export class SetupService {
         transcription: Boolean(this.secrets.transcriptionKey),
         ntfy: Boolean(this.secrets.ntfyToken),
         images: Boolean(this.secrets.openaiImagesKey),
+        claudeSubscription: Boolean(this.secrets.claudeSubscriptionToken),
       },
       locked: this.locked,
       providers: this.o.core.providerIds(),
@@ -334,6 +343,31 @@ export class SetupService {
     else delete this.secrets.telegramToken;
     await this.save();
     return bot;
+  }
+
+  /**
+   * Flat subscriptions (G21). Allowed only after the user read the warning on the providers'
+   * terms (RD23): the token alone is not consent.
+   */
+  async saveSubscriptions(s: {
+    claude?: { token?: string | undefined } | null | undefined;
+  }): Promise<void> {
+    if (s.claude !== undefined) {
+      if (s.claude && !this.config.subscriptionAck)
+        throw new SetupError("Read and accept the warning on the providers' terms first");
+      if (!this.o.hooks.claudeSubscription)
+        throw new SetupError("This installation cannot run subscription engines");
+      if (s.claude) {
+        if (s.claude.token) this.secrets.claudeSubscriptionToken = s.claude.token;
+        await this.o.hooks.claudeSubscription(this.secrets.claudeSubscriptionToken ?? "");
+        this.config.subscriptions = { ...this.config.subscriptions, claude: true };
+      } else {
+        await this.o.hooks.claudeSubscription(null);
+        delete this.secrets.claudeSubscriptionToken;
+        this.config.subscriptions = { ...this.config.subscriptions, claude: false };
+      }
+    }
+    await this.save();
   }
 
   /** Push notifications through ntfy; null turns them off. An empty token keeps the saved one. */

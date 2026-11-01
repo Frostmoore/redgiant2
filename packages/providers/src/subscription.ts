@@ -10,6 +10,14 @@ export interface SubscriptionWindow {
   resetsAt?: string | undefined;
 }
 
+/** A provider on a flat subscription: its plan's usage windows (G21). */
+export interface WithLimits {
+  limits(): Promise<SubscriptionWindow[]>;
+}
+
+export const hasLimits = (p: unknown): p is WithLimits =>
+  typeof (p as Partial<WithLimits> | null)?.limits === "function";
+
 export interface SubscriptionSource {
   readonly provider: string;
   /** Link to the provider terms that govern use of the subscription in third-party tools. */
