@@ -129,6 +129,15 @@ export class AnthropicProvider implements Provider {
     return (this.options.serverFallbacks ?? true) && SERVER_FALLBACK_MODELS.has(model);
   }
 
+  /** Asks Anthropic whether the key works (a refused key throws, with its status). */
+  async checkKey(signal?: AbortSignal): Promise<void> {
+    try {
+      await this.client.models.list({ limit: 1 }, signal ? { signal } : undefined);
+    } catch (err) {
+      throw toProviderError(err);
+    }
+  }
+
   async models(): Promise<string[]> {
     // The current generation: older ones still work when named, but are not offered.
     return ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"];

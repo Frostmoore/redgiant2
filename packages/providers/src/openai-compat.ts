@@ -145,6 +145,7 @@ export class OpenAICompatProvider implements Provider {
       throw new ProviderError(
         `${this.id}: HTTP ${response.status} on /models`,
         response.status >= 500,
+        { status: response.status },
       );
     const body = (await response.json()) as {
       data?: {

@@ -5,5 +5,6 @@ export * from "./events.js";
 export * from "./jobs.js";
 export * from "./messages.js";
 export * from "./metrics.js";
+export * from "./providers.js";
 export * from "./questions.js";
 export * from "./wire.js";

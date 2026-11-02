@@ -2,17 +2,21 @@ import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SqlClient } from "@redgiant/events";
 import { DEFAULT_POLICY } from "@redgiant/hierarchy";
-import type { ModelSpec } from "@redgiant/protocol";
+import { keyProvider, type ModelSpec, OWN_SERVER_ID } from "@redgiant/protocol";
+import { ProviderError } from "@redgiant/providers";
 import { stringify } from "yaml";
 import type { RedGiantCore } from "./core.js";
 import { detectHardware, type Hardware } from "./hardware.js";
 
 /** Applies a choice while the server runs (set by main.ts; tests pass fakes). */
 export interface SetupHooks {
-  /** Registers the Anthropic provider with this key (null removes it). */
-  anthropic(key: string | null): Promise<void>;
-  /** Registers an OpenAI-compatible server; returns the models it offers. */
-  openai(o: { baseUrl: string; key?: string | undefined } | null): Promise<string[]>;
+  /**
+   * Registers a provider of the catalog (`KEY_PROVIDERS`) with this key, after checking it;
+   * returns its models. null removes it.
+   */
+  key(id: string, key: string | null): Promise<string[]>;
+  /** Registers the user's own OpenAI-compatible server; returns the models it offers. */
+  server(o: { baseUrl: string; key?: string | undefined } | null): Promise<string[]>;
   /** Starts Demi-God's bot (null stops it); returns the bot's username. */
   telegram(token: string | null): Promise<{ username: string } | null>;
   search(url: string | null): Promise<void>;
@@ -29,7 +33,10 @@ export interface SetupConfig {
   completed: boolean;
   language?: "it" | "en";
   defaultModel?: ModelSpec;
-  openaiBaseUrl?: string;
+  /** Providers connected with a key (the keys are in the secrets). */
+  keyProviders?: string[];
+  /** The user's own OpenAI-compatible server (its key, if any, is in the secrets). */
+  server?: { baseUrl: string };
   searxngUrl?: string;
   /** Speech to text for voice messages; its key, if any, is in the secrets. */
   transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
@@ -44,8 +51,9 @@ export interface SetupConfig {
 }
 
 interface Secrets {
-  anthropicKey?: string;
-  openaiKey?: string;
+  /** Keys of the providers in `KEY_PROVIDERS`, by id. */
+  keys?: Record<string, string>;
+  serverKey?: string;
   telegramToken?: string;
   transcriptionKey?: string;
   openaiImagesKey?: string;
@@ -55,7 +63,7 @@ interface Secrets {
 /** What the environment already sets: the wizard shows it and does not change it. */
 export interface Locked {
   anthropic?: boolean;
-  openai?: boolean;
+  server?: boolean;
   telegram?: boolean;
   defaultModel?: boolean;
   search?: boolean;
@@ -67,8 +75,9 @@ export interface Locked {
 export interface SetupState {
   config: SetupConfig;
   secretsSet: {
-    anthropic: boolean;
-    openai: boolean;
+    /** Providers with a saved key. */
+    keys: string[];
+    server: boolean;
     telegram: boolean;
     transcription: boolean;
     images: boolean;
@@ -81,12 +90,29 @@ export interface SetupState {
   policy: {
     humanOnly: string[];
     disabledDanger: string[];
-    dangers: { id: string; label: string }[];
+    dangers: { id: string }[];
   };
   budgetUsd: number | null;
 }
 
-export class SetupError extends Error {}
+export class SetupError extends Error {
+  /** A code the UI explains in plain words (`key_rejected`, `unreachable`…). */
+  constructor(
+    message: string,
+    readonly code?: string,
+  ) {
+    super(message);
+  }
+}
+
+/** Why a provider could not be connected, in a code the UI explains. */
+function connectError(name: string, err: unknown): SetupError {
+  const status = err instanceof ProviderError ? err.status : undefined;
+  // Gemini answers 400 to a wrong key.
+  if (status === 400 || status === 401 || status === 403)
+    return new SetupError(`${name} refused the key: ${(err as Error).message}`, "key_rejected");
+  return new SetupError(`${name} did not answer: ${(err as Error).message}`, "unreachable");
+}
 
 const DAY = 86_400_000;
 
@@ -125,6 +151,7 @@ export class SetupService {
     this.secrets = await readFile(this.secretsFile, "utf8")
       .then((t) => JSON.parse(t) as Secrets)
       .catch(() => ({}));
+    if (this.migrate()) await this.save();
     // Push notifications through ntfy are gone (G24.1): alerts go to Telegram.
     const old = this.config as { ntfyUrl?: string };
     const oldSecrets = this.secrets as { ntfyToken?: string };
@@ -133,6 +160,32 @@ export class SetupService {
       delete oldSecrets.ntfyToken;
       await this.save();
     }
+  }
+
+  /**
+   * Older settings (before G24.2): one Anthropic key and one OpenAI-compatible server with the
+   * id "openai". The server keeps working under its new id; true when something changed.
+   */
+  private migrate(): boolean {
+    const c = this.config as SetupConfig & { openaiBaseUrl?: string };
+    const s = this.secrets as Secrets & { anthropicKey?: string; openaiKey?: string };
+    let changed = false;
+    if (s.anthropicKey) {
+      s.keys = { ...s.keys, anthropic: s.anthropicKey };
+      c.keyProviders = [...new Set([...(c.keyProviders ?? []), "anthropic"])];
+      delete s.anthropicKey;
+      changed = true;
+    }
+    if (c.openaiBaseUrl) {
+      c.server = { baseUrl: c.openaiBaseUrl };
+      if (s.openaiKey) s.serverKey = s.openaiKey;
+      if (c.defaultModel?.provider === "openai")
+        c.defaultModel = { ...c.defaultModel, provider: OWN_SERVER_ID };
+      delete c.openaiBaseUrl;
+      delete s.openaiKey;
+      changed = true;
+    }
+    return changed;
   }
 
   private async save(): Promise<void> {
@@ -165,12 +218,12 @@ export class SetupService {
     const s = this.secrets;
     const run = (what: string, p: Promise<unknown>) =>
       p.catch((err) => console.warn(`setup: ${what}: ${(err as Error).message}`));
-    if (!this.locked.anthropic && s.anthropicKey)
-      await run("Anthropic", h.anthropic(s.anthropicKey));
-    if (!this.locked.openai && c.openaiBaseUrl)
+    for (const [id, key] of Object.entries(s.keys ?? {}))
+      if (!(id === "anthropic" && this.locked.anthropic)) await run(id, h.key(id, key));
+    if (!this.locked.server && c.server)
       await run(
-        "OpenAI-compatible",
-        h.openai({ baseUrl: c.openaiBaseUrl, ...(s.openaiKey && { key: s.openaiKey }) }),
+        "own server",
+        h.server({ baseUrl: c.server.baseUrl, ...(s.serverKey && { key: s.serverKey }) }),
       );
     if (!this.locked.search && c.searxngUrl) await run("search", h.search(c.searxngUrl));
     if (!this.locked.engine && c.engine) await run("engine", h.engine(c.engine));
@@ -199,8 +252,8 @@ export class SetupService {
     return {
       config: this.config,
       secretsSet: {
-        anthropic: Boolean(this.secrets.anthropicKey),
-        openai: Boolean(this.secrets.openaiKey),
+        keys: Object.keys(this.secrets.keys ?? {}),
+        server: Boolean(this.secrets.serverKey),
         telegram: Boolean(this.secrets.telegramToken),
         transcription: Boolean(this.secrets.transcriptionKey),
         images: Boolean(this.secrets.openaiImagesKey),
@@ -220,16 +273,62 @@ export class SetupService {
       policy: {
         humanOnly: policy.humanOnly ?? DEFAULT_POLICY.humanOnly,
         disabledDanger: policy.disabledDanger,
-        dangers: DEFAULT_POLICY.danger.map((d) => ({ id: d.id, label: d.label })),
+        dangers: DEFAULT_POLICY.danger.map((d) => ({ id: d.id })),
       },
       budgetUsd: global?.limit.usd ?? null,
     };
   }
 
-  /** Step "models": cloud keys, an OpenAI-compatible server, search, and the default model. */
+  /**
+   * A provider of the catalog with the user's key: checked with the provider first, then kept.
+   * null disconnects it. Returns the models it offers.
+   */
+  async saveKey(id: string, key: string | null): Promise<{ models: string[] }> {
+    const p = keyProvider(id);
+    if (!p) throw new SetupError(`Unknown provider "${id}"`);
+    if (id === "anthropic" && this.locked.anthropic)
+      throw new SetupError("The Anthropic key is set by the environment");
+    let models: string[];
+    try {
+      models = await this.o.hooks.key(id, key);
+    } catch (err) {
+      throw connectError(p.name, err);
+    }
+    const keys = { ...this.secrets.keys };
+    if (key) keys[id] = key;
+    else delete keys[id];
+    this.secrets.keys = keys;
+    this.config.keyProviders = Object.keys(keys);
+    await this.save();
+    return { models };
+  }
+
+  /** The user's own OpenAI-compatible server (Ollama, LM Studio, vLLM…); null removes it. */
+  async saveServer(
+    cfg: { baseUrl: string; key?: string | undefined } | null,
+  ): Promise<{ models: string[] }> {
+    if (this.locked.server) throw new SetupError("The server is set by the environment");
+    // An empty key keeps the saved one.
+    const key = cfg?.key || this.secrets.serverKey;
+    let models: string[];
+    try {
+      models = await this.o.hooks.server(cfg && { baseUrl: cfg.baseUrl, ...(key && { key }) });
+    } catch (err) {
+      throw connectError(cfg?.baseUrl ?? "server", err);
+    }
+    if (cfg) {
+      this.config.server = { baseUrl: cfg.baseUrl };
+      if (cfg.key) this.secrets.serverKey = cfg.key;
+    } else {
+      delete this.config.server;
+      delete this.secrets.serverKey;
+    }
+    await this.save();
+    return { models };
+  }
+
+  /** Search, voice messages, pictures and the default model (Settings, General). */
   async saveModels(m: {
-    anthropicKey?: string | null | undefined;
-    openai?: { baseUrl: string; key?: string | undefined } | null | undefined;
     searxngUrl?: string | null | undefined;
     /** null removes the key; a model alone keeps the saved key. */
     images?: { key?: string | undefined; model?: string | undefined } | null | undefined;
@@ -243,23 +342,7 @@ export class SetupService {
       | null
       | undefined;
     defaultModel?: ModelSpec | undefined;
-  }): Promise<{ openaiModels: string[] }> {
-    let openaiModels: string[] = [];
-    if (m.anthropicKey !== undefined && !this.locked.anthropic) {
-      await this.o.hooks.anthropic(m.anthropicKey);
-      if (m.anthropicKey) this.secrets.anthropicKey = m.anthropicKey;
-      else delete this.secrets.anthropicKey;
-    }
-    if (m.openai !== undefined && !this.locked.openai) {
-      openaiModels = await this.o.hooks.openai(m.openai);
-      if (m.openai) {
-        this.config.openaiBaseUrl = m.openai.baseUrl;
-        if (m.openai.key) this.secrets.openaiKey = m.openai.key;
-      } else {
-        delete this.config.openaiBaseUrl;
-        delete this.secrets.openaiKey;
-      }
-    }
+  }): Promise<void> {
     if (m.searxngUrl !== undefined && !this.locked.search) {
       await this.o.hooks.search(m.searxngUrl);
       if (m.searxngUrl) this.config.searxngUrl = m.searxngUrl;
@@ -295,7 +378,6 @@ export class SetupService {
       this.o.core.setDefaultModel(m.defaultModel);
     }
     await this.save();
-    return { openaiModels };
   }
 
   private applyTranscription(): void {

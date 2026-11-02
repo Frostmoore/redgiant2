@@ -1,5 +1,6 @@
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ProviderError } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   detectHardware,
@@ -25,11 +26,16 @@ afterEach(async () => {
 function fakeHooks() {
   const calls: string[] = [];
   const hooks: SetupHooks = {
-    async anthropic(key) {
-      calls.push(`anthropic:${key ? "set" : "removed"}`);
+    async key(id, key) {
+      // Each provider's own way of refusing a key.
+      if (key?.includes("wrong"))
+        throw new ProviderError(`${id}: HTTP 401`, false, { status: id === "gemini" ? 400 : 401 });
+      if (key?.includes("offline")) throw new ProviderError(`${id}: fetch failed`, true);
+      calls.push(`key:${id}:${key ? "set" : "removed"}`);
+      return key ? [`${id}-model`] : [];
     },
-    async openai(cfg) {
-      calls.push(`openai:${cfg?.baseUrl ?? "removed"}`);
+    async server(cfg) {
+      calls.push(`server:${cfg?.baseUrl ?? "removed"}`);
       return cfg ? ["qwen3-8b"] : [];
     },
     async telegram(token) {
@@ -77,16 +83,18 @@ describe("the setup wizard", () => {
     expect(first.names).toEqual({ god: null, demigod: null, godPrompt: null });
 
     const key = "sk-ant-api03-secret-for-the-wizard-test";
+    expect((await api("PUT", "/api/setup/keys/anthropic", { key })).body).toEqual({
+      models: ["anthropic-model"],
+    });
     expect(
-      (
-        await api("PUT", "/api/setup/models", {
-          anthropicKey: key,
-          openai: { baseUrl: "http://llm.local:8080/v1" },
-          searxngUrl: "http://searxng:8080",
-          defaultModel: { provider: "fake", model: "good", effort: "low" },
-        })
-      ).body,
-    ).toEqual({ openaiModels: ["qwen3-8b"] });
+      (await api("PUT", "/api/setup/server", { baseUrl: "http://llm.local:8080/v1" })).body,
+    ).toEqual({
+      models: ["qwen3-8b"],
+    });
+    await api("PUT", "/api/setup/models", {
+      searxngUrl: "http://searxng:8080",
+      defaultModel: { provider: "fake", model: "good", effort: "low" },
+    });
     expect(s?.core.defaultModel).toEqual({ provider: "fake", model: "good", effort: "low" });
     // A model that cannot answer is not made the default.
     const bad = await api<{ error: string }>("PUT", "/api/setup/models", {
@@ -139,8 +147,8 @@ describe("the setup wizard", () => {
       engine: { variant: "cuda", model: "gemma.gguf" },
     });
     expect(state.secretsSet).toEqual({
-      anthropic: true,
-      openai: false,
+      keys: ["anthropic"],
+      server: false,
       telegram: true,
       transcription: false,
       images: false,
@@ -149,8 +157,8 @@ describe("the setup wizard", () => {
     expect(state.budgetUsd).toBe(25);
     expect(state.policy.humanOnly).toEqual(["git-push", "platform"]);
     expect(calls).toEqual([
-      "anthropic:set",
-      "openai:http://llm.local:8080/v1",
+      "key:anthropic:set",
+      "server:http://llm.local:8080/v1",
       "search:http://searxng:8080",
       "telegram:on",
       "engine:cuda:gemma.gguf",
@@ -160,7 +168,7 @@ describe("the setup wizard", () => {
     const secrets = join(dataDir, "secrets.json");
     if (process.platform !== "win32") expect((await stat(secrets)).mode & 0o777).toBe(0o600);
     expect(JSON.parse(await readFile(secrets, "utf8"))).toMatchObject({
-      anthropicKey: key,
+      keys: { anthropic: key },
       telegramToken: "123:ABC-def",
     });
     expect(JSON.stringify(state)).not.toContain(key);
@@ -187,10 +195,9 @@ describe("the setup wizard", () => {
 
   it("applies the saved choices again at the next start, unless the environment sets them", async () => {
     const { service, dataDir } = await setup();
-    await service.saveModels({
-      anthropicKey: "sk-ant-api03-another-secret-value",
-      searxngUrl: "http://s:8080",
-    });
+    await service.saveKey("anthropic", "sk-ant-api03-another-secret-value");
+    await service.saveKey("gemini", "AIza-another-secret-value");
+    await service.saveModels({ searxngUrl: "http://s:8080" });
     await service.saveTelegram("9:TOKEN");
     const again = fakeHooks();
     const next = new SetupService({
@@ -202,8 +209,77 @@ describe("the setup wizard", () => {
       locked: { telegram: true },
     });
     await next.applyAtStartup();
-    expect(again.calls).toEqual(["anthropic:set", "search:http://s:8080"]);
+    expect(again.calls).toEqual(["key:anthropic:set", "key:gemini:set", "search:http://s:8080"]);
     await expect(next.saveTelegram("9:OTHER")).rejects.toThrow(/environment/);
+    next.stop();
+  });
+
+  it("connects providers with a key, and says why one failed", async () => {
+    await setup();
+    const api = (s as Server).api;
+    type Failed = { error: string; code?: string };
+    const wrong = await api<Failed>("PUT", "/api/setup/keys/gemini", { key: "AIza-wrong-key" });
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.code).toBe("key_rejected");
+    expect(wrong.body.error).toMatch(/Google Gemini refused the key/);
+    expect(
+      (await api<Failed>("PUT", "/api/setup/keys/mistral", { key: "offline-key-123" })).body.code,
+    ).toBe("unreachable");
+    expect(
+      (await api<Failed>("PUT", "/api/setup/keys/nope", { key: "12345678" })).body.error,
+    ).toMatch(/Unknown provider/);
+    // Nothing was kept for the keys that failed.
+    expect((await api<SetupState>("GET", "/api/setup")).body.secretsSet.keys).toEqual([]);
+    await api("PUT", "/api/setup/keys/groq", { key: "gsk_good-key-1234" });
+    await api("PUT", "/api/setup/keys/openai", { key: "sk-proj-good-key" });
+    let state = (await api<SetupState>("GET", "/api/setup")).body;
+    expect(state.secretsSet.keys).toEqual(["groq", "openai"]);
+    expect(state.config.keyProviders).toEqual(["groq", "openai"]);
+    await api("DELETE", "/api/setup/keys/groq");
+    state = (await api<SetupState>("GET", "/api/setup")).body;
+    expect(state.secretsSet.keys).toEqual(["openai"]);
+  });
+
+  it("moves settings from before G24.2 to the new shape", async () => {
+    const { dataDir } = await setup();
+    const core = (s as Server).core;
+    await core.db.query(
+      `INSERT INTO rg_settings (owner_id, key, value) VALUES ('me', 'setup', $1)
+       ON CONFLICT (owner_id, key) DO UPDATE SET value = EXCLUDED.value`,
+      [
+        JSON.stringify({
+          completed: true,
+          openaiBaseUrl: "http://llm.local:8080/v1",
+          defaultModel: { provider: "openai", model: "qwen3-8b" },
+        }),
+      ],
+    );
+    await mkdir(dataDir, { recursive: true });
+    await writeFile(
+      join(dataDir, "secrets.json"),
+      JSON.stringify({ anthropicKey: "sk-ant-api03-old-key", openaiKey: "old-server-key" }),
+    );
+    const again = fakeHooks();
+    const next = new SetupService({
+      db: core.db,
+      core,
+      dataDir,
+      ownerId: "me",
+      hooks: again.hooks,
+    });
+    await next.applyAtStartup();
+    expect(again.calls).toEqual(["key:anthropic:set", "server:http://llm.local:8080/v1"]);
+    const state = await next.state();
+    expect(state.config).toMatchObject({
+      keyProviders: ["anthropic"],
+      server: { baseUrl: "http://llm.local:8080/v1" },
+      defaultModel: { provider: "server", model: "qwen3-8b" },
+    });
+    expect(state.config).not.toHaveProperty("openaiBaseUrl");
+    expect(JSON.parse(await readFile(join(dataDir, "secrets.json"), "utf8"))).toEqual({
+      keys: { anthropic: "sk-ant-api03-old-key" },
+      serverKey: "old-server-key",
+    });
     next.stop();
   });
 

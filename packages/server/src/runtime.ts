@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { KvStore, LocalEngineProvider } from "@redgiant/engine-local";
 import type { Redactor, SqlClient } from "@redgiant/events";
+import { keyProvider, OWN_SERVER_ID } from "@redgiant/protocol";
 import {
   AnthropicProvider,
   OpenAICompatProvider,
@@ -42,30 +43,53 @@ const ENGINE = "redgiant-engine";
 export function runtimeHooks(o: RuntimeOptions): SetupHooks {
   let gateway: TelegramGateway | undefined;
   return {
-    async anthropic(key) {
+    async key(id, key) {
+      const entry = keyProvider(id);
+      if (!entry) throw new Error(`Unknown provider "${id}"`);
       if (!key) {
-        o.providers.remove("anthropic");
-        return;
-      }
-      o.redactor.addSecret("anthropic", key);
-      o.providers.register(new AnthropicProvider({ apiKey: key }));
-      o.core.clearKeyProblem("anthropic");
-    },
-
-    async openai(cfg) {
-      if (!cfg) {
-        o.providers.remove("openai");
+        o.providers.remove(id);
         return [];
       }
-      if (cfg.key) o.redactor.addSecret("openai", cfg.key);
+      // Checked before anything is kept: a wrong key fails here.
+      let models: string[];
+      if (entry.kind === "anthropic") {
+        const p = new AnthropicProvider({ apiKey: key });
+        await p.checkKey(AbortSignal.timeout(20_000));
+        models = await p.models();
+        o.providers.register(p);
+      } else {
+        const p = new OpenAICompatProvider({
+          id,
+          baseURL: entry.baseUrl ?? "",
+          apiKey: key,
+          effortStyle: entry.effortStyle,
+          defaultContextWindow: entry.contextWindow,
+          // Cloud APIs do not take back the reasoning they sent (some reject it).
+          replayReasoning: false,
+          sendCacheKey: id === "openai",
+        });
+        models = (await p.discover(AbortSignal.timeout(20_000))).map((m) => m.id);
+        o.providers.register(p);
+      }
+      o.redactor.addSecret(id, key);
+      o.core.clearKeyProblem(id);
+      return models;
+    },
+
+    async server(cfg) {
+      if (!cfg) {
+        o.providers.remove(OWN_SERVER_ID);
+        return [];
+      }
       const p = new OpenAICompatProvider({
-        id: "openai",
+        id: OWN_SERVER_ID,
         baseURL: cfg.baseUrl,
         ...(cfg.key && { apiKey: cfg.key }),
       });
-      const models = await p.discover();
+      const models = await p.discover(AbortSignal.timeout(20_000));
+      if (cfg.key) o.redactor.addSecret(OWN_SERVER_ID, cfg.key);
       o.providers.register(p);
-      o.core.clearKeyProblem("openai");
+      o.core.clearKeyProblem(OWN_SERVER_ID);
       return models.map((m) => m.id);
     },
 

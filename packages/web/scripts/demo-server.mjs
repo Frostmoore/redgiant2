@@ -301,8 +301,8 @@ const setup = new SetupService({
   dataDir: join(dir, "data"),
   ownerId: "local",
   hooks: {
-    anthropic: async () => {},
-    openai: async () => [],
+    key: async () => [],
+    server: async () => [],
     telegram: async () => null,
     search: async () => {},
     engine: async () => {},

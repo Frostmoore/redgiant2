@@ -1389,7 +1389,11 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     try {
       return c.json((await f()) ?? { ok: true }, 200);
     } catch (err) {
-      return c.json({ error: (err as Error).message }, 400);
+      const code = (err as { code?: unknown }).code;
+      return c.json(
+        { error: (err as Error).message, ...(typeof code === "string" && { code }) },
+        400,
+      );
     }
   };
   const parsed = async <T extends z.ZodType>(c: Context<Env>, schema: T): Promise<z.infer<T>> => {
@@ -1406,11 +1410,6 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         await parsed(
           c,
           z.object({
-            anthropicKey: z.string().min(10).nullable().optional(),
-            openai: z
-              .object({ baseUrl: z.url(), key: z.string().optional() })
-              .nullable()
-              .optional(),
             searxngUrl: z.url().nullable().optional(),
             images: z
               .object({ key: z.string().min(10).optional(), model: z.string().min(1).optional() })
@@ -1430,6 +1429,29 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         ),
       ),
     ),
+  );
+  // A provider of the catalog with the user's key: checked, then kept (G24.2).
+  app.put("/api/setup/keys/:id", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).saveKey(
+        c.req.param("id"),
+        (await parsed(c, z.object({ key: z.string().trim().min(8).max(500) }))).key,
+      ),
+    ),
+  );
+  app.delete("/api/setup/keys/:id", (c) =>
+    wizard(c, async () => (setup as SetupService).saveKey(c.req.param("id"), null)),
+  );
+  // The user's own OpenAI-compatible server (Ollama, LM Studio, vLLM…).
+  app.put("/api/setup/server", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).saveServer(
+        await parsed(c, z.object({ baseUrl: z.url(), key: z.string().optional() })),
+      ),
+    ),
+  );
+  app.delete("/api/setup/server", (c) =>
+    wizard(c, async () => (setup as SetupService).saveServer(null)),
   );
   app.put("/api/setup/engine", (c) =>
     wizard(c, async () =>

@@ -201,7 +201,7 @@ const setup = new SetupService({
   hooks,
   locked: {
     anthropic: Boolean(env.ANTHROPIC_API_KEY),
-    openai: Boolean(env.REDGIANT_OPENAI_BASE_URL),
+    server: Boolean(env.REDGIANT_OPENAI_BASE_URL),
     telegram: Boolean(tgToken),
     defaultModel: Boolean(defaultModel),
     search: Boolean(env.REDGIANT_SEARXNG_URL),
