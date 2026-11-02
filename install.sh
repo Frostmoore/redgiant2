@@ -72,19 +72,20 @@ done
 cd "$HOME_DIR"
 
 # 3. Settings -----------------------------------------------------------------------------------
+set_env() { # key value: replaces the line or appends it
+  if grep -q "^$1=" .env; then
+    local tmp
+    tmp=$(mktemp)
+    awk -v k="$1" -v v="$2" 'BEGIN { FS = OFS = "=" } $1 == k { print k, v; next } { print }' .env >"$tmp"
+    cat "$tmp" >.env
+    rm -f "$tmp"
+  else
+    echo "$1=$2" >>.env
+  fi
+}
 if [ ! -f .env ]; then
   umask 077
   cp .env.example .env
-  set_env() { # key value: replaces the line or appends it
-    if grep -q "^$1=" .env; then
-      local tmp
-      tmp=$(mktemp)
-      awk -v k="$1" -v v="$2" 'BEGIN { FS = OFS = "=" } $1 == k { print k, v; next } { print }' .env >"$tmp"
-      mv "$tmp" .env
-    else
-      echo "$1=$2" >>.env
-    fi
-  }
   set_env REDGIANT_TOKEN "$(secret 40)"
   set_env POSTGRES_PASSWORD "$(secret 32)"
   set_env REDGIANT_PORT "$PORT"
@@ -94,6 +95,34 @@ if [ ! -f .env ]; then
   say "Settings written to $HOME_DIR/.env (keep it private: it holds your token)"
 else
   say "Keeping the existing settings in $HOME_DIR/.env"
+fi
+# The GPUs, for the local engine (G24.3): RedGiant runs in a container and cannot see them.
+# "name:GB;…" (0 GB: memory unknown or shared), and how containers reach a GPU that is not
+# NVIDIA's (Vulkan): /dev/dri on Linux. (In Windows' WSL there is no such way yet.)
+gpu_names() {
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null |
+      awk -F', *' '{ printf "%s:%.1f;", $1, $2 / 1024 }'
+  fi
+  for card in /sys/class/drm/card[0-9]; do
+    [ -r "$card/device/vendor" ] || continue
+    vendor=$(cat "$card/device/vendor")
+    [ "$vendor" = 0x10de ] && continue # NVIDIA: nvidia-smi above
+    slot=$(basename "$(readlink -f "$card/device")")
+    name=$(lspci -s "$slot" 2>/dev/null | sed 's/^[^:]*: *//; s/^[^:]*: *//' || true)
+    case "$vendor" in 0x1002) name=${name:-AMD Radeon GPU} ;; 0x8086) name=${name:-Intel GPU} ;; *) name=${name:-GPU} ;; esac
+    vram=0
+    [ -r "$card/device/mem_info_vram_total" ] && vram=$(awk '{ printf "%.1f", $1 / 1073741824 }' "$card/device/mem_info_vram_total")
+    printf "%s:%s;" "${name//[:;]/ }" "$vram"
+  done
+}
+if [ "$os" = Linux ] && [ "${REDGIANT_SKIP_GPU:-}" != 1 ]; then
+  set_env REDGIANT_HOST_GPUS "$(gpu_names | sed 's/;$//')"
+  if [ ! -e /dev/dxg ] && ls /dev/dri/renderD* >/dev/null 2>&1; then
+    set_env REDGIANT_ENGINE_GPU dri
+  else
+    set_env REDGIANT_ENGINE_GPU ""
+  fi
 fi
 token=$(grep '^REDGIANT_TOKEN=' .env | cut -d= -f2-)
 PORT=$(grep '^REDGIANT_PORT=' .env | cut -d= -f2- || echo "$PORT")

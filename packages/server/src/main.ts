@@ -173,7 +173,9 @@ const hooks = runtimeHooks({
         image: {
           cpu: env.REDGIANT_ENGINE_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:cpu",
           cuda: env.REDGIANT_ENGINE_CUDA_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:cuda",
+          vulkan: env.REDGIANT_ENGINE_VULKAN_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:vulkan",
         },
+        gpuAccess: env.REDGIANT_ENGINE_GPU === "dri" ? "dri" : "",
         network: env.REDGIANT_ENGINE_NETWORK,
         modelsVolume: env.REDGIANT_MODELS_VOLUME ?? "redgiant-models",
         kvVolume: env.REDGIANT_KV_VOLUME ?? "redgiant-kv",

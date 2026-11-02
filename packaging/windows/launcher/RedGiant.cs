@@ -14,6 +14,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 static class Texts
 {
@@ -140,22 +141,58 @@ sealed class Launcher : ApplicationContext
         return false;
     }
 
+    // Windows' display adapters (G24.3): every GPU, NVIDIA or not, with its real memory, as
+    // "name:GB;name:GB". The registry keeps the memory as a 64-bit number (WMI stops at 4 GB).
+    static string WindowsGpus()
+    {
+        var list = new List<string>();
+        try
+        {
+            using (var cls = Registry.LocalMachine.OpenSubKey(
+                @"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"))
+            {
+                if (cls == null) return "";
+                foreach (var sub in cls.GetSubKeyNames())
+                {
+                    if (sub.Length != 4) continue;
+                    using (var k = cls.OpenSubKey(sub))
+                    {
+                        if (k == null) continue;
+                        var name = k.GetValue("DriverDesc") as string;
+                        if (string.IsNullOrEmpty(name) || name.Contains("Microsoft") || name.Contains("Remote")) continue;
+                        long bytes = 0;
+                        object q = k.GetValue("HardwareInformation.qwMemorySize");
+                        object d = k.GetValue("HardwareInformation.MemorySize");
+                        if (q is long) bytes = (long)q;
+                        else if (d is int) bytes = (uint)(int)d;
+                        else if (d is byte[] && ((byte[])d).Length >= 4) bytes = BitConverter.ToUInt32((byte[])d, 0);
+                        string gb = (bytes / 1073741824.0).ToString("0.0", CultureInfo.InvariantCulture);
+                        list.Add(name.Replace(":", " ").Replace(";", " ").Trim() + ":" + gb);
+                    }
+                }
+            }
+        }
+        catch (Exception) { }
+        return string.Join(";", list.ToArray());
+    }
+
     void StartEngine()
     {
         url = null;
-        engine = new Process
+        var info = new ProcessStartInfo("wsl.exe", "-d " + Distro + " -u root -- /usr/local/bin/redgiant-wsl run")
         {
-            StartInfo = new ProcessStartInfo("wsl.exe", "-d " + Distro + " -u root -- /usr/local/bin/redgiant-wsl run")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                // The script inside writes UTF-8.
-                StandardOutputEncoding = Encoding.UTF8,
-            },
-            EnableRaisingEvents = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            // The script inside writes UTF-8.
+            StandardOutputEncoding = Encoding.UTF8,
         };
+        // The GPUs reach the distribution through WSLENV (only the variables it names cross over).
+        info.EnvironmentVariables["REDGIANT_WIN_GPUS"] = WindowsGpus();
+        string wslenv = Environment.GetEnvironmentVariable("WSLENV") ?? "";
+        info.EnvironmentVariables["WSLENV"] = (wslenv.Length > 0 ? wslenv + ":" : "") + "REDGIANT_WIN_GPUS/u";
+        engine = new Process { StartInfo = info, EnableRaisingEvents = true };
         string port = "7600", token = "";
         engine.OutputDataReceived += (s, e) =>
         {

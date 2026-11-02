@@ -1,12 +1,19 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ProviderError } from "@redgiant/providers";
+import type { Job } from "@redgiant/protocol";
+import { FakeProvider, ProviderError } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  describeGpu,
   detectHardware,
+  engineError,
   type GgufFile,
   HuggingFace,
   hostGpus,
+  isModelFile,
+  Jobs,
+  localModelChoices,
+  qualityOf,
   quantOf,
   type SetupHooks,
   SetupService,
@@ -125,7 +132,13 @@ describe("the setup wizard", () => {
       username: "my_bot",
     });
 
-    await api("PUT", "/api/setup/engine", { engine: { variant: "cuda", model: "gemma.gguf" } });
+    // Starting the engine is a job; it is kept only once the model answers.
+    s?.core.providers.register(new FakeProvider(() => ({ text: "OK" }), { id: "local" }));
+    const job = await api<Job>("PUT", "/api/setup/engine", {
+      engine: { variant: "cuda", model: "gemma.gguf" },
+    });
+    expect(job.body.steps.map((x) => x.id)).toEqual(["image", "start", "load", "try"]);
+    expect((await s?.core.jobs.settled(job.body.id))?.state).toBe("done");
     expect(
       (await api("PUT", "/api/setup/engine", { engine: { variant: "cpu", model: "../x.gguf" } }))
         .status,
@@ -296,21 +309,68 @@ describe("the setup wizard", () => {
 });
 
 describe("the GPUs of the host", () => {
-  it("come from REDGIANT_HOST_GPUS when the server cannot see them, and say so in data, not words", async () => {
-    expect(hostGpus("NVIDIA GeForce RTX 4080 SUPER:16;bad;Other:0;Second GPU:8.5")).toEqual([
-      { name: "NVIDIA GeForce RTX 4080 SUPER", vramGb: 16 },
-      { name: "Second GPU", vramGb: 8.5 },
+  it("come from REDGIANT_HOST_GPUS when the server cannot see them, with their maker", () => {
+    expect(
+      hostGpus("NVIDIA GeForce RTX 4080 SUPER:16;bad;Intel(R) UHD Graphics 770:0;Second GPU:8.5"),
+    ).toEqual([
+      { name: "NVIDIA GeForce RTX 4080 SUPER", vramGb: 16, vendor: "nvidia", integrated: false },
+      { name: "Intel(R) UHD Graphics 770", vramGb: 0, vendor: "intel", integrated: true },
+      { name: "Second GPU", vramGb: 8.5, vendor: "other", integrated: false },
     ]);
-    const h = await detectHardware({
-      dataDir: "/tmp",
-      gpus: async () => [],
-      hostGpus: "NVIDIA GeForce RTX 4080 SUPER:16",
-      dockerRuntimes: async () => ["nvidia", "runc"],
+  });
+
+  it("tells discrete cards from the ones built into the processor", () => {
+    const kind = (name: string, gb: number) => {
+      const g = describeGpu(name, gb);
+      return `${g.vendor}${g.integrated ? " integrated" : ""}`;
+    };
+    expect(kind("AMD Radeon RX 7900 XTX", 24)).toBe("amd");
+    expect(kind("AMD Radeon(TM) Graphics", 0.5)).toBe("amd integrated");
+    expect(kind("AMD Radeon 780M", 2)).toBe("amd integrated");
+    expect(kind("Intel(R) Arc(TM) A770 Graphics", 16)).toBe("intel");
+    expect(kind("Intel(R) Iris(R) Xe Graphics", 2)).toBe("intel integrated");
+    expect(kind("NVIDIA RTX A2000", 6)).toBe("nvidia");
+  });
+
+  it("suggests CUDA, Vulkan or the CPU by what the containers can reach", async () => {
+    const h = (hostGpus: string, runtimes: string[], gpuAccess = "") =>
+      detectHardware({
+        dataDir: "/tmp",
+        gpus: async () => [],
+        hostGpus,
+        gpuAccess,
+        dockerRuntimes: async () => runtimes,
+      }).then((x) => x.suggestion);
+    expect(await h("NVIDIA GeForce RTX 4080 SUPER:16", ["nvidia", "runc"])).toEqual({
+      engine: "cuda",
+      maxModelGb: 12.8,
+      kind: "gpu",
+      vramGb: 16,
     });
-    expect(h.suggestion).toEqual({ engine: "cuda", maxModelGb: 12.8, kind: "gpu", vramGb: 16 });
-    const cpu = await detectHardware({ dataDir: "/tmp", gpus: async () => [], hostGpus: "" });
-    expect(cpu.suggestion).toMatchObject({ engine: "cpu", kind: "cpu", vramGb: 0 });
-    expect(cpu.suggestion.maxModelGb).toBeLessThanOrEqual(6);
+    // Docker's NVIDIA runtime alone: a GPU of unknown memory.
+    expect(await h("", ["nvidia"])).toMatchObject({ engine: "cuda", kind: "gpu-unknown" });
+    expect(await h("AMD Radeon RX 7800 XT:16", ["runc"], "dri")).toEqual({
+      engine: "vulkan",
+      maxModelGb: 12.8,
+      kind: "gpu",
+      vramGb: 16,
+    });
+    // An NVIDIA card without the NVIDIA runtime, on Linux: Vulkan.
+    expect(await h("NVIDIA GeForce RTX 3060:12", ["runc"], "dri")).toMatchObject({
+      engine: "vulkan",
+    });
+    const igpu = await h("Intel(R) Iris(R) Xe Graphics:0", ["runc"], "dri");
+    expect(igpu).toMatchObject({ engine: "vulkan", kind: "igpu", vramGb: 0 });
+    expect(igpu.maxModelGb).toBeLessThanOrEqual(8);
+    // A GPU the containers cannot reach is no use (AMD and Intel on Windows, for now): the CPU.
+    expect(await h("AMD Radeon RX 7800 XT:16", ["runc"], "wsl")).toMatchObject({ engine: "cpu" });
+    expect(await h("AMD Radeon RX 7800 XT:16", ["runc"], "")).toMatchObject({
+      engine: "cpu",
+      kind: "cpu",
+    });
+    const cpu = await h("", []);
+    expect(cpu).toMatchObject({ engine: "cpu", kind: "cpu", vramGb: 0 });
+    expect(cpu.maxModelGb).toBeLessThanOrEqual(6);
   });
 });
 
@@ -332,19 +392,66 @@ describe("Hugging Face models", () => {
     expect(suggest(files, 1)).toBeUndefined();
   });
 
-  it("searches, lists GGUF files and downloads one with progress", async () => {
-    const payload = new Uint8Array(1500).fill(7);
-    const fake = (async (url: string) => {
+  it("keeps only the files that are models", () => {
+    for (const f of [
+      "MTP/mtp-gemma-4-12b-it-Q8_0.gguf",
+      "mtp-gemma-4-12b-it.gguf",
+      "mmproj-F16.gguf",
+      "imatrix_unsloth.gguf",
+      "BF16/Qwen3.8-27B-BF16-00001-of-00002.gguf",
+      "gemma-4-12b-it-BF16.gguf",
+      "gpt-oss-20b-F16.gguf",
+    ])
+      expect(isModelFile(f), f).toBe(false);
+    for (const f of [
+      "gemma-4-12b-it-Q4_K_M.gguf",
+      "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+      "gemma-4-26B-A4B-it-MXFP4_MOE.gguf",
+    ])
+      expect(isModelFile(f), f).toBe(true);
+    expect(quantOf("Qwen3.8-27B-UD-Q4_K_XL.gguf")).toBe("UD-Q4_K_XL");
+    expect(quantOf("gemma-4-26B-A4B-it-MXFP4_MOE.gguf")).toBe("MXFP4_MOE");
+    expect([qualityOf("Q8_0"), qualityOf("UD-Q4_K_XL"), qualityOf("UD-IQ3_XXS")]).toEqual([
+      "high",
+      "good",
+      "reduced",
+    ]);
+  });
+
+  it("downloads a model as a job, and a paused download goes on from where it was", async () => {
+    const payload = new Uint8Array(1500).map((_, i) => i % 251);
+    const ranges: (string | null)[] = [];
+    let cut = true;
+    const fake = (async (url: string, init?: RequestInit) => {
       if (url.includes("/api/models?search="))
         return Response.json([{ id: "acme/tiny-GGUF", downloads: 10, likes: 2 }]);
       if (url.includes("/tree/main"))
         return Response.json([
           { path: "tiny-Q4_K_M.gguf", lfs: { size: 2 * 1024 ** 3 } },
           { path: "mmproj-tiny-f16.gguf", size: 10 },
+          { path: "MTP/mtp-tiny-Q8_0.gguf", size: 10 },
           { path: "README.md", size: 5 },
         ]);
-      if (url.endsWith("/resolve/main/tiny-Q4_K_M.gguf"))
-        return new Response(payload, { headers: { "content-length": "1500" } });
+      if (url.endsWith("/resolve/main/tiny-Q4_K_M.gguf")) {
+        const range = new Headers(init?.headers).get("range");
+        ranges.push(range);
+        const from = range ? Number(range.slice(6, -1)) : 0;
+        const rest = payload.slice(from);
+        // The first time the connection drops after 600 bytes.
+        const body = cut
+          ? new ReadableStream({
+              start(c) {
+                c.enqueue(rest.slice(0, 600));
+                setTimeout(() => c.error(new Error("connection reset")), 100);
+              },
+            })
+          : rest;
+        cut = false;
+        return new Response(body, {
+          status: range ? 206 : 200,
+          headers: { "content-length": String(rest.length) },
+        });
+      }
       return new Response("no", { status: 404 });
     }) as typeof fetch;
     s = await startServer(() => ({ text: "x" }));
@@ -354,11 +461,77 @@ describe("Hugging Face models", () => {
     expect(await hf.files("acme/tiny-GGUF")).toEqual([
       { file: "tiny-Q4_K_M.gguf", sizeGb: 2, quant: "Q4_K_M" },
     ]);
-    expect(() => hf.start("acme/tiny-GGUF", "../../etc/passwd.gguf")).toThrow();
-    const d = hf.start("acme/tiny-GGUF", "tiny-Q4_K_M.gguf");
-    for (let i = 0; i < 100 && d.state === "running"; i++)
-      await new Promise((r) => setTimeout(r, 20));
-    expect(d).toMatchObject({ state: "done", bytes: 1500, total: 1500 });
-    expect((await readFile(join(dir, "tiny-Q4_K_M.gguf"))).length).toBe(1500);
+    const jobs = new Jobs();
+    const run = () =>
+      jobs.start("me", "model_download", ["download"], (h) =>
+        hf.download("acme/tiny-GGUF", "tiny-Q4_K_M.gguf", h),
+      );
+    const bad = jobs.start("me", "model_download", ["download"], (h) =>
+      hf.download("acme/tiny-GGUF", "../../etc/passwd.gguf", h),
+    );
+    expect((await jobs.settled(bad.id))?.error?.code).toBe("bad_file");
+    const first = await jobs.settled(run().id);
+    expect(first?.state).toBe("failed");
+    expect(await hf.local()).toEqual([{ file: "tiny-Q4_K_M.gguf", bytes: 600, partial: true }]);
+    const second = await jobs.settled(run().id);
+    expect(second?.state).toBe("done");
+    expect(ranges).toEqual([null, "bytes=600-"]);
+    expect(new Uint8Array(await readFile(join(dir, "tiny-Q4_K_M.gguf")))).toEqual(payload);
+    expect(await hf.local()).toEqual([{ file: "tiny-Q4_K_M.gguf", bytes: 1500, partial: false }]);
+    await hf.remove("tiny-Q4_K_M.gguf");
+    expect(await hf.local()).toEqual([]);
+    await expect(hf.remove("../x.gguf")).rejects.toThrow();
+  });
+
+  it("suggests models that fit, with the best file for this computer", async () => {
+    const fake = (async (url: string) =>
+      Response.json(
+        url.includes("gemma-4-12b")
+          ? [
+              { path: "gemma-4-12b-it-Q4_K_M.gguf", size: 7.1 * 1024 ** 3 },
+              { path: "gemma-4-12b-it-Q8_0.gguf", size: 12.7 * 1024 ** 3 },
+              { path: "MTP/mtp-gemma-4-12b-it-Q8_0.gguf", size: 0.5 * 1024 ** 3 },
+            ]
+          : url.includes("E2B")
+            ? [{ path: "gemma-4-E2B-it-Q4_K_M.gguf", size: 3.1 * 1024 ** 3 }]
+            : url.includes("E4B")
+              ? new Response("down", { status: 503 })
+              : [{ path: "big-Q4_K_M.gguf", size: 17 * 1024 ** 3 }],
+      )) as typeof fetch;
+    const hf = new HuggingFace("/tmp/none", (async (u: string) => {
+      const r = await fake(u);
+      return r instanceof Response ? r : Response.json(r);
+    }) as typeof fetch);
+    const list = await localModelChoices(hf, 12.8);
+    const byId = Object.fromEntries(list.map((m) => [m.id, m]));
+    expect(byId["gemma-4-12b"]?.file).toMatchObject({
+      file: "gemma-4-12b-it-Q8_0.gguf",
+      quality: "high",
+    });
+    expect(byId["gemma-4-e2b"]?.file).toMatchObject({ quant: "Q4_K_M", quality: "good" });
+    expect(byId["gemma-4-e4b"]).toMatchObject({ file: null, unavailable: true });
+    expect(byId["qwen3.8-27b"]).toMatchObject({ file: null, smallestGb: 17 });
+    expect((await localModelChoices(hf, 8))[2]?.file?.file).toBe("gemma-4-12b-it-Q4_K_M.gguf");
+  });
+
+  it("explains why the engine did not start", () => {
+    expect(
+      engineError(
+        "ggml_backend_cuda_buffer_type_alloc_buffer: allocating 9000 MiB on device 0: cudaMalloc failed: out of memory",
+      ),
+    ).toBe("out_of_memory");
+    expect(
+      engineError(
+        'docker: Error response from daemon: could not select device driver "nvidia" with capabilities: [[gpu]]',
+      ),
+    ).toBe("no_gpu");
+    expect(engineError("ggml_vulkan: No devices found.")).toBe("no_gpu");
+    expect(engineError("warning: no usable GPU found, --gpu-layers option will be ignored")).toBe(
+      "no_gpu",
+    );
+    expect(
+      engineError("llama_model_load: error loading model: unknown model architecture: 'mtp'"),
+    ).toBe("bad_model");
+    expect(engineError("all good")).toBeUndefined();
   });
 });

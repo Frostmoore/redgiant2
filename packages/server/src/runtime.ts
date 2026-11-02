@@ -14,6 +14,8 @@ import { SearxngSearch } from "@redgiant/tools";
 import type Docker from "dockerode";
 import type { AppOptions } from "./app.js";
 import type { RedGiantCore } from "./core.js";
+import type { GpuAccess } from "./hardware.js";
+import { JobFailure, type JobHandle } from "./jobs.js";
 import type { SetupHooks } from "./setup.js";
 
 export interface RuntimeOptions {
@@ -28,7 +30,9 @@ export interface RuntimeOptions {
   /** The local engine, when the wizard starts it (Docker installs). */
   engine?: {
     docker: Docker;
-    image: { cpu: string; cuda: string };
+    image: { cpu: string; cuda: string; vulkan: string };
+    /** How the engine reaches a GPU that is not NVIDIA's (Vulkan): Linux's /dev/dri. */
+    gpuAccess?: GpuAccess;
     network: string;
     modelsVolume: string;
     kvVolume: string;
@@ -142,7 +146,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       o.core.setSearch(url ? new SearxngSearch(url) : undefined);
     },
 
-    async engine(cfg) {
+    async engine(cfg, h) {
       const e = o.engine;
       if (!e) throw new Error("The local engine needs RedGiant's Docker installation");
       await e.docker
@@ -153,60 +157,96 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         o.providers.remove("local");
         return;
       }
-      const image = cfg.variant === "cuda" ? e.image.cuda : e.image.cpu;
+      const image = e.image[cfg.variant];
       const present = await e.docker
         .getImage(image)
         .inspect()
         .then(() => true)
         .catch(() => false);
-      if (!present) {
-        const stream = await e.docker.pull(image);
-        await new Promise<void>((resolve, reject) =>
-          e.docker.modem.followProgress(stream, (err) => (err ? reject(err) : resolve())),
+      if (present) h?.skip("image");
+      else {
+        h?.step("image");
+        await pullWithProgress(e.docker, image, h);
+      }
+      h?.step("start");
+      const gpu = cfg.variant !== "cpu";
+      let container: Docker.Container;
+      try {
+        container = await e.docker.createContainer({
+          name: ENGINE,
+          Image: image,
+          Cmd: ["-m", `/models/${cfg.model}`, ...(gpu ? ["--n-gpu-layers", "999"] : [])],
+          Labels: { "io.redgiant.engine": "1" },
+          HostConfig: {
+            RestartPolicy: { Name: "unless-stopped" },
+            NetworkMode: e.network,
+            Mounts: [
+              { Type: "volume", Source: e.modelsVolume, Target: "/models", ReadOnly: true },
+              { Type: "volume", Source: e.kvVolume, Target: "/kv" },
+            ],
+            ...(cfg.variant === "cuda" && {
+              DeviceRequests: [{ Driver: "nvidia", Count: -1, Capabilities: [["gpu"]] }],
+            }),
+            ...(cfg.variant === "vulkan" && {
+              Devices: [
+                { PathOnHost: "/dev/dri", PathInContainer: "/dev/dri", CgroupPermissions: "rwm" },
+              ],
+            }),
+          },
+        });
+        await container.start();
+      } catch (err) {
+        throw new JobFailure(
+          engineError(String((err as Error).message)) ?? "start",
+          (err as Error).message,
         );
       }
-      const container = await e.docker.createContainer({
-        name: ENGINE,
-        Image: image,
-        Cmd: [
-          "-m",
-          `/models/${cfg.model}`,
-          ...(cfg.variant === "cuda" ? ["--n-gpu-layers", "999"] : []),
-        ],
-        Labels: { "io.redgiant.engine": "1" },
-        HostConfig: {
-          RestartPolicy: { Name: "unless-stopped" },
-          NetworkMode: e.network,
-          Mounts: [
-            { Type: "volume", Source: e.modelsVolume, Target: "/models", ReadOnly: true },
-            { Type: "volume", Source: e.kvVolume, Target: "/kv" },
-          ],
-          ...(cfg.variant === "cuda" && {
-            DeviceRequests: [{ Driver: "nvidia", Count: -1, Capabilities: [["gpu"]] }],
-          }),
-        },
-      });
-      await container.start();
       const provider = new LocalEngineProvider({
         id: "local",
         baseURL: `http://${ENGINE}:8080`,
         kv: new KvStore(e.kvDir),
       });
       o.providers.register(provider);
-      // The model takes a while to load: connect in the background.
-      void (async () => {
-        for (let i = 0; i < 120; i++) {
-          if (
-            await provider.connect().then(
-              () => true,
-              () => false,
-            )
-          )
-            return;
-          await new Promise((r) => setTimeout(r, 5000));
+      const connect = () =>
+        provider.connect().then(
+          () => true,
+          () => false,
+        );
+      if (!h) {
+        // At startup nobody waits: connect in the background.
+        void (async () => {
+          for (let i = 0; i < 120; i++) {
+            if (await connect()) return;
+            await new Promise((r) => setTimeout(r, 5000));
+          }
+          console.warn("engine: the local engine did not answer within 10 minutes");
+        })();
+        return;
+      }
+      // Loading a model takes from seconds to minutes; a container that stops tells why.
+      h.step("load");
+      const deadline = Date.now() + 15 * 60_000;
+      while (!(await connect())) {
+        if (h.signal.aborted) throw new Error("cancelled");
+        const state = await container.inspect().catch(() => undefined);
+        if (state && (!state.State.Running || state.RestartCount > 0)) {
+          const logs = await engineLogs(container);
+          o.providers.remove("local");
+          await container.remove({ force: true }).catch(() => {});
+          throw new JobFailure(engineError(logs) ?? "engine_stopped", logs.slice(-1500));
         }
-        console.warn("engine: the local engine did not answer within 10 minutes");
-      })();
+        if (Date.now() > deadline) {
+          o.providers.remove("local");
+          throw new JobFailure("load_timeout", "The model did not load within 15 minutes");
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      // llama.cpp falls back to the CPU when it finds no GPU, saying so only in its log.
+      if (gpu && /no usable GPU found/i.test(await engineLogs(container))) {
+        o.providers.remove("local");
+        await container.remove({ force: true }).catch(() => {});
+        throw new JobFailure("no_gpu", "llama.cpp found no usable GPU and would run on the CPU");
+      }
     },
 
     async dockerRuntimes() {
@@ -215,4 +255,83 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       return Object.keys(info.Runtimes ?? {});
     },
   };
+}
+
+/** Why the engine could not start, from what llama.cpp or Docker said; undefined if unknown. */
+export function engineError(text: string): string | undefined {
+  if (
+    /out of memory|failed to allocate|cudaMalloc failed|ErrorOutOfDeviceMemory|unable to allocate|not enough memory/i.test(
+      text,
+    )
+  )
+    return "out_of_memory";
+  if (
+    /could not select device driver|no CUDA-capable device|no usable GPU|ggml_vulkan: No devices|Failed to initialize Vulkan|error gathering device information|\/dev\/dri.*(no such file|not found)/i.test(
+      text,
+    )
+  )
+    return "no_gpu";
+  if (
+    /failed to load model|invalid magic|unknown model architecture|error loading model|gguf_init_from_file/i.test(
+      text,
+    )
+  )
+    return "bad_model";
+  if (/no such file or directory|failed to open/i.test(text)) return "model_missing";
+  return undefined;
+}
+
+/** The last lines the engine wrote. */
+async function engineLogs(container: Docker.Container): Promise<string> {
+  const raw = (await container
+    .logs({ stdout: true, stderr: true, tail: 60 })
+    .catch(() => Buffer.from(""))) as unknown as Buffer;
+  // Docker multiplexes stdout and stderr with an 8-byte header per frame.
+  let out = "";
+  for (let i = 0; i + 8 <= raw.length; ) {
+    const size = raw.readUInt32BE(i + 4);
+    out += raw.subarray(i + 8, i + 8 + size).toString("utf8");
+    i += 8 + size;
+  }
+  return out || raw.toString("utf8");
+}
+
+/** Pulls an image, reporting the bytes of all its layers as they become known. */
+async function pullWithProgress(docker: Docker, image: string, h?: JobHandle): Promise<void> {
+  let stream: NodeJS.ReadableStream;
+  try {
+    stream = await docker.pull(image);
+  } catch (err) {
+    throw new JobFailure("image_download", (err as Error).message);
+  }
+  const layers = new Map<string, { current: number; total: number }>();
+  h?.signal.addEventListener("abort", () => (stream as unknown as { destroy(): void }).destroy());
+  await new Promise<void>((resolve, reject) =>
+    docker.modem.followProgress(
+      stream,
+      (err) => (err ? reject(new JobFailure("image_download", err.message)) : resolve()),
+      (ev: {
+        id?: string;
+        status?: string;
+        progressDetail?: { current?: number; total?: number };
+      }) => {
+        if (!ev.id || !h) return;
+        const l = layers.get(ev.id) ?? { current: 0, total: 0 };
+        if (ev.status === "Downloading" && ev.progressDetail?.total) {
+          l.total = ev.progressDetail.total;
+          l.current = ev.progressDetail.current ?? l.current;
+        } else if (ev.status === "Download complete" || ev.status === "Pull complete") {
+          l.current = l.total;
+        }
+        layers.set(ev.id, l);
+        let done = 0;
+        let total = 0;
+        for (const x of layers.values()) {
+          done += x.current;
+          total += x.total;
+        }
+        if (total > 0) h.progress(done, total);
+      },
+    ),
+  );
 }

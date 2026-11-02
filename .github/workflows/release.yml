@@ -42,6 +42,13 @@ jobs:
             platforms: linux/amd64
             suffix: cuda
             variant: server-cuda
+          # AMD, Intel and built-in GPUs (G24.3).
+          - name: redgiant2-engine
+            file: docker/engine.Dockerfile
+            context: docker
+            platforms: linux/amd64,linux/arm64
+            suffix: vulkan
+            variant: server-vulkan
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3

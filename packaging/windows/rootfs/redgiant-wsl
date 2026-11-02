@@ -50,11 +50,21 @@ set_setting() {
 # given the NVIDIA runtime (configured otherwise, a PC without the GPU would seem to have one).
 SMI=/usr/lib/wsl/lib/nvidia-smi
 
-# "name:GB;name:GB" of the GPUs, or nothing.
-gpu_list() {
+# The NVIDIA GPUs, "name:GB;name:GB", or nothing.
+nvidia_list() {
   [ -x "$SMI" ] || return 0
   "$SMI" --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null |
     awk -F', *' 'NF >= 2 { printf "%s%s:%.1f", (n++ ? ";" : ""), $1, $2 / 1024 }'
+}
+
+# Every GPU of Windows (NVIDIA, AMD, Intel, built-in ones), as the launcher read them from the
+# registry and passed them through WSLENV; without the launcher, the NVIDIA ones.
+gpu_list() {
+  if [ -n "${REDGIANT_WIN_GPUS:-}" ]; then
+    printf "%s" "$REDGIANT_WIN_GPUS"
+  else
+    nvidia_list
+  fi
 }
 
 restart_docker() {
@@ -69,7 +79,8 @@ restart_docker() {
 
 ensure_gpu() {
   GPUS=$(gpu_list)
-  [ -n "$GPUS" ] || return 0
+  # Docker's NVIDIA runtime only for an NVIDIA card (the others use Vulkan, which needs nothing).
+  [ -n "$(nvidia_list)" ] || return 0
   if ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
     step "Collego la scheda video"
     if ! command -v nvidia-ctk >/dev/null 2>&1; then
@@ -168,12 +179,12 @@ run() {
       no_pull=1
       step "Preparo RedGiant"
     fi
-    REDGIANT_YES=1 REDGIANT_NO_PULL=$no_pull REDGIANT_NO_BROWSER=1 REDGIANT_REF="$REF" REDGIANT_HOME="$HOME_DIR" \
+    REDGIANT_YES=1 REDGIANT_NO_PULL=$no_pull REDGIANT_NO_BROWSER=1 REDGIANT_SKIP_GPU=1 REDGIANT_REF="$REF" REDGIANT_HOME="$HOME_DIR" \
       bash /usr/local/share/redgiant/install.sh >/var/log/redgiant-install.log 2>&1 \
       || fail "La prima preparazione non è riuscita (registro: /var/log/redgiant-install.log)."
   fi
   step "Avvio di RedGiant"
-  # The GPUs RedGiant cannot see from its container ("" when there are none).
+  # The GPUs RedGiant cannot see from its container ("" when there are none), and the way to them.
   set_setting REDGIANT_HOST_GPUS "${GPUS:-}"
   (cd "$HOME_DIR" && docker compose up -d >/var/log/redgiant-start.log 2>&1) \
     || fail "RedGiant non parte (registro: /var/log/redgiant-start.log)."
@@ -201,7 +212,7 @@ case "${1:-run}" in
     ensure_gpu
     if [ -f "$HOME_DIR/.env" ]; then
       set_setting REDGIANT_HOST_GPUS "${GPUS:-}"
-      REDGIANT_YES=1 REDGIANT_NO_BROWSER=1 REDGIANT_REF="$REF" REDGIANT_HOME="$HOME_DIR" \
+      REDGIANT_YES=1 REDGIANT_NO_BROWSER=1 REDGIANT_SKIP_GPU=1 REDGIANT_REF="$REF" REDGIANT_HOME="$HOME_DIR" \
         bash /usr/local/share/redgiant/install.sh >/var/log/redgiant-update.log 2>&1
     fi
     ;;

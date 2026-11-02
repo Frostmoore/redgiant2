@@ -5,7 +5,21 @@ import { cpus, freemem, platform, totalmem } from "node:os";
 export interface Gpu {
   name: string;
   vramGb: number;
+  vendor: GpuVendor;
+  /** Built into the processor: it shares the computer's memory. */
+  integrated: boolean;
 }
+
+export type GpuVendor = "nvidia" | "amd" | "intel" | "other";
+
+/** The local engine's builds: llama.cpp for the CPU, CUDA (NVIDIA) and Vulkan (AMD, Intel…). */
+export type EngineVariant = "cpu" | "cuda" | "vulkan";
+
+/**
+ * How the engine's container reaches a GPU that is not NVIDIA's: Linux's /dev/dri. Windows' WSL
+ * is not one of them yet: llama.cpp's Vulkan build lacks Mesa's D3D12 driver ("dozen").
+ */
+export type GpuAccess = "dri" | "";
 
 export interface Hardware {
   os: string;
@@ -17,13 +31,16 @@ export interface Hardware {
   gpus: Gpu[];
   /** Docker can give containers an NVIDIA GPU (the NVIDIA runtime is installed). */
   dockerGpu: boolean;
+  /** How containers reach other GPUs (Vulkan), as the installer found it. */
+  gpuAccess: GpuAccess;
   suggestion: {
-    engine: "cuda" | "cpu";
+    engine: EngineVariant;
     /** Largest model file that fits comfortably, in GB. */
     maxModelGb: number;
     /** What the numbers mean, for the page to say in its language: a GPU with its memory, a GPU
-     * whose memory is unknown, or none (small models on the CPU, up to `maxModelGb`). */
-    kind: "gpu" | "gpu-unknown" | "cpu";
+     * whose memory is unknown, one built into the processor, or none (small models on the CPU,
+     * up to `maxModelGb`). */
+    kind: "gpu" | "gpu-unknown" | "igpu" | "cpu";
     vramGb: number;
   };
 }
@@ -46,12 +63,31 @@ function nvidiaSmi(): Promise<Gpu[]> {
             .filter(Boolean)
             .map((l) => {
               const [name = "GPU", mib = "0"] = l.split(",").map((x) => x.trim());
-              return { name, vramGb: round(Number(mib) / 1024) };
+              return describeGpu(name, round(Number(mib) / 1024));
             }),
         );
       },
     );
   });
+}
+
+/** The maker and kind of a GPU from its name (and its memory: a tiny one is shared). */
+export function describeGpu(name: string, vramGb: number): Gpu {
+  const n = name.toLowerCase();
+  const vendor: GpuVendor = /nvidia|geforce|quadro|tesla|rtx|gtx/.test(n)
+    ? "nvidia"
+    : /\bamd\b|radeon|\bati\b/.test(n)
+      ? "amd"
+      : /intel|\barc\b|iris|uhd|hd graphics/.test(n)
+        ? "intel"
+        : "other";
+  const integrated =
+    vramGb < 2 ||
+    (vendor === "intel" && !/\barc\b/.test(n)) ||
+    (vendor === "amd" &&
+      /radeon(\(tm\))? graphics|vega \d+ graphics|\d+m\b/.test(n) &&
+      !/\brx\b|pro w/.test(n));
+  return { name, vramGb, vendor, integrated };
 }
 
 /** "NVIDIA GeForce RTX 4080 SUPER:16;…" (memory in GB) as GPUs; anything malformed is skipped. */
@@ -63,8 +99,9 @@ export function hostGpus(text: string | undefined): Gpu[] {
     .flatMap((x) => {
       const i = x.lastIndexOf(":");
       const vram = Number(x.slice(i + 1));
-      return i > 0 && Number.isFinite(vram) && vram > 0
-        ? [{ name: x.slice(0, i).trim(), vramGb: round(vram) }]
+      // Integrated GPUs report little or no memory of their own: they are kept, as 0 GB.
+      return i > 0 && Number.isFinite(vram) && vram >= 0
+        ? [describeGpu(x.slice(0, i).trim(), round(vram))]
         : [];
     });
 }
@@ -78,6 +115,7 @@ export async function detectHardware(o: {
   dockerRuntimes?: () => Promise<string[]>;
   gpus?: () => Promise<Gpu[]>;
   hostGpus?: string | undefined;
+  gpuAccess?: string | undefined;
 }): Promise<Hardware> {
   const list = cpus();
   const disk = await statfs(o.dataDir)
@@ -89,11 +127,43 @@ export async function detectHardware(o: {
   if (gpus.length === 0) gpus = hostGpus(o.hostGpus ?? process.env.REDGIANT_HOST_GPUS);
   const runtimes: string[] = await (o.dockerRuntimes?.() ?? Promise.resolve([])).catch(() => []);
   const dockerGpu = runtimes.includes("nvidia");
+  const access = o.gpuAccess ?? process.env.REDGIANT_ENGINE_GPU ?? "";
+  const gpuAccess: GpuAccess = access === "dri" ? "dri" : "";
   const ramGb = round(totalmem() / GB);
-  const vram = Math.max(0, ...gpus.map((g) => g.vramGb));
-  const cuda = vram > 0 || dockerGpu;
+  const nvidia = gpus.filter((g) => g.vendor === "nvidia" && !g.integrated);
+  // Without Docker's NVIDIA runtime an NVIDIA card still works through Vulkan.
+  const others = gpus.filter((g) => !g.integrated && (g.vendor !== "nvidia" || !dockerGpu));
+  const igpu = gpus.some((g) => g.integrated);
+  const best = (list: Gpu[]) => Math.max(0, ...list.map((g) => g.vramGb));
   // The model must leave room for the KV cache and the system: about 80 % of VRAM, 50 % of RAM.
-  const maxModelGb = round(vram > 0 ? vram * 0.8 : ramGb * 0.5);
+  let suggestion: Hardware["suggestion"];
+  if (dockerGpu && (nvidia.length > 0 || gpus.length === 0)) {
+    const vram = best(nvidia);
+    suggestion = {
+      engine: "cuda",
+      maxModelGb: round(vram > 0 ? vram * 0.8 : ramGb * 0.5),
+      kind: vram > 0 ? "gpu" : "gpu-unknown",
+      vramGb: vram,
+    };
+  } else if (others.length > 0 && gpuAccess) {
+    const vram = best(others);
+    suggestion = { engine: "vulkan", maxModelGb: round(vram * 0.8), kind: "gpu", vramGb: vram };
+  } else if (igpu && gpuAccess) {
+    // A GPU in the processor shares the memory: a bit faster than the CPU alone, as small.
+    suggestion = {
+      engine: "vulkan",
+      maxModelGb: Math.min(round(ramGb * 0.4), 8),
+      kind: "igpu",
+      vramGb: 0,
+    };
+  } else {
+    suggestion = {
+      engine: "cpu",
+      maxModelGb: Math.min(round(ramGb * 0.5), 6),
+      kind: "cpu",
+      vramGb: 0,
+    };
+  }
   return {
     os: platform(),
     cpu: list[0]?.model.trim() ?? "unknown",
@@ -103,11 +173,7 @@ export async function detectHardware(o: {
     diskFreeGb: disk,
     gpus,
     dockerGpu,
-    suggestion: {
-      engine: cuda ? "cuda" : "cpu",
-      maxModelGb: cuda ? maxModelGb : Math.min(maxModelGb, 6),
-      kind: cuda ? (vram > 0 ? "gpu" : "gpu-unknown") : "cpu",
-      vramGb: vram,
-    },
+    gpuAccess,
+    suggestion,
   };
 }

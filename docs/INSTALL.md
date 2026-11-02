@@ -80,7 +80,10 @@ there. The main settings:
 - **Local engine**: copy a GGUF file into the `redgiant-models` volume, set `REDGIANT_ENGINE_MODEL`
   to its name and `REDGIANT_LLAMACPP_URL=http://engine:8080`, then
   `docker compose --profile engine up -d` (or `--profile engine-cuda` with an NVIDIA GPU and the
-  NVIDIA Container Toolkit).
+  NVIDIA Container Toolkit, or `--profile engine-vulkan` for AMD, Intel and built-in GPUs through
+  `/dev/dri`). The setup wizard does all of this by itself: the installer writes the GPUs it found
+  (`REDGIANT_HOST_GPUS`) and how containers reach them (`REDGIANT_ENGINE_GPU=dri`). On Windows only
+  NVIDIA GPUs are used for now: llama.cpp's Vulkan build has no driver for WSL's D3D12 bridge.
 - **Web search**: `docker compose --profile search up -d` and `REDGIANT_SEARXNG_URL=http://searxng:8080`.
 - **Phones**: Settings > Devices shows a QR code; the phone opens RedGiant signed in with a token of its own
   (revocable there). To install it as an app the page must be served over HTTPS (Tailscale Serve, Caddy…):

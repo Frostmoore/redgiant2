@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SqlClient } from "@redgiant/events";
 import { DEFAULT_POLICY } from "@redgiant/hierarchy";
+import type { Job } from "@redgiant/protocol";
 import { keyProvider, type ModelSpec, OWN_SERVER_ID } from "@redgiant/protocol";
 import { ProviderError } from "@redgiant/providers";
 import {
@@ -14,7 +15,8 @@ import {
 } from "@redgiant/subscriptions";
 import { stringify } from "yaml";
 import type { RedGiantCore } from "./core.js";
-import { detectHardware, type Hardware } from "./hardware.js";
+import { detectHardware, type EngineVariant, type Hardware } from "./hardware.js";
+import { JobFailure, type JobHandle } from "./jobs.js";
 
 /** Applies a choice while the server runs (set by main.ts; tests pass fakes). */
 export interface SetupHooks {
@@ -34,8 +36,11 @@ export interface SetupHooks {
   claudeAuth?(): ClaudeLoginOptions;
   /** ChatGPT on a flat subscription (G21): its login lives in Codex's own folder. */
   chatgptSubscription?(on: boolean): Promise<void>;
-  /** Starts the local engine container with this model file (null stops it). */
-  engine(o: { variant: "cpu" | "cuda"; model: string } | null): Promise<void>;
+  /**
+   * Starts the local engine container with this model file (null stops it); with a job, it
+   * reports its steps (`image`, `start`, `load`) and throws `JobFailure`s the UI explains.
+   */
+  engine(o: { variant: EngineVariant; model: string } | null, h?: JobHandle): Promise<void>;
   dockerRuntimes?(): Promise<string[]>;
 }
 
@@ -54,7 +59,7 @@ export interface SetupConfig {
   subscriptions?: { claude?: boolean; chatgpt?: boolean };
   /** Image generation: the model, when not the default (the OpenAI key is in the secrets). */
   imagesModel?: string;
-  engine?: { variant: "cpu" | "cuda"; model: string };
+  engine?: { variant: EngineVariant; model: string };
   retentionDays?: number;
   /** The user read that a personal subscription may not be allowed in third-party tools (RD23). */
   subscriptionAck?: boolean;
@@ -402,10 +407,39 @@ export class SetupService {
     );
   }
 
-  async saveEngine(e: { variant: "cpu" | "cuda"; model: string } | null): Promise<void> {
+  /**
+   * Starts the local engine as a job the UI follows: the engine's image (downloaded if
+   * missing), the container, the model loaded, a first answer. Kept only when it answers.
+   */
+  startEngine(e: { variant: EngineVariant; model: string }): Job {
+    this.checkEngine(e);
+    return this.o.core.jobs.start(
+      this.o.ownerId,
+      "engine",
+      ["image", "start", "load", "try"],
+      async (h) => {
+        await this.o.hooks.engine(e, h);
+        h.step("try");
+        try {
+          await this.o.core.trialModel(this.o.ownerId, { provider: "local", model: e.model });
+        } catch (err) {
+          throw new JobFailure("no_answer", (err as Error).message);
+        }
+        this.config.engine = e;
+        await this.save();
+      },
+      { model: e.model },
+    );
+  }
+
+  private checkEngine(e: { variant: EngineVariant; model: string } | null): void {
     if (this.locked.engine) throw new SetupError("The local engine is set by the environment");
     if (e && (e.model.includes("/") || e.model.includes("..") || !e.model.endsWith(".gguf")))
       throw new SetupError("The model is a .gguf file in the models folder");
+  }
+
+  async saveEngine(e: { variant: EngineVariant; model: string } | null): Promise<void> {
+    this.checkEngine(e);
     await this.o.hooks.engine(e);
     if (e) this.config.engine = e;
     else delete this.config.engine;

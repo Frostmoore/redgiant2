@@ -29,7 +29,8 @@ import { BadRequestError, NotFoundError, type RedGiantCore, SessionBusyError } f
 import { PairingError } from "./devices.js";
 import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
-import type { HuggingFace } from "./hf.js";
+import { HuggingFace } from "./hf.js";
+import { localModelChoices } from "./local-models.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
 import type { SetupService } from "./setup.js";
 import { MAX_AUDIO_BYTES, TranscriptionError } from "./voice.js";
@@ -1402,7 +1403,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       throw new Error(r.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
     return r.data;
   };
-  const Engine = z.object({ variant: z.enum(["cpu", "cuda"]), model: z.string().min(1) });
+  const Engine = z.object({ variant: z.enum(["cpu", "cuda", "vulkan"]), model: z.string().min(1) });
   app.get("/api/setup", (c) => wizard(c, () => (setup as SetupService).state()));
   app.put("/api/setup/models", (c) =>
     wizard(c, async () =>
@@ -1453,12 +1454,13 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.delete("/api/setup/server", (c) =>
     wizard(c, async () => (setup as SetupService).saveServer(null)),
   );
+  // Starting the local engine is a job (image, start, load, a first answer); null stops it.
   app.put("/api/setup/engine", (c) =>
-    wizard(c, async () =>
-      (setup as SetupService).saveEngine(
-        (await parsed(c, z.object({ engine: Engine.nullable() }))).engine,
-      ),
-    ),
+    wizard(c, async () => {
+      const e = (await parsed(c, z.object({ engine: Engine.nullable() }))).engine;
+      if (!e) return (setup as SetupService).saveEngine(null);
+      return (setup as SetupService).startEngine(e);
+    }),
   );
   app.put("/api/setup/names", (c) =>
     wizard(c, async () =>
@@ -1553,14 +1555,45 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.get("/api/setup/hf/files", (c) =>
     wizard(c, async () => (hf ? hf.files(c.req.query("repo") ?? "") : [])),
   );
-  app.post("/api/setup/hf/download", (c) =>
+  // The suggested local models for this computer, and what the models folder holds (G24.3).
+  app.get("/api/setup/local-models", (c) =>
+    wizard(c, async () => {
+      if (!hf) return { models: [], files: [] };
+      const budget = (await (setup as SetupService).state()).hardware.suggestion.maxModelGb;
+      return { models: await localModelChoices(hf, budget), files: await hf.local() };
+    }),
+  );
+  // A download is a job: followed with its progress, cancelled to pause, started again to go on.
+  app.post("/api/setup/local-models/download", (c) =>
     wizard(c, async () => {
       if (!hf) throw new Error("No models folder");
       const b = await parsed(c, z.object({ repo: z.string(), file: z.string() }));
-      return hf.start(b.repo, b.file);
+      const target = HuggingFace.target(b.file);
+      const running = core.jobs
+        .list(owner(c))
+        .find(
+          (j) => j.kind === "model_download" && j.state === "running" && j.vars.model === target,
+        );
+      return (
+        running ??
+        core.jobs.start(
+          owner(c),
+          "model_download",
+          ["download"],
+          (h) => hf.download(b.repo, b.file, h),
+          {
+            model: target,
+          },
+        )
+      );
     }),
   );
-  app.get("/api/setup/hf/downloads", (c) => wizard(c, async () => hf?.list() ?? []));
+  app.delete("/api/setup/local-models/:file", (c) =>
+    wizard(c, async () => {
+      if (!hf) throw new Error("No models folder");
+      await hf.remove(c.req.param("file"));
+    }),
+  );
 
   // Automations (G13).
   const autos = core.automations;

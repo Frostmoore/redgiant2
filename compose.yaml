@@ -37,8 +37,10 @@ services:
       REDGIANT_PORT: "7600"
       REDGIANT_HOST: 0.0.0.0
       REDGIANT_SANDBOX: docker
-      # The host's GPUs when the server cannot see them itself (Windows: "name:GB;…").
+      # The host's GPUs when the server cannot see them itself ("name:GB;…", written by the installer),
+      # and how the engine reaches a GPU that is not NVIDIA's through Vulkan: dri (Linux only).
       REDGIANT_HOST_GPUS: ${REDGIANT_HOST_GPUS:-}
+      REDGIANT_ENGINE_GPU: ${REDGIANT_ENGINE_GPU:-}
       REDGIANT_SANDBOX_IMAGE: ${REDGIANT_SANDBOX_IMAGE:-ghcr.io/frostmoore/redgiant2-sandbox:latest}
       REDGIANT_SANDBOX_NETWORK: redgiant-sandbox
       REDGIANT_EGRESS_URL: http://egress:3128
@@ -104,6 +106,21 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+
+  # AMD, Intel and built-in GPUs on Linux, through Vulkan.
+  engine-vulkan:
+    profiles: [engine-vulkan]
+    image: ${REDGIANT_ENGINE_VULKAN_IMAGE:-ghcr.io/frostmoore/redgiant2-engine:vulkan}
+    restart: unless-stopped
+    command: ["-m", "/models/${REDGIANT_ENGINE_MODEL:-model.gguf}", "--n-gpu-layers", "999"]
+    volumes:
+      - redgiant-models:/models
+      - redgiant-kv:/kv
+    devices:
+      - /dev/dri:/dev/dri
+    networks:
+      default:
+        aliases: [engine]
 
   searxng:
     profiles: [search]
