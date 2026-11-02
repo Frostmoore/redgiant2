@@ -96,6 +96,37 @@ describe.skipIf(!on)("agents' browser in Docker", () => {
     // A click of the person's, by position on the screen.
     b.setControl("person");
     await b.input({ kind: "click", x: 0.02, y: 0.02 });
+    b.setControl("agents");
+
+    // Teach a task: what the person does is written down, never their password.
+    const pw = (page as unknown as { page: import("playwright-core").Page }).page;
+    const at = async (sel: string) => {
+      const box = await pw.locator(sel).boundingBox();
+      const vp = pw.viewportSize() ?? { width: 1280, height: 800 };
+      return {
+        x: ((box?.x ?? 0) + (box?.width ?? 0) / 2) / vp.width,
+        y: ((box?.y ?? 0) + (box?.height ?? 0) / 2) / vp.height,
+      };
+    };
+    b.startTeaching("asst_1");
+    await b.goto(url);
+    await b.input({ kind: "click", ...(await at("input[name=email]")) });
+    await b.input({ kind: "text", text: "marta" });
+    await b.input({ kind: "text", text: "@example.com" });
+    await b.input({ kind: "click", ...(await at("input[name=pw]")) });
+    await b.input({ kind: "text", text: "s3cret-pw" });
+    await b.input({ kind: "click", ...(await at("text=Pay now")) });
+    const taught = b.stopTeaching();
+    expect(taught?.steps).toEqual([
+      expect.stringMatching(/^start at /),
+      `open ${url}`,
+      expect.stringMatching(/^click field "Email/),
+      'type "marta@example.com"',
+      "click the password field",
+      "the person typed their password (ask them)",
+      'click button "Pay now"',
+    ]);
+    expect(JSON.stringify(taught)).not.toContain("s3cret");
     off();
   });
 });

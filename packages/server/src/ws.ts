@@ -148,7 +148,12 @@ export function attachWebSocket(
             offScreen = await b.watch((e) =>
               e.type === "frame"
                 ? send({ type: "browser.frame", ...e.frame })
-                : send({ type: "browser.state", control: e.control, url: e.url }),
+                : send({
+                    type: "browser.state",
+                    control: e.control,
+                    url: e.url,
+                    ...(e.teaching && { teaching: e.teaching }),
+                  }),
             );
             return;
           }
@@ -158,6 +163,10 @@ export function attachWebSocket(
             return;
           case "browser.control":
             core.browsers?.get(owner).setControl(msg.take ? "person" : "agents");
+            return;
+          case "browser.teach":
+            if (msg.start) core.teachStart(owner, msg.agentId);
+            else await core.teachStop(owner, msg.title);
             return;
           case "browser.goto":
             await core.browsers?.get(owner).goto(msg.url);

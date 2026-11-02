@@ -1788,6 +1788,39 @@ export class RedGiantCore implements OrchestrationHost {
     return { done };
   }
 
+  /** "Teach a task" (G24.14b): the person shows a personal agent how, in the browser. */
+  teachStart(ownerId: string, agentId: string): void {
+    const a = this.registry.get(agentId);
+    if (!this.browsers || a?.ownerId !== ownerId || a.kind !== "assistant") return;
+    this.browsers.get(ownerId).startTeaching(agentId);
+  }
+
+  /**
+   * The person is done: the agent receives the steps and writes them as a skill, which waits
+   * for the person's approval in Extensions like every proposal. Nothing typed into a password
+   * field is among the steps.
+   */
+  async teachStop(
+    ownerId: string,
+    title?: string,
+  ): Promise<{ done: Promise<unknown> } | undefined> {
+    const shown = this.browsers?.get(ownerId).stopTeaching();
+    const a = shown && this.registry.get(shown.agentId);
+    if (!shown || !a || shown.steps.length === 0) return undefined;
+    const sid = await this.workSession(a);
+    const text = [
+      `[The user showed you a task in the browser${title ? `: ${title}` : ""}.]`,
+      "Their steps, in order:",
+      ...shown.steps.map((s, i) => `${i + 1}. ${s}`),
+      "",
+      "Write it as a reusable skill with propose_extension (kind skill): when to use it, what it needs, the steps with the decisions they imply (generalise what was specific to this one time), what to give back, and what needs the user's approval. Sign-ins stay the user's: say so where one is needed. Then tell the user, briefly, what you saved.",
+    ].join("\n");
+    // Never the whole turn: the WebSocket that asked handles its messages in order.
+    const { done } = await this.send(ownerId, sid, text);
+    void done.catch(() => {});
+    return { done };
+  }
+
   /** Undoes the summary the person asked for, while nothing was said since (G24.14). */
   async undoCompaction(ownerId: string, sessionId: string): Promise<boolean> {
     const l = await this.open(ownerId, sessionId);

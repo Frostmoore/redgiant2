@@ -2,7 +2,7 @@
 // (what you type goes to the page only, never to a model or the log), then give it back.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n.js";
-import { browserScreen, getLive } from "../state.js";
+import { agents, browserScreen, getLive } from "../state.js";
 
 /** Keys sent as such; everything else printable is typed as text. */
 const KEYS = new Set([
@@ -25,6 +25,9 @@ export function Screen() {
   const s = browserScreen.value;
   const area = useRef<HTMLDivElement>(null);
   const [address, setAddress] = useState("");
+  const personal = agents.value.filter((a) => a.kind === "assistant" && a.status === "active");
+  const [pupil, setPupil] = useState(personal[0]?.id ?? "");
+  const teaching = agents.value.find((a) => a.id === s.teaching);
   useEffect(() => {
     const live = getLive();
     live.send({ type: "browser.watch" });
@@ -72,17 +75,69 @@ export function Screen() {
             {s.url || "about:blank"}
           </span>
         )}
-        <button
-          type="button"
-          class={mine ? "" : "primary"}
-          onClick={() => getLive().send({ type: "browser.control", take: !mine })}
-        >
-          {mine ? t("screenGiveBack") : t("screenTake")}
-        </button>
+        {/* While a task is being taught, "Done" gives the browser back. */}
+        {!teaching && (
+          <button
+            type="button"
+            class={mine ? "" : "primary"}
+            onClick={() => getLive().send({ type: "browser.control", take: !mine })}
+          >
+            {mine ? t("screenGiveBack") : t("screenTake")}
+          </button>
+        )}
       </div>
       <p class={`ui-help screen-note${mine ? " mine" : ""}`}>
-        {mine ? t("screenYours") : t("screenShared")}
+        {teaching
+          ? t("teachRecording", { name: teaching.name })
+          : mine
+            ? t("screenYours")
+            : t("screenShared")}
       </p>
+      {/* "Teach a task" (G24.14b): do it once, the agent writes it as a skill you approve. */}
+      {teaching ? (
+        <div class="row screen-teach">
+          <button
+            type="button"
+            class="primary"
+            onClick={() => {
+              const title = prompt(t("teachTitle")) ?? "";
+              getLive().send({
+                type: "browser.teach",
+                agentId: teaching.id,
+                start: false,
+                ...(title.trim() && { title: title.trim() }),
+              });
+            }}
+          >
+            {t("teachDone")}
+          </button>
+        </div>
+      ) : (
+        personal.length > 0 && (
+          <div class="row screen-teach">
+            <select
+              aria-label={t("teachWho")}
+              value={pupil}
+              onChange={(e) => setPupil((e.target as HTMLSelectElement).value)}
+            >
+              {personal.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              title={t("teachHint")}
+              onClick={() =>
+                pupil && getLive().send({ type: "browser.teach", agentId: pupil, start: true })
+              }
+            >
+              {t("teachStart")}
+            </button>
+          </div>
+        )
+      )}
       {/* biome-ignore lint/a11y/noNoninteractiveTabindex: while it is the person's, the screen takes their keyboard. */}
       <div
         ref={area}

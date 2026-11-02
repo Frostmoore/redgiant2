@@ -123,6 +123,14 @@ const en = {
   kind_subagent: "Helper",
   kind_inspector: "Inspector, reads only",
   kind_assistant: "Personal assistant",
+  teachStart: "Teach a task",
+  teachHint:
+    "Do the task once yourself: every page, click and text is written down (never passwords), then the agent turns it into a skill you approve in Extensions",
+  teachWho: "Which agent learns it",
+  teachRecording:
+    "Recording for {name}: do the task, then press Done. Passwords are never written down.",
+  teachDone: "Done",
+  teachTitle: "What is this task called? (optional)",
   screenTitle: "Agents' browser",
   screenOpen: "Screen",
   screenTake: "Take control",
@@ -1196,6 +1204,14 @@ const it: Record<Key, string> = {
   kind_subagent: "Aiutante",
   kind_inspector: "Ispettore, solo lettura",
   kind_assistant: "Assistente personale",
+  teachStart: "Insegna un compito",
+  teachHint:
+    "Fai tu il compito una volta: ogni pagina, clic e testo viene annotato (mai le password), poi l'agente ne fa una skill che approvi in Estensioni",
+  teachWho: "Quale agente lo impara",
+  teachRecording:
+    "Registro per {name}: fai il compito, poi premi Fine. Le password non vengono mai annotate.",
+  teachDone: "Fine",
+  teachTitle: "Come si chiama questo compito? (facoltativo)",
   screenTitle: "Browser degli agenti",
   screenOpen: "Schermo",
   screenTake: "Prendi il controllo",

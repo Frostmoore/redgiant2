@@ -248,6 +248,8 @@ export const browserScreen = signal<{
   frame?: { data: string; width: number; height: number };
   control: "agents" | "person";
   url: string;
+  /** The agent being taught a task. */
+  teaching?: string | undefined;
   unavailable?: boolean;
 }>({ control: "agents", url: "" });
 
@@ -260,7 +262,12 @@ export function applyMessage(m: ServerMessage): void {
       };
       return;
     case "browser.state":
-      browserScreen.value = { ...browserScreen.value, control: m.control, url: m.url };
+      browserScreen.value = {
+        ...browserScreen.value,
+        control: m.control,
+        url: m.url,
+        teaching: m.teaching,
+      };
       return;
     case "error":
       if (m.code === "unavailable")

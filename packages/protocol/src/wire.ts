@@ -43,6 +43,13 @@ export const ClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.unwatch") }),
   z.object({ type: z.literal("browser.control"), take: z.boolean() }),
   z.object({ type: z.literal("browser.goto"), url: z.string().min(1).max(2000) }),
+  /** "Teach a task": start showing it to an agent, or stop and let it write the skill. */
+  z.object({
+    type: z.literal("browser.teach"),
+    agentId: z.string(),
+    start: z.boolean(),
+    title: z.string().max(200).optional(),
+  }),
   z.object({
     type: z.literal("browser.input"),
     event: z.discriminatedUnion("kind", [
@@ -120,6 +127,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
     type: z.literal("browser.state"),
     control: z.enum(["agents", "person"]),
     url: z.string(),
+    /** The agent being taught a task, while the person shows it. */
+    teaching: z.string().optional(),
   }),
   /** A group chat changed: a message, a member, someone started or finished answering. */
   z.object({ type: z.literal("room.changed"), roomId: z.string() }),

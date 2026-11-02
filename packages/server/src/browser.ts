@@ -237,8 +237,32 @@ export interface ScreenFrame {
 export type ScreenListener = (
   e:
     | { type: "frame"; frame: ScreenFrame }
-    | { type: "state"; control: "agents" | "person"; url: string },
+    | {
+        type: "state";
+        control: "agents" | "person";
+        url: string;
+        /** The agent being taught a task, while the person shows it (G24.14b, release 2). */
+        teaching?: string | undefined;
+      },
 ) => void;
+
+/**
+ * What the element under a click is, in words: its role and its name. Runs in the page; a
+ * password field says so and nothing more.
+ */
+const DESCRIBE_AT = (x: number, y: number) => `(() => {
+  const el = document.elementFromPoint(${x}, ${y});
+  if (!el) return "";
+  const t = el.closest("a,button,input,select,textarea,label,[role],summary") || el;
+  if (t instanceof HTMLInputElement && t.type === "password") return "the password field";
+  const label = (t.getAttribute("aria-label") || (t.labels && t.labels[0] && t.labels[0].innerText) ||
+    t.getAttribute("placeholder") || t.innerText || t.getAttribute("value") || t.getAttribute("title") || "").trim().replace(/\\s+/g, " ").slice(0, 80);
+  const role = t.getAttribute("role") || ({ A: "link", BUTTON: "button", INPUT: "field", SELECT: "list", TEXTAREA: "field" })[t.tagName] || "text";
+  return role + (label ? ' "' + label + '"' : "");
+})()`;
+
+/** The focused element is a password field (its typing is the person's alone). */
+const FOCUS_IS_PASSWORD = `(() => { const el = document.activeElement; return !!el && el.tagName === "INPUT" && el.type === "password"; })()`;
 
 /** One person's browser: the page the agents use, its screen, who has control. */
 export class AgentBrowser {
@@ -290,8 +314,44 @@ export class AgentBrowser {
     for (const v of this.viewers) v(e);
   }
 
-  state(): { control: "agents" | "person"; url: string } {
-    return { control: this.control, url: this.page?.url() ?? "about:blank" };
+  /** A task being shown to an agent: the steps so far, in words (release 2). */
+  private teaching: { agentId: string; steps: string[] } | undefined;
+
+  state(): { control: "agents" | "person"; url: string; teaching?: string | undefined } {
+    return {
+      control: this.control,
+      url: this.page?.url() ?? "about:blank",
+      ...(this.teaching && { teaching: this.teaching.agentId }),
+    };
+  }
+
+  private step(text: string): void {
+    const steps = this.teaching?.steps;
+    if (!steps) return;
+    // Typing comes key by key: one step per field.
+    const last = steps.at(-1);
+    if (text.startsWith("type ") && last?.startsWith("type ")) {
+      steps[steps.length - 1] = `${last.slice(0, -1)}${text.slice(6, -1)}"`;
+      return;
+    }
+    if (steps.at(-1) !== text) steps.push(text);
+  }
+
+  /**
+   * "Teach a task": the person takes control and does it once; each click, page and text is
+   * written down in words (never what goes into a password field). `stopTeaching` returns the
+   * steps, and the browser goes back to the agents.
+   */
+  startTeaching(agentId: string): void {
+    this.teaching = { agentId, steps: this.page ? [`start at ${this.page.url()}`] : [] };
+    this.setControl("person");
+  }
+
+  stopTeaching(): { agentId: string; steps: string[] } | undefined {
+    const t = this.teaching;
+    this.teaching = undefined;
+    this.setControl("agents");
+    return t;
   }
 
   /** Someone watches the screen: frames start (and stop when the last one leaves). */
@@ -337,6 +397,8 @@ export class AgentBrowser {
   }
 
   setControl(who: "agents" | "person"): void {
+    // Given back without "Done": the task being shown is dropped.
+    if (who === "agents") this.teaching = undefined;
     this.control = who;
     this.lastUse = Date.now();
     this.emit({ type: "state", ...this.state() });
@@ -356,13 +418,25 @@ export class AgentBrowser {
     if (this.control !== "person" || this.fake) return;
     const page = await this.live();
     this.lastUse = Date.now();
-    if (e.kind === "text") await page.keyboard.insertText(e.text);
-    else if (e.kind === "key") await page.keyboard.press(e.key);
-    else {
+    if (e.kind === "text") {
+      if (this.teaching) {
+        const secret = await page.evaluate(FOCUS_IS_PASSWORD).catch(() => true);
+        this.step(secret ? "the person typed their password (ask them)" : `type "${e.text}"`);
+      }
+      await page.keyboard.insertText(e.text);
+    } else if (e.kind === "key") {
+      if (this.teaching && ["Enter", "Tab", "Escape"].includes(e.key)) this.step(`press ${e.key}`);
+      await page.keyboard.press(e.key);
+    } else {
       const x = e.x * this.size.width;
       const y = e.y * this.size.height;
-      if (e.kind === "click") await page.mouse.click(x, y);
-      else {
+      if (e.kind === "click") {
+        if (this.teaching) {
+          const what = await page.evaluate(DESCRIBE_AT(x, y)).catch(() => "");
+          if (what) this.step(`click ${what}`);
+        }
+        await page.mouse.click(x, y);
+      } else {
         await page.mouse.move(x, y);
         await page.mouse.wheel(0, e.dy);
       }
@@ -371,7 +445,9 @@ export class AgentBrowser {
 
   async goto(url: string): Promise<void> {
     if (this.control !== "person") return;
-    await (await this.pageLike()).goto(url);
+    const target = /^[a-z]+:/i.test(url) ? url : `https://${url}`;
+    this.step(`open ${target}`);
+    await (await this.pageLike()).goto(target);
   }
 
   async close(): Promise<void> {

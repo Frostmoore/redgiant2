@@ -123,4 +123,41 @@ describe("the agents' browser (G24.14b)", () => {
       await s.close();
     }
   });
+
+  it("hands the task the person showed to the agent, which writes it as a skill", async () => {
+    const asked: string[] = [];
+    const s = await startServer((req) => {
+      const last = req.messages.at(-1)?.parts[0];
+      if (last?.type === "text") asked.push(last.text);
+      return { text: "Saved as a skill." };
+    });
+    try {
+      s.core.browsers = new Browsers(launcher, { fake: fakePage() });
+      const god = await s.api<{ id: string }>("POST", "/api/agents", {
+        kind: "god",
+        parentId: null,
+        name: "God",
+      });
+      const a = await s.api<{ id: string }>("POST", "/api/agents", {
+        kind: "assistant",
+        parentId: god.body.id,
+        name: "Barista",
+        role: "Orders coffee",
+      });
+      s.core.teachStart("me", a.body.id);
+      const b = s.core.browsers.get("me");
+      expect(b.state()).toMatchObject({ control: "person", teaching: a.body.id });
+      await b.goto("coffee.example");
+      const r = await s.core.teachStop("me", "Order my coffee");
+      await r?.done;
+      expect(b.state().control).toBe("agents");
+      const msg = asked.find((x) => x.includes("showed you a task")) ?? "";
+      expect(msg).toContain("Order my coffee");
+      expect(msg).toContain("open https://coffee.example");
+      expect(msg).toMatch(/propose_extension \(kind skill\)/);
+      await s.core.browsers.shutdown();
+    } finally {
+      await s.close();
+    }
+  });
 });
