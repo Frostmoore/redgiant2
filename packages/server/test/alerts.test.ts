@@ -1,29 +1,7 @@
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { publishNtfy, type SetupHooks, SetupService } from "../src/index.js";
+import { alertText, type SetupHooks, SetupService } from "../src/index.js";
 import { startServer, wsClient } from "./helpers.js";
-
-type Pushed = { path: string; auth: string | undefined; body: Record<string, unknown> };
-
-/** ntfy in miniature: records every publish. */
-async function fakeNtfy() {
-  const pushed: Pushed[] = [];
-  const server = createServer(async (req, res) => {
-    let raw = "";
-    for await (const c of req) raw += c;
-    pushed.push({
-      path: req.url ?? "",
-      auth: req.headers.authorization,
-      body: JSON.parse(raw) as Record<string, unknown>,
-    });
-    res.end("{}");
-  });
-  await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
-  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return { url, pushed, close: () => new Promise((ok) => server.close(ok)) };
-}
 
 const until = async (check: () => boolean) => {
   // Up to 15 s: CI machines (macOS especially) can be slow to finish a turn.
@@ -44,31 +22,13 @@ afterEach(async () => {
   cleanup = [];
 });
 
-describe("ntfy", () => {
-  it("publishes JSON to the server's root with the topic, priority and token", async () => {
-    const ntfy = await fakeNtfy();
-    cleanup.push(ntfy.close);
-    await publishNtfy(
-      { url: `${ntfy.url}/my-topic`, token: "tk_1" },
-      { kind: "approval", title: "Serve un'approvazione", message: "God vuole usare bash" },
-    );
-    expect(ntfy.pushed).toEqual([
-      {
-        path: "/",
-        auth: "Bearer tk_1",
-        body: {
-          topic: "my-topic",
-          title: "Serve un'approvazione",
-          message: "God vuole usare bash",
-          priority: 4,
-          tags: ["approval"],
-        },
-      },
-    ]);
+describe("alerts", () => {
+  it("fills the texts in the chosen language", () => {
+    expect(alertText("it", "budget", { name: "Zeus", pct: 96 })).toBe("Budget Zeus: 96%");
+    expect(alertText("en", "turn", { agent: "Zeus" })).toBe("Zeus finished");
   });
 
-  it("tells the phone about approvals, questions and budgets, in the chosen language", async () => {
-    const ntfy = await fakeNtfy();
+  it("tells Telegram about budgets, not again about approvals and questions", async () => {
     const s = await startServer(
       (req) => {
         const last = req.messages.at(-1);
@@ -106,14 +66,11 @@ describe("ntfy", () => {
         return { setup };
       },
     );
-    cleanup.push(s.close, ntfy.close);
-    expect((await s.api("POST", "/api/notifications/test")).status).toBe(400);
+    cleanup.push(s.close);
+    // What the Telegram gateway would send.
+    const told: string[] = [];
+    s.core.notify = async (_owner, text) => void told.push(text);
     await s.api("PUT", "/api/setup/names", { god: "Zeus", demigod: "Hermes", language: "it" });
-    expect(
-      (await s.api("PUT", "/api/setup/notifications", { ntfy: { url: `${ntfy.url}/rg` } })).status,
-    ).toBe(200);
-    expect((await s.api("POST", "/api/notifications/test")).body).toEqual({ ok: true });
-    expect(ntfy.pushed.at(-1)?.body).toMatchObject({ topic: "rg", title: "RedGiant" });
 
     const god = s.core.registry.list({ ownerId: "me" }).find((a) => a.kind === "god");
     await s.api("PATCH", `/api/agents/${god?.id}`, { mode: "manual" });
@@ -125,7 +82,6 @@ describe("ntfy", () => {
     await c.waitFor("session.synced");
     // The follow also reports the session's current state: it must not pass for the end of a turn.
     await c.waitFor("session.state");
-    // The turn that starts now ends: an idle state after the message was sent.
     const idleAfter = async (from: number) =>
       until(() =>
         c.messages.slice(from).some((m) => m.type === "session.state" && m.state === "idle"),
@@ -133,12 +89,6 @@ describe("ntfy", () => {
     let mark = c.messages.length;
     c.send({ type: "session.send", sessionId: sid, text: "write" });
     const req = await c.waitFor("permission.request");
-    await until(() => ntfy.pushed.some((p) => p.body.tags?.toString() === "approval"));
-    expect(ntfy.pushed.at(-1)?.body).toMatchObject({
-      title: "Serve un'approvazione",
-      message: "Zeus vuole usare write_file",
-      priority: 4,
-    });
     c.send({
       type: "permission.resolve",
       requestId: req.request.requestId,
@@ -149,10 +99,11 @@ describe("ntfy", () => {
     mark = c.messages.length;
     c.send({ type: "session.send", sessionId: sid, text: "ask" });
     const q = await c.waitFor("question.request");
-    await until(() => ntfy.pushed.some((p) => p.body.tags?.toString() === "question"));
-    expect(ntfy.pushed.at(-1)?.body).toMatchObject({ title: "Zeus chiede", message: "A o B?" });
     c.send({ type: "question.answer", requestId: q.request.requestId, answers: [["A"]] });
     await idleAfter(mark);
+    // The gateway sends approvals and questions itself, with buttons: no second message.
+    expect(told).toEqual([]);
+
     // A budget past 95 % after a turn: told once.
     const used = (
       await s.api<{ scope: string; id: string; used: { tokens: number } }[]>("GET", "/api/budgets")
@@ -164,11 +115,11 @@ describe("ntfy", () => {
     });
     await (await s.core.send("me", sid, "hello")).done;
     await (await s.core.send("me", sid, "hello")).done.catch(() => {});
-    await until(() => ntfy.pushed.some((p) => p.body.tags?.toString() === "budget"));
-    const budget = ntfy.pushed.filter((p) => p.body.tags?.toString() === "budget");
+    await until(() => told.some((t) => t.startsWith("**Budget")));
+    const budget = told.filter((t) => t.startsWith("**Budget"));
     expect(budget).toHaveLength(1);
-    expect(String(budget[0]?.body.title)).toMatch(/^Budget Zeus: \d+%$/);
-    // Turns sent by the code (delegations, automations) are not notified as finished turns.
-    expect(ntfy.pushed.some((p) => p.body.tags?.toString() === "done")).toBe(false);
+    expect(budget[0]).toMatch(/^\*\*Budget Zeus: \d+%\*\*\n\$/);
+    // Turns sent by the code (delegations, automations) are not reported as finished turns.
+    expect(told.some((t) => t.includes("ha finito"))).toBe(false);
   });
 });

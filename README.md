@@ -37,8 +37,8 @@ do is written to a tamper-evident log. You keep the keys, the data and the final
   per project and overall.
 - Light and dark themes (or the system's), Italian and English, a phone layout. Installable on the phone
   as an app (PWA); pair a device by scanning a QR code.
-- Questions from agents arrive as cards you answer with a click; push notifications through
-  [ntfy](https://ntfy.sh) for approvals, questions, long or failed turns and budgets.
+- Questions from agents arrive as cards you answer with a click; on Telegram, approvals and questions
+  come with buttons, and long or failed turns, budgets and extensions to review are reported there too.
 
 **Any model**
 

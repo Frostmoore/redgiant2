@@ -350,13 +350,6 @@ const en = {
   effortHint:
     "Reasoning effort: higher thinks more, is slower and costs more. From the next message.",
   modelChangeNote: "Applies from the next message of this conversation.",
-  notifications: "Notifications",
-  ntfyHint:
-    "Push notifications on your phone through ntfy (ntfy.sh or your own server): approvals and questions, turns that last over two minutes or fail, budgets at 80 % and 95 %, extensions to review, automations. Install the ntfy app and subscribe to the same topic; pick a name nobody can guess.",
-  ntfyUrl: "Topic URL",
-  ntfyToken: "Access token (only for protected topics)",
-  ntfyTest: "Send a test",
-  ntfySent: "Sent: check your phone.",
   turnOff: "Turn off",
   questions: "Questions",
   noQuestions: "No questions.",
@@ -749,13 +742,6 @@ const it: Record<Key, string> = {
   effortHint:
     "Sforzo di ragionamento: più alto pensa di più, è più lento e costa di più. Dal prossimo messaggio.",
   modelChangeNote: "Vale dal prossimo messaggio di questa conversazione.",
-  notifications: "Notifiche",
-  ntfyHint:
-    "Notifiche push sul telefono tramite ntfy (ntfy.sh o un tuo server): approvazioni e domande, turni che durano più di due minuti o falliscono, budget all'80 % e al 95 %, estensioni da valutare, automazioni. Installa l'app ntfy e iscriviti allo stesso topic; scegli un nome che nessuno possa indovinare.",
-  ntfyUrl: "URL del topic",
-  ntfyToken: "Token di accesso (solo per i topic protetti)",
-  ntfyTest: "Manda una prova",
-  ntfySent: "Mandata: guarda il telefono.",
   turnOff: "Disattiva",
   questions: "Domande",
   noQuestions: "Nessuna domanda.",

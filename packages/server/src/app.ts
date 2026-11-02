@@ -30,7 +30,6 @@ import { PairingError } from "./devices.js";
 import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
 import type { HuggingFace } from "./hf.js";
-import { ntfyText, publishNtfy } from "./ntfy.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
 import type { SetupService } from "./setup.js";
 import { MAX_AUDIO_BYTES, TranscriptionError } from "./voice.js";
@@ -1459,36 +1458,6 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       ),
     ),
   );
-  app.put("/api/setup/notifications", (c) =>
-    wizard(c, async () =>
-      (setup as SetupService).saveNotifications(
-        (
-          await parsed(
-            c,
-            z.object({
-              ntfy: z.object({ url: z.url(), token: z.string().optional() }).nullable(),
-            }),
-          )
-        ).ntfy,
-      ),
-    ),
-  );
-  // A test notification, sent at once: a wrong topic or token shows up here.
-  app.post("/api/notifications/test", async (c) => {
-    const cfg = core.ntfy;
-    if (!cfg) return c.json({ error: "Notifications are not set" }, 400);
-    const lang = core.language(owner(c));
-    try {
-      await publishNtfy(cfg, {
-        kind: "test",
-        title: ntfyText(lang, "test"),
-        message: ntfyText(lang, "testBody"),
-      });
-      return c.json({ ok: true }, 200);
-    } catch (err) {
-      return c.json({ error: (err as Error).message }, 502);
-    }
-  });
   app.put("/api/setup/telegram", (c) =>
     wizard(c, async () =>
       (setup as SetupService).saveTelegram(

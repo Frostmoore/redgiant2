@@ -37,8 +37,6 @@ export interface SetupConfig {
   subscriptions?: { claude?: boolean; chatgpt?: boolean };
   /** Image generation: the model, when not the default (the OpenAI key is in the secrets). */
   imagesModel?: string;
-  /** Push notifications: the ntfy topic's URL (its token, if any, is in the secrets). */
-  ntfyUrl?: string;
   engine?: { variant: "cpu" | "cuda"; model: string };
   retentionDays?: number;
   /** The user read that a personal subscription may not be allowed in third-party tools (RD23). */
@@ -50,7 +48,6 @@ interface Secrets {
   openaiKey?: string;
   telegramToken?: string;
   transcriptionKey?: string;
-  ntfyToken?: string;
   openaiImagesKey?: string;
   claudeSubscriptionToken?: string;
 }
@@ -64,7 +61,6 @@ export interface Locked {
   search?: boolean;
   engine?: boolean;
   voice?: boolean;
-  notifications?: boolean;
   images?: boolean;
 }
 
@@ -75,7 +71,6 @@ export interface SetupState {
     openai: boolean;
     telegram: boolean;
     transcription: boolean;
-    ntfy: boolean;
     images: boolean;
     claudeSubscription: boolean;
   };
@@ -130,6 +125,14 @@ export class SetupService {
     this.secrets = await readFile(this.secretsFile, "utf8")
       .then((t) => JSON.parse(t) as Secrets)
       .catch(() => ({}));
+    // Push notifications through ntfy are gone (G24.1): alerts go to Telegram.
+    const old = this.config as { ntfyUrl?: string };
+    const oldSecrets = this.secrets as { ntfyToken?: string };
+    if (old.ntfyUrl !== undefined || oldSecrets.ntfyToken !== undefined) {
+      delete old.ntfyUrl;
+      delete oldSecrets.ntfyToken;
+      await this.save();
+    }
   }
 
   private async save(): Promise<void> {
@@ -172,7 +175,6 @@ export class SetupService {
     if (!this.locked.search && c.searxngUrl) await run("search", h.search(c.searxngUrl));
     if (!this.locked.engine && c.engine) await run("engine", h.engine(c.engine));
     if (!this.locked.voice && c.transcription) this.applyTranscription();
-    if (!this.locked.notifications && c.ntfyUrl) this.applyNtfy();
     if (!this.locked.images && s.openaiImagesKey) this.applyImages();
     if (c.subscriptions?.chatgpt && h.chatgptSubscription)
       await run("ChatGPT subscription", h.chatgptSubscription(true));
@@ -201,7 +203,6 @@ export class SetupService {
         openai: Boolean(this.secrets.openaiKey),
         telegram: Boolean(this.secrets.telegramToken),
         transcription: Boolean(this.secrets.transcriptionKey),
-        ntfy: Boolean(this.secrets.ntfyToken),
         images: Boolean(this.secrets.openaiImagesKey),
         claudeSubscription: Boolean(this.secrets.claudeSubscriptionToken),
       },
@@ -383,31 +384,10 @@ export class SetupService {
     await this.save();
   }
 
-  /** Push notifications through ntfy; null turns them off. An empty token keeps the saved one. */
-  async saveNotifications(n: { url: string; token?: string | undefined } | null): Promise<void> {
-    if (this.locked.notifications) throw new SetupError("Notifications are set by the environment");
-    if (n) {
-      this.config.ntfyUrl = n.url;
-      if (n.token) this.secrets.ntfyToken = n.token;
-    } else {
-      delete this.config.ntfyUrl;
-      delete this.secrets.ntfyToken;
-    }
-    this.applyNtfy();
-    await this.save();
-  }
-
   private applyImages(): void {
     const key = this.secrets.openaiImagesKey;
     this.o.core.setImages(
       key ? { key, ...(this.config.imagesModel && { model: this.config.imagesModel }) } : undefined,
-    );
-  }
-
-  private applyNtfy(): void {
-    const url = this.config.ntfyUrl;
-    this.o.core.setNtfy(
-      url ? { url, ...(this.secrets.ntfyToken && { token: this.secrets.ntfyToken }) } : undefined,
     );
   }
 

@@ -140,13 +140,6 @@ const core = await RedGiantCore.create({
       ...(env.REDGIANT_WHISPER_KEY && { key: env.REDGIANT_WHISPER_KEY }),
     },
   }),
-  ...(env.REDGIANT_NTFY_URL && {
-    ntfy: {
-      url: env.REDGIANT_NTFY_URL,
-      ...(env.REDGIANT_NTFY_TOKEN && { token: env.REDGIANT_NTFY_TOKEN }),
-    },
-  }),
-  ...(env.REDGIANT_PUBLIC_URL && { publicUrl: env.REDGIANT_PUBLIC_URL }),
   ...(env.REDGIANT_OPENAI_IMAGES_KEY && {
     images: {
       key: env.REDGIANT_OPENAI_IMAGES_KEY,
@@ -214,7 +207,6 @@ const setup = new SetupService({
     search: Boolean(env.REDGIANT_SEARXNG_URL),
     engine: Boolean(env.REDGIANT_LLAMACPP_URL),
     voice: Boolean(env.REDGIANT_WHISPER_URL),
-    notifications: Boolean(env.REDGIANT_NTFY_URL),
     images: Boolean(env.REDGIANT_OPENAI_IMAGES_KEY),
   },
 });

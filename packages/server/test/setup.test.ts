@@ -143,7 +143,6 @@ describe("the setup wizard", () => {
       openai: false,
       telegram: true,
       transcription: false,
-      ntfy: false,
       images: false,
       claudeSubscription: false,
     });

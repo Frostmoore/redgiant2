@@ -40,7 +40,6 @@ export interface SetupState {
     openaiBaseUrl?: string;
     searxngUrl?: string;
     transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
-    ntfyUrl?: string;
     imagesModel?: string;
     subscriptions?: { claude?: boolean; chatgpt?: boolean };
     engine?: { variant: "cpu" | "cuda"; model: string };
@@ -52,7 +51,6 @@ export interface SetupState {
     openai: boolean;
     telegram: boolean;
     transcription?: boolean;
-    ntfy?: boolean;
     images?: boolean;
     claudeSubscription?: boolean;
   };
@@ -65,7 +63,6 @@ export interface SetupState {
       | "search"
       | "engine"
       | "voice"
-      | "notifications"
       | "images",
       boolean
     >
@@ -447,9 +444,6 @@ export class Api {
   setup = () => this.call<SetupState>("GET", "/api/setup");
   setupModels = (b: Record<string, unknown>) =>
     this.call<{ openaiModels: string[] }>("PUT", "/api/setup/models", b);
-  setupNotifications = (ntfy: { url: string; token?: string } | null) =>
-    this.call("PUT", "/api/setup/notifications", { ntfy });
-  testNotification = () => this.call("POST", "/api/notifications/test");
   setupEngine = (engine: { variant: "cpu" | "cuda"; model: string } | null) =>
     this.call("PUT", "/api/setup/engine", { engine });
   setupNames = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/names", b);

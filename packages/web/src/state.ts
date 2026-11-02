@@ -405,7 +405,6 @@ export type SettingsSection =
   | "automations"
   | "extensions"
   | "telegram"
-  | "notifications"
   | "devices"
   | "budgets"
   | "subscriptions"

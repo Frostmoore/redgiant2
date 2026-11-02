@@ -1,3 +1,4 @@
+export * from "./alerts.js";
 export * from "./app.js";
 export * from "./approvals.js";
 export * from "./auth.js";
@@ -11,7 +12,6 @@ export * from "./hardware.js";
 export * from "./hf.js";
 export * from "./images.js";
 export * from "./inspector.js";
-export * from "./ntfy.js";
 export * from "./orchestration.js";
 export * from "./platform.js";
 export * from "./projects.js";
