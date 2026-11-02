@@ -8,6 +8,8 @@ export interface AgentNode {
   parentId: string | null;
   projectId: string | null;
   ownerId: string;
+  /** The subproject it works in (G24.13), inside its project; none for the project's own agents. */
+  subprojectId?: string | null | undefined;
 }
 
 /** The human owner acts as itself; agents act through their node. */
@@ -57,7 +59,7 @@ const isAncestor = (maybe: AgentNode, of: AgentNode, resolve: Resolve) =>
  * - Orchestrator: the agents of its own project.
  * - Agent: its own tasks and its sub-agents.
  * - Sub-agent: only its own task; cannot spawn (RD11).
- * - Inspector: reads its project; never acts on anyone (RD30).
+ * - Inspector: reads its project (every subproject), or only its subproject; never acts (RD30).
  * - Assistant: a personal agent (G24.11); reads and messages the other assistants (hand-offs),
  *   messages God; sees no project and creates nobody.
  * Changing permissions ("configure") is reserved to God and the human; nobody configures
@@ -105,7 +107,13 @@ export function can(
     case "subagent":
       return self && action === "read";
     case "inspector":
-      return action === "read" && target.projectId !== null && target.projectId === a.projectId;
+      // The project's inspector reads every subproject; a subproject's inspector only its own.
+      return (
+        action === "read" &&
+        target.projectId !== null &&
+        target.projectId === a.projectId &&
+        (!a.subprojectId || target.subprojectId === a.subprojectId)
+      );
     case "assistant":
       if (target.kind === "god") return action === "message";
       if (target.kind !== "assistant") return false;

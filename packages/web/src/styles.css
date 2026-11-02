@@ -3187,3 +3187,20 @@ a.button.primary {
   font-size: 12.5px;
   background: var(--panel);
 }
+
+/* --- subprojects (G24.13) --- */
+.subprojects {
+  padding-left: 14px;
+}
+.bar-item.sub {
+  font-size: 13px;
+}
+.sub-agent-name {
+  padding: 2px 0 0 30px;
+  font-size: 12px;
+}
+.subprojects .bar-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}

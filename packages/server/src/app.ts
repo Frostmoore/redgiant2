@@ -32,6 +32,7 @@ import { HuggingFace } from "./hf.js";
 import { localModelChoices } from "./local-models.js";
 import { LoginError } from "./login.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
+import { SubprojectError } from "./projects.js";
 import { RoomError } from "./rooms.js";
 import type { SetupService } from "./setup.js";
 import { MAX_AUDIO_BYTES, TranscriptionError } from "./voice.js";
@@ -71,6 +72,7 @@ const Agent = z
     model: ModelSpec.optional(),
     mode: PermissionMode.optional(),
     connections: z.array(z.string()).optional(),
+    subprojectId: z.string().optional(),
     status: z.enum(["active", "stopped"]),
   })
   .openapi("Agent");
@@ -86,6 +88,7 @@ const NewAgent = z
     model: ModelSpec.optional(),
     mode: PermissionMode.optional(),
     connections: z.array(z.string().min(1)).optional(),
+    subprojectId: z.string().min(1).optional(),
   })
   .openapi("NewAgent");
 
@@ -868,6 +871,13 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     const body = c.req.valid("json");
     if (body.projectId && !(await core.projects.get(owner(c), body.projectId)))
       return c.json({ error: `Project "${body.projectId}" not found` }, 404);
+    if (body.subprojectId) {
+      const sub = await core.projects.subproject(owner(c), body.subprojectId);
+      const project =
+        body.projectId ?? core.registry.get(body.parentId ?? "")?.projectId ?? undefined;
+      if (!sub || sub.projectId !== project)
+        return c.json({ error: `Subproject "${body.subprojectId}" not found in the project` }, 404);
+    }
     const { parentId, ...rest } = body;
     const input = Object.fromEntries(
       Object.entries({ ...rest, parentId: parentId ?? null }).filter(([, v]) => v !== undefined),
@@ -1080,7 +1090,11 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
 
   app.openapi(routes.budgets, async (c) => {
     const o = owner(c);
-    const projects = (await core.projects.list(o)).map((p) => p.id);
+    const projects = [
+      ...(await core.projects.list(o)).map((p) => p.id),
+      // A subproject's budget is kept under its id (G24.13).
+      ...(await core.projects.subprojects(o)).map((s) => s.id),
+    ];
     const agents = core.registry.list({ ownerId: o }).map((a) => a.id);
     const rows = await core.budget.listFor(o, projects, agents);
     // The total is always there, so its limit can be set before anything is spent.
@@ -1093,7 +1107,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     const o = owner(c);
     const mine =
       (b.scope === "global" && b.id === o) ||
-      (b.scope === "project" && (await core.projects.get(o, b.id)) !== undefined) ||
+      (b.scope === "project" &&
+        ((await core.projects.get(o, b.id)) !== undefined ||
+          (await core.projects.subproject(o, b.id)) !== undefined)) ||
       (b.scope === "agent" && core.registry.get(b.id)?.ownerId === o);
     if (!mine) return c.json({ error: "Not found" }, 404);
     // Through the configuration, so the change is in the history and can be undone.
@@ -1584,6 +1600,25 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     }),
   );
   app.delete("/api/setup/gitea", (c) => wizard(c, () => (setup as SetupService).stopGitea()));
+  // Subprojects (G24.13): parts of a project, each in its own folder.
+  app.get("/api/projects/:id/subprojects", async (c) =>
+    c.json(await core.projects.subprojects(owner(c), c.req.param("id")), 200),
+  );
+  app.post("/api/projects/:id/subprojects", async (c) => {
+    const b = z
+      .object({ name: z.string().min(1).max(80), dir: z.string().max(200).optional() })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "A name is needed" }, 400);
+    try {
+      return c.json(
+        await core.projects.createSubproject(owner(c), c.req.param("id"), b.data.name, b.data.dir),
+        201,
+      );
+    } catch (err) {
+      if (err instanceof SubprojectError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
   // Group chats (G24.12): the person and 1–6 agents.
   const room = async <T>(c: Context<Env>, f: () => Promise<T>) => {
     try {

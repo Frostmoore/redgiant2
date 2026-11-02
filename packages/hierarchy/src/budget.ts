@@ -8,6 +8,8 @@ export function budgetKeys(agent: AgentNode, resolve: Resolve): BudgetKey[] {
     { scope: "agent", id: agent.id },
     ...ancestors(agent, resolve).map((a) => ({ scope: "agent" as const, id: a.id })),
     ...(agent.projectId ? [{ scope: "project" as const, id: agent.projectId }] : []),
+    // A subproject's spend counts in its own budget and in its project's (G24.13).
+    ...(agent.subprojectId ? [{ scope: "project" as const, id: agent.subprojectId }] : []),
     { scope: "global", id: agent.ownerId },
   ];
 }

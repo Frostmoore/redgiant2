@@ -18,6 +18,7 @@ import {
   type PlatformInfo,
   type Project,
   type Room,
+  type Subproject,
 } from "./api.js";
 
 // ---------- Chat items (pure) ----------
@@ -310,6 +311,15 @@ export const boardVersion = signal(0);
 export const automationsVersion = signal(0);
 /** Group chats (G24.12) and a counter that moves when any of them changes. */
 export const rooms = signal<Room[]>([]);
+/** Every project's subprojects (G24.13). */
+export const subprojects = signal<Subproject[]>([]);
+export async function refreshSubprojects(): Promise<void> {
+  const a = getApi();
+  const all = await Promise.all(
+    projects.value.map((p) => a.subprojects(p.id).catch(() => [] as Subproject[])),
+  );
+  subprojects.value = all.flat();
+}
 export const roomsVersion = signal(0);
 export async function refreshRooms(): Promise<void> {
   rooms.value = await getApi()
@@ -368,6 +378,7 @@ export async function refresh(): Promise<void> {
     await Promise.all([a.projects(), a.agents(), a.approvals(), a.budgets(), a.platform()]);
   await refreshConversations().catch(() => {});
   await refreshRooms();
+  await refreshSubprojects();
   await refreshLimits();
 }
 
@@ -546,15 +557,27 @@ export function closeSide(id: string): void {
 }
 
 /** The scope the explorer shows: the active conversation's project, or God's platform. */
-export function currentScope(): { scope: string; title: string } {
+export function currentScope(): { scope: string; title: string; focus?: string } {
   const tab = tabs.value.find((x) => x.id === activeTab.value);
   const projectOf = (id: string | null | undefined) => projects.value.find((p) => p.id === id);
   let projectId: string | null | undefined;
-  if (tab?.type === "chat") projectId = agents.value.find((a) => a.id === tab.agentId)?.projectId;
+  const agent =
+    tab?.type === "chat"
+      ? agents.value.find((a) => a.id === tab.agentId)
+      : tab?.type === "assistant"
+        ? agents.value.find((a) => a.id === tab.agentId)
+        : undefined;
+  // The personal agents' shared desk (G24.11).
+  if (agent?.kind === "assistant") return { scope: "assistants", title: "Agents" };
+  if (agent) projectId = agent.projectId;
   else if (tab?.type === "board" || tab?.type === "inspector") projectId = tab.projectId;
   const project = projectOf(projectId ?? undefined);
+  // A subproject's agent: the explorer opens on its folder (G24.13).
+  const sub = agent?.subprojectId
+    ? subprojects.value.find((x) => x.id === agent.subprojectId)
+    : undefined;
   return project
-    ? { scope: `project:${project.id}`, title: project.name }
+    ? { scope: `project:${project.id}`, title: project.name, ...(sub && { focus: sub.dir }) }
     : { scope: "platform", title: "Platform" };
 }
 

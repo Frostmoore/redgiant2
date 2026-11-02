@@ -9,6 +9,7 @@ import type { Workspace } from "./workspace.js";
 export * from "./edit.js";
 export * from "./files.js";
 export * from "./profiles.js";
+export * from "./scoped.js";
 export * from "./search.js";
 export * from "./shell.js";
 export * from "./text.js";

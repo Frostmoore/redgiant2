@@ -123,6 +123,16 @@ const en = {
   kind_subagent: "Helper",
   kind_inspector: "Inspector, reads only",
   kind_assistant: "Personal assistant",
+  subNoAgents: "No agents yet: create them from the project's agents.",
+  subName: "Subproject name",
+  subDir: "Folder (optional)",
+  subDirHelp:
+    "Inside the project, for example apps/shop. Empty: a new folder with the name. An existing folder works too.",
+  subNew: "subproject",
+  agentWhere: "Where it works",
+  agentWhereHelp:
+    "In a subproject it writes only in its folder; the rest of the project it can read, and changes there go through the lead.",
+  agentWholeProject: "The whole project",
   groups: "Groups",
   groupsEmpty: "Several agents in one chat: «Add an agent» in any conversation.",
   groupsNewHint: "Start a group with {god}, then add the others",
@@ -1166,6 +1176,16 @@ const it: Record<Key, string> = {
   kind_subagent: "Aiutante",
   kind_inspector: "Ispettore, solo lettura",
   kind_assistant: "Assistente personale",
+  subNoAgents: "Ancora nessun agente: crealo dagli agenti del progetto.",
+  subName: "Nome del sottoprogetto",
+  subDir: "Cartella (facoltativa)",
+  subDirHelp:
+    "Dentro il progetto, per esempio apps/shop. Vuota: una cartella nuova con il nome. Va bene anche una cartella che esiste già.",
+  subNew: "sottoprogetto",
+  agentWhere: "Dove lavora",
+  agentWhereHelp:
+    "In un sottoprogetto scrive solo nella sua cartella; il resto del progetto lo può leggere, e le modifiche lì passano dal capo.",
+  agentWholeProject: "Tutto il progetto",
   groups: "Gruppi",
   groupsEmpty: "Più agenti in una chat: «Aggiungi un agente» in qualunque conversazione.",
   groupsNewHint: "Inizia un gruppo con {god}, poi aggiungi gli altri",

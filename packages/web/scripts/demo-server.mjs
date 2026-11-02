@@ -323,6 +323,24 @@ await core.registry.create(
     role: "Cerca sul web e riportami quello che trovi, con le fonti.",
   },
 );
+// Subprojects (G24.13): the site and the API, each in its folder, with an agent on the site.
+{
+  const site = await core.projects.createSubproject("local", "demo", "Sito", "apps/site");
+  await core.projects.createSubproject("local", "demo", "API", "apps/api");
+  const webmaster = await core.registry.create(
+    { type: "human", ownerId: "local" },
+    {
+      kind: "agent",
+      parentId: orch.id,
+      projectId: "demo",
+      subprojectId: site.id,
+      name: "Webmaster",
+      role: "Keeps the site",
+    },
+  );
+  const wsid = await core.startSession("local", webmaster.id);
+  await (await core.send("local", wsid, "Give me a quick tour of the site.")).done;
+}
 // A group chat (G24.12): God, the demo's inspector and the secretary.
 {
   const room = await core.rooms.create("local", {

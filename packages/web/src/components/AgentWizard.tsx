@@ -4,7 +4,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { ModelChoice } from "../api.js";
 import { t } from "../i18n.js";
-import { agents, getApi, projects, refresh } from "../state.js";
+import { agents, getApi, projects, refresh, subprojects } from "../state.js";
 import { explain, providerName } from "./Brain.js";
 import { Advanced, Choice, Field } from "./ui.js";
 
@@ -31,6 +31,7 @@ export function AgentWizard({ onDone }: { onDone: () => void }) {
   const [role, setRole] = useState<Role>("coder");
   const [own, setOwn] = useState("");
   const [project, setProject] = useState(projects.value[0]?.id ?? "");
+  const [sub, setSub] = useState("");
   const [name, setName] = useState(t("agentRole_coder"));
   const [named, setNamed] = useState(false);
   const [models, setModels] = useState<ModelChoice[]>([]);
@@ -61,6 +62,7 @@ export function AgentWizard({ onDone }: { onDone: () => void }) {
         kind: "agent",
         parentId: lead.id,
         projectId: project,
+        ...(sub && { subprojectId: sub }),
         name: name.trim(),
         role: role === "custom" ? own.trim().slice(0, 120) : t(`agentRole_${role}`),
         ...(instructions && { systemPrompt: instructions }),
@@ -99,7 +101,10 @@ export function AgentWizard({ onDone }: { onDone: () => void }) {
         <Field label={t("agentStep2")} help={t("agentStep2Help")}>
           <select
             value={project}
-            onChange={(e) => setProject((e.target as HTMLSelectElement).value)}
+            onChange={(e) => {
+              setProject((e.target as HTMLSelectElement).value);
+              setSub("");
+            }}
           >
             {projects.value.map((p) => (
               <option key={p.id} value={p.id}>
@@ -108,6 +113,20 @@ export function AgentWizard({ onDone }: { onDone: () => void }) {
             ))}
           </select>
         </Field>
+        {subprojects.value.some((s) => s.projectId === project) && (
+          <Field label={t("agentWhere")} help={t("agentWhereHelp")}>
+            <select value={sub} onChange={(e) => setSub((e.target as HTMLSelectElement).value)}>
+              <option value="">{t("agentWholeProject")}</option>
+              {subprojects.value
+                .filter((s) => s.projectId === project)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.dir}/)
+                  </option>
+                ))}
+            </select>
+          </Field>
+        )}
         <Field label={t("agentStep3")}>
           <input
             value={name}

@@ -7,6 +7,7 @@ const n = (
   parentId: string | null,
   projectId: string | null,
   ownerId = "me",
+  subprojectId: string | null = null,
 ): AgentNode => ({
   id,
   name: id,
@@ -14,6 +15,7 @@ const n = (
   parentId,
   projectId,
   ownerId,
+  subprojectId,
 });
 const tree = [
   n("G", "god", null, null),
@@ -27,6 +29,11 @@ const tree = [
   n("S2", "subagent", "A2", "p1"),
   n("I1", "inspector", "G", "p1"),
   n("P1", "assistant", "G", null),
+  // Subprojects of p1 (G24.13): s1 and s2.
+  n("A4", "agent", "O1", "p1", "me", "s1"),
+  n("A5", "agent", "O1", "p1", "me", "s2"),
+  n("S4", "subagent", "A4", "p1", "me", "s1"),
+  n("I2", "inspector", "G", "p1", "me", "s1"),
   n("P2", "assistant", "G", null),
   n("X", "god", null, null, "someone-else"),
 ];
@@ -44,6 +51,8 @@ S1 read      S1 yes | S1 spawn    S1 no  | S1 message A1 no | S1 read   A1 no
 I1 read      A1 yes | I1 read     S2 yes | I1 message A1 no | I1 stop   A1 no  | I1 read A3 no | I1 spawn I1 no
 P1 read      P1 yes | P1 read     P2 yes | P1 message P2 yes | P1 stop   P2 no  | P1 configure P2 no | P1 spawn P1 no
 P1 message   G  yes | P1 read     G  no  | P1 read    A1 no  | P1 message O1 no | P1 read I1 no | P1 stop P1 no
+O1 message  A4 yes | O1 stop     A5 yes | O1 read   S4 yes | I1 read   A4 yes | I1 read A5 yes | A4 message S4 yes
+A4 message  A5 no  | A4 read     A5 no  | A5 read   S4 no  | I2 read   A4 yes | I2 read S4 yes | I2 read A5 no | I2 read A1 no
 G  join      A1 no  | O1 join     A1 no  | P1 join   P2 no  | I1 join    I1 no  | A1 join A1 no
 G  configure P1 yes | G  stop     P1 yes | O1 message P1 no  | O1 read   P1 no  | I1 read P1 no | A1 message P1 no | D message P1 no
 `

@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import type { SqlClient } from "@redgiant/events";
 
 export interface Project {
@@ -11,7 +11,32 @@ export interface Project {
   createdAt: string;
 }
 
+/**
+ * A part of a project (G24.13): its own subfolder, agents, budget; the project's orchestrator
+ * leads it, and the rest of the project folder is the shared part.
+ */
+export interface Subproject {
+  id: string;
+  projectId: string;
+  name: string;
+  /** The folder, relative to the project's ("apps/shop"). */
+  dir: string;
+  createdAt: string;
+}
+
+export class SubprojectError extends Error {}
+
 export async function migrateProjects(db: SqlClient): Promise<void> {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS rg_subprojects (
+      id         text NOT NULL,
+      owner_id   text NOT NULL,
+      project_id text NOT NULL,
+      name       text NOT NULL,
+      dir        text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (owner_id, id)
+    )`);
   await db.query(`
     CREATE TABLE IF NOT EXISTS rg_projects (
       id         text NOT NULL,
@@ -67,6 +92,22 @@ const fromRow = (r: Row): Project => ({
   createdAt: new Date(r.created_at).toISOString(),
 });
 
+interface SubRow {
+  id: string;
+  project_id: string;
+  name: string;
+  dir: string;
+  created_at: Date | string;
+}
+
+const fromSubRow = (r: SubRow): Subproject => ({
+  id: r.id,
+  projectId: r.project_id,
+  name: r.name,
+  dir: r.dir,
+  createdAt: new Date(r.created_at).toISOString(),
+});
+
 /** Projects: one workspace directory each, under `<workspacesDir>/<owner>/<id>`. */
 export class ProjectStore {
   constructor(
@@ -106,6 +147,65 @@ export class ProjectStore {
       [ownerId, id],
     );
     return r ? fromRow(r) : undefined;
+  }
+
+  /**
+   * A new subproject: a new folder, or one that already exists (for code already split so).
+   * Folders never overlap: one subproject cannot sit inside another.
+   */
+  async createSubproject(
+    ownerId: string,
+    projectId: string,
+    name: string,
+    dir?: string,
+  ): Promise<Subproject> {
+    const project = await this.get(ownerId, projectId);
+    if (!project) throw new SubprojectError(`No project "${projectId}"`);
+    const key = slug(name);
+    if (!key) throw new SubprojectError("The name needs letters or digits");
+    const folder = posix
+      .normalize((dir?.trim() || key).replaceAll("\\", "/"))
+      .replace(/^(\.\/)+|\/+$/g, "");
+    if (
+      !folder ||
+      folder === "." ||
+      folder.startsWith("..") ||
+      posix.isAbsolute(folder) ||
+      folder.startsWith(".git")
+    )
+      throw new SubprojectError("The folder must be inside the project");
+    const siblings = await this.subprojects(ownerId, projectId);
+    const overlaps = (a: string, b: string) =>
+      a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+    const clash = siblings.find((s) => overlaps(s.dir, folder));
+    if (clash) throw new SubprojectError(`"${folder}" overlaps the subproject ${clash.name}`);
+    const id = `${projectId}--${key}`;
+    if (siblings.some((s) => s.id === id))
+      throw new SubprojectError(`A subproject "${name}" already exists`);
+    await mkdir(join(project.path, folder), { recursive: true });
+    await this.db.query(
+      "INSERT INTO rg_subprojects (id, owner_id, project_id, name, dir) VALUES ($1, $2, $3, $4, $5)",
+      [id, ownerId, projectId, name, folder],
+    );
+    return (await this.subproject(ownerId, id)) as Subproject;
+  }
+
+  async subprojects(ownerId: string, projectId?: string): Promise<Subproject[]> {
+    const rows = await this.db.query<SubRow>(
+      projectId === undefined
+        ? "SELECT * FROM rg_subprojects WHERE owner_id = $1 ORDER BY created_at"
+        : "SELECT * FROM rg_subprojects WHERE owner_id = $1 AND project_id = $2 ORDER BY created_at",
+      projectId === undefined ? [ownerId] : [ownerId, projectId],
+    );
+    return rows.map(fromSubRow);
+  }
+
+  async subproject(ownerId: string, id: string): Promise<Subproject | undefined> {
+    const [r] = await this.db.query<SubRow>(
+      "SELECT * FROM rg_subprojects WHERE owner_id = $1 AND id = $2",
+      [ownerId, id],
+    );
+    return r ? fromSubRow(r) : undefined;
   }
 
   async list(ownerId: string): Promise<Project[]> {

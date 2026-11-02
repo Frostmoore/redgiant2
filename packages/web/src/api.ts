@@ -189,6 +189,8 @@ export interface Agent {
   mode?: string;
   /** For assistants: the services they may use. */
   connections?: string[];
+  /** The subproject it works in (G24.13). */
+  subprojectId?: string;
   status: "active" | "stopped";
 }
 
@@ -293,6 +295,15 @@ export interface McpEntry {
   transport:
     | { type: "stdio"; command: string; args?: string[] }
     | { type: "http"; url: string; oauth?: boolean };
+}
+
+/** A part of a project in its own folder (G24.13). */
+export interface Subproject {
+  id: string;
+  projectId: string;
+  name: string;
+  dir: string;
+  createdAt: string;
 }
 
 /** A group chat (G24.12): the person and 1–6 agents, each answering in its own session. */
@@ -422,6 +433,13 @@ export class Api {
     transport: McpEntry["transport"];
     secrets?: { headers?: Record<string, string>; env?: Record<string, string> };
   }) => this.call("PUT", "/api/extensions/mcp", m);
+  subprojects = (projectId: string) =>
+    this.call<Subproject[]>("GET", `/api/projects/${projectId}/subprojects`);
+  createSubproject = (projectId: string, name: string, dir?: string) =>
+    this.call<Subproject>("POST", `/api/projects/${projectId}/subprojects`, {
+      name,
+      ...(dir && { dir }),
+    });
   rooms = () => this.call<Room[]>("GET", "/api/rooms");
   /** `members` takes agent ids, or "inspector:<project>" for a project's inspector. */
   createRoom = (r: {

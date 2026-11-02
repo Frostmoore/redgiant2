@@ -24,6 +24,7 @@ export interface NewAgent {
   model?: ModelSpec;
   mode?: PermissionMode;
   connections?: string[];
+  subprojectId?: string;
 }
 
 export class HierarchyError extends Error {
@@ -46,6 +47,7 @@ interface Row {
   model: string | null;
   mode: PermissionMode | null;
   connections: string | null;
+  subproject_id: string | null;
   status: "active" | "stopped";
 }
 
@@ -68,12 +70,16 @@ export async function migrateHierarchy(db: SqlClient): Promise<void> {
     )`);
   // The services an assistant may use (G24.11).
   await db.query("ALTER TABLE rg_agents ADD COLUMN IF NOT EXISTS connections text");
+  // The subproject an agent works in (G24.13).
+  await db.query("ALTER TABLE rg_agents ADD COLUMN IF NOT EXISTS subproject_id text");
   // One God and one Demi-God per owner, one orchestrator and one inspector per project.
   await db.query(
     "CREATE UNIQUE INDEX IF NOT EXISTS rg_agents_one_god ON rg_agents (owner_id, kind) WHERE kind IN ('god', 'demigod') AND status = 'active'",
   );
+  // G24.13: one inspector per project and one per subproject; one orchestrator per project.
+  await db.query("DROP INDEX IF EXISTS rg_agents_one_per_project");
   await db.query(
-    "CREATE UNIQUE INDEX IF NOT EXISTS rg_agents_one_per_project ON rg_agents (owner_id, project_id, kind) WHERE kind IN ('orchestrator', 'inspector') AND status = 'active'",
+    "CREATE UNIQUE INDEX IF NOT EXISTS rg_agents_one_per_project_v2 ON rg_agents (owner_id, project_id, kind, (COALESCE(subproject_id, ''))) WHERE kind IN ('orchestrator', 'inspector') AND status = 'active'",
   );
   await db.query(`
     CREATE TABLE IF NOT EXISTS rg_budgets (
@@ -111,6 +117,7 @@ const fromRow = (r: Row): AgentRecord => ({
   ...(r.model !== null && { model: JSON.parse(r.model) as ModelSpec }),
   ...(r.mode !== null && { mode: r.mode }),
   ...(r.connections !== null && { connections: JSON.parse(r.connections) as string[] }),
+  ...(r.subproject_id !== null && { subprojectId: r.subproject_id }),
   status: r.status,
 });
 
@@ -182,6 +189,12 @@ export class AgentRegistry {
       throw new HierarchyError("A child must belong to its parent's project");
     }
     const persistent = input.kind === "subagent" ? false : (input.persistent ?? true);
+    // A child works where its parent does; only project agents belong to a subproject.
+    const subprojectId =
+      parent?.subprojectId ??
+      (["agent", "inspector"].includes(input.kind) ? input.subprojectId : undefined);
+    if (parent?.subprojectId && input.subprojectId && input.subprojectId !== parent.subprojectId)
+      throw new HierarchyError("A child works in its parent's subproject");
 
     const record: AgentRecord = {
       id: `${input.kind}_${randomUUID().slice(0, 8)}`,
@@ -196,12 +209,13 @@ export class AgentRegistry {
       ...(input.model !== undefined && { model: input.model }),
       ...(input.mode !== undefined && { mode: input.mode }),
       ...(input.connections !== undefined && { connections: input.connections }),
+      ...(subprojectId !== undefined && { subprojectId }),
       status: "active",
     };
     try {
       await this.db.query(
-        `INSERT INTO rg_agents (id, owner_id, kind, parent_id, project_id, persistent, name, role, system_prompt, model, mode, connections)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        `INSERT INTO rg_agents (id, owner_id, kind, parent_id, project_id, persistent, name, role, system_prompt, model, mode, connections, subproject_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
         [
           record.id,
           ownerId,
@@ -215,6 +229,7 @@ export class AgentRegistry {
           input.model ? JSON.stringify(input.model) : null,
           input.mode ?? null,
           input.connections ? JSON.stringify(input.connections) : null,
+          subprojectId ?? null,
         ],
       );
     } catch (err) {

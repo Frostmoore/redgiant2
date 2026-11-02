@@ -14,7 +14,7 @@ import {
 } from "@redgiant/hierarchy";
 import type { Event, ImagePart, ModelSpec } from "@redgiant/protocol";
 import { complete, costUsd, type ProviderRegistry, streamWithFallback } from "@redgiant/providers";
-import { commitAll, mergeWorktree } from "@redgiant/sandbox";
+import { commitAll, mergeWorktree, worktreeBranch } from "@redgiant/sandbox";
 import type { Workspace } from "@redgiant/tools";
 import { z } from "zod";
 import type { ProjectStore } from "./projects.js";
@@ -180,6 +180,7 @@ const CreateAgentInput = z.object({
   role: z.string().min(1),
   system_prompt: z.string().optional(),
   project_id: z.string().optional(),
+  subproject_id: z.string().optional(),
   connections: z.array(z.string().min(1)).optional(),
   model: z
     .object({
@@ -287,7 +288,7 @@ export function orchestrationTools(
         return visible
           .map(
             (a) =>
-              `${a.id}\t${a.kind}\t${a.name}${a.role ? ` (${a.role})` : ""}\t${a.projectId ?? "-"}\t${a.status}`,
+              `${a.id}\t${a.kind}\t${a.name}${a.role ? ` (${a.role})` : ""}\t${a.projectId ?? "-"}${a.subprojectId ? `/${a.subprojectId}` : ""}\t${a.status}`,
           )
           .join("\n");
       },
@@ -371,6 +372,10 @@ export function orchestrationTools(
             role: { type: "string" },
             system_prompt: { type: "string" },
             project_id: { type: "string" },
+            subproject_id: {
+              type: "string",
+              description: "agent only: the subproject it works in (its folder)",
+            },
             connections: {
               type: "array",
               items: { type: "string" },
@@ -401,6 +406,7 @@ export function orchestrationTools(
           ...(i.system_prompt && { systemPrompt: i.system_prompt }),
           ...(i.project_id && { projectId: i.project_id }),
           ...(i.connections && { connections: i.connections }),
+          ...(i.subproject_id && { subprojectId: i.subproject_id }),
           ...(i.model && { model: i.model as ModelSpec }),
         });
         return `Created ${a.kind} ${a.name} (${a.id}) in project ${a.projectId ?? "-"}.`;
@@ -473,15 +479,23 @@ export function orchestrationTools(
         def: {
           name: "merge_work",
           description:
-            "Commit an agent's work in its worktree and merge it into the project. On conflicts nothing is changed and the conflicting files are listed.",
+            "Commit an agent's work in its worktree and merge it into the project. On conflicts nothing is changed and the conflicting files are listed. A subproject's agent that changed files outside its folder (the shared parts) is merged only with include_shared, after you checked those changes.",
           inputSchema: {
             type: "object",
-            properties: { agent_id: { type: "string" }, message: { type: "string" } },
+            properties: {
+              agent_id: { type: "string" },
+              message: { type: "string" },
+              include_shared: { type: "boolean" },
+            },
             required: ["agent_id", "message"],
           },
         },
-        schema: z.object({ agent_id: z.string(), message: z.string().min(1) }),
-        async run({ agent_id, message }) {
+        schema: z.object({
+          agent_id: z.string(),
+          message: z.string().min(1),
+          include_shared: z.boolean().optional(),
+        }),
+        async run({ agent_id, message, include_shared }) {
           const a = target(agent_id);
           if (a.kind !== "agent" || !can(me, "message", a, host.registry.resolve)) {
             throw new Error(`${a.name} is not an agent you manage`);
@@ -492,6 +506,27 @@ export function orchestrationTools(
             message,
             `${a.name} <${a.id}@redgiant>`,
           );
+          // G24.13: what a subproject's agent changed outside its folder waits for the orchestrator.
+          if (a.subprojectId && !include_shared) {
+            const sub = await host.projects.subproject(a.ownerId, a.subprojectId);
+            const changed = (
+              await root.execFile(
+                "git",
+                ["diff", "--name-only", `HEAD...${worktreeBranch(a.id)}`],
+                {
+                  timeoutMs: 30_000,
+                },
+              )
+            ).stdout
+              .split(/\r?\n/)
+              .filter(Boolean);
+            const outside = sub ? changed.filter((f) => !f.startsWith(`${sub.dir}/`)) : [];
+            if (outside.length > 0)
+              return {
+                content: `${a.name} changed files outside its subproject (${sub?.dir}/): ${outside.join(", ")}. Nothing was merged. Check those changes; merge with include_shared if they are right for every subproject, or ask ${a.name} to undo them.`,
+                isError: true,
+              };
+          }
           const r = await mergeWorktree(root, a.id);
           if (!r.ok)
             return {

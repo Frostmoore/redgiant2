@@ -43,7 +43,10 @@ function Folder({
   act,
   hidden,
   dropInto,
+  reveal,
 }: {
+  /** A folder to show open, with the ones above it (a subproject's). */
+  reveal?: string | undefined;
   scope: string;
   path: string;
   depth: number;
@@ -60,6 +63,13 @@ function Folder({
   useEffect(() => {
     void attempt(() => api.list(scope, path)).then((e) => setEntries(e ?? []));
   }, [scope, path, version]);
+  useEffect(() => {
+    if (!reveal) return;
+    const up = (entries ?? []).filter(
+      (e) => e.type === "dir" && (reveal === e.path || reveal.startsWith(`${e.path}/`)),
+    );
+    if (up.length > 0) setOpen((o) => new Set([...o, ...up.map((e) => e.path)]));
+  }, [entries, reveal]);
   const toggle = (p: string) => {
     const next = new Set(open);
     if (next.has(p)) next.delete(p);
@@ -185,6 +195,7 @@ function Folder({
               act={act}
               hidden={hidden}
               dropInto={dropInto}
+              reveal={reveal}
             />
           )}
         </div>
@@ -195,7 +206,7 @@ function Folder({
 
 /** The files of the active conversation's project (or God's platform), on the right. */
 export function Explorer() {
-  const { scope, title } = currentScope();
+  const { scope, title, focus } = currentScope();
   const [version, setVersion] = useState(0);
   const [selected, setSelected] = useState<FileEntry | null>(null);
   const reload = () => setVersion((v) => v + 1);
@@ -363,6 +374,7 @@ export function Explorer() {
           act={act}
           hidden={hidden}
           dropInto={(dir, files) => void uploadInto(dir, Array.from(files))}
+          reveal={focus}
         />
       </div>
     </aside>

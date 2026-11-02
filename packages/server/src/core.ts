@@ -66,6 +66,7 @@ import {
   baseTools,
   LocalWorkspace,
   type ModelProfile,
+  SubprojectWorkspace,
   type WebSearchProvider,
   type Workspace,
 } from "@redgiant/tools";
@@ -534,10 +535,37 @@ export class RedGiantCore implements OrchestrationHost {
     });
     const root = sb.workspace();
     // Agents and sub-agents each get their own git worktree (RD14).
-    if (agent.kind === "agent") return sb.workspace(await createWorktree(root, agent.id));
-    if (agent.kind === "subagent" && agent.parentId)
-      return sb.workspace(await createWorktree(root, agent.parentId));
-    return root;
+    const own =
+      agent.kind === "agent"
+        ? sb.workspace(await createWorktree(root, agent.id))
+        : agent.kind === "subagent" && agent.parentId
+          ? sb.workspace(await createWorktree(root, agent.parentId))
+          : root;
+    // A subproject's agents write in its folder and do not see the other subprojects (G24.13).
+    if (!agent.subprojectId) return own;
+    const subs = await this.projects.subprojects(agent.ownerId, project.id);
+    const mine = subs.find((s) => s.id === agent.subprojectId);
+    if (!mine) throw new NotFoundError(`Subproject "${agent.subprojectId}" not found`);
+    return new SubprojectWorkspace(
+      own,
+      mine.dir,
+      subs.map((s) => s.dir),
+      readOnly,
+    );
+  }
+
+  /** What a subproject's agent must know about where it works. */
+  private async subprojectNote(agent: AgentRecord): Promise<string> {
+    // The orchestrator leads every subproject of its project.
+    if (agent.kind === "orchestrator" && agent.projectId) {
+      const subs = await this.projects.subprojects(agent.ownerId, agent.projectId);
+      if (subs.length === 0) return "";
+      return `## Subprojects\nThis project has subprojects, each in its own folder; the rest is shared by all of them, and changes there are yours to make or approve (merge_work include_shared):\n${subs.map((s) => `- ${s.name} (subproject_id ${s.id}, folder ${s.dir}/)`).join("\n")}\nGive a subproject its own agents with create_agent (subproject_id).`;
+    }
+    if (!agent.subprojectId) return "";
+    const sub = await this.projects.subproject(agent.ownerId, agent.subprojectId);
+    if (!sub) return "";
+    return `## Subproject\nYou work on the subproject "${sub.name}", in the folder ${sub.dir}/ of the project; commands start there. Write only inside it. The rest of the project is shared by every subproject: read it, and ask the project's orchestrator when something there must change. The other subprojects are not yours to see.`;
   }
 
   private async build(
@@ -629,6 +657,7 @@ export class RedGiantCore implements OrchestrationHost {
       system: [
         this.systemFor(agent),
         agent.kind === "assistant" ? await this.assistantMemory(agent) : "",
+        await this.subprojectNote(agent),
         skillsIndex(skills),
       ]
         .filter(Boolean)
@@ -1448,7 +1477,7 @@ export class RedGiantCore implements OrchestrationHost {
   async inspectorAgent(ownerId: string, projectId: string): Promise<AgentRecord> {
     const found = this.registry
       .list({ ownerId, projectId, activeOnly: true })
-      .find((a) => a.kind === "inspector");
+      .find((a) => a.kind === "inspector" && !a.subprojectId);
     if (found) return found;
     const project = await this.projects.get(ownerId, projectId);
     if (!project) throw new NotFoundError(`Project "${projectId}" not found`);

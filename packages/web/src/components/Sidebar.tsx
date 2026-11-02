@@ -9,6 +9,7 @@ import {
   IconCrown,
   IconDownload,
   IconEye,
+  IconFolder,
   IconPin,
   IconPlus,
   IconSettings,
@@ -28,9 +29,11 @@ import {
   projects,
   refresh,
   refreshConversations,
+  refreshSubprojects,
   rooms,
   type SessionRow,
   sessionRows,
+  subprojects,
 } from "../state.js";
 import { assistantState } from "./Assistants.js";
 
@@ -286,6 +289,102 @@ function Assistants({ open, toggle }: { open: Set<string>; toggle: (key: string)
   );
 }
 
+/**
+ * A project's subprojects (G24.13), under it: each with its agents' conversations; the
+ * explorer opens on its folder from them. "+ subproject" makes one, in a new or existing folder.
+ */
+function Subprojects({
+  projectId,
+  open,
+  toggle,
+}: {
+  projectId: string;
+  open: Set<string>;
+  toggle: (key: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [dir, setDir] = useState("");
+  const list = subprojects.value.filter((s) => s.projectId === projectId);
+  const create = async (e: Event) => {
+    e.preventDefault();
+    const made = await attempt(() =>
+      getApi().createSubproject(projectId, name.trim(), dir.trim() || undefined),
+    );
+    if (!made) return;
+    setName("");
+    setDir("");
+    setAdding(false);
+    await refreshSubprojects();
+  };
+  return (
+    <div class="subprojects">
+      {list.map((s) => {
+        const key = `s:${s.id}`;
+        const team = agents.value.filter((a) => a.subprojectId === s.id && a.status === "active");
+        return (
+          <div key={s.id}>
+            <div class="bar-row">
+              <button
+                type="button"
+                class="bar-item sub"
+                onClick={() => toggle(key)}
+                aria-expanded={open.has(key)}
+                title={`${s.dir}/`}
+              >
+                <IconChevron open={open.has(key)} />
+                <IconFolder size={14} />
+                <span class="name">{s.name}</span>
+              </button>
+            </div>
+            {open.has(key) &&
+              (team.length === 0 ? (
+                <div class="sessions">
+                  <span class="dim">{t("subNoAgents")}</span>
+                </div>
+              ) : (
+                team.map((a) => (
+                  <div key={a.id} class="sub-agent">
+                    <div class="dim sub-agent-name">{a.name}</div>
+                    <Sessions agent={a} />
+                  </div>
+                ))
+              ))}
+          </div>
+        );
+      })}
+      {adding ? (
+        <form class="new-project" onSubmit={(e) => void create(e)}>
+          <input
+            required
+            placeholder={t("subName")}
+            value={name}
+            onInput={(e) => setName((e.target as HTMLInputElement).value)}
+          />
+          <input
+            placeholder={t("subDir")}
+            title={t("subDirHelp")}
+            value={dir}
+            onInput={(e) => setDir((e.target as HTMLInputElement).value)}
+          />
+          <div class="row">
+            <button type="submit" class="primary" disabled={!name.trim()}>
+              {t("create")}
+            </button>
+            <button type="button" onClick={() => setAdding(false)}>
+              {t("cancel")}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <button type="button" class="bar-hint" onClick={() => setAdding(true)}>
+          <IconPlus size={11} /> {t("subNew")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Group chats (G24.12): the person and several agents; made from a chat or here. */
 function Groups() {
   const [picking, setPicking] = useState(false);
@@ -503,6 +602,7 @@ export function Sidebar() {
                   <span class="dim">{t("noOrchestrator")}</span>
                 </div>
               ))}
+            {open.has(key) && <Subprojects projectId={p.id} open={open} toggle={toggle} />}
           </div>
         );
       })}
