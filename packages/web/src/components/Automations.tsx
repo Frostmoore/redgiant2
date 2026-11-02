@@ -4,6 +4,8 @@ import { t } from "../i18n.js";
 import { IconClock, IconPlay, IconPlus } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
 import { agents, attempt, automationsVersion, getApi, openTab } from "../state.js";
+import { explain } from "./Brain.js";
+import { Advanced, Choice, Field, Toggle } from "./ui.js";
 
 const STATUSES: AutomationRun["status"][] = ["running", "ok", "failed", "timeout", "skipped"];
 const TRIGGERS: AutomationRun["trigger"][] = ["cron", "webhook", "manual", "missed"];
@@ -14,38 +16,6 @@ const triggerLabel = (s: AutomationRun["trigger"]) =>
 const chipClass = (s: AutomationRun["status"]) =>
   s === "ok" ? "resolved" : s === "running" || s === "skipped" ? "" : "blocked";
 const when = (iso: string) => new Date(iso).toLocaleString();
-
-const template = () => `name: morning-digest
-description: What happened yesterday, every weekday morning
-on:
-  cron: "0 8 * * 1-5"
-  timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"}
-  webhook: false
-# god, orchestrator (with project:), or an agent's name
-agent: god
-# model: anthropic/claude-sonnet-5-5
-# effort: low
-instructions: |
-  Summarise what happened yesterday on every project: finished tasks, open problems,
-  decisions on the board. Keep it short.
-session: new
-timeoutMinutes: 30
-missed: skip
-notify:
-  when: always
-`;
-
-/** A reminder for tomorrow at 9: sent as written, no agent and no model. */
-const reminderTemplate = () => {
-  const d = new Date(Date.now() + 86_400_000);
-  const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return `name: reminder-${day}
-on:
-  at: "${day}T09:00"
-  timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"}
-reminder: Write here what to remind you of.
-`;
-};
 
 /** The agent a recipe talks to, as the server resolves it (for opening its sessions). */
 function agentOf(a: Automation): string {
@@ -109,38 +79,441 @@ function Runs({ a }: { a: Automation }) {
   );
 }
 
-/** Recipes (YAML) run by an agent on a schedule or a webhook, with their history. */
+// --- When it runs, in words (G24.8): the choices people make, and the cron they become -------
+
+type When =
+  | { kind: "daily" | "weekdays"; time: string }
+  | { kind: "weekly"; time: string; days: number[] }
+  | { kind: "hours"; every: number }
+  | { kind: "monthly"; time: string; day: number }
+  | { kind: "webhook" }
+  | { kind: "custom"; cron: string };
+
+const pad = (n: number) => String(n).padStart(2, "0");
+const hm = (time: string) => {
+  const [h = "8", m = "0"] = time.split(":");
+  return { h: Number(h), m: Number(m) };
+};
+
+/** The cron expression of a choice (null: no schedule, only the webhook). */
+export function toCron(w: When): string | null {
+  if (w.kind === "webhook") return null;
+  if (w.kind === "custom") return w.cron;
+  if (w.kind === "hours") return `0 */${Math.max(1, Math.min(23, w.every))} * * *`;
+  const { h, m } = hm(w.time);
+  if (w.kind === "daily") return `${m} ${h} * * *`;
+  if (w.kind === "weekdays") return `${m} ${h} * * 1-5`;
+  if (w.kind === "monthly") return `${m} ${h} ${w.day} * *`;
+  if (w.kind === "weekly") return `${m} ${h} * * ${[...w.days].sort().join(",") || "1"}`;
+  return `${m} ${h} * * *`;
+}
+
+/** The choice a cron expression came from, when it is one of ours; otherwise "custom". */
+export function fromCron(cron: string | undefined, webhook: boolean): When {
+  if (!cron) return webhook ? { kind: "webhook" } : { kind: "daily", time: "08:00" };
+  const f = cron.trim().split(/\s+/);
+  const [m, h, dom, mon, dow] = f;
+  const num = (x: string | undefined) => (x !== undefined && /^\d+$/.test(x) ? Number(x) : null);
+  const every = h?.match(/^\*\/(\d+)$/);
+  if (f.length === 5 && m === "0" && every && dom === "*" && mon === "*" && dow === "*")
+    return { kind: "hours", every: Number(every[1]) };
+  const mm = num(m);
+  const hh = num(h);
+  if (f.length !== 5 || mm === null || hh === null || mon !== "*") return { kind: "custom", cron };
+  const time = `${pad(hh)}:${pad(mm)}`;
+  if (dom === "*" && dow === "*") return { kind: "daily", time };
+  if (dom === "*" && dow === "1-5") return { kind: "weekdays", time };
+  if (dom === "*" && dow && /^[0-6](,[0-6])*$/.test(dow))
+    return { kind: "weekly", time, days: dow.split(",").map(Number) };
+  if (num(dom) !== null && dow === "*") return { kind: "monthly", time, day: Number(dom) };
+  return { kind: "custom", cron };
+}
+
+const DAYS = [1, 2, 3, 4, 5, 6, 0];
+const dayName = (d: number) => t(`day_${d}` as never);
+
+/** A sentence for people: "Every weekday at 08:00". */
+export function whenWords(w: When): string {
+  switch (w.kind) {
+    case "daily":
+      return t("whenDaily", { time: w.time });
+    case "weekdays":
+      return t("whenWeekdays", { time: w.time });
+    case "weekly":
+      return t("whenWeekly", { days: w.days.map(dayName).join(", "), time: w.time });
+    case "hours":
+      return t("whenHours", { n: String(w.every) });
+    case "monthly":
+      return t("whenMonthly", { day: String(w.day), time: w.time });
+    case "webhook":
+      return t("whenWebhook");
+    default:
+      return t("whenCustom", { cron: w.cron });
+  }
+}
+
+/** When an automation runs, in words (a date for reminders). */
+function recipeWhen(a: Automation): string {
+  const on = a.recipe.on;
+  if (on.at) return t("whenAt", { at: new Date(on.at).toLocaleString() });
+  const words = whenWords(fromCron(on.cron, on.webhook));
+  return on.cron && on.webhook ? `${words} ${t("whenAlsoWebhook")}` : words;
+}
+
+const quote = (s: string) => JSON.stringify(s);
+const tz = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const slug = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 50) || "automation";
+
+/** The recipe as YAML (strings quoted as JSON, which YAML reads too). */
+function recipeYaml(o: {
+  name: string;
+  title: string;
+  when: When;
+  agent: { agent: string; project: string | null };
+  instructions: string;
+}): string {
+  const cron = toCron(o.when);
+  return [
+    `name: ${o.name}`,
+    `description: ${quote(o.title)}`,
+    "on:",
+    ...(cron ? [`  cron: ${quote(cron)}`, `  timezone: ${tz()}`] : []),
+    `  webhook: ${o.when.kind === "webhook"}`,
+    `agent: ${quote(o.agent.agent)}`,
+    ...(o.agent.project ? [`project: ${quote(o.agent.project)}`] : []),
+    `instructions: ${quote(o.instructions)}`,
+    "",
+  ].join("\n");
+}
+
+/** Who can be asked: God, each project's lead, the project agents. */
+function whoOptions(): { key: string; label: string; agent: string; project: string | null }[] {
+  const out: { key: string; label: string; agent: string; project: string | null }[] = [];
+  const god = agents.value.find((a) => a.kind === "god");
+  if (god) out.push({ key: "god", label: god.name, agent: "god", project: null });
+  for (const a of agents.value) {
+    if (a.status !== "active" || !a.projectId) continue;
+    if (a.kind === "orchestrator")
+      out.push({
+        key: `o:${a.projectId}`,
+        label: t("whoLead", { project: a.projectId }),
+        agent: "orchestrator",
+        project: a.projectId,
+      });
+    else if (a.kind === "agent")
+      out.push({
+        key: `a:${a.id}`,
+        label: `${a.name} (${a.projectId})`,
+        agent: a.name,
+        project: a.projectId,
+      });
+  }
+  return out;
+}
+
+const TEMPLATES = ["morning", "weekly", "spending"] as const;
+type Template = (typeof TEMPLATES)[number] | "blank";
+const templateWhen: Record<(typeof TEMPLATES)[number], When> = {
+  morning: { kind: "weekdays", time: "08:00" },
+  weekly: { kind: "weekly", time: "17:00", days: [5] },
+  spending: { kind: "monthly", time: "09:00", day: 1 },
+};
+
+/** Making or changing an automation: when, who, what; the YAML under "Advanced". */
+function Editor({
+  current,
+  onSaved,
+}: {
+  current: Automation | undefined;
+  onSaved: (a: Automation, secret?: string) => void;
+}) {
+  const r = current?.recipe;
+  const who = whoOptions();
+  const [tpl, setTpl] = useState<Template>(current ? "blank" : "morning");
+  const [title, setTitle] = useState(
+    r?.description || (current ? current.name : t("tplTitle_morning")),
+  );
+  const [when, setWhen] = useState<When>(
+    r ? fromCron(r.on.cron, r.on.webhook) : templateWhen.morning,
+  );
+  const [whoKey, setWhoKey] = useState(() => {
+    if (!r) return "god";
+    if (r.agent === "god") return "god";
+    if (r.agent === "orchestrator") return `o:${r.project}`;
+    return who.find((x) => x.agent === r.agent && x.project === r.project)?.key ?? "god";
+  });
+  const [instructions, setInstructions] = useState(r?.instructions ?? t("tplText_morning"));
+  const [yaml, setYaml] = useState<string | null>(null);
+  const [error, setError] = useState<string>();
+  const pickTemplate = (x: Template) => {
+    setTpl(x);
+    if (x === "blank") {
+      setTitle("");
+      setInstructions("");
+      setWhen({ kind: "daily", time: "09:00" });
+      return;
+    }
+    setTitle(t(`tplTitle_${x}`));
+    setInstructions(t(`tplText_${x}`));
+    setWhen(templateWhen[x]);
+  };
+  const agent = who.find((x) => x.key === whoKey) ?? who[0];
+  const generated = recipeYaml({
+    name: current?.name ?? `${slug(title)}-${Date.now().toString(36).slice(-4)}`,
+    title: title.trim(),
+    when,
+    agent: agent ?? { agent: "god", project: null },
+    instructions: instructions.trim(),
+  });
+  const save = async () => {
+    setError(undefined);
+    try {
+      const text = yaml ?? generated;
+      const res = current
+        ? await getApi().updateAutomation(current.id, text)
+        : await getApi().createAutomation(text);
+      onSaved(res.automation, res.webhookSecret);
+    } catch (err) {
+      setError(explain(err));
+    }
+  };
+  return (
+    <div class="ui-step auto-editor">
+      {!current && (
+        <>
+          <h4>{t("autoStart")}</h4>
+          <Choice<Template>
+            value={[tpl]}
+            onChange={([x]) => x && pickTemplate(x)}
+            options={[...TEMPLATES, "blank" as const].map((x) => ({
+              id: x,
+              title: t(`tplTitle_${x}`),
+              description: t(`tplDesc_${x}`),
+            }))}
+          />
+        </>
+      )}
+      <div class="form">
+        <Field label={t("autoTitle")} help={t("autoTitleHelp")}>
+          <input value={title} onInput={(e) => setTitle((e.target as HTMLInputElement).value)} />
+        </Field>
+        <Field label={t("autoWho")} help={t("autoWhoHelp")}>
+          <select value={whoKey} onChange={(e) => setWhoKey((e.target as HTMLSelectElement).value)}>
+            {who.map((x) => (
+              <option key={x.key} value={x.key}>
+                {x.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <h4>{t("autoWhen")}</h4>
+      <WhenPicker when={when} onChange={setWhen} />
+      <p class="notice ok">{whenWords(when)}</p>
+      <Field label={t("autoWhat")} help={t("autoWhatHelp")}>
+        <textarea
+          rows={4}
+          value={instructions}
+          onInput={(e) => setInstructions((e.target as HTMLTextAreaElement).value)}
+        />
+      </Field>
+      <Advanced label={t("autoYaml")}>
+        <p class="ui-help">{t("autoYamlHint")}</p>
+        <textarea
+          class="code recipe"
+          spellcheck={false}
+          rows={12}
+          value={yaml ?? generated}
+          onInput={(e) => setYaml((e.target as HTMLTextAreaElement).value)}
+        />
+      </Advanced>
+      <div class="row">
+        <button
+          type="button"
+          class="primary"
+          disabled={yaml === null && (!title.trim() || !instructions.trim())}
+          onClick={() => void save()}
+        >
+          {current ? t("save") : t("create")}
+        </button>
+      </div>
+      {error && <p class="notice error">{error}</p>}
+    </div>
+  );
+}
+
+function WhenPicker({ when, onChange }: { when: When; onChange: (w: When) => void }) {
+  const time = "time" in when ? when.time : "08:00";
+  const kinds = ["daily", "weekdays", "weekly", "monthly", "hours", "webhook"] as const;
+  const set = (kind: (typeof kinds)[number]) => {
+    if (kind === "weekly") onChange({ kind, time, days: [5] });
+    else if (kind === "monthly") onChange({ kind, time, day: 1 });
+    else if (kind === "hours") onChange({ kind, every: 3 });
+    else if (kind === "webhook") onChange({ kind });
+    else onChange({ kind, time });
+  };
+  return (
+    <div class="when-picker">
+      <div class="choice">
+        {kinds.map((k) => (
+          <button
+            key={k}
+            type="button"
+            class={when.kind === k ? "active" : ""}
+            onClick={() => set(k)}
+          >
+            {t(`whenKind_${k}`)}
+          </button>
+        ))}
+      </div>
+      <div class="row wrap">
+        {"time" in when && (
+          <label class="row">
+            {t("whenAtTime")}
+            <input
+              type="time"
+              value={when.time}
+              onInput={(e) => onChange({ ...when, time: (e.target as HTMLInputElement).value })}
+            />
+          </label>
+        )}
+        {when.kind === "weekly" &&
+          DAYS.map((d) => (
+            <label key={d} class="row day">
+              <input
+                type="checkbox"
+                checked={when.days.includes(d)}
+                onChange={(e) =>
+                  onChange({
+                    ...when,
+                    days: (e.target as HTMLInputElement).checked
+                      ? [...when.days, d]
+                      : when.days.filter((x) => x !== d),
+                  })
+                }
+              />
+              {dayName(d)}
+            </label>
+          ))}
+        {when.kind === "monthly" && (
+          <label class="row">
+            {t("whenDayOfMonth")}
+            <input
+              type="number"
+              min={1}
+              max={28}
+              value={when.day}
+              onInput={(e) =>
+                onChange({ ...when, day: Number((e.target as HTMLInputElement).value) || 1 })
+              }
+            />
+          </label>
+        )}
+        {when.kind === "hours" && (
+          <label class="row">
+            {t("whenEveryHours")}
+            <input
+              type="number"
+              min={1}
+              max={23}
+              value={when.every}
+              onInput={(e) =>
+                onChange({ ...when, every: Number((e.target as HTMLInputElement).value) || 1 })
+              }
+            />
+          </label>
+        )}
+        {when.kind === "custom" && <code>{when.cron}</code>}
+      </div>
+      {when.kind === "webhook" && <p class="ui-help">{t("whenWebhookHelp")}</p>}
+    </div>
+  );
+}
+
+/** A reminder: what, which day, what time; sent as written, no agent. */
+function ReminderForm({ onSaved }: { onSaved: (a: Automation) => void }) {
+  const tomorrow = new Date(Date.now() + 86_400_000);
+  const [text, setText] = useState("");
+  const [day, setDay] = useState(
+    `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}`,
+  );
+  const [time, setTime] = useState("09:00");
+  const [error, setError] = useState<string>();
+  const save = async () => {
+    setError(undefined);
+    const yaml = [
+      `name: reminder-${day}-${time.replace(":", "")}-${Date.now().toString(36).slice(-3)}`,
+      `description: ${quote(text.trim().split("\n")[0]?.slice(0, 80) ?? "")}`,
+      "on:",
+      `  at: ${quote(`${day}T${time}`)}`,
+      `  timezone: ${tz()}`,
+      `reminder: ${quote(text.trim())}`,
+      "",
+    ].join("\n");
+    try {
+      onSaved((await getApi().createAutomation(yaml)).automation);
+    } catch (err) {
+      setError(explain(err));
+    }
+  };
+  return (
+    <div class="ui-step">
+      <p class="ui-purpose">{t("reminderPurpose")}</p>
+      <Field label={t("reminderWhat")}>
+        <textarea
+          rows={3}
+          value={text}
+          onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
+        />
+      </Field>
+      <div class="form">
+        <Field label={t("reminderDay")}>
+          <input
+            type="date"
+            value={day}
+            onInput={(e) => setDay((e.target as HTMLInputElement).value)}
+          />
+        </Field>
+        <Field label={t("whenAtTime")}>
+          <input
+            type="time"
+            value={time}
+            onInput={(e) => setTime((e.target as HTMLInputElement).value)}
+          />
+        </Field>
+      </div>
+      <div class="row">
+        <button type="button" class="primary" disabled={!text.trim()} onClick={() => void save()}>
+          {t("reminderSave")}
+        </button>
+      </div>
+      {error && <p class="notice error">{error}</p>}
+    </div>
+  );
+}
+
+/** Automations (G24.8): a clean list, made and changed with words; the YAML for experts. */
 export function Automations() {
   const [list, setList] = useState<Automation[]>([]);
-  const [open, setOpen] = useState<string | "new" | null>(null);
-  const [yaml, setYaml] = useState("");
+  const [open, setOpen] = useState<string | "new" | "reminder" | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
   const version = automationsVersion.value;
   const current = list.find((a) => a.id === open);
 
   const reload = () => void attempt(() => getApi().automations()).then((l) => l && setList(l));
   useEffect(reload, [version]);
-  useEffect(() => {
-    setSecret(null);
-    setYaml(
-      open === "new"
-        ? template()
-        : open === "reminder"
-          ? reminderTemplate()
-          : (list.find((a) => a.id === open)?.yaml ?? ""),
-    );
-    // Only when another automation is opened: edits in progress survive live updates.
-  }, [open]);
-
-  const save = async () => {
-    const r = await attempt(() =>
-      current ? getApi().updateAutomation(current.id, yaml) : getApi().createAutomation(yaml),
-    );
-    if (!r) return;
+  useEffect(() => setSecret(null), [open]);
+  const saved = (a: Automation, s?: string) => {
     reload();
-    setOpen(r.automation.id);
-    // After setOpen: the secret is shown once, for the automation just saved.
-    setTimeout(() => setSecret(r.webhookSecret ?? null), 0);
+    setOpen(a.id);
+    setTimeout(() => setSecret(s ?? null), 0);
   };
   const hookUrl = current ? `${location.origin}/api/automations/${current.id}/hook` : "";
 
@@ -173,22 +546,26 @@ export function Automations() {
                   </span>
                 )}
               </span>
-              <strong>{a.name}</strong>
-              <span class="dim">
-                {a.recipe.on.cron ? <code>{a.recipe.on.cron}</code> : t("neverScheduled")}
-                {a.nextRunAt && ` · ${t("nextRun")} ${when(a.nextRunAt)}`}
-              </span>
+              <strong>{a.recipe.description || a.name}</strong>
+              <span class="dim">{recipeWhen(a)}</span>
+              {a.nextRunAt && (
+                <span class="dim">
+                  {t("nextRun")} {when(a.nextRunAt)}
+                </span>
+              )}
             </button>
           ))
         )}
       </aside>
       <section class="board-thread">
         {open === null ? (
-          <div class="empty logo-empty">{t("automations")}</div>
+          <div class="empty logo-empty">{t("autoEmpty")}</div>
+        ) : open === "reminder" ? (
+          <ReminderForm onSaved={(a) => saved(a)} />
         ) : (
           <>
             <header class="row">
-              <h3>{current?.name ?? t("newAutomation")}</h3>
+              <h3>{current ? current.recipe.description || current.name : t("newAutomation")}</h3>
               <div class="spacer" />
               {current && (
                 <>
@@ -197,16 +574,6 @@ export function Automations() {
                     onClick={() => void attempt(() => getApi().runAutomation(current.id))}
                   >
                     <IconPlay /> {t("runNow")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void attempt(() =>
-                        getApi().enableAutomation(current.id, !current.enabled),
-                      ).then(reload)
-                    }
-                  >
-                    {current.enabled ? t("disable") : t("enable")}
                   </button>
                   <button
                     type="button"
@@ -224,18 +591,25 @@ export function Automations() {
                 </>
               )}
             </header>
-            <textarea
-              class="code recipe"
-              spellcheck={false}
-              rows={18}
-              value={yaml}
-              onInput={(e) => setYaml((e.target as HTMLTextAreaElement).value)}
-            />
-            <div class="row">
-              <button type="button" class="primary" onClick={() => void save()}>
-                {current ? t("save") : t("create")}
-              </button>
-            </div>
+            {current && (
+              <Toggle
+                label={t("autoOn")}
+                description={current.enabled ? recipeWhen(current) : t("autoOff")}
+                checked={current.enabled}
+                onChange={(on) =>
+                  void attempt(() => getApi().enableAutomation(current.id, on)).then(reload)
+                }
+              />
+            )}
+            {current?.recipe.reminder ? (
+              <p class="notice">{current.recipe.reminder}</p>
+            ) : (
+              // The form starts once the automation it shows is known (after a save, the list
+              // arrives a moment later).
+              (open === "new" || current) && (
+                <Editor key={current?.id ?? "new"} current={current} onSaved={saved} />
+              )
+            )}
             {current?.recipe.on.webhook && (
               <div class="notice">
                 {t("webhookUrl")}: <code>POST {hookUrl}</code>{" "}

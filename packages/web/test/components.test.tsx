@@ -3,6 +3,7 @@ import { DANGER_IDS, type Job } from "@redgiant/protocol";
 import { fireEvent, render } from "@testing-library/preact";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { SetupState } from "../src/api.js";
+import { fromCron, toCron, whenWords } from "../src/components/Automations.js";
 import { hardwareText } from "../src/components/LocalModels.js";
 import { Safety } from "../src/components/Safety.js";
 import {
@@ -204,5 +205,29 @@ describe("ui pieces", () => {
     r.unmount();
     const paid = render(<Safety s={state(["anthropic"], balanced)} next={() => {}} />);
     expect(paid.getByText(/Quanto può spendere RedGiant/)).toBeTruthy();
+  });
+
+  it("automations: choices in words become a schedule and come back from it", () => {
+    const cases = [
+      [{ kind: "daily", time: "08:30" }, "30 8 * * *", "Ogni giorno alle 08:30"],
+      [{ kind: "weekdays", time: "08:00" }, "0 8 * * 1-5", "Dal lunedì al venerdì alle 08:00"],
+      [
+        { kind: "weekly", time: "17:00", days: [5, 1] },
+        "0 17 * * 1,5",
+        "Ogni settimana il lunedì, venerdì alle 17:00",
+      ],
+      [{ kind: "monthly", time: "09:00", day: 1 }, "0 9 1 * *", "Ogni mese il giorno 1 alle 09:00"],
+      [{ kind: "hours", every: 3 }, "0 */3 * * *", "Ogni 3 ore"],
+    ] as const;
+    for (const [when, cron, words] of cases) {
+      expect(toCron(when as never)).toBe(cron);
+      const back = fromCron(cron, false);
+      expect(toCron(back)).toBe(cron);
+      expect(whenWords(back)).toBe(words);
+    }
+    expect(toCron({ kind: "webhook" })).toBeNull();
+    expect(fromCron(undefined, true)).toEqual({ kind: "webhook" });
+    // A schedule the form does not know stays as it is, said as such.
+    expect(fromCron("*/7 1-3 * 2 *", false)).toEqual({ kind: "custom", cron: "*/7 1-3 * 2 *" });
   });
 });

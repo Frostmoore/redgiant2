@@ -2886,3 +2886,31 @@ a.button.primary {
 .login-box .ui-advanced {
   margin-top: 6px;
 }
+
+/* --- G24.8: automations --- */
+.board-list > button:not(.thread-item) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.when-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.when-picker .choice {
+  display: flex;
+  flex-wrap: wrap;
+}
+.when-picker .day {
+  gap: 4px;
+}
+.auto-editor h4 {
+  margin: 4px 0 0;
+}
+.board-thread > header button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
