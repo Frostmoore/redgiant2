@@ -101,7 +101,7 @@ export class Jobs {
   async settled(id: string): Promise<Job | undefined> {
     for (;;) {
       const e = this.entries.get(id);
-      if (!e || e.job.state !== "running") return e && this.view(e);
+      if (e?.job.state !== "running") return e && this.view(e);
       await new Promise((r) => setTimeout(r, 5));
     }
   }

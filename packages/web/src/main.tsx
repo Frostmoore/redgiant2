@@ -6,7 +6,9 @@ import { applyTheme } from "./theme.js";
 applyTheme();
 
 const root = document.getElementById("app");
-if (root) render(<App />, root);
+if (root && location.hash === "#ui-gallery")
+  void import("./dev/Gallery.js").then(({ Gallery }) => render(<Gallery />, root));
+else if (root) render(<App />, root);
 
 // Installable as an app (G20.9); the worker caches nothing, see public/sw.js.
 if ("serviceWorker" in navigator && location.protocol !== "file:")

@@ -3,6 +3,7 @@ import {
   type AutomationRun,
   type ClientMessage,
   type Event,
+  type Job,
   type PermissionRequestInfo,
   PROTOCOL_VERSION,
   type ServerMessage,
@@ -472,6 +473,9 @@ export class Api {
   hfDownload = (repo: string, file: string) =>
     this.call<ModelDownload>("POST", "/api/setup/hf/download", { repo, file });
   hfDownloads = () => this.call<ModelDownload[]>("GET", "/api/setup/hf/downloads");
+  jobs = () => this.call<Job[]>("GET", "/api/jobs");
+  job = (id: string) => this.call<Job>("GET", `/api/jobs/${encodeURIComponent(id)}`);
+  cancelJob = (id: string) => this.call("POST", `/api/jobs/${encodeURIComponent(id)}/cancel`);
   platform = () => this.call<PlatformInfo>("GET", "/api/platform");
   platformChanges = () => this.call<PlatformChange[]>("GET", "/api/platform/changes");
   undoChange = (id: string) =>

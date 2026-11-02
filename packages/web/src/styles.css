@@ -2301,3 +2301,270 @@ textarea.recipe {
   align-items: flex-start;
   gap: 14px;
 }
+
+/* --- G24.1: the pieces every screen is built from (components/ui.tsx) --- */
+.ui-step {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 820px;
+}
+.ui-step h2 {
+  margin: 0;
+}
+.ui-purpose {
+  margin: 0;
+  color: var(--dim);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.ui-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ui-step-skip {
+  display: flex;
+  justify-content: flex-end;
+}
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.ui-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ui-help {
+  font-size: 13px;
+  color: var(--dim);
+  line-height: 1.45;
+}
+.ui-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--err);
+}
+.ui-field.invalid input,
+.ui-field.invalid select,
+.ui-field.invalid textarea {
+  border-color: var(--err);
+}
+.ui-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.ui-toggle.disabled {
+  opacity: 0.55;
+}
+.ui-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ui-toggle-label {
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+button.ui-switch {
+  flex: none;
+  position: relative;
+  width: 42px;
+  height: 24px;
+  padding: 0;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+button.ui-switch > span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--dim);
+  transition: transform 0.15s;
+}
+button.ui-switch.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+button.ui-switch.on > span {
+  transform: translateX(18px);
+  background: #fff;
+}
+.ui-choice {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px;
+}
+button.ui-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 14px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  white-space: normal;
+  height: auto;
+}
+button.ui-card.on {
+  border: 2px solid var(--accent);
+  padding: 13px;
+  background: var(--accent-soft);
+}
+.ui-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+.ui-card-mark {
+  margin-left: auto;
+  color: var(--accent);
+}
+.ui-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.ui-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.ui-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s;
+}
+.ui-bar.busy > span {
+  width: 30%;
+  animation: ui-busy 1.4s ease-in-out infinite;
+}
+@keyframes ui-busy {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+.ui-advanced > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: var(--dim);
+  font-size: 13px;
+  list-style: none;
+}
+.ui-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.ui-advanced[open] > summary .icon {
+  transform: rotate(90deg);
+}
+.ui-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+}
+.ui-advanced-body pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
+}
+.ui-job {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.ui-job-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ui-job-steps li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 14px;
+}
+.ui-job-steps li > span:last-child {
+  flex: 1;
+  min-width: 0;
+}
+.ui-job-steps li.waiting,
+.ui-job-steps li.skipped {
+  color: var(--dim);
+}
+.ui-job-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 20px;
+}
+.ui-job-steps li.done .ui-job-icon {
+  color: var(--ok);
+}
+.ui-job-steps li.failed .ui-job-icon {
+  color: var(--err);
+}
+.ui-job-steps li.running .ui-job-icon .icon {
+  animation: spin 1s linear infinite;
+}
+.ui-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--dim);
+}
+.gallery {
+  padding: 24px;
+  height: 100%;
+  overflow: auto;
+}
+/* Fields with help lines have different heights: line them up at the top. */
+.form:has(> .ui-field) {
+  align-items: start;
+}
+.ui-job > button {
+  align-self: flex-start;
+}
+.ui-job .notice {
+  align-items: flex-start;
+}
+.ui-job .notice .icon {
+  flex: none;
+  margin-top: 2px;
+}

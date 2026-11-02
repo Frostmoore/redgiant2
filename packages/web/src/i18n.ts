@@ -15,6 +15,18 @@ const en = {
   projectName: "Project name",
   create: "Create",
   cancel: "Cancel",
+  uiSkip: "Skip this step",
+  uiAdvanced: "Advanced",
+  uiDetails: "Details for whoever helps you",
+  uiOf: "{done} of {total}",
+  uiLessThanMinute: "less than a minute left",
+  uiAboutMinutes: "about {min} min left",
+  uiAboutHours: "about {h} h {min} min left",
+  uiNotNeeded: "not needed",
+  uiDone: "Done.",
+  uiCancelled: "Cancelled.",
+  uiFailedGeneric:
+    "Something went wrong. Try again; if it happens again, the details below help whoever helps you.",
   save: "Save",
   saved: "Saved",
   chat: "Chat",
@@ -403,6 +415,18 @@ const it: Record<Key, string> = {
   projectName: "Nome del progetto",
   create: "Crea",
   cancel: "Annulla",
+  uiSkip: "Salta questo passo",
+  uiAdvanced: "Avanzate",
+  uiDetails: "Dettagli per chi ti aiuta",
+  uiOf: "{done} di {total}",
+  uiLessThanMinute: "manca meno di un minuto",
+  uiAboutMinutes: "mancano circa {min} min",
+  uiAboutHours: "mancano circa {h} h {min} min",
+  uiNotNeeded: "non serve",
+  uiDone: "Fatto.",
+  uiCancelled: "Annullato.",
+  uiFailedGeneric:
+    "Qualcosa non è andato. Riprova; se succede ancora, i dettagli qui sotto aiutano chi ti dà una mano.",
   save: "Salva",
   saved: "Salvato",
   chat: "Chat",
@@ -803,4 +827,9 @@ export const danger = (id: string) => dangerWords(lang.value, id);
 /** Translates a key; `{name}` placeholders are filled from `vars`. */
 export function t(key: Key, vars: Record<string, string> = {}): string {
   return dictionaries[lang.value][key].replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? `{${k}}`);
+}
+
+/** Translates a key made at run time (a job's step, an error code); undefined if there is none. */
+export function tOptional(key: string, vars: Record<string, string> = {}): string | undefined {
+  return key in dictionaries.en ? t(key as Key, vars) : undefined;
 }
