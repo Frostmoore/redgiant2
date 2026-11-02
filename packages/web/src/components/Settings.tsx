@@ -1,6 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { lang, setLang, t } from "../i18n.js";
 import {
+  IconCanvas,
   IconCard,
   IconClock,
   IconCompass,
@@ -25,6 +26,7 @@ import { CodeSettings } from "./CodeSettings.js";
 import { EmailSettings } from "./EmailSettings.js";
 import { Extensions } from "./Extensions.js";
 import { Hierarchy } from "./Hierarchy.js";
+import { MediaSettings } from "./Media.js";
 import { Platform } from "./Platform.js";
 import { RemoteSettings } from "./RemoteSettings.js";
 import { Services } from "./Services.js";
@@ -40,6 +42,7 @@ const SECTIONS: { id: SettingsSection; label: () => string; icon: ComponentChild
   { id: "extensions", label: () => t("extensions"), icon: <IconPuzzle size={15} /> },
   { id: "telegram", label: () => t("telegram"), icon: <IconTelegram size={15} /> },
   { id: "subscriptions", label: () => t("subscriptions"), icon: <IconCard size={15} /> },
+  { id: "media", label: () => t("mediaTitle"), icon: <IconCanvas size={15} /> },
   { id: "code", label: () => t("wzCode"), icon: <IconFolder size={15} /> },
   { id: "remote", label: () => t("wzRemote"), icon: <IconShield size={15} /> },
   { id: "budgets", label: () => t("budgets"), icon: <IconDollar size={15} /> },
@@ -125,6 +128,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "extensions" && <Extensions />}
         {section === "telegram" && <Telegram />}
         {section === "subscriptions" && <Subscriptions />}
+        {section === "media" && <MediaSettings />}
         {section === "code" && <CodeSettings />}
         {section === "remote" && <RemoteSettings />}
         {section === "budgets" && <Budgets />}

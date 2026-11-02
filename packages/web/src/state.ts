@@ -555,6 +555,7 @@ export type SettingsSection =
   | "telegram"
   | "budgets"
   | "subscriptions"
+  | "media"
   | "code"
   | "remote"
   | "platform";

@@ -4,7 +4,15 @@ import { join } from "node:path";
 import type { SqlClient } from "@redgiant/events";
 import { DEFAULT_POLICY } from "@redgiant/hierarchy";
 import type { Job } from "@redgiant/protocol";
-import { keyProvider, type ModelSpec, OWN_SERVER_ID } from "@redgiant/protocol";
+import {
+  keyProvider,
+  MEDIA_PROVIDERS,
+  type MediaChoice,
+  type MediaKind,
+  type ModelSpec,
+  mediaProvider,
+  OWN_SERVER_ID,
+} from "@redgiant/protocol";
 import { ProviderError } from "@redgiant/providers";
 import {
   type ClaudeAccount,
@@ -18,7 +26,9 @@ import { stringify } from "yaml";
 import type { RedGiantCore } from "./core.js";
 import { GitHostError, type GitHosts, type GitHostsConfig } from "./git-hosts.js";
 import { detectHardware, type EngineVariant, type Hardware } from "./hardware.js";
+import { IMAGE_MODEL } from "./images.js";
 import { JobFailure, type JobHandle } from "./jobs.js";
+import { elevenVoices } from "./media.js";
 import { REMOTE_STEPS, type RemoteRequest } from "./remote.js";
 
 /** Applies a choice while the server runs (set by main.ts; tests pass fakes). */
@@ -80,6 +90,8 @@ export interface SetupConfig {
   subscriptions?: { claude?: boolean; chatgpt?: boolean };
   /** Image generation: the model, when not the default (the OpenAI key is in the secrets). */
   imagesModel?: string;
+  /** Who makes pictures, videos and sounds (G25.3), by kind. */
+  media?: Partial<Record<MediaKind, MediaChoice>>;
   engine?: { variant: EngineVariant; model: string };
   retentionDays?: number;
   /** The user read that a personal subscription may not be allowed in third-party tools (RD23). */
@@ -97,6 +109,8 @@ export interface SetupConfig {
 interface Secrets {
   /** Keys of the providers in `KEY_PROVIDERS`, by id. */
   keys?: Record<string, string>;
+  /** Keys of the media providers (`MEDIA_PROVIDERS`), when not the chat provider's one. */
+  mediaKeys?: Record<string, string>;
   serverKey?: string;
   telegramToken?: string;
   transcriptionKey?: string;
@@ -129,6 +143,8 @@ export interface SetupState {
     telegram: boolean;
     transcription: boolean;
     images: boolean;
+    /** Media providers with a key (their own, or the chat key they share). */
+    media: string[];
     claudeSubscription: boolean;
     github: boolean;
     gitea: boolean;
@@ -265,6 +281,12 @@ export class SetupService {
       delete s.openaiKey;
       changed = true;
     }
+    // The OpenAI pictures key (G20.7) becomes the pictures choice (G25.3).
+    if (s.openaiImagesKey && !c.media?.image) {
+      s.mediaKeys = { openai: s.openaiImagesKey, ...s.mediaKeys };
+      c.media = { ...c.media, image: { provider: "openai", model: c.imagesModel ?? IMAGE_MODEL } };
+      changed = true;
+    }
     return changed;
   }
 
@@ -309,6 +331,7 @@ export class SetupService {
     if (!this.locked.engine && c.engine) await run("engine", h.engine(c.engine));
     if (!this.locked.voice && c.transcription) this.applyTranscription();
     if (!this.locked.images && s.openaiImagesKey) this.applyImages();
+    this.applyMedia();
     if (c.subscriptions?.chatgpt && h.chatgptSubscription)
       await run("ChatGPT subscription", h.chatgptSubscription(true));
     if (c.subscriptions?.claude && h.claudeSubscription)
@@ -339,6 +362,7 @@ export class SetupService {
         telegram: Boolean(this.secrets.telegramToken),
         transcription: Boolean(this.secrets.transcriptionKey),
         images: Boolean(this.secrets.openaiImagesKey),
+        media: MEDIA_PROVIDERS.filter((p) => this.mediaKey(p.id)).map((p) => p.id),
         claudeSubscription: Boolean(this.secrets.claudeSubscriptionToken),
         github: Boolean(this.secrets.githubToken),
         gitea: Boolean(this.secrets.giteaToken),
@@ -397,6 +421,8 @@ export class SetupService {
     this.secrets.keys = keys;
     this.config.keyProviders = Object.keys(keys);
     await this.save();
+    // The same key may make pictures and sounds too (OpenAI, Gemini, xAI).
+    this.applyMedia();
     if (key) await this.autoDefault();
     return { models };
   }
@@ -904,6 +930,64 @@ export class SetupService {
     this.claudeLogin?.cancel();
     await claudeLogout(this.claudeAuth()).catch(() => {});
     await this.saveSubscriptions({ claude: null });
+  }
+
+  /** The key a media provider uses: its own, or the chat provider's it shares. */
+  private mediaKey(provider: string): string | undefined {
+    const own = this.secrets.mediaKeys?.[provider];
+    if (own) return own;
+    const shared = mediaProvider(provider)?.sharesKeyWith;
+    return shared ? this.secrets.keys?.[shared] : undefined;
+  }
+
+  private applyMedia(): void {
+    const keys: Record<string, string> = {};
+    for (const p of MEDIA_PROVIDERS) {
+      const k = this.mediaKey(p.id);
+      if (k) keys[p.id] = k;
+    }
+    this.o.core.setMedia({ choices: this.config.media ?? {}, keys });
+  }
+
+  /** Who makes one kind (Settings, Generation); null: nobody. */
+  async saveMedia(kind: MediaKind, choice: MediaChoice | null): Promise<void> {
+    if (choice) {
+      const p = mediaProvider(choice.provider);
+      if (!p?.models[kind])
+        throw new SetupError(`${p?.name ?? choice.provider} cannot make ${kind}`);
+      if (!choice.model.trim()) throw new SetupError("Choose a model");
+      this.config.media = { ...this.config.media, [kind]: choice };
+    } else if (this.config.media) {
+      const { [kind]: _gone, ...rest } = this.config.media;
+      this.config.media = rest;
+    }
+    await this.save();
+    this.applyMedia();
+  }
+
+  /** A media provider's key; null removes it (a shared chat key stays the chat's). */
+  async saveMediaKey(provider: string, key: string | null): Promise<void> {
+    if (!mediaProvider(provider)) throw new SetupError(`Unknown provider "${provider}"`);
+    const keys = { ...this.secrets.mediaKeys };
+    if (key) keys[provider] = key.trim();
+    else delete keys[provider];
+    this.secrets.mediaKeys = keys;
+    await this.save();
+    this.applyMedia();
+  }
+
+  /** The voices for speech: ElevenLabs' from the account, the others' from the list. */
+  async mediaVoices(provider: string): Promise<{ id: string; label: string }[]> {
+    const p = mediaProvider(provider);
+    if (!p) throw new SetupError(`Unknown provider "${provider}"`);
+    if (provider !== "elevenlabs") return [...(p.voices ?? [])];
+    const key = this.mediaKey(provider);
+    if (!key) throw new SetupError("Add the ElevenLabs key first", "no_key");
+    try {
+      return await elevenVoices(key);
+    } catch (err) {
+      throw new SetupError((err as Error).message, "key_rejected");
+    }
   }
 
   private applyImages(): void {

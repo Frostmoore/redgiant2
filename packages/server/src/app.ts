@@ -13,6 +13,7 @@ import {
   Effort,
   ImagePart,
   LOCAL_OWNER_ID,
+  MEDIA_KINDS,
   type ModelSpec as ModelSpecType,
   PermissionMode,
   PermissionRequestInfo,
@@ -1649,6 +1650,38 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     }),
   );
   app.delete("/api/setup/gitea", (c) => wizard(c, () => (setup as SetupService).stopGitea()));
+  // Who makes pictures, videos and sounds (G25.3), their keys and the voices for speech.
+  app.put("/api/setup/media/:kind", (c) =>
+    wizard(c, async () => {
+      const kind = z.enum(MEDIA_KINDS).parse(c.req.param("kind"));
+      const b = await parsed(
+        c,
+        z.object({
+          choice: z
+            .object({
+              provider: z.string().min(1),
+              model: z.string().min(1).max(120),
+              voice: z.string().max(120).optional(),
+            })
+            .nullable(),
+        }),
+      );
+      const ch = b.choice;
+      await (setup as SetupService).saveMedia(
+        kind,
+        ch && { provider: ch.provider, model: ch.model, ...(ch.voice && { voice: ch.voice }) },
+      );
+    }),
+  );
+  app.put("/api/setup/media-keys/:provider", (c) =>
+    wizard(c, async () => {
+      const b = await parsed(c, z.object({ key: z.string().min(8).max(500).nullable() }));
+      await (setup as SetupService).saveMediaKey(c.req.param("provider"), b.key);
+    }),
+  );
+  app.get("/api/setup/media/voices", (c) =>
+    wizard(c, () => (setup as SetupService).mediaVoices(c.req.query("provider") ?? "")),
+  );
   // Pi-hole, the home's own DNS, by choice (G24.14c).
   app.post("/api/setup/pihole", (c) =>
     wizard(c, async () => {

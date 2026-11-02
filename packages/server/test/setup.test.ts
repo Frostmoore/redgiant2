@@ -175,6 +175,7 @@ describe("the setup wizard", () => {
       telegram: true,
       transcription: false,
       images: false,
+      media: [],
       claudeSubscription: false,
       github: false,
       gitea: false,
@@ -393,6 +394,71 @@ describe("the setup wizard", () => {
     await api("PUT", "/api/setup/models", { defaultModel: { provider: "fake", model: "good" } });
     await api("PUT", "/api/setup/keys/openai", { key: "sk-proj-good-key" });
     expect(core.defaultModel).toMatchObject({ provider: "fake", model: "good" });
+  });
+
+  it("chooses who makes pictures, videos and sounds, with their keys (G25.3)", async () => {
+    const { dataDir } = await setup();
+    const api = (s as Server).api;
+    // Runway cannot speak: refused before anything is kept.
+    const wrong = await api<{ error: string }>("PUT", "/api/setup/media/speech", {
+      choice: { provider: "runway", model: "gen4.5" },
+    });
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.error).toMatch(/Runway cannot make speech/);
+    expect(
+      (
+        await api("PUT", "/api/setup/media/speech", {
+          choice: { provider: "elevenlabs", model: "eleven_v3", voice: "v-1" },
+        })
+      ).status,
+    ).toBe(200);
+    await api("PUT", "/api/setup/media/video", { choice: { provider: "runway", model: "gen4.5" } });
+    await api("PUT", "/api/setup/media-keys/runway", { key: "key_runway_secret_123" });
+    // A chat key of the same provider makes pictures too.
+    await api("PUT", "/api/setup/keys/openai", { key: "sk-proj-shared-key" });
+    let state = (await api<SetupState>("GET", "/api/setup")).body;
+    expect(state.config.media).toEqual({
+      speech: { provider: "elevenlabs", model: "eleven_v3", voice: "v-1" },
+      video: { provider: "runway", model: "gen4.5" },
+    });
+    expect(state.secretsSet.media.sort()).toEqual(["openai", "runway"]);
+    expect(JSON.stringify(state)).not.toContain("key_runway_secret_123");
+    const secrets = JSON.parse(await readFile(join(dataDir, "secrets.json"), "utf8"));
+    expect(secrets.mediaKeys).toEqual({ runway: "key_runway_secret_123" });
+    // ElevenLabs' voices need its key.
+    expect(
+      (await api<{ code?: string }>("GET", "/api/setup/media/voices?provider=elevenlabs")).body
+        .code,
+    ).toBe("no_key");
+    expect(
+      (await api<{ id: string }[]>("GET", "/api/setup/media/voices?provider=google")).body[0],
+    ).toEqual({ id: "Kore", label: "Kore" });
+    await api("PUT", "/api/setup/media/video", { choice: null });
+    state = (await api<SetupState>("GET", "/api/setup")).body;
+    expect(state.config.media?.video).toBeUndefined();
+  });
+
+  it("turns the old OpenAI pictures key into the pictures choice", async () => {
+    const { dataDir } = await setup();
+    const core = (s as Server).core;
+    await mkdir(dataDir, { recursive: true });
+    await writeFile(
+      join(dataDir, "secrets.json"),
+      JSON.stringify({ openaiImagesKey: "sk-old-images-key" }),
+    );
+    const next = new SetupService({
+      db: core.db,
+      core,
+      dataDir,
+      ownerId: "me",
+      hooks: fakeHooks().hooks,
+    });
+    await next.applyAtStartup();
+    const state = await next.state();
+    expect(state.config.media).toEqual({
+      image: { provider: "openai", model: "gpt-image-2.5-flare" },
+    });
+    expect(state.secretsSet.media).toEqual(["openai"]);
   });
 
   it("erases old event payloads when a retention period is set", async () => {

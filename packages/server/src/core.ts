@@ -3,7 +3,14 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { AgentSession, type Engine, type SendResult, type Tool } from "@redgiant/agent";
+import {
+  AgentSession,
+  type Engine,
+  type SendResult,
+  type Tool,
+  type ToolContext,
+  type ToolOutput,
+} from "@redgiant/agent";
 import {
   type AutomationHost,
   AutomationService,
@@ -44,6 +51,8 @@ import {
   type Event,
   type ImagePart,
   MCP_CATALOG,
+  type MediaChoice,
+  type MediaKind,
   type ModelSpec,
   type Recipe,
   type ServerMessage,
@@ -82,17 +91,11 @@ import { DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
 import { type EmailAccount, EmailWatcher, type Mailbox } from "./email.js";
 import type { GitHosts } from "./git-hosts.js";
-import {
-  type GeneratedImage,
-  generateImage,
-  IMAGE_QUALITIES,
-  IMAGE_SIZES,
-  type ImageProgress,
-  imageFileName,
-} from "./images.js";
+import { IMAGE_MODEL, imageFileName } from "./images.js";
 import { Inspector } from "./inspector.js";
 import { Jobs } from "./jobs.js";
 import { LoginStore, migrateLogin } from "./login.js";
+import { type MediaRequest, type MediaResult, makeMedia } from "./media.js";
 import {
   completeTaskTool,
   modelApprover,
@@ -728,7 +731,7 @@ export class RedGiantCore implements OrchestrationHost {
       // Always offered (the tool list never depends on settings); without a key it says so.
       if (ws)
         tools.push(
-          this.imageTool(agent, ws.root),
+          ...this.mediaTools(agent, ws),
           this.showTool(agent, ws),
           this.sendFileTool(agent, ws),
         );
@@ -1579,83 +1582,244 @@ export class RedGiantCore implements OrchestrationHost {
     } as Tool;
   }
 
-  private imageTool(agent: AgentRecord, root: string): Tool {
-    const Input = z.object({
-      prompt: z.string().min(1),
-      size: z.enum(IMAGE_SIZES).optional(),
-      quality: z.enum(IMAGE_QUALITIES).optional(),
-    });
-    return {
-      def: {
-        name: "generate_image",
-        description:
-          "Draw a picture from a description (OpenAI Images) and save it as a PNG in the workspace (images/<date>/). Describe subject, style, colours and text precisely. It costs money: use it when a picture is asked for.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            prompt: { type: "string", description: "What to draw, in detail" },
-            size: { type: "string", enum: [...IMAGE_SIZES] },
-            quality: { type: "string", enum: [...IMAGE_QUALITIES] },
-          },
-          required: ["prompt"],
+  /** Who makes pictures, videos and sounds, and with which key (G25.3); set by the setup. */
+  private media: {
+    choices: Partial<Record<MediaKind, MediaChoice>>;
+    keys: Record<string, string>;
+  } = { choices: {}, keys: {} };
+
+  setMedia(m: { choices: Partial<Record<MediaKind, MediaChoice>>; keys: Record<string, string> }) {
+    for (const [p, key] of Object.entries(m.keys)) this.o.redactor?.addSecret(`media-${p}`, key);
+    this.media = m;
+  }
+
+  /** The provider, model and key for a kind; the old OpenAI pictures key still works. */
+  private mediaFor(
+    kind: MediaKind,
+  ): { choice: MediaChoice; key: string; baseUrl?: string } | string {
+    const c = this.media.choices[kind];
+    if (c) {
+      const key = this.media.keys[c.provider];
+      return key
+        ? { choice: c, key }
+        : `${c.provider} has no key yet: the human adds it in Settings, Generation.`;
+    }
+    if (kind === "image" && this.o.images)
+      return {
+        choice: { provider: "openai", model: this.o.images.model ?? IMAGE_MODEL },
+        key: this.o.images.key,
+        ...(this.o.images.baseUrl && { baseUrl: this.o.images.baseUrl }),
+      };
+    return "Not set up yet: the human chooses who makes it in Settings, Generation.";
+  }
+
+  /** Makes it, saves it in the workspace and sends it to the person (chat, and Telegram there). */
+  private async makeAndSend(
+    agent: AgentRecord,
+    ws: Workspace,
+    ctx: ToolContext,
+    req: MediaRequest,
+    folder: string,
+  ): Promise<ToolOutput> {
+    const m = this.mediaFor(req.kind);
+    if (typeof m === "string") return { content: m, isError: true };
+    const keys = budgetKeys(agent, this.registry.resolve);
+    if ((await this.budget.check(keys)).length > 0)
+      return { content: "The budget is exhausted.", isError: true };
+    const live = this.live.get(ctx.sessionId);
+    const progress = (percent: number, preview?: string) => {
+      for (const f of live?.listeners ?? [])
+        f({
+          type: "image.progress",
+          sessionId: ctx.sessionId,
+          percent,
+          ...(preview && { preview }),
+        });
+    };
+    let made: MediaResult;
+    try {
+      made = await makeMedia(m.choice, req, {
+        key: m.key,
+        signal: ctx.signal,
+        progress,
+        ...(m.baseUrl && { baseUrl: m.baseUrl }),
+      });
+    } catch (err) {
+      return { content: (err as Error).message, isError: true };
+    }
+    const now = new Date();
+    const rel = `${folder}/${now.toISOString().slice(0, 10)}/${now.toISOString().slice(11, 19).replace(/:/g, "")}-${imageFileName(req.prompt)}.${made.ext}`;
+    const abs = await new LocalWorkspace(ws.root).resolve(rel);
+    await mkdir(dirname(abs), { recursive: true });
+    await writeFile(abs, made.data);
+    if (made.costUsd !== null || (made.tokens ?? 0) > 0)
+      await this.budget.record(
+        keys,
+        {
+          inputTokens: made.tokens ?? 0,
+          cachedReadTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 0,
+        },
+        made.costUsd ?? 0,
+        { ownerId: ctx.ownerId, projectId: agent.projectId, agentId: agent.id },
+      );
+    const where = await this.scopeOf(agent.ownerId, abs);
+    await this.store.append({
+      ownerId: agent.ownerId,
+      projectId: agent.projectId,
+      agentId: agent.id,
+      sessionId: ctx.sessionId,
+      body: {
+        type: "file.sent",
+        payload: {
+          ...where,
+          name: basename(abs),
+          size: made.data.length,
+          mime: made.mime,
+          caption: req.prompt.slice(0, 300),
         },
       },
-      schema: Input,
-      run: async (input: z.infer<typeof Input>, ctx) => {
-        const cfg = this.o.images;
-        if (!cfg)
-          return {
-            content:
-              "Image generation is not set up: the human adds an OpenAI key in the configuration.",
-            isError: true,
-          };
-        const keys = budgetKeys(agent, this.registry.resolve);
-        if ((await this.budget.check(keys)).length > 0)
-          return { content: "The budget is exhausted.", isError: true };
-        const live = this.live.get(ctx.sessionId);
-        const progress = (p: ImageProgress) => {
-          for (const f of live?.listeners ?? [])
-            f({ type: "image.progress", sessionId: ctx.sessionId, ...p });
-        };
-        let image: GeneratedImage;
-        try {
-          image = await generateImage(input.prompt, {
-            key: cfg.key,
-            model: cfg.model,
-            baseUrl: cfg.baseUrl,
-            size: input.size,
-            quality: input.quality,
-            onProgress: progress,
-            signal: ctx.signal,
-          });
-        } catch (err) {
-          return { content: (err as Error).message, isError: true };
-        }
-        const now = new Date();
-        const rel = `images/${now.toISOString().slice(0, 10)}/${now.toISOString().slice(11, 19).replace(/:/g, "")}-${imageFileName(input.prompt)}.png`;
-        const abs = await new LocalWorkspace(root).resolve(rel);
-        await mkdir(dirname(abs), { recursive: true });
-        const png = Buffer.from(image.base64, "base64");
-        await writeFile(abs, png);
-        if (image.costUsd !== null || image.tokens > 0)
-          await this.budget.record(
-            keys,
-            {
-              inputTokens: image.tokens,
-              cachedReadTokens: 0,
-              cacheWriteTokens: 0,
-              outputTokens: 0,
+    });
+    if (
+      this.telegramSessions.has(ctx.sessionId) ||
+      this.workSessions.get(agent.id) === ctx.sessionId
+    )
+      await this.sendFile?.(
+        agent.ownerId,
+        made.data,
+        basename(abs),
+        made.mime,
+        req.prompt.slice(0, 200),
+      ).catch(() => {});
+    const cost = made.costUsd !== null ? `, about $${made.costUsd.toFixed(3)}` : "";
+    return `Saved ${rel} (${m.choice.provider} ${m.choice.model}${cost}). The person sees it in the chat; show puts it in the canvas.`;
+  }
+
+  /** image_generation, video_generation, audio_generation: always offered (G25.3). */
+  private mediaTools(agent: AgentRecord, ws: Workspace): Tool[] {
+    const Ratio = z.enum(["1:1", "16:9", "9:16", "4:3", "3:4"]).optional();
+    const Image = z.object({
+      prompt: z.string().min(1),
+      aspect_ratio: Ratio,
+      reference_image: z.string().optional(),
+    });
+    const Video = z.object({
+      prompt: z.string().min(1),
+      seconds: z.number().min(1).max(60).optional(),
+      aspect_ratio: z.enum(["16:9", "9:16"]).optional(),
+      first_frame: z.string().optional(),
+    });
+    const Audio = z.object({
+      type: z.enum(["speech", "music", "sound"]),
+      text: z.string().min(1),
+      seconds: z.number().min(0.5).max(600).optional(),
+      style: z.string().optional(),
+    });
+    const picture = async (path: string | undefined) => {
+      if (!path) return undefined;
+      if (!(await ws.isFile(path).catch(() => false)))
+        throw new Error(`There is no picture "${path}" in your workspace.`);
+      const abs = await new LocalWorkspace(ws.root).resolve(path);
+      return { data: await readFile(abs), mime: contentType(abs).split(";")[0] ?? "image/png" };
+    };
+    const ratioDef = { type: "string", enum: ["1:1", "16:9", "9:16", "4:3", "3:4"] };
+    return [
+      {
+        def: {
+          name: "image_generation",
+          description:
+            "Make a picture from a description, with the provider the person chose; it is saved in your workspace (images/<date>/) and sent to the person. Describe subject, style, colours and any text precisely. It costs money: use it when a picture is wanted.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              prompt: { type: "string", description: "What to draw, in detail" },
+              aspect_ratio: ratioDef,
+              reference_image: {
+                type: "string",
+                description: "A picture in your workspace to start from (where supported)",
+              },
             },
-            image.costUsd ?? 0,
-            { ownerId: ctx.ownerId, projectId: agent.projectId, agentId: agent.id },
-          );
-        // Asked from Telegram (God's work session, fed by Demi-God): the picture goes there too.
-        if (agent.kind === "god" && this.workSessions.get(agent.id) === ctx.sessionId)
-          await this.sendPhoto?.(ctx.ownerId, png, input.prompt.slice(0, 200)).catch(() => {});
-        const cost = image.costUsd !== null ? `, about $${image.costUsd.toFixed(3)}` : "";
-        return `Saved ${rel} (${image.model}${cost}). The human sees it in the chat.`;
-      },
-    } as Tool;
+            required: ["prompt"],
+          },
+        },
+        schema: Image,
+        run: async (i: z.infer<typeof Image>, ctx) =>
+          this.makeAndSend(
+            agent,
+            ws,
+            ctx,
+            {
+              kind: "image",
+              prompt: i.prompt,
+              aspectRatio: i.aspect_ratio,
+              image: await picture(i.reference_image),
+            },
+            "images",
+          ),
+      } as Tool,
+      {
+        def: {
+          name: "video_generation",
+          description:
+            "Make a short video from a description (and, where supported, a first frame from your workspace), with the provider the person chose; saved in videos/<date>/ and sent to the person. It can take minutes and costs money.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              prompt: { type: "string", description: "What happens, shot by shot" },
+              seconds: { type: "number", description: "About how long" },
+              aspect_ratio: { type: "string", enum: ["16:9", "9:16"] },
+              first_frame: { type: "string", description: "A picture in your workspace" },
+            },
+            required: ["prompt"],
+          },
+        },
+        schema: Video,
+        run: async (i: z.infer<typeof Video>, ctx) =>
+          this.makeAndSend(
+            agent,
+            ws,
+            ctx,
+            {
+              kind: "video",
+              prompt: i.prompt,
+              seconds: i.seconds,
+              aspectRatio: i.aspect_ratio,
+              image: await picture(i.first_frame),
+            },
+            "videos",
+          ),
+      } as Tool,
+      {
+        def: {
+          name: "audio_generation",
+          description:
+            "Make a sound with the provider the person chose for it: type speech says text aloud (style: how to say it), music composes a piece from a description, sound makes a sound effect from a description. Saved in audio/<date>/ and sent to the person. It costs money.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              type: { type: "string", enum: ["speech", "music", "sound"] },
+              text: {
+                type: "string",
+                description: "Speech: the words to say. Music and sound: the description",
+              },
+              seconds: { type: "number", description: "Music and sound: about how long" },
+              style: { type: "string", description: "Speech: tone, pace, emotion" },
+            },
+            required: ["type", "text"],
+          },
+        },
+        schema: Audio,
+        run: async (i: z.infer<typeof Audio>, ctx) =>
+          this.makeAndSend(
+            agent,
+            ws,
+            ctx,
+            { kind: i.type, prompt: i.text, seconds: i.seconds, instructions: i.style },
+            "audio",
+          ),
+      } as Tool,
+    ];
   }
 
   /** Providers whose key was refused, with the provider's words (shown in the web UI). */
@@ -1746,7 +1910,7 @@ export class RedGiantCore implements OrchestrationHost {
       codeChanges: this.code !== undefined,
       supervised: this.code?.supervised ?? false,
       voice: this.o.transcription !== undefined,
-      images: this.o.images !== undefined,
+      images: this.o.images !== undefined || this.media.choices.image !== undefined,
       keyProblems: [...this.keyProblems].map(([provider, message]) => ({ provider, message })),
       lastGood: release?.lastGood ?? null,
       releases: release?.history.slice(-20).reverse() ?? [],

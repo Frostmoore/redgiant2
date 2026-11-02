@@ -47,7 +47,7 @@ afterEach(async () => {
   cleanup = [];
 });
 
-describe("generate_image", () => {
+describe("image_generation (was generate_image)", () => {
   it("prices images from their tokens and names files after the prompt", () => {
     expect(imageCost({ input_tokens: 20, output_tokens: 1000 })).toBeCloseTo(0.0301, 6);
     expect(imageCost(undefined)).toBeNull();
@@ -65,8 +65,8 @@ describe("generate_image", () => {
       return {
         toolCalls: [
           {
-            name: "generate_image",
-            input: { prompt: said?.type === "text" ? said.text : "", size: "1536x1024" },
+            name: "image_generation",
+            input: { prompt: said?.type === "text" ? said.text : "", aspect_ratio: "16:9" },
           },
         ],
       };
@@ -89,7 +89,7 @@ describe("generate_image", () => {
       );
     expect((await results())[0]).toMatchObject({
       ok: false,
-      output: expect.stringMatching(/not set up/),
+      output: expect.stringMatching(/Not set up yet/),
     });
 
     s.core.setImages({ key: "sk-images-test-key-123", baseUrl: openai.url });

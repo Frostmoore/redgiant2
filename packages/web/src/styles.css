@@ -3528,3 +3528,15 @@ a.button.primary {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Settings, Generation (G25.3). */
+.media-key {
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.media-key input {
+  min-width: 240px;
+  flex: 1;
+}

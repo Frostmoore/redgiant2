@@ -53,6 +53,12 @@ export interface SetupState {
     searxngUrl?: string;
     transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
     imagesModel?: string;
+    media?: Partial<
+      Record<
+        import("@redgiant/protocol").MediaKind,
+        { provider: string; model: string; voice?: string }
+      >
+    >;
     subscriptions?: { claude?: boolean; chatgpt?: boolean };
     engine?: { variant: EngineVariant; model: string };
     retentionDays?: number;
@@ -64,6 +70,8 @@ export interface SetupState {
     telegram: boolean;
     transcription?: boolean;
     images?: boolean;
+    /** Media providers with a key (G25.3). */
+    media?: string[];
     claudeSubscription?: boolean;
     github?: boolean;
     gitea?: boolean;
@@ -765,6 +773,16 @@ export class Api {
     return { blob: await r.blob(), name };
   }
 
+  /** Who makes one kind of media (G25.3); null: nobody. */
+  setupMedia = (kind: string, choice: { provider: string; model: string; voice?: string } | null) =>
+    this.call("PUT", `/api/setup/media/${encodeURIComponent(kind)}`, { choice });
+  setupMediaKey = (provider: string, key: string | null) =>
+    this.call("PUT", `/api/setup/media-keys/${encodeURIComponent(provider)}`, { key });
+  mediaVoices = (provider: string) =>
+    this.call<{ id: string; label: string }[]>(
+      "GET",
+      `/api/setup/media/voices?provider=${encodeURIComponent(provider)}`,
+    );
   /** A signed link to show something in the canvas (G25.1). */
   canvasLink = (
     target:
