@@ -1,4 +1,5 @@
 import type { ChatMessage, Event, UserPart } from "@redgiant/protocol";
+import { trimResult, withoutReasoning } from "./compaction.js";
 
 /** A conversation message plus the sequence number of the first event it came from. */
 export interface HistoryEntry {
@@ -11,11 +12,25 @@ export const summaryMessage = (summary: string): ChatMessage => ({
   parts: [{ type: "text", text: `Summary of the conversation so far:\n\n${summary}` }],
 });
 
+export interface RebuildOptions {
+  /** Tool results longer than this are cut as they enter the history (default: never). */
+  maxResultChars?: number;
+}
+
 /**
  * Rebuilds the conversation of one session from its events: the log is the source of truth,
- * so a session can be resumed, forked or replayed from it at any time.
+ * so a session can be resumed, forked or replayed from it at any time. The result must be
+ * byte for byte the history the live session had, or the first turn after a restart would
+ * miss the cache: whatever the session does to a message, this does too.
  */
-export function rebuildHistory(events: Iterable<Event>): HistoryEntry[] {
+export function rebuildHistory(events: Iterable<Event>, o: RebuildOptions = {}): HistoryEntry[] {
+  const all = [...events];
+  // Undone compactions never happened, as far as the history is concerned.
+  const undone = new Set(
+    all.flatMap((e) =>
+      e.type === "compaction.undone" && e.payload ? [e.payload.compactionSeq] : [],
+    ),
+  );
   let history: HistoryEntry[] = [];
   let pendingResults: { parts: UserPart[]; firstSeq: number } | undefined;
 
@@ -29,7 +44,7 @@ export function rebuildHistory(events: Iterable<Event>): HistoryEntry[] {
     }
   };
 
-  for (const e of events) {
+  for (const e of all) {
     if (e.payload === null) continue;
     switch (e.type) {
       case "message.user":
@@ -57,7 +72,10 @@ export function rebuildHistory(events: Iterable<Event>): HistoryEntry[] {
         const part: UserPart = {
           type: "tool_result",
           callId: e.payload.callId,
-          content: e.payload.output,
+          content:
+            o.maxResultChars !== undefined
+              ? trimResult(e.payload.output, o.maxResultChars)
+              : e.payload.output,
           ...(!e.payload.ok && { isError: true }),
         };
         if (pendingResults) pendingResults.parts.push(part);
@@ -65,11 +83,15 @@ export function rebuildHistory(events: Iterable<Event>): HistoryEntry[] {
         break;
       }
       case "compaction": {
+        if (undone.has(e.seq)) break;
         flushResults();
         const toSeq = e.payload.toSeq;
+        const stripped = e.payload.stripped === true;
         history = [
           { message: summaryMessage(e.payload.summary), firstSeq: e.seq },
-          ...history.filter((h) => h.firstSeq > toSeq),
+          ...history
+            .filter((h) => h.firstSeq > toSeq)
+            .map((h) => (stripped ? { ...h, message: withoutReasoning(h.message) } : h)),
         ];
         break;
       }

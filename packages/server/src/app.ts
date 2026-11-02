@@ -1600,6 +1600,18 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     }),
   );
   app.delete("/api/setup/gitea", (c) => wizard(c, () => (setup as SetupService).stopGitea()));
+  // Undo a summary asked by hand (G24.14): the whole history comes back from the log.
+  app.post("/api/sessions/:id/compaction/undo", async (c) => {
+    try {
+      const ok = await core.undoCompaction(owner(c), c.req.param("id"));
+      return ok
+        ? c.json({ ok: true }, 200)
+        : c.json({ error: "Only the last summary asked by hand, with nothing said since" }, 400);
+    } catch (err) {
+      if (err instanceof SessionBusyError) return c.json({ error: err.message }, 409);
+      throw err;
+    }
+  });
   // Subprojects (G24.13): parts of a project, each in its own folder.
   app.get("/api/projects/:id/subprojects", async (c) =>
     c.json(await core.projects.subprojects(owner(c), c.req.param("id")), 200),

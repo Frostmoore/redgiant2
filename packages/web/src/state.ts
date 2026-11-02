@@ -51,7 +51,18 @@ export type ChatItem =
       /** undefined: still open; null: nobody answered. */
       answers?: Answers | null;
     }
-  | { kind: "notice"; key: string; tone: "info" | "warn" | "ok" | "error"; text: string };
+  | { kind: "notice"; key: string; tone: "info" | "warn" | "ok" | "error"; text: string }
+  /** The conversation was summarised here (G24.14). */
+  | {
+      kind: "compaction";
+      key: string;
+      seq: number;
+      summary: string;
+      reason: "auto" | "manual" | "emergency";
+      undone: boolean;
+      /** The last summary asked by hand, nothing said since: it can be undone. */
+      undoable: boolean;
+    };
 
 /** Their question card stands for these calls: no tool line for them. */
 const QUESTION_TOOLS = new Set(["ask_user", "propose_plan"]);
@@ -150,12 +161,20 @@ export function buildItems(events: Event[]): ChatItem[] {
         break;
       case "compaction":
         items.push({
-          kind: "notice",
+          kind: "compaction",
           key,
-          tone: "info",
-          text: `compaction: ${e.payload.summary.slice(0, 200)}`,
+          seq: e.seq,
+          summary: e.payload.summary,
+          reason: e.payload.reason ?? "auto",
+          undone: false,
+          undoable: false,
         });
         break;
+      case "compaction.undone": {
+        const c = items.find((i) => i.kind === "compaction" && i.seq === e.payload?.compactionSeq);
+        if (c?.kind === "compaction") c.undone = true;
+        break;
+      }
       case "task.opened":
         items.push({
           kind: "notice",
@@ -190,6 +209,11 @@ export function buildItems(events: Event[]): ChatItem[] {
         break;
     }
   }
+  const last = [...items].reverse().find((i) => i.kind === "compaction" && !i.undone);
+  if (last?.kind === "compaction" && last.reason === "manual") {
+    const after = items.slice(items.indexOf(last) + 1);
+    last.undoable = !after.some((i) => i.kind === "user" || i.kind === "assistant");
+  }
   return items;
 }
 
@@ -201,6 +225,8 @@ export interface SessionView {
   thinking: string;
   state: "idle" | "running";
   synced: boolean;
+  /** A summary is being made while the person waits (G24.14). */
+  compacting?: boolean;
   /** generate_image at work: its step and latest preview (base64 PNG). */
   drawing?: { percent: number; preview?: string } | undefined;
 }
@@ -260,6 +286,9 @@ export function applyMessage(m: ServerMessage): void {
       sessionRows.value = sessionRows.value.map((r) =>
         r.id === m.sessionId ? { ...r, running: m.state === "running" } : r,
       );
+      return;
+    case "session.compacting":
+      sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, compacting: m.busy };
       return;
     case "session.synced":
       sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, synced: true };

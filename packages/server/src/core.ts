@@ -554,6 +554,25 @@ export class RedGiantCore implements OrchestrationHost {
     );
   }
 
+  /**
+   * How a session summarises itself (G24.14). On a local engine every kept token is computed
+   * again once, so less is kept word for word; tool results are cut to fit the model's window.
+   */
+  private compactionOptions(model: ModelSpec): { keepRatio: number; maxResultChars: number } {
+    const p = this.o.providers.has(model.provider)
+      ? (this.o.providers.get(model.provider) as { prefill?: unknown })
+      : undefined;
+    const local = typeof p?.prefill === "function";
+    let window = 200_000;
+    try {
+      window = this.o.providers.get(model.provider).modelInfo(model.model).contextWindow;
+    } catch {}
+    return {
+      keepRatio: local ? 0.12 : 0.25,
+      maxResultChars: Math.max(8_000, Math.min(100_000, Math.floor(window * 0.3 * 3.5))),
+    };
+  }
+
   /** What a subproject's agent must know about where it works. */
   private async subprojectNote(agent: AgentRecord): Promise<string> {
     // The orchestrator leads every subproject of its project.
@@ -669,6 +688,12 @@ export class RedGiantCore implements OrchestrationHost {
       projectId: agent.projectId,
       agentId,
       priority: PRIORITY[agent.kind],
+      ...this.compactionOptions(model),
+      // Demi-God only relays (RD8): its one tool is ask_god.
+      ...(agent.kind === "demigod" && { historyTool: false }),
+      onCompacting: (busy: boolean) => {
+        for (const f of listeners) f({ type: "session.compacting", sessionId, busy });
+      },
       cacheScope:
         agent.projectId ??
         (agent.kind === "assistant" ? `assistants-${agent.ownerId}` : `platform-${agent.ownerId}`),
@@ -1713,7 +1738,12 @@ export class RedGiantCore implements OrchestrationHost {
     // The first message names the conversation in the list; every message moves it up.
     await this.o.db.query(
       "UPDATE rg_sessions SET title = COALESCE(title, $2), last_at = now() WHERE id = $1",
-      [sessionId, text.trim().split("\n")[0]?.slice(0, 80) || null],
+      [
+        sessionId,
+        text.trim().startsWith("/compact")
+          ? null
+          : text.trim().split("\n")[0]?.slice(0, 80) || null,
+      ],
     );
     const controller = new AbortController();
     l.running = controller;
@@ -1721,6 +1751,23 @@ export class RedGiantCore implements OrchestrationHost {
       for (const f of l.listeners) f({ type: "session.state", sessionId, state });
     };
     notify("running");
+    // "/compact [what to keep]" (G24.14): a summary now, asked by the person; no message.
+    const manual = text.trim().match(/^\/compact\b([\s\S]*)$/);
+    if (manual) {
+      const instructions = manual[1]?.trim();
+      const done = l.session
+        .compactNow({
+          reason: "manual",
+          signal: controller.signal,
+          ...(instructions && { instructions }),
+        })
+        .then((): SendResult => ({ stopReason: "end_turn", turns: 0 }))
+        .finally(() => {
+          l.running = null;
+          notify("idle");
+        });
+      return { done };
+    }
     // Wrapped: an async function returning a bare promise would wait for the whole turn.
     const started = Date.now();
     const { watch, ...message } = extra;
@@ -1733,6 +1780,13 @@ export class RedGiantCore implements OrchestrationHost {
       (err) => this.afterTurn(ownerId, sessionId, started, watch === true, undefined, err),
     );
     return { done };
+  }
+
+  /** Undoes the summary the person asked for, while nothing was said since (G24.14). */
+  async undoCompaction(ownerId: string, sessionId: string): Promise<boolean> {
+    const l = await this.open(ownerId, sessionId);
+    if (l.running) throw new SessionBusyError();
+    return l.session.undoCompaction();
   }
 
   private async afterTurn(

@@ -67,6 +67,19 @@ describe("LocalEngineProvider", () => {
     expect(t2.c.metrics.kvRestoredTokens).toBeUndefined();
   });
 
+  it("computes a new history ahead of time, so the next message costs only itself (G24.14)", async () => {
+    const { engine, provider } = await setup(1);
+    await turn(provider, "A", [], longDoc);
+    // After a summary: a different, shorter history, computed before the person writes.
+    const summarised = [user(`Summary of the conversation so far:\n\n${longDoc.slice(0, 1500)}`)];
+    await provider.prefill(req("A", summarised));
+    const warm = engine.requests.at(-1);
+    expect(warm?.processed).toBeGreaterThan(100);
+    const next = await complete(provider.stream(req("A", [...summarised, user("and now?")])));
+    expect(engine.requests.at(-1)?.processed).toBeLessThan(20);
+    expect(next.usage.cachedReadTokens).toBeGreaterThan(0.9 * next.usage.inputTokens);
+  });
+
   it("saves a cache when its slot changes hands, and restores it on return", async () => {
     const { engine, provider } = await setup(1);
     const a1 = await turn(provider, "A", [], longDoc);

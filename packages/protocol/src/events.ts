@@ -103,7 +103,20 @@ export const EventBody = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("compaction"),
-    payload: z.object({ summary: z.string(), fromSeq: z.number().int(), toSeq: z.number().int() }),
+    payload: z.object({
+      summary: z.string(),
+      fromSeq: z.number().int(),
+      toSeq: z.number().int(),
+      /** G24.14: why (ahead of time, by the person, or because the window was full). */
+      reason: z.enum(["auto", "manual", "emergency"]).optional(),
+      /** The kept turns lost their reasoning (it belonged to the summarised conversation). */
+      stripped: z.boolean().optional(),
+    }),
+  }),
+  /** A compaction undone by the person: the whole history comes back (nothing was deleted). */
+  z.object({
+    type: z.literal("compaction.undone"),
+    payload: z.object({ compactionSeq: z.number().int() }),
   }),
   z.object({ type: z.literal("agent.spawned"), payload: z.object({ agent: AgentSpec }) }),
   z.object({

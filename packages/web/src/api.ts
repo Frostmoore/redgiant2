@@ -622,6 +622,8 @@ export class Api {
   cancelJob = (id: string) => this.call("POST", `/api/jobs/${encodeURIComponent(id)}/cancel`);
   platform = () => this.call<PlatformInfo>("GET", "/api/platform");
   platformChanges = () => this.call<PlatformChange[]>("GET", "/api/platform/changes");
+  undoCompaction = (sessionId: string) =>
+    this.call("POST", `/api/sessions/${sessionId}/compaction/undo`);
   promoteChange = (id: string) =>
     this.call<{ commit: string }>("POST", `/api/platform/changes/${id}/promote`);
   spendDaily = (from: string) =>

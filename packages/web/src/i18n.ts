@@ -123,6 +123,15 @@ const en = {
   kind_subagent: "Helper",
   kind_inspector: "Inspector, reads only",
   kind_assistant: "Personal assistant",
+  compaction_auto: "The conversation was summarised here (the earlier part, made ahead of time)",
+  compaction_manual: "The conversation was summarised here, as you asked",
+  compaction_emergency: "The conversation was summarised here: the window was full",
+  compactionUndone: "Summary undone: the whole conversation is back",
+  compacting: "Summarising the conversation…",
+  compactNow: "Summarise",
+  compactNowHint:
+    "Summarise the older part of this conversation now: the agent keeps the recent turns and can still read everything",
+  compactNowAsk: "Summarise the conversation now. Anything to keep in particular? (optional)",
   subNoAgents: "No agents yet: create them from the project's agents.",
   subName: "Subproject name",
   subDir: "Folder (optional)",
@@ -1176,6 +1185,17 @@ const it: Record<Key, string> = {
   kind_subagent: "Aiutante",
   kind_inspector: "Ispettore, solo lettura",
   kind_assistant: "Assistente personale",
+  compaction_auto:
+    "La conversazione è stata riassunta qui (la parte più vecchia, preparata in anticipo)",
+  compaction_manual: "La conversazione è stata riassunta qui, come hai chiesto",
+  compaction_emergency: "La conversazione è stata riassunta qui: la finestra era piena",
+  compactionUndone: "Riassunto annullato: la conversazione intera è tornata",
+  compacting: "Sto riassumendo la conversazione…",
+  compactNow: "Riassumi",
+  compactNowHint:
+    "Riassumi adesso la parte più vecchia di questa conversazione: l'agente tiene i giri recenti e può comunque rileggere tutto",
+  compactNowAsk:
+    "Riassumo la conversazione adesso. Qualcosa da tenere in particolare? (facoltativo)",
   subNoAgents: "Ancora nessun agente: crealo dagli agenti del progetto.",
   subName: "Nome del sottoprogetto",
   subDir: "Cartella (facoltativa)",

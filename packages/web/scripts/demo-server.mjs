@@ -265,6 +265,9 @@ await core.setMcp("local", {
 });
 const sid = await core.startSession("local", orch.id);
 await (await core.send("local", sid, "Give me a quick tour of the project.")).done;
+// A summary asked by hand (G24.14), with its mark in the chat.
+await (await core.send("local", sid, "And the tests?")).done;
+await (await core.send("local", sid, "/compact keep the file list")).done;
 await core.budget.setLimit({ scope: "global", id: "local" }, { usd: 20 });
 // Left waiting on purpose: the question card in God's conversation.
 const godSid = await core.startSession("local", god.id);

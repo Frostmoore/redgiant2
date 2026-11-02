@@ -234,7 +234,7 @@ describe("AgentSession", () => {
     await s.send("one");
     await s.send("two");
     const [r1, r2, r3] = fake.requests;
-    expect(r1?.tools.map((t) => t.name)).toEqual(["boom", "echo"]);
+    expect(r1?.tools.map((t) => t.name)).toEqual(["boom", "conversation_history", "echo"]);
     for (const [a, b] of [
       [r1, r2],
       [r2, r3],
@@ -340,7 +340,7 @@ describe("AgentSession", () => {
     const resumed = await AgentSession.resume(options);
     await resumed.send("again");
     expect(seen.map((x) => x.resume)).toEqual([undefined, "thread-1"]);
-    expect(seen[0]?.tools).toEqual(["boom", "echo"]);
+    expect(seen[0]?.tools).toEqual(["boom", "conversation_history", "echo"]);
     expect(
       types(await store.list({ sessionId: "s1" })).filter((t) => t === "engine.session"),
     ).toHaveLength(1);
@@ -361,8 +361,18 @@ describe("AgentSession", () => {
     await s.send("hi again");
     const events = await store.list({ sessionId: "s1" });
     const compaction = events.find((e) => e.type === "compaction");
-    expect(compaction?.payload).toMatchObject({ summary: "SUMMARY: user said hi twice" });
-    expect(fake.requests.at(-1)?.messages).toEqual([
+    expect(compaction?.payload).toMatchObject({
+      summary: "SUMMARY: user said hi twice",
+      reason: "auto",
+    });
+    // Made ahead of time, after the first turn: the second message lands after the summary.
+    expect(fake.requests.map((r) => (isSummary(r) ? "S" : "T")).slice(0, 3)).toEqual([
+      "T",
+      "S",
+      "T",
+    ]);
+    await s.settled();
+    expect(fake.requests.filter((r) => !isSummary(r)).at(-1)?.messages).toEqual([
       {
         role: "user",
         parts: [
@@ -400,7 +410,12 @@ describe("AgentSession", () => {
     const s = await AgentSession.start(options);
     await s.send("one");
     await s.send("two");
-    expect(fake.requests.filter(isSummary).map((r) => r.toolChoice)).toEqual([undefined, "none"]);
+    expect(
+      fake.requests
+        .filter(isSummary)
+        .map((r) => r.toolChoice)
+        .slice(0, 2),
+    ).toEqual([undefined, "none"]);
   });
 
   it("lets preCompact hooks postpone compaction or add instructions", async () => {

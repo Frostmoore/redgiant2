@@ -9,6 +9,7 @@ import {
   IconClose,
   IconFile,
   IconInfo,
+  IconLayers,
   IconShield,
   IconSpinner,
   IconUsers,
@@ -166,7 +167,47 @@ const splitAttachments = (text: string) => {
   return { text: text.slice(0, cut), names };
 };
 
-function Item({ item, agentId }: { item: ChatItem; agentId: string }) {
+/** "The conversation was summarised here" (G24.14): the summary opens; a manual one undoes. */
+function CompactionMark({
+  item,
+  sessionId,
+}: {
+  item: Extract<ChatItem, { kind: "compaction" }>;
+  sessionId: string;
+}) {
+  return (
+    <details class={`compaction-mark${item.undone ? " undone" : ""}`}>
+      <summary>
+        <IconLayers size={13} />{" "}
+        {item.undone ? t("compactionUndone") : t(`compaction_${item.reason}`)}
+        {item.undoable && (
+          <button
+            type="button"
+            class="tiny"
+            onClick={(e) => {
+              e.preventDefault();
+              // The "undone" event arrives live and marks this summary.
+              void attempt(() => getApi().undoCompaction(sessionId));
+            }}
+          >
+            {t("undo")}
+          </button>
+        )}
+      </summary>
+      <div class="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(item.summary) }} />
+    </details>
+  );
+}
+
+function Item({
+  item,
+  agentId,
+  sessionId,
+}: {
+  item: ChatItem;
+  agentId: string;
+  sessionId: string;
+}) {
   switch (item.kind) {
     case "user":
       return (
@@ -211,6 +252,8 @@ function Item({ item, agentId }: { item: ChatItem; agentId: string }) {
           }
         />
       );
+    case "compaction":
+      return <CompactionMark item={item} sessionId={sessionId} />;
     case "notice":
       return (
         <div class={`notice ${item.tone}`}>
@@ -267,7 +310,7 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
             <div class="empty">{t("startConversation", { name: agent?.name ?? "" })}</div>
           )}
           {items.value.map((item) => (
-            <Item key={item.key} item={item} agentId={agentId} />
+            <Item key={item.key} item={item} agentId={agentId} sessionId={sessionId} />
           ))}
           {v.drawing && (
             <div class="drawing">
@@ -280,6 +323,11 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
                 <span style={{ width: `${v.drawing.percent}%` }} />
               </div>
               <div class="dim">{t("drawing", { percent: String(v.drawing.percent) })}</div>
+            </div>
+          )}
+          {v.compacting && (
+            <div class="bubble assistant streaming">
+              <div class="dim">{t("compacting")}</div>
             </div>
           )}
           {(v.thinking || v.text) && (
@@ -349,6 +397,25 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
                 own={own !== undefined}
                 disabled={v.state === "running"}
               />
+              {items.value.length > 2 && (
+                <button
+                  type="button"
+                  class="mode"
+                  title={t("compactNowHint")}
+                  disabled={v.state === "running"}
+                  onClick={() => {
+                    const keep = prompt(t("compactNowAsk"));
+                    if (keep === null) return;
+                    getLive().send({
+                      type: "session.send",
+                      sessionId,
+                      text: `/compact ${keep}`.trim(),
+                    });
+                  }}
+                >
+                  <IconLayers size={13} /> <span class="mode-name">{t("compactNow")}</span>
+                </button>
+              )}
               {agent.kind !== "demigod" && agent.kind !== "subagent" && (
                 <button
                   type="button"

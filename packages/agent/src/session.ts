@@ -12,10 +12,19 @@ import {
   type Completion,
   complete,
   costUsd,
+  ProviderError,
   type ProviderRegistry,
   type StreamEvent,
   streamWithFallback,
 } from "@redgiant/providers";
+import { z } from "zod";
+import {
+  COMPACTION_PROMPT,
+  keepFrom,
+  summaryText,
+  trimResult,
+  withoutReasoning,
+} from "./compaction.js";
 import type { Engine } from "./engine.js";
 import type { Hooks, ToolCallInfo } from "./hooks.js";
 import { type HistoryEntry, rebuildHistory, summaryMessage } from "./rebuild.js";
@@ -41,8 +50,24 @@ export interface AgentSessionOptions {
   hooks?: Hooks;
   /** Asked before every tool run, after hooks. Default: allow (the hierarchy plugs in here). */
   permission?: (call: ToolCallInfo, ctx: ToolContext) => Promise<PermissionDecision>;
-  /** Compact when the context is fuller than this fraction of the window (default 0.8). */
+  /**
+   * Past this fraction of the window after a turn, the summary is made ahead of time, in the
+   * background (default 0.8, as VS Code).
+   */
   compactAt?: number;
+  /** Past this fraction before a model call, the summary is made at once (default 0.9). */
+  emergencyAt?: number;
+  /**
+   * Share of the window the recent turns kept word for word may take (default 0.25). Local
+   * models want less: every kept token is computed again once.
+   */
+  keepRatio?: number;
+  /** Tool results longer than this are cut as they enter the history (default 100,000). */
+  maxResultChars?: number;
+  /** Reading back one's own conversation (default on; Demi-God only relays, RD8). */
+  historyTool?: boolean;
+  /** A summary is being made in the foreground (the chat says so) or done. */
+  onCompacting?: (busy: boolean) => void;
   /** Maximum model calls per `send` (default 50). */
   maxTurns?: number;
   maxTokens?: number;
@@ -71,10 +96,76 @@ export interface SendResult {
   lastCompletion?: Completion;
 }
 
-const COMPACTION_PROMPT =
-  "Do not call any tool now. Summarise the conversation so far for your own future use: the goal, decisions taken, " +
-  "work done (files, commands, results), open problems and the next steps. Be complete but " +
-  "concise; this summary replaces the earlier messages.";
+/** A provider saying the request does not fit in the model's window. */
+const contextFull = (err: unknown) =>
+  err instanceof ProviderError &&
+  /context|too (long|many tokens)|maximum.*tokens|prompt is too long|exceeds/i.test(err.message);
+
+/** Reads back the summarised part of one's own conversation (G24.14): nothing is ever lost. */
+function historyTool(store: EventStore, sessionId: string): Tool {
+  return {
+    def: {
+      name: "conversation_history",
+      description:
+        "Read earlier parts of this conversation exactly as they were, also those replaced by a summary: by event numbers (from_seq, to_seq) or by searching words (query).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          from_seq: { type: "integer" },
+          to_seq: { type: "integer" },
+          query: { type: "string" },
+        },
+      },
+    },
+    schema: z.object({
+      from_seq: z.number().int().optional(),
+      to_seq: z.number().int().optional(),
+      query: z.string().optional(),
+    }),
+    async run(i: { from_seq?: number; to_seq?: number; query?: string }) {
+      const words = i.query?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
+      const lines: string[] = [];
+      for (const e of await store.list({ sessionId })) {
+        if (i.from_seq !== undefined && e.seq < i.from_seq) continue;
+        if (i.to_seq !== undefined && e.seq > i.to_seq) continue;
+        if (!e.payload) continue;
+        const text =
+          e.type === "message.user"
+            ? `user: ${e.payload.text}`
+            : e.type === "message.assistant"
+              ? `assistant: ${e.payload.parts
+                  .map((p) =>
+                    p.type === "text"
+                      ? p.text
+                      : p.type === "tool_call"
+                        ? `[${p.name} ${JSON.stringify(p.input ?? null)}]`
+                        : "",
+                  )
+                  .join(" ")}`
+              : e.type === "tool.result"
+                ? `result${e.payload.ok ? "" : " (error)"}: ${e.payload.output}`
+                : e.type === "compaction"
+                  ? `[summary made here, replacing ${e.payload.fromSeq}–${e.payload.toSeq}]`
+                  : "";
+        if (!text) continue;
+        const lower = text.toLowerCase();
+        if (words.length && !words.every((w) => lower.includes(w))) continue;
+        // A search shows the words found with what is around them, not a whole long output.
+        const at = words.length ? lower.indexOf(words[0] as string) : -1;
+        const shown =
+          at >= 0 && text.length > 600
+            ? `${at > 200 ? "…" : ""}${text.slice(Math.max(0, at - 200), at + 300)}…`
+            : text;
+        lines.push(`#${e.seq} ${shown}`);
+      }
+      const out = lines.join("\n");
+      if (!out) return "Nothing matches.";
+      return out.length > 20_000
+        ? `${out.slice(0, 20_000)}\n[… more: narrow it with from_seq/to_seq or a query]`
+        : out;
+    },
+  } as Tool;
+}
 
 /**
  * One agent conversation. Every step is appended to the event log first; the in-memory
@@ -88,9 +179,13 @@ export class AgentSession {
   private readonly ctx: ToolContext;
   /** The engine's conversation id (G21), from the log. */
   private engineSession: string | undefined;
+  /** A summary being made ahead of time, after a turn (G24.14). */
+  private background: Promise<void> | undefined;
 
   constructor(private readonly o: AgentSessionOptions) {
-    this.tools = canonicalTools(o.tools);
+    this.tools = canonicalTools(
+      o.historyTool === false ? o.tools : [...o.tools, historyTool(o.store, o.sessionId)],
+    );
     this.ctx = {
       ownerId: o.ownerId ?? LOCAL_OWNER_ID,
       projectId: o.projectId ?? null,
@@ -118,13 +213,17 @@ export class AgentSession {
   static async resume(options: AgentSessionOptions): Promise<AgentSession> {
     const s = new AgentSession(options);
     const events = await options.store.list({ sessionId: options.sessionId });
-    s.history = rebuildHistory(events);
+    s.history = rebuildHistory(events, { maxResultChars: s.maxResultChars });
     for (const e of events) {
-      if (e.type === "compaction") s.lastMetrics = undefined;
+      if (e.type === "compaction" || e.type === "compaction.undone") s.lastMetrics = undefined;
       if (e.type === "message.assistant" && e.payload) s.lastMetrics = e.payload.metrics;
       if (e.type === "engine.session" && e.payload) s.engineSession = e.payload.id;
     }
     return s;
+  }
+
+  private get maxResultChars(): number {
+    return this.o.maxResultChars ?? 100_000;
   }
 
   get messages(): ChatMessage[] {
@@ -168,6 +267,8 @@ export class AgentSession {
   ): Promise<SendResult> {
     const ctx = { ...this.ctx, signal };
     const images = extra.images ?? [];
+    // A summary made after the last turn is applied first: the message lands after it.
+    await this.background;
     const first = await this.record({
       type: "message.user",
       payload: {
@@ -195,10 +296,18 @@ export class AgentSession {
         };
       }
       const m = this.lastMetrics;
-      if (m && m.contextUsed >= (this.o.compactAt ?? 0.8) * m.contextWindow) {
-        await this.compact(signal);
+      // The window is nearly full in the middle of the work: summarise everything now.
+      if (m && m.contextUsed >= (this.o.emergencyAt ?? 0.9) * m.contextWindow)
+        await this.compactNow({ reason: "emergency", signal });
+      let completion: Completion;
+      try {
+        completion = await this.callModel(signal);
+      } catch (err) {
+        // The provider says it does not fit: summarise and try once more.
+        if (!contextFull(err)) throw err;
+        await this.compactNow({ reason: "emergency", signal });
+        completion = await this.callModel(signal);
       }
-      const completion = await this.callModel(signal);
       last = completion;
       this.lastMetrics = completion.metrics;
       const event = await this.record({
@@ -231,8 +340,10 @@ export class AgentSession {
           continue;
         case "end_turn": {
           const more = await this.stopHooks(completion, ctx);
-          if (more === undefined)
+          if (more === undefined) {
+            this.compactAhead();
             return { stopReason: "end_turn", turns: turn, lastCompletion: completion };
+          }
           const e = await this.record({ type: "message.user", payload: { text: more } });
           this.history.push({
             message: { role: "user", parts: [{ type: "text", text: more }] },
@@ -317,7 +428,7 @@ export class AgentSession {
                 {
                   type: "tool_result",
                   callId: call.callId,
-                  content: r.content,
+                  content: trimResult(r.content, this.maxResultChars),
                   ...(r.isError && { isError: true }),
                 },
               ],
@@ -406,7 +517,7 @@ export class AgentSession {
         parts: results.map((r, i) => ({
           type: "tool_result" as const,
           callId: calls[i]?.callId ?? "",
-          content: r.content,
+          content: trimResult(r.content, this.maxResultChars),
           ...(r.isError && { isError: true }),
         })),
       },
@@ -468,59 +579,158 @@ export class AgentSession {
   }
 
   /**
-   * Replaces the history with a summary. The tail that must stay intact (a tool call and
-   * its results) is kept after the summary. Recorded as a `compaction` event.
+   * After a turn, past `compactAt`: the summary is made now, in the background, and applied as
+   * soon as it is ready (the session is idle). The next message waits for it if needed, and on
+   * a local engine finds the new history already computed.
    */
-  async compact(signal?: AbortSignal): Promise<void> {
-    const extra: string[] = [];
+  private compactAhead(): void {
+    const m = this.lastMetrics;
+    if (!m || this.o.engine || m.contextUsed < (this.o.compactAt ?? 0.8) * m.contextWindow) return;
+    this.background = this.compactNow({ reason: "auto" })
+      .then(async (done) => {
+        if (!done) return;
+        // A local engine computes the new history now, not when the person writes (G24.14).
+        const p = this.o.providers.get(this.o.model.provider) as {
+          prefill?: (r: ReturnType<AgentSession["request"]>) => Promise<void>;
+        };
+        // Exactly what streamWithFallback will send next time, minus the new message.
+        await p
+          .prefill?.({
+            ...this.request(),
+            model: this.o.model.model,
+            ...(this.o.model.effort && { effort: this.o.model.effort }),
+          } as never)
+          .catch(() => {});
+      })
+      .catch((err) => console.warn(`compaction of ${this.ctx.sessionId}: ${String(err)}`))
+      .finally(() => {
+        this.background = undefined;
+      });
+  }
+
+  /**
+   * Replaces the older part of the history with a summary. The request that makes it is the
+   * last turn's request (or a prefix of it) plus one message, so it is all in the cache; the
+   * new history costs one computation, once. Kept turns stay word for word, without their
+   * reasoning. In an emergency (the window is full in the middle of the work) nothing is kept:
+   * the summary covers everything, and the work goes on from it.
+   * Returns false when there was nothing to summarise, or a hook postponed it.
+   */
+  async compactNow(
+    o: {
+      reason: "auto" | "manual" | "emergency";
+      instructions?: string | undefined;
+      signal?: AbortSignal | undefined;
+    } = {
+      reason: "manual",
+    },
+  ): Promise<boolean> {
+    const extra: string[] = o.instructions ? [`The person asks: ${o.instructions}`] : [];
     for (const h of this.o.hooks?.preCompact ?? []) {
       const r = await h(this.messages, this.ctx);
-      if (r === false) return;
+      if (r === false) return false;
       if (r) extra.push(r);
     }
-    const lastEntry = this.history.at(-1);
-    const keepFrom =
-      lastEntry?.message.role === "user" &&
-      lastEntry.message.parts.some((p) => p.type === "tool_result")
-        ? this.history.length - 2
-        : this.history.length - 1;
-    const toSummarise = this.history.slice(0, Math.max(0, keepFrom));
-    const kept = this.history.slice(Math.max(0, keepFrom));
-    if (toSummarise.length === 0) return;
+    const window = this.lastMetrics?.contextWindow ?? 0;
+    const cut =
+      o.reason === "emergency" || window === 0
+        ? this.history.length
+        : keepFrom(this.history, Math.floor((this.o.keepRatio ?? 0.25) * window));
+    const toSummarise = this.history.slice(0, cut);
+    const kept = this.history.slice(cut);
+    if (toSummarise.length === 0) return false;
 
-    const prompt = [COMPACTION_PROMPT, ...extra].join("\n\n");
-    // Same system, tools, effort and history as a normal turn, with only the summary prompt
-    // appended: the request reuses the whole cached prefix (prompt cache or KV cache).
-    // Changing tools or tool_choice would invalidate it, so `none` is only a fallback for a
-    // model that calls a tool anyway.
-    const summaryRequest = {
-      ...this.request(),
-      messages: [
-        ...toSummarise.map((h) => h.message),
-        { role: "user" as const, parts: [{ type: "text" as const, text: prompt }] },
-      ],
-    };
-    let c = await complete(
-      streamWithFallback(this.o.providers, this.o.model, summaryRequest, signal),
-    );
-    if (c.message.parts.some((p) => p.type === "tool_call")) {
-      await this.priced(c);
-      c = await complete(
-        streamWithFallback(
-          this.o.providers,
-          this.o.model,
-          { ...summaryRequest, toolChoice: "none" },
-          signal,
-        ),
+    this.o.onCompacting?.(true);
+    try {
+      const prompt = [COMPACTION_PROMPT, ...extra].join("\n\n");
+      // Same system, tools, effort and history as a normal turn, with only the summary prompt
+      // appended: the request reuses the whole cached prefix (prompt cache or KV cache).
+      // Changing tools or tool_choice would invalidate it, so `none` is only a fallback for a
+      // model that calls a tool anyway.
+      const summaryRequest = {
+        ...this.request(),
+        messages: [
+          ...toSummarise.map((h) => h.message),
+          { role: "user" as const, parts: [{ type: "text" as const, text: prompt }] },
+        ],
+      };
+      const gate = await this.o.beforeModelCall?.();
+      if (gate && !gate.allow) return false;
+      let c = await complete(
+        streamWithFallback(this.o.providers, this.o.model, summaryRequest, o.signal),
       );
+      if (c.message.parts.some((p) => p.type === "tool_call")) {
+        await this.priced(c);
+        c = await complete(
+          streamWithFallback(
+            this.o.providers,
+            this.o.model,
+            { ...summaryRequest, toolChoice: "none" },
+            o.signal,
+          ),
+        );
+      }
+      await this.priced(c);
+      const raw = c.message.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("");
+      const summary =
+        summaryText(raw) +
+        (o.reason === "emergency"
+          ? "\n\n(The conversation was summarised in the middle of the work: carry on from the work in progress.)"
+          : "");
+      const fromSeq = toSummarise[0]?.firstSeq ?? 0;
+      const toSeq = (kept[0]?.firstSeq ?? Number.MAX_SAFE_INTEGER) - 1;
+      const stripped = kept.length > 0;
+      const e = await this.record({
+        type: "compaction",
+        payload: { summary, fromSeq, toSeq, reason: o.reason, ...(stripped && { stripped }) },
+      });
+      this.history = [
+        { message: summaryMessage(summary), firstSeq: e.seq },
+        ...kept.map((h) => ({ ...h, message: withoutReasoning(h.message) })),
+      ];
+      this.lastMetrics = undefined;
+      return true;
+    } finally {
+      this.o.onCompacting?.(false);
     }
-    await this.priced(c);
-    const summary = c.message.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("");
-    const fromSeq = toSummarise[0]?.firstSeq ?? 0;
-    const toSeq = (kept[0]?.firstSeq ?? Number.MAX_SAFE_INTEGER) - 1;
-    const e = await this.record({ type: "compaction", payload: { summary, fromSeq, toSeq } });
-    this.history = [{ message: summaryMessage(summary), firstSeq: e.seq }, ...kept];
+  }
+
+  /** @deprecated Kept for callers of the first version: a foreground summary, nothing kept. */
+  async compact(signal?: AbortSignal): Promise<void> {
+    await this.compactNow({ reason: "emergency", ...(signal && { signal }) });
+  }
+
+  /**
+   * Undoes the last summary the person asked for, if nothing was said since: the whole history
+   * comes back from the log (nothing was ever deleted). Returns false when it cannot.
+   */
+  async undoCompaction(): Promise<boolean> {
+    await this.background;
+    const events = await this.o.store.list({ sessionId: this.ctx.sessionId });
+    const undone = new Set(
+      events.flatMap((e) =>
+        e.type === "compaction.undone" && e.payload ? [e.payload.compactionSeq] : [],
+      ),
+    );
+    const last = [...events].reverse().find((e) => e.type === "compaction" && !undone.has(e.seq));
+    if (!last || last.type !== "compaction" || last.payload?.reason !== "manual") return false;
+    if (
+      events.some(
+        (e) => e.seq > last.seq && (e.type === "message.user" || e.type === "message.assistant"),
+      )
+    )
+      return false;
+    await this.record({ type: "compaction.undone", payload: { compactionSeq: last.seq } });
+    this.history = rebuildHistory(await this.o.store.list({ sessionId: this.ctx.sessionId }), {
+      maxResultChars: this.maxResultChars,
+    });
     this.lastMetrics = undefined;
+    return true;
+  }
+
+  /** Resolves when no summary is being made in the background. */
+  async settled(): Promise<void> {
+    await this.background;
   }
 
   /** Records the end of the session. */

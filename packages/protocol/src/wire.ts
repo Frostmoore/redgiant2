@@ -59,6 +59,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   }),
   /** Sent after a follow, once the stored history has been replayed. */
   z.object({ type: z.literal("session.synced"), sessionId: z.string(), lastSeq: z.number().int() }),
+  /** A summary of the conversation is being made while the person waits (G24.14). */
+  z.object({ type: z.literal("session.compacting"), sessionId: z.string(), busy: z.boolean() }),
   /** A request that waits for the human; answered with `permission.resolve`. */
   z.object({ type: z.literal("permission.request"), request: PermissionRequestInfo }),
   z.object({

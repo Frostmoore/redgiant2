@@ -3204,3 +3204,29 @@ a.button.primary {
   align-items: center;
   gap: 4px;
 }
+
+/* --- compaction (G24.14) --- */
+.compaction-mark {
+  margin: 10px 0;
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+  padding: 6px 0;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.compaction-mark summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.compaction-mark summary .tiny {
+  margin-left: auto;
+}
+.compaction-mark .md {
+  margin-top: 8px;
+  color: var(--text);
+}
+.compaction-mark.undone {
+  opacity: 0.6;
+}

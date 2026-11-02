@@ -151,6 +151,33 @@ export class LocalEngineProvider implements Provider {
     }
   }
 
+  /**
+   * Computes a history in its session's slot without answering (G24.14): after a summary made
+   * in the background, the new history is ready before the person writes, so the next message
+   * costs only itself. The lowest priority: a working session goes first. One token is
+   * generated (the safest way across llama.cpp versions), then the slot is saved to disk.
+   */
+  async prefill(request: CompletionRequest, signal?: AbortSignal): Promise<void> {
+    const sessionId = request.cacheKey;
+    if (!sessionId) return;
+    await this.connect();
+    const scheduler = this.scheduler as SlotScheduler;
+    const scope = request.cacheScope ?? "default";
+    const lease = await scheduler.acquire(sessionId, 0, signal);
+    try {
+      if (lease.previous) await this.save(lease.slot, lease.previous, "evict").catch(() => {});
+      const warm = { ...request, maxTokens: 1 };
+      this.slotFor.set(warm, lease.slot);
+      let tokens = 0;
+      for await (const e of this.inner.stream(warm, signal))
+        if (e.type === "done") tokens = e.completion.usage.inputTokens;
+      this.sessions.set(sessionId, { scope, hashes: prefixHashes(request), tokens });
+      await this.save(lease.slot, sessionId, "turn").catch(() => {});
+    } finally {
+      lease.release();
+    }
+  }
+
   /** Saves every slot's cache (call before stopping the server). */
   async shutdown(): Promise<void> {
     for (const h of this.scheduler?.holders() ?? [])
