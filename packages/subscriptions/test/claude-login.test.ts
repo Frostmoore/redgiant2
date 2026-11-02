@@ -41,6 +41,6 @@ describe("signing in to Claude from the browser", () => {
   });
 
   it("finds the platform's Claude Code next to the Agent SDK", () => {
-    expect(claudeBinary()).toMatch(/claude-agent-sdk-[a-z0-9]+-[a-z0-9]+.*\/claude(\.exe)?$/);
+    expect(claudeBinary()).toMatch(/claude-agent-sdk-[a-z0-9]+-[a-z0-9]+.*[\\/]claude(\.exe)?$/);
   });
 });
