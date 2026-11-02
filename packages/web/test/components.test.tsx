@@ -140,6 +140,7 @@ describe("ui pieces", () => {
       gpus,
       dockerGpu: false,
       gpuAccess: "" as const,
+      windowsEngine: false,
       suggestion: { engine, kind, vramGb, maxModelGb },
     });
     const rtx = {
@@ -158,7 +159,7 @@ describe("ui pieces", () => {
       integrated: false,
     };
     expect(hardwareText(hw([radeon], "cpu", "cpu"))).toMatch(
-      /^La scheda video per ora non si può usare/,
+      /^Qui il motore non riesce a raggiungere/,
     );
     const iris = { name: "Intel Iris Xe", vramGb: 0, vendor: "intel" as const, integrated: true };
     expect(hardwareText(hw([iris], "igpu", "vulkan", 0, 8))).toMatch(/^Una scheda video integrata/);

@@ -12,8 +12,12 @@ export interface Gpu {
 
 export type GpuVendor = "nvidia" | "amd" | "intel" | "other";
 
-/** The local engine's builds: llama.cpp for the CPU, CUDA (NVIDIA) and Vulkan (AMD, Intel…). */
-export type EngineVariant = "cpu" | "cuda" | "vulkan";
+/**
+ * The local engine's builds: llama.cpp for the CPU, CUDA (NVIDIA) and Vulkan (AMD, Intel…) in
+ * Docker, and `windows`: llama.cpp's Vulkan build running on Windows itself (G24.3b), for the
+ * GPUs WSL cannot reach.
+ */
+export type EngineVariant = "cpu" | "cuda" | "vulkan" | "windows";
 
 /**
  * How the engine's container reaches a GPU that is not NVIDIA's: Linux's /dev/dri. Windows' WSL
@@ -33,6 +37,8 @@ export interface Hardware {
   dockerGpu: boolean;
   /** How containers reach other GPUs (Vulkan), as the installer found it. */
   gpuAccess: GpuAccess;
+  /** The engine can run on Windows itself (RedGiant's Windows install, G24.3b). */
+  windowsEngine: boolean;
   suggestion: {
     engine: EngineVariant;
     /** Largest model file that fits comfortably, in GB. */
@@ -116,6 +122,8 @@ export async function detectHardware(o: {
   gpus?: () => Promise<Gpu[]>;
   hostGpus?: string | undefined;
   gpuAccess?: string | undefined;
+  /** The engine can run on Windows itself (RedGiant's Windows install). */
+  windowsEngine?: boolean | undefined;
 }): Promise<Hardware> {
   const list = cpus();
   const disk = await statfs(o.dataDir)
@@ -129,6 +137,7 @@ export async function detectHardware(o: {
   const dockerGpu = runtimes.includes("nvidia");
   const access = o.gpuAccess ?? process.env.REDGIANT_ENGINE_GPU ?? "";
   const gpuAccess: GpuAccess = access === "dri" ? "dri" : "";
+  o = { ...o, windowsEngine: o.windowsEngine ?? Boolean(process.env.REDGIANT_WIN_HOST) };
   const ramGb = round(totalmem() / GB);
   const nvidia = gpus.filter((g) => g.vendor === "nvidia" && !g.integrated);
   // Without Docker's NVIDIA runtime an NVIDIA card still works through Vulkan.
@@ -144,6 +153,17 @@ export async function detectHardware(o: {
       maxModelGb: round(vram > 0 ? vram * 0.8 : ramGb * 0.5),
       kind: vram > 0 ? "gpu" : "gpu-unknown",
       vramGb: vram,
+    };
+  } else if (o.windowsEngine && (others.length > 0 || nvidia.length > 0)) {
+    // On Windows every GPU works through the Windows engine (Vulkan with Windows' drivers).
+    const vram = best([...others, ...nvidia]);
+    suggestion = { engine: "windows", maxModelGb: round(vram * 0.8), kind: "gpu", vramGb: vram };
+  } else if (o.windowsEngine && igpu) {
+    suggestion = {
+      engine: "windows",
+      maxModelGb: Math.min(round(ramGb * 0.4), 8),
+      kind: "igpu",
+      vramGb: 0,
     };
   } else if (others.length > 0 && gpuAccess) {
     const vram = best(others);
@@ -174,6 +194,7 @@ export async function detectHardware(o: {
     gpus,
     dockerGpu,
     gpuAccess,
+    windowsEngine: o.windowsEngine === true,
     suggestion,
   };
 }

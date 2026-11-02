@@ -24,7 +24,7 @@ const en = {
   lmHwIgpu:
     "A graphics chip built into the processor: a little faster than the processor alone; models up to about {max} GB.",
   lmHwUnreachable:
-    "The graphics card cannot be used yet (AMD and Intel cards on Windows): models run on the processor, slower; up to about {max} GB.",
+    "The engine cannot reach the graphics card here: models run on the processor, slower; up to about {max} GB.",
   lmHwCpu:
     "No graphics card to use: models run on the processor, slower; small ones, up to about {max} GB.",
   lmSuggested: "Models that suit this computer",
@@ -54,6 +54,11 @@ const en = {
   lmEngine_cpu: "Processor",
   lmEngine_cuda: "NVIDIA graphics card (CUDA)",
   lmEngine_vulkan: "AMD, Intel or built-in graphics (Vulkan)",
+  lmEngine_windows: "Graphics card, with Windows' own engine (Vulkan)",
+  job_error_firewall:
+    "Windows did not allow the engine through its firewall. Start it again and answer Yes when Windows asks.",
+  job_error_launcher_missing:
+    "RedGiant's program on Windows did not answer. Check that RedGiant is open (its icon next to the clock), then try again.",
   lmSearch: "Other models from Hugging Face",
   lmSearchHint:
     "Search by name, choose a repository and a file. Files that are not models are hidden.",
@@ -553,7 +558,7 @@ const it: Record<Key, string> = {
   lmHwIgpu:
     "Una scheda video integrata nel processore: un po' più veloce del solo processore; modelli fino a circa {max} GB.",
   lmHwUnreachable:
-    "La scheda video per ora non si può usare (schede AMD e Intel su Windows): i modelli girano sul processore, più lenti; fino a circa {max} GB.",
+    "Qui il motore non riesce a raggiungere la scheda video: i modelli girano sul processore, più lenti; fino a circa {max} GB.",
   lmHwCpu:
     "Nessuna scheda video da usare: i modelli girano sul processore, più lenti; piccoli, fino a circa {max} GB.",
   lmSuggested: "Modelli adatti a questo computer",
@@ -583,6 +588,11 @@ const it: Record<Key, string> = {
   lmEngine_cpu: "Processore",
   lmEngine_cuda: "Scheda video NVIDIA (CUDA)",
   lmEngine_vulkan: "Scheda AMD, Intel o integrata (Vulkan)",
+  lmEngine_windows: "Scheda video, con il motore di Windows (Vulkan)",
+  job_error_firewall:
+    "Windows non ha lasciato passare il motore dal firewall. Avvialo di nuovo e rispondi Sì quando Windows lo chiede.",
+  job_error_launcher_missing:
+    "Il programma di RedGiant su Windows non ha risposto. Controlla che RedGiant sia aperto (la sua icona vicino all'orologio), poi riprova.",
   lmSearch: "Altri modelli da Hugging Face",
   lmSearchHint:
     "Cerca per nome, scegli un repository e un file. I file che non sono modelli sono nascosti.",

@@ -693,6 +693,8 @@ export interface AppOptions {
   telegram?: { gateway?: TelegramGateway; webhookSecret?: string };
   setup?: SetupService;
   hf?: HuggingFace;
+  /** The models folder of the engine on Windows itself (G24.3b), when there is one. */
+  winHf?: HuggingFace;
 }
 
 export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOptions = {}) {
@@ -1385,6 +1387,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   // The setup wizard (G17).
   const setup = options.setup;
   const hf = options.hf;
+  // The Windows engine keeps its models in a folder of Windows: each engine its own folder.
+  const modelsFor = (variant: string | undefined) => (variant === "windows" ? options.winHf : hf);
   const wizard = async (c: Context<Env>, f: () => Promise<unknown>) => {
     if (!setup) return c.json({ error: "Setup is not available" }, 400);
     try {
@@ -1403,7 +1407,10 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       throw new Error(r.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
     return r.data;
   };
-  const Engine = z.object({ variant: z.enum(["cpu", "cuda", "vulkan"]), model: z.string().min(1) });
+  const Engine = z.object({
+    variant: z.enum(["cpu", "cuda", "vulkan", "windows"]),
+    model: z.string().min(1),
+  });
   app.get("/api/setup", (c) => wizard(c, () => (setup as SetupService).state()));
   app.put("/api/setup/models", (c) =>
     wizard(c, async () =>
@@ -1558,16 +1565,21 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   // The suggested local models for this computer, and what the models folder holds (G24.3).
   app.get("/api/setup/local-models", (c) =>
     wizard(c, async () => {
-      if (!hf) return { models: [], files: [] };
+      const folder = modelsFor(c.req.query("variant"));
+      if (!folder) return { models: [], files: [] };
       const budget = (await (setup as SetupService).state()).hardware.suggestion.maxModelGb;
-      return { models: await localModelChoices(hf, budget), files: await hf.local() };
+      return { models: await localModelChoices(folder, budget), files: await folder.local() };
     }),
   );
   // A download is a job: followed with its progress, cancelled to pause, started again to go on.
   app.post("/api/setup/local-models/download", (c) =>
     wizard(c, async () => {
-      if (!hf) throw new Error("No models folder");
-      const b = await parsed(c, z.object({ repo: z.string(), file: z.string() }));
+      const b = await parsed(
+        c,
+        z.object({ repo: z.string(), file: z.string(), variant: z.string().optional() }),
+      );
+      const folder = modelsFor(b.variant);
+      if (!folder) throw new Error("No models folder");
       const target = HuggingFace.target(b.file);
       const running = core.jobs
         .list(owner(c))
@@ -1580,7 +1592,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
           owner(c),
           "model_download",
           ["download"],
-          (h) => hf.download(b.repo, b.file, h),
+          (h) => folder.download(b.repo, b.file, h),
           {
             model: target,
           },
@@ -1590,8 +1602,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   );
   app.delete("/api/setup/local-models/:file", (c) =>
     wizard(c, async () => {
-      if (!hf) throw new Error("No models folder");
-      await hf.remove(c.req.param("file"));
+      const folder = modelsFor(c.req.query("variant"));
+      if (!folder) throw new Error("No models folder");
+      await folder.remove(c.req.param("file"));
     }),
   );
 

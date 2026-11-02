@@ -5,6 +5,7 @@
 //
 //   RedGiant.exe               start (or, if already running, just open the browser)
 //   RedGiant.exe --background  start without opening the browser (start with Windows)
+//   RedGiant.exe --engine-only only the engine on Windows (G24.3b), without WSL
 using System;
 using System.Diagnostics;
 using System.Collections.Generic;
@@ -14,6 +15,9 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using System.IO.Compression;
+using System.Net;
+using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
 static class Texts
@@ -117,6 +121,7 @@ sealed class Launcher : ApplicationContext
             return;
         }
         if (!background) splash.Show();
+        WinEngine.Watch();
         StartEngine();
     }
 
@@ -190,8 +195,11 @@ sealed class Launcher : ApplicationContext
         };
         // The GPUs reach the distribution through WSLENV (only the variables it names cross over).
         info.EnvironmentVariables["REDGIANT_WIN_GPUS"] = WindowsGpus();
+        // The folder of the engine on Windows (/p: WSL sees it as /mnt/c/...).
+        info.EnvironmentVariables["REDGIANT_WIN_ENGINE_DIR"] = WinEngine.Dir;
         string wslenv = Environment.GetEnvironmentVariable("WSLENV") ?? "";
-        info.EnvironmentVariables["WSLENV"] = (wslenv.Length > 0 ? wslenv + ":" : "") + "REDGIANT_WIN_GPUS/u";
+        info.EnvironmentVariables["WSLENV"] = (wslenv.Length > 0 ? wslenv + ":" : "")
+            + "REDGIANT_WIN_GPUS/u:REDGIANT_WIN_ENGINE_DIR/up";
         engine = new Process { StartInfo = info, EnableRaisingEvents = true };
         string port = "7600", token = "";
         engine.OutputDataReceived += (s, e) =>
@@ -295,6 +303,7 @@ sealed class Launcher : ApplicationContext
 
     void Quit()
     {
+        WinEngine.Shutdown();
         StopEngine();
         // The distribution (and everything in it) stops; the data stays.
         try
@@ -316,6 +325,13 @@ sealed class Launcher : ApplicationContext
     [STAThread]
     static void Main(string[] args)
     {
+        // Only the engine on Windows, without WSL: for checking it (CI) and for whoever helps.
+        if (Array.IndexOf(args, "--engine-only") >= 0)
+        {
+            WinEngine.Watch();
+            new ManualResetEvent(false).WaitOne();
+            return;
+        }
         bool background = Array.IndexOf(args, "--background") >= 0;
         bool first;
         using (var single = new Mutex(true, "RedGiant.Launcher", out first))
@@ -350,3 +366,240 @@ sealed class Launcher : ApplicationContext
         t.Start();
     }
 }
+
+// The engine on Windows itself (G24.3b): llama.cpp's official Vulkan build, for the GPUs that
+// WSL cannot reach (AMD, Intel, built-in ones). RedGiant, inside WSL, writes what it wants in
+// engine.json; this class runs it and writes what it is doing in engine-status.json, in a folder
+// both see. The program is kept at a fixed path, the one the installer's firewall rule names.
+static class WinEngine
+{
+    public static readonly string Dir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RedGiant", "engine");
+    const int Port = 8091;
+    static string Bin { get { return Path.Combine(Dir, "bin", "current"); } }
+    static string Exe { get { return Path.Combine(Bin, "llama-server.exe"); } }
+    static readonly object gate = new object();
+    static System.Threading.Timer timer;
+    static string lastId;
+    static int generation;
+    static Process server;
+    static readonly Queue<string> log = new Queue<string>();
+
+    public static void Watch()
+    {
+        foreach (var d in new[] { "models", "kv", "bin" }) Directory.CreateDirectory(Path.Combine(Dir, d));
+        timer = new System.Threading.Timer(_ => Check(), null, 1000, 1000);
+    }
+
+    public static void Shutdown()
+    {
+        if (timer != null) timer.Dispose();
+        lock (gate) { generation++; Kill(); }
+    }
+
+    static string Field(string json, string name)
+    {
+        var m = Regex.Match(json, "\"" + name + "\"\\s*:\\s*(\"((?:[^\"\\\\]|\\\\.)*)\"|null|-?\\d+)");
+        if (!m.Success || m.Groups[1].Value == "null") return null;
+        return m.Groups[2].Success && m.Groups[2].Length > 0 ? m.Groups[2].Value : m.Groups[1].Value.Trim('"');
+    }
+
+    static void Check()
+    {
+        string json;
+        try { json = File.ReadAllText(Path.Combine(Dir, "engine.json")); } catch (Exception) { return; }
+        string id = Field(json, "id");
+        if (id == null || id == lastId) return;
+        lastId = id;
+        int gen;
+        lock (gate) gen = ++generation;
+        var t = new Thread(() => Handle(gen, id, Field(json, "model"), Field(json, "build"),
+            Field(json, "ctx") ?? "32768", Field(json, "parallel") ?? "4")) { IsBackground = true };
+        t.Start();
+    }
+
+    static string Esc(string s)
+    {
+        var b = new StringBuilder();
+        foreach (char c in s ?? "")
+        {
+            if (c == '"' || c == '\\') b.Append('\\').Append(c);
+            else if (c == '\n') b.Append("\\n");
+            else if (c < ' ') b.Append(' ');
+            else b.Append(c);
+        }
+        return b.ToString();
+    }
+
+    static void Status(int gen, string id, string state, string extra)
+    {
+        lock (gate)
+        {
+            if (gen != generation) return;
+            string json = "{\"id\":\"" + Esc(id) + "\",\"state\":\"" + state + "\"" + (extra ?? "") + "}";
+            string file = Path.Combine(Dir, "engine-status.json");
+            try { File.WriteAllText(file + ".tmp", json); File.Copy(file + ".tmp", file, true); } catch (Exception) { }
+        }
+    }
+
+    static string Tail()
+    {
+        lock (log) return string.Join("\n", log.ToArray());
+    }
+
+    static void Kill()
+    {
+        try { if (server != null && !server.HasExited) server.Kill(); } catch (Exception) { }
+        server = null;
+    }
+
+    static void Handle(int gen, string id, string model, string build, string ctx, string parallel)
+    {
+        lock (gate) { if (gen != generation) return; Kill(); }
+        if (model == null) { Status(gen, id, "stopped", null); return; }
+        string phase = "download";
+        try
+        {
+            string marker = Path.Combine(Bin, "build.txt");
+            bool ready = File.Exists(Exe) && File.Exists(marker) && File.ReadAllText(marker).Trim() == build;
+            if (!ready) Download(gen, id, build);
+            phase = "firewall";
+            Status(gen, id, "starting", null);
+            if (!FirewallAllows()) AllowInFirewall();
+            phase = "start";
+            lock (log) log.Clear();
+            var info = new ProcessStartInfo(Exe,
+                "-m \"" + Path.Combine(Dir, "models", model) + "\" --host 0.0.0.0 --port " + Port
+                + " -c " + ctx + " --parallel " + parallel + " --slot-save-path \"" + Path.Combine(Dir, "kv")
+                + "\" --swa-full --jinja --n-gpu-layers 999")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WorkingDirectory = Bin,
+            };
+            var p = new Process { StartInfo = info };
+            DataReceivedEventHandler keep = (s, e) =>
+            {
+                if (e.Data == null) return;
+                lock (log) { log.Enqueue(e.Data); while (log.Count > 60) log.Dequeue(); }
+            };
+            p.OutputDataReceived += keep;
+            p.ErrorDataReceived += keep;
+            lock (gate) { if (gen != generation) return; p.Start(); server = p; }
+            p.BeginOutputReadLine();
+            p.BeginErrorReadLine();
+            Status(gen, id, "loading", null);
+            for (;;)
+            {
+                Thread.Sleep(1000);
+                lock (gate) if (gen != generation) return;
+                string tail = Tail();
+                // llama.cpp goes on with the CPU when it finds no GPU, saying so only here.
+                if (tail.Contains("no usable GPU found"))
+                {
+                    lock (gate) Kill();
+                    Status(gen, id, "failed", ",\"error\":\"no_gpu\",\"log\":\"" + Esc(tail) + "\"");
+                    return;
+                }
+                if (p.HasExited)
+                {
+                    Status(gen, id, "failed", ",\"log\":\"" + Esc(tail) + "\"");
+                    return;
+                }
+                if (Healthy())
+                {
+                    Status(gen, id, "ready", ",\"port\":" + Port);
+                    return;
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            Status(gen, id, "failed", ",\"error\":\"" + phase + "\",\"log\":\"" + Esc(e.Message + "\n" + Tail()) + "\"");
+        }
+    }
+
+    const string Rule = "RedGiant local engine";
+
+    static int Netsh(string args, bool elevated)
+    {
+        var info = new ProcessStartInfo("netsh.exe", args)
+        {
+            UseShellExecute = elevated,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+        };
+        if (elevated) info.Verb = "runas";
+        using (var p = Process.Start(info)) { p.WaitForExit(60000); return p.ExitCode; }
+    }
+
+    static bool FirewallAllows()
+    {
+        try { return Netsh("advfirewall firewall show rule name=\"" + Rule + "\"", false) == 0; }
+        catch (Exception) { return false; }
+    }
+
+    /** RedGiant, inside WSL, reaches the engine through Windows' firewall: one rule, asked once. */
+    static void AllowInFirewall()
+    {
+        int code = Netsh("advfirewall firewall add rule name=\"" + Rule + "\" dir=in action=allow"
+            + " program=\"" + Exe + "\" protocol=TCP localport=" + Port + " remoteip=localsubnet profile=any", true);
+        if (code != 0) throw new Exception("The firewall rule was not added (" + code + ")");
+    }
+
+    static bool Healthy()
+    {
+        try
+        {
+            var r = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + Port + "/health");
+            r.Timeout = 2000;
+            using (var res = (HttpWebResponse)r.GetResponse()) return res.StatusCode == HttpStatusCode.OK;
+        }
+        catch (Exception) { return false; }
+    }
+
+    /** llama.cpp's Vulkan build for Windows, from its GitHub release, into bin\current. */
+    static void Download(int gen, string id, string build)
+    {
+        ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; // TLS 1.2
+        string url = "https://github.com/ggml-org/llama.cpp/releases/download/" + build
+            + "/llama-" + build + "-bin-win-vulkan-x64.zip";
+        string zip = Path.Combine(Dir, "bin", build + ".zip");
+        var req = (HttpWebRequest)WebRequest.Create(url);
+        req.UserAgent = "RedGiant";
+        using (var res = (HttpWebResponse)req.GetResponse())
+        using (var input = res.GetResponseStream())
+        using (var output = File.Create(zip))
+        {
+            long total = res.ContentLength, done = 0;
+            var buf = new byte[1 << 16];
+            var last = DateTime.MinValue;
+            int n;
+            while ((n = input.Read(buf, 0, buf.Length)) > 0)
+            {
+                output.Write(buf, 0, n);
+                done += n;
+                if ((DateTime.UtcNow - last).TotalMilliseconds > 500)
+                {
+                    last = DateTime.UtcNow;
+                    Status(gen, id, "downloading", ",\"done\":" + done + (total > 0 ? ",\"total\":" + total : ""));
+                }
+                lock (gate) if (gen != generation) return;
+            }
+        }
+        string fresh = Path.Combine(Dir, "bin", build);
+        if (Directory.Exists(fresh)) Directory.Delete(fresh, true);
+        ZipFile.ExtractToDirectory(zip, fresh);
+        File.Delete(zip);
+        // The program may sit in a folder of the archive: its folder becomes bin\current.
+        string[] found = Directory.GetFiles(fresh, "llama-server.exe", SearchOption.AllDirectories);
+        if (found.Length == 0) throw new Exception("llama-server.exe is not in " + url);
+        if (Directory.Exists(Bin)) Directory.Delete(Bin, true);
+        Directory.Move(Path.GetDirectoryName(found[0]), Bin);
+        if (Directory.Exists(fresh)) Directory.Delete(fresh, true);
+        File.WriteAllText(Path.Combine(Bin, "build.txt"), build);
+    }
+}
+

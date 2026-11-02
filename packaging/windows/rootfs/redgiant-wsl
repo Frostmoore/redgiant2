@@ -67,6 +67,15 @@ gpu_list() {
   fi
 }
 
+# The engine on Windows itself (G24.3b): its folder (passed by the launcher, as /mnt/c/...) and
+# Windows' address on WSL's network (the default gateway), for RedGiant to reach it.
+win_engine_settings() {
+  if [ -n "${REDGIANT_WIN_ENGINE_DIR:-}" ] && [ -d "$REDGIANT_WIN_ENGINE_DIR" ]; then
+    set_setting REDGIANT_WIN_ENGINE_DIR "$REDGIANT_WIN_ENGINE_DIR"
+    set_setting REDGIANT_WIN_HOST "$(ip route show default 2>/dev/null | awk '{ print $3; exit }')"
+  fi
+}
+
 restart_docker() {
   if [ -d /run/systemd/system ]; then
     systemctl restart docker >/dev/null 2>&1
@@ -186,6 +195,7 @@ run() {
   step "Avvio di RedGiant"
   # The GPUs RedGiant cannot see from its container ("" when there are none), and the way to them.
   set_setting REDGIANT_HOST_GPUS "${GPUS:-}"
+  win_engine_settings
   (cd "$HOME_DIR" && docker compose up -d >/var/log/redgiant-start.log 2>&1) \
     || fail "RedGiant non parte (registro: /var/log/redgiant-start.log)."
   local port

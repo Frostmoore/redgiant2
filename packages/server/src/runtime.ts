@@ -14,9 +14,11 @@ import { SearxngSearch } from "@redgiant/tools";
 import type Docker from "dockerode";
 import type { AppOptions } from "./app.js";
 import type { RedGiantCore } from "./core.js";
+import { engineError } from "./engine-errors.js";
 import type { GpuAccess } from "./hardware.js";
 import { JobFailure, type JobHandle } from "./jobs.js";
 import type { SetupHooks } from "./setup.js";
+import type { WinEngine } from "./win-engine.js";
 
 export interface RuntimeOptions {
   core: RedGiantCore;
@@ -33,6 +35,8 @@ export interface RuntimeOptions {
     image: { cpu: string; cuda: string; vulkan: string };
     /** How the engine reaches a GPU that is not NVIDIA's (Vulkan): Linux's /dev/dri. */
     gpuAccess?: GpuAccess;
+    /** The engine on Windows itself, driven through RedGiant.exe (G24.3b). */
+    windows?: WinEngine;
     network: string;
     modelsVolume: string;
     kvVolume: string;
@@ -153,8 +157,31 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         .getContainer(ENGINE)
         .remove({ force: true })
         .catch(() => {});
+      if (!cfg || cfg.variant !== "windows") await e.windows?.stop().catch(() => {});
       if (!cfg) {
         o.providers.remove("local");
+        return;
+      }
+      if (cfg.variant === "windows") {
+        const win = e.windows;
+        if (!win)
+          throw new JobFailure(
+            "start",
+            "The Windows engine exists only in RedGiant's Windows install",
+          );
+        const started = async () => {
+          const baseURL = await win.start(cfg.model, h);
+          const provider = new LocalEngineProvider({
+            id: "local",
+            baseURL,
+            kv: new KvStore(win.kvDir),
+          });
+          await provider.connect();
+          o.providers.register(provider);
+        };
+        if (h) return started();
+        // At startup nobody waits: the launcher may still be starting.
+        void started().catch((err) => console.warn(`engine (Windows): ${(err as Error).message}`));
         return;
       }
       const image = e.image[cfg.variant];
@@ -255,30 +282,6 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       return Object.keys(info.Runtimes ?? {});
     },
   };
-}
-
-/** Why the engine could not start, from what llama.cpp or Docker said; undefined if unknown. */
-export function engineError(text: string): string | undefined {
-  if (
-    /out of memory|failed to allocate|cudaMalloc failed|ErrorOutOfDeviceMemory|unable to allocate|not enough memory/i.test(
-      text,
-    )
-  )
-    return "out_of_memory";
-  if (
-    /could not select device driver|no CUDA-capable device|no usable GPU|ggml_vulkan: No devices|Failed to initialize Vulkan|error gathering device information|\/dev\/dri.*(no such file|not found)/i.test(
-      text,
-    )
-  )
-    return "no_gpu";
-  if (
-    /failed to load model|invalid magic|unknown model architecture|error loading model|gguf_init_from_file/i.test(
-      text,
-    )
-  )
-    return "bad_model";
-  if (/no such file or directory|failed to open/i.test(text)) return "model_missing";
-  return undefined;
 }
 
 /** The last lines the engine wrote. */

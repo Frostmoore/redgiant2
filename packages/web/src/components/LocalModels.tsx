@@ -67,7 +67,7 @@ function FileActions({
     setError(undefined);
     void f().then(onChange, (e: unknown) => setError(explain(e)));
   };
-  const download = () => repo && act(() => getApi().downloadModel(repo, file));
+  const download = () => repo && act(() => getApi().downloadModel(repo, file, variant));
   let body: preact.JSX.Element;
   if (dl?.state === "running") {
     const p = dl.steps[0]?.progress;
@@ -92,7 +92,11 @@ function FileActions({
             {t("lmResume")}
           </button>
         )}
-        <button type="button" class="link" onClick={() => act(() => getApi().removeModel(name))}>
+        <button
+          type="button"
+          class="link"
+          onClick={() => act(() => getApi().removeModel(name, variant))}
+        >
           {t("lmDiscard")}
         </button>
       </div>
@@ -137,7 +141,7 @@ function FileActions({
             <button
               type="button"
               class="link"
-              onClick={() => act(() => getApi().removeModel(name))}
+              onClick={() => act(() => getApi().removeModel(name, variant))}
             >
               <IconTrash size={13} /> {t("lmDelete")}
             </button>
@@ -261,15 +265,16 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
     s.config.engine?.variant ?? s.hardware.suggestion.engine,
   );
   const [error, setError] = useState<string>();
-  const load = () => {
+  const load = (v: EngineVariant = variant) => {
     void getApi()
-      .localModels()
+      .localModels(v)
       .then(setData, (e: unknown) => setError(explain(e)));
     void getApi()
       .jobs()
       .then(setJobs, () => {});
   };
-  useEffect(load, []);
+  // Each engine keeps its models in its own folder: changing engine shows that folder.
+  useEffect(() => load(variant), [variant]);
   // While something runs, its progress is read every second; when it ends, everything again.
   const running = jobs.some((j) => j.state === "running");
   useEffect(() => {
@@ -388,7 +393,10 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
             value={variant}
             onChange={(e) => setVariant((e.target as HTMLSelectElement).value as EngineVariant)}
           >
-            {(["cpu", "cuda", "vulkan"] as const).map((v) => (
+            {(s.hardware.windowsEngine
+              ? (["windows", "cuda", "cpu"] as const)
+              : (["cpu", "cuda", "vulkan"] as const)
+            ).map((v) => (
               <option key={v} value={v}>
                 {t(`lmEngine_${v}`)}
                 {v === s.hardware.suggestion.engine ? ` (${t("lmRecommended")})` : ""}

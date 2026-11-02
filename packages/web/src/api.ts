@@ -90,6 +90,7 @@ export interface SetupState {
     }[];
     dockerGpu: boolean;
     gpuAccess: "dri" | "";
+    windowsEngine: boolean;
     suggestion: {
       engine: EngineVariant;
       maxModelGb: number;
@@ -112,7 +113,7 @@ export interface GgufFile {
   quant: string | null;
 }
 
-export type EngineVariant = "cpu" | "cuda" | "vulkan";
+export type EngineVariant = "cpu" | "cuda" | "vulkan" | "windows";
 
 /** A suggested local model with the best file for this computer (G24.3). */
 export interface LocalModelChoice {
@@ -507,13 +508,17 @@ export class Api {
     );
   hfFiles = (repo: string) =>
     this.call<GgufFile[]>("GET", `/api/setup/hf/files?repo=${encodeURIComponent(repo)}`);
-  localModels = () =>
-    this.call<{ models: LocalModelChoice[]; files: LocalFile[] }>("GET", "/api/setup/local-models");
+  /** The suggested models and the folder's files, for the engine `variant` (each has its folder). */
+  localModels = (variant: EngineVariant) =>
+    this.call<{ models: LocalModelChoice[]; files: LocalFile[] }>(
+      "GET",
+      `/api/setup/local-models?variant=${variant}`,
+    );
   /** Downloads a model file: a job to follow; cancelling it pauses, starting again goes on. */
-  downloadModel = (repo: string, file: string) =>
-    this.call<Job>("POST", "/api/setup/local-models/download", { repo, file });
-  removeModel = (file: string) =>
-    this.call("DELETE", `/api/setup/local-models/${encodeURIComponent(file)}`);
+  downloadModel = (repo: string, file: string, variant: EngineVariant) =>
+    this.call<Job>("POST", "/api/setup/local-models/download", { repo, file, variant });
+  removeModel = (file: string, variant: EngineVariant) =>
+    this.call("DELETE", `/api/setup/local-models/${encodeURIComponent(file)}?variant=${variant}`);
   jobs = () => this.call<Job[]>("GET", "/api/jobs");
   job = (id: string) => this.call<Job>("GET", `/api/jobs/${encodeURIComponent(id)}`);
   cancelJob = (id: string) => this.call("POST", `/api/jobs/${encodeURIComponent(id)}/cancel`);

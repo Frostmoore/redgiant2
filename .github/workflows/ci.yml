@@ -45,7 +45,33 @@ jobs:
         shell: pwsh
         working-directory: packaging/windows
         run: |
-          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll launcher\RedGiant.cs
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll launcher\RedGiant.cs
           if ($LASTEXITCODE -ne 0) { exit 1 }
+      # The engine on Windows (G24.3b): RedGiant.exe downloads llama.cpp's Vulkan build, starts it
+      # and reports. The runner has no GPU: the engine must be found and that must be said (no_gpu).
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: packaging/windows
+        run: |
+          $dir = "$env:LOCALAPPDATA\RedGiant\engine"
+          New-Item -ItemType Directory -Force "$dir\models" | Out-Null
+          Set-Content "$dir\models\tiny.gguf" "not a model"
+          $build = (Select-String -Path ..\..\packages\server\src\win-engine.ts -Pattern 'WIN_ENGINE_BUILD = "(b\d+)"').Matches[0].Groups[1].Value
+          Set-Content "$dir\engine.json" ('{"id":"ci-1","model":"tiny.gguf","build":"' + $build + '","ctx":2048,"parallel":1}')
+          $p = Start-Process .\RedGiant.exe -ArgumentList "--engine-only" -PassThru
+          $status = $null
+          for ($i = 0; $i -lt 180; $i++) {
+            Start-Sleep 2
+            if (Test-Path "$dir\engine-status.json") {
+              $status = Get-Content "$dir\engine-status.json" -Raw | ConvertFrom-Json
+              if ($status.state -in @("failed", "ready")) { break }
+            }
+          }
+          Stop-Process $p -Force
+          Get-Process llama-server -ErrorAction SilentlyContinue | Stop-Process -Force
+          $status | Format-List
+          if (-not (Test-Path "$dir\bin\current\llama-server.exe")) { "llama-server.exe was not installed"; exit 1 }
+          if ($status.id -ne "ci-1" -or $status.state -ne "failed" -or $status.error -notin @("no_gpu", $null)) { "unexpected status"; exit 1 }
+          if ("$($status.log)" -notmatch "llama|ggml|model") { "no engine log in the status"; exit 1 }
       - if: runner.os == 'Linux'
         run: shellcheck packaging/windows/rootfs/redgiant-wsl

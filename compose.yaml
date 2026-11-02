@@ -41,6 +41,10 @@ services:
       # and how the engine reaches a GPU that is not NVIDIA's through Vulkan: dri (Linux only).
       REDGIANT_HOST_GPUS: ${REDGIANT_HOST_GPUS:-}
       REDGIANT_ENGINE_GPU: ${REDGIANT_ENGINE_GPU:-}
+      # Windows only (G24.3b): the engine RedGiant.exe runs on Windows, reached at this address,
+      # with its folder (models, KV caches, commands) mounted at /winengine.
+      REDGIANT_WIN_HOST: ${REDGIANT_WIN_HOST:-}
+      REDGIANT_WIN_ENGINE_DIR: /winengine
       REDGIANT_SANDBOX_IMAGE: ${REDGIANT_SANDBOX_IMAGE:-ghcr.io/frostmoore/redgiant2-sandbox:latest}
       REDGIANT_SANDBOX_NETWORK: redgiant-sandbox
       REDGIANT_EGRESS_URL: http://egress:3128
@@ -56,6 +60,7 @@ services:
       - "${REDGIANT_BIND:-127.0.0.1}:${REDGIANT_PORT:-7600}:7600"
     volumes:
       - redgiant-data:/data
+      - ${REDGIANT_WIN_ENGINE_DIR:-./windows-engine}:/winengine
       - redgiant-kv:/kv
       - redgiant-models:/models
       - /var/run/docker.sock:/var/run/docker.sock

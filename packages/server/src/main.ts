@@ -19,6 +19,7 @@ import { HuggingFace } from "./hf.js";
 import { runtimeHooks } from "./runtime.js";
 import { serve } from "./serve.js";
 import { SetupService } from "./setup.js";
+import { WinEngine } from "./win-engine.js";
 
 const env = process.env;
 
@@ -158,6 +159,10 @@ const telegram: { gateway?: TelegramGateway; webhookSecret?: string } = {
 };
 const owner = env.REDGIANT_OWNER ?? "local";
 const docker = sandbox.kind === "docker" ? new Docker() : undefined;
+// The engine on Windows itself (G24.3b): RedGiant.exe runs it; the folder is shared through WSL.
+const winEngine = env.REDGIANT_WIN_HOST
+  ? new WinEngine({ dir: env.REDGIANT_WIN_ENGINE_DIR ?? "/winengine", host: env.REDGIANT_WIN_HOST })
+  : undefined;
 const hooks = runtimeHooks({
   dataDir,
   core,
@@ -176,6 +181,7 @@ const hooks = runtimeHooks({
           vulkan: env.REDGIANT_ENGINE_VULKAN_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:vulkan",
         },
         gpuAccess: env.REDGIANT_ENGINE_GPU === "dri" ? "dri" : "",
+        ...(winEngine && { windows: winEngine }),
         network: env.REDGIANT_ENGINE_NETWORK,
         modelsVolume: env.REDGIANT_MODELS_VOLUME ?? "redgiant-models",
         kvVolume: env.REDGIANT_KV_VOLUME ?? "redgiant-kv",
@@ -225,6 +231,7 @@ const running = await serve(core, new TokenAuth({ [token]: owner }), {
   telegram,
   setup,
   hf: new HuggingFace(modelsDir),
+  ...(winEngine && { winHf: new HuggingFace(winEngine.modelsDir) }),
   webDir: env.REDGIANT_WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 console.log(`RedGiant listening on ${running.url} (sandbox: ${sandbox.kind})`);

@@ -82,8 +82,11 @@ there. The main settings:
   `docker compose --profile engine up -d` (or `--profile engine-cuda` with an NVIDIA GPU and the
   NVIDIA Container Toolkit, or `--profile engine-vulkan` for AMD, Intel and built-in GPUs through
   `/dev/dri`). The setup wizard does all of this by itself: the installer writes the GPUs it found
-  (`REDGIANT_HOST_GPUS`) and how containers reach them (`REDGIANT_ENGINE_GPU=dri`). On Windows only
-  NVIDIA GPUs are used for now: llama.cpp's Vulkan build has no driver for WSL's D3D12 bridge.
+  (`REDGIANT_HOST_GPUS`) and how containers reach them (`REDGIANT_ENGINE_GPU=dri`). On Windows, AMD,
+  Intel and built-in GPUs cannot be reached from WSL: there `RedGiant.exe` runs llama.cpp's official
+  Vulkan build on Windows itself (models in `%LOCALAPPDATA%\RedGiant\engine`, one firewall rule asked
+  the first time), and RedGiant drives it through that folder (`REDGIANT_WIN_HOST`, `/winengine`).
+  NVIDIA cards keep the CUDA engine in Docker.
 - **Web search**: `docker compose --profile search up -d` and `REDGIANT_SEARXNG_URL=http://searxng:8080`.
 - **Phones**: Settings > Devices shows a QR code; the phone opens RedGiant signed in with a token of its own
   (revocable there). To install it as an app the page must be served over HTTPS (Tailscale Serve, Caddy…):
