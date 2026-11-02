@@ -447,6 +447,9 @@ const en = {
   piholeOpenAdmin: "Open Pi-hole",
   piholeShowPassword: "Show its password",
   piholeStop: "Turn off Pi-hole",
+  job_download_sandbox: "Downloading the agents' computer (only once)",
+  job_download_browser: "Downloading the agents' browser (only once)",
+  job_step_image_download: "Downloading",
   job_pihole: "Starting Pi-hole",
   job_step_pihole_image: "Downloading Pi-hole (only once)",
   job_step_pihole_start: "Starting Pi-hole",
@@ -659,7 +662,7 @@ const en = {
   job_error_no_answer:
     "The model loaded but did not answer the test. Try starting it again, or choose another one.",
   job_error_image_download:
-    "The engine could not be downloaded. Check the internet connection and try again.",
+    "The download did not finish. Check the internet connection and try again.",
   job_error_engine_stopped: "The engine stopped by itself. The details below say why.",
   job_error_start: "The engine did not start. The details below say why.",
   job_error_unreachable:
@@ -1651,6 +1654,9 @@ const it: Record<Key, string> = {
   piholeOpenAdmin: "Apri Pi-hole",
   piholeShowPassword: "Mostra la sua password",
   piholeStop: "Spegni Pi-hole",
+  job_download_sandbox: "Scarico il computer degli agenti (una volta sola)",
+  job_download_browser: "Scarico il browser degli agenti (una volta sola)",
+  job_step_image_download: "Download",
   job_pihole: "Avvio di Pi-hole",
   job_step_pihole_image: "Scarico Pi-hole (una volta sola)",
   job_step_pihole_start: "Avvio Pi-hole",
@@ -1868,7 +1874,7 @@ const it: Record<Key, string> = {
   job_error_no_answer:
     "Il modello si è caricato ma non ha risposto alla prova. Riprova ad avviarlo, oppure scegline un altro.",
   job_error_image_download:
-    "Non sono riuscito a scaricare il motore. Controlla la connessione a internet e riprova.",
+    "Il download non è finito. Controlla la connessione a internet e riprova.",
   job_error_engine_stopped: "Il motore si è fermato da solo. I dettagli qui sotto dicono perché.",
   job_error_start: "Il motore non è partito. I dettagli qui sotto dicono perché.",
   job_error_unreachable:

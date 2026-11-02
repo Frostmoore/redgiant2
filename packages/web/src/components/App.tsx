@@ -51,6 +51,7 @@ import { Bell } from "./Bell.js";
 import { Board } from "./Board.js";
 import { Chat } from "./Chat.js";
 import { DailyChat } from "./DailyChat.js";
+import { Downloads } from "./Downloads.js";
 import { Explorer } from "./Explorer.js";
 import { Login } from "./Login.js";
 import { RoomView } from "./Room.js";
@@ -441,6 +442,7 @@ export function App() {
         {explorerOpen.value && <Explorer />}
         <SideArea />
       </div>
+      <Downloads />
     </div>
   );
 }

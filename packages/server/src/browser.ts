@@ -58,6 +58,8 @@ export class DockerBrowserLauncher implements BrowserLauncher {
       /** This server's container, joined to that network (Docker installs). */
       join?: string;
       image?: string;
+      /** Pulls a missing image showing its progress to the person; without it, a plain pull. */
+      pull?: (image: string) => Promise<void>;
       /** Prefix of containers and volumes (tests use their own). */
       prefix?: string;
       /** How this server reaches the container: by its address on `network` (default). */
@@ -103,7 +105,8 @@ export class DockerBrowserLauncher implements BrowserLauncher {
         .inspect()
         .then(() => true)
         .catch(() => false);
-      if (!present)
+      if (!present && this.o.pull) await this.o.pull(image);
+      else if (!present)
         await new Promise<void>((ok, ko) =>
           this.o.docker.pull(image, (err: unknown, stream: NodeJS.ReadableStream) =>
             err ? ko(err) : this.o.docker.modem.followProgress(stream, (e) => (e ? ko(e) : ok())),

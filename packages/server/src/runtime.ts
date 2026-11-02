@@ -17,7 +17,7 @@ import type { AppOptions } from "./app.js";
 import type { RedGiantCore } from "./core.js";
 import { engineError } from "./engine-errors.js";
 import type { GpuAccess } from "./hardware.js";
-import { JobFailure, type JobHandle } from "./jobs.js";
+import { JobFailure, type JobHandle, type Jobs } from "./jobs.js";
 import { startRemote, stopRemote } from "./remote.js";
 import type { SetupHooks } from "./setup.js";
 import type { WinEngine } from "./win-engine.js";
@@ -548,8 +548,73 @@ async function engineLogs(container: Docker.Container): Promise<string> {
   return out || raw.toString("utf8");
 }
 
-/** Pulls an image, reporting the bytes of all its layers as they become known. */
-async function pullWithProgress(docker: Docker, image: string, h?: JobHandle): Promise<void> {
+/** Registry, repository and tag of an image reference. */
+export function splitImage(ref: string): { registry: string; repo: string; tag: string } {
+  const at = ref.lastIndexOf(":");
+  const tagged = at > ref.lastIndexOf("/");
+  const name = tagged ? ref.slice(0, at) : ref;
+  const tag = tagged ? ref.slice(at + 1) : "latest";
+  const first = name.split("/")[0] ?? "";
+  if (name.includes("/") && (first.includes(".") || first.includes(":")))
+    return { registry: first, repo: name.slice(first.length + 1), tag };
+  return {
+    registry: "registry-1.docker.io",
+    repo: name.includes("/") ? name : `library/${name}`,
+    tag,
+  };
+}
+
+const MANIFESTS = [
+  "application/vnd.oci.image.index.v1+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json",
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.docker.distribution.manifest.v2+json",
+].join(",");
+
+/**
+ * The size of every layer of an image for this machine, from its registry (anonymous pull), keyed
+ * by the 12-character id Docker reports: so a download shows its true total from the start.
+ * Empty when the registry cannot tell (private image, no network): the bar then grows as it goes.
+ */
+export async function layerSizes(image: string, fetcher = fetch): Promise<Map<string, number>> {
+  const sizes = new Map<string, number>();
+  try {
+    const { registry, repo, tag } = splitImage(image);
+    const auth =
+      registry === "registry-1.docker.io"
+        ? `https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repo}:pull`
+        : `https://${registry}/token?scope=repository:${repo}:pull`;
+    const { token } = (await (await fetcher(auth)).json()) as { token?: string };
+    const get = async (ref: string) =>
+      (await (
+        await fetcher(`https://${registry}/v2/${repo}/manifests/${ref}`, {
+          headers: { Accept: MANIFESTS, ...(token && { Authorization: `Bearer ${token}` }) },
+        })
+      ).json()) as {
+        manifests?: { digest: string; platform?: { os?: string; architecture?: string } }[];
+        layers?: { digest: string; size: number }[];
+      };
+    let m = await get(tag);
+    const arch = process.arch === "arm64" ? "arm64" : "amd64";
+    const own = m.manifests?.find(
+      (x) => x.platform?.os === "linux" && x.platform.architecture === arch,
+    );
+    if (own) m = await get(own.digest);
+    for (const l of m.layers ?? []) sizes.set(l.digest.slice(7, 19), l.size);
+  } catch {
+    sizes.clear();
+  }
+  return sizes;
+}
+
+/** Pulls an image, reporting the bytes of all its layers: their sizes from the registry first. */
+export async function pullWithProgress(
+  docker: Docker,
+  image: string,
+  h?: JobHandle,
+  sizes: (image: string) => Promise<Map<string, number>> = layerSizes,
+): Promise<void> {
+  const known = h ? await sizes(image) : new Map<string, number>();
   let stream: NodeJS.ReadableStream;
   try {
     stream = await docker.pull(image);
@@ -557,6 +622,7 @@ async function pullWithProgress(docker: Docker, image: string, h?: JobHandle): P
     throw new JobFailure("image_download", (err as Error).message);
   }
   const layers = new Map<string, { current: number; total: number }>();
+  for (const [id, size] of known) layers.set(id, { current: 0, total: size });
   h?.signal.addEventListener("abort", () => (stream as unknown as { destroy(): void }).destroy());
   await new Promise<void>((resolve, reject) =>
     docker.modem.followProgress(
@@ -569,23 +635,70 @@ async function pullWithProgress(docker: Docker, image: string, h?: JobHandle): P
       }) => {
         if (!ev.id || !h) return;
         const l = layers.get(ev.id) ?? { current: 0, total: 0 };
-        if (ev.status === "Downloading" && ev.progressDetail?.total) {
-          l.total = ev.progressDetail.total;
-          l.current = ev.progressDetail.current ?? l.current;
-        } else if (ev.status === "Download complete" || ev.status === "Pull complete") {
+        if (ev.status === "Downloading") {
+          if (ev.progressDetail?.total) l.total = ev.progressDetail.total;
+          l.current = ev.progressDetail?.current ?? l.current;
+        } else if (
+          ev.status === "Download complete" ||
+          ev.status === "Pull complete" ||
+          ev.status === "Already exists" ||
+          ev.status === "Extracting" ||
+          ev.status === "Verifying Checksum"
+        ) {
           l.current = l.total;
-        }
+        } else if (!layers.has(ev.id)) return;
         layers.set(ev.id, l);
         let done = 0;
         let total = 0;
         for (const x of layers.values()) {
-          done += x.current;
+          done += Math.min(x.current, x.total || x.current);
           total += x.total;
         }
-        if (total > 0) h.progress(done, total);
+        if (total > 0) h.progress(Math.min(done, total), total);
       },
     ),
   );
+}
+
+/**
+ * Pulls an image RedGiant needs on its own (the agents' computer, their browser) as a job, so
+ * the person sees a bar with the speed and the time left (decision 2026-11-02: every download
+ * shows its progress). One job per image at a time; an image already there is not pulled.
+ */
+export function backgroundPuller(
+  docker: Docker,
+  jobs: Jobs,
+  owner: () => string,
+  sizes: (image: string) => Promise<Map<string, number>> = layerSizes,
+): (image: string, what: "sandbox" | "browser") => Promise<void> {
+  const running = new Map<string, Promise<void>>();
+  return (image, what) => {
+    let p = running.get(image);
+    if (!p) {
+      p = (async () => {
+        const present = await docker
+          .getImage(image)
+          .inspect()
+          .then(() => true)
+          .catch(() => false);
+        if (present) return;
+        const job = jobs.start(
+          owner(),
+          `download_${what}`,
+          ["image_download"],
+          async (h) => {
+            h.step("image_download");
+            await pullWithProgress(docker, image, h, sizes);
+          },
+          { image },
+        );
+        const end = await jobs.settled(job.id, 500);
+        if (end?.state !== "done") throw new Error(end?.error?.message ?? `Cannot pull ${image}`);
+      })().finally(() => running.delete(image));
+      running.set(image, p);
+    }
+    return p;
+  };
 }
 
 /** Runs a command in a container (arguments, never a shell); its exit code and output. */

@@ -67,6 +67,7 @@ Source: "redgiant.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; The script inside the distribution, for updates of an already installed one.
 Source: "rootfs\redgiant-wsl"; DestDir: "{app}"; Flags: ignoreversion
 Source: "rootfs\wsl.conf"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\install.sh"; DestDir: "{app}"; Flags: ignoreversion
 ; Already compressed; removed once imported.
 Source: "redgiant-rootfs.tar.gz"; DestDir: "{app}"; Flags: nocompression deleteafterinstall
 
@@ -134,9 +135,10 @@ begin
   if CurStep <> ssPostInstall then Exit;
   WizardForm.StatusLabel.Caption := CustomMessage('Importing');
   if DistroExists() then begin
-    { An update: the distribution and its data stay; its script and RedGiant's images are renewed. }
+    { An update: the distribution and its data stay; its scripts are renewed. The images come
+      down at RedGiant's next start, with the progress bar in its window. }
     RunHidden('-d ' + Distro + ' -u root --cd "' + ExpandConstant('{app}') +
-      '" -- sh -c "cp redgiant-wsl /usr/local/bin/redgiant-wsl && chmod 755 /usr/local/bin/redgiant-wsl && cp wsl.conf /etc/wsl.conf"');
+      '" -- sh -c "cp redgiant-wsl /usr/local/bin/redgiant-wsl && chmod 755 /usr/local/bin/redgiant-wsl && cp wsl.conf /etc/wsl.conf && cp install.sh /usr/local/share/redgiant/install.sh"');
     RunHidden('-d ' + Distro + ' -u root -- sh -c "echo v{#AppVersion} > /etc/redgiant-ref"');
     RunHidden('-d ' + Distro + ' -u root -- /usr/local/bin/redgiant-wsl update');
     { The new wsl.conf applies at the distribution's next start. }

@@ -5,6 +5,8 @@
 set -uo pipefail
 HOME_DIR=/root/redgiant
 REF=$(cat /etc/redgiant-ref 2>/dev/null || echo main)
+# Left by an update: the new images still have to be pulled.
+PULL_PENDING=/var/lib/redgiant-pull-pending
 
 step() { echo "STEP $*"; }
 fail() { echo "FAIL $*"; exit 1; }
@@ -142,7 +144,7 @@ layer_sizes() {
 # "PROGRESS <done> <total>" about once a second. Without the sizes it still pulls, without numbers.
 pull_with_progress() {
   declare -A size=() got=()
-  local total=0 id bytes img now last=0 done_bytes status current err
+  local total=0 id bytes img now last=0 done_bytes status current err unpacking=""
   for img in $IMAGES; do
     while read -r id bytes; do
       [ -n "$id" ] || continue
@@ -165,6 +167,11 @@ pull_with_progress() {
         for id in "${!got[@]}"; do done_bytes=$((done_bytes + got[$id])); done
         [ "$done_bytes" -gt "$total" ] && done_bytes=$total
         echo "PROGRESS $done_bytes $total"
+        # Downloaded: Docker still unpacks the layers, which takes a while on its own.
+        if [ "$done_bytes" -ge "$total" ] && [ -z "$unpacking" ]; then
+          unpacking=1
+          echo "STEP Sistemo i file scaricati"
+        fi
       fi
     done < <(curl -sS --unix-socket /var/run/docker.sock -X POST \
       "http://localhost/images/create?fromImage=${repo_tag%:*}&tag=${repo_tag##*:}" |
@@ -179,6 +186,12 @@ run() {
   step "Avvio del motore di RedGiant"
   start_docker || fail "Il motore dei container non parte."
   ensure_gpu
+  # A new version from the installer: its images come down here, where the bar is shown.
+  if [ -f "$HOME_DIR/.env" ] && [ -f "$PULL_PENDING" ] && command -v jq >/dev/null 2>&1; then
+    step "Scarico la versione nuova di RedGiant"
+    pull_with_progress || exit 1
+    rm -f "$PULL_PENDING"
+  fi
   if [ ! -f "$HOME_DIR/.env" ]; then
     step "Prima preparazione: scarico RedGiant (una volta sola)"
     local no_pull=0
@@ -222,8 +235,17 @@ case "${1:-run}" in
     ensure_gpu
     if [ -f "$HOME_DIR/.env" ]; then
       set_setting REDGIANT_HOST_GPUS "${GPUS:-}"
-      REDGIANT_YES=1 REDGIANT_NO_BROWSER=1 REDGIANT_SKIP_GPU=1 REDGIANT_REF="$REF" REDGIANT_HOME="$HOME_DIR" \
-        bash /usr/local/share/redgiant/install.sh >/var/log/redgiant-update.log 2>&1
+      # Only the files here: the images are pulled at the next start, with the bar in the window
+      # (a silent pull here kept the installer still for minutes).
+      if command -v jq >/dev/null 2>&1; then
+        touch "$PULL_PENDING"
+        REDGIANT_YES=1 REDGIANT_NO_PULL=1 REDGIANT_NO_START=1 REDGIANT_NO_BROWSER=1 REDGIANT_SKIP_GPU=1 \
+          REDGIANT_REF="$REF" REDGIANT_HOME="$HOME_DIR" \
+          bash /usr/local/share/redgiant/install.sh >/var/log/redgiant-update.log 2>&1
+      else
+        REDGIANT_YES=1 REDGIANT_NO_BROWSER=1 REDGIANT_SKIP_GPU=1 REDGIANT_REF="$REF" REDGIANT_HOME="$HOME_DIR" \
+          bash /usr/local/share/redgiant/install.sh >/var/log/redgiant-update.log 2>&1
+      fi
     fi
     ;;
   stop) cd "$HOME_DIR" 2>/dev/null && docker compose stop ;;

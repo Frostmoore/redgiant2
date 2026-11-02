@@ -3350,3 +3350,19 @@ a.button.primary {
 .pihole-when h4 {
   margin: 0 0 4px;
 }
+
+/* What RedGiant downloads on its own: a card in the corner until it is done. */
+.downloads {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  width: min(380px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.downloads > * {
+  background: var(--panel);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 25%);
+}

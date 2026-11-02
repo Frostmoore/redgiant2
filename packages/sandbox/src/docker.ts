@@ -25,6 +25,8 @@ export interface DockerSandboxOptions {
   user?: string;
   /** Container name prefix. */
   prefix?: string;
+  /** Pulls a missing image showing its progress to the person; without it, a plain pull. */
+  pull?: (image: string) => Promise<void>;
   /**
    * RedGiant itself runs in a container with its data in this volume, mounted at `mountPoint`:
    * a workspace under it is mounted from the same volume (with a subpath), not by host path,
@@ -81,6 +83,7 @@ export class DockerSandboxProvider implements SandboxProvider {
           .then(() => true)
           .catch(() => false);
         if (present) return;
+        if (this.o.pull) return this.o.pull(image);
         const stream = await this.docker.pull(image);
         await new Promise<void>((resolve, reject) =>
           this.docker.modem.followProgress(stream, (err) => (err ? reject(err) : resolve())),

@@ -99,12 +99,12 @@ export class Jobs {
     return true;
   }
 
-  /** Waits for a job to end (tests). */
-  async settled(id: string): Promise<Job | undefined> {
+  /** Waits for a job to end, looking every `everyMs`. */
+  async settled(id: string, everyMs = 5): Promise<Job | undefined> {
     for (;;) {
       const e = this.entries.get(id);
       if (e?.job.state !== "running") return e && this.view(e);
-      await new Promise((r) => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, everyMs));
     }
   }
 

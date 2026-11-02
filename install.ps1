@@ -117,12 +117,98 @@ foreach ($line in Get-Content $envFile) {
 $token = $settings.REDGIANT_TOKEN
 if ($settings.REDGIANT_PORT) { $Port = $settings.REDGIANT_PORT }
 
-# 4. Start --------------------------------------------------------------------------------------
+# 4. Download ------------------------------------------------------------------------------------
+# Every download shows a bar with the amount, the speed and the time left: the sizes come from the
+# registries, the bytes from Docker Compose's JSON progress. Without it, Compose's own output.
+function Get-LayerSizes([string]$Image) {
+  $sizes = @{}
+  try {
+    $tag = "latest"; $name = $Image
+    $at = $Image.LastIndexOf(":")
+    if ($at -gt $Image.LastIndexOf("/")) { $name = $Image.Substring(0, $at); $tag = $Image.Substring($at + 1) }
+    $first = $name.Split("/")[0]
+    if ($name.Contains("/") -and ($first.Contains(".") -or $first.Contains(":"))) {
+      $registry = $first; $repo = $name.Substring($first.Length + 1)
+      $auth = "https://$registry/token?scope=repository:${repo}:pull"
+    } else {
+      $registry = "registry-1.docker.io"; $repo = if ($name.Contains("/")) { $name } else { "library/$name" }
+      $auth = "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repo}:pull"
+    }
+    $token = (Invoke-RestMethod -UseBasicParsing $auth).token
+    $headers = @{
+      Authorization = "Bearer $token"
+      Accept = "application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json"
+    }
+    $m = Invoke-RestMethod -UseBasicParsing -Headers $headers "https://$registry/v2/$repo/manifests/$tag"
+    if ($m.PSObject.Properties["manifests"]) {
+      $own = $m.manifests | Where-Object { $_.platform.os -eq "linux" -and $_.platform.architecture -eq "amd64" } | Select-Object -First 1
+      if ($own) { $m = Invoke-RestMethod -UseBasicParsing -Headers $headers "https://$registry/v2/$repo/manifests/$($own.digest)" }
+    }
+    foreach ($l in $m.layers) { $sizes[$l.digest.Substring(7, 12)] = [int64]$l.size }
+  } catch { }
+  return $sizes
+}
+function Save-Images([string[]]$Images) {
+  $size = @{}; $got = @{}
+  foreach ($img in $Images) { foreach ($k in (Get-LayerSizes $img).GetEnumerator()) { $size[$k.Key] = $k.Value } }
+  $total = [int64]0; foreach ($v in $size.Values) { $total += $v }
+  # One temporary Compose file with every image, so one pull reports them all.
+  $file = Join-Path $env:TEMP "redgiant-pull.yaml"
+  $services = ($Images | ForEach-Object -Begin { $i = 0 } -Process { $i++; "  i${i}:`n    image: $_" }) -join "`n"
+  Set-Content -Path $file -Value "services:`n$services" -Encoding ascii
+  $start = Get-Date; $last = $start; $skipped = [int64]0; $json = $false
+  # Compose writes its progress on stderr, which Windows PowerShell would turn into errors.
+  $before = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+  docker compose -f $file --progress json pull 2>&1 | ForEach-Object {
+    $line = "$_"
+    if (-not $line.StartsWith("{")) { return }
+    $json = $true
+    $ev = $line | ConvertFrom-Json
+    if (-not $ev.PSObject.Properties["parent_id"]) { return }
+    $id = $ev.id
+    $layer = if ($size.ContainsKey($id)) { $size[$id] } else { [int64]0 }
+    switch ($ev.text) {
+      "Downloading" { if ($ev.PSObject.Properties["current"]) { $got[$id] = [int64]$ev.current } }
+      "Already exists" { $got[$id] = $layer; $skipped += $layer }
+      default { if ($ev.text -in @("Download complete", "Pull complete", "Extracting", "Verifying Checksum")) { $got[$id] = $layer } }
+    }
+    $now = Get-Date
+    if ($total -gt 0 -and ($now - $last).TotalMilliseconds -ge 500) {
+      $last = $now
+      $done = [int64]0; foreach ($v in $got.Values) { $done += $v }
+      if ($done -gt $total) { $done = $total }
+      $secs = [Math]::Max(1, ($now - $start).TotalSeconds)
+      $speed = ($done - $skipped) / $secs
+      $status = "{0:N0} MB of {1:N0} MB" -f ($done / 1MB), ($total / 1MB)
+      $left = -1
+      if ($speed -gt 0 -and $done -lt $total) {
+        $status += " - {0:N1} MB/s" -f ($speed / 1MB)
+        $left = [int](($total - $done) / $speed)
+      }
+      if ($done -ge $total) { $status += " - unpacking" }
+      Write-Progress -Activity "Downloading RedGiant" -Status $status -PercentComplete ([int]($done * 100 / $total)) -SecondsRemaining $left
+    }
+  }
+  $ok = $LASTEXITCODE -eq 0
+  $ErrorActionPreference = $before
+  Write-Progress -Activity "Downloading RedGiant" -Completed
+  Remove-Item $file -ErrorAction SilentlyContinue
+  if (-not $json) {
+    # An older Compose without JSON progress: its own output, layer by layer.
+    Set-Content -Path $file -Value "services:`n$services" -Encoding ascii
+    docker compose -f $file pull
+    $ok = $LASTEXITCODE -eq 0
+    Remove-Item $file -ErrorAction SilentlyContinue
+  }
+  if (-not $ok) { Die "The download did not finish. Check the internet connection and run this again." }
+}
+
+# 5. Start --------------------------------------------------------------------------------------
 if ($env:REDGIANT_NO_PULL -ne "1") {
-  Say "Downloading the images (the first time takes a few minutes)"
-  docker compose pull --quiet redgiant egress postgres
+  Say "Downloading RedGiant (the first time takes a few minutes)"
+  $image = if ($settings.REDGIANT_IMAGE) { $settings.REDGIANT_IMAGE } else { "ghcr.io/frostmoore/redgiant2:latest" }
   $sandbox = if ($settings.REDGIANT_SANDBOX_IMAGE) { $settings.REDGIANT_SANDBOX_IMAGE } else { "ghcr.io/frostmoore/redgiant2-sandbox:latest" }
-  docker pull --quiet $sandbox | Out-Null
+  Save-Images @($image, "postgres:17-alpine", $sandbox)
 }
 Say "Starting RedGiant"
 docker compose up -d

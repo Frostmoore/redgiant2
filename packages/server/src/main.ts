@@ -19,7 +19,7 @@ import { Browsers, DockerBrowserLauncher } from "./browser.js";
 import { RedGiantCore } from "./core.js";
 import { GitHosts } from "./git-hosts.js";
 import { HuggingFace } from "./hf.js";
-import { runtimeHooks } from "./runtime.js";
+import { backgroundPuller, runtimeHooks } from "./runtime.js";
 import { serve } from "./serve.js";
 import { SetupService } from "./setup.js";
 import { WinEngine } from "./win-engine.js";
@@ -94,10 +94,19 @@ const [provider, ...model] = (env.REDGIANT_DEFAULT_MODEL ?? "").split("/");
 const defaultModel: ModelSpec | undefined =
   provider && model.length ? { provider, model: model.join("/") } : undefined;
 
+// Images RedGiant pulls on its own, as jobs with a progress bar (set once the core exists).
+let puller: ReturnType<typeof backgroundPuller> | undefined;
+const pullInBackground = (image: string, what: "sandbox" | "browser") => {
+  if (!puller) throw new Error(`Cannot pull ${image} yet`);
+  return puller(image, what);
+};
+
 const sandbox =
   env.REDGIANT_SANDBOX === "docker"
     ? new DockerSandboxProvider({
         image: env.REDGIANT_SANDBOX_IMAGE ?? "redgiant/sandbox:latest",
+        // A missing image is pulled as a job, with its bar in the web page.
+        pull: (image: string) => pullInBackground(image, "sandbox"),
         network: env.REDGIANT_SANDBOX_NETWORK ?? "redgiant-sandbox",
         ...(env.REDGIANT_EGRESS_URL && { egressProxyUrl: env.REDGIANT_EGRESS_URL }),
         ...(env.REDGIANT_SANDBOX_USER && { user: env.REDGIANT_SANDBOX_USER }),
@@ -197,6 +206,7 @@ const hooks = runtimeHooks({
       },
     }),
 });
+if (docker) puller = backgroundPuller(docker, core.jobs, () => owner);
 // The personal agents' browser (G24.14b): Chromium in a container next to RedGiant.
 if (docker && env.REDGIANT_ENGINE_NETWORK) {
   core.browsers = new Browsers(
@@ -206,6 +216,7 @@ if (docker && env.REDGIANT_ENGINE_NETWORK) {
       network: env.REDGIANT_BROWSER_NETWORK ?? "redgiant-browser",
       join: env.REDGIANT_SERVER_CONTAINER ?? hostname(),
       ...(env.REDGIANT_BROWSER_IMAGE && { image: env.REDGIANT_BROWSER_IMAGE }),
+      pull: (image) => pullInBackground(image, "browser"),
     }),
     // Downloads land in the personal agents' desk.
     { desk: (o) => core.assistantsPath(o) },

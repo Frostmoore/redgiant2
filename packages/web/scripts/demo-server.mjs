@@ -280,6 +280,16 @@ const insp = await core.chat.create("local", "Stato", { kind: "inspector", proje
 await core.chat.send("local", insp.id, "A che punto è il progetto?", [], () => {});
 const daily = await core.chat.create("local");
 await core.chat.send("local", daily.id, "Come preparo un buon caffè con la moka?", [], () => {});
+// The agents' computer downloading on its own (DEMO_DOWNLOAD=1): the card with the bar.
+if (process.env.DEMO_DOWNLOAD === "1")
+  core.jobs.start("local", "download_sandbox", ["image_download"], async (h) => {
+    h.step("image_download");
+    const total = 84_000_000;
+    for (let done = 0; done < total; done += 1_400_000) {
+      h.progress(done, total);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  });
 const digest = await core.automations.create(
   "local",
   `name: morning-digest
