@@ -56,11 +56,15 @@ services:
       REDGIANT_MODELS_VOLUME: redgiant-models
       REDGIANT_KV_VOLUME: redgiant-kv
       REDGIANT_ENGINE_NETWORK: redgiant_default
+      # GitHub and Gitea tokens as credential routes of the egress proxy (G24.5).
+      REDGIANT_EGRESS_ROUTES: /egress/routes.json
+      REDGIANT_GITEA_PORT: ${REDGIANT_GITEA_PORT:-3000}
     ports:
       - "${REDGIANT_BIND:-127.0.0.1}:${REDGIANT_PORT:-7600}:7600"
     volumes:
       - redgiant-data:/data
       - ${REDGIANT_WIN_ENGINE_DIR:-./windows-engine}:/winengine
+      - redgiant-egress:/egress
       - redgiant-kv:/kv
       - redgiant-models:/models
       - /var/run/docker.sock:/var/run/docker.sock
@@ -70,7 +74,7 @@ services:
   egress:
     image: *image
     restart: unless-stopped
-    command: ["egress", "/etc/redgiant/egress.json", "3128"]
+    command: ["egress", "/etc/redgiant/egress.json", "3128", "/egress/routes.json"]
     healthcheck:
       test:
         [
@@ -82,6 +86,8 @@ services:
       interval: 15s
     volumes:
       - ${REDGIANT_EGRESS_POLICY:-./docker/egress.json}:/etc/redgiant/egress.json:ro
+      # The credential routes the server writes (GitHub, Gitea), read again when they change.
+      - redgiant-egress:/egress:ro
     networks: [default, sandbox]
 
   engine:
@@ -163,4 +169,6 @@ volumes:
     name: redgiant-kv
   redgiant-models:
     name: redgiant-models
+  redgiant-egress:
+    name: redgiant-egress
   redgiant-whisper:

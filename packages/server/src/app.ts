@@ -1461,6 +1461,36 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.delete("/api/setup/server", (c) =>
     wizard(c, async () => (setup as SetupService).saveServer(null)),
   );
+  // Standard or advanced; GitHub and Gitea (G24.5).
+  app.put("/api/setup/mode", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).saveMode(
+        (await parsed(c, z.object({ mode: z.enum(["standard", "advanced"]) }))).mode,
+      ),
+    ),
+  );
+  app.put("/api/setup/github", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).saveGithub(
+        (await parsed(c, z.object({ token: z.string().trim().min(20).max(400) }))).token,
+      ),
+    ),
+  );
+  app.delete("/api/setup/github", (c) => wizard(c, () => (setup as SetupService).saveGithub(null)));
+  app.post("/api/setup/gitea", (c) =>
+    wizard(c, async () => {
+      const b = await parsed(
+        c,
+        z.object({
+          user: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{1,38}$/),
+          password: z.string().min(10).max(200),
+        }),
+      );
+      return (setup as SetupService).startGitea(b.user, b.password);
+    }),
+  );
+  app.delete("/api/setup/gitea", (c) => wizard(c, () => (setup as SetupService).stopGitea()));
+  app.post("/api/setup/git/sync", (c) => wizard(c, () => (setup as SetupService).gitSync()));
   // Starting the local engine is a job (image, start, load, a first answer); null stops it.
   app.put("/api/setup/engine", (c) =>
     wizard(c, async () => {

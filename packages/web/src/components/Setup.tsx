@@ -3,20 +3,34 @@ import type { SetupState } from "../api.js";
 import { lang, setLang, t } from "../i18n.js";
 import { attempt, getApi, refresh } from "../state.js";
 import { Brain, DefaultModel } from "./Brain.js";
+import { GitCode } from "./GitCode.js";
 import { hardwareText, LocalModels } from "./LocalModels.js";
 import { Safety } from "./Safety.js";
 import { TelegramLink } from "./TelegramLink.js";
-import { Step } from "./ui.js";
+import { Choice, Step } from "./ui.js";
 
-const STEPS = [
+/** The wizard's steps; the advanced installation adds where the code lives (G24.5). */
+type StepKey =
+  | "wzWelcome"
+  | "wzMode"
+  | "wzBrain"
+  | "wzLocal"
+  | "wzNames"
+  | "wzTelegram"
+  | "wzCode"
+  | "wzSafety"
+  | "wzDone";
+const stepsFor = (s: SetupState): StepKey[] => [
   "wzWelcome",
+  "wzMode",
   "wzBrain",
   "wzLocal",
   "wzNames",
   "wzTelegram",
+  ...(s.config.mode === "advanced" ? (["wzCode"] as const) : []),
   "wzSafety",
   "wzDone",
-] as const;
+];
 
 const gb = (n: number) => `${n.toFixed(1)} GB`;
 
@@ -111,6 +125,50 @@ function Names({ s, next }: { s: SetupState; next: () => void }) {
   );
 }
 
+/** Standard (everything ready) or advanced (a code server, access from outside). */
+function ModeStep({ s, next }: { s: SetupState; next: () => void }) {
+  const [mode, setMode] = useState(s.config.mode ?? "standard");
+  return (
+    <Step title={t("wzMode")} purpose={t("modePurpose")}>
+      <Choice<"standard" | "advanced">
+        value={[mode]}
+        onChange={([m]) => m && setMode(m)}
+        options={[
+          {
+            id: "standard",
+            title: t("modeStandard"),
+            description: t("modeStandardText"),
+            badge: t("lmRecommended"),
+          },
+          { id: "advanced", title: t("modeAdvanced"), description: t("modeAdvancedText") },
+        ]}
+      />
+      <div class="row">
+        <button
+          type="button"
+          class="primary"
+          onClick={() => void attempt(() => getApi().setupMode(mode)).then(next)}
+        >
+          {t("wzNext")}
+        </button>
+      </div>
+    </Step>
+  );
+}
+
+function CodeStep({ s, next, reload }: { s: SetupState; next: () => void; reload: () => void }) {
+  return (
+    <Step title={t("wzCode")} purpose={t("gitPurpose")} onSkip={next}>
+      <GitCode s={s} onChange={reload} />
+      <div class="row">
+        <button type="button" class="primary" onClick={next}>
+          {t("wzNext")}
+        </button>
+      </div>
+    </Step>
+  );
+}
+
 /** Telegram, step by step: a bot of one's own, then Start in Telegram (no code to type). */
 function TelegramStep({
   s,
@@ -144,21 +202,28 @@ function SafetyStep({ s, next }: { s: SetupState; next: () => void }) {
 /** The first-run wizard (G17): each step is applied and saved at once; it can be run again. */
 export function Setup({ onDone }: { onDone?: () => void }) {
   const [s, setS] = useState<SetupState | null>(null);
-  const [step, setStep] = useState(0);
+  const [key, setKey] = useState<StepKey>("wzWelcome");
   const reload = () => void attempt(() => getApi().setup()).then((x) => x && setS(x));
   useEffect(reload, []);
   if (!s) return <div class="empty">…</div>;
+  const steps = stepsFor(s);
+  const step = Math.max(0, steps.indexOf(key));
   const next = () => {
-    reload();
-    setStep((n) => Math.min(n + 1, STEPS.length - 1));
+    // The settings come back first: choosing "advanced" adds a step after this one.
+    void attempt(() => getApi().setup()).then((x) => {
+      if (!x) return;
+      setS(x);
+      const list = stepsFor(x);
+      setKey(list[Math.min(list.indexOf(key) + 1, list.length - 1)] ?? "wzDone");
+    });
   };
   const h = s.hardware;
   return (
     <div class="setup">
       <ol class="wz-steps">
-        {STEPS.map((k, i) => (
+        {steps.map((k, i) => (
           <li key={k} class={i === step ? "on" : i < step ? "done" : ""}>
-            <button type="button" class="tiny" onClick={() => setStep(i)}>
+            <button type="button" class="tiny" onClick={() => setKey(k)}>
               {t(k)}
             </button>
           </li>
@@ -166,8 +231,8 @@ export function Setup({ onDone }: { onDone?: () => void }) {
       </ol>
       <section class="wz-body">
         {/* Steps built from Step carry their own title. */}
-        {![1, 2, 4, 5].includes(step) && <h2>{t(STEPS[step] ?? "wzWelcome")}</h2>}
-        {step === 0 && (
+        {(key === "wzWelcome" || key === "wzNames" || key === "wzDone") && <h2>{t(key)}</h2>}
+        {key === "wzWelcome" && (
           <div class="form">
             <p class="wide">{t("wzWelcomeText")}</p>
             <Field label={t("wzLanguage")}>
@@ -200,12 +265,14 @@ export function Setup({ onDone }: { onDone?: () => void }) {
             </div>
           </div>
         )}
-        {step === 1 && <BrainStep s={s} next={next} reload={reload} />}
-        {step === 2 && <LocalStep s={s} next={next} reload={reload} />}
-        {step === 3 && <Names s={s} next={next} />}
-        {step === 4 && <TelegramStep s={s} next={next} reload={reload} />}
-        {step === 5 && <SafetyStep s={s} next={next} />}
-        {step === 6 && (
+        {key === "wzMode" && <ModeStep s={s} next={next} />}
+        {key === "wzBrain" && <BrainStep s={s} next={next} reload={reload} />}
+        {key === "wzLocal" && <LocalStep s={s} next={next} reload={reload} />}
+        {key === "wzNames" && <Names s={s} next={next} />}
+        {key === "wzTelegram" && <TelegramStep s={s} next={next} reload={reload} />}
+        {key === "wzCode" && <CodeStep s={s} next={next} reload={reload} />}
+        {key === "wzSafety" && <SafetyStep s={s} next={next} />}
+        {key === "wzDone" && (
           <div class="form">
             <ul class="wide">
               <li>

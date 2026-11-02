@@ -15,6 +15,7 @@ import {
 } from "@redgiant/subscriptions";
 import { stringify } from "yaml";
 import type { RedGiantCore } from "./core.js";
+import { GitHostError, type GitHosts, type GitHostsConfig } from "./git-hosts.js";
 import { detectHardware, type EngineVariant, type Hardware } from "./hardware.js";
 import { JobFailure, type JobHandle } from "./jobs.js";
 
@@ -42,6 +43,14 @@ export interface SetupHooks {
    */
   engine(o: { variant: EngineVariant; model: string } | null, h?: JobHandle): Promise<void>;
   dockerRuntimes?(): Promise<string[]>;
+  /**
+   * Gitea, the code server of one's own (G24.5): started (or found running) with an admin of
+   * this name and password; returns a token for RedGiant. null stops it (the repositories stay).
+   */
+  gitea?(
+    o: { user: string; password: string } | null,
+    h?: JobHandle,
+  ): Promise<{ token: string; publicUrl: string } | null>;
 }
 
 export interface SetupConfig {
@@ -63,6 +72,10 @@ export interface SetupConfig {
   retentionDays?: number;
   /** The user read that a personal subscription may not be allowed in third-party tools (RD23). */
   subscriptionAck?: boolean;
+  /** Standard (everything ready, nothing reachable from outside) or advanced (G24.5). */
+  mode?: "standard" | "advanced";
+  /** Where the code lives: GitHub and/or Gitea (their tokens are in the secrets). */
+  git?: GitHostsConfig;
 }
 
 interface Secrets {
@@ -73,6 +86,8 @@ interface Secrets {
   transcriptionKey?: string;
   openaiImagesKey?: string;
   claudeSubscriptionToken?: string;
+  githubToken?: string;
+  giteaToken?: string;
 }
 
 /** What the environment already sets: the wizard shows it and does not change it. */
@@ -97,6 +112,8 @@ export interface SetupState {
     transcription: boolean;
     images: boolean;
     claudeSubscription: boolean;
+    github: boolean;
+    gitea: boolean;
   };
   locked: Locked;
   providers: string[];
@@ -154,6 +171,8 @@ export class SetupService {
       ownerId: string;
       hooks: SetupHooks;
       locked?: Locked;
+      /** GitHub and Gitea (G24.5). */
+      git?: GitHosts;
     },
   ) {}
 
@@ -257,6 +276,8 @@ export class SetupService {
     if (c.language) this.o.core.setLanguage(c.language);
     if (!this.locked.telegram && s.telegramToken)
       await run("Telegram", h.telegram(s.telegramToken));
+    await run("git routes", this.applyGit());
+    this.scheduleTokenReminder();
     this.scheduleRetention();
   }
 
@@ -278,6 +299,8 @@ export class SetupService {
         transcription: Boolean(this.secrets.transcriptionKey),
         images: Boolean(this.secrets.openaiImagesKey),
         claudeSubscription: Boolean(this.secrets.claudeSubscriptionToken),
+        github: Boolean(this.secrets.githubToken),
+        gitea: Boolean(this.secrets.giteaToken),
       },
       locked: this.locked,
       providers: this.o.core.providerIds(),
@@ -444,6 +467,140 @@ export class SetupService {
     if (e) this.config.engine = e;
     else delete this.config.engine;
     await this.save();
+  }
+
+  /** Standard or advanced installation (G24.5): advanced adds the code server and remote access. */
+  async saveMode(mode: "standard" | "advanced"): Promise<void> {
+    this.config.mode = mode;
+    await this.save();
+  }
+
+  private gitParts() {
+    return {
+      cfg: this.config.git ?? {},
+      secrets: { githubToken: this.secrets.githubToken, giteaToken: this.secrets.giteaToken },
+    };
+  }
+
+  /** The proxy's credential routes, and a repository for every project created from now on. */
+  private async applyGit(): Promise<void> {
+    const git = this.o.git;
+    if (!git) return;
+    const { cfg, secrets } = this.gitParts();
+    await git.writeRoutes(cfg, secrets);
+    this.o.core.projects.onCreate =
+      cfg.github || cfg.gitea
+        ? async (p) => {
+            const { cfg: c, secrets: s } = this.gitParts();
+            await git.repoFor(c, s, p);
+          }
+        : undefined;
+  }
+
+  private reminder: NodeJS.Timeout | undefined;
+  private reminded: string | undefined;
+
+  /** Two weeks before GitHub's token expires, the owner is told on Telegram (once per date). */
+  private scheduleTokenReminder(): void {
+    clearInterval(this.reminder);
+    const check = () => void this.remindToken().catch(() => {});
+    this.reminder = setInterval(check, 12 * 3_600_000);
+    this.reminder.unref();
+    check();
+  }
+
+  async remindToken(now = Date.now()): Promise<boolean> {
+    const expires = this.config.git?.github?.expires;
+    if (!expires || this.reminded === expires) return false;
+    const days = (Date.parse(expires) - now) / 86_400_000;
+    if (days > 14) return false;
+    this.reminded = expires;
+    const date = new Date(expires).toLocaleDateString(
+      this.config.language === "it" ? "it-IT" : "en-GB",
+    );
+    await this.o.core.tell(
+      this.o.ownerId,
+      this.config.language === "it"
+        ? `Il token di GitHub di RedGiant scade il ${date}. Creane uno nuovo (Impostazioni, Dove sta il codice) per non fermare i push dei progetti.`
+        : `RedGiant's GitHub token expires on ${date}. Make a new one (Settings, Where the code lives) so the projects can keep pushing.`,
+    );
+    return true;
+  }
+
+  /** GitHub with the user's fine-grained token: checked first; null disconnects it. */
+  async saveGithub(token: string | null): Promise<{ login: string } | null> {
+    const git = this.o.git;
+    if (!git) throw new SetupError("This installation cannot use GitHub");
+    let login: string | null = null;
+    if (token) {
+      let expires: string | undefined;
+      try {
+        ({ login, expires } = await git.checkGithub(token));
+      } catch (err) {
+        throw err instanceof GitHostError ? new SetupError(err.message, err.code) : err;
+      }
+      this.secrets.githubToken = token;
+      this.config.git = { ...this.config.git, github: { login, ...(expires && { expires }) } };
+    } else {
+      delete this.secrets.githubToken;
+      const { github: _gone, ...rest } = this.config.git ?? {};
+      this.config.git = rest;
+    }
+    await this.save();
+    await this.applyGit();
+    return login ? { login } : null;
+  }
+
+  /** Starts Gitea as a job (image, start, account); the token it gives is kept. */
+  startGitea(user: string, password: string): Job {
+    const hook = this.o.hooks.gitea;
+    if (!hook || !this.o.git) throw new SetupError("This installation cannot run Gitea");
+    return this.o.core.jobs.start(
+      this.o.ownerId,
+      "gitea",
+      ["gitea_image", "gitea_start", "account"],
+      async (h) => {
+        const r = await hook({ user, password }, h);
+        if (!r) throw new JobFailure("start", "Gitea did not start");
+        this.secrets.giteaToken = r.token;
+        this.config.git = { ...this.config.git, gitea: { user, publicUrl: r.publicUrl } };
+        await this.save();
+        await this.applyGit();
+        return { url: r.publicUrl };
+      },
+      { user },
+    );
+  }
+
+  /** Stops Gitea; its repositories stay, ready for the next start. */
+  async stopGitea(): Promise<void> {
+    await this.o.hooks.gitea?.(null);
+    delete this.secrets.giteaToken;
+    const { gitea: _gone, ...rest } = this.config.git ?? {};
+    this.config.git = rest;
+    await this.save();
+    await this.applyGit();
+  }
+
+  /** A repository for every project that has none yet; each project's result. */
+  async gitSync(): Promise<{ project: string; ok: boolean; error?: string; code?: string }[]> {
+    const git = this.o.git;
+    if (!git) return [];
+    const { cfg, secrets } = this.gitParts();
+    const out: { project: string; ok: boolean; error?: string; code?: string }[] = [];
+    for (const p of await this.o.core.projects.list(this.o.ownerId))
+      try {
+        await git.repoFor(cfg, secrets, p);
+        out.push({ project: p.id, ok: true });
+      } catch (err) {
+        out.push({
+          project: p.id,
+          ok: false,
+          error: (err as Error).message,
+          ...(err instanceof GitHostError && { code: err.code }),
+        });
+      }
+    return out;
   }
 
   /** Step "names": God and Demi-God (created if missing), God's prompt, the language. */
@@ -651,6 +808,7 @@ export class SetupService {
   }
 
   stop(): void {
+    clearInterval(this.reminder);
     clearInterval(this.retention);
   }
 }

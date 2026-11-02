@@ -128,6 +128,24 @@ describe("EgressProxy", () => {
     expect((await viaProxy("/route/nope/x")).status).toBe(404);
   });
 
+  it("takes routes added while running (GitHub, Gitea), the newest over the file's", async () => {
+    proxy.setRoutes({
+      gitea: {
+        upstream: `http://127.0.0.1:${upPort}/gitea/`,
+        headers: { authorization: "Basic added-later" },
+      },
+    });
+    const r = await viaProxy("/route/gitea/mario/app.git/info/refs");
+    expect(JSON.parse(r.body)).toMatchObject({
+      path: "/gitea/mario/app.git/info/refs",
+      auth: "Basic added-later",
+    });
+    proxy.setRoutes({});
+    expect((await viaProxy("/route/gitea/x")).status).toBe(404);
+    // The policy's own routes stay.
+    expect((await viaProxy("/route/github/repos/x")).status).toBe(200);
+  });
+
   it("reports every decision", () => {
     expect(decisions.some((d) => d.host === "evil.test" && !d.allowed)).toBe(true);
     expect(decisions.some((d) => d.kind === "route" && d.allowed)).toBe(true);

@@ -45,6 +45,8 @@ export interface SetupState {
     language?: "it" | "en";
     defaultModel?: { provider: string; model: string; effort?: string };
     keyProviders?: string[];
+    mode?: "standard" | "advanced";
+    git?: { github?: { login: string }; gitea?: { user: string; publicUrl: string } };
     server?: { baseUrl: string };
     searxngUrl?: string;
     transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
@@ -61,6 +63,8 @@ export interface SetupState {
     transcription?: boolean;
     images?: boolean;
     claudeSubscription?: boolean;
+    github?: boolean;
+    gitea?: boolean;
   };
   locked: Partial<
     Record<
@@ -492,6 +496,19 @@ export class Api {
   setupServer = (b: { baseUrl: string; key?: string }) =>
     this.call<{ models: string[] }>("PUT", "/api/setup/server", b);
   removeServer = () => this.call("DELETE", "/api/setup/server");
+  setupMode = (mode: "standard" | "advanced") => this.call("PUT", "/api/setup/mode", { mode });
+  setupGithub = (token: string) =>
+    this.call<{ login: string }>("PUT", "/api/setup/github", { token });
+  removeGithub = () => this.call("DELETE", "/api/setup/github");
+  /** Starts Gitea: a job to follow. */
+  startGitea = (user: string, password: string) =>
+    this.call<Job>("POST", "/api/setup/gitea", { user, password });
+  stopGitea = () => this.call("DELETE", "/api/setup/gitea");
+  gitSync = () =>
+    this.call<{ project: string; ok: boolean; error?: string; code?: string }[]>(
+      "POST",
+      "/api/setup/git/sync",
+    );
   claudeStatus = () =>
     this.call<{ on: boolean; account: ClaudeAccount | null }>("GET", "/api/subscriptions/claude");
   claudeLogin = (ack: boolean) =>

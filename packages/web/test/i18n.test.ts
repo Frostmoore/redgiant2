@@ -15,6 +15,8 @@ const NAMES = new Set([
   "RedGiant",
   "Claude",
   "ChatGPT",
+  "GitHub",
+  "Gitea",
   "Italiano",
   "English",
   "CPU",

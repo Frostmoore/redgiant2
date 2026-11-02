@@ -81,6 +81,16 @@ export class EgressProxy {
     );
   }
 
+  /**
+   * Routes added while running (G24.5: GitHub and Gitea, written by the server when the user
+   * connects them). They join the policy's own; a name in both takes these.
+   */
+  setRoutes(routes: Record<string, CredentialRoute>): void {
+    this.extra = routes;
+  }
+
+  private extra: Record<string, CredentialRoute> = {};
+
   listen(port: number, host = "0.0.0.0"): Promise<number> {
     return new Promise((ok) =>
       this.server.listen(port, host, () => {
@@ -157,7 +167,7 @@ export class EgressProxy {
 
   private async handleRoute(req: IncomingMessage, res: ServerResponse, url: string) {
     const [, , name = "", ...rest] = url.split("/");
-    const route = this.policy.routes?.[name];
+    const route = this.extra[name] ?? this.policy.routes?.[name];
     if (!route) {
       this.onDecision({ kind: "route", host: name, allowed: false, reason: "unknown route" });
       return deny(res, 404, `RedGiant egress: unknown route "${name}"`);

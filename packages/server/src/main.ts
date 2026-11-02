@@ -15,6 +15,7 @@ import Docker from "dockerode";
 import pg from "pg";
 import { TokenAuth } from "./auth.js";
 import { RedGiantCore } from "./core.js";
+import { GitHosts } from "./git-hosts.js";
 import { HuggingFace } from "./hf.js";
 import { runtimeHooks } from "./runtime.js";
 import { serve } from "./serve.js";
@@ -182,6 +183,11 @@ const hooks = runtimeHooks({
         },
         gpuAccess: env.REDGIANT_ENGINE_GPU === "dri" ? "dri" : "",
         ...(winEngine && { windows: winEngine }),
+        gitea: {
+          ...(env.REDGIANT_GITEA_IMAGE && { image: env.REDGIANT_GITEA_IMAGE }),
+          port: Number(env.REDGIANT_GITEA_PORT ?? 3000),
+          bind: env.REDGIANT_GITEA_BIND ?? "127.0.0.1",
+        },
         network: env.REDGIANT_ENGINE_NETWORK,
         modelsVolume: env.REDGIANT_MODELS_VOLUME ?? "redgiant-models",
         kvVolume: env.REDGIANT_KV_VOLUME ?? "redgiant-kv",
@@ -201,7 +207,13 @@ if (tgToken) {
 shutdownHooks.push(async () => void (await telegram.gateway?.stop()));
 
 // The setup wizard (G17): what it set is applied again at every start; the environment wins.
+// GitHub and Gitea (G24.5): their tokens become credential routes of the egress proxy.
+const gitHosts = new GitHosts({
+  ...(env.REDGIANT_EGRESS_ROUTES && { routesFile: env.REDGIANT_EGRESS_ROUTES }),
+  ...(env.REDGIANT_EGRESS_URL && { egressUrl: env.REDGIANT_EGRESS_URL }),
+});
 const setup = new SetupService({
+  git: gitHosts,
   db,
   core,
   dataDir,

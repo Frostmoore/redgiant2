@@ -1,0 +1,229 @@
+// Where the code lives (G24.5): GitHub with the user's fine-grained token, and/or a Gitea server
+// RedGiant starts by itself. Every project gets a private repository and its remote; with both,
+// Gitea keeps the code and copies every push to GitHub. Tokens never reach the sandboxes: the
+// egress proxy holds them as credential routes, and the remotes point at those routes.
+
+import { execFile } from "node:child_process";
+import { mkdir, rename, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
+import type { CredentialRoute } from "@redgiant/sandbox";
+
+const run = promisify(execFile);
+
+export interface GitHostsConfig {
+  /** `expires`: when the token stops working (ISO date), as GitHub says. */
+  github?: { login: string; expires?: string };
+  gitea?: { user: string; publicUrl: string };
+}
+
+export interface GitHostsSecrets {
+  githubToken?: string | undefined;
+  giteaToken?: string | undefined;
+}
+
+/** Why GitHub or Gitea refused, in a code the UI explains. */
+export class GitHostError extends Error {
+  constructor(
+    readonly code: "token_rejected" | "missing_permission" | "unreachable" | "failed",
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export interface GitHostsOptions {
+  /** Where the egress proxy reads its credential routes. */
+  routesFile?: string;
+  /** The egress proxy as the sandboxes reach it (`http://egress:3128`). */
+  egressUrl?: string;
+  /** Gitea as RedGiant and the proxy reach it inside Docker. */
+  giteaUrl?: string;
+  fetch?: typeof fetch;
+}
+
+const GITHUB_API = "https://api.github.com";
+const basic = (user: string, pass: string) =>
+  `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
+
+export class GitHosts {
+  constructor(private readonly o: GitHostsOptions = {}) {}
+
+  private get f(): typeof fetch {
+    return this.o.fetch ?? globalThis.fetch;
+  }
+
+  get giteaUrl(): string {
+    return this.o.giteaUrl ?? "http://redgiant-gitea:3000";
+  }
+
+  private async call(url: string, init: RequestInit, what: string): Promise<Response> {
+    try {
+      return await this.f(url, { ...init, signal: AbortSignal.timeout(20_000) });
+    } catch (err) {
+      throw new GitHostError("unreachable", `${what} did not answer: ${(err as Error).message}`);
+    }
+  }
+
+  private github(token: string, path: string, init: RequestInit = {}) {
+    return this.call(
+      `${GITHUB_API}${path}`,
+      {
+        ...init,
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: "application/vnd.github+json",
+          "user-agent": "RedGiant",
+          ...(init.body ? { "content-type": "application/json" } : {}),
+        },
+      },
+      "GitHub",
+    );
+  }
+
+  /** Whose token this is, and when it expires (GitHub says it in a header). */
+  async checkGithub(token: string): Promise<{ login: string; expires?: string }> {
+    const r = await this.github(token, "/user");
+    if (r.status === 401) throw new GitHostError("token_rejected", "GitHub refused the token");
+    if (!r.ok) throw new GitHostError("failed", `GitHub answered ${r.status}`);
+    const { login } = (await r.json()) as { login: string };
+    const header = r.headers.get("github-authorization-token-expiration");
+    const when = header ? new Date(header.replace(" UTC", "Z").replace(" ", "T")) : null;
+    return when && !Number.isNaN(when.getTime())
+      ? { login, expires: when.toISOString() }
+      : { login };
+  }
+
+  /** The credential routes the egress proxy injects: written whole, then renamed. */
+  async writeRoutes(cfg: GitHostsConfig, s: GitHostsSecrets): Promise<void> {
+    if (!this.o.routesFile) return;
+    const routes: Record<string, CredentialRoute> = {};
+    if (cfg.github && s.githubToken) {
+      routes.github = {
+        upstream: "https://github.com",
+        headers: { authorization: basic("x-access-token", s.githubToken) },
+      };
+      routes["github-api"] = {
+        upstream: GITHUB_API,
+        headers: {
+          authorization: `Bearer ${s.githubToken}`,
+          accept: "application/vnd.github+json",
+          "user-agent": "RedGiant",
+        },
+      };
+    }
+    if (cfg.gitea && s.giteaToken)
+      routes.gitea = {
+        upstream: this.giteaUrl,
+        headers: { authorization: basic(cfg.gitea.user, s.giteaToken) },
+      };
+    await mkdir(dirname(this.o.routesFile), { recursive: true });
+    const tmp = `${this.o.routesFile}.tmp`;
+    await writeFile(tmp, JSON.stringify(routes), { mode: 0o600 });
+    await rename(tmp, this.o.routesFile);
+  }
+
+  /** A private GitHub repository (an existing one with that name is kept). */
+  private async githubRepo(login: string, token: string, name: string): Promise<void> {
+    const r = await this.github(token, "/user/repos", {
+      method: "POST",
+      body: JSON.stringify({ name, private: true, auto_init: false }),
+    });
+    if (r.status === 201 || r.status === 422) return;
+    if (r.status === 401) throw new GitHostError("token_rejected", "GitHub refused the token");
+    if (r.status === 403 || r.status === 404)
+      throw new GitHostError(
+        "missing_permission",
+        `GitHub did not let the token create ${login}/${name} (Administration: read and write)`,
+      );
+    throw new GitHostError("failed", `GitHub answered ${r.status} creating ${name}`);
+  }
+
+  private gitea(user: string, token: string, path: string, init: RequestInit = {}) {
+    return this.call(
+      `${this.giteaUrl}/api/v1${path}`,
+      {
+        ...init,
+        headers: {
+          authorization: basic(user, token),
+          ...(init.body ? { "content-type": "application/json" } : {}),
+        },
+      },
+      "Gitea",
+    );
+  }
+
+  private async giteaRepo(user: string, token: string, name: string): Promise<void> {
+    const r = await this.gitea(user, token, "/user/repos", {
+      method: "POST",
+      body: JSON.stringify({ name, private: true }),
+    });
+    if (r.status === 201 || r.status === 409) return;
+    if (r.status === 401) throw new GitHostError("token_rejected", "Gitea refused the token");
+    throw new GitHostError("failed", `Gitea answered ${r.status} creating ${name}`);
+  }
+
+  /**
+   * A repository for a project and its remote `origin` in the project's folder (git is set up
+   * there if missing). Gitea keeps the code when there is one, with a copy on GitHub.
+   */
+  async repoFor(
+    cfg: GitHostsConfig,
+    s: GitHostsSecrets,
+    project: { id: string; path: string },
+  ): Promise<{ home: "gitea" | "github"; remote: string } | null> {
+    const name = project.id;
+    const egress = this.o.egressUrl ?? "http://egress:3128";
+    let home: "gitea" | "github";
+    let remote: string;
+    if (cfg.gitea && s.giteaToken) {
+      await this.giteaRepo(cfg.gitea.user, s.giteaToken, name);
+      if (cfg.github && s.githubToken) {
+        await this.githubRepo(cfg.github.login, s.githubToken, name);
+        const r = await this.gitea(
+          cfg.gitea.user,
+          s.giteaToken,
+          `/repos/${cfg.gitea.user}/${name}/push_mirrors`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              remote_address: `https://github.com/${cfg.github.login}/${name}.git`,
+              remote_username: cfg.github.login,
+              remote_password: s.githubToken,
+              interval: "8h0m0s",
+              sync_on_commit: true,
+            }),
+          },
+        );
+        // A mirror that already exists answers 400 or 409: it is there.
+        if (!r.ok && r.status !== 400 && r.status !== 409)
+          throw new GitHostError("failed", `Gitea answered ${r.status} adding the GitHub copy`);
+      }
+      home = "gitea";
+      remote = `${egress}/route/gitea/${cfg.gitea.user}/${name}.git`;
+    } else if (cfg.github && s.githubToken) {
+      await this.githubRepo(cfg.github.login, s.githubToken, name);
+      home = "github";
+      remote = `${egress}/route/github/${cfg.github.login}/${name}.git`;
+    } else return null;
+    await setOrigin(project.path, remote);
+    return { home, remote };
+  }
+}
+
+/** `git init` if needed and `origin` pointing at the remote; arguments, never a shell. */
+export async function setOrigin(path: string, remote: string): Promise<void> {
+  await mkdir(path, { recursive: true });
+  const git = (...args: string[]) => run("git", ["-C", path, ...args]);
+  // The project's own repository, not one around its folder.
+  const own = await stat(join(path, ".git")).then(
+    () => true,
+    () => false,
+  );
+  if (!own) await git("init");
+  const has = await git("remote", "get-url", "origin").then(
+    () => true,
+    () => false,
+  );
+  await (has ? git("remote", "set-url", "origin", remote) : git("remote", "add", "origin", remote));
+}

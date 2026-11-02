@@ -74,6 +74,9 @@ export class ProjectStore {
     private readonly workspacesDir: string,
   ) {}
 
+  /** Called after a project is created (its repository, G24.5). */
+  onCreate: ((project: Project) => Promise<void>) | undefined;
+
   async create(ownerId: string, name: string): Promise<Project> {
     const id = slug(name);
     if (!id) throw new Error("The project name needs letters or digits");
@@ -89,7 +92,12 @@ export class ProjectStore {
       throw err;
     }
     await mkdir(path, { recursive: true });
-    return (await this.get(ownerId, id)) as Project;
+    const project = (await this.get(ownerId, id)) as Project;
+    // Its repository on GitHub or Gitea (G24.5): a failure there does not undo the project.
+    await this.onCreate?.(project).catch((err) =>
+      console.warn(`project ${id}: no repository: ${(err as Error).message}`),
+    );
+    return project;
   }
 
   async get(ownerId: string, id: string): Promise<Project | undefined> {

@@ -2778,6 +2778,7 @@ button.ui-card.on {
 
 /* --- G24.4: Telegram step by step (components/TelegramLink.tsx) --- */
 a.button {
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 6px;

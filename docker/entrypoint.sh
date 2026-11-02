@@ -15,7 +15,7 @@ git_() { git -c user.name=RedGiant -c user.email=redgiant@localhost -C "$SRC" "$
 case "${1:-redgiant}" in
   egress)
     shift
-    exec node "$APP/packages/sandbox/dist/egress-main.js" "${1:-/etc/redgiant/egress.json}" "${2:-3128}"
+    exec node "$APP/packages/sandbox/dist/egress-main.js" "${1:-/etc/redgiant/egress.json}" "${2:-3128}" ${3:+"$3"}
     ;;
   redgiant) ;;
   *) exec "$@" ;;
@@ -59,8 +59,10 @@ fi
 # The server runs as "node"; it may use the Docker socket (sandboxes) when one is mounted.
 chown node:node "$DATA"
 for d in workspaces platform release; do mkdir -p "$DATA/$d" && chown node:node "$DATA/$d"; done
-# Model files (downloaded by the setup wizard) and saved KV caches, when their volumes are mounted.
-for d in "${REDGIANT_MODELS_DIR:-}" "${REDGIANT_KV_DIR:-}"; do
+# Model files (downloaded by the setup wizard), saved KV caches and the egress proxy's credential
+# routes (written by the server, G24.5), when their volumes are mounted.
+egress_routes=${REDGIANT_EGRESS_ROUTES:-}
+for d in "${REDGIANT_MODELS_DIR:-}" "${REDGIANT_KV_DIR:-}" "${egress_routes%/*}"; do
   if [ -n "$d" ] && [ -d "$d" ]; then chown node:node "$d"; fi
 done
 if [ -S /var/run/docker.sock ]; then

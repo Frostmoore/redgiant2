@@ -37,6 +37,18 @@ export interface RuntimeOptions {
     gpuAccess?: GpuAccess;
     /** The engine on Windows itself, driven through RedGiant.exe (G24.3b). */
     windows?: WinEngine;
+    /** Gitea, when the user wants a code server of their own (G24.5). */
+    gitea?: {
+      image?: string;
+      port?: number;
+      bind?: string;
+      /** How this server reaches Gitea (default `http://redgiant-gitea:3000`, inside Docker). */
+      internalUrl?: string;
+      /** Volumes' prefix (tests use their own). */
+      volumePrefix?: string;
+      /** The container's name (tests use their own). */
+      name?: string;
+    };
     network: string;
     modelsVolume: string;
     kvVolume: string;
@@ -46,6 +58,7 @@ export interface RuntimeOptions {
 }
 
 const ENGINE = "redgiant-engine";
+const GITEA = "redgiant-gitea";
 
 /** How the wizard's choices take effect while the server runs (G17). */
 export function runtimeHooks(o: RuntimeOptions): SetupHooks {
@@ -276,6 +289,117 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       }
     },
 
+    async gitea(cfg, h) {
+      const e = o.engine;
+      if (!e) throw new Error("Gitea needs RedGiant's Docker installation");
+      const name = e.gitea?.name ?? GITEA;
+      const volumes = e.gitea?.volumePrefix ?? "redgiant-gitea";
+      const old = e.docker.getContainer(name);
+      if (!cfg) {
+        // Off: the container goes, the repositories stay in their volume.
+        await old.remove({ force: true }).catch(() => {});
+        return null;
+      }
+      const image = e.gitea?.image ?? "gitea/gitea:28.3-rootless";
+      const port = e.gitea?.port ?? 3000;
+      const running = await old
+        .inspect()
+        .then((x) => x.State.Running)
+        .catch(() => false);
+      if (running) {
+        h?.skip("gitea_image");
+        h?.skip("gitea_start");
+      } else {
+        await old.remove({ force: true }).catch(() => {});
+        const present = await e.docker
+          .getImage(image)
+          .inspect()
+          .then(() => true)
+          .catch(() => false);
+        if (present) h?.skip("gitea_image");
+        else {
+          h?.step("gitea_image");
+          await pullWithProgress(e.docker, image, h);
+        }
+        h?.step("gitea_start");
+        const c = await e.docker.createContainer({
+          name,
+          Image: image,
+          Labels: { "io.redgiant.gitea": "1" },
+          Env: [
+            "GITEA__security__INSTALL_LOCK=true",
+            "GITEA__database__DB_TYPE=sqlite3",
+            "GITEA__service__DISABLE_REGISTRATION=true",
+            `GITEA__server__ROOT_URL=http://localhost:${port}/`,
+          ],
+          ...(e.gitea?.bind !== "" && { ExposedPorts: { "3000/tcp": {} } }),
+          HostConfig: {
+            RestartPolicy: { Name: "unless-stopped" },
+            NetworkMode: e.network,
+            // An empty bind publishes nothing (tests share a network instead).
+            ...(e.gitea?.bind !== "" && {
+              PortBindings: {
+                "3000/tcp": [{ HostIp: e.gitea?.bind ?? "127.0.0.1", HostPort: String(port) }],
+              },
+            }),
+            Mounts: [
+              { Type: "volume", Source: `${volumes}-data`, Target: "/var/lib/gitea" },
+              { Type: "volume", Source: `${volumes}-config`, Target: "/etc/gitea" },
+            ],
+          },
+        });
+        await c.start();
+      }
+      h?.step("account");
+      const url = `${e.gitea?.internalUrl ?? `http://${GITEA}:3000`}/api/healthz`;
+      for (let i = 0; ; i++) {
+        if (
+          await fetch(url).then(
+            (r) => r.ok,
+            () => false,
+          )
+        )
+          break;
+        if (i > 90) throw new JobFailure("start", "Gitea did not start within 3 minutes");
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      const c = e.docker.getContainer(name);
+      const made = await dockerExec(c, [
+        "gitea",
+        "admin",
+        "user",
+        "create",
+        "--admin",
+        "--username",
+        cfg.user,
+        "--password",
+        cfg.password,
+        "--email",
+        `${cfg.user}@redgiant.local`,
+        "--must-change-password=false",
+      ]);
+      if (made.code !== 0 && !/already exists/i.test(made.out))
+        throw new JobFailure("account", made.out.slice(-500));
+      const token = await dockerExec(c, [
+        "gitea",
+        "admin",
+        "user",
+        "generate-access-token",
+        "--username",
+        cfg.user,
+        "--token-name",
+        `redgiant-${Date.now()}`,
+        "--scopes",
+        "all",
+        "--raw",
+      ]);
+      const value = token.out.trim().split(/\s+/).at(-1) ?? "";
+      if (token.code !== 0 || !/^[0-9a-f]{20,}$/.test(value))
+        throw new JobFailure("account", token.out.slice(-500));
+      o.redactor.addSecret("gitea", value);
+      return { token: value, publicUrl: `http://localhost:${port}` };
+    },
+
     async dockerRuntimes() {
       if (!o.engine) return [];
       const info = (await o.engine.docker.info()) as { Runtimes?: Record<string, unknown> };
@@ -337,4 +461,29 @@ async function pullWithProgress(docker: Docker, image: string, h?: JobHandle): P
       },
     ),
   );
+}
+
+/** Runs a command in a container (arguments, never a shell); its exit code and output. */
+async function dockerExec(
+  c: Docker.Container,
+  cmd: string[],
+): Promise<{ code: number; out: string }> {
+  const ex = await c.exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true });
+  const stream = await ex.start({});
+  const chunks: Buffer[] = [];
+  await new Promise<void>((resolve) => {
+    stream.on("data", (d: Buffer) => chunks.push(d));
+    stream.on("end", resolve);
+    stream.on("error", () => resolve());
+  });
+  const raw = Buffer.concat(chunks);
+  // Multiplexed: an 8-byte header per frame.
+  let out = "";
+  for (let i = 0; i + 8 <= raw.length; ) {
+    const size = raw.readUInt32BE(i + 4);
+    out += raw.subarray(i + 8, i + 8 + size).toString("utf8");
+    i += 8 + size;
+  }
+  const info = await ex.inspect();
+  return { code: info.ExitCode ?? 1, out: out || raw.toString("utf8") };
 }

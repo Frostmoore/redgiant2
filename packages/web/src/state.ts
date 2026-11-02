@@ -408,6 +408,7 @@ export type SettingsSection =
   | "devices"
   | "budgets"
   | "subscriptions"
+  | "code"
   | "platform";
 
 /** Older ways to open things, still used by the views: they land in the new places. */

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { FakeProvider, ProviderError, ProviderRegistry } from "@redgiant/providers";
 import {
+  GitHosts,
   HuggingFace,
   JobFailure,
   RedGiantCore,
@@ -307,6 +308,20 @@ const setup = new SetupService({
   core,
   dataDir: join(dir, "data"),
   ownerId: "local",
+  // GitHub acted out: tokens with "good" in them work.
+  git: new GitHosts({
+    fetch: async (url, init) => {
+      const auth = new Headers(init?.headers).get("authorization") ?? "";
+      if (String(url).endsWith("/user"))
+        return auth.includes("good")
+          ? Response.json(
+              { login: "mario" },
+              { headers: { "github-authorization-token-expiration": "2027-11-03 10:00:00 UTC" } },
+            )
+          : new Response("{}", { status: 401 });
+      return new Response("{}", { status: 201 });
+    },
+  }),
   hooks: {
     // Keys "work" unless they contain "wrong", to show both answers.
     key: async (id, key) => {
@@ -344,6 +359,15 @@ const setup = new SetupService({
           "ggml_backend_cuda_buffer_type_alloc_buffer: allocating 21000 MiB on device 0: cudaMalloc failed: out of memory",
         );
       core.providers.register(new FakeProvider(() => ({ text: "OK" }), { id: "local" }));
+    },
+    // Gitea's steps, acted out.
+    gitea: async (cfg, h) => {
+      if (!cfg) return null;
+      for (const step of ["gitea_image", "gitea_start", "account"]) {
+        h?.step(step);
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+      return { token: "0123456789abcdef0123456789abcdef", publicUrl: "http://localhost:3000" };
     },
   },
 });

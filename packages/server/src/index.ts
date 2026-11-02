@@ -9,6 +9,7 @@ export * from "./devices.js";
 export * from "./engine-errors.js";
 export * from "./export.js";
 export * from "./files.js";
+export * from "./git-hosts.js";
 export * from "./hardware.js";
 export * from "./hf.js";
 export * from "./images.js";
