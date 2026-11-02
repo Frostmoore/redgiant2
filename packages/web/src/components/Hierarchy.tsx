@@ -4,6 +4,8 @@ import { t, tOptional } from "../i18n.js";
 import { agents, attempt, getApi, openAgent, projects, refresh } from "../state.js";
 import { AgentWizard } from "./AgentWizard.js";
 import { CompactionSettings } from "./CompactionSettings.js";
+import { modelName } from "./ModelMenu.js";
+import { ModelSelect, useModels } from "./ModelSelect.js";
 
 const CHILDREN: Record<Agent["kind"], Agent["kind"][]> = {
   god: ["demigod", "orchestrator", "inspector", "assistant"],
@@ -131,9 +133,35 @@ function NewAgentForm({ parent, onDone }: { parent: Agent | null; onDone: () => 
   );
 }
 
+/** An agent's own model, chosen here; none: the one above it (or the default) is used. */
+function AgentModel({ agent }: { agent: Agent }) {
+  const models = useModels();
+  const [saved, setSaved] = useState(false);
+  if (!models) return null;
+  return (
+    <div class="agent-model">
+      <ModelSelect
+        models={models}
+        value={agent.model ?? null}
+        empty={agent.kind === "god" ? t("agentModelDefault") : t("agentModelInherit")}
+        label={`${t("model")}: ${agent.name}`}
+        onChange={(m) =>
+          void attempt(() => getApi().configureAgent(agent.id, { model: m })).then(async (r) => {
+            if (r === undefined) return;
+            await refresh();
+            setSaved(true);
+          })
+        }
+      />
+      {saved && <span class="notice ok">{t("agentModelSaved")}</span>}
+    </div>
+  );
+}
+
 function Node({ agent, depth }: { agent: Agent; depth: number }) {
   const [adding, setAdding] = useState(false);
   const [tuning, setTuning] = useState(false);
+  const [choosing, setChoosing] = useState(false);
   const children = agents.value.filter((a) => a.parentId === agent.id);
   const canAdd = CHILDREN[agent.kind].some((k) => k !== "subagent") && agent.status === "active";
   return (
@@ -144,11 +172,18 @@ function Node({ agent, depth }: { agent: Agent; depth: number }) {
           {agent.name}
         </button>
         {agent.role && <span class="dim">{agent.role}</span>}
-        {agent.model && (
-          <span class="chip">
-            {agent.model.provider}/{agent.model.model}
-            {agent.model.effort ? ` · ${agent.model.effort}` : ""}
-          </span>
+        {agent.status === "active" ? (
+          <button
+            type="button"
+            class={`chip ${agent.model ? "" : "muted"}`}
+            title={t("agentModelChange")}
+            onClick={() => setChoosing(!choosing)}
+          >
+            {agent.model ? modelName(agent.model.model) : t("agentModelNone")}
+            {agent.model?.effort ? ` · ${t(`effort_${agent.model.effort}` as never)}` : ""}
+          </button>
+        ) : (
+          agent.model && <span class="chip">{modelName(agent.model.model)}</span>
         )}
         {agent.mode && (
           <span class="chip">{tOptional(`agentMode_${agent.mode}`) ?? agent.mode}</span>
@@ -175,6 +210,7 @@ function Node({ agent, depth }: { agent: Agent; depth: number }) {
         )}
       </div>
       {adding && <NewAgentForm parent={agent} onDone={() => setAdding(false)} />}
+      {choosing && <AgentModel agent={agent} />}
       {tuning && <CompactionSettings agent={agent} />}
       {children.map((c) => (
         <Node key={c.id} agent={c} depth={depth + 1} />

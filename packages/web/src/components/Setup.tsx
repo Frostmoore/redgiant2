@@ -1,10 +1,11 @@
 import { useEffect, useState } from "preact/hooks";
-import type { SetupState } from "../api.js";
+import type { Agent, SetupState } from "../api.js";
 import { lang, setLang, t } from "../i18n.js";
 import { attempt, getApi, refresh } from "../state.js";
-import { Brain, DefaultModel } from "./Brain.js";
+import { Brain, explain } from "./Brain.js";
 import { GitCode } from "./GitCode.js";
 import { hardwareText, LocalModels } from "./LocalModels.js";
+import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
 import { RemoteAccess } from "./RemoteAccess.js";
 import { Safety } from "./Safety.js";
 import { TelegramLink } from "./TelegramLink.js";
@@ -17,6 +18,7 @@ type StepKey =
   | "wzBrain"
   | "wzLocal"
   | "wzNames"
+  | "wzAssign"
   | "wzTelegram"
   | "wzCode"
   | "wzRemote"
@@ -28,6 +30,7 @@ const stepsFor = (s: SetupState): StepKey[] => [
   "wzBrain",
   "wzLocal",
   "wzNames",
+  "wzAssign",
   "wzTelegram",
   ...(s.config.mode === "advanced" ? (["wzCode", "wzRemote"] as const) : []),
   "wzSafety",
@@ -46,16 +49,130 @@ function Field({ label, children }: { label: string; children: preact.ComponentC
   );
 }
 
-/** "How should RedGiant think?": any of the ways, or none; then the default model. */
+/** "How should RedGiant think?": a subscription, a key or a local model; more any time later. */
 function BrainStep({ s, next, reload }: { s: SetupState; next: () => void; reload: () => void }) {
   return (
     <Step title={t("wzBrain")} purpose={t("brainPurpose")}>
+      <p class="notice">{t("wzBrainMore")}</p>
       <Brain s={s} reload={reload} wizard />
-      <DefaultModel s={s} onSaved={reload} />
       <div class="row">
         <button type="button" class="primary" onClick={next}>
           {t("wzNext")}
         </button>
+      </div>
+    </Step>
+  );
+}
+
+/** The strongest model connected, as a first suggestion: Opus when Claude is there. */
+const suggested = (models: { provider: string; model: string; effort: boolean }[]): Spec | null => {
+  const order = ["claude-subscription", "anthropic", "chatgpt-subscription", "openai"];
+  const rank = (p: string) => (order.includes(p) ? order.indexOf(p) : order.length);
+  const sorted = [...models].sort((a, b) => rank(a.provider) - rank(b.provider));
+  const first = sorted[0];
+  if (!first) return null;
+  const best = sorted.find((m) => m.provider === first.provider && /opus/i.test(m.model)) ?? first;
+  return { provider: best.provider, model: best.model, ...(best.effort && { effort: "medium" }) };
+};
+
+/**
+ * "Who uses which model": God, Demi-God (who answers on Telegram), the chat, and the agents made
+ * later. Each can be changed later: Settings, Agents (and the chat's own settings).
+ */
+function AssignStep({ s, next }: { s: SetupState; next: () => void }) {
+  const models = useModels();
+  const [who, setWho] = useState<{ god?: Agent; demigod?: Agent }>();
+  const [god, setGod] = useState<Spec | null>(null);
+  const [demigod, setDemigod] = useState<Spec | null>(null);
+  const [chat, setChat] = useState<Spec | null>(null);
+  const [others, setOthers] = useState<Spec | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    if (!models) return;
+    void Promise.all([getApi().agents(), getApi().chatSettings()]).then(
+      ([list, c]) => {
+        const g = list.find((a) => a.kind === "god" && a.status === "active");
+        const d = list.find((a) => a.kind === "demigod" && a.status === "active");
+        setWho({ ...(g && { god: g }), ...(d && { demigod: d }) });
+        const base = s.config.defaultModel ?? suggested(models);
+        setGod(g?.model ?? base);
+        setDemigod(d?.model ?? base);
+        setChat(c.model ?? base);
+        setOthers(s.config.defaultModel ?? base);
+      },
+      () => setWho({}),
+    );
+  }, [models]);
+  if (!models || !who) return <div class="empty">…</div>;
+  const save = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      if (who.god) await getApi().configureAgent(who.god.id, { model: god });
+      if (who.demigod) await getApi().configureAgent(who.demigod.id, { model: demigod });
+      await getApi().setChatSettings({ model: chat });
+      // The default is tried with a real question before it is kept.
+      if (others) await getApi().setupModels({ defaultModel: others });
+      next();
+    } catch (err) {
+      setError(explain(err));
+    }
+    setBusy(false);
+  };
+  return (
+    <Step title={t("wzAssign")} purpose={t("wzAssignPurpose")}>
+      {models.length === 0 ? (
+        <p class="notice warn">{t("brainNoModel")}</p>
+      ) : (
+        <div class="form">
+          {who.god && (
+            <Field label={who.god.name}>
+              <ModelSelect models={models} value={god} onChange={setGod} label={who.god.name} />
+              <span class="ui-help">{t("wzAssignGod")}</span>
+            </Field>
+          )}
+          {who.demigod && (
+            <Field label={`${who.demigod.name} (Telegram)`}>
+              <ModelSelect
+                models={models}
+                value={demigod}
+                onChange={setDemigod}
+                label={who.demigod.name}
+              />
+              <span class="ui-help">{t("wzAssignDemigod")}</span>
+            </Field>
+          )}
+          <Field label={t("chat")}>
+            <ModelSelect models={models} value={chat} onChange={setChat} label={t("chat")} />
+            <span class="ui-help">{t("wzAssignChat")}</span>
+          </Field>
+          <Field label={t("wzAssignOthers")}>
+            <ModelSelect
+              models={models}
+              value={others}
+              onChange={setOthers}
+              label={t("wzAssignOthers")}
+            />
+            <span class="ui-help">{t("wzAssignOthersHelp")}</span>
+          </Field>
+        </div>
+      )}
+      {error && <p class="notice error">{error}</p>}
+      <div class="row">
+        <button
+          type="button"
+          class="primary"
+          disabled={busy || models.length === 0 || !god || !chat || !others}
+          onClick={() => void save()}
+        >
+          {busy ? t("wzTrying") : t("wzSaveNext")}
+        </button>
+        {models.length === 0 && (
+          <button type="button" onClick={next}>
+            {t("wzNext")}
+          </button>
+        )}
       </div>
     </Step>
   );
@@ -284,6 +401,7 @@ export function Setup({ onDone }: { onDone?: () => void }) {
         {key === "wzBrain" && <BrainStep s={s} next={next} reload={reload} />}
         {key === "wzLocal" && <LocalStep s={s} next={next} reload={reload} />}
         {key === "wzNames" && <Names s={s} next={next} />}
+        {key === "wzAssign" && <AssignStep s={s} next={next} />}
         {key === "wzTelegram" && <TelegramStep s={s} next={next} reload={reload} />}
         {key === "wzCode" && <CodeStep s={s} next={next} reload={reload} />}
         {key === "wzRemote" && <RemoteStep s={s} next={next} reload={reload} />}

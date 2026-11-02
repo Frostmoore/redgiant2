@@ -3366,3 +3366,26 @@ a.button.primary {
   background: var(--panel);
   box-shadow: 0 6px 24px rgb(0 0 0 / 25%);
 }
+
+/* Choosing a model (G24.14d): the model and, when it has one, its effort side by side. */
+.model-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.model-select select:first-child {
+  min-width: 220px;
+}
+.agent-model {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 6px 0 10px;
+}
+.chat-head .model-select select {
+  width: auto;
+  max-width: none;
+  min-width: 0;
+}

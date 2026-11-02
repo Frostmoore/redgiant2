@@ -176,6 +176,29 @@ const DAY = 86_400_000;
  * a file only the server reads (never in the database or its dumps), the rest in Postgres and
  * in a readable `redgiant.yaml`.
  */
+/** Providers in the order their models are preferred as the first default. */
+const PREFERRED = ["claude-subscription", "anthropic", "chatgpt-subscription", "openai", "gemini"];
+
+/**
+ * The model that becomes the default when the person connects the first way of thinking and
+ * has not chosen one: the subscriptions first, then the keys, then the rest; within a provider
+ * its strongest model (Opus for Claude), otherwise the first it lists.
+ */
+export function firstDefault(
+  models: { provider: string; model: string; effort: boolean }[],
+): ModelSpec | undefined {
+  const rank = (p: string) => {
+    const i = PREFERRED.indexOf(p);
+    return i === -1 ? PREFERRED.length : i;
+  };
+  const provider = [...new Set(models.map((m) => m.provider))].sort((a, b) => rank(a) - rank(b))[0];
+  if (!provider) return undefined;
+  const own = models.filter((m) => m.provider === provider);
+  const best = own.find((m) => /opus/i.test(m.model)) ?? own[0];
+  if (!best) return undefined;
+  return { provider, model: best.model, ...(best.effort && { effort: "medium" as const }) };
+}
+
 export class SetupService {
   private config: SetupConfig = { completed: false };
   private secrets: Secrets = {};
@@ -341,6 +364,19 @@ export class SetupService {
   }
 
   /**
+   * Agents need a model: when the person connects a way of thinking and none is chosen yet, the
+   * best one connected becomes the default at once (they change it in "The model agents use").
+   */
+  private async autoDefault(): Promise<void> {
+    if (this.config.defaultModel || this.locked.defaultModel) return;
+    const pick = firstDefault(await this.o.core.models().catch(() => []));
+    if (!pick) return;
+    this.config.defaultModel = pick;
+    this.o.core.setDefaultModel(pick);
+    await this.save();
+  }
+
+  /**
    * A provider of the catalog with the user's key: checked with the provider first, then kept.
    * null disconnects it. Returns the models it offers.
    */
@@ -361,6 +397,7 @@ export class SetupService {
     this.secrets.keys = keys;
     this.config.keyProviders = Object.keys(keys);
     await this.save();
+    if (key) await this.autoDefault();
     return { models };
   }
 
@@ -385,6 +422,7 @@ export class SetupService {
       delete this.secrets.serverKey;
     }
     await this.save();
+    if (cfg) await this.autoDefault();
     return { models };
   }
 
@@ -803,6 +841,7 @@ export class SetupService {
       }
     }
     await this.save();
+    if (s.claude || s.chatgpt) await this.autoDefault();
   }
 
   private claudeLogin: ClaudeLogin | undefined;

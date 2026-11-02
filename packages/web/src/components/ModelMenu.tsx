@@ -17,7 +17,7 @@ export function modelName(id: string): string {
 }
 
 /** How a model is reached, in a word next to its name. */
-const via = (provider: string) =>
+export const via = (provider: string) =>
   provider.endsWith("-subscription")
     ? t("viaSubscription")
     : provider === "local" || provider === OWN_SERVER_ID
@@ -26,9 +26,10 @@ const via = (provider: string) =>
         ? "API"
         : provider;
 
-/** The models the server offers, loaded once and shared by every composer. */
+/** The models the server offers, shared by every composer; asked again when a menu is opened. */
 let cache: Promise<ModelChoice[]> | undefined;
-const loadModels = () => {
+const loadModels = (fresh = false) => {
+  if (fresh) cache = undefined;
   cache ??= getApi()
     .models()
     .catch(() => {
@@ -75,6 +76,8 @@ export function ModelMenu({
         aria-label={t("model")}
         title={t("modelHint")}
         disabled={disabled}
+        // A way of thinking connected meanwhile shows up as soon as the menu is opened.
+        onFocus={() => void loadModels(true).then(setModels)}
         value={own && current ? key(current) : AGENTS}
         onChange={(e) => {
           const v = (e.target as HTMLSelectElement).value;
@@ -89,7 +92,7 @@ export function ModelMenu({
         }}
       >
         <option value={AGENTS}>
-          {own || !current ? t("agentsModel") : modelName(current.model)}
+          {!current ? t("modelPick") : own ? t("agentsModel") : modelName(current.model)}
         </option>
         {own && current && !known && (
           <option value={key(current)}>{modelName(current.model)}</option>

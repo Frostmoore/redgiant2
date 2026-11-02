@@ -25,7 +25,13 @@ import { streamSSE } from "hono/streaming";
 import { type AuthProvider, bearer, type Principal } from "./auth.js";
 import { ChatError } from "./chat.js";
 import { CodeChangeError } from "./code.js";
-import { BadRequestError, NotFoundError, type RedGiantCore, SessionBusyError } from "./core.js";
+import {
+  BadRequestError,
+  NoModelError,
+  NotFoundError,
+  type RedGiantCore,
+  SessionBusyError,
+} from "./core.js";
 import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
 import { HuggingFace } from "./hf.js";
@@ -223,7 +229,8 @@ const routes = {
         content: {
           "application/json": {
             schema: z.object({
-              model: ModelSpec.optional(),
+              /** null: the default model again (or the parent's). */
+              model: ModelSpec.nullable().optional(),
               mode: PermissionMode.optional(),
               systemPrompt: z.string().optional(),
               role: z.string().min(1).optional(),
@@ -786,6 +793,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       return c.json({ error: err.message }, 404);
     if (err instanceof RecipeError) return c.json({ error: err.message }, 400);
     if (err instanceof SessionBusyError) return c.json({ error: err.message }, 409);
+    if (err instanceof NoModelError) return c.json({ error: err.message, code: err.code }, 400);
     if (
       err instanceof HierarchyError ||
       err instanceof BadRequestError ||
@@ -924,7 +932,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     const id = c.req.valid("param").id;
     if (core.registry.get(id)?.ownerId !== owner(c))
       return c.json({ error: "Agent not found" }, 404);
-    return c.json(agentOut(await core.registry.configure(human(c), id, change)), 200);
+    const updated = await core.registry.configure(human(c), id, change);
+    if ("model" in change) core.agentModelChanged(id);
+    return c.json(agentOut(updated), 200);
   });
   app.openapi(routes.stopAgent, async (c) => {
     const id = c.req.valid("param").id;
@@ -1434,11 +1444,19 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.get("/api/chat/settings", async (c) => c.json(await core.chat.settings(owner(c)), 200));
   app.put("/api/chat/settings", async (c) => {
     const body = z
-      .object({ model: ModelSpec.optional(), systemPrompt: z.string().min(1).optional() })
+      .object({
+        /** null: the default model again. */
+        model: ModelSpec.nullable().optional(),
+        systemPrompt: z.string().min(1).optional(),
+      })
       .safeParse(await c.req.json());
     if (!body.success) return c.json({ error: body.error.message }, 400);
+    // One setting at a time: the others stay as they are.
+    const { model: _old, ...kept } = await core.chat.settings(owner(c));
+    const model = body.data.model === undefined ? _old : body.data.model;
     await core.chat.setSettings(owner(c), {
-      ...(body.data.model && { model: body.data.model }),
+      ...kept,
+      ...(model && { model }),
       ...(body.data.systemPrompt && { systemPrompt: body.data.systemPrompt }),
     });
     return c.json({ ok: true }, 200);

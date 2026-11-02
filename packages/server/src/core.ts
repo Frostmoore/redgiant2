@@ -160,6 +160,10 @@ export class NotFoundError extends Error {}
 
 /** A request that cannot be satisfied as asked (bad path, wrong kind of file, …). */
 export class BadRequestError extends Error {}
+/** No model chosen yet for an agent nor as the default: the UI and Telegram say what to do. */
+export class NoModelError extends Error {
+  readonly code = "no_model";
+}
 
 interface Live {
   id: string;
@@ -170,6 +174,8 @@ interface Live {
   running: AbortController | null;
   listeners: Set<(m: ServerMessage) => void>;
   model: ModelSpec;
+  /** The conversation chose its own model (composer), not the agent's. */
+  ownModel: boolean;
   /** When it last worked or was followed: idle sessions leave memory (their log stays). */
   usedAt: number;
 }
@@ -649,7 +655,7 @@ export class RedGiantCore implements OrchestrationHost {
       throw new NotFoundError(`Agent "${agentId}" not found`);
     if (agent.status !== "active") throw new Error(`Agent "${agent.name}" is stopped`);
     const model = sessionModel ?? this.registry.effectiveModel(agentId) ?? this.o.defaultModel;
-    if (!model) throw new Error(`No model configured for "${agent.name}" or its ancestors`);
+    if (!model) throw new NoModelError(`No model configured for "${agent.name}" or its ancestors`);
     const ws = await this.workspaceFor(agent);
     const tools: Tool[] = ws
       ? baseTools({
@@ -797,6 +803,7 @@ export class RedGiantCore implements OrchestrationHost {
       running: null,
       listeners,
       model,
+      ownModel: sessionModel !== undefined,
       usedAt: Date.now(),
     };
   }
@@ -1673,8 +1680,27 @@ export class RedGiantCore implements OrchestrationHost {
       "INSERT INTO rg_sessions (id, owner_id, agent_id, project_id, model) VALUES ($1, $2, $3, $4, $5)",
       [id, ownerId, agentId, agent.projectId, opts.model ? JSON.stringify(opts.model) : null],
     );
-    this.live.set(id, await this.build(ownerId, agentId, id, false, opts.model));
+    try {
+      this.live.set(id, await this.build(ownerId, agentId, id, false, opts.model));
+    } catch (err) {
+      // No model yet: the conversation opens all the same, the model is chosen from its menu and
+      // the first message says what to do until then.
+      if (!(err instanceof NoModelError)) throw err;
+    }
     return id;
+  }
+
+  /**
+   * An agent's model changed (Settings, Agents): its open conversations that follow the agent's
+   * model are rebuilt from the log at their next turn, with the new one. Those with their own
+   * model, or answering now, keep theirs.
+   */
+  agentModelChanged(agentId: string): void {
+    for (const [id, l] of this.live)
+      if (l.agentId === agentId && !l.running && !l.ownModel) {
+        this.live.delete(id);
+        if (l.listeners.size > 0) this.waiting.set(id, new Set(l.listeners));
+      }
   }
 
   /** A live session, resumed from the log when the server restarted since. */
@@ -1692,10 +1718,21 @@ export class RedGiantCore implements OrchestrationHost {
     if (!row || row.owner_id !== ownerId)
       throw new NotFoundError(`Session "${sessionId}" not found`);
     const model = typeof row.model === "string" ? (JSON.parse(row.model) as ModelSpec) : row.model;
-    const built = await this.build(ownerId, row.agent_id, sessionId, true, model ?? undefined);
+    // Opened without a model (none was chosen yet): nothing in its log, it starts now.
+    const resume = (await this.store.list({ sessionId })).length > 0;
+    const built = await this.build(ownerId, row.agent_id, sessionId, resume, model ?? undefined);
     this.live.set(sessionId, built);
+    // Whoever followed it while it could not run follows it now.
+    const waiting = this.waiting.get(sessionId);
+    if (waiting) {
+      for (const f of waiting) built.listeners.add(f);
+      this.waiting.delete(sessionId);
+    }
     return built;
   }
+
+  /** Followers of conversations not in memory now (no model yet, or being rebuilt). */
+  private readonly waiting = new Map<string, Set<(m: ServerMessage) => void>>();
 
   async listSessions(ownerId: string, agentId?: string) {
     return this.o.db.query<{
@@ -1859,7 +1896,9 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   async history(ownerId: string, sessionId: string): Promise<Event[]> {
-    await this.open(ownerId, sessionId);
+    await this.open(ownerId, sessionId).catch((err) => {
+      if (!(err instanceof NoModelError)) throw err;
+    });
     return this.store.list({ sessionId });
   }
 
@@ -2116,7 +2155,24 @@ export class RedGiantCore implements OrchestrationHost {
     sessionId: string,
     listener: (m: ServerMessage) => void,
   ): Promise<() => void> {
-    const l = await this.open(ownerId, sessionId);
+    let l: Live;
+    try {
+      l = await this.open(ownerId, sessionId);
+    } catch (err) {
+      if (!(err instanceof NoModelError)) throw err;
+      // No model yet: what was said, then everything once a model is chosen and it runs.
+      const set = this.waiting.get(sessionId) ?? new Set();
+      set.add(listener);
+      this.waiting.set(sessionId, set);
+      const past = await this.store.list({ sessionId });
+      for (const e of past) listener({ type: "event", sessionId, event: e });
+      listener({ type: "session.synced", sessionId, lastSeq: past.at(-1)?.seq ?? -1 });
+      listener({ type: "session.state", sessionId, state: "idle" });
+      return () => {
+        set.delete(listener);
+        this.live.get(sessionId)?.listeners.delete(listener);
+      };
+    }
     const buffered: ServerMessage[] = [];
     let replaying = true;
     const relay = (m: ServerMessage) => (replaying ? buffered.push(m) : listener(m));
@@ -2131,6 +2187,7 @@ export class RedGiantCore implements OrchestrationHost {
     listener({ type: "session.state", sessionId, state: l.running ? "running" : "idle" });
     return () => {
       l.listeners.delete(relay);
+      this.waiting.get(sessionId)?.delete(relay);
       l.usedAt = Date.now();
     };
   }

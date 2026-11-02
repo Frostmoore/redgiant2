@@ -23,6 +23,7 @@ import {
 import { type Attachment, Composer } from "./Composer.js";
 import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
+import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
 import { joinable } from "./Room.js";
 
 /** The chat has no workspace: text files and images travel with the message, nothing else. */
@@ -87,27 +88,50 @@ function Entry({ e }: { e: ChatEntry }) {
   );
 }
 
+/** The chat's model, chosen right in the chat: the next message uses it. */
+function ChatModel() {
+  const models = useModels();
+  const [model, setModel] = useState<Spec | null>(null);
+  useEffect(() => {
+    void getApi()
+      .chatSettings()
+      .then(
+        (s) => setModel(s.model ?? null),
+        () => {},
+      );
+  }, []);
+  if (!models || models.length === 0) return null;
+  return (
+    <ModelSelect
+      models={models}
+      value={model}
+      empty={t("agentModelDefault")}
+      label={t("model")}
+      onChange={(m) =>
+        void attempt(() => getApi().setChatSettings({ model: m })).then((r) => {
+          if (r !== undefined) setModel(m);
+        })
+      }
+    />
+  );
+}
+
 function Settings({ onClose }: { onClose: () => void }) {
-  const [model, setModel] = useState("");
-  const [effort, setEffort] = useState("");
+  const models = useModels();
+  const [model, setModel] = useState<Spec | null>(null);
   const [prompt, setPrompt] = useState("");
   useEffect(() => {
     void attempt(() => getApi().chatSettings()).then((s) => {
       if (!s) return;
-      setModel(s.model ? `${s.model.provider}/${s.model.model}` : "");
-      setEffort(s.model?.effort ?? "");
+      setModel(s.model ?? null);
       setPrompt(s.systemPrompt ?? "");
     });
   }, []);
   const save = async (e: Event) => {
     e.preventDefault();
-    const [provider = "", ...rest] = model.trim().split("/");
     const ok = await attempt(() =>
       getApi().setChatSettings({
-        ...(provider &&
-          rest.length > 0 && {
-            model: { provider, model: rest.join("/"), ...(effort && { effort }) },
-          }),
+        model,
         ...(prompt.trim() && { systemPrompt: prompt.trim() }),
       }),
     );
@@ -115,25 +139,17 @@ function Settings({ onClose }: { onClose: () => void }) {
   };
   return (
     <form class="form dc-settings" onSubmit={(e) => void save(e)}>
-      <label>
-        {t("model")}
-        <input
-          placeholder="anthropic/claude-sonnet-5-5"
-          value={model}
-          onInput={(e) => setModel((e.target as HTMLInputElement).value)}
-        />
-      </label>
-      <label>
-        {t("effort")}
-        <select value={effort} onChange={(e) => setEffort((e.target as HTMLSelectElement).value)}>
-          <option value="">—</option>
-          {["low", "medium", "high", "max"].map((x) => (
-            <option key={x} value={x}>
-              {x}
-            </option>
-          ))}
-        </select>
-      </label>
+      {models && (
+        <div class="wide">
+          {t("model")}
+          <ModelSelect
+            models={models}
+            value={model}
+            onChange={setModel}
+            empty={t("agentModelDefault")}
+          />
+        </div>
+      )}
       <label class="wide">
         {t("systemPrompt")}
         <textarea
@@ -319,6 +335,7 @@ export function DailyChat({
           </select>
         )}
         <div class="spacer" />
+        {!projectId && <ChatModel />}
         {grouping ? (
           <select
             aria-label={t("roomAdd")}

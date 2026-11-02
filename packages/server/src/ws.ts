@@ -16,6 +16,12 @@ import { handleTerminal } from "./terminal.js";
  * follows sessions (history, then live), sends messages, and answers permission requests.
  * Sessions never depend on a connection: closing it only stops the following.
  */
+/** The code an error carries for the UI (`no_model`…), when it has one. */
+const codeOf = (err: unknown): string | undefined => {
+  const code = (err as { code?: unknown }).code;
+  return typeof code === "string" && /^[a-z_]+$/.test(code) ? code : undefined;
+};
+
 export function attachWebSocket(
   server: Server,
   core: RedGiantCore,
@@ -133,7 +139,7 @@ export function attachWebSocket(
               ...(msg.images?.length ? { images: msg.images } : {}),
               watch: true,
             });
-            done.catch((err) => fail("session_failed", String(err)));
+            done.catch((err) => fail(codeOf(err) ?? "session_failed", String(err)));
             return;
           }
           case "question.answer":
@@ -204,7 +210,7 @@ export function attachWebSocket(
           }
         }
       } catch (err) {
-        fail("error", (err as Error).message);
+        fail(codeOf(err) ?? "error", (err as Error).message);
       }
     };
 

@@ -75,6 +75,17 @@ describe("Demi-God on Telegram", () => {
     expect((await s?.api<unknown[]>("GET", "/api/telegram/links"))?.body).toHaveLength(1);
   });
 
+  it("says what to do when no model is chosen yet, not an error in English", async () => {
+    await setup(() => ({ text: "x" }));
+    await pair();
+    s?.core.setDefaultModel(undefined);
+    await s?.gateway?.handleUpdate(tg?.text(USER, "Hello") as never);
+    await s?.gateway?.idle();
+    expect(tg?.sent(USER).at(-1)?.text).toMatch(
+      /^No model is chosen yet\. Open RedGiant, Settings/,
+    );
+  });
+
   it("relays to God through Demi-God, who can do nothing else", async () => {
     const demigodTools: string[][] = [];
     await setup((req) => {

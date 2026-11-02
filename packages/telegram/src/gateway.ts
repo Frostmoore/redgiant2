@@ -185,6 +185,12 @@ export class TelegramGateway {
     return say(this.language(ownerId), key, vars);
   }
 
+  /** An error in words: what to do when there is no model, otherwise the error itself. */
+  private failure(ownerId: string | undefined, err: unknown) {
+    if ((err as { code?: unknown }).code === "no_model") return this.say(ownerId, "noModel");
+    return this.say(ownerId, "error", { error: (err as Error).message });
+  }
+
   /** Reads the bot's identity (also validates the token). */
   async init(): Promise<{ username: string }> {
     if (!this.me) {
@@ -325,9 +331,7 @@ export class TelegramGateway {
               : { files: [{ name: doc?.file_name ?? "file", data }] }),
           });
         } catch (err) {
-          await this.bot.api
-            .sendMessage(chatId, this.say(owner, "error", { error: (err as Error).message }))
-            .catch(() => {});
+          await this.bot.api.sendMessage(chatId, this.failure(owner, err)).catch(() => {});
         }
       })(),
     );
@@ -361,9 +365,7 @@ export class TelegramGateway {
           await this.bot.api.sendMessage(chatId, this.say(owner, "heard", { text }));
           await this.relay(owner, chatId, text);
         } catch (err) {
-          await this.bot.api
-            .sendMessage(chatId, this.say(owner, "error", { error: (err as Error).message }))
-            .catch(() => {});
+          await this.bot.api.sendMessage(chatId, this.failure(owner, err)).catch(() => {});
         }
       })(),
     );
@@ -417,9 +419,7 @@ export class TelegramGateway {
       const answer = await this.o.host.askDemigod(owner, chatId, text, extra);
       for (const part of splitMessage(answer)) await this.sendFormatted(chatId, part);
     } catch (err) {
-      await api
-        .sendMessage(chatId, this.say(owner, "error", { error: (err as Error).message }))
-        .catch(() => {});
+      await api.sendMessage(chatId, this.failure(owner, err)).catch(() => {});
     } finally {
       clearInterval(typing);
     }

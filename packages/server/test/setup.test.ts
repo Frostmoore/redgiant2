@@ -7,6 +7,7 @@ import {
   describeGpu,
   detectHardware,
   engineError,
+  firstDefault,
   type GgufFile,
   HuggingFace,
   hostGpus,
@@ -350,6 +351,48 @@ describe("the setup wizard", () => {
     expect(calls.at(-1)).toBe("pihole:off");
     expect((await api<SetupState>("GET", "/api/setup")).body.config.pihole).toBeUndefined();
     expect((await api("GET", "/api/setup/pihole/password")).body).toEqual({ password: null });
+  });
+
+  it("makes the first model connected the default, Opus first, and keeps a choice made", async () => {
+    expect(
+      firstDefault([
+        { provider: "local", model: "gemma", effort: false },
+        { provider: "claude-subscription", model: "claude-sonnet-5-5", effort: true },
+        { provider: "claude-subscription", model: "claude-opus-5-5", effort: true },
+        { provider: "anthropic", model: "claude-opus-5-5", effort: true },
+      ]),
+    ).toEqual({ provider: "claude-subscription", model: "claude-opus-5-5", effort: "medium" });
+    expect(firstDefault([{ provider: "local", model: "gemma", effort: false }])).toEqual({
+      provider: "local",
+      model: "gemma",
+    });
+    expect(firstDefault([])).toBeUndefined();
+
+    const { hooks } = await setup();
+    const api = (s as Server).api;
+    const core = (s as Server).core;
+    core.setDefaultModel(undefined);
+    // Connecting a key registers its models: the strongest becomes the default at once.
+    const key = hooks.key;
+    hooks.key = async (id, k) => {
+      core.providers.register(
+        new FakeProvider(() => ({ text: "OK" }), {
+          id,
+          models: ["claude-sonnet-5-5", "claude-opus-5-5"],
+        }),
+      );
+      return key(id, k);
+    };
+    await api("PUT", "/api/setup/keys/anthropic", { key: "sk-ant-api03-a-good-key" });
+    expect((await api<SetupState>("GET", "/api/setup")).body.config.defaultModel).toMatchObject({
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+    });
+    expect(core.defaultModel?.model).toBe("claude-opus-5-5");
+    // A model chosen by the person is never replaced by a later connection.
+    await api("PUT", "/api/setup/models", { defaultModel: { provider: "fake", model: "good" } });
+    await api("PUT", "/api/setup/keys/openai", { key: "sk-proj-good-key" });
+    expect(core.defaultModel).toMatchObject({ provider: "fake", model: "good" });
   });
 
   it("erases old event payloads when a retention period is set", async () => {

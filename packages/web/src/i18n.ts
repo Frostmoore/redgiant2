@@ -450,6 +450,26 @@ const en = {
   job_download_sandbox: "Downloading the agents' computer (only once)",
   job_download_browser: "Downloading the agents' browser (only once)",
   job_step_image_download: "Downloading",
+  err_no_model:
+    'No model is chosen yet: open Settings, Models and subscriptions, connect one (a subscription, a key or a local model) and choose it in "The model agents use".',
+  wzAssign: "Who uses which model",
+  wzAssignPurpose:
+    "Choose the model of each one who talks to you. You can change them any time: Settings, Agents (and, for the chat, right in the chat).",
+  wzAssignGod:
+    "The one who runs everything: plans, projects, other agents. The strongest model pays off here.",
+  wzAssignDemigod: "Answers you on Telegram and passes the work to God: a fast model is enough.",
+  wzAssignChat: "The everyday chat, with web search: questions, texts, ideas.",
+  wzAssignOthers: "The agents you create later",
+  wzAssignOthersHelp:
+    "Unless you choose one for them. It is tried with a real question before it is saved.",
+  wzBrainMore:
+    "Choose one way now: a subscription, an API key or a model on this computer. You can add others any time, from Settings, Models and subscriptions; in the next steps you choose which model each one uses.",
+  modelPick: "Choose a model",
+  agentModelDefault: "The default model",
+  agentModelInherit: "The same as the one above it",
+  agentModelNone: "default model",
+  agentModelChange: "Change its model",
+  agentModelSaved: "Saved: its next messages use it.",
   job_pihole: "Starting Pi-hole",
   job_step_pihole_image: "Downloading Pi-hole (only once)",
   job_step_pihole_start: "Starting Pi-hole",
@@ -721,7 +741,7 @@ const en = {
   brainServerKey: "Its key",
   brainServerKeyHelp: "Only if the server asks for one; most do not.",
   brainNoModel:
-    "No model is connected yet. You can go on and add one later in Settings, Models and subscriptions.",
+    "No model is connected yet, so agents cannot answer. Connect one above (a subscription, a key or a local model in the next step), or later in Settings, Models and subscriptions.",
   brainDefault: "The model agents use",
   brainDefaultHint:
     "Agents use this model unless you choose another one for them. It is tried with a real question before it is saved.",
@@ -1657,6 +1677,26 @@ const it: Record<Key, string> = {
   job_download_sandbox: "Scarico il computer degli agenti (una volta sola)",
   job_download_browser: "Scarico il browser degli agenti (una volta sola)",
   job_step_image_download: "Download",
+  err_no_model:
+    'Non hai ancora scelto un modello: apri Impostazioni, Modelli e abbonamenti, collegane uno (un abbonamento, una chiave o un modello locale) e sceglilo in "Il modello che usano gli agenti".',
+  wzAssign: "Chi usa quale modello",
+  wzAssignPurpose:
+    "Scegli il modello di ognuno di quelli che ti parlano. Li cambi quando vuoi: Impostazioni, Agenti (e, per la chat, direttamente dentro la chat).",
+  wzAssignGod:
+    "Quello che guida tutto: piani, progetti, altri agenti. Qui conviene il modello più forte.",
+  wzAssignDemigod: "Ti risponde su Telegram e passa il lavoro a God: basta un modello veloce.",
+  wzAssignChat: "La chat di tutti i giorni, con la ricerca sul web: domande, testi, idee.",
+  wzAssignOthers: "Gli agenti che crei dopo",
+  wzAssignOthersHelp:
+    "Se non ne scegli uno apposta per loro. Prima di salvarlo viene provato con una domanda vera.",
+  wzBrainMore:
+    "Scegli adesso un modo: un abbonamento, una chiave API o un modello su questo computer. Ne aggiungi altri quando vuoi, da Impostazioni, Modelli e abbonamenti; nei passi dopo scegli quale modello usa ognuno.",
+  modelPick: "Scegli un modello",
+  agentModelDefault: "Il modello predefinito",
+  agentModelInherit: "Lo stesso di chi sta sopra",
+  agentModelNone: "modello predefinito",
+  agentModelChange: "Cambia il suo modello",
+  agentModelSaved: "Salvato: i suoi prossimi messaggi lo usano.",
   job_pihole: "Avvio di Pi-hole",
   job_step_pihole_image: "Scarico Pi-hole (una volta sola)",
   job_step_pihole_start: "Avvio Pi-hole",
@@ -1937,7 +1977,7 @@ const it: Record<Key, string> = {
   brainServerKey: "La sua chiave",
   brainServerKeyHelp: "Solo se il server la chiede; quasi sempre non serve.",
   brainNoModel:
-    "Non è ancora collegato nessun modello. Puoi andare avanti e aggiungerlo dopo da Impostazioni, Modelli e abbonamenti.",
+    "Non è ancora collegato nessun modello, quindi gli agenti non possono rispondere. Collegane uno qui sopra (un abbonamento, una chiave, o un modello locale al passo dopo), oppure più tardi da Impostazioni, Modelli e abbonamenti.",
   brainDefault: "Il modello che usano gli agenti",
   brainDefaultHint:
     "Gli agenti usano questo modello, a meno che tu non ne scelga un altro per loro. Prima di salvarlo viene provato con una domanda vera.",

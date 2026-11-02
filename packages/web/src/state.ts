@@ -13,6 +13,7 @@ import type {
 import {
   type Agent,
   Api,
+  ApiError,
   type Budget,
   Live,
   type PlatformInfo,
@@ -20,6 +21,7 @@ import {
   type Room,
   type Subproject,
 } from "./api.js";
+import { tOptional } from "./i18n.js";
 
 // ---------- Chat items (pure) ----------
 
@@ -293,6 +295,7 @@ export function applyMessage(m: ServerMessage): void {
     case "error":
       if (m.code === "unavailable")
         browserScreen.value = { ...browserScreen.value, unavailable: true };
+      else lastError.value = tOptional(`err_${m.code}`) ?? m.message;
       return;
     case "event": {
       const v = sessionView(m.sessionId);
@@ -488,7 +491,8 @@ export async function attempt<T>(f: () => Promise<T>): Promise<T | undefined> {
     lastError.value = null;
     return await f();
   } catch (err) {
-    lastError.value = (err as Error).message;
+    const code = err instanceof ApiError ? err.code : undefined;
+    lastError.value = (code && tOptional(`err_${code}`)) || (err as Error).message;
     return undefined;
   }
 }

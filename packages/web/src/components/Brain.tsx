@@ -61,7 +61,16 @@ function Linked({ who, onOut }: { who: string; onOut: () => void }) {
 }
 
 /** Claude Pro or Max: Anthropic's page in a new tab, then the code it shows pasted here. */
-export function ClaudeCard({ ack, setAck }: { ack: boolean; setAck: (v: boolean) => void }) {
+export function ClaudeCard({
+  ack,
+  setAck,
+  onChange,
+}: {
+  ack: boolean;
+  setAck: (v: boolean) => void;
+  /** Signed in or out: the model to use may change. */
+  onChange?: () => void;
+}) {
   const [status, setStatus] = useState<{ on: boolean; account: ClaudeAccount | null }>();
   const [page, setPage] = useState<string | null>(null);
   const [code, setCode] = useState("");
@@ -94,6 +103,7 @@ export function ClaudeCard({ ack, setAck }: { ack: boolean; setAck: (v: boolean)
       setPage(null);
       setCode("");
       load();
+      onChange?.();
       void refreshLimits();
     } catch (err) {
       setError(explain(err));
@@ -111,7 +121,13 @@ export function ClaudeCard({ ack, setAck }: { ack: boolean; setAck: (v: boolean)
           onOut={() =>
             void getApi()
               .claudeLogout()
-              .then(load, (e) => setError(explain(e)))
+              .then(
+                () => {
+                  load();
+                  onChange?.();
+                },
+                (e) => setError(explain(e)),
+              )
           }
         />
       ) : (
@@ -156,7 +172,15 @@ export function ClaudeCard({ ack, setAck }: { ack: boolean; setAck: (v: boolean)
 }
 
 /** ChatGPT Plus or Pro: a code to type on OpenAI's page; the card notices when it is done. */
-export function ChatgptCard({ ack, setAck }: { ack: boolean; setAck: (v: boolean) => void }) {
+export function ChatgptCard({
+  ack,
+  setAck,
+  onChange,
+}: {
+  ack: boolean;
+  setAck: (v: boolean) => void;
+  onChange?: () => void;
+}) {
   const [status, setStatus] = useState<{
     on: boolean;
     account: { email: string | null; plan: string | null } | null;
@@ -179,6 +203,7 @@ export function ChatgptCard({ ack, setAck }: { ack: boolean; setAck: (v: boolean
             setStatus(x);
             if (x.account) {
               setLogin(null);
+              onChange?.();
               void refreshLimits();
             }
           })
@@ -202,6 +227,7 @@ export function ChatgptCard({ ack, setAck }: { ack: boolean; setAck: (v: boolean
       await getApi().chatgptLogout();
       await getApi().setupSubscriptions({ chatgpt: false });
       load();
+      onChange?.();
     } catch (e) {
       setError(explain(e));
     }
@@ -444,11 +470,14 @@ export function DefaultModel({ s, onSaved }: { s: SetupState; onSaved: () => voi
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string }>();
   useEffect(() => {
+    // Chosen meanwhile (RedGiant picks one when the first way is connected): show it.
+    if (current) setModel(`${current.provider}/${current.model}`);
+    if (current?.effort) setEffort(current.effort);
     void getApi()
       .models()
       .then((m) => {
         setModels(m);
-        if (!model && m[0]) setModel(`${m[0].provider}/${m[0].model}`);
+        if (!current && m[0]) setModel((x) => x || `${m[0]?.provider}/${m[0]?.model}`);
       })
       .catch(() => setModels([]));
   }, [s]);
@@ -578,8 +607,8 @@ export function Brain({
           },
         ]}
       />
-      {ways.includes("claude") && <ClaudeCard ack={ack} setAck={setAck} />}
-      {ways.includes("chatgpt") && <ChatgptCard ack={ack} setAck={setAck} />}
+      {ways.includes("claude") && <ClaudeCard ack={ack} setAck={setAck} onChange={reload} />}
+      {ways.includes("chatgpt") && <ChatgptCard ack={ack} setAck={setAck} onChange={reload} />}
       {ways.includes("keys") && <KeysPanel s={s} onChange={reload} />}
       {ways.includes("local") && (
         <div class="brain-panel">

@@ -8,6 +8,8 @@ const en = {
   notLinked:
     "This chat is not linked to RedGiant. Open RedGiant, Settings, Telegram, Pair, then send /start <code>.",
   error: "Error: {error}",
+  noModel:
+    "No model is chosen yet. Open RedGiant, Settings, Models and subscriptions, connect one (a subscription, a key or a local model) and write to me again.",
   approvalNeeded: "Approval needed: {agent}{project} wants {tool}",
   why: "Why: {reasons}",
   danger: "Danger: {danger}",
@@ -55,6 +57,8 @@ const it: Record<TextKey, string> = {
   notLinked:
     "Questa chat non è collegata a RedGiant. Apri RedGiant, Impostazioni, Telegram, Abbina, poi manda /start <codice>.",
   error: "Errore: {error}",
+  noModel:
+    "Non hai ancora scelto un modello. Apri RedGiant, Impostazioni, Modelli e abbonamenti, collegane uno (un abbonamento, una chiave o un modello locale) e poi scrivimi di nuovo.",
   approvalNeeded: "Serve un'approvazione: {agent}{project} vuole usare {tool}",
   why: "Perché: {reasons}",
   danger: "Pericolo: {danger}",
