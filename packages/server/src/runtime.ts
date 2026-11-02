@@ -1,3 +1,4 @@
+import { Resolver } from "node:dns/promises";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { KvStore, LocalEngineProvider } from "@redgiant/engine-local";
@@ -50,6 +51,18 @@ export interface RuntimeOptions {
       /** The container's name (tests use their own). */
       name?: string;
     };
+    /** Pi-hole, the home's DNS by choice (G24.14c). */
+    pihole?: {
+      image?: string;
+      name?: string;
+      volumePrefix?: string;
+      /** "" publishes nothing (tests share a network instead); else ports on the home address. */
+      bind?: string;
+      /** Where the check asks it (tests: 127.0.0.1); default its address on `network`. */
+      checkAt?: string;
+      /** Its admin page's port inside (tests change it when sharing a network). */
+      webPort?: number;
+    };
     network: string;
     modelsVolume: string;
     kvVolume: string;
@@ -59,6 +72,7 @@ export interface RuntimeOptions {
 }
 
 const ENGINE = "redgiant-engine";
+const PIHOLE = "redgiant-pihole";
 const GITEA = "redgiant-gitea";
 
 /** How the wizard's choices take effect while the server runs (G17). */
@@ -288,6 +302,97 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         await container.remove({ force: true }).catch(() => {});
         throw new JobFailure("no_gpu", "llama.cpp found no usable GPU and would run on the CPU");
       }
+    },
+
+    async pihole(cfg, h) {
+      const e = o.engine;
+      if (!e) throw new Error("Pi-hole needs RedGiant's Docker installation");
+      const p = e.pihole ?? {};
+      const name = p.name ?? PIHOLE;
+      const old = e.docker.getContainer(name);
+      // Settings may have changed: it is always started anew (its data stay in the volume).
+      await old.remove({ force: true }).catch(() => {});
+      if (!cfg) return null;
+      const image = p.image ?? "pihole/pihole:2026.10.1";
+      const present = await e.docker
+        .getImage(image)
+        .inspect()
+        .then(() => true)
+        .catch(() => false);
+      if (present) h?.skip("pihole_image");
+      else {
+        h?.step("pihole_image");
+        await pullWithProgress(e.docker, image, h);
+      }
+      h?.step("pihole_start");
+      const webPort = p.webPort ?? 80;
+      const publish = p.bind !== "";
+      const c = await e.docker.createContainer({
+        name,
+        Image: image,
+        Labels: { "io.redgiant.pihole": "1" },
+        Env: [
+          `TZ=${Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"}`,
+          `FTLCONF_webserver_api_password=${cfg.password}`,
+          "FTLCONF_dns_listeningMode=all",
+          `FTLCONF_webserver_port=${webPort}`,
+          ...(cfg.domain ? [`FTLCONF_dns_hosts=${cfg.lanIp} ${cfg.domain}`] : []),
+        ],
+        ...(publish && {
+          ExposedPorts: { "53/tcp": {}, "53/udp": {}, [`${webPort}/tcp`]: {} },
+        }),
+        HostConfig: {
+          RestartPolicy: { Name: "unless-stopped" },
+          NetworkMode: e.network,
+          // DNS only on the server's home address: never on the whole internet.
+          ...(publish && {
+            PortBindings: {
+              "53/tcp": [{ HostIp: cfg.lanIp, HostPort: "53" }],
+              "53/udp": [{ HostIp: cfg.lanIp, HostPort: "53" }],
+              [`${webPort}/tcp`]: [{ HostIp: cfg.lanIp, HostPort: "8053" }],
+            },
+          }),
+          Mounts: [
+            {
+              Type: "volume",
+              Source: `${p.volumePrefix ?? "redgiant-pihole"}-etc`,
+              Target: "/etc/pihole",
+            },
+          ],
+        },
+      });
+      try {
+        await c.start();
+      } catch (err) {
+        await c.remove({ force: true }).catch(() => {});
+        const m = (err as Error).message;
+        if (/address already in use|port is already allocated/i.test(m))
+          throw new JobFailure(
+            "port_busy",
+            `Port 53 on ${cfg.lanIp} is already used by another DNS (often the system's own)`,
+          );
+        if (/cannot assign requested address/i.test(m))
+          throw new JobFailure("wrong_address", `${cfg.lanIp} is not an address of this computer`);
+        throw err;
+      }
+      h?.step("pihole_check");
+      const at =
+        p.checkAt ??
+        (await c.inspect()).NetworkSettings.Networks[e.network]?.IPAddress ??
+        cfg.lanIp;
+      const resolver = new Resolver({ timeout: 2000, tries: 1 });
+      resolver.setServers([at]);
+      for (let i = 0; ; i++) {
+        const ok = await resolver
+          .resolve4(cfg.domain ?? "pi.hole")
+          .then((a) => !cfg.domain || a.includes(cfg.lanIp))
+          .catch(() => false);
+        if (ok) break;
+        if (i > 45)
+          throw new JobFailure("pihole_silent", "Pi-hole did not answer within 90 seconds");
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      return { adminUrl: `http://${cfg.lanIp}:8053/admin/` };
     },
 
     async gitea(cfg, h) {

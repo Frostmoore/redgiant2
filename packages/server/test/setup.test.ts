@@ -11,6 +11,7 @@ import {
   HuggingFace,
   hostGpus,
   isModelFile,
+  JobFailure,
   Jobs,
   localModelChoices,
   qualityOf,
@@ -55,6 +56,12 @@ function fakeHooks() {
     },
     async engine(cfg) {
       calls.push(`engine:${cfg ? `${cfg.variant}:${cfg.model}` : "off"}`);
+    },
+    async pihole(o, h) {
+      if (o?.lanIp === "10.9.9.9") throw new JobFailure("port_busy", "port 53 is taken");
+      calls.push(`pihole:${o ? `${o.lanIp}:${o.domain}:${o.password.length}` : "off"}`);
+      h?.step("pihole_image");
+      return o ? { adminUrl: `http://${o.lanIp}:8053/admin/` } : null;
     },
   };
   return { hooks, calls };
@@ -298,6 +305,51 @@ describe("the setup wizard", () => {
       serverKey: "old-server-key",
     });
     next.stop();
+  });
+
+  it("runs Pi-hole by choice, keeps its password and stops it", async () => {
+    const { calls, dataDir } = await setup();
+    const api = (s as Server).api;
+    // Not a home address: refused before anything starts.
+    expect((await api("POST", "/api/setup/pihole", { lanIp: "not-an-ip" })).status).toBe(400);
+    const busy = await api<Job>("POST", "/api/setup/pihole", { lanIp: "10.9.9.9" });
+    expect((await s?.core.jobs.settled(busy.body.id))?.error?.code).toBe("port_busy");
+    expect((await api("GET", "/api/setup/pihole/password")).body).toEqual({ password: null });
+
+    const job = await api<Job>("POST", "/api/setup/pihole", {
+      lanIp: "192.168.1.50",
+      domain: "casa.example.org",
+    });
+    expect(job.body.steps.map((x) => x.id)).toEqual([
+      "pihole_image",
+      "pihole_start",
+      "pihole_check",
+    ]);
+    expect((await s?.core.jobs.settled(job.body.id))?.state).toBe("done");
+    expect(calls).toContain("pihole:192.168.1.50:casa.example.org:16");
+    const state = (await api<SetupState>("GET", "/api/setup")).body;
+    expect(state.config.pihole).toEqual({
+      lanIp: "192.168.1.50",
+      domain: "casa.example.org",
+      adminUrl: "http://192.168.1.50:8053/admin/",
+    });
+    const { password } = (await api<{ password: string }>("GET", "/api/setup/pihole/password"))
+      .body;
+    expect(password).toHaveLength(16);
+    // The password is a secret: never in the configuration the API returns.
+    expect(JSON.stringify(state)).not.toContain(password);
+    expect(JSON.parse(await readFile(join(dataDir, "secrets.json"), "utf8")).piholePassword).toBe(
+      password,
+    );
+    // Started again, it keeps the same password.
+    const again = await api<Job>("POST", "/api/setup/pihole", { lanIp: "192.168.1.51" });
+    await s?.core.jobs.settled(again.body.id);
+    expect((await api("GET", "/api/setup/pihole/password")).body).toEqual({ password });
+
+    expect((await api("DELETE", "/api/setup/pihole")).status).toBe(200);
+    expect(calls.at(-1)).toBe("pihole:off");
+    expect((await api<SetupState>("GET", "/api/setup")).body.config.pihole).toBeUndefined();
+    expect((await api("GET", "/api/setup/pihole/password")).body).toEqual({ password: null });
   });
 
   it("erases old event payloads when a retention period is set", async () => {

@@ -401,7 +401,61 @@ const en = {
   caddyDomain: "The address",
   caddyDomainHelp: "RedGiant gets its HTTPS certificate from Let's Encrypt by itself.",
   caddyPihole:
-    "Inside home some routers cannot reach their own public address: then open RedGiant at home with its usual link, or set a local DNS (Pi-hole) for this address.",
+    "Inside home some routers cannot reach their own public address: then open RedGiant at home with its usual link, or turn on Pi-hole in Settings, Access from outside home (it is optional).",
+  piholeTitle: "The home's own DNS, with Pi-hole (optional)",
+  piholeWhat:
+    "Every device at home asks a DNS server which number is behind a name (for example redgiant.yourdomain.com). Usually your router or your internet provider answers. Pi-hole is a small DNS that RedGiant can run on this computer: it answers for your domain with this computer's home address, so the link works at home too, and it also blocks advertising and tracking for every device that uses it.",
+  piholeNeedTitle: "You need it if",
+  piholeNeed:
+    "you reach RedGiant from outside with your own domain, and at home the same link does not open. Many routers cannot send you back to your own house through the internet (the feature is called NAT loopback or hairpin, and theirs lacks it).",
+  piholeTest:
+    "How to check: connect your phone to the home Wi-Fi and open your RedGiant link. If it opens, you do not need Pi-hole for this (you may still want it to block ads). If it does not, but works on mobile data, Pi-hole fixes it.",
+  piholeNoNeedTitle: "You do not need it if",
+  piholeNoNeed:
+    "you use Tailscale or Cloudflare Tunnel: those links work the same at home and outside. You can still turn it on just to block ads, if you like.",
+  piholeChanges: "What changes at home, and how to go back",
+  piholeRouter:
+    "For every device at once: open your router's page (its address is usually written under the router, like 192.168.1.1), find the DHCP or LAN settings and set the DNS server to this computer's home address. Devices pick it up the next time they connect (or restart them).",
+  piholeDevice:
+    "If your router does not let you change the DNS (some providers' routers do not), set it on each device instead: in the Wi-Fi network's details on phones, in the network adapter's settings on computers.",
+  piholeSecond:
+    "A second DNS: if this computer is off, devices that only know Pi-hole cannot open any site. As a second DNS you can put your router's address or a public one (1.1.1.1): everything keeps working when this computer is off, but devices may sometimes ask the second one and then see ads, or not find your domain at home.",
+  piholeOff:
+    'To go back: put the router\'s DNS back as it was (often "automatic") and turn Pi-hole off here. Nothing else on your computers changes.',
+  piholeAds: "About blocking ads",
+  piholeAdsText:
+    "Pi-hole blocks the names of well-known advertising and tracking services, for every device that uses it, phones and TVs included. Now and then a site or an app needs one of those names to work (some shop links, some streaming apps): it then looks broken.",
+  piholeAllow:
+    "If a site stops working: open the Pi-hole page, Query Log, find the blocked name and press Allow. To pause all blocking for a few minutes, use Disable blocking in the same page.",
+  piholePort: "Technical details: port 53",
+  piholePortText:
+    "Pi-hole answers on port 53 (the DNS port) of this computer's home address only, not on the internet, and its own page on port 8053. If something on this computer already answers on port 53 (another DNS, or the system's own on some Linux systems), Pi-hole cannot start: RedGiant says so and nothing changes.",
+  piholeIp: "This computer's address at home",
+  piholeIpHelp:
+    'Four numbers like 192.168.1.50. Find it on the router\'s page among the connected devices, or on this computer: "ip a" on Linux, "ipconfig" on Windows, System Settings, Network on Mac. Better if the router always gives this computer the same address (address reservation).',
+  piholeIpWrong: "It must be four numbers from 0 to 255 separated by dots, like 192.168.1.50.",
+  piholeDomain: "Your domain (optional)",
+  piholeDomainHelp:
+    "The address you use from outside, like redgiant.yourdomain.com: Pi-hole answers for it with the address above. Leave it empty to use Pi-hole only to block ads.",
+  piholeDomainWrong: "It must be a name like redgiant.yourdomain.com.",
+  piholeStart: "Turn on Pi-hole",
+  piholeOn: "Pi-hole is on, at {ip}.",
+  piholeAnswers: "At home, {domain} now leads to {ip}.",
+  piholeNowRouter:
+    "Last step, yours: on your router (or on each device) set the DNS server to {ip}. Until then nothing at home uses Pi-hole.",
+  piholeAdmin: "Pi-hole's own page, to see what it blocks and allow a site:",
+  piholeOpenAdmin: "Open Pi-hole",
+  piholeShowPassword: "Show its password",
+  piholeStop: "Turn off Pi-hole",
+  job_pihole: "Starting Pi-hole",
+  job_step_pihole_image: "Downloading Pi-hole (only once)",
+  job_step_pihole_start: "Starting Pi-hole",
+  job_step_pihole_check: "Checking that it answers",
+  job_error_port_busy:
+    "Port 53 on that address is already used by another DNS on this computer. Turn that one off (on some Linux systems it is systemd-resolved), or keep using your router's DNS.",
+  job_error_wrong_address:
+    'That is not this computer\'s address. Check it on the router\'s page or with "ip a" / "ipconfig".',
+  job_error_pihole_silent: "Pi-hole started but did not answer. The details below say why.",
   loginPassword: "Password",
   loginCode: "Code from the app (6 digits)",
   loginWithToken: "Sign in with the token",
@@ -1551,7 +1605,61 @@ const it: Record<Key, string> = {
   caddyDomain: "L'indirizzo",
   caddyDomainHelp: "RedGiant prende da solo il certificato HTTPS da Let's Encrypt.",
   caddyPihole:
-    "In casa alcuni router non riescono a raggiungere il proprio indirizzo pubblico: allora apri RedGiant in casa con il solito link, oppure imposta un DNS locale (Pi-hole) per questo indirizzo.",
+    "In casa alcuni router non riescono a raggiungere il proprio indirizzo pubblico: allora apri RedGiant in casa con il solito link, oppure accendi Pi-hole in Impostazioni, Accesso da fuori casa (è facoltativo).",
+  piholeTitle: "Il DNS di casa, con Pi-hole (facoltativo)",
+  piholeWhat:
+    "Ogni dispositivo di casa chiede a un server DNS quale numero sta dietro a un nome (per esempio redgiant.tuodominio.it). Di solito risponde il router o il tuo fornitore di internet. Pi-hole è un piccolo DNS che RedGiant può far girare su questo computer: per il tuo dominio risponde con l'indirizzo di casa di questo computer, così il link funziona anche in casa, e in più blocca pubblicità e tracciamento per ogni dispositivo che lo usa.",
+  piholeNeedTitle: "Ti serve se",
+  piholeNeed:
+    "raggiungi RedGiant da fuori con un tuo dominio, e in casa lo stesso link non si apre. Molti router non sanno rimandarti a casa tua passando da internet (la funzione si chiama NAT loopback o hairpin, e il loro non ce l'ha).",
+  piholeTest:
+    "Come capirlo: collega il telefono al Wi-Fi di casa e apri il link di RedGiant. Se si apre, Pi-hole per questo non ti serve (puoi volerlo lo stesso per bloccare la pubblicità). Se non si apre, ma con i dati del telefono sì, Pi-hole lo risolve.",
+  piholeNoNeedTitle: "Non ti serve se",
+  piholeNoNeed:
+    "usi Tailscale o Cloudflare Tunnel: quei link funzionano uguale in casa e fuori. Puoi comunque accenderlo solo per bloccare la pubblicità, se ti va.",
+  piholeChanges: "Cosa cambia in casa, e come tornare indietro",
+  piholeRouter:
+    "Per tutti i dispositivi insieme: apri la pagina del router (l'indirizzo di solito è scritto sotto il router, tipo 192.168.1.1), cerca le impostazioni DHCP o LAN e metti come server DNS l'indirizzo di casa di questo computer. I dispositivi lo prendono la prossima volta che si collegano (oppure riavviali).",
+  piholeDevice:
+    "Se il router non permette di cambiare il DNS (alcuni router dei fornitori no), impostalo su ogni dispositivo: nei dettagli della rete Wi-Fi sui telefoni, nelle impostazioni della scheda di rete sui computer.",
+  piholeSecond:
+    "Un secondo DNS: se questo computer è spento, i dispositivi che conoscono solo Pi-hole non aprono nessun sito. Come secondo DNS puoi mettere l'indirizzo del router o uno pubblico (1.1.1.1): tutto continua a funzionare a computer spento, ma a volte i dispositivi chiedono al secondo e allora vedono la pubblicità, o in casa non trovano il tuo dominio.",
+  piholeOff:
+    "Per tornare indietro: rimetti il DNS del router com'era (spesso \"automatico\") e spegni Pi-hole da qui. Sui tuoi computer non cambia nient'altro.",
+  piholeAds: "Sul blocco della pubblicità",
+  piholeAdsText:
+    "Pi-hole blocca i nomi dei servizi di pubblicità e tracciamento più noti, per ogni dispositivo che lo usa, telefoni e TV compresi. Ogni tanto un sito o un'app ha bisogno di uno di quei nomi per funzionare (certi link dei negozi, certe app di streaming): allora sembra rotto.",
+  piholeAllow:
+    "Se un sito smette di funzionare: apri la pagina di Pi-hole, Query Log, trova il nome bloccato e premi Allow. Per sospendere tutto il blocco per qualche minuto usa Disable blocking nella stessa pagina.",
+  piholePort: "Dettagli tecnici: la porta 53",
+  piholePortText:
+    "Pi-hole risponde sulla porta 53 (quella del DNS) solo all'indirizzo di casa di questo computer, non su internet, e la sua pagina sta sulla porta 8053. Se su questo computer qualcos'altro risponde già sulla porta 53 (un altro DNS, o quello del sistema su alcuni Linux), Pi-hole non può partire: RedGiant te lo dice e non cambia niente.",
+  piholeIp: "L'indirizzo di casa di questo computer",
+  piholeIpHelp:
+    'Quattro numeri tipo 192.168.1.50. Lo trovi nella pagina del router tra i dispositivi collegati, oppure su questo computer: "ip a" su Linux, "ipconfig" su Windows, Impostazioni di Sistema, Rete su Mac. Meglio se il router dà sempre lo stesso indirizzo a questo computer (prenotazione dell\'indirizzo).',
+  piholeIpWrong: "Devono essere quattro numeri da 0 a 255 separati da punti, tipo 192.168.1.50.",
+  piholeDomain: "Il tuo dominio (facoltativo)",
+  piholeDomainHelp:
+    "L'indirizzo che usi da fuori, tipo redgiant.tuodominio.it: Pi-hole risponde per quello con l'indirizzo qui sopra. Lascialo vuoto per usare Pi-hole solo contro la pubblicità.",
+  piholeDomainWrong: "Deve essere un nome tipo redgiant.tuodominio.it.",
+  piholeStart: "Accendi Pi-hole",
+  piholeOn: "Pi-hole è acceso, su {ip}.",
+  piholeAnswers: "In casa {domain} ora porta a {ip}.",
+  piholeNowRouter:
+    "Ultimo passo, tocca a te: sul router (o su ogni dispositivo) metti come server DNS {ip}. Finché non lo fai, in casa nessuno usa Pi-hole.",
+  piholeAdmin: "La pagina di Pi-hole, per vedere cosa blocca e sbloccare un sito:",
+  piholeOpenAdmin: "Apri Pi-hole",
+  piholeShowPassword: "Mostra la sua password",
+  piholeStop: "Spegni Pi-hole",
+  job_pihole: "Avvio di Pi-hole",
+  job_step_pihole_image: "Scarico Pi-hole (una volta sola)",
+  job_step_pihole_start: "Avvio Pi-hole",
+  job_step_pihole_check: "Controllo che risponda",
+  job_error_port_busy:
+    "La porta 53 su quell'indirizzo è già usata da un altro DNS di questo computer. Spegni quello (su alcuni Linux è systemd-resolved), oppure continua a usare il DNS del router.",
+  job_error_wrong_address:
+    'Questo non è l\'indirizzo di questo computer. Controllalo nella pagina del router o con "ip a" / "ipconfig".',
+  job_error_pihole_silent: "Pi-hole è partito ma non risponde. I dettagli qui sotto dicono perché.",
   loginPassword: "Password",
   loginCode: "Codice dell'app (6 cifre)",
   loginWithToken: "Entra con il token",

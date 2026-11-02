@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
 import { t } from "../i18n.js";
 import { getApi } from "../state.js";
+import { PiholePanel } from "./Pihole.js";
 import { RemoteAccess } from "./RemoteAccess.js";
 
 /** Settings, access from outside home (G24.6): as in the advanced wizard. */
@@ -18,6 +19,9 @@ export function RemoteSettings() {
       <h2>{t("wzRemote")}</h2>
       <p class="ui-purpose">{t("remotePurpose")}</p>
       <RemoteAccess s={s} onChange={load} />
+      <div class="brain">
+        <PiholePanel s={s} onChange={load} />
+      </div>
     </div>
   );
 }

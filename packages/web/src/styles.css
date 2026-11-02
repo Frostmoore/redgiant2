@@ -3340,3 +3340,13 @@ a.button.primary {
   user-select: all;
   word-break: break-all;
 }
+
+/* Pi-hole (G24.14c): when it is needed, side by side. */
+.pihole-when {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+.pihole-when h4 {
+  margin: 0 0 4px;
+}

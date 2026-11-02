@@ -48,6 +48,7 @@ export interface SetupState {
     mode?: "standard" | "advanced";
     git?: { github?: { login: string }; gitea?: { user: string; publicUrl: string } };
     remote?: { way: "tailscale" | "cloudflare" | "caddy"; url: string };
+    pihole?: { lanIp: string; domain?: string; adminUrl: string };
     server?: { baseUrl: string };
     searxngUrl?: string;
     transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
@@ -606,6 +607,12 @@ export class Api {
   startGitea = (user: string, password: string) =>
     this.call<Job>("POST", "/api/setup/gitea", { user, password });
   stopGitea = () => this.call("DELETE", "/api/setup/gitea");
+  /** Starts Pi-hole, the home's own DNS: a job to follow. */
+  startPihole = (lanIp: string, domain?: string) =>
+    this.call<Job>("POST", "/api/setup/pihole", { lanIp, ...(domain && { domain }) });
+  stopPihole = () => this.call("DELETE", "/api/setup/pihole");
+  piholePassword = () =>
+    this.call<{ password: string | null }>("GET", "/api/setup/pihole/password");
   gitSync = () =>
     this.call<{ project: string; ok: boolean; error?: string; code?: string }[]>(
       "POST",

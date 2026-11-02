@@ -477,6 +477,17 @@ const setup = new SetupService({
       await new Promise((r) => setTimeout(r, 800));
       return { url: "https://redgiant.tail1234.ts.net" };
     },
+    // Pi-hole acted out: a busy port at one address, otherwise its steps.
+    pihole: async (o, h) => {
+      if (!o) return null;
+      for (const step of ["pihole_image", "pihole_start", "pihole_check"]) {
+        h?.step(step);
+        await new Promise((r) => setTimeout(r, 600));
+        if (o.lanIp === "10.0.0.53" && step === "pihole_start")
+          throw new JobFailure("port_busy", "Port 53 on 10.0.0.53 is already used by another DNS");
+      }
+      return { adminUrl: `http://${o.lanIp}:8053/admin/` };
+    },
     // Gitea's steps, acted out.
     gitea: async (cfg, h) => {
       if (!cfg) return null;

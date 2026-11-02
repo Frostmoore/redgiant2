@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SqlClient } from "@redgiant/events";
@@ -54,6 +55,14 @@ export interface SetupHooks {
   ): Promise<{ token: string; publicUrl: string } | null>;
   /** A way to reach RedGiant from outside home (G24.6); null switches every way off. */
   remote?(req: RemoteRequest | null, h?: JobHandle): Promise<{ url: string } | null>;
+  /**
+   * Pi-hole, the home's own DNS (G24.14c, by choice): the domain answers with the server's
+   * address at home, ads and trackers are blocked. null stops it (its settings stay).
+   */
+  pihole?(
+    o: { lanIp: string; domain?: string; password: string } | null,
+    h?: JobHandle,
+  ): Promise<{ adminUrl: string } | null>;
 }
 
 export interface SetupConfig {
@@ -81,6 +90,8 @@ export interface SetupConfig {
   git?: GitHostsConfig;
   /** How RedGiant is reached from outside home, and at which address (G24.6). */
   remote?: { way: RemoteRequest["way"]; url: string };
+  /** Pi-hole, when chosen (its admin password is in the secrets). */
+  pihole?: { lanIp: string; domain?: string; adminUrl: string };
 }
 
 interface Secrets {
@@ -93,6 +104,7 @@ interface Secrets {
   claudeSubscriptionToken?: string;
   githubToken?: string;
   giteaToken?: string;
+  piholePassword?: string;
   cloudflareToken?: string;
 }
 
@@ -584,6 +596,41 @@ export class SetupService {
       },
       { user },
     );
+  }
+
+  /**
+   * Starts Pi-hole as a job (G24.14c): the image, the container on the server's home address,
+   * a check that it answers for the domain. Its admin password is made here and kept.
+   */
+  startPihole(lanIp: string, domain?: string): Job {
+    const hook = this.o.hooks.pihole;
+    if (!hook) throw new SetupError("This installation cannot run Pi-hole");
+    const password = this.secrets.piholePassword ?? randomBytes(12).toString("base64url");
+    return this.o.core.jobs.start(
+      this.o.ownerId,
+      "pihole",
+      ["pihole_image", "pihole_start", "pihole_check"],
+      async (h) => {
+        const r = await hook({ lanIp, ...(domain && { domain }), password }, h);
+        if (!r) throw new JobFailure("pihole_silent", "Pi-hole did not start");
+        this.secrets.piholePassword = password;
+        this.config.pihole = { lanIp, ...(domain && { domain }), adminUrl: r.adminUrl };
+        await this.save();
+        return { url: r.adminUrl };
+      },
+      { lanIp },
+    );
+  }
+
+  async stopPihole(): Promise<void> {
+    await this.o.hooks.pihole?.(null);
+    delete this.config.pihole;
+    await this.save();
+  }
+
+  /** Pi-hole's admin password, for the person (shown on request, never logged). */
+  piholePassword(): string | null {
+    return this.config.pihole ? (this.secrets.piholePassword ?? null) : null;
   }
 
   /** Stops Gitea; its repositories stay, ready for the next start. */

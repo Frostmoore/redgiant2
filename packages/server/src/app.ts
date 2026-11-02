@@ -1629,6 +1629,26 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     }),
   );
   app.delete("/api/setup/gitea", (c) => wizard(c, () => (setup as SetupService).stopGitea()));
+  // Pi-hole, the home's own DNS, by choice (G24.14c).
+  app.post("/api/setup/pihole", (c) =>
+    wizard(c, async () => {
+      const b = await parsed(
+        c,
+        z.object({
+          lanIp: z.ipv4(),
+          domain: z
+            .string()
+            .regex(/^(?=.{1,253}$)([a-z0-9-]{1,63}\.)+[a-z]{2,63}$/i)
+            .optional(),
+        }),
+      );
+      return (setup as SetupService).startPihole(b.lanIp, b.domain);
+    }),
+  );
+  app.delete("/api/setup/pihole", (c) => wizard(c, () => (setup as SetupService).stopPihole()));
+  app.get("/api/setup/pihole/password", (c) =>
+    wizard(c, async () => ({ password: (setup as SetupService).piholePassword() })),
+  );
   // Undo a summary asked by hand (G24.14): the whole history comes back from the log.
   app.post("/api/sessions/:id/compaction/undo", async (c) => {
     try {
