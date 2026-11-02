@@ -43,9 +43,13 @@ export class SubprojectWorkspace implements Workspace {
   /** Relative to the root; an absolute path outside it is left as is (the workspace refuses it). */
   private rel(path: string): string | null {
     const p = path.replaceAll("\\", "/");
-    if (!posix.isAbsolute(p)) return norm(p);
+    // Windows paths ("C:/…", "//server/…") are absolute too.
+    const windows = /^[A-Za-z]:\//.test(p) || p.startsWith("//");
+    if (!posix.isAbsolute(p) && !windows) return norm(p);
     const root = this.root.replaceAll("\\", "/").replace(/\/+$/, "");
-    return p === root || p.startsWith(`${root}/`) ? norm(p.slice(root.length)) : null;
+    // Drive letters and Windows paths compare without case.
+    const [a, b] = windows ? [p.toLowerCase(), root.toLowerCase()] : [p, root];
+    return a === b || a.startsWith(`${b}/`) ? norm(p.slice(root.length)) : null;
   }
 
   private visible(path: string): string {
@@ -93,7 +97,12 @@ export class SubprojectWorkspace implements Workspace {
   }
 
   exec(command: string, options: ExecOptions): Promise<ExecResult> {
-    return this.inner.exec(`cd ${quote(this.own)} && ${command}`, options);
+    // cmd.exe on Windows (a local workspace), a POSIX shell everywhere else.
+    const cd =
+      process.platform === "win32"
+        ? `cd /d "${this.own.replaceAll("/", "\\")}"`
+        : `cd ${quote(this.own)}`;
+    return this.inner.exec(`${cd} && ${command}`, options);
   }
 
   execFile(file: string, args: string[], options: ExecOptions): Promise<ExecResult> {

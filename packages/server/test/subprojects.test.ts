@@ -118,7 +118,12 @@ describe("subprojects (G24.13)", () => {
     steps["read shared"] = { name: "read_file", input: { path: "shared/theme.css" } };
     steps["sneak"] = {
       name: "bash",
-      input: { command: "echo hack > ../../shared/hack.txt && pwd" },
+      input: {
+        command:
+          process.platform === "win32"
+            ? "echo hack> ..\\..\\shared\\hack.txt && cd"
+            : "echo hack > ../../shared/hack.txt && pwd",
+      },
     };
     for (const step of ["write own", "write shared", "read sibling", "read shared", "sneak"])
       await talk(agent.body.id, step);
@@ -127,7 +132,7 @@ describe("subprojects (G24.13)", () => {
     expect(results[1]).toMatch(/outside your subproject/);
     expect(results[2]).toMatch(/No such file|another subproject/);
     expect(results[3]).toContain("body{}");
-    expect(results[4]).toMatch(/apps\/shop/);
+    expect(results[4]).toMatch(/apps[\\/]shop/);
 
     // The shell wrote in the shared part: the merge waits for the orchestrator.
     steps["merge"] = { name: "merge_work", input: { agent_id: agent.body.id, message: "cart" } };

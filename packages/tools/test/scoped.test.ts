@@ -35,9 +35,8 @@ describe("a subproject's view of its project (G24.13)", () => {
 
   it("runs commands in its folder", async () => {
     const ws = await project();
-    if (process.platform === "win32") return;
-    const r = await ws.exec("ls", { timeoutMs: 5000 });
-    expect(r.stdout.trim().split("\n")).toContain("cart.ts");
+    const r = await ws.exec(process.platform === "win32" ? "dir /b" : "ls", { timeoutMs: 5000 });
+    expect(r.stdout.trim().split(/\r?\n/)).toContain("cart.ts");
   });
 
   it("can be read-only (a subproject's inspector)", async () => {
