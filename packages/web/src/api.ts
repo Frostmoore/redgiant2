@@ -783,6 +783,17 @@ export class Api {
       "GET",
       `/api/setup/media/voices?provider=${encodeURIComponent(provider)}`,
     );
+  /** The person chose a variant of a board, or commented on one (G25.4). */
+  answerVariants = (
+    sessionId: string,
+    a: { proposalId: string; variant: number | null; choice?: boolean; comment?: string },
+  ) => this.call("POST", `/api/sessions/${encodeURIComponent(sessionId)}/variants`, a);
+  /** A signed link to a board's pages: `<base><n>.html`. */
+  boardLink = (sessionId: string, proposalId: string) =>
+    this.call<{ base: string }>(
+      "GET",
+      `/api/sessions/${encodeURIComponent(sessionId)}/variants/${encodeURIComponent(proposalId)}/link`,
+    );
   /** A signed link to show something in the canvas (G25.1). */
   canvasLink = (
     target:

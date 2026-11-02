@@ -3540,3 +3540,190 @@ a.button.primary {
   min-width: 240px;
   flex: 1;
 }
+
+/* A board of variants (G25.4), as Officina's: a page of its own, previews scaled from real widths. */
+.tavola {
+  height: 100%;
+  overflow: auto;
+  background: var(--bg);
+  color: var(--text);
+}
+.tavola-head {
+  padding: 20px 20px 8px;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+.tavola-head h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+}
+.tavola-description {
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+.tavola-screens {
+  border: 0;
+  padding: 0;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.tavola-screens button {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px;
+}
+.tavola-screens button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.tavola-grid {
+  display: grid;
+  gap: 18px;
+  padding: 12px 20px 24px;
+  max-width: 1600px;
+  margin: 0 auto;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--tavola-col, 460px)), 1fr));
+}
+.tavola-variant {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.tavola-variant.chosen {
+  border-color: var(--ok, #2e9d5b);
+  box-shadow: 0 0 0 2px var(--ok, #2e9d5b);
+}
+.tavola-variant-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 14px;
+}
+.tavola-variant-head h2 {
+  margin: 0;
+  font-size: 15px;
+  flex: 1;
+}
+.tavola-badge {
+  background: var(--ok, #2e9d5b);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+}
+.tavola-note {
+  padding: 0 14px 10px;
+  color: var(--dim);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+.tavola-frame {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.tavola-frame iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 0;
+  transform-origin: 0 0;
+  background: #fff;
+}
+.tavola-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px 14px;
+}
+.tavola-actions .row,
+.tavola-general .row {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tavola-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tavola textarea {
+  width: 100%;
+  min-height: 54px;
+  resize: vertical;
+  font-size: 13px;
+}
+.tavola-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.tavola-history li {
+  white-space: pre-wrap;
+}
+.tavola-status {
+  font-size: 12px;
+  min-height: 1em;
+}
+.tavola-status.ok {
+  color: var(--ok, #2e9d5b);
+}
+.tavola-status.ko {
+  color: var(--accent);
+}
+.tavola-general {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 20px 32px;
+}
+.tavola-general .tavola-variant {
+  padding: 14px;
+  gap: 8px;
+}
+.tavola-full {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 60%);
+  display: flex;
+  flex-direction: column;
+  z-index: 60;
+}
+.tavola-full-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.tavola-full-bar strong {
+  flex: 1;
+}
+.tavola-full-body {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  overflow: auto;
+  padding: 12px;
+}
+.tavola-full-body iframe {
+  border: 0;
+  background: #fff;
+  height: 100%;
+  max-width: 100%;
+  border-radius: 6px;
+}

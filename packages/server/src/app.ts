@@ -1724,6 +1724,23 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     if (!scope || path === undefined) return c.json({ error: "scope and path are needed" }, 400);
     return c.json({ version: await core.canvasVersion(owner(c), scope, path) }, 200);
   });
+  // A board's answer (G25.4): the person chose a variant or commented on one.
+  app.post("/api/sessions/:id/variants", async (c) => {
+    const body = z
+      .object({
+        proposalId: z.string().regex(/^[0-9a-f]{12}$/),
+        variant: z.number().int().min(1).max(8).nullable(),
+        choice: z.boolean().default(false),
+        comment: z.string().max(4000).optional(),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!body.success) return c.json({ error: body.error.message }, 400);
+    await core.answerVariants(owner(c), c.req.param("id"), body.data);
+    return c.json({ ok: true }, 200);
+  });
+  app.get("/api/sessions/:id/variants/:proposal/link", async (c) =>
+    c.json(await core.boardLink(owner(c), c.req.param("id"), c.req.param("proposal")), 200),
+  );
   // The preview itself: the signed link is the credential, so no bearer token here.
   app.all("/preview/:token/*", async (c) => {
     const token = c.req.param("token");

@@ -72,6 +72,16 @@ export type ChatItem =
       mime: string;
       caption?: string;
     }
+  /** A board of variants (G25.4): a card that opens it, with what the person said. */
+  | {
+      kind: "variants";
+      key: string;
+      sessionId: string;
+      proposalId: string;
+      title: string;
+      count: number;
+      chosen: number | null;
+    }
   /** Something the agent showed in the canvas (G25.1): a card that opens it. */
   | { kind: "canvas"; key: string; title: string; target: CanvasTarget }
   /** The conversation was summarised here (G24.14). */
@@ -203,6 +213,24 @@ export function buildItems(events: Event[]): ChatItem[] {
           undoable: false,
         });
         break;
+      case "variants.proposed":
+        items.push({
+          kind: "variants",
+          key,
+          sessionId: e.sessionId ?? "",
+          proposalId: e.payload.proposalId,
+          title: e.payload.title,
+          count: e.payload.variants.length,
+          chosen: null,
+        });
+        break;
+      case "variants.answered": {
+        const v = items.find(
+          (i) => i.kind === "variants" && i.proposalId === e.payload?.proposalId,
+        );
+        if (v?.kind === "variants" && e.payload.choice) v.chosen = e.payload.variant;
+        break;
+      }
       case "file.sent":
         items.push({ kind: "file", key, ...e.payload });
         break;
@@ -535,7 +563,9 @@ export type Tab =
   | { id: string; type: "settings"; title: string; section?: SettingsSection }
   | { id: string; type: "room"; title: string; roomId: string }
   /** A personal assistant's page, or a new one when `agentId` is null (G24.11). */
-  | { id: string; type: "assistant"; title: string; agentId: string | null };
+  | { id: string; type: "assistant"; title: string; agentId: string | null }
+  /** A board of variants an agent published (G25.4), a page of its own as in Officina. */
+  | { id: string; type: "tavola"; title: string; sessionId: string; proposalId: string };
 
 /** What the area on the right shows, next to the chat. */
 export type SideView =
@@ -681,6 +711,11 @@ export function openCanvas(title: string, target: CanvasTarget): void {
     ? sideViews.value.map((v) => (v.id === id ? view : v))
     : [...sideViews.value, view];
   activeSide.value = id;
+}
+
+/** Opens a board of variants as a page of its own (G25.4). */
+export function openBoard(sessionId: string, proposalId: string, title: string): void {
+  openTab({ id: `tavola:${proposalId}`, type: "tavola", title, sessionId, proposalId });
 }
 
 /** The scope the explorer shows: the active conversation's project, or God's platform. */

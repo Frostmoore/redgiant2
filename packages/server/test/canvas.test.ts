@@ -7,6 +7,7 @@ import type { Event } from "@redgiant/protocol";
 import type { CompletionRequest } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
 import { PREVIEW_HEADERS, Previews, rewrite, serveFile } from "../src/canvas.js";
+import { boardAnswerText } from "../src/core.js";
 import { startServer } from "./helpers.js";
 
 type Server = Awaited<ReturnType<typeof startServer>>;
@@ -177,5 +178,118 @@ describe("the canvas (G25.1)", () => {
     expect(page.headers.get("content-security-policy")).toContain("sandbox");
     const moved = await fetch(`${s.url}${prefix}/old`, { redirect: "manual" });
     expect(moved.headers.get("location")).toBe(`${prefix}/new`);
+  });
+
+  it("publishes a board as Officina's, and the person's choices and comments go back (G25.4)", async () => {
+    const heard: string[] = [];
+    s = await startServer((req) => {
+      const last = req.messages.at(-1);
+      const said = last?.parts.find((p) => p.type === "text");
+      const r = resultOf(req);
+      if (said?.type === "text" && said.text.startsWith("[Board")) {
+        heard.push(said.text);
+        return { text: "Noted." };
+      }
+      if (r === undefined)
+        return {
+          toolCalls: [
+            {
+              name: "write_file",
+              input: { path: "b.html", content: "<h1>B</h1><img src='/x.png'>" },
+            },
+          ],
+        };
+      if (r.startsWith("Created"))
+        return {
+          toolCalls: [
+            {
+              name: "publish_board",
+              input: {
+                title: "La home",
+                description: "Due strade",
+                variants: [
+                  { title: "Scura", note: "Rosso su nero", html: "<h1>A</h1>" },
+                  { title: "Chiara", file: "b.html" },
+                ],
+              },
+            },
+          ],
+        };
+      return { text: "Look at the board." };
+    });
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const { body } = await s.api<{ sessionId: string }>("POST", "/api/sessions", {
+      agentId: god.body.id,
+    });
+    const sid = body.sessionId;
+    await (await s.core.send("me", sid, "Show me options")).done;
+    const events = (await s.api<Event[]>("GET", `/api/sessions/${sid}/events`)).body;
+    const result = events.find(
+      (e) => e.type === "tool.result" && String(e.payload?.output).startsWith("Board published"),
+    );
+    expect(String(result?.type === "tool.result" && result.payload?.output)).toContain(
+      "2 variants: 1. Scura · 2. Chiara",
+    );
+    const proposed = events.find((e) => e.type === "variants.proposed");
+    const p = proposed?.payload as { proposalId: string; variants: unknown[] };
+    expect(p.proposalId).toMatch(/^[0-9a-f]{12}$/);
+    expect(p.variants).toEqual([
+      { title: "Scura", note: "Rosso su nero", bytes: 10 },
+      { title: "Chiara", bytes: 28 },
+    ]);
+    // The pages were copied: changing the file later does not change the board.
+    const link = await s.api<{ base: string }>(
+      "GET",
+      `/api/sessions/${sid}/variants/${p.proposalId}/link`,
+    );
+    const page = await fetch(`${s.url}${link.body.base}2.html`);
+    expect(page.headers.get("content-security-policy")).toContain("sandbox");
+    expect(await page.text()).toContain("<h1>B</h1>");
+    const answer = (b: unknown) => s?.api("POST", `/api/sessions/${sid}/variants`, b);
+    expect(
+      (await answer({ proposalId: p.proposalId, variant: 2, comment: "Più grande" }))?.status,
+    ).toBe(200);
+    expect(
+      (await answer({ proposalId: p.proposalId, variant: 1, choice: true, comment: "Questa" }))
+        ?.status,
+    ).toBe(200);
+    expect(
+      (await answer({ proposalId: p.proposalId, variant: null, comment: "Il rosso della 1" }))
+        ?.status,
+    ).toBe(200);
+    // As in Officina: an empty comment, choosing the whole board, a variant or a board not there.
+    expect((await answer({ proposalId: p.proposalId, variant: 1 }))?.status).toBe(400);
+    expect((await answer({ proposalId: p.proposalId, variant: null, choice: true }))?.status).toBe(
+      400,
+    );
+    expect((await answer({ proposalId: p.proposalId, variant: 5, choice: true }))?.status).toBe(
+      400,
+    );
+    expect((await answer({ proposalId: "0123456789ab", variant: 1, choice: true }))?.status).toBe(
+      404,
+    );
+    for (let i = 0; i < 100 && heard.length < 3; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(heard).toEqual([
+      "[Board «La home»] Comment on variant 2 («Chiara»): Più grande",
+      "[Board «La home»] I chose variant 1 («Scura»).\nComment: Questa",
+      "[Board «La home»] Comment on the board: Il rosso della 1",
+    ]);
+  });
+
+  it("words the answers as Officina's, in Italian", () => {
+    const b = { title: "La home", variants: [{ title: "Scura" }, { title: "Chiara" }] };
+    expect(boardAnswerText("it", b, { variant: 2, choice: true, comment: "bella" })).toBe(
+      "[Tavola «La home»] Ho scelto la variante 2 («Chiara»).\nCommento: bella",
+    );
+    expect(boardAnswerText("it", b, { variant: 1, choice: false, comment: "più rosso" })).toBe(
+      "[Tavola «La home»] Commento su la variante 1 («Scura»): più rosso",
+    );
+    expect(boardAnswerText("it", b, { variant: null, choice: false, comment: "ok" })).toBe(
+      "[Tavola «La home»] Commento sulla tavola: ok",
+    );
   });
 });

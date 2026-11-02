@@ -26,6 +26,7 @@ import {
   getApi,
   getLive,
   inheritedModel,
+  openBoard,
   openCanvas,
   openTab,
   questions,
@@ -272,6 +273,25 @@ function Item({
       );
     case "file":
       return <FileCard item={item} />;
+    case "variants":
+      return (
+        <button
+          type="button"
+          class="canvas-card"
+          title={t("boardOpen")}
+          onClick={() => openBoard(item.sessionId, item.proposalId, item.title)}
+        >
+          <IconCanvas size={16} />
+          <span>
+            <strong>{item.title}</strong>
+            <span class="dim">
+              {item.chosen === null
+                ? t("boardWaiting", { n: String(item.count) })
+                : t("boardDone", { n: String(item.chosen) })}
+            </span>
+          </span>
+        </button>
+      );
     case "canvas":
       return (
         <button

@@ -2,7 +2,7 @@
 // Postgres and a scripted model. Usage: node packages/web/scripts/demo-server.mjs [port]
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { FakeProvider, ProviderError, ProviderRegistry } from "@redgiant/providers";
@@ -352,6 +352,42 @@ void (await core.send("local", godSid, "Plan the export feature for the reports.
         },
       },
     });
+  // A board (G25.4): three pages to choose from, kept apart as Officina's.
+  const boardId = "0a1b2c3d4e5f";
+  // Where the server keeps boards: next to the platform folder, outside every workspace.
+  const boardDir = join(dirname(dirname(core.platformPath("local"))), "boards", boardId);
+  await mkdir(boardDir, { recursive: true });
+  const page = (bg, fg, sub) =>
+    `<!doctype html><html lang="it"><body style="margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui;background:${bg};color:${fg}"><main style="text-align:center"><h1 style="font-size:64px;margin:0">Buon giorno, Red Giant</h1><p style="font-size:22px">${sub}</p></main></body></html>`;
+  const pages = [
+    page(
+      "linear-gradient(135deg,#2b0f12,#7a1e22 55%,#e0482e)",
+      "#fff",
+      "Rosso su nero, come RedGiant",
+    ),
+    page("#f6f1ea", "#2b0f12", "Toni caldi, più leggera"),
+    page("#0d1b2a", "#e0e1dd", "Notte blu, sobria"),
+  ];
+  for (const [n, html] of pages.entries()) await writeFile(join(boardDir, `${n + 1}.html`), html);
+  await core.store.append({
+    ownerId: "local",
+    projectId: null,
+    agentId: god.id,
+    sessionId: shown,
+    body: {
+      type: "variants.proposed",
+      payload: {
+        proposalId: boardId,
+        title: "La home del sito",
+        description: "Tre strade per la pagina d'ingresso.",
+        variants: [
+          { title: "Scura", note: "Rosso su nero, come RedGiant", bytes: pages[0].length },
+          { title: "Chiara", note: "Toni caldi, più leggera", bytes: pages[1].length },
+          { title: "Notte", bytes: pages[2].length },
+        ],
+      },
+    },
+  });
   for (const [title, path] of [
     ["Il sito", "site"],
     ["Spese", "spese.csv"],

@@ -6,6 +6,7 @@ import {
   IconAlert,
   IconBell,
   IconBoard,
+  IconCanvas,
   IconChat,
   IconClose,
   IconCrown,
@@ -60,6 +61,7 @@ import { Settings } from "./Settings.js";
 import { Setup } from "./Setup.js";
 import { SideArea } from "./SideArea.js";
 import { Sidebar } from "./Sidebar.js";
+import { Variants } from "./Variants.js";
 
 const level = (pct: number) => (pct >= 90 ? "high" : pct >= 70 ? "medium" : "");
 
@@ -205,6 +207,8 @@ const tabIcon = (tab: Tab) =>
     <IconUser size={13} />
   ) : tab.type === "room" ? (
     <IconUsers size={13} />
+  ) : tab.type === "tavola" ? (
+    <IconCanvas size={13} />
   ) : (
     <IconSettings size={13} />
   );
@@ -271,6 +275,8 @@ function View({ tab }: { tab: Tab }) {
       return <AssistantPage key={tab.id} agentId={tab.agentId} />;
     case "room":
       return <RoomView key={tab.id} roomId={tab.roomId} />;
+    case "tavola":
+      return <Variants key={tab.id} sessionId={tab.sessionId} proposalId={tab.proposalId} />;
   }
 }
 

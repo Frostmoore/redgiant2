@@ -155,6 +155,32 @@ export const EventBody = z.discriminatedUnion("type", [
       ]),
     }),
   }),
+  /**
+   * A board ("tavola", G25.4, as in Officina): 1 to 8 HTML pages side by side for the person to
+   * choose from or comment on. The pages are copied when it is published; what the person says
+   * goes back to the agent as a message.
+   */
+  z.object({
+    type: z.literal("variants.proposed"),
+    payload: z.object({
+      proposalId: z.string(),
+      title: z.string(),
+      description: z.string().optional(),
+      variants: z.array(
+        z.object({ title: z.string(), note: z.string().optional(), bytes: z.number().int() }),
+      ),
+    }),
+  }),
+  /** The person chose a variant (1-based) or commented on one, or on the whole board (null). */
+  z.object({
+    type: z.literal("variants.answered"),
+    payload: z.object({
+      proposalId: z.string(),
+      variant: z.number().int().nullable(),
+      choice: z.boolean(),
+      comment: z.string().optional(),
+    }),
+  }),
   /** A file an agent sent to the person (G25.2): shown in the chat, and on Telegram there. */
   z.object({
     type: z.literal("file.sent"),

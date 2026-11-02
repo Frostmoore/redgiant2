@@ -193,6 +193,35 @@ interface Live {
 
 const runFile = promisify(execFile);
 
+/**
+ * What the agent gets for an answer on a board (G25.4): it always starts with «[Tavola «title»]»,
+ * worded as Officina's (in English «[Board «title»]»).
+ */
+export function boardAnswerText(
+  language: "it" | "en",
+  board: { title: string; variants: { title: string }[] },
+  r: { variant: number | null; choice: boolean; comment?: string },
+): string {
+  const it = language === "it";
+  const name = (n: number) =>
+    it
+      ? `la variante ${n} («${board.variants[n - 1]?.title ?? "?"}»)`
+      : `variant ${n} («${board.variants[n - 1]?.title ?? "?"}»)`;
+  const head = `[${it ? "Tavola" : "Board"} «${board.title}»]`;
+  const comment = r.comment?.trim();
+  if (r.choice && r.variant !== null)
+    return it
+      ? `${head} Ho scelto ${name(r.variant)}.${comment ? `\nCommento: ${comment}` : ""}`
+      : `${head} I chose ${name(r.variant)}.${comment ? `\nComment: ${comment}` : ""}`;
+  if (r.variant !== null)
+    return it
+      ? `${head} Commento su ${name(r.variant)}: ${comment}`
+      : `${head} Comment on ${name(r.variant)}: ${comment}`;
+  return it
+    ? `${head} Commento sulla tavola: ${comment}`
+    : `${head} Comment on the board: ${comment}`;
+}
+
 /** The last thing the assistant wrote in a conversation's events. */
 const lastText = (events: Event[]): string => {
   for (const e of [...events].reverse())
@@ -734,6 +763,7 @@ export class RedGiantCore implements OrchestrationHost {
           ...this.mediaTools(agent, ws),
           this.showTool(agent, ws),
           this.sendFileTool(agent, ws),
+          this.variantsTool(agent, ws),
         );
       tools.push(
         ...customTools(await loadCustomTools(roots), ws),
@@ -1462,6 +1492,201 @@ export class RedGiantCore implements OrchestrationHost {
     const st = await stat(abs).catch(() => undefined);
     // A file in a folder: the site around it counts (its styles, its scripts).
     return lastChange(st && !st.isDirectory() ? dirname(abs) : abs);
+  }
+
+  /** Where boards' pages are kept, apart from every workspace (G25.4). */
+  private boardDir(id: string): string {
+    return join(dirname(this.o.platformDir), "boards", id);
+  }
+
+  /** publish_board: the boards of Officina (G25.4). */
+  private variantsTool(agent: AgentRecord, ws: Workspace): Tool {
+    const MAX_BYTES = 2 * 1024 * 1024;
+    const Input = z.object({
+      title: z.string().trim().min(1).max(120),
+      description: z.string().max(2000).optional(),
+      variants: z
+        .array(
+          z.object({
+            title: z.string().trim().min(1).max(80),
+            note: z.string().max(1000).optional(),
+            html: z.string().optional(),
+            file: z.string().max(500).optional(),
+          }),
+        )
+        .min(1)
+        .max(8),
+    });
+    return {
+      def: {
+        name: "publish_board",
+        description: [
+          "Publish a BOARD: 1 to 8 design variants (HTML pages) side by side on a page of RedGiant, for the person to look at, choose one or comment on.",
+          "Use it when they ask for options, proposals, variants or mockups to compare (interfaces, pages, graphics), instead of describing them in words.",
+          "Each variant is a whole, self-contained page: CSS and JS inside the page; pictures as data: URIs or from a CDN (your workspace's files cannot be seen from there). It runs isolated: no cookies, no access to RedGiant.",
+          "Give each variant a short title and, if useful, a note with the idea behind it. For big pages write them to a file and pass `file` (the path of an .html in your workspace) instead of `html`.",
+          "After publishing do NOT ask the person to choose in the chat and do not wait: their choices and comments will come to you as messages starting with «[Tavola «title»]» (or «[Board «title»]»).",
+        ].join(" "),
+        inputSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "What is being chosen" },
+            description: { type: "string", description: "What to look at, the idea behind" },
+            variants: {
+              type: "array",
+              minItems: 1,
+              maxItems: 8,
+              items: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  note: { type: "string" },
+                  html: { type: "string", description: "The whole page" },
+                  file: { type: "string", description: "Or an .html file in your workspace" },
+                },
+                required: ["title"],
+              },
+            },
+          },
+          required: ["title", "variants"],
+        },
+      },
+      schema: Input,
+      run: async (i: z.infer<typeof Input>, ctx) => {
+        const pages: string[] = [];
+        for (const [n, v] of i.variants.entries()) {
+          const at = `variant ${n + 1}`;
+          if ((v.html === undefined) === (v.file === undefined))
+            return { content: `Error: ${at}: give \`html\` or \`file\` (one only)`, isError: true };
+          let page = v.html;
+          if (v.file !== undefined) {
+            if (!/\.html?$/i.test(v.file))
+              return { content: `Error: ${at}: the file must be .html`, isError: true };
+            if (!(await ws.isFile(v.file).catch(() => false)))
+              return { content: `Error: ${at}: no such file: ${v.file}`, isError: true };
+            const abs = await new LocalWorkspace(ws.root).resolve(v.file);
+            if ((await stat(abs)).size > MAX_BYTES)
+              return { content: `Error: ${at}: file over 2 MB`, isError: true };
+            page = await readFile(abs, "utf8");
+          }
+          if (!page?.trim()) return { content: `Error: ${at}: empty page`, isError: true };
+          if (Buffer.byteLength(page) > MAX_BYTES)
+            return { content: `Error: ${at}: page over 2 MB`, isError: true };
+          pages.push(page);
+        }
+        const proposalId = randomBytes(6).toString("hex");
+        const dir = this.boardDir(proposalId);
+        await mkdir(dir, { recursive: true });
+        for (const [n, page] of pages.entries()) await writeFile(join(dir, `${n + 1}.html`), page);
+        const variants = i.variants.map((v, n) => ({
+          title: v.title,
+          ...(v.note?.trim() && { note: v.note.trim() }),
+          bytes: Buffer.byteLength(pages[n] ?? ""),
+        }));
+        await this.store.append({
+          ownerId: agent.ownerId,
+          projectId: agent.projectId,
+          agentId: agent.id,
+          sessionId: ctx.sessionId,
+          body: {
+            type: "variants.proposed",
+            payload: {
+              proposalId,
+              title: i.title,
+              ...(i.description?.trim() && { description: i.description.trim() }),
+              variants,
+            },
+          },
+        });
+        const list = variants.map((v, n) => `${n + 1}. ${v.title}`).join(" · ");
+        const it = this.language(agent.ownerId) === "it";
+        await this.tell(
+          agent.ownerId,
+          it
+            ? `Tavola «${i.title}»: ${variants.length} ${variants.length === 1 ? "variante" : "varianti"} — ${list}. La trovi in RedGiant, nella conversazione con ${agent.name}.`
+            : `Board «${i.title}»: ${variants.length} variant(s) — ${list}. Open it in RedGiant, in the conversation with ${agent.name}.`,
+        ).catch(() => {});
+        return [
+          `Board published: «${i.title}»`,
+          `${variants.length} ${variants.length === 1 ? "variant" : "variants"}: ${list}`,
+          `The person sees it in RedGiant. Their choices and comments will come to you as messages «[${it ? "Tavola" : "Board"} «…»]»: do not ask them to choose in the chat.`,
+        ].join("\n");
+      },
+    } as Tool;
+  }
+
+  /** The board published in a conversation, checked against its owner. */
+  private async boardIn(ownerId: string, sessionId: string, proposalId: string) {
+    const e = (await this.store.list({ sessionId, types: ["variants.proposed"] })).find(
+      (x) =>
+        x.ownerId === ownerId &&
+        x.type === "variants.proposed" &&
+        x.payload?.proposalId === proposalId,
+    );
+    if (!e || e.type !== "variants.proposed" || !e.payload)
+      throw new NotFoundError("No such board");
+    return { event: e, board: e.payload };
+  }
+
+  /** A signed link to a board's pages (`<base><n>.html`), isolated like every preview. */
+  async boardLink(
+    ownerId: string,
+    sessionId: string,
+    proposalId: string,
+  ): Promise<{ base: string }> {
+    await this.boardIn(ownerId, sessionId, proposalId);
+    const token = this.previews.sign(ownerId, { kind: "dir", root: this.boardDir(proposalId) });
+    return { base: `/preview/${token}/` };
+  }
+
+  /**
+   * The person chose a variant of a board or commented on one, or on the whole board (G25.4):
+   * kept in the log, and given to the agent as a message (in line if it is working), worded as
+   * Officina's.
+   */
+  async answerVariants(
+    ownerId: string,
+    sessionId: string,
+    a: {
+      proposalId: string;
+      variant: number | null;
+      choice: boolean;
+      comment?: string | undefined;
+    },
+  ): Promise<void> {
+    const { event, board } = await this.boardIn(ownerId, sessionId, a.proposalId);
+    if (a.variant !== null && !board.variants[a.variant - 1])
+      throw new BadRequestError("No such variant");
+    if (a.choice && a.variant === null)
+      throw new BadRequestError("A variant is chosen, not the board");
+    const comment = a.comment?.trim() ?? "";
+    if (comment.length > 4000) throw new BadRequestError("Comment over 4000 characters");
+    if (!a.choice && !comment) throw new BadRequestError("Empty comment");
+    await this.store.append({
+      ownerId,
+      projectId: event.projectId,
+      agentId: event.agentId,
+      sessionId,
+      body: {
+        type: "variants.answered",
+        payload: {
+          proposalId: a.proposalId,
+          variant: a.variant,
+          choice: a.choice,
+          ...(comment && { comment }),
+        },
+      },
+    });
+    const { done } = await this.send(
+      ownerId,
+      sessionId,
+      boardAnswerText(this.language(ownerId), board, { ...a, comment }),
+      {
+        queue: true,
+        watch: true,
+      },
+    );
+    done.catch(() => {});
   }
 
   private sendFileTool(agent: AgentRecord, ws: Workspace): Tool {
