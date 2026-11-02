@@ -23,6 +23,7 @@ import { PathOutsideWorkspaceError } from "@redgiant/tools";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { type AuthProvider, bearer, type Principal } from "./auth.js";
+import { bridge, PREVIEW_HEADERS, serveFile } from "./canvas.js";
 import { ChatError } from "./chat.js";
 import { CodeChangeError } from "./code.js";
 import {
@@ -1668,6 +1669,43 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.get("/api/setup/pihole/password", (c) =>
     wizard(c, async () => ({ password: (setup as SetupService).piholePassword() })),
   );
+  // The canvas (G25.1): signed links to what agents show, and when it last changed.
+  app.post("/api/canvas/link", async (c) => {
+    const body = z
+      .discriminatedUnion("kind", [
+        z.object({ kind: z.literal("file"), scope: z.string(), path: z.string() }),
+        z.object({
+          kind: z.literal("port"),
+          agentId: z.string(),
+          port: z.number().int().min(1).max(65535),
+          path: z.string().optional(),
+        }),
+      ])
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!body.success) return c.json({ error: body.error.message }, 400);
+    return c.json(await core.canvasLink(owner(c), body.data), 200);
+  });
+  app.get("/api/canvas/version", async (c) => {
+    const scope = c.req.query("scope");
+    const path = c.req.query("path");
+    if (!scope || path === undefined) return c.json({ error: "scope and path are needed" }, 400);
+    return c.json({ version: await core.canvasVersion(owner(c), scope, path) }, 200);
+  });
+  // The preview itself: the signed link is the credential, so no bearer token here.
+  app.all("/preview/:token/*", async (c) => {
+    const token = c.req.param("token");
+    const found = core.previews.verify(token);
+    if (!found)
+      return c.text("This link has expired: open it again from the canvas.", 403, PREVIEW_HEADERS);
+    const prefix = `/preview/${token}`;
+    const rest = c.req.path.slice(prefix.length + 1);
+    const t = found.target;
+    if (t.kind === "port") return bridge(t, rest, c.req.raw, prefix);
+    if (c.req.method !== "GET" && c.req.method !== "HEAD")
+      return c.text("A folder preview only reads", 405, PREVIEW_HEADERS);
+    const f = await serveFile(t.root, rest, prefix);
+    return c.body(f.body as never, f.status as 200, { ...PREVIEW_HEADERS, "Content-Type": f.type });
+  });
   // Undo a summary asked by hand (G24.14): the whole history comes back from the log.
   app.post("/api/sessions/:id/compaction/undo", async (c) => {
     try {

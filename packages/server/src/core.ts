@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { AgentSession, type Engine, type SendResult, type Tool } from "@redgiant/agent";
 import {
@@ -77,6 +77,7 @@ import { z } from "zod";
 import { type Alert, type AlertText, alertText } from "./alerts.js";
 import { HumanApprovals } from "./approvals.js";
 import { type Browsers, browserTools } from "./browser.js";
+import { inside, lastChange, Previews, type PreviewTarget } from "./canvas.js";
 import { DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
 import { type EmailAccount, EmailWatcher, type Mailbox } from "./email.js";
@@ -725,7 +726,7 @@ export class RedGiantCore implements OrchestrationHost {
     tools.push(...skillTools(skills));
     if (agent.kind !== "demigod" && agent.kind !== "inspector") {
       // Always offered (the tool list never depends on settings); without a key it says so.
-      if (ws) tools.push(this.imageTool(agent, ws.root));
+      if (ws) tools.push(this.imageTool(agent, ws.root), this.showTool(agent, ws));
       tools.push(
         ...customTools(await loadCustomTools(roots), ws),
         ...(await this.mcpTools(
@@ -1356,6 +1357,151 @@ export class RedGiantCore implements OrchestrationHost {
 
   /** Sends a picture to the owner's Telegram (set by the gateway). */
   sendPhoto: ((ownerId: string, png: Buffer, caption: string) => Promise<void>) | undefined;
+
+  /** Signed links to what agents show (G25.1). */
+  readonly previews = new Previews();
+
+  /** The workspace scope ("platform", "assistants", "project:<id>") and path of a file on disk. */
+  private async scopeOf(ownerId: string, abs: string): Promise<{ scope: string; path: string }> {
+    for (const [scope, root] of [
+      ["assistants", this.assistantsPath(ownerId)],
+      ["platform", this.platformPath(ownerId)],
+    ] as const) {
+      const path = inside(root, abs);
+      if (path !== undefined) return { scope, path };
+    }
+    for (const p of await this.projects.list(ownerId)) {
+      const path = inside(p.path, abs);
+      if (path !== undefined) return { scope: `project:${p.id}`, path };
+    }
+    throw new BadRequestError("That file is outside every workspace");
+  }
+
+  /** The folder behind a scope on disk. */
+  private async scopeRoot(ownerId: string, scope: string): Promise<string> {
+    if (scope === "assistants") return this.assistantsPath(ownerId);
+    if (scope === "platform") return this.platformPath(ownerId);
+    const id = scope.match(/^project:([a-z0-9-]+)$/)?.[1];
+    const project = id ? await this.projects.get(ownerId, id) : undefined;
+    if (!project) throw new NotFoundError(`No such scope "${scope}"`);
+    return project.path;
+  }
+
+  /** How the server reaches a program in an agent's container: the container's name. */
+  private async sandboxHost(agent: AgentRecord): Promise<string> {
+    const id =
+      agent.kind === "assistant"
+        ? `${agent.ownerId}-assistants`
+        : agent.projectId
+          ? `${agent.ownerId}-${agent.projectId}`
+          : `${agent.ownerId}-platform`;
+    const sb = await this.sandboxes.get(id)?.catch(() => undefined);
+    if (!sb?.host) throw new BadRequestError("The agent's computer is not running");
+    return sb.host;
+  }
+
+  /**
+   * A link the page opens in the canvas (G25.1): a file or folder of a workspace (a folder opens
+   * its index.html), or a port in the container of an agent the person owns.
+   */
+  async canvasLink(
+    ownerId: string,
+    target:
+      | { kind: "file"; scope: string; path: string }
+      | { kind: "port"; agentId: string; port: number; path?: string | undefined },
+  ): Promise<{ url: string }> {
+    let t: PreviewTarget;
+    let entry: string;
+    if (target.kind === "file") {
+      const root = await this.scopeRoot(ownerId, target.scope);
+      const abs = join(root, target.path);
+      if (inside(root, abs) === undefined) throw new BadRequestError("Outside the workspace");
+      const st = await stat(abs).catch(() => undefined);
+      if (!st) throw new NotFoundError(`No such file "${target.path}"`);
+      t = { kind: "dir", root: st.isDirectory() ? abs : dirname(abs) };
+      entry = st.isDirectory() ? "" : basename(abs);
+    } else {
+      const agent = this.registry.get(target.agentId);
+      if (!agent || agent.ownerId !== ownerId)
+        throw new NotFoundError(`Agent "${target.agentId}" not found`);
+      t = { kind: "port", host: await this.sandboxHost(agent), port: target.port };
+      entry = (target.path ?? "").replace(/^\/+/, "");
+    }
+    return { url: `/preview/${this.previews.sign(ownerId, t)}/${encodeURI(entry)}` };
+  }
+
+  /** When what the canvas shows last changed (ms): the page reloads it when this moves. */
+  async canvasVersion(ownerId: string, scope: string, path: string): Promise<number> {
+    const root = await this.scopeRoot(ownerId, scope);
+    const abs = join(root, path);
+    if (inside(root, abs) === undefined) throw new BadRequestError("Outside the workspace");
+    const st = await stat(abs).catch(() => undefined);
+    // A file in a folder: the site around it counts (its styles, its scripts).
+    return lastChange(st && !st.isDirectory() ? dirname(abs) : abs);
+  }
+
+  private showTool(agent: AgentRecord, ws: Workspace): Tool {
+    const Input = z.object({
+      path: z.string().min(1).optional(),
+      port: z.number().int().min(1).max(65535).optional(),
+      url_path: z.string().optional(),
+      title: z.string().max(120).optional(),
+    });
+    return {
+      def: {
+        name: "show",
+        description:
+          "Show the person what you made, in the canvas next to the chat: a site (an HTML file or its folder), a picture, a video, a sound, a PDF, a sheet (CSV, XLSX), a 3D model (GLB, GLTF, STL, OBJ), Markdown or code (give path), or a program you started that serves on a port of your computer (give port, and url_path if not /). It updates by itself when the files change. Use it whenever the person should see the result, instead of describing it.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "A file or folder in your workspace" },
+            port: { type: "number", description: "A port a program of yours listens on" },
+            url_path: { type: "string", description: "With port: the page to open, e.g. /app" },
+            title: { type: "string", description: "A short title for the canvas" },
+          },
+        },
+      },
+      schema: Input,
+      run: async (i: z.infer<typeof Input>, ctx) => {
+        if (!!i.path === (i.port !== undefined))
+          return { content: "Give either path or port.", isError: true };
+        let target:
+          | { kind: "file"; scope: string; path: string }
+          | { kind: "port"; agentId: string; port: number; path?: string };
+        if (i.path) {
+          // Its own confinement first (a subproject sees only its folder), then the path on disk.
+          if (!(await ws.exists(i.path).catch(() => false)))
+            return { content: `There is no "${i.path}" in your workspace.`, isError: true };
+          const abs = await new LocalWorkspace(ws.root).resolve(i.path);
+          target = { kind: "file", ...(await this.scopeOf(agent.ownerId, abs)) };
+        } else {
+          target = {
+            kind: "port",
+            agentId: agent.id,
+            port: i.port as number,
+            ...(i.url_path && { path: i.url_path }),
+          };
+          // It must answer now: the person would see an error otherwise.
+          try {
+            const { url } = await this.canvasLink(agent.ownerId, target);
+            void url;
+          } catch (err) {
+            return { content: (err as Error).message, isError: true };
+          }
+        }
+        const title = i.title ?? (i.path ? basename(i.path) : `Port ${i.port}`);
+        await this.store.append({
+          ownerId: agent.ownerId,
+          projectId: agent.projectId,
+          agentId: agent.id,
+          sessionId: ctx.sessionId,
+          body: { type: "canvas.show", payload: { title, target } },
+        });
+        return `Shown in the canvas: ${title}. The person sees it next to the chat; it updates when the files change.`;
+      },
+    } as Tool;
+  }
 
   private imageTool(agent: AgentRecord, root: string): Tool {
     const Input = z.object({

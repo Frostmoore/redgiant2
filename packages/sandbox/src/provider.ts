@@ -24,6 +24,8 @@ export interface SandboxSpec {
 
 export interface Sandbox {
   readonly id: string;
+  /** How the server reaches a program listening inside it (the canvas's bridge, G25.1). */
+  readonly host?: string;
   /** A workspace rooted at `subdir` (e.g. an agent's worktree). */
   workspace(subdir?: string): Workspace;
   destroy(): Promise<void>;

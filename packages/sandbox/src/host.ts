@@ -12,6 +12,7 @@ export class HostSandboxProvider implements SandboxProvider {
   async create(spec: SandboxSpec): Promise<Sandbox> {
     return {
       id: spec.id,
+      host: "127.0.0.1",
       workspace: (subdir = ".") =>
         new LocalWorkspace(join(spec.localPath, subdir), spec.readOnly ?? false),
       destroy: async () => {},

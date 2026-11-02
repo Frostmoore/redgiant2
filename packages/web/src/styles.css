@@ -3389,3 +3389,102 @@ a.button.primary {
   max-width: none;
   min-width: 0;
 }
+
+/* The canvas (G25.1): what an agent showed, on the right; a card in the chat opens it again. */
+.canvas {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  /* The side area is dark like an editor; what an agent shows follows the theme. */
+  background: var(--panel);
+  color: var(--text);
+}
+.canvas-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.canvas-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+.canvas-site,
+.canvas-model {
+  padding: 0;
+  overflow: hidden;
+}
+.canvas-site iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+.canvas-model {
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  background: var(--panel-2);
+}
+.canvas-image img,
+.canvas-video video {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  margin: 0 auto;
+}
+.canvas-audio audio {
+  width: 100%;
+}
+.canvas-table {
+  overflow: auto;
+}
+.canvas-table table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.canvas-table th,
+.canvas-table td {
+  border: 1px solid var(--line);
+  padding: 3px 8px;
+  white-space: nowrap;
+  text-align: left;
+}
+.canvas-table th {
+  background: var(--panel-2);
+  position: sticky;
+  top: 0;
+}
+.canvas-text {
+  white-space: pre-wrap;
+  font-size: 13px;
+  margin: 0;
+}
+.canvas-sheets {
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.canvas-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  max-width: 420px;
+}
+.canvas-card > span {
+  display: flex;
+  flex-direction: column;
+}

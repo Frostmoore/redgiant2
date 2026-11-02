@@ -136,6 +136,25 @@ export const EventBody = z.discriminatedUnion("type", [
     type: z.literal("cache.missed"),
     payload: z.object({ expected: z.number(), cached: z.number(), provider: z.string() }),
   }),
+  /**
+   * Something an agent made, shown in the canvas (G25.1): a file or folder of a workspace, or a
+   * program serving on a port of the agent's container. Not part of the model's history.
+   */
+  z.object({
+    type: z.literal("canvas.show"),
+    payload: z.object({
+      title: z.string(),
+      target: z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("file"), scope: z.string(), path: z.string() }),
+        z.object({
+          kind: z.literal("port"),
+          agentId: z.string(),
+          port: z.number().int(),
+          path: z.string().optional(),
+        }),
+      ]),
+    }),
+  }),
   /** A compaction undone by the person: the whole history comes back (nothing was deleted). */
   z.object({
     type: z.literal("compaction.undone"),

@@ -276,6 +276,72 @@ const godSid = await core.startSession("local", god.id);
 void (await core.send("local", godSid, "Plan the export feature for the reports.")).done.catch(
   () => {},
 );
+// The canvas (G25.1): what God made and showed, a card for each in its conversation.
+{
+  const home = core.platformPath("local");
+  await mkdir(join(home, "site"), { recursive: true });
+  await writeFile(
+    join(home, "site", "index.html"),
+    `<!doctype html><html><head><link rel="stylesheet" href="/style.css"></head><body><main><h1>Buon giorno, Red Giant</h1><p>Un sito fatto da God, mostrato nel canvas.</p></main></body></html>`,
+  );
+  await writeFile(
+    join(home, "site", "style.css"),
+    "body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui;background:linear-gradient(135deg,#2b0f12,#7a1e22 55%,#e0482e);color:#fff}h1{font-size:44px;margin:0 0 8px}main{text-align:center}",
+  );
+  await writeFile(
+    join(home, "spese.csv"),
+    'Mese,Voce,Importo\nGennaio,Affitto,850\nGennaio,"Spesa, alimentari",312.40\nFebbraio,Affitto,850\nFebbraio,Bollette,140.15\n',
+  );
+  await writeFile(
+    join(home, "note.md"),
+    "# Note\n\n- Il sito è pronto\n- Il **canvas** si aggiorna da solo\n",
+  );
+  // A cube, as a 3D model.
+  const v = [
+    [0, 0, 0],
+    [1, 0, 0],
+    [1, 1, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+    [1, 0, 1],
+    [1, 1, 1],
+    [0, 1, 1],
+  ];
+  const faces = [
+    [0, 2, 1],
+    [0, 3, 2],
+    [4, 5, 6],
+    [4, 6, 7],
+    [0, 1, 5],
+    [0, 5, 4],
+    [2, 3, 7],
+    [2, 7, 6],
+    [1, 2, 6],
+    [1, 6, 5],
+    [0, 4, 7],
+    [0, 7, 3],
+  ];
+  const stl = `solid cube\n${faces.map((f) => `facet normal 0 0 0\nouter loop\n${f.map((i) => `vertex ${v[i].join(" ")}`).join("\n")}\nendloop\nendfacet`).join("\n")}\nendsolid cube\n`;
+  await writeFile(join(home, "cubo.stl"), stl);
+  const shown = await core.startSession("local", god.id);
+  await (await core.send("local", shown, "Mostrami quello che hai fatto")).done;
+  for (const [title, path] of [
+    ["Il sito", "site"],
+    ["Spese", "spese.csv"],
+    ["Cubo", "cubo.stl"],
+    ["Note", "note.md"],
+  ])
+    await core.store.append({
+      ownerId: "local",
+      projectId: null,
+      agentId: god.id,
+      sessionId: shown,
+      body: {
+        type: "canvas.show",
+        payload: { title, target: { kind: "file", scope: "platform", path } },
+      },
+    });
+}
 const insp = await core.chat.create("local", "Stato", { kind: "inspector", projectId: "demo" });
 await core.chat.send("local", insp.id, "A che punto è il progetto?", [], () => {});
 const daily = await core.chat.create("local");

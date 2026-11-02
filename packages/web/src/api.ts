@@ -765,6 +765,19 @@ export class Api {
     return { blob: await r.blob(), name };
   }
 
+  /** A signed link to show something in the canvas (G25.1). */
+  canvasLink = (
+    target:
+      | { kind: "file"; scope: string; path: string }
+      | { kind: "port"; agentId: string; port: number; path?: string | undefined },
+  ) => this.call<{ url: string }>("POST", "/api/canvas/link", target);
+  /** When what the canvas shows last changed (ms). */
+  canvasVersion = (scope: string, path: string) =>
+    this.call<{ version: number }>(
+      "GET",
+      `/api/canvas/version?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+    );
+
   async download(scope: string, path: string): Promise<Blob> {
     const r = await fetch(
       `/api/files/raw?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,

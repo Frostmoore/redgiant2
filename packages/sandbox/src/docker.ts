@@ -170,7 +170,7 @@ export class DockerSandboxProvider implements SandboxProvider {
     };
     const container: Docker.Container = await this.docker.createContainer(options);
     await container.start();
-    return new DockerSandbox(spec, container);
+    return new DockerSandbox(spec, container, name);
   }
 
   /** Removes every sandbox container this provider created (e.g. at shutdown). */
@@ -194,6 +194,8 @@ class DockerSandbox implements Sandbox {
   constructor(
     private readonly spec: SandboxSpec,
     readonly container: Docker.Container,
+    /** Its name: the server reaches it by name on the sandboxes' network. */
+    readonly host: string,
   ) {
     this.id = spec.id;
   }

@@ -1,7 +1,7 @@
 import { h, type JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
-import { IconClose, IconFile, IconMonitor, IconTerminal } from "../icons.js";
+import { IconCanvas, IconClose, IconFile, IconMonitor, IconTerminal } from "../icons.js";
 import { activeSide, closeSide, sideViews } from "../state.js";
 
 /**
@@ -23,6 +23,7 @@ function lazy<P extends object>(load: () => Promise<(props: P) => JSX.Element | 
   };
 }
 
+import { Canvas } from "./Canvas.js";
 import { Preview, previewKind } from "./Preview.js";
 import { Screen } from "./Screen.js";
 
@@ -57,6 +58,8 @@ export function SideArea() {
                 <IconTerminal size={13} />
               ) : v.type === "screen" ? (
                 <IconMonitor size={13} />
+              ) : v.type === "canvas" ? (
+                <IconCanvas size={13} />
               ) : (
                 <IconFile size={13} />
               )}
@@ -83,6 +86,8 @@ export function SideArea() {
             )
           ) : v.type === "screen" ? (
             <Screen />
+          ) : v.type === "canvas" ? (
+            <Canvas title={v.title} target={v.target} />
           ) : (
             <TerminalView scope={v.scope} />
           )}

@@ -34,7 +34,7 @@ export function useBlobUrl(scope: string, path: string) {
 }
 
 /** The pages of a PDF, drawn with pdf.js (loaded only when a PDF is opened). */
-function PdfPages({ url }: { url: string }) {
+export function PdfPages({ url }: { url: string }) {
   const host = useRef<HTMLDivElement>(null);
   const [pages, setPages] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);

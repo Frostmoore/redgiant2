@@ -6,6 +6,7 @@ import { danger, lang, t } from "../i18n.js";
 import {
   IconAlert,
   IconArrowDown,
+  IconCanvas,
   IconCheck,
   IconClose,
   IconFile,
@@ -25,6 +26,7 @@ import {
   getApi,
   getLive,
   inheritedModel,
+  openCanvas,
   openTab,
   questions,
   refresh,
@@ -266,6 +268,21 @@ function Item({
           <IconAlert size={13} />
           {t("cacheMissed", { cached: kTokens(item.cached), expected: kTokens(item.expected) })}
         </div>
+      );
+    case "canvas":
+      return (
+        <button
+          type="button"
+          class="canvas-card"
+          title={t("canvasOpen")}
+          onClick={() => openCanvas(item.title, item.target)}
+        >
+          <IconCanvas size={16} />
+          <span>
+            <strong>{item.title}</strong>
+            <span class="dim">{t("canvasShown")}</span>
+          </span>
+        </button>
       );
     case "notice":
       return (

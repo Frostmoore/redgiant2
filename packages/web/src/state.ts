@@ -23,6 +23,11 @@ import {
 } from "./api.js";
 import { tOptional } from "./i18n.js";
 
+/** What the canvas shows (G25.1): a file or folder of a workspace, or a port of an agent. */
+export type CanvasTarget =
+  | { kind: "file"; scope: string; path: string }
+  | { kind: "port"; agentId: string; port: number; path?: string | undefined };
+
 // ---------- Chat items (pure) ----------
 
 export type ChatItem =
@@ -56,6 +61,8 @@ export type ChatItem =
   | { kind: "notice"; key: string; tone: "info" | "warn" | "ok" | "error"; text: string }
   /** A call that should have been in the cache was not (G24.14c). */
   | { kind: "cache"; key: string; expected: number; cached: number }
+  /** Something the agent showed in the canvas (G25.1): a card that opens it. */
+  | { kind: "canvas"; key: string; title: string; target: CanvasTarget }
   /** The conversation was summarised here (G24.14). */
   | {
       kind: "compaction";
@@ -185,6 +192,9 @@ export function buildItems(events: Event[]): ChatItem[] {
           undoable: false,
         });
         break;
+      case "canvas.show":
+        items.push({ kind: "canvas", key, title: e.payload.title, target: e.payload.target });
+        break;
       case "cache.missed":
         items.push({
           kind: "cache",
@@ -301,6 +311,9 @@ export function applyMessage(m: ServerMessage): void {
       const v = sessionView(m.sessionId);
       if (v.value.events.some((e) => e.seq === m.event.seq)) return;
       const done = m.event.type === "message.assistant";
+      // Shown while the person watches: the canvas opens by itself (not when the log replays).
+      if (m.event.type === "canvas.show" && m.event.payload && v.value.synced)
+        openCanvas(m.event.payload.title, m.event.payload.target);
       v.value = {
         ...v.value,
         events: [...v.value.events, m.event],
@@ -515,7 +528,9 @@ export type SideView =
   | { id: string; type: "editor"; title: string; scope: string; path: string }
   | { id: string; type: "terminal"; title: string; scope: string }
   /** The personal agents' browser, live (G24.14b). */
-  | { id: string; type: "screen"; title: string };
+  | { id: string; type: "screen"; title: string }
+  /** What an agent showed (G25.1). */
+  | { id: string; type: "canvas"; title: string; target: CanvasTarget };
 
 export type SettingsSection =
   | "general"
@@ -638,6 +653,19 @@ export function closeSide(id: string): void {
   sideViews.value = sideViews.value.filter((x) => x.id !== id);
   if (activeSide.value === id)
     activeSide.value = sideViews.value[Math.min(index, sideViews.value.length - 1)]?.id ?? null;
+}
+
+/** Opens (or brings forward) what an agent showed, in the area on the right (G25.1). */
+export function openCanvas(title: string, target: CanvasTarget): void {
+  const id =
+    target.kind === "file"
+      ? `canvas:${target.scope}:${target.path}`
+      : `canvas:${target.agentId}:${target.port}:${target.path ?? ""}`;
+  const view: SideView = { id, type: "canvas", title, target };
+  sideViews.value = sideViews.value.some((v) => v.id === id)
+    ? sideViews.value.map((v) => (v.id === id ? view : v))
+    : [...sideViews.value, view];
+  activeSide.value = id;
 }
 
 /** The scope the explorer shows: the active conversation's project, or God's platform. */

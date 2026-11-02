@@ -254,6 +254,14 @@ export const IconMonitor = ({ size = 15 }: P) => (
     <path d="M8 21h8M12 17v4" />
   </Svg>
 );
+/** The canvas (G25.1): a frame with a picture in it. */
+export const IconCanvas = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="9" cy="9" r="1.6" />
+    <path d="M21 15l-4.5-4.5L7 20" />
+  </Svg>
+);
 export const IconPhone = ({ size = 15 }: P) => (
   <Svg size={size}>
     <rect x="6" y="2" width="12" height="20" rx="2.5" />
