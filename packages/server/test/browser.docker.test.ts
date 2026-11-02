@@ -1,8 +1,9 @@
 // The agents' browser for real (G24.14b): Chromium in the Playwright image, a page served here,
 // the agents' tools, the screen, the person's click. Run with REDGIANT_DOCKER_TESTS=1 pnpm test:docker.
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { hostname } from "node:os";
+import { hostname, tmpdir } from "node:os";
+import { join } from "node:path";
 import Docker from "dockerode";
 import { afterAll, describe, expect, it } from "vitest";
 import { Browsers, browserTools, DockerBrowserLauncher, type ScreenFrame } from "../src/browser.js";
@@ -16,11 +17,14 @@ const PAGE = `<!doctype html><title>Shop</title>
 <label>Email <input name="email"></label>
 <label>Password <input type="password" name="pw"></label>
 <button onclick="document.title='Paid'">Pay now</button>
-<button onclick="document.body.dataset.next='yes';document.title='Next'">Next step</button>`;
+<button onclick="document.body.dataset.next='yes';document.title='Next'">Next step</button>
+<a href="/report.txt" download="report.txt">Download the report</a>`;
 
 describe.skipIf(!on)("agents' browser in Docker", () => {
   const docker = new Docker();
-  const site = createServer((_, res) => res.end(PAGE));
+  const site = createServer((req, res) =>
+    req.url === "/report.txt" ? res.end("the report") : res.end(PAGE),
+  );
   // Inside a container: the browser's own network, joined by this container (as in production).
   const net = `rg-browser-test-net-${process.pid}`;
   const launcher = new DockerBrowserLauncher({
@@ -29,7 +33,8 @@ describe.skipIf(!on)("agents' browser in Docker", () => {
     prefix: `rg-browser-test-${process.pid}`,
     ...(inContainer && { join: hostname() }),
   });
-  const browsers = new Browsers(launcher);
+  const desk = mkdtempSync(join(tmpdir(), "rg-desk-"));
+  const browsers = new Browsers(launcher, { desk: () => desk });
   afterAll(async () => {
     await browsers.shutdown();
     site.close();
@@ -127,6 +132,24 @@ describe.skipIf(!on)("agents' browser in Docker", () => {
       'click button "Pay now"',
     ]);
     expect(JSON.stringify(taught)).not.toContain("s3cret");
+
+    // A download lands in the agents' desk; a screenshot for a model that sees; tabs.
+    const all = browserTools(b, { vision: true });
+    const go = async (name: string, input: unknown) => {
+      const out = await all.find((t) => t.def.name === name)?.run(input as never, {} as never);
+      return out as string | { content: string; images?: { data: string }[] };
+    };
+    const clicked = await go("browser_click", { name: "Download the report" });
+    const said = typeof clicked === "string" ? clicked : clicked.content;
+    expect(said).toMatch(/Downloaded to the agents' desk: downloads\/[a-z0-9]+-report\.txt/);
+    const file = said.match(/downloads\/\S+report\.txt/)?.[0] ?? "";
+    expect(readFileSync(join(desk, file), "utf8")).toBe("the report");
+    const shot = await go("browser_screenshot", {});
+    expect(typeof shot !== "string" && (shot.images?.[0]?.data.length ?? 0)).toBeGreaterThan(1000);
+    const tabs = await go("browser_tabs", { action: "open", url });
+    expect(typeof tabs === "string" ? tabs : tabs.content).toMatch(/1 \(current\)/);
+    await go("browser_tabs", { action: "close", index: 1 });
+    expect(await go("browser_tabs", { action: "list" })).toMatch(/^0 \(current\)/);
     off();
   });
 });

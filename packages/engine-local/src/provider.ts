@@ -70,7 +70,9 @@ export class LocalEngineProvider implements Provider {
 
   modelInfo(model: string): ModelInfo {
     const info = this.inner.modelInfo(model);
-    return this.props ? { ...info, contextWindow: this.props.ctxPerSlot } : info;
+    return this.props
+      ? { ...info, contextWindow: this.props.ctxPerSlot, vision: this.props.vision === true }
+      : info;
   }
 
   private async save(slot: number, sessionId: string, reason: "turn" | "evict" | "shutdown") {

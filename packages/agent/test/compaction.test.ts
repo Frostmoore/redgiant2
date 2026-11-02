@@ -342,4 +342,24 @@ describe("compaction in a session (G24.14)", () => {
     const e = (await store.list({ sessionId: "s1" })).find((x) => x.type === "engine.compacted");
     expect(e?.payload).toEqual({ engine: "claude", trigger: "auto", preTokens: 150000 });
   });
+
+  it("passes a tool's pictures to the model after the results, and the log gives them back", async () => {
+    const shot: Tool = {
+      def: { name: "shot", description: "A picture", inputSchema: { type: "object" } },
+      run: async () => ({
+        content: "Screenshot of the page.",
+        images: [{ type: "image", mediaType: "image/jpeg", data: "AAAA" }],
+      }),
+    };
+    let step = 0;
+    const { fake, options } = setup(
+      () => (++step === 1 ? { toolCalls: [{ name: "shot", input: {} }] } : { text: "I see it" }),
+      { tools: [echo, shot] },
+    );
+    const s = await AgentSession.start(options);
+    await s.send("look");
+    const sent = fake.requests[1]?.messages.at(-1);
+    expect(sent?.parts.map((p) => p.type)).toEqual(["tool_result", "image"]);
+    expect((await AgentSession.resume(options)).messages).toEqual(s.messages);
+  });
 });

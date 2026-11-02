@@ -1,3 +1,4 @@
+import type { ImagePart } from "@redgiant/protocol";
 import type { ToolDef } from "@redgiant/providers";
 import type { z } from "zod";
 
@@ -9,7 +10,14 @@ export interface ToolContext {
   signal?: AbortSignal | undefined;
 }
 
-export type ToolOutput = string | { content: string; isError?: boolean };
+export type ToolOutput =
+  | string
+  | {
+      content: string;
+      isError?: boolean;
+      /** Pictures for the model (a screenshot): they follow the results in the same message. */
+      images?: ImagePart[];
+    };
 
 export interface Tool<I = unknown> {
   def: ToolDef;

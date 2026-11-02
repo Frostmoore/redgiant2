@@ -207,6 +207,8 @@ if (docker && env.REDGIANT_ENGINE_NETWORK) {
       join: env.REDGIANT_SERVER_CONTAINER ?? hostname(),
       ...(env.REDGIANT_BROWSER_IMAGE && { image: env.REDGIANT_BROWSER_IMAGE }),
     }),
+    // Downloads land in the personal agents' desk.
+    { desk: (o) => core.assistantsPath(o) },
   );
   shutdownHooks.push(async () => void (await core.browsers?.shutdown()));
 }

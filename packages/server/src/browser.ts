@@ -5,6 +5,8 @@
 // fields are never read back. Clicks that send, publish, pay or delete ask first (danger
 // `outgoing-browser`).
 
+import { mkdirSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import type { Tool } from "@redgiant/agent";
 import type Docker from "dockerode";
 import { type Browser, type CDPSession, chromium, type Page } from "playwright-core";
@@ -162,6 +164,8 @@ export interface PageLike {
   isPassword(field: string): Promise<boolean>;
   fill(field: string, text: string, submit: boolean): Promise<void>;
   back(): Promise<void>;
+  /** The visible page as a JPEG, base64 (for models that see). */
+  screenshot(): Promise<string>;
 }
 
 /** Blanks out every password typed in the page from a text read back to a model. */
@@ -225,6 +229,11 @@ export class PlaywrightPage implements PageLike {
   async back() {
     await this.page.goBack({ timeout: 15_000 });
   }
+  async screenshot() {
+    // Password fields are already dots on screen; the picture holds nothing a reading would not.
+    const png = await this.page.screenshot({ type: "jpeg", quality: 70, timeout: 15_000 });
+    return png.toString("base64");
+  }
 }
 
 export interface ScreenFrame {
@@ -275,12 +284,96 @@ export class AgentBrowser {
   private size = { width: 1280, height: 800 };
   control: "agents" | "person" = "agents";
 
+  /** Files downloaded, newest last, as paths in the agents' desk. */
+  readonly downloads: string[] = [];
+
   constructor(
     private readonly launcher: BrowserLauncher,
     private readonly ownerId: string,
     /** A page for tests; Playwright over CDP otherwise. */
     private readonly fake?: PageLike,
+    /** Where downloads are kept (the agents' desk), and how they are named there. */
+    private readonly saveTo?: { dir: string; prefix: string },
   ) {}
+
+  /** Downloads land in the agents' desk, under downloads/ (G24.14c). */
+  private watchDownloads(page: Page): void {
+    page.on("download", (d) => {
+      const dir = this.saveTo;
+      if (!dir) return;
+      const name =
+        d
+          .suggestedFilename()
+          .replace(/[\\/:*?"<>|]+/g, "_")
+          .slice(0, 120) || "file";
+      const rel = `${dir.prefix}/${Date.now().toString(36)}-${name}`;
+      // The browser runs elsewhere (its own container): the file is fetched here, with the
+      // page's cookies (a signed-in site works too), and the browser's own copy is dropped.
+      const url = d.url();
+      void (async () => {
+        let body: Buffer;
+        if (url.startsWith("data:")) {
+          const [meta = "", data = ""] = url.slice(5).split(",", 2);
+          body = meta.endsWith(";base64")
+            ? Buffer.from(data, "base64")
+            : Buffer.from(decodeURIComponent(data));
+        } else {
+          const r = await page.context().request.get(url, { timeout: 120_000 });
+          if (!r.ok()) throw new Error(`HTTP ${r.status()}`);
+          body = await r.body();
+        }
+        await writeFile(`${dir.dir}/${rel}`, body);
+        this.downloads.push(rel);
+      })()
+        .catch(() => {})
+        .finally(() => void d.cancel().catch(() => {}));
+    });
+  }
+
+  /** The tabs: their address and title, the current one marked. */
+  async tabs(): Promise<{ url: string; title: string; current: boolean }[]> {
+    if (this.fake) return [{ url: this.fake.url(), title: await this.fake.title(), current: true }];
+    const page = await this.live();
+    return Promise.all(
+      page
+        .context()
+        .pages()
+        .map(async (p) => ({
+          url: p.url(),
+          title: await p.title().catch(() => ""),
+          current: p === this.page,
+        })),
+    );
+  }
+
+  /** Opens a tab (with an address) or goes to one; the screen follows it. */
+  async useTab(action: "open" | "switch" | "close", index?: number, url?: string): Promise<void> {
+    if (this.fake) return;
+    const page = await this.live();
+    const pages = page.context().pages();
+    let next: Page | undefined;
+    if (action === "open") {
+      next = await page.context().newPage();
+      await next.setViewportSize(this.size).catch(() => {});
+      if (url) await next.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    } else {
+      const target = pages[index ?? -1];
+      if (!target) throw new Error(`No tab ${index}: there are ${pages.length}`);
+      if (action === "switch") next = target;
+      else {
+        await target.close();
+        if (target === this.page)
+          next = page.context().pages()[0] ?? (await page.context().newPage());
+      }
+    }
+    if (next && next !== this.page) {
+      void this.cdp?.send("Page.stopScreencast").catch(() => {});
+      this.page = next;
+      this.cdp = undefined;
+      if (this.viewers.size > 0) await this.startScreen();
+      this.emit({ type: "state", ...this.state() });
+    }
+  }
 
   /** The page, the browser started if needed. */
   private async live(): Promise<Page> {
@@ -291,6 +384,19 @@ export class AgentBrowser {
       const context = this.browser.contexts()[0] ?? (await this.browser.newContext());
       const page = context.pages()[0] ?? (await context.newPage());
       await page.setViewportSize(this.size).catch(() => {});
+      // Downloads are allowed (a browser joined over CDP refuses them by default).
+      await this.browser
+        .newBrowserCDPSession()
+        .then((s) =>
+          s.send("Browser.setDownloadBehavior", {
+            behavior: "allowAndName",
+            downloadPath: "/tmp/rg-downloads",
+            eventsEnabled: true,
+          }),
+        )
+        .catch(() => {});
+      for (const p of context.pages()) this.watchDownloads(p);
+      context.on("page", (p) => this.watchDownloads(p));
       this.page = page;
       this.cdp = undefined;
       if (this.viewers.size > 0) await this.startScreen();
@@ -466,7 +572,12 @@ export class Browsers {
 
   constructor(
     private readonly launcher: BrowserLauncher,
-    private readonly o: { idleMs?: number; fake?: PageLike } = {},
+    private readonly o: {
+      idleMs?: number;
+      fake?: PageLike;
+      /** The agents' desk of a person: downloads go to its downloads/ folder. */
+      desk?: (ownerId: string) => string;
+    } = {},
   ) {
     this.timer = setInterval(() => void this.sweep(), 60_000);
     this.timer.unref();
@@ -475,7 +586,14 @@ export class Browsers {
   get(ownerId: string): AgentBrowser {
     let b = this.all.get(ownerId);
     if (!b) {
-      b = new AgentBrowser(this.launcher, ownerId, this.o.fake);
+      const desk = this.o.desk?.(ownerId);
+      if (desk) mkdirSync(`${desk}/downloads`, { recursive: true });
+      b = new AgentBrowser(
+        this.launcher,
+        ownerId,
+        this.o.fake,
+        desk ? { dir: desk, prefix: "downloads" } : undefined,
+      );
       this.all.set(ownerId, b);
     }
     return b;
@@ -499,7 +617,13 @@ export class Browsers {
  * The browser tools of a personal agent. While the person has control they wait (up to ten
  * minutes), then say so; passwords are never typed by an agent nor read back.
  */
-export function browserTools(b: AgentBrowser, o: { waitMs?: number } = {}): Tool[] {
+export function browserTools(
+  b: AgentBrowser,
+  o: {
+    waitMs?: number /** The model reads images: screenshots are offered. */;
+    vision?: boolean;
+  } = {},
+): Tool[] {
   const ready = async (): Promise<PageLike | string> => {
     const until = Date.now() + (o.waitMs ?? 10 * 60_000);
     while (b.control === "person") {
@@ -566,8 +690,12 @@ export function browserTools(b: AgentBrowser, o: { waitMs?: number } = {}): Tool
       z.object({ name: z.string().min(1), role: z.string().optional() }),
       ({ name, role }: { name: string; role?: string }) =>
         page(async (p) => {
+          const before = b.downloads.length;
           await p.click({ role, name });
-          return `Clicked "${name}". Now at ${await where(p)}.`;
+          // A click may start a download: give it a moment to land in the desk.
+          await new Promise((r) => setTimeout(r, 1500));
+          const got = b.downloads.slice(before);
+          return `Clicked "${name}". Now at ${await where(p)}.${got.length ? ` Downloaded to the agents' desk: ${got.join(", ")}.` : ""}`;
         }),
     ),
     tool(
@@ -598,6 +726,68 @@ export function browserTools(b: AgentBrowser, o: { waitMs?: number } = {}): Tool
           return `Typed into "${field}"${submit ? " and submitted" : ""}. Now at ${await where(p)}.`;
         }),
     ),
+    tool(
+      {
+        name: "browser_tabs",
+        description:
+          "The browser's tabs: list them, open one (optionally at an address), switch to one or close one by its number from the list.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["list", "open", "switch", "close"] },
+            index: { type: "integer" },
+            url: { type: "string" },
+          },
+          required: ["action"],
+        },
+      },
+      z.object({
+        action: z.enum(["list", "open", "switch", "close"]),
+        index: z.number().int().min(0).optional(),
+        url: z.string().optional(),
+      }),
+      ({
+        action,
+        index,
+        url,
+      }: {
+        action: "list" | "open" | "switch" | "close";
+        index?: number;
+        url?: string;
+      }) =>
+        page(async () => {
+          if (action !== "list")
+            await b.useTab(action, index, url && (/^[a-z]+:/i.test(url) ? url : `https://${url}`));
+          const tabs = await b.tabs();
+          return tabs
+            .map((t, i) => `${i}${t.current ? " (current)" : ""}: ${t.title} — ${t.url}`)
+            .join("\n");
+        }),
+    ),
+    ...(o.vision
+      ? [
+          tool(
+            {
+              name: "browser_screenshot",
+              description:
+                "See the open page as a picture, for what text alone does not tell (layout, images, charts).",
+              inputSchema: { type: "object", properties: {} },
+            },
+            z.object({}),
+            () =>
+              page(async (p) => ({
+                content: `Screenshot of ${await where(p)}.`,
+                images: [
+                  {
+                    type: "image" as const,
+                    mediaType: "image/jpeg" as const,
+                    data: await p.screenshot(),
+                  },
+                ],
+              })),
+          ),
+        ]
+      : []),
     tool(
       {
         name: "browser_back",

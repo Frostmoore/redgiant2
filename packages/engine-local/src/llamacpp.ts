@@ -4,6 +4,8 @@ export interface EngineProps {
   slots: number;
   ctxPerSlot: number;
   build: string;
+  /** The model reads images. */
+  vision?: boolean;
 }
 
 export class EngineError extends Error {}
@@ -26,12 +28,15 @@ export class LlamaCppEngine {
       total_slots?: number;
       build_info?: string;
       default_generation_settings?: { n_ctx?: number };
+      /** Newer builds say whether the model (with its projector) reads images. */
+      modalities?: { vision?: boolean };
     };
     return {
       modelPath: p.model_path ?? "unknown",
       slots: p.total_slots ?? 1,
       ctxPerSlot: p.default_generation_settings?.n_ctx ?? 4096,
       build: p.build_info ?? "unknown",
+      vision: p.modalities?.vision === true,
     };
   }
 

@@ -64,7 +64,13 @@ export const EventBody = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("tool.result"),
-    payload: z.object({ callId: z.string(), ok: z.boolean(), output: z.string() }),
+    payload: z.object({
+      callId: z.string(),
+      ok: z.boolean(),
+      output: z.string(),
+      /** Pictures the tool returned (a screenshot), for models that see (G24.14c). */
+      images: z.array(ImagePart).optional(),
+    }),
   }),
   z.object({
     type: z.literal("permission.requested"),

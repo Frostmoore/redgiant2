@@ -37,6 +37,7 @@ function fakePage(): PageLike & { typed: string[]; clicked: string[] } {
       typed.push(`${f}=${text}`);
     },
     back: async () => {},
+    screenshot: async () => "SCREENSHOT",
   };
 }
 
@@ -159,5 +160,16 @@ describe("the agents' browser (G24.14b)", () => {
     } finally {
       await s.close();
     }
+  });
+
+  it("offers screenshots only to models that see", async () => {
+    const b = new AgentBrowser(launcher, "me", fakePage());
+    expect(browserTools(b).map((t) => t.def.name)).not.toContain("browser_screenshot");
+    const tools = browserTools(b, { vision: true });
+    const out = (await tools
+      .find((t) => t.def.name === "browser_screenshot")
+      ?.run({} as never, {} as never)) as { content: string; images: { data: string }[] };
+    expect(out.images[0]?.data).toBe("SCREENSHOT");
+    expect(tools.map((t) => t.def.name)).toContain("browser_tabs");
   });
 });

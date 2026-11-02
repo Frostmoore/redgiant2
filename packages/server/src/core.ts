@@ -673,7 +673,17 @@ export class RedGiantCore implements OrchestrationHost {
     if (agent.kind === "assistant") tools.push(this.requestConnectionTool(agent));
     // The browser shared by the personal agents (G24.14b, D11).
     if (agent.kind === "assistant" && this.browsers)
-      tools.push(...browserTools(this.browsers.get(ownerId)));
+      tools.push(
+        ...browserTools(this.browsers.get(ownerId), {
+          vision: (() => {
+            try {
+              return this.o.providers.get(model.provider).modelInfo(model.model).vision === true;
+            } catch {
+              return false;
+            }
+          })(),
+        }),
+      );
     const receivesTasks = ["orchestrator", "agent", "subagent"].includes(agent.kind);
     if (receivesTasks) tools.push(completeTaskTool(agent, ws, this.broker, this.tasks));
     const listeners = new Set<(m: ServerMessage) => void>();

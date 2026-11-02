@@ -535,21 +535,27 @@ export class AgentSession {
     let firstSeq: number | undefined;
     for (const [i, r] of results.entries()) {
       const callId = calls[i]?.callId ?? "";
+      const images = "images" in r ? r.images : undefined;
       const e = await this.record({
         type: "tool.result",
-        payload: { callId, ok: !r.isError, output: r.content },
+        payload: { callId, ok: !r.isError, output: r.content, ...(images && { images }) },
       });
       firstSeq ??= e.seq;
     }
+    // Pictures follow every result, in the same message (G24.14c).
+    const pictures = results.flatMap((r) => ("images" in r && r.images ? r.images : []));
     this.history.push({
       message: {
         role: "user",
-        parts: results.map((r, i) => ({
-          type: "tool_result" as const,
-          callId: calls[i]?.callId ?? "",
-          content: trimResult(r.content, this.maxResultChars),
-          ...(r.isError && { isError: true }),
-        })),
+        parts: [
+          ...results.map((r, i) => ({
+            type: "tool_result" as const,
+            callId: calls[i]?.callId ?? "",
+            content: trimResult(r.content, this.maxResultChars),
+            ...(r.isError && { isError: true }),
+          })),
+          ...pictures,
+        ],
       },
       firstSeq: firstSeq ?? 0,
     });
@@ -593,18 +599,21 @@ export class AgentSession {
     }
 
     let result: { content: string; isError: boolean };
+    let images: ImagePart[] = [];
     try {
       const out = await tool.run(input, ctx);
       result =
         typeof out === "string"
           ? { content: out, isError: false }
           : { content: out.content, isError: out.isError ?? false };
+      if (typeof out !== "string" && out.images?.length) images = out.images;
     } catch (err) {
       result = fail(`Tool failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     for (const h of this.o.hooks?.postToolUse ?? []) {
       result = (await h({ ...call, input }, result, ctx)) ?? result;
     }
+    if (images.length > 0) return { ...result, images };
     return result;
   }
 

@@ -151,6 +151,7 @@ export class AnthropicProvider implements Provider {
       maxOutputTokens: e.maxOutputTokens,
       supportsEffort: e.supportsEffort,
       pricing: e.pricing,
+      vision: true,
     };
   }
 

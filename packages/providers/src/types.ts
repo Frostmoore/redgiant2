@@ -88,6 +88,8 @@ export interface ModelInfo {
   maxOutputTokens: number;
   supportsEffort: boolean;
   pricing?: Pricing | undefined;
+  /** It reads images (screenshots from tools are offered only then). */
+  vision?: boolean | undefined;
 }
 
 /** USD per million tokens. */

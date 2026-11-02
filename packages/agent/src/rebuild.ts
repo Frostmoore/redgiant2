@@ -32,12 +32,13 @@ export function rebuildHistory(events: Iterable<Event>, o: RebuildOptions = {}):
     ),
   );
   let history: HistoryEntry[] = [];
-  let pendingResults: { parts: UserPart[]; firstSeq: number } | undefined;
+  let pendingResults: { parts: UserPart[]; images: UserPart[]; firstSeq: number } | undefined;
 
   const flushResults = () => {
     if (pendingResults) {
+      // Pictures follow every result of the group, as the session put them.
       history.push({
-        message: { role: "user", parts: pendingResults.parts },
+        message: { role: "user", parts: [...pendingResults.parts, ...pendingResults.images] },
         firstSeq: pendingResults.firstSeq,
       });
       pendingResults = undefined;
@@ -78,8 +79,11 @@ export function rebuildHistory(events: Iterable<Event>, o: RebuildOptions = {}):
               : e.payload.output,
           ...(!e.payload.ok && { isError: true }),
         };
-        if (pendingResults) pendingResults.parts.push(part);
-        else pendingResults = { parts: [part], firstSeq: e.seq };
+        const images = e.payload.images ?? [];
+        if (pendingResults) {
+          pendingResults.parts.push(part);
+          pendingResults.images.push(...images);
+        } else pendingResults = { parts: [part], images: [...images], firstSeq: e.seq };
         break;
       }
       case "compaction": {
