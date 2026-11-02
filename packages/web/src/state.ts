@@ -10,7 +10,15 @@ import type {
   QuestionRequestInfo,
   ServerMessage,
 } from "@redgiant/protocol";
-import { type Agent, Api, type Budget, Live, type PlatformInfo, type Project } from "./api.js";
+import {
+  type Agent,
+  Api,
+  type Budget,
+  Live,
+  type PlatformInfo,
+  type Project,
+  type Room,
+} from "./api.js";
 
 // ---------- Chat items (pure) ----------
 
@@ -272,6 +280,10 @@ export function applyMessage(m: ServerMessage): void {
     case "board.changed":
       boardVersion.value++;
       return;
+    case "room.changed":
+      roomsVersion.value++;
+      void refreshRooms();
+      return;
     case "automations.changed":
       automationsVersion.value++;
       return;
@@ -296,6 +308,14 @@ export const lastError = signal<string | null>(null);
 export const boardVersion = signal(0);
 /** Bumped when an automation is edited or one of its runs starts or ends. */
 export const automationsVersion = signal(0);
+/** Group chats (G24.12) and a counter that moves when any of them changes. */
+export const rooms = signal<Room[]>([]);
+export const roomsVersion = signal(0);
+export async function refreshRooms(): Promise<void> {
+  rooms.value = await getApi()
+    .rooms()
+    .catch(() => rooms.value);
+}
 /** Bumped on every platform change; the platform view reloads. */
 export const platformVersion = signal(0);
 /** How the platform runs: the header warns about metal and unisolated sandboxes. */
@@ -347,6 +367,7 @@ export async function refresh(): Promise<void> {
   [projects.value, agents.value, approvals.value, budgets.value, platformInfo.value] =
     await Promise.all([a.projects(), a.agents(), a.approvals(), a.budgets(), a.platform()]);
   await refreshConversations().catch(() => {});
+  await refreshRooms();
   await refreshLimits();
 }
 
@@ -392,6 +413,7 @@ export type Tab =
   | { id: string; type: "board"; title: string; projectId: string | null }
   | { id: string; type: "inspector"; title: string; projectId: string }
   | { id: string; type: "settings"; title: string; section?: SettingsSection }
+  | { id: string; type: "room"; title: string; roomId: string }
   /** A personal assistant's page, or a new one when `agentId` is null (G24.11). */
   | { id: string; type: "assistant"; title: string; agentId: string | null };
 

@@ -32,6 +32,7 @@ import { HuggingFace } from "./hf.js";
 import { localModelChoices } from "./local-models.js";
 import { LoginError } from "./login.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
+import { RoomError } from "./rooms.js";
 import type { SetupService } from "./setup.js";
 import { MAX_AUDIO_BYTES, TranscriptionError } from "./voice.js";
 
@@ -1583,6 +1584,71 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     }),
   );
   app.delete("/api/setup/gitea", (c) => wizard(c, () => (setup as SetupService).stopGitea()));
+  // Group chats (G24.12): the person and 1–6 agents.
+  const room = async <T>(c: Context<Env>, f: () => Promise<T>) => {
+    try {
+      return c.json((await f()) as object, 200);
+    } catch (err) {
+      if (err instanceof RoomError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  };
+  // "inspector:<project>" is a project's inspector, made on first use.
+  const memberId = async (c: Context<Env>, id: string) => {
+    const project = id.match(/^inspector:(.+)$/)?.[1];
+    return project ? (await core.inspectorAgent(owner(c), project)).id : id;
+  };
+  app.get("/api/rooms", (c) => room(c, () => core.rooms.list(owner(c))));
+  app.post("/api/rooms", async (c) => {
+    const b = z
+      .object({
+        title: z.string().max(120).optional(),
+        members: z.array(z.string()).default([]),
+        from: z.object({ agentId: z.string(), sessionId: z.string() }).optional(),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "members (agent ids) are needed" }, 400);
+    const input = b.data;
+    if (input.from) {
+      const rows = await core.listSessions(owner(c), input.from.agentId);
+      if (!rows.some((r) => r.id === input.from?.sessionId))
+        return c.json({ error: "Conversation not found" }, 404);
+    }
+    return room(c, async () =>
+      core.rooms.create(owner(c), {
+        members: await Promise.all(input.members.map((m) => memberId(c, m))),
+        ...(input.title && { title: input.title }),
+        ...(input.from && { from: input.from }),
+      }),
+    );
+  });
+  app.get("/api/rooms/:id/events", (c) =>
+    room(c, () => core.rooms.events(owner(c), c.req.param("id"))),
+  );
+  app.post("/api/rooms/:id/members", async (c) => {
+    const b = z.object({ agentId: z.string() }).safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "agentId is needed" }, 400);
+    return room(c, async () =>
+      core.rooms.add(owner(c), c.req.param("id"), await memberId(c, b.data.agentId)),
+    );
+  });
+  app.delete("/api/rooms/:id/members/:agentId", (c) =>
+    room(c, () => core.rooms.remove(owner(c), c.req.param("id"), c.req.param("agentId"))),
+  );
+  app.post("/api/rooms/:id/messages", async (c) => {
+    const b = z
+      .object({ text: z.string().min(1).max(100_000) })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "text is needed" }, 400);
+    try {
+      // Answers come later, through the log ("room.changed"): never wait for the whole round.
+      await core.rooms.post(owner(c), c.req.param("id"), b.data.text);
+      return c.json({ ok: true }, 202);
+    } catch (err) {
+      if (err instanceof RoomError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
   // MCP servers that sign in with OAuth (G24.9): the service's page, then back here.
   app.get("/api/extensions/mcp/status", async (c) => c.json(await core.mcpStatus(owner(c)), 200));
   app.post("/api/extensions/mcp/:name/login", async (c) => {

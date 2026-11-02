@@ -44,6 +44,7 @@ S1 read      S1 yes | S1 spawn    S1 no  | S1 message A1 no | S1 read   A1 no
 I1 read      A1 yes | I1 read     S2 yes | I1 message A1 no | I1 stop   A1 no  | I1 read A3 no | I1 spawn I1 no
 P1 read      P1 yes | P1 read     P2 yes | P1 message P2 yes | P1 stop   P2 no  | P1 configure P2 no | P1 spawn P1 no
 P1 message   G  yes | P1 read     G  no  | P1 read    A1 no  | P1 message O1 no | P1 read I1 no | P1 stop P1 no
+G  join      A1 no  | O1 join     A1 no  | P1 join   P2 no  | I1 join    I1 no  | A1 join A1 no
 G  configure P1 yes | G  stop     P1 yes | O1 message P1 no  | O1 read   P1 no  | I1 read P1 no | A1 message P1 no | D message P1 no
 `
   .trim()
@@ -55,6 +56,14 @@ describe("scope table", () => {
     expect(can(agent(actor), action, byId.get(target) as AgentNode, resolve)).toBe(
       expected === "yes",
     );
+  });
+
+  it("lets the human add their own agents to a group chat, never Demi-God or a sub-agent", () => {
+    const me = { type: "human" as const, ownerId: "me" };
+    for (const id of ["G", "O1", "A1", "I1", "P1"])
+      expect(can(me, "join", byId.get(id) as AgentNode, resolve)).toBe(true);
+    for (const id of ["D", "S1", "X"])
+      expect(can(me, "join", byId.get(id) as AgentNode, resolve)).toBe(false);
   });
 
   it("lets the human do everything on their own agents only", () => {

@@ -11,6 +11,7 @@ import {
   IconInfo,
   IconShield,
   IconSpinner,
+  IconUsers,
 } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
 import {
@@ -22,8 +23,10 @@ import {
   getApi,
   getLive,
   inheritedModel,
+  openTab,
   questions,
   refresh,
+  refreshRooms,
   sessionRows,
   sessionView,
 } from "../state.js";
@@ -346,6 +349,26 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
                 own={own !== undefined}
                 disabled={v.state === "running"}
               />
+              {agent.kind !== "demigod" && agent.kind !== "subagent" && (
+                <button
+                  type="button"
+                  class="mode"
+                  title={t("roomFromChatHint")}
+                  disabled={v.state === "running"}
+                  onClick={() =>
+                    // This conversation becomes a group chat: its agent leads, nothing is lost.
+                    void attempt(() =>
+                      getApi().createRoom({ members: [], from: { agentId: agent.id, sessionId } }),
+                    ).then(async (r) => {
+                      if (!r) return;
+                      await refreshRooms();
+                      openTab({ id: `room:${r.id}`, type: "room", title: r.title, roomId: r.id });
+                    })
+                  }
+                >
+                  <IconUsers size={13} /> <span class="mode-name">{t("roomFromChat")}</span>
+                </button>
+              )}
             </>
           )
         }

@@ -24,7 +24,13 @@ export type Action =
   /** Change mode, rules or budget of the target. */
   | "configure"
   /** Decide on a permission request raised by the target. */
-  | "approve";
+  | "approve"
+  /**
+   * Add the target to a group chat (G24.12). Only the human does it, never for Demi-God (a
+   * spokesperson) or a sub-agent (it lives for one task). Joining gives no new access: what
+   * the others write reaches it as data.
+   */
+  | "join";
 
 /** Lookup used to walk up the tree. */
 export type Resolve = (id: string) => AgentNode | undefined;
@@ -64,8 +70,13 @@ export function can(
   // Today every rule is decided by direct parentage and project; kept for deeper trees.
   _resolve: Resolve,
 ): boolean {
-  if (actor.type === "human") return actor.ownerId === target.ownerId;
+  if (actor.type === "human")
+    return (
+      actor.ownerId === target.ownerId &&
+      (action !== "join" || (target.kind !== "demigod" && target.kind !== "subagent"))
+    );
   const a = actor.agent;
+  if (action === "join") return false;
   if (a.ownerId !== target.ownerId) return false;
   const self = a.id === target.id;
 

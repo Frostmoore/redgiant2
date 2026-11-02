@@ -84,6 +84,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   }),
   /** An automation was edited or one of its runs started or ended: clients reload the list. */
   z.object({ type: z.literal("automations.changed"), automationId: z.string() }),
+  /** A group chat changed: a message, a member, someone started or finished answering. */
+  z.object({ type: z.literal("room.changed"), roomId: z.string() }),
   /** A platform change was recorded or moved to another stage. */
   z.object({ type: z.literal("platform.changed"), changeId: z.string() }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),

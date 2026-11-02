@@ -307,6 +307,14 @@ export const IconUser = ({ size = 19 }: P) => (
     <path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" />
   </Svg>
 );
+/** Several people: group chats (G24.12). */
+export const IconUsers = ({ size = 19 }: P) => (
+  <Svg size={size}>
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M2.5 20v-1a5.5 5.5 0 0 1 5.5-5.5h2a5.5 5.5 0 0 1 5.5 5.5v1" />
+    <path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 13.6a5.5 5.5 0 0 1 3.5 5.4v1" />
+  </Svg>
+);
 export const IconCompass = ({ size = 14 }: P) => (
   <Svg size={size}>
     <circle cx="12" cy="12" r="10" />

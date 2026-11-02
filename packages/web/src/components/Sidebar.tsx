@@ -14,6 +14,7 @@ import {
   IconSettings,
   IconTree,
   IconUser,
+  IconUsers,
 } from "../icons.js";
 import {
   activeTab,
@@ -27,6 +28,7 @@ import {
   projects,
   refresh,
   refreshConversations,
+  rooms,
   type SessionRow,
   sessionRows,
 } from "../state.js";
@@ -284,6 +286,56 @@ function Assistants({ open, toggle }: { open: Set<string>; toggle: (key: string)
   );
 }
 
+/** Group chats (G24.12): the person and several agents; made from a chat or here. */
+function Groups() {
+  const [picking, setPicking] = useState(false);
+  const god = agents.value.find((a) => a.kind === "god");
+  const open = (id: string, title: string) =>
+    openTab({ id: `room:${id}`, type: "room", title, roomId: id });
+  return (
+    <>
+      <div class="bar-title">
+        {t("groups")}
+        {god && (
+          <button type="button" class="add" onClick={() => setPicking(!picking)}>
+            <IconPlus size={12} /> {t("newShort")}
+          </button>
+        )}
+      </div>
+      {picking && god && (
+        <button
+          type="button"
+          class="bar-hint"
+          onClick={() => {
+            setPicking(false);
+            void attempt(() => getApi().createRoom({ members: [god.id] })).then(async (r) => {
+              if (!r) return;
+              await refresh();
+              open(r.id, r.title);
+            });
+          }}
+        >
+          {t("groupsNewHint", { god: god.name })}
+        </button>
+      )}
+      {rooms.value.length === 0 && !picking && <div class="bar-hint dim">{t("groupsEmpty")}</div>}
+      {rooms.value.map((r) => (
+        <div key={r.id} class="bar-row">
+          <button
+            type="button"
+            class={`bar-item${activeTab.value === `room:${r.id}` ? " active" : ""}`}
+            onClick={() => open(r.id, r.title)}
+          >
+            <IconUsers size={14} />
+            <span class="name">{r.title}</span>
+            {r.answering.length > 0 && <span class="dot running" />}
+          </button>
+        </div>
+      ))}
+    </>
+  );
+}
+
 /**
  * The left bar, as in Officina: only conversations and settings. God and the daily chat on
  * top, then the projects with their orchestrator's conversations.
@@ -349,6 +401,7 @@ export function Sidebar() {
       {open.has("daily") && <DailyChats />}
 
       <Assistants open={open} toggle={toggle} />
+      <Groups />
 
       <div class="bar-title">
         {t("projects")}

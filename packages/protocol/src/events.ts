@@ -232,6 +232,24 @@ export const EventBody = z.discriminatedUnion("type", [
       status: AutomationRunStatus,
     }),
   }),
+  // Group chats (G24.12): the room's own log, under the room's id as its session.
+  z.object({
+    type: z.literal("room.message"),
+    payload: z.object({
+      /** "human", an agent's id, or "system" (the room's own notes). */
+      from: z.string(),
+      name: z.string(),
+      text: z.string(),
+    }),
+  }),
+  z.object({
+    type: z.literal("room.member"),
+    payload: z.object({
+      agentId: z.string(),
+      name: z.string(),
+      change: z.enum(["added", "removed"]),
+    }),
+  }),
   z.object({
     type: z.literal("redaction"),
     payload: z.object({ targetSeq: z.number().int(), reason: z.string() }),

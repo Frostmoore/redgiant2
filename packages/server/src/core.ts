@@ -101,6 +101,7 @@ import {
 } from "./platform.js";
 import { migrateProjects, ProjectStore, slug } from "./projects.js";
 import { HumanQuestions, questionTools } from "./questions.js";
+import { migrateRooms, Rooms } from "./rooms.js";
 import { type TranscriptionConfig, transcribe } from "./voice.js";
 
 export interface CoreOptions {
@@ -215,6 +216,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly code: CodeChanges | undefined;
   readonly chat: DailyChat;
   readonly inspector: Inspector;
+  /** Group chats (G24.12). */
+  readonly rooms: Rooms;
   /** Long actions the user follows (downloads, the local engine, links). */
   readonly jobs = new Jobs();
   /** How the owner is told about finished automations (set by the Telegram gateway). */
@@ -307,6 +310,14 @@ export class RedGiantCore implements OrchestrationHost {
           : Promise.reject(new Error("No profile for the daily chat")),
     });
     this.inspector = new Inspector(this);
+    this.rooms = new Rooms({
+      db: o.db,
+      store: this.store,
+      registry: this.registry,
+      startSession: (owner, agent) => this.startSession(owner, agent),
+      send: (owner, session, text) => this.send(owner, session, text),
+      titleSession: (owner, session, title) => this.updateSession(owner, session, { title }),
+    });
     this.code = o.source
       ? new CodeChanges(
           o.source,
@@ -337,7 +348,9 @@ export class RedGiantCore implements OrchestrationHost {
         const agent = this.registry.get(a.id) as AgentRecord;
         return o.policyFor?.(agent) ?? this.policies.settingsFor(agent, o.metal === true);
       },
-      modeFor: (a) => this.registry.get(a.id)?.mode ?? "auto",
+      // An inspector only reads, whatever its settings and its sandbox (RD30).
+      modeFor: (a) =>
+        a.kind === "inspector" ? "readonly" : (this.registry.get(a.id)?.mode ?? "auto"),
       askAgent: (approver, req) => {
         const a = this.registry.get(approver.id) as AgentRecord;
         return o.askAgent
@@ -380,6 +393,7 @@ export class RedGiantCore implements OrchestrationHost {
     await migrateExtensions(o.db);
     await migrateAutomations(o.db);
     await migratePlatform(o.db);
+    await migrateRooms(o.db);
     await migrateChat(o.db);
     // Paired devices are gone (G24.7): their tokens stop working with their table.
     await o.db.query("DROP TABLE IF EXISTS rg_devices");
@@ -1425,6 +1439,25 @@ export class RedGiantCore implements OrchestrationHost {
     const id = await this.startSession(agent.ownerId, agent.id);
     this.workSessions.set(agent.id, id);
     return id;
+  }
+
+  /**
+   * A project's inspector as an agent (G24.12), to sit in a group chat: the one there is, or a
+   * new one under God. It only reads (`modeFor` and a read-only sandbox).
+   */
+  async inspectorAgent(ownerId: string, projectId: string): Promise<AgentRecord> {
+    const found = this.registry
+      .list({ ownerId, projectId, activeOnly: true })
+      .find((a) => a.kind === "inspector");
+    if (found) return found;
+    const project = await this.projects.get(ownerId, projectId);
+    if (!project) throw new NotFoundError(`Project "${projectId}" not found`);
+    const god = this.registry.list({ ownerId, activeOnly: true }).find((a) => a.kind === "god");
+    if (!god) throw new BadRequestError("God is missing");
+    return this.registry.create(
+      { type: "human", ownerId },
+      { kind: "inspector", parentId: god.id, projectId, name: `Inspector ${project.name}` },
+    );
   }
 
   /** Starts a new conversation with an agent. */

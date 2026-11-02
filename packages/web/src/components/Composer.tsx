@@ -145,7 +145,10 @@ export function Composer({
   onStop,
   chips,
   lang,
+  mentions,
 }: {
+  /** Names to suggest after "@" (group chats). */
+  mentions?: string[];
   placeholder: string;
   running: boolean;
   onSend: (text: string, attachments: Attachment[]) => void | Promise<void>;
@@ -306,6 +309,33 @@ export function Composer({
           </div>
         )}
         {problem && <div class="composer-problem">{problem}</div>}
+        {(() => {
+          // "@" then the start of a name: the participants it may be.
+          const partial = mentions && text.match(/(?:^|\s)@([^@\n]{0,30})$/)?.[1];
+          if (partial === undefined || partial === null) return null;
+          const options = (mentions ?? []).filter((n) =>
+            n.toLowerCase().startsWith(partial.toLowerCase()),
+          );
+          if (options.length === 0) return null;
+          return (
+            <div class="mention-list" role="listbox">
+              {options.map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  onClick={() => {
+                    setText(`${text.slice(0, text.length - partial.length)}${n} `);
+                    area.current?.focus();
+                  }}
+                >
+                  @{n}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
         <div class="box-text">
           <textarea
             ref={area}

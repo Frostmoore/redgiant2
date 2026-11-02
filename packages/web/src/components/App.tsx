@@ -15,6 +15,7 @@ import {
   IconSearch,
   IconSettings,
   IconUser,
+  IconUsers,
   Logo,
 } from "../icons.js";
 import {
@@ -52,6 +53,7 @@ import { Chat } from "./Chat.js";
 import { DailyChat } from "./DailyChat.js";
 import { Explorer } from "./Explorer.js";
 import { Login } from "./Login.js";
+import { RoomView } from "./Room.js";
 import { Search } from "./Search.js";
 import { Settings } from "./Settings.js";
 import { Setup } from "./Setup.js";
@@ -200,6 +202,8 @@ const tabIcon = (tab: Tab) =>
     <IconEye size={13} />
   ) : tab.type === "assistant" ? (
     <IconUser size={13} />
+  ) : tab.type === "room" ? (
+    <IconUsers size={13} />
   ) : (
     <IconSettings size={13} />
   );
@@ -264,6 +268,8 @@ function View({ tab }: { tab: Tab }) {
       return <Settings section={tab.section} />;
     case "assistant":
       return <AssistantPage key={tab.id} agentId={tab.agentId} />;
+    case "room":
+      return <RoomView key={tab.id} roomId={tab.roomId} />;
   }
 }
 

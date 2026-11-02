@@ -35,6 +35,7 @@ export function attachWebSocket(
     let offBoard: (() => void) | undefined;
     let offAutomations: (() => void) | undefined;
     let offPlatform: (() => void) | undefined;
+    let offRooms: (() => void) | undefined;
     const follows = new Map<string, () => void>();
     const send = (m: ServerMessage) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
     const fail = (code: string, message: string) => send({ type: "error", code, message });
@@ -59,6 +60,9 @@ export function attachWebSocket(
     };
     const onAutomation = (ownerId: string, automationId: string) => {
       if (principal?.ownerId === ownerId) send({ type: "automations.changed", automationId });
+    };
+    const onRoom = (ownerId: string, roomId: string) => {
+      if (principal?.ownerId === ownerId) send({ type: "room.changed", roomId });
     };
     const onPlatform = (ownerId: string, changeId: string) => {
       if (principal?.ownerId === ownerId) send({ type: "platform.changed", changeId });
@@ -103,6 +107,7 @@ export function attachWebSocket(
           offBoard = core.board.onChange(onBoard);
           offAutomations = core.automations.onChange(onAutomation);
           offPlatform = core.changes.onChange(onPlatform);
+          offRooms = core.rooms.onChange(onRoom);
           send({ type: "welcome", protocolVersion: PROTOCOL_VERSION, ownerId: principal.ownerId });
           for (const r of core.approvals.list(principal.ownerId))
             send({ type: "permission.request", request: r });
@@ -178,6 +183,7 @@ export function attachWebSocket(
       offBoard?.();
       offAutomations?.();
       offPlatform?.();
+      offRooms?.();
     });
   }
   return wss;

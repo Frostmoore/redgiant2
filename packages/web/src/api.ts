@@ -295,6 +295,16 @@ export interface McpEntry {
     | { type: "http"; url: string; oauth?: boolean };
 }
 
+/** A group chat (G24.12): the person and 1–6 agents, each answering in its own session. */
+export interface Room {
+  id: string;
+  title: string;
+  members: { agentId: string; sessionId: string }[];
+  createdAt: string;
+  lastAt: string | null;
+  answering: string[];
+}
+
 export interface McpStatus {
   name: string;
   projectId: string | null;
@@ -412,6 +422,19 @@ export class Api {
     transport: McpEntry["transport"];
     secrets?: { headers?: Record<string, string>; env?: Record<string, string> };
   }) => this.call("PUT", "/api/extensions/mcp", m);
+  rooms = () => this.call<Room[]>("GET", "/api/rooms");
+  /** `members` takes agent ids, or "inspector:<project>" for a project's inspector. */
+  createRoom = (r: {
+    title?: string;
+    members: string[];
+    from?: { agentId: string; sessionId: string };
+  }) => this.call<Room>("POST", "/api/rooms", r);
+  roomEvents = (id: string) => this.call<Event[]>("GET", `/api/rooms/${id}/events`);
+  addRoomMember = (id: string, agentId: string) =>
+    this.call<Room>("POST", `/api/rooms/${id}/members`, { agentId });
+  removeRoomMember = (id: string, agentId: string) =>
+    this.call<Room>("DELETE", `/api/rooms/${id}/members/${encodeURIComponent(agentId)}`);
+  postRoom = (id: string, text: string) => this.call("POST", `/api/rooms/${id}/messages`, { text });
   mcpStatus = () => this.call<McpStatus[]>("GET", "/api/extensions/mcp/status");
   /** Signs in to a server: either it already works, or the service's sign-in page. */
   mcpLogin = (name: string, origin: string) =>

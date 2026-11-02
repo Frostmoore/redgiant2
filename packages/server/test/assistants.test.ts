@@ -32,7 +32,7 @@ describe("personal assistants (G24.11)", () => {
     s = await startServer((req) => {
       const tools = req.tools.map((t) => t.name);
       seen.push({ system: req.system ?? "", tools });
-      const isAssistant = (req.system ?? "").includes("personal assistants");
+      const isAssistant = (req.system ?? "").includes("one of the user's personal assistants");
       if (isAssistant) return { text: "Two appointments today: 9:00 dentist, 15:00 call." };
       // God: hands the diary to the secretary, then reports its answer.
       const r = lastResult(req);
@@ -119,7 +119,7 @@ describe("personal assistants (G24.11)", () => {
 
   it("runs a routine that belongs to an assistant", async () => {
     s = await startServer((req) =>
-      (req.system ?? "").includes("personal assistants")
+      (req.system ?? "").includes("one of the user's personal assistants")
         ? { text: "Morning summary: nothing due." }
         : { text: "ok" },
     );

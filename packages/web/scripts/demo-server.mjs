@@ -323,6 +323,14 @@ await core.registry.create(
     role: "Cerca sul web e riportami quello che trovi, con le fonti.",
   },
 );
+// A group chat (G24.12): God, the demo's inspector and the secretary.
+{
+  const room = await core.rooms.create("local", {
+    title: "Rilascio di dicembre",
+    members: [god.id, (await core.inspectorAgent("local", "demo")).id, secretary.id],
+  });
+  await (await core.rooms.post("local", room.id, "Cosa manca per il rilascio di dicembre?")).done;
+}
 await core.automations.create(
   "local",
   `name: morning-brief\ndescription: Il punto della mattina\non:\n  cron: "0 8 * * 1-5"\nagent: ${secretary.id}\ninstructions: Fammi il punto della giornata.\n`,
