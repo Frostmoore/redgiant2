@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { AgentSession, type Engine, type SendResult, type Tool } from "@redgiant/agent";
 import {
   type AutomationHost,
@@ -103,7 +105,7 @@ import {
   PolicyStore,
   platformConfigTools,
 } from "./platform.js";
-import { migrateProjects, ProjectStore, slug } from "./projects.js";
+import { migrateProjects, ProjectStore, type Subproject, slug } from "./projects.js";
 import { HumanQuestions, questionTools } from "./questions.js";
 import { migrateRooms, Rooms } from "./rooms.js";
 import { type TranscriptionConfig, transcribe } from "./voice.js";
@@ -170,6 +172,8 @@ interface Live {
   /** When it last worked or was followed: idle sessions leave memory (their log stays). */
   usedAt: number;
 }
+
+const runFile = promisify(execFile);
 
 /** Who goes first on a shared local engine (RD16): the user's interlocutors, then the workers. */
 const PRIORITY: Record<AgentRecord["kind"], number> = {
@@ -564,8 +568,25 @@ export class RedGiantCore implements OrchestrationHost {
     const subs = await this.projects.subprojects(agent.ownerId, project.id);
     const mine = subs.find((s) => s.id === agent.subprojectId);
     if (!mine) throw new NotFoundError(`Subproject "${agent.subprojectId}" not found`);
+    // A subproject with tools of its own (G24.14c): its container, on the same folder.
+    let base = own;
+    if (mine.image) {
+      const box = await this.sandboxFor({
+        id: `${agent.ownerId}-${project.id}--${mine.id.split("--").pop() ?? mine.id}${readOnly ? "-ro" : ""}`,
+        localPath: project.path,
+        mount: { type: "bind", source: project.path },
+        readOnly,
+        image: mine.image,
+      });
+      base =
+        agent.kind === "agent"
+          ? box.workspace(await createWorktree(box.workspace(), agent.id))
+          : agent.kind === "subagent" && agent.parentId
+            ? box.workspace(await createWorktree(box.workspace(), agent.parentId))
+            : box.workspace();
+    }
     return new SubprojectWorkspace(
-      own,
+      base,
       mine.dir,
       subs.map((s) => s.dir),
       readOnly,
@@ -1860,6 +1881,85 @@ export class RedGiantCore implements OrchestrationHost {
     const { done } = await this.send(ownerId, sid, text);
     void done.catch(() => {});
     return { done };
+  }
+
+  /**
+   * A project becomes a subproject of another (G24.14c): its code goes into a folder of the
+   * other's repository with its whole history (a subtree merge), its agents follow (the lead
+   * becomes the other project's orchestrator; its own stops, its conversations stay), and so do
+   * its board, conversations and budget. Its old folder is kept, renamed, as a safety copy.
+   */
+  async adoptProject(
+    ownerId: string,
+    parentId: string,
+    childId: string,
+    o: { name?: string; dir?: string } = {},
+  ): Promise<Subproject> {
+    if (parentId === childId) throw new BadRequestError("A project cannot go inside itself");
+    const parent = await this.projects.get(ownerId, parentId);
+    const child = await this.projects.get(ownerId, childId);
+    if (!parent || !child) throw new NotFoundError("Project not found");
+    const busy = [...this.live.values()].some((l) => l.projectId === childId && l.running);
+    if (busy) throw new BadRequestError(`${child.name} is working: wait for it to finish`);
+    const lead = this.registry
+      .list({ ownerId, projectId: parentId, activeOnly: true })
+      .find((a) => a.kind === "orchestrator");
+    if (!lead) throw new BadRequestError(`${parent.name} has no orchestrator to lead it`);
+    const dir = (o.dir?.trim() || slug(child.name)).replace(/^\/+|\/+$/g, "");
+    const name = o.name?.trim() || child.name;
+    const git = (cwd: string, args: string[]) =>
+      runFile("git", ["-c", "user.name=RedGiant", "-c", "user.email=redgiant@localhost", ...args], {
+        cwd,
+      });
+    // Both repositories with everything committed.
+    for (const p of [parent.path, child.path]) {
+      await git(p, ["init", "-q"]).catch(() => {});
+      await git(p, ["add", "-A"]);
+      await git(p, ["commit", "-q", "--allow-empty", "-m", "Before joining projects"]);
+    }
+    await git(parent.path, ["fetch", "-q", child.path, "HEAD"]);
+    await git(parent.path, [
+      "merge",
+      "-q",
+      "-s",
+      "ours",
+      "--no-commit",
+      "--allow-unrelated-histories",
+      "FETCH_HEAD",
+    ]);
+    await git(parent.path, ["read-tree", `--prefix=${dir}/`, "-u", "FETCH_HEAD"]);
+    await git(parent.path, ["commit", "-q", "-m", `${child.name} becomes the subproject ${dir}/`]);
+    const sub = await this.projects.createSubproject(ownerId, parentId, name, dir);
+    // The agents follow; the old lead's agents answer to the new one.
+    const agents = this.registry.list({ ownerId, projectId: childId });
+    const oldLead = agents.find((a) => a.kind === "orchestrator");
+    for (const a of agents) {
+      if (a.kind === "orchestrator") continue;
+      await this.registry.move(a.id, {
+        projectId: parentId,
+        subprojectId: sub.id,
+        parentId: a.parentId === oldLead?.id ? lead.id : a.parentId,
+      });
+      for (const [sid, l] of this.live) if (l.agentId === a.id) this.live.delete(sid);
+    }
+    if (oldLead?.status === "active")
+      await this.registry.stop(
+        { type: "human", ownerId },
+        oldLead.id,
+        `${child.name} became a subproject of ${parent.name}`,
+      );
+    await this.o.db.query(
+      "UPDATE rg_sessions SET project_id = $2 WHERE owner_id = $1 AND project_id = $3",
+      [ownerId, parentId, childId],
+    );
+    await this.board.moveProject(ownerId, childId, parentId, sub.id);
+    await this.o.db.query("UPDATE rg_budgets SET key = $1 WHERE scope = 'project' AND key = $2", [
+      sub.id,
+      childId,
+    ]);
+    await this.projects.forget(ownerId, childId);
+    await rename(child.path, `${child.path}.merged-${Date.now().toString(36)}`).catch(() => {});
+    return sub;
   }
 
   /** The mailbox for email routines (G24.14c); its password never reaches the log. */

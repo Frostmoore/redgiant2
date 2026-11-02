@@ -2,7 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { BoardPost, BoardThread } from "../api.js";
 import { t } from "../i18n.js";
 import { renderMarkdown } from "../markdown.js";
-import { agents, attempt, boardVersion, getApi } from "../state.js";
+import { agents, attempt, boardVersion, getApi, subprojects } from "../state.js";
 
 const KINDS = t("postKinds").split(",") as BoardPost["kind"][];
 const kindLabel = (k: BoardPost["kind"]) => t("postKindLabels").split(",")[KINDS.indexOf(k)] ?? k;
@@ -74,6 +74,10 @@ export function Board({ projectId }: { projectId: string | null }) {
   const [open, setOpen] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ thread: BoardThread; posts: BoardPost[] } | null>(null);
   const [query, setQuery] = useState("");
+  /** A subproject's view (G24.14c): its threads and the whole project's. "" = everything. */
+  const [sub, setSub] = useState("");
+  const subs = subprojects.value.filter((s) => s.projectId === projectId);
+  const shown = sub ? threads.filter((th) => !th.subprojectId || th.subprojectId === sub) : threads;
   const [results, setResults] = useState<Awaited<
     ReturnType<ReturnType<typeof getApi>["boardSearch"]>
   > | null>(null);
@@ -97,6 +101,20 @@ export function Board({ projectId }: { projectId: string | null }) {
   return (
     <div class="board">
       <aside class="board-list">
+        {subs.length > 0 && (
+          <select
+            aria-label={t("boardSub")}
+            value={sub}
+            onChange={(e) => setSub((e.target as HTMLSelectElement).value)}
+          >
+            <option value="">{t("agentWholeProject")}</option>
+            {subs.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        )}
         <form class="row" onSubmit={(e) => void search(e)}>
           <input
             placeholder={t("search")}
@@ -123,10 +141,10 @@ export function Board({ projectId }: { projectId: string | null }) {
               </button>
             ))
           )
-        ) : threads.length === 0 ? (
+        ) : shown.length === 0 ? (
           <div class="empty">{t("emptyBoard")}</div>
         ) : (
-          threads.map((th) => (
+          shown.map((th) => (
             <button
               type="button"
               key={th.id}
@@ -135,6 +153,11 @@ export function Board({ projectId }: { projectId: string | null }) {
             >
               <span class={`status-chip ${th.status}`}>{statusLabel(th.status)}</span>
               <strong>{th.title}</strong>
+              {th.subprojectId && (
+                <span class="chip">
+                  {subs.find((s) => s.id === th.subprojectId)?.name ?? th.subprojectId}
+                </span>
+              )}
               <span class="dim">
                 {th.posts} · {authorName(th.createdBy)} · {new Date(th.updatedAt).toLocaleString()}
               </span>
@@ -145,7 +168,7 @@ export function Board({ projectId }: { projectId: string | null }) {
           withTitle
           onSend={(p) =>
             getApi()
-              .boardPost({ projectId, ...p })
+              .boardPost({ projectId, ...(sub && { subprojectId: sub }), ...p })
               .then((r) => setOpen(r.threadId))
           }
         />

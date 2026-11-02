@@ -345,6 +345,31 @@ export class AgentRegistry {
     return updated;
   }
 
+  /**
+   * Moves an agent to another project or subproject, or under another parent (G24.14c: a project
+   * becoming a subproject of another). Only the human does it; the log records it.
+   */
+  async move(
+    id: string,
+    to: { projectId: string | null; subprojectId: string | null; parentId: string | null },
+  ): Promise<AgentRecord> {
+    const a = this.cache.get(id);
+    if (!a) throw new HierarchyError(`Unknown agent "${id}"`);
+    await this.db.query(
+      "UPDATE rg_agents SET project_id = $2, subproject_id = $3, parent_id = $4 WHERE id = $1",
+      [id, to.projectId, to.subprojectId, to.parentId],
+    );
+    const { subprojectId: _s, ...rest } = a;
+    const moved: AgentRecord = {
+      ...rest,
+      projectId: to.projectId,
+      parentId: to.parentId,
+      ...(to.subprojectId && { subprojectId: to.subprojectId }),
+    };
+    this.cache.set(id, moved);
+    return moved;
+  }
+
   /** Renames an agent (the setup wizard names God and Demi-God). */
   async rename(id: string, name: string): Promise<AgentRecord> {
     const a = this.cache.get(id);

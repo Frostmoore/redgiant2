@@ -1,9 +1,13 @@
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import type { CompletionRequest } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
 import { startServer } from "./helpers.js";
+
+const execFileP = promisify(execFile);
 
 type Server = Awaited<ReturnType<typeof startServer>>;
 let s: Server | undefined;
@@ -162,5 +166,82 @@ describe("subprojects (G24.13)", () => {
       "/api/budgets",
     );
     expect(budgets.body.find((b) => b.id === shop.body.id)?.used.tokens).toBeGreaterThan(0);
+  });
+
+  it("turns a project into a subproject of another, with its history, agents and board (G24.14c)", async () => {
+    s = await startServer(() => ({ text: "ok" }));
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const mk = async (name: string) => {
+      const p = await s?.api<{ id: string }>("POST", "/api/projects", { name });
+      const o = await s?.api<{ id: string }>("POST", "/api/agents", {
+        kind: "orchestrator",
+        parentId: god.body.id,
+        projectId: p?.body.id,
+        name: `${name} lead`,
+      });
+      return { id: p?.body.id as string, lead: o?.body.id as string };
+    };
+    const shop = await mk("Shop");
+    const app = await mk("Mobile app");
+    const dev = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "agent",
+      parentId: app.lead,
+      projectId: app.id,
+      name: "Flutter dev",
+    });
+    const appProject = await s.core.projects.get("me", app.id);
+    await writeFile(join(appProject?.path ?? "", "pubspec.yaml"), "name: app\n");
+    await execFileP("git", ["init", "-q"], { cwd: appProject?.path });
+    await execFileP(
+      "git",
+      [
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "First app commit",
+      ],
+      { cwd: appProject?.path },
+    );
+    await s.api("POST", "/api/board/posts", {
+      projectId: app.id,
+      title: "Icons",
+      kind: "note",
+      body: "Need new icons",
+    });
+
+    const r = await s.api<{ id: string; dir: string }>("POST", `/api/projects/${shop.id}/adopt`, {
+      project: app.id,
+      dir: "apps/mobile",
+    });
+    expect(r.status).toBe(201);
+    const shopPath = (await s.core.projects.get("me", shop.id))?.path ?? "";
+    expect(existsSync(join(shopPath, "apps/mobile/pubspec.yaml"))).toBe(true);
+    const log = (await execFileP("git", ["log", "--format=%s"], { cwd: shopPath })).stdout;
+    expect(log).toContain("First app commit");
+    // The agents follow; the old lead stops, the new lead leads.
+    const moved = s.core.registry.get(dev.body.id);
+    expect(moved).toMatchObject({
+      projectId: shop.id,
+      subprojectId: r.body.id,
+      parentId: shop.lead,
+    });
+    expect(s.core.registry.get(app.lead)?.status).toBe("stopped");
+    expect(await s.core.projects.get("me", app.id)).toBeUndefined();
+    const threads = await s.core.board.threads("me", shop.id);
+    expect(threads.find((t) => t.title === "Icons")).toMatchObject({ subprojectId: r.body.id });
+    // The old folder is kept as a safety copy.
+    const kept = (await readdir(dirname(appProject?.path ?? ""))).filter((f) =>
+      f.includes(".merged-"),
+    );
+    expect(kept).toHaveLength(1);
   });
 });

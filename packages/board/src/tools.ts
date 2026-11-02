@@ -25,7 +25,9 @@ export function boardTools(self: AgentRecord, board: Board): Tool[] {
   };
   const checkThread = async (id: string) => {
     const t = await board.thread(self.ownerId, id);
-    if (!t || (!isGod && t.projectId !== self.projectId))
+    // A subproject's agent sees its own threads and the whole project's, not its siblings'.
+    const sibling = self.subprojectId && t?.subprojectId && t.subprojectId !== self.subprojectId;
+    if (!t || (!isGod && t.projectId !== self.projectId) || sibling)
       throw new Error(`No thread "${id}" on your board.`);
     return t;
   };
@@ -52,12 +54,17 @@ export function boardTools(self: AgentRecord, board: Board): Tool[] {
         project_id: z.string().optional(),
       }),
       async run({ status, project_id }: { status?: ThreadStatus; project_id?: string }) {
-        const threads = await board.threads(self.ownerId, boardOf(project_id), status);
+        const threads = await board.threads(
+          self.ownerId,
+          boardOf(project_id),
+          status,
+          self.subprojectId ?? undefined,
+        );
         if (threads.length === 0) return "The board is empty.";
         return threads
           .map(
             (t) =>
-              `${t.id} [${t.status}] ${t.title} — ${t.posts} posts, by ${t.createdBy}, ${t.updatedAt.slice(0, 16)}`,
+              `${t.id} [${t.status}]${t.subprojectId ? ` (${t.subprojectId})` : ""} ${t.title} — ${t.posts} posts, by ${t.createdBy}, ${t.updatedAt.slice(0, 16)}`,
           )
           .join("\n");
       },
@@ -169,6 +176,7 @@ export function boardTools(self: AgentRecord, board: Board): Tool[] {
         const { thread } = await board.createThread({
           ownerId: self.ownerId,
           projectId,
+          subprojectId: self.subprojectId ?? null,
           title: i.title,
           first: post,
         });

@@ -117,6 +117,24 @@ describe.skipIf(!env.REDGIANT_DOCKER_TESTS)("Docker sandbox", () => {
     expect(await ws.readText("from-sandbox.txt")).toBe("made-in-container\n");
   });
 
+  it("runs a sandbox on another image when asked (a subproject's own tools, G24.14c)", async () => {
+    const other = await provider.create({
+      id: "other-image",
+      localPath: join(base, "project"),
+      mount: { type: "bind", source: join(base, "project") },
+      // Any image with bash and coreutils (the sandbox runs commands with them).
+      image: "python:3.12-slim",
+    });
+    const r = await other.workspace().exec("python3 --version", { timeoutMs: 30_000 });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toMatch(/^Python 3\.12/);
+    // The same folder as the project's own sandbox.
+    expect((await other.workspace().exec("cat from-core.txt", { timeoutMs: 30_000 })).stdout).toBe(
+      "hello\n",
+    );
+    await other.destroy();
+  });
+
   it("enforces limits and drops every capability", async () => {
     expect((await sh("cat /sys/fs/cgroup/memory.max")).stdout.trim()).toBe(
       String(256 * 1024 * 1024),

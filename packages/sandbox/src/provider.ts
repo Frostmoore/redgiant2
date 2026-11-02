@@ -18,6 +18,8 @@ export interface SandboxSpec {
   limits?: SandboxLimits;
   /** Extra environment; never put secrets here (they belong to egress routes). */
   env?: Record<string, string>;
+  /** Another image than the provider's (a subproject with its own tools, G24.14c). */
+  image?: string;
 }
 
 export interface Sandbox {

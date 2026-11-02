@@ -21,6 +21,8 @@ export interface Subproject {
   name: string;
   /** The folder, relative to the project's ("apps/shop"). */
   dir: string;
+  /** Its own sandbox image (different tools, e.g. Flutter); none: the project's sandbox. */
+  image?: string;
   createdAt: string;
 }
 
@@ -37,6 +39,7 @@ export async function migrateProjects(db: SqlClient): Promise<void> {
       created_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (owner_id, id)
     )`);
+  await db.query("ALTER TABLE rg_subprojects ADD COLUMN IF NOT EXISTS image text");
   await db.query(`
     CREATE TABLE IF NOT EXISTS rg_projects (
       id         text NOT NULL,
@@ -97,6 +100,7 @@ interface SubRow {
   project_id: string;
   name: string;
   dir: string;
+  image?: string | null;
   created_at: Date | string;
 }
 
@@ -105,6 +109,7 @@ const fromSubRow = (r: SubRow): Subproject => ({
   projectId: r.project_id,
   name: r.name,
   dir: r.dir,
+  ...(r.image && { image: r.image }),
   createdAt: new Date(r.created_at).toISOString(),
 });
 
@@ -188,6 +193,22 @@ export class ProjectStore {
       [id, ownerId, projectId, name, folder],
     );
     return (await this.subproject(ownerId, id)) as Subproject;
+  }
+
+  /** A project that went into another (G24.14c): its row goes, its code lives on there. */
+  async forget(ownerId: string, id: string): Promise<void> {
+    await this.db.query("DELETE FROM rg_projects WHERE owner_id = $1 AND id = $2", [ownerId, id]);
+  }
+
+  /** Its own sandbox image, or the project's again (null). Takes effect for new sessions. */
+  async setSubprojectImage(ownerId: string, id: string, image: string | null): Promise<void> {
+    if (image !== null && !/^[\w.\-/:@]+$/.test(image))
+      throw new SubprojectError("Not an image name (like ghcr.io/cirruslabs/flutter:stable)");
+    await this.db.query("UPDATE rg_subprojects SET image = $3 WHERE owner_id = $1 AND id = $2", [
+      ownerId,
+      id,
+      image,
+    ]);
   }
 
   async subprojects(ownerId: string, projectId?: string): Promise<Subproject[]> {

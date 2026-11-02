@@ -68,31 +68,35 @@ export class DockerSandboxProvider implements SandboxProvider {
     });
   }
 
-  private imageReady: Promise<void> | undefined;
+  private readonly imagesReady = new Map<string, Promise<void>>();
 
-  /** Pulls the sandbox image the first time it is needed (a fresh install has not got it). */
-  ensureImage(): Promise<void> {
-    this.imageReady ??= (async () => {
-      const present = await this.docker
-        .getImage(this.o.image)
-        .inspect()
-        .then(() => true)
-        .catch(() => false);
-      if (present) return;
-      const stream = await this.docker.pull(this.o.image);
-      await new Promise<void>((resolve, reject) =>
-        this.docker.modem.followProgress(stream, (err) => (err ? reject(err) : resolve())),
-      );
-    })().catch((err) => {
-      this.imageReady = undefined;
-      throw new Error(`Cannot get the sandbox image ${this.o.image}: ${(err as Error).message}`);
-    });
-    return this.imageReady;
+  /** Pulls a sandbox image the first time it is needed (a fresh install has not got it). */
+  ensureImage(image = this.o.image): Promise<void> {
+    let ready = this.imagesReady.get(image);
+    if (!ready) {
+      ready = (async () => {
+        const present = await this.docker
+          .getImage(image)
+          .inspect()
+          .then(() => true)
+          .catch(() => false);
+        if (present) return;
+        const stream = await this.docker.pull(image);
+        await new Promise<void>((resolve, reject) =>
+          this.docker.modem.followProgress(stream, (err) => (err ? reject(err) : resolve())),
+        );
+      })().catch((err) => {
+        this.imagesReady.delete(image);
+        throw new Error(`Cannot get the sandbox image ${image}: ${(err as Error).message}`);
+      });
+      this.imagesReady.set(image, ready);
+    }
+    return ready;
   }
 
   async create(spec: SandboxSpec): Promise<Sandbox> {
     await this.ensureNetwork();
-    await this.ensureImage();
+    await this.ensureImage(spec.image);
     const name = `${this.o.prefix ?? "rg-sbx"}-${spec.id.replace(/[^a-zA-Z0-9_.-]/g, "-")}`;
     const old = this.docker.getContainer(name);
     await old.remove({ force: true }).catch(() => {});
@@ -139,7 +143,9 @@ export class DockerSandboxProvider implements SandboxProvider {
 
     const options: Docker.ContainerCreateOptions = {
       name,
-      Image: this.o.image,
+      Image: spec.image ?? this.o.image,
+      // Another image's own command may end at once (an interpreter): the container stays up.
+      ...(spec.image && { Entrypoint: [], Cmd: ["sleep", "infinity"] }),
       User: user,
       WorkingDir: "/workspace",
       Env: Object.entries(env).map(([k, v]) => `${k}=${v}`),

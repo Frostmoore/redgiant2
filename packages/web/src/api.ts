@@ -251,6 +251,8 @@ export interface Budget {
 export interface BoardThread {
   id: string;
   projectId: string | null;
+  /** The subproject it belongs to; null: the whole project (G24.14c). */
+  subprojectId?: string | null;
   title: string;
   status: "open" | "resolved" | "blocked";
   createdBy: string;
@@ -412,6 +414,7 @@ export class Api {
   boardPost = (p: {
     threadId?: string;
     projectId?: string | null;
+    subprojectId?: string | null;
     title?: string;
     kind: BoardPost["kind"];
     body: string;
@@ -439,6 +442,17 @@ export class Api {
   }) => this.call("PUT", "/api/extensions/mcp", m);
   subprojects = (projectId: string) =>
     this.call<Subproject[]>("GET", `/api/projects/${projectId}/subprojects`);
+  /** An existing project goes into this one as a subproject, with its history (G24.14c). */
+  adoptProject = (projectId: string, project: string, dir?: string) =>
+    this.call<Subproject>("POST", `/api/projects/${projectId}/adopt`, {
+      project,
+      ...(dir && { dir }),
+    });
+  /** A subproject's own sandbox image; null: the project's again. */
+  setSubprojectImage = (projectId: string, sub: string, image: string | null) =>
+    this.call("PATCH", `/api/projects/${projectId}/subprojects/${encodeURIComponent(sub)}`, {
+      image,
+    });
   createSubproject = (projectId: string, name: string, dir?: string) =>
     this.call<Subproject>("POST", `/api/projects/${projectId}/subprojects`, {
       name,

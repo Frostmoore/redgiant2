@@ -492,6 +492,8 @@ const routes = {
       query: z.object({
         projectId: z.string().optional(),
         status: z.enum(["open", "resolved", "blocked"]).optional(),
+        /** A subproject's view: its threads and the whole project's (G24.14c). */
+        subprojectId: z.string().optional(),
       }),
     },
     responses: {
@@ -523,6 +525,7 @@ const routes = {
             schema: z.object({
               threadId: z.string().optional(),
               projectId: z.string().nullable().optional(),
+              subprojectId: z.string().nullable().optional(),
               title: z.string().min(3).optional(),
               kind: z.enum(["task", "result", "question", "decision", "blocker", "note"]),
               body: z.string().min(1),
@@ -1160,7 +1163,10 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.openapi(routes.boardThreads, async (c) => {
     const q = c.req.valid("query");
     if (!(await ownsProject(c, q.projectId))) return c.json({ error: "Project not found" }, 404);
-    return c.json(await core.board.threads(owner(c), q.projectId ?? null, q.status), 200);
+    return c.json(
+      await core.board.threads(owner(c), q.projectId ?? null, q.status, q.subprojectId),
+      200,
+    );
   });
   app.openapi(routes.boardThread, async (c) => {
     const id = c.req.valid("param").id;
@@ -1182,6 +1188,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     const r = await core.board.createThread({
       ownerId: owner(c),
       projectId: b.projectId ?? null,
+      subprojectId: b.subprojectId ?? null,
       title: b.title,
       first: post,
     });
@@ -1648,6 +1655,44 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         await core.projects.createSubproject(owner(c), c.req.param("id"), b.data.name, b.data.dir),
         201,
       );
+    } catch (err) {
+      if (err instanceof SubprojectError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
+  // An existing project becomes a subproject of this one (G24.14c), with its history.
+  app.post("/api/projects/:id/adopt", async (c) => {
+    const b = z
+      .object({
+        project: z.string().min(1),
+        name: z.string().max(80).optional(),
+        dir: z.string().max(200).optional(),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "The project to bring in is needed" }, 400);
+    try {
+      const sub = await core.adoptProject(owner(c), c.req.param("id"), b.data.project, {
+        ...(b.data.name && { name: b.data.name }),
+        ...(b.data.dir && { dir: b.data.dir }),
+      });
+      return c.json(sub, 201);
+    } catch (err) {
+      if (err instanceof SubprojectError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
+  // A subproject's own sandbox image, or the project's again (G24.14c).
+  app.patch("/api/projects/:id/subprojects/:sub", async (c) => {
+    const b = z
+      .object({ image: z.string().max(300).nullable() })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "image (or null) is needed" }, 400);
+    const sub = await core.projects.subproject(owner(c), c.req.param("sub"));
+    if (!sub || sub.projectId !== c.req.param("id"))
+      return c.json({ error: "Subproject not found" }, 404);
+    try {
+      await core.projects.setSubprojectImage(owner(c), sub.id, b.data.image?.trim() || null);
+      return c.json({ ok: true }, 200);
     } catch (err) {
       if (err instanceof SubprojectError) return c.json({ error: err.message }, 400);
       throw err;

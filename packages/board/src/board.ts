@@ -11,6 +11,8 @@ export interface Thread {
   ownerId: string;
   /** `null` = the global board (God's). */
   projectId: string | null;
+  /** The subproject it belongs to (G24.14c); `null` = the whole project. */
+  subprojectId: string | null;
   title: string;
   status: ThreadStatus;
   createdBy: string;
@@ -49,6 +51,8 @@ export async function migrateBoard(db: SqlClient): Promise<void> {
       summary_upto integer NOT NULL DEFAULT 0,
       task_ids     text[] NOT NULL DEFAULT '{}'
     )`);
+  // A subproject's own threads (G24.14c).
+  await db.query("ALTER TABLE rg_threads ADD COLUMN IF NOT EXISTS subproject_id text");
   await db.query(`
     CREATE TABLE IF NOT EXISTS rg_posts (
       id         text PRIMARY KEY,
@@ -74,6 +78,7 @@ interface ThreadRow {
   id: string;
   owner_id: string;
   project_id: string | null;
+  subproject_id?: string | null;
   title: string;
   status: ThreadStatus;
   created_by: string;
@@ -101,6 +106,7 @@ const threadOf = (r: ThreadRow): Thread => ({
   id: r.id,
   ownerId: r.owner_id,
   projectId: r.project_id,
+  subprojectId: r.subproject_id ?? null,
   title: r.title,
   status: r.status,
   createdBy: r.created_by,
@@ -158,16 +164,34 @@ export class Board {
     for (const l of this.listeners) l(t.ownerId, t.projectId, t.id);
   }
 
+  /** A project's board goes into another's, as one of its subprojects (G24.14c). */
+  async moveProject(
+    ownerId: string,
+    from: string,
+    to: string,
+    subprojectId: string,
+  ): Promise<void> {
+    await this.db.query(
+      "UPDATE rg_threads SET project_id = $2, subproject_id = $3 WHERE owner_id = $1 AND project_id = $4",
+      [ownerId, to, subprojectId, from],
+    );
+    await this.db.query(
+      "UPDATE rg_posts SET project_id = $2 WHERE owner_id = $1 AND project_id = $3",
+      [ownerId, to, from],
+    );
+  }
+
   async createThread(o: {
     ownerId: string;
     projectId: string | null;
+    subprojectId?: string | null;
     title: string;
     first: NewPost;
   }): Promise<{ thread: Thread; post: Post }> {
     const id = `thr_${randomUUID().slice(0, 8)}`;
     await this.db.query(
-      "INSERT INTO rg_threads (id, owner_id, project_id, title, created_by) VALUES ($1, $2, $3, $4, $5)",
-      [id, o.ownerId, o.projectId, o.title, o.first.author],
+      "INSERT INTO rg_threads (id, owner_id, project_id, subproject_id, title, created_by) VALUES ($1, $2, $3, $4, $5, $6)",
+      [id, o.ownerId, o.projectId, o.subprojectId ?? null, o.title, o.first.author],
     );
     const post = await this.reply(o.ownerId, id, o.first);
     return { thread: (await this.thread(o.ownerId, id)) as Thread, post };
@@ -242,6 +266,11 @@ export class Board {
     ownerId: string,
     projectId: string | null,
     status?: ThreadStatus,
+    /**
+     * A subproject's view (G24.14c): its own threads and the whole project's, never its
+     * siblings'. Absent: every thread of the project.
+     */
+    subprojectId?: string,
   ): Promise<Thread[]> {
     const params: unknown[] = [ownerId];
     let where = "t.owner_id = $1";
@@ -250,6 +279,8 @@ export class Board {
         ? " AND t.project_id IS NULL"
         : ` AND t.project_id = $${params.push(projectId)}`;
     if (status) where += ` AND t.status = $${params.push(status)}`;
+    if (subprojectId !== undefined)
+      where += ` AND (t.subproject_id IS NULL OR t.subproject_id = $${params.push(subprojectId)})`;
     const rows = await this.db.query<ThreadRow>(
       `SELECT t.*, (SELECT count(*) FROM rg_posts p WHERE p.thread_id = t.id) AS posts FROM rg_threads t WHERE ${where} ORDER BY t.updated_at DESC LIMIT 200`,
       params,

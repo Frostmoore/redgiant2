@@ -123,6 +123,15 @@ const en = {
   kind_subagent: "Helper",
   kind_inspector: "Inspector, reads only",
   kind_assistant: "Personal assistant",
+  subFrom: "New or existing",
+  subNewOne: "A new subproject",
+  subBringIn: "Bring in the project {name}",
+  subAdoptConfirm:
+    "The project goes into this one as a subproject: its code (with its history) into the folder, its agents under this project's lead, its board and conversations too. Its old folder stays as a copy. Go on?",
+  subImage: "Its own sandbox image (optional)",
+  subImageHelp:
+    "For tools the project's sandbox does not have, like ghcr.io/cirruslabs/flutter:stable. The image needs bash.",
+  boardSub: "Subproject",
   chatToGroup: "Go on as a group: add an agent, which gets this chat as context",
   roomUsageHint: "What its answers here cost, and how full its context is",
   emailTitle: "Email for routines",
@@ -1264,6 +1273,15 @@ const it: Record<Key, string> = {
   kind_subagent: "Aiutante",
   kind_inspector: "Ispettore, solo lettura",
   kind_assistant: "Assistente personale",
+  subFrom: "Nuovo o esistente",
+  subNewOne: "Un sottoprogetto nuovo",
+  subBringIn: "Porta dentro il progetto {name}",
+  subAdoptConfirm:
+    "Il progetto entra in questo come sottoprogetto: il suo codice (con la sua storia) nella cartella, i suoi agenti sotto il capo di questo progetto, anche la bacheca e le conversazioni. La sua vecchia cartella resta come copia. Procedo?",
+  subImage: "Immagine della sandbox tutta sua (facoltativa)",
+  subImageHelp:
+    "Per strumenti che la sandbox del progetto non ha, come ghcr.io/cirruslabs/flutter:stable. L'immagine deve avere bash.",
+  boardSub: "Sottoprogetto",
   chatToGroup: "Continua in gruppo: aggiungi un agente, che riceve questa chat come contesto",
   roomUsageHint: "Quanto sono costate le sue risposte qui, e quanto è pieno il suo contesto",
   emailTitle: "Email per le routine",

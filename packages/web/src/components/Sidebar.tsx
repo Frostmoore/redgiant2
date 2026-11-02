@@ -305,16 +305,28 @@ function Subprojects({
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [dir, setDir] = useState("");
+  const [image, setImage] = useState("");
+  /** An existing project to bring in (G24.14c); "" = a new subproject. */
+  const [from, setFrom] = useState("");
   const list = subprojects.value.filter((s) => s.projectId === projectId);
+  const others = projects.value.filter((p) => p.id !== projectId);
   const create = async (e: Event) => {
     e.preventDefault();
+    if (from && !confirm(t("subAdoptConfirm"))) return;
     const made = await attempt(() =>
-      getApi().createSubproject(projectId, name.trim(), dir.trim() || undefined),
+      from
+        ? getApi().adoptProject(projectId, from, dir.trim() || undefined)
+        : getApi().createSubproject(projectId, name.trim(), dir.trim() || undefined),
     );
     if (!made) return;
+    if (image.trim())
+      await attempt(() => getApi().setSubprojectImage(projectId, made.id, image.trim()));
     setName("");
     setDir("");
+    setImage("");
+    setFrom("");
     setAdding(false);
+    await refresh();
     await refreshSubprojects();
   };
   return (
@@ -355,20 +367,42 @@ function Subprojects({
       })}
       {adding ? (
         <form class="new-project" onSubmit={(e) => void create(e)}>
-          <input
-            required
-            placeholder={t("subName")}
-            value={name}
-            onInput={(e) => setName((e.target as HTMLInputElement).value)}
-          />
+          {others.length > 0 && (
+            <select
+              aria-label={t("subFrom")}
+              value={from}
+              onChange={(e) => setFrom((e.target as HTMLSelectElement).value)}
+            >
+              <option value="">{t("subNewOne")}</option>
+              {others.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {t("subBringIn", { name: p.name })}
+                </option>
+              ))}
+            </select>
+          )}
+          {!from && (
+            <input
+              required
+              placeholder={t("subName")}
+              value={name}
+              onInput={(e) => setName((e.target as HTMLInputElement).value)}
+            />
+          )}
           <input
             placeholder={t("subDir")}
             title={t("subDirHelp")}
             value={dir}
             onInput={(e) => setDir((e.target as HTMLInputElement).value)}
           />
+          <input
+            placeholder={t("subImage")}
+            title={t("subImageHelp")}
+            value={image}
+            onInput={(e) => setImage((e.target as HTMLInputElement).value)}
+          />
           <div class="row">
-            <button type="submit" class="primary" disabled={!name.trim()}>
+            <button type="submit" class="primary" disabled={!from && !name.trim()}>
               {t("create")}
             </button>
             <button type="button" onClick={() => setAdding(false)}>
