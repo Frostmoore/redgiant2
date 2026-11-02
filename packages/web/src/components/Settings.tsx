@@ -24,6 +24,7 @@ import { Devices } from "./Devices.js";
 import { Extensions } from "./Extensions.js";
 import { Hierarchy } from "./Hierarchy.js";
 import { Platform } from "./Platform.js";
+import { Services } from "./Services.js";
 import { Setup } from "./Setup.js";
 import { Subscriptions } from "./Subscriptions.js";
 import { Telegram } from "./Telegram.js";
@@ -83,6 +84,7 @@ function General() {
           </span>
         </div>
       </div>
+      <Services />
       <h2 style={{ marginTop: "24px" }}>{t("account")}</h2>
       <button type="button" onClick={signOut} class="row">
         <IconLogout /> {t("logout")}

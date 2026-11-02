@@ -1,3 +1,4 @@
+import { OWN_SERVER_ID } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import { claimDevice, deviceName } from "../api.js";
 import { usd } from "../format.js";
@@ -110,7 +111,7 @@ function Limits() {
       </div>
     );
   }
-  if (provider === "local" || provider === "openai") {
+  if (provider === "local" || provider === OWN_SERVER_ID) {
     const events = chat ? sessionView(chat.sessionId).value.events : [];
     const last = [...events].reverse().find((e) => e.type === "message.assistant");
     const m = last?.type === "message.assistant" ? last.payload?.metrics : undefined;

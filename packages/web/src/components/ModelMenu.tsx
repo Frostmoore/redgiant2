@@ -1,3 +1,4 @@
+import { keyProvider, OWN_SERVER_ID } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { ModelChoice } from "../api.js";
 import { t } from "../i18n.js";
@@ -19,10 +20,10 @@ export function modelName(id: string): string {
 const via = (provider: string) =>
   provider.endsWith("-subscription")
     ? t("viaSubscription")
-    : provider === "anthropic"
-      ? "API"
-      : provider === "local" || provider === "openai"
-        ? t("viaLocal")
+    : provider === "local" || provider === OWN_SERVER_ID
+      ? t("viaLocal")
+      : keyProvider(provider)
+        ? "API"
         : provider;
 
 /** The models the server offers, loaded once and shared by every composer. */

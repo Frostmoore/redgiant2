@@ -3,21 +3,18 @@ import type { GgufFile, ModelDownload, SetupState } from "../api.js";
 import { danger, lang, setLang, t } from "../i18n.js";
 import { IconDownload, IconPlay } from "../icons.js";
 import { attempt, getApi, platformInfo, refresh } from "../state.js";
+import { Brain, DefaultModel } from "./Brain.js";
+import { Step } from "./ui.js";
 
 const STEPS = [
   "wzWelcome",
-  "wzModels",
+  "wzBrain",
   "wzLocal",
   "wzNames",
   "wzTelegram",
   "wzSafety",
   "wzDone",
 ] as const;
-const CLOUD_MODELS = [
-  "anthropic/claude-opus-5-5",
-  "anthropic/claude-sonnet-5-5",
-  "anthropic/claude-haiku-5-5",
-];
 
 const gb = (n: number) => `${n.toFixed(1)} GB`;
 
@@ -31,209 +28,18 @@ function Field({ label, children }: { label: string; children: preact.ComponentC
   );
 }
 
-function Locked({ on }: { on: boolean | undefined }) {
-  return on ? <span class="chip muted">{t("wzLocked")}</span> : null;
-}
-
-/** Models: cloud keys, an OpenAI-compatible server, web search, the default model. */
-function Models({ s, next }: { s: SetupState; next: () => void }) {
-  const [anthropicKey, setKey] = useState("");
-  const [openaiUrl, setOpenaiUrl] = useState(s.config.openaiBaseUrl ?? "");
-  const [openaiKey, setOpenaiKey] = useState("");
-  const [searx, setSearx] = useState(s.config.searxngUrl ?? "");
-  const [voiceApi, setVoiceApi] = useState(s.config.transcription?.api ?? "whisper-asr");
-  const [voiceUrl, setVoiceUrl] = useState(s.config.transcription?.url ?? "");
-  const [voiceModel, setVoiceModel] = useState(s.config.transcription?.model ?? "");
-  const [voiceKey, setVoiceKey] = useState("");
-  const [imagesKey, setImagesKey] = useState("");
-  const [imagesModel, setImagesModel] = useState(s.config.imagesModel ?? "");
-  const current = s.config.defaultModel;
-  const [model, setModel] = useState(
-    current ? `${current.provider}/${current.model}` : (CLOUD_MODELS[0] ?? ""),
-  );
-  const [effort, setEffort] = useState(current?.effort ?? "medium");
-  const [found, setFound] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-  const save = async (e: Event) => {
-    e.preventDefault();
-    setBusy(true);
-    const [provider = "", ...rest] = model.trim().split("/");
-    const r = await attempt(() =>
-      getApi().setupModels({
-        ...(anthropicKey && { anthropicKey }),
-        ...(openaiUrl.trim() &&
-          openaiUrl !== s.config.openaiBaseUrl && {
-            openai: { baseUrl: openaiUrl.trim(), ...(openaiKey && { key: openaiKey }) },
-          }),
-        ...(searx.trim() && searx !== s.config.searxngUrl && { searxngUrl: searx.trim() }),
-        ...(!s.locked.images &&
-          (imagesKey || imagesModel !== (s.config.imagesModel ?? "")) && {
-            images: {
-              ...(imagesKey && { key: imagesKey }),
-              ...(imagesModel.trim() && { model: imagesModel.trim() }),
-            },
-          }),
-        ...(!s.locked.voice &&
-          (voiceUrl.trim()
-            ? {
-                transcription: {
-                  api: voiceApi,
-                  url: voiceUrl.trim(),
-                  ...(voiceModel.trim() && { model: voiceModel.trim() }),
-                  ...(voiceKey && { key: voiceKey }),
-                },
-              }
-            : s.config.transcription && { transcription: null })),
-        ...(!s.locked.defaultModel && {
-          defaultModel: { provider, model: rest.join("/"), ...(effort && { effort }) },
-        }),
-      }),
-    );
-    setBusy(false);
-    if (r) {
-      setFound(r.openaiModels);
-      next();
-    }
-  };
+/** "How should RedGiant think?": any of the ways, or none; then the default model. */
+function BrainStep({ s, next, reload }: { s: SetupState; next: () => void; reload: () => void }) {
   return (
-    <form class="form" onSubmit={(e) => void save(e)}>
-      <p class="wide dim">{t("wzModelsHint")}</p>
-      <Field label={`Anthropic API key${s.secretsSet.anthropic ? ` (${t("wzAlreadySet")})` : ""}`}>
-        <input
-          type="password"
-          autocomplete="off"
-          disabled={s.locked.anthropic}
-          placeholder="sk-ant-…"
-          value={anthropicKey}
-          onInput={(e) => setKey((e.target as HTMLInputElement).value)}
-        />
-        <Locked on={s.locked.anthropic} />
-      </Field>
-      <Field label={t("wzOpenai")}>
-        <input
-          placeholder="http://localhost:11434/v1"
-          disabled={s.locked.openai}
-          value={openaiUrl}
-          onInput={(e) => setOpenaiUrl((e.target as HTMLInputElement).value)}
-        />
-        <Locked on={s.locked.openai} />
-      </Field>
-      <Field label={`${t("wzOpenaiKey")}${s.secretsSet.openai ? ` (${t("wzAlreadySet")})` : ""}`}>
-        <input
-          type="password"
-          autocomplete="off"
-          disabled={s.locked.openai}
-          value={openaiKey}
-          onInput={(e) => setOpenaiKey((e.target as HTMLInputElement).value)}
-        />
-      </Field>
-      <Field label={t("wzSearch")}>
-        <input
-          placeholder="http://searxng:8080"
-          disabled={s.locked.search}
-          value={searx}
-          onInput={(e) => setSearx((e.target as HTMLInputElement).value)}
-        />
-        <Locked on={s.locked.search} />
-      </Field>
-      <Field label={t("wzVoice")}>
-        <div class="row">
-          <select
-            disabled={s.locked.voice}
-            value={voiceApi}
-            onChange={(e) =>
-              setVoiceApi((e.target as HTMLSelectElement).value as "whisper-asr" | "openai")
-            }
-          >
-            <option value="whisper-asr">whisper-asr-webservice</option>
-            <option value="openai">{t("wzVoiceOpenai")}</option>
-          </select>
-          <input
-            placeholder={
-              voiceApi === "openai" ? "https://api.openai.com/v1" : "http://whisper-asr:9000"
-            }
-            disabled={s.locked.voice}
-            value={voiceUrl}
-            onInput={(e) => setVoiceUrl((e.target as HTMLInputElement).value)}
-          />
-        </div>
-        <Locked on={s.locked.voice} />
-      </Field>
-      {voiceApi === "openai" && (
-        <>
-          <Field label={t("wzVoiceModel")}>
-            <input
-              placeholder="whisper-1"
-              disabled={s.locked.voice}
-              value={voiceModel}
-              onInput={(e) => setVoiceModel((e.target as HTMLInputElement).value)}
-            />
-          </Field>
-          <Field
-            label={`${t("wzVoiceKey")}${s.secretsSet.transcription ? ` (${t("wzAlreadySet")})` : ""}`}
-          >
-            <input
-              type="password"
-              autocomplete="off"
-              disabled={s.locked.voice}
-              value={voiceKey}
-              onInput={(e) => setVoiceKey((e.target as HTMLInputElement).value)}
-            />
-          </Field>
-        </>
-      )}
-      <Field label={`${t("wzImagesKey")}${s.secretsSet.images ? ` (${t("wzAlreadySet")})` : ""}`}>
-        <input
-          type="password"
-          autocomplete="off"
-          placeholder="sk-…"
-          disabled={s.locked.images}
-          value={imagesKey}
-          onInput={(e) => setImagesKey((e.target as HTMLInputElement).value)}
-        />
-        <Locked on={s.locked.images} />
-      </Field>
-      <Field label={t("wzImagesModel")}>
-        <input
-          placeholder="gpt-image-2.5-flare"
-          disabled={s.locked.images}
-          value={imagesModel}
-          onInput={(e) => setImagesModel((e.target as HTMLInputElement).value)}
-        />
-      </Field>
-      <Field label={t("wzDefaultModel")}>
-        <input
-          list="wz-models"
-          disabled={s.locked.defaultModel}
-          value={model}
-          onInput={(e) => setModel((e.target as HTMLInputElement).value)}
-        />
-        <datalist id="wz-models">
-          {[
-            ...CLOUD_MODELS,
-            ...found.map((m) => `openai/${m}`),
-            ...(s.config.engine ? [`local/${s.config.engine.model}`] : []),
-          ].map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
-        <Locked on={s.locked.defaultModel} />
-      </Field>
-      <Field label={t("effort")}>
-        <select value={effort} onChange={(e) => setEffort((e.target as HTMLSelectElement).value)}>
-          {["low", "medium", "high", "max"].map((x) => (
-            <option key={x} value={x}>
-              {x}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <div class="row wide">
-        <button type="submit" class="primary" disabled={busy}>
-          {busy ? t("wzTrying") : t("wzSaveNext")}
+    <Step title={t("wzBrain")} purpose={t("brainPurpose")}>
+      <Brain s={s} reload={reload} wizard />
+      <DefaultModel s={s} onSaved={reload} />
+      <div class="row">
+        <button type="button" class="primary" onClick={next}>
+          {t("wzNext")}
         </button>
       </div>
-    </form>
+    </Step>
   );
 }
 
@@ -483,7 +289,6 @@ function Safety({ s, next }: { s: SetupState; next: () => void }) {
   const [humanOnly, setHumanOnly] = useState<string[]>(s.policy.humanOnly);
   const [budget, setBudget] = useState(s.budgetUsd?.toString() ?? "");
   const [retention, setRetention] = useState(s.config.retentionDays?.toString() ?? "");
-  const [ack, setAck] = useState(s.config.subscriptionAck ?? false);
   const save = async (e: Event) => {
     e.preventDefault();
     const r = await attempt(() =>
@@ -491,7 +296,6 @@ function Safety({ s, next }: { s: SetupState; next: () => void }) {
         humanOnly,
         budgetUsd: budget.trim() ? Number(budget) : null,
         retentionDays: retention.trim() ? Number(retention) : null,
-        subscriptionAck: ack,
       }),
     );
     if (r !== undefined) next();
@@ -537,14 +341,6 @@ function Safety({ s, next }: { s: SetupState; next: () => void }) {
         />
       </Field>
       <p class="wide dim">{t("wzSandbox", { kind: platformInfo.value?.sandbox ?? "?" })}</p>
-      <label class="wide row">
-        <input
-          type="checkbox"
-          checked={ack}
-          onChange={(e) => setAck((e.target as HTMLInputElement).checked)}
-        />
-        {t("wzSubscription")}
-      </label>
       <div class="row wide">
         <button type="submit" class="primary">
           {t("wzSaveNext")}
@@ -578,7 +374,8 @@ export function Setup({ onDone }: { onDone?: () => void }) {
         ))}
       </ol>
       <section class="wz-body">
-        <h2>{t(STEPS[step] ?? "wzWelcome")}</h2>
+        {/* Steps built from Step carry their own title. */}
+        {step !== 1 && <h2>{t(STEPS[step] ?? "wzWelcome")}</h2>}
         {step === 0 && (
           <div class="form">
             <p class="wide">{t("wzWelcomeText")}</p>
@@ -617,7 +414,7 @@ export function Setup({ onDone }: { onDone?: () => void }) {
             </div>
           </div>
         )}
-        {step === 1 && <Models s={s} next={next} />}
+        {step === 1 && <BrainStep s={s} next={next} reload={reload} />}
         {step === 2 && <Local s={s} next={next} reload={reload} />}
         {step === 3 && <Names s={s} next={next} />}
         {step === 4 && <Telegram s={s} next={next} />}

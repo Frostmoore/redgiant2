@@ -33,12 +33,19 @@ export type ChatStreamEvent =
   | { type: "done" }
   | { type: "error"; error: string };
 
+export interface ClaudeAccount {
+  loggedIn: boolean;
+  email: string | null;
+  plan: string | null;
+}
+
 export interface SetupState {
   config: {
     completed: boolean;
     language?: "it" | "en";
     defaultModel?: { provider: string; model: string; effort?: string };
-    openaiBaseUrl?: string;
+    keyProviders?: string[];
+    server?: { baseUrl: string };
     searxngUrl?: string;
     transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
     imagesModel?: string;
@@ -48,8 +55,8 @@ export interface SetupState {
     subscriptionAck?: boolean;
   };
   secretsSet: {
-    anthropic: boolean;
-    openai: boolean;
+    keys: string[];
+    server: boolean;
     telegram: boolean;
     transcription?: boolean;
     images?: boolean;
@@ -58,7 +65,7 @@ export interface SetupState {
   locked: Partial<
     Record<
       | "anthropic"
-      | "openai"
+      | "server"
       | "telegram"
       | "defaultModel"
       | "search"
@@ -88,7 +95,7 @@ export interface SetupState {
   policy: {
     humanOnly: string[];
     disabledDanger: string[];
-    dangers: { id: string; label: string }[];
+    dangers: { id: string }[];
   };
   budgetUsd: number | null;
 }
@@ -273,6 +280,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** Why, in a code the UI explains in plain words (`key_rejected`…), when the server says. */
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -291,8 +300,8 @@ export class Api {
       },
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
-    const data = (await r.json().catch(() => ({}))) as { error?: string };
-    if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
+    const data = (await r.json().catch(() => ({}))) as { error?: string; code?: string };
+    if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`, data.code);
     return data as T;
   }
 
@@ -443,8 +452,7 @@ export class Api {
   }
 
   setup = () => this.call<SetupState>("GET", "/api/setup");
-  setupModels = (b: Record<string, unknown>) =>
-    this.call<{ openaiModels: string[] }>("PUT", "/api/setup/models", b);
+  setupModels = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/models", b);
   setupEngine = (engine: { variant: "cpu" | "cuda"; model: string } | null) =>
     this.call("PUT", "/api/setup/engine", { engine });
   setupNames = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/names", b);
@@ -461,6 +469,19 @@ export class Api {
   chatgptLogin = () =>
     this.call<{ url: string; code: string }>("POST", "/api/subscriptions/chatgpt/login");
   chatgptLogout = () => this.call("POST", "/api/subscriptions/chatgpt/logout");
+  setupKey = (id: string, key: string) =>
+    this.call<{ models: string[] }>("PUT", `/api/setup/keys/${encodeURIComponent(id)}`, { key });
+  removeKey = (id: string) => this.call("DELETE", `/api/setup/keys/${encodeURIComponent(id)}`);
+  setupServer = (b: { baseUrl: string; key?: string }) =>
+    this.call<{ models: string[] }>("PUT", "/api/setup/server", b);
+  removeServer = () => this.call("DELETE", "/api/setup/server");
+  claudeStatus = () =>
+    this.call<{ on: boolean; account: ClaudeAccount | null }>("GET", "/api/subscriptions/claude");
+  claudeLogin = (ack: boolean) =>
+    this.call<{ url: string }>("POST", "/api/subscriptions/claude/login", { ack });
+  claudeCode = (code: string) =>
+    this.call<ClaudeAccount>("POST", "/api/subscriptions/claude/code", { code });
+  claudeLogout = () => this.call("POST", "/api/subscriptions/claude/logout");
   limits = () => this.call<PlanLimits[]>("GET", "/api/limits");
   setupComplete = () => this.call("POST", "/api/setup/complete");
   hfSearch = (q: string) =>

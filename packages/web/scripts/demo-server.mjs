@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
-import { FakeProvider, ProviderRegistry } from "@redgiant/providers";
+import { FakeProvider, ProviderError, ProviderRegistry } from "@redgiant/providers";
 import { RedGiantCore, SetupService, serve, TokenAuth } from "@redgiant/server";
 
 const port = Number(process.argv[2] ?? 7650);
@@ -301,13 +301,28 @@ const setup = new SetupService({
   dataDir: join(dir, "data"),
   ownerId: "local",
   hooks: {
-    key: async () => [],
-    server: async () => [],
+    // Keys "work" unless they contain "wrong", to show both answers.
+    key: async (id, key) => {
+      if (key?.includes("wrong"))
+        throw new ProviderError(`${id}: HTTP 401`, false, { status: 401 });
+      return key ? [`${id}-large`, `${id}-small`] : [];
+    },
+    server: async (cfg) => (cfg ? ["qwen3-8b"] : []),
+    // Claude's sign-in with the stand-in of the tests: the code "good-code#abc" works.
+    claudeSubscription: async () => {},
+    claudeAuth: () => ({
+      configDir: join(dir, "claude"),
+      command: [
+        process.execPath,
+        fileURLToPath(new URL("../../subscriptions/test/fake-claude.mjs", import.meta.url)),
+      ],
+    }),
     telegram: async () => null,
     search: async () => {},
     engine: async () => {},
   },
 });
+await mkdir(join(dir, "claude"), { recursive: true });
 await setup.applyAtStartup();
 await setup.complete();
 const running = await serve(core, new TokenAuth({ [token]: "local" }), {

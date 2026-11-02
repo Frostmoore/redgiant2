@@ -15,6 +15,90 @@ const en = {
   projectName: "Project name",
   create: "Create",
   cancel: "Cancel",
+  wzBrain: "How should RedGiant think?",
+  brainPurpose:
+    "RedGiant needs at least one model to think with. Pick one or more ways below; you can also skip this and add one later in Settings, but until then the agents cannot answer.",
+  brainClaude: "Claude subscription",
+  brainClaudeCard:
+    "Your Claude Pro or Max plan. You sign in on Anthropic's page, nothing to copy by hand.",
+  brainClaudeHint:
+    "RedGiant uses Claude through Anthropic's official program, signed in with your account. What you use counts against your plan's limits, not money.",
+  brainClaudeOpen: "Open Anthropic's sign-in page",
+  brainNotOpened: "Did nothing open?",
+  brainOpenHere: "Open it here",
+  brainClaudeStep2: "Sign in with your Claude account. At the end Anthropic shows a code: copy it.",
+  brainClaudeCode: "Paste the code here",
+  brainConnect: "Connect",
+  brainDisconnect: "Disconnect",
+  brainChatgpt: "ChatGPT subscription",
+  brainChatgptCard: "Your ChatGPT Plus or Pro plan. You type a short code on OpenAI's page.",
+  brainChatgptHint:
+    "RedGiant uses ChatGPT through OpenAI's official Codex program, signed in with your account. What you use counts against your plan's limits.",
+  brainChatgptStart: "Connect ChatGPT",
+  brainChatgptStep1: "Open this page and sign in:",
+  brainChatgptStep2: "Type this code there:",
+  brainChatgptDevice:
+    "If OpenAI says sign-in with a device code is not allowed: on chatgpt.com open Settings, Security, and turn on device code authorization, then try again.",
+  brainKeys: "A provider's API key",
+  brainKeysCard:
+    "Anthropic, OpenAI, Gemini, Mistral, DeepSeek, Grok and others. You pay the provider for what you use.",
+  brainKeysHint:
+    "A key is like a password that lets RedGiant use the provider's models on your account. Add as many as you like; each one is tried at once.",
+  brainConnected: "connected",
+  brainAddKey: "Add the key",
+  brainKeyMake: "Create a key on {name}'s page",
+  brainKeyPaste: "Paste the key",
+  brainKeyExample: "It looks like this: {example}",
+  brainKeyTry: "Try and save",
+  brainKeyWorks: "It works: {n} models available.",
+  brainLocal: "A model on this computer",
+  brainLocalCard:
+    "Free and private: nothing leaves your computer. It needs a good graphics card to be fast.",
+  brainLocalNext: "You pick it in the next step: RedGiant suggests one that fits this computer.",
+  brainLocalSettings: "Pick and start it from the setup wizard, in the step about the local model.",
+  brainServer: "A server of yours",
+  brainServerCard: "Ollama, LM Studio, vLLM or another server that speaks the OpenAI language.",
+  brainServerHint:
+    "If you already run models with Ollama, LM Studio or vLLM, give RedGiant its address.",
+  brainServerUrl: "Server address",
+  brainServerUrlHelp:
+    "With /v1 at the end. Ollama: http://localhost:11434/v1, LM Studio: http://localhost:1234/v1.",
+  brainServerKey: "Its key",
+  brainServerKeyHelp: "Only if the server asks for one; most do not.",
+  brainNoModel:
+    "No model is connected yet. You can go on and add one later in Settings, Models and subscriptions.",
+  brainDefault: "The model agents use",
+  brainDefaultHint:
+    "Agents use this model unless you choose another one for them. It is tried with a real question before it is saved.",
+  brainEffortHelp:
+    "How much it reasons before answering: low is quick and cheap, high is slower but more careful.",
+  brainDefaultTry: "Try and use this one",
+  brainDefaultSaved: "Saved: agents will use it.",
+  brainWhy: "Which one should I choose?",
+  brainWhyText:
+    "If you already pay for Claude or ChatGPT, start with that: nothing more to pay. With a key you pay for what you use, and you can pick among many providers. A model on this computer costs nothing and keeps everything private, but it is slower and less capable than the big online ones. You can combine them: for example a subscription for hard work and a local model for small jobs.",
+  err_key_rejected:
+    "The provider refused this key. Check that you copied all of it and that it is still active.",
+  err_unreachable:
+    "The provider did not answer. Check the address and the internet connection, then try again.",
+  err_code_rejected:
+    "Anthropic did not accept this code: it may be incomplete or old. Open the sign-in page again to get a new one.",
+  err_no_page: "Anthropic's sign-in page could not be prepared. Try again in a moment.",
+  err_terms: "First tick the box about the providers' terms.",
+  err_no_login: "Open Anthropic's sign-in page first.",
+  err_failed: "The sign-in did not finish. Try again from the start.",
+  servicesTitle: "Services",
+  servicesHint:
+    "Extras the agents can use. Each one works only if you set it; leaving a field empty switches it off.",
+  servicesSearchHelp: "The address of a SearXNG server: agents can search the web with it.",
+  servicesVoice: "Voice messages",
+  servicesSearch: "Web search",
+  servicesSearchUrl: "Address of the SearXNG server",
+  servicesVoiceService: "Service",
+  servicesImages: "Pictures",
+  servicesVoiceHelp: "Turns voice messages (from Telegram or the microphone) into text.",
+  servicesVoiceUrl: "Address of the transcription service",
+  servicesImagesHelp: "An OpenAI key lets agents draw pictures; it costs money for each picture.",
   uiSkip: "Skip this step",
   uiAdvanced: "Advanced",
   uiDetails: "Details for whoever helps you",
@@ -172,7 +256,6 @@ const en = {
   runTriggers: "schedule,webhook,by hand,missed run",
   setupWizard: "Setup",
   wzWelcome: "Welcome",
-  wzModels: "Models",
   wzLocal: "Local model",
   wzNames: "Names",
   wzTelegram: "Telegram",
@@ -187,12 +270,6 @@ const en = {
   wzStart: "Start",
   wzLocked: "set by the environment",
   wzAlreadySet: "already set",
-  wzModelsHint:
-    "Give RedGiant at least one model: a cloud key, an OpenAI-compatible server (Ollama, vLLM, LM Studio…), or a local model in the next step. The default model is tried with a real request before it is saved.",
-  wzOpenai: "OpenAI-compatible server (URL)",
-  wzOpenaiKey: "Its API key (if any)",
-  wzSearch: "Web search (SearXNG URL)",
-  wzVoice: "Voice messages (transcription service; empty: the browser's dictation)",
   wzVoiceOpenai: "OpenAI-compatible API",
   wzVoiceModel: "Transcription model",
   wzVoiceKey: "Transcription service key",
@@ -313,23 +390,11 @@ const en = {
   "hw_gpu-unknown": "Docker can use an NVIDIA GPU; check its memory and pick a model that fits.",
   hw_cpu:
     "No GPU: small models (up to about {max} GB) run on the CPU, slowly. A cloud model is faster.",
-  subscriptions: "Subscriptions",
+  subscriptions: "Models and subscriptions",
   viaSubscription: "subscription",
   viaLocal: "local",
-  subsHint:
-    "Use a flat subscription instead of paying per token: Claude through Anthropic's Agent SDK, ChatGPT through OpenAI's Codex. Pick their models in the composer; the bars at the top then show the plan's limits instead of the budget.",
   termsOf: "{name}'s terms",
-  subsAck: "I have read the warning and I take responsibility for it",
-  subsClaudeHint:
-    "On a computer where Claude Code is installed, run claude setup-token and paste the token here (it lasts a year).",
-  subsClaudeToken: "Claude subscription token",
-  subsChatgptHint:
-    "First, in ChatGPT: Settings, Security, switch on device code sign-in for Codex. Then switch it on here and sign in with your ChatGPT account: you get an address and a code to type there, from any device.",
-  switchOn: "Switch on",
-  subsActive: "active",
-  subsLogin: "Sign in with ChatGPT",
   subsLoggedAs: "Signed in: {who} {plan}",
-  subsDeviceStep: "Open this address, sign in to ChatGPT and type the code:",
   subsDeviceWait: "This page notices by itself when you are done.",
   contextLeft: "Context",
   contextHint: "{used} of {window} tokens: automatic compaction at {threshold}",
@@ -363,7 +428,6 @@ const en = {
   effortHint:
     "Reasoning effort: higher thinks more, is slower and costs more. From the next message.",
   modelChangeNote: "Applies from the next message of this conversation.",
-  turnOff: "Turn off",
   questions: "Questions",
   noQuestions: "No questions.",
   manyAnswers: "one or more",
@@ -415,6 +479,97 @@ const it: Record<Key, string> = {
   projectName: "Nome del progetto",
   create: "Crea",
   cancel: "Annulla",
+  wzBrain: "Come deve pensare RedGiant?",
+  brainPurpose:
+    "Per pensare RedGiant ha bisogno di almeno un modello. Scegli uno o più modi qui sotto; puoi anche saltare e aggiungerlo dopo dalle Impostazioni, ma fino ad allora gli agenti non possono rispondere.",
+  brainClaude: "Abbonamento Claude",
+  brainClaudeCard:
+    "Il tuo piano Claude Pro o Max. Accedi sulla pagina di Anthropic, niente da copiare a mano.",
+  brainClaudeHint:
+    "RedGiant usa Claude tramite il programma ufficiale di Anthropic, collegato al tuo account. Quello che usi conta sui limiti del tuo piano, non costa soldi in più.",
+  brainClaudeOpen: "Apri la pagina di accesso di Anthropic",
+  brainNotOpened: "Non si è aperto niente?",
+  brainOpenHere: "Aprila da qui",
+  brainClaudeStep2:
+    "Accedi con il tuo account Claude. Alla fine Anthropic ti mostra un codice: copialo.",
+  brainClaudeCode: "Incolla qui il codice",
+  brainConnect: "Collega",
+  brainDisconnect: "Scollega",
+  brainChatgpt: "Abbonamento ChatGPT",
+  brainChatgptCard:
+    "Il tuo piano ChatGPT Plus o Pro. Scrivi un codice breve sulla pagina di OpenAI.",
+  brainChatgptHint:
+    "RedGiant usa ChatGPT tramite Codex, il programma ufficiale di OpenAI, collegato al tuo account. Quello che usi conta sui limiti del tuo piano.",
+  brainChatgptStart: "Collega ChatGPT",
+  brainChatgptStep1: "Apri questa pagina e accedi:",
+  brainChatgptStep2: "Lì scrivi questo codice:",
+  brainChatgptDevice:
+    "Se OpenAI dice che l'accesso con codice dispositivo non è permesso: su chatgpt.com apri Impostazioni, Sicurezza, attiva l'autorizzazione con codice dispositivo e riprova.",
+  brainKeys: "La chiave API di un fornitore",
+  brainKeysCard:
+    "Anthropic, OpenAI, Gemini, Mistral, DeepSeek, Grok e altri. Paghi il fornitore per quello che usi.",
+  brainKeysHint:
+    "Una chiave è come una password che permette a RedGiant di usare i modelli del fornitore sul tuo account. Aggiungine quante vuoi: ognuna viene provata subito.",
+  brainConnected: "collegato",
+  brainAddKey: "Aggiungi la chiave",
+  brainKeyMake: "Crea una chiave sulla pagina di {name}",
+  brainKeyPaste: "Incolla la chiave",
+  brainKeyExample: "È fatta così: {example}",
+  brainKeyTry: "Prova e salva",
+  brainKeyWorks: "Funziona: {n} modelli disponibili.",
+  brainLocal: "Un modello su questo computer",
+  brainLocalCard:
+    "Gratis e privato: niente esce dal tuo computer. Per essere veloce serve una buona scheda video.",
+  brainLocalNext:
+    "Lo scegli nel passo successivo: RedGiant ti suggerisce quello adatto a questo computer.",
+  brainLocalSettings:
+    "Sceglilo e avvialo dalla configurazione guidata, nel passo del modello locale.",
+  brainServer: "Un server tuo",
+  brainServerCard: "Ollama, LM Studio, vLLM o un altro server che parla la lingua di OpenAI.",
+  brainServerHint:
+    "Se fai già girare dei modelli con Ollama, LM Studio o vLLM, dai a RedGiant il suo indirizzo.",
+  brainServerUrl: "Indirizzo del server",
+  brainServerUrlHelp:
+    "Con /v1 alla fine. Ollama: http://localhost:11434/v1, LM Studio: http://localhost:1234/v1.",
+  brainServerKey: "La sua chiave",
+  brainServerKeyHelp: "Solo se il server la chiede; quasi sempre non serve.",
+  brainNoModel:
+    "Non è ancora collegato nessun modello. Puoi andare avanti e aggiungerlo dopo da Impostazioni, Modelli e abbonamenti.",
+  brainDefault: "Il modello che usano gli agenti",
+  brainDefaultHint:
+    "Gli agenti usano questo modello, a meno che tu non ne scelga un altro per loro. Prima di salvarlo viene provato con una domanda vera.",
+  brainEffortHelp:
+    "Quanto ragiona prima di rispondere: basso è veloce ed economico, alto è più lento ma più accurato.",
+  brainDefaultTry: "Prova e usa questo",
+  brainDefaultSaved: "Salvato: gli agenti useranno questo.",
+  brainWhy: "Quale scelgo?",
+  brainWhyText:
+    "Se paghi già Claude o ChatGPT, comincia da lì: non spendi altro. Con una chiave paghi quello che usi e puoi scegliere fra tanti fornitori. Un modello su questo computer non costa niente e tiene tutto privato, ma è più lento e meno bravo dei grandi modelli online. Puoi anche combinarli: per esempio un abbonamento per i lavori difficili e un modello locale per quelli piccoli.",
+  err_key_rejected:
+    "Il fornitore ha rifiutato questa chiave. Controlla di averla copiata tutta e che sia ancora attiva.",
+  err_unreachable:
+    "Il fornitore non ha risposto. Controlla l'indirizzo e la connessione a internet, poi riprova.",
+  err_code_rejected:
+    "Anthropic non ha accettato questo codice: forse è incompleto o vecchio. Riapri la pagina di accesso per averne uno nuovo.",
+  err_no_page:
+    "Non è stato possibile preparare la pagina di accesso di Anthropic. Riprova fra un momento.",
+  err_terms: "Prima spunta la casella sulle condizioni dei fornitori.",
+  err_no_login: "Prima apri la pagina di accesso di Anthropic.",
+  err_failed: "L'accesso non è andato a buon fine. Riprova dall'inizio.",
+  servicesTitle: "Servizi",
+  servicesHint:
+    "Cose in più che gli agenti possono usare. Ognuna funziona solo se la imposti; lasciare un campo vuoto la spegne.",
+  servicesSearchHelp:
+    "L'indirizzo di un server SearXNG: con questo gli agenti possono cercare sul web.",
+  servicesVoice: "Messaggi vocali",
+  servicesSearch: "Ricerca sul web",
+  servicesSearchUrl: "Indirizzo del server SearXNG",
+  servicesVoiceService: "Servizio",
+  servicesImages: "Immagini",
+  servicesVoiceHelp: "Trasforma in testo i messaggi vocali (da Telegram o dal microfono).",
+  servicesVoiceUrl: "Indirizzo del servizio di trascrizione",
+  servicesImagesHelp:
+    "Una chiave OpenAI permette agli agenti di disegnare immagini; ogni immagine costa.",
   uiSkip: "Salta questo passo",
   uiAdvanced: "Avanzate",
   uiDetails: "Dettagli per chi ti aiuta",
@@ -572,7 +727,6 @@ const it: Record<Key, string> = {
   runTriggers: "orario,webhook,a mano,recuperata",
   setupWizard: "Configurazione",
   wzWelcome: "Benvenuto",
-  wzModels: "Modelli",
   wzLocal: "Modello locale",
   wzNames: "Nomi",
   wzTelegram: "Telegram",
@@ -587,12 +741,6 @@ const it: Record<Key, string> = {
   wzStart: "Inizia",
   wzLocked: "impostato dall'ambiente",
   wzAlreadySet: "già impostata",
-  wzModelsHint:
-    "Dai a RedGiant almeno un modello: una chiave cloud, un server compatibile OpenAI (Ollama, vLLM, LM Studio…) o un modello locale nel passo successivo. Il modello predefinito viene provato con una richiesta vera prima di salvarlo.",
-  wzOpenai: "Server compatibile OpenAI (URL)",
-  wzOpenaiKey: "La sua chiave (se serve)",
-  wzSearch: "Ricerca web (URL di SearXNG)",
-  wzVoice: "Messaggi vocali (servizio di trascrizione; vuoto: la dettatura del browser)",
   wzVoiceOpenai: "API compatibile OpenAI",
   wzVoiceModel: "Modello di trascrizione",
   wzVoiceKey: "Chiave del servizio di trascrizione",
@@ -716,23 +864,11 @@ const it: Record<Key, string> = {
     "Docker può usare una scheda video NVIDIA; controlla quanta memoria ha e scegli un modello che ci stia.",
   hw_cpu:
     "Nessuna scheda video: i modelli piccoli (fino a circa {max} GB) girano sul processore, lentamente. Un modello cloud è più veloce.",
-  subscriptions: "Abbonamenti",
+  subscriptions: "Modelli e abbonamenti",
   viaSubscription: "abbonamento",
   viaLocal: "locale",
-  subsHint:
-    "Usa un abbonamento flat invece di pagare a consumo: Claude tramite l'Agent SDK di Anthropic, ChatGPT tramite Codex di OpenAI. Scegli i loro modelli nel compositore; le barre in alto mostreranno i limiti del piano invece del budget.",
   termsOf: "Termini di {name}",
-  subsAck: "Ho letto l'avviso e me ne prendo la responsabilità",
-  subsClaudeHint:
-    "Su un computer dove c'è Claude Code esegui claude setup-token e incolla qui il token (dura un anno).",
-  subsClaudeToken: "Token dell'abbonamento Claude",
-  subsChatgptHint:
-    "Prima, in ChatGPT: Impostazioni, Sicurezza, abilita l'accesso tramite codice dispositivo per Codex. Poi attivalo qui e accedi con il tuo account ChatGPT: ricevi un indirizzo e un codice da scrivere lì, da qualsiasi dispositivo.",
-  switchOn: "Attiva",
-  subsActive: "attivo",
-  subsLogin: "Accedi con ChatGPT",
   subsLoggedAs: "Collegato: {who} {plan}",
-  subsDeviceStep: "Apri questo indirizzo, accedi a ChatGPT e scrivi il codice:",
   subsDeviceWait: "Questa pagina se ne accorge da sola quando hai finito.",
   contextLeft: "Contesto",
   contextHint: "{used} di {window} token: compattazione automatica a {threshold}",
@@ -767,7 +903,6 @@ const it: Record<Key, string> = {
   effortHint:
     "Sforzo di ragionamento: più alto pensa di più, è più lento e costa di più. Dal prossimo messaggio.",
   modelChangeNote: "Vale dal prossimo messaggio di questa conversazione.",
-  turnOff: "Disattiva",
   questions: "Domande",
   noQuestions: "Nessuna domanda.",
   manyAnswers: "una o più",
