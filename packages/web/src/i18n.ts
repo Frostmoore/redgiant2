@@ -123,6 +123,17 @@ const en = {
   kind_subagent: "Helper",
   kind_inspector: "Inspector, reads only",
   kind_assistant: "Personal assistant",
+  screenTitle: "Agents' browser",
+  screenOpen: "Screen",
+  screenTake: "Take control",
+  screenGiveBack: "Give it back to the agents",
+  screenAddress: "Web address",
+  screenShared:
+    "The browser your personal agents share: sign in once and every one of them can use that site. Take control to sign in: what you type goes to the page only, never to an agent.",
+  screenYours:
+    "You have control: the agents wait. Click and type on the screen; give it back when you are done.",
+  screenStarting: "Starting the browser…",
+  screenUnavailable: "The agents' browser needs RedGiant's Docker installation.",
   compaction_auto: "The conversation was summarised here (the earlier part, made ahead of time)",
   compaction_manual: "The conversation was summarised here, as you asked",
   compaction_emergency: "The conversation was summarised here: the window was full",
@@ -1185,6 +1196,17 @@ const it: Record<Key, string> = {
   kind_subagent: "Aiutante",
   kind_inspector: "Ispettore, solo lettura",
   kind_assistant: "Assistente personale",
+  screenTitle: "Browser degli agenti",
+  screenOpen: "Schermo",
+  screenTake: "Prendi il controllo",
+  screenGiveBack: "Restituisci agli agenti",
+  screenAddress: "Indirizzo web",
+  screenShared:
+    "Il browser che i tuoi agenti personali condividono: accedi una volta e tutti possono usare quel sito. Prendi il controllo per accedere: quello che scrivi va solo alla pagina, mai a un agente.",
+  screenYours:
+    "Ce l'hai tu: gli agenti aspettano. Clicca e scrivi sullo schermo; restituiscilo quando hai finito.",
+  screenStarting: "Avvio il browser…",
+  screenUnavailable: "Il browser degli agenti richiede l'installazione di RedGiant con Docker.",
   compaction_auto:
     "La conversazione è stata riassunta qui (la parte più vecchia, preparata in anticipo)",
   compaction_manual: "La conversazione è stata riassunta qui, come hai chiesto",

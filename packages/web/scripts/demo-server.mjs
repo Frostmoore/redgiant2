@@ -1,12 +1,14 @@
 // Demo server for screenshots and UI development: the real server and UI, an in-process
 // Postgres and a scripted model. Usage: node packages/web/scripts/demo-server.mjs [port]
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { FakeProvider, ProviderError, ProviderRegistry } from "@redgiant/providers";
 import {
+  Browsers,
+  DockerBrowserLauncher,
   GitHosts,
   HuggingFace,
   JobFailure,
@@ -343,6 +345,20 @@ await core.registry.create(
   );
   const wsid = await core.startSession("local", webmaster.id);
   await (await core.send("local", wsid, "Give me a quick tour of the site.")).done;
+}
+// The agents' browser (G24.14b), real, when asked: DEMO_BROWSER=1 (Docker, this container's network).
+if (process.env.DEMO_BROWSER === "1") {
+  const { default: Docker } = await import(
+    new URL("../../server/node_modules/dockerode/lib/docker.js", import.meta.url).href
+  );
+  core.browsers = new Browsers(
+    new DockerBrowserLauncher({
+      docker: new Docker(),
+      network: `container:${hostname()}`,
+      prefix: "rg-browser-demo",
+      address: () => "127.0.0.1",
+    }),
+  );
 }
 // A group chat (G24.12): God, the demo's inspector and the secretary.
 {

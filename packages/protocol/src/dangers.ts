@@ -54,6 +54,10 @@ const en: Record<string, Words> = {
     name: "Sending, publishing, deleting or paying",
     hint: "Through a connected service: an email, a post, deleting a page, a payment.",
   },
+  "outgoing-browser": {
+    name: "Sending, publishing, paying or deleting in the browser",
+    hint: "An agent clicks a button like Send, Publish, Pay, Buy or Delete on a web page.",
+  },
 };
 
 const it: Record<string, Words> = {
@@ -104,6 +108,10 @@ const it: Record<string, Words> = {
   outgoing: {
     name: "Inviare, pubblicare, cancellare o pagare",
     hint: "Tramite un servizio collegato: una email, un post, cancellare una pagina, un pagamento.",
+  },
+  "outgoing-browser": {
+    name: "Inviare, pubblicare, pagare o cancellare nel browser",
+    hint: "Un agente clicca un pulsante come Invia, Pubblica, Paga, Acquista o Elimina su una pagina web.",
   },
 };
 

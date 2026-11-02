@@ -110,6 +110,15 @@ export const DEFAULT_DANGER_RULES: DangerRule[] = [
     pattern: ".*",
   },
   {
+    // G24.14b: the same in the agents' browser, by the name of the button clicked.
+    id: "outgoing-browser",
+    label: "Sends, publishes, pays or deletes in the browser",
+    tool: "browser_click",
+    field: "name",
+    pattern:
+      "\\b(send|invia|inviare|post|posta|pubblica|publish|pay|paga|pagare|buy|compra|acquista|purchase|order|ordina|checkout|delete|elimina|cancella|remove|rimuovi|transfer|bonifico|confirm|conferma)\\b",
+  },
+  {
     id: "secrets-files",
     label: "Secret files",
     tool: "*",
@@ -141,6 +150,7 @@ export const DEFAULT_POLICY: PolicySettings = {
     "secrets-files",
     "platform",
     "outgoing",
+    "outgoing-browser",
   ],
   approverKinds: ["god", "orchestrator", "agent"],
 };

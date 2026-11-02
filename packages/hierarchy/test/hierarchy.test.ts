@@ -195,6 +195,12 @@ describe("evaluate", () => {
     ["auto", "mcp__notion__list_posts", {}, "allow"],
     ["auto", "mcp__gmail__search_threads", { q: "send" }, "allow"],
     ["auto", "mcp__delete-tracker__get_issue", {}, "allow"],
+    // G24.14b: in the agents' browser, by the button's name.
+    ["auto", "browser_click", { name: "Pubblica il post" }, "ask"],
+    ["auto", "browser_click", { name: "Paga ora" }, "ask"],
+    ["auto", "browser_click", { name: "Send" }, "ask"],
+    ["auto", "browser_click", { name: "Next page" }, "allow"],
+    ["auto", "browser_click", { name: "Postcards" }, "allow"],
   ] as const)("%s %s %j → %s", (mode, tool, input, expected) => {
     expect(evaluate(mode, call(tool, input), s).decision).toBe(expected);
   });

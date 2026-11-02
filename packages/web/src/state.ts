@@ -243,8 +243,29 @@ export function sessionView(id: string): Signal<SessionView> {
 }
 
 /** Applies one server message to the views (events deduplicated by sequence number). */
+/** The agents' browser (G24.14b): its latest frame and who drives it. */
+export const browserScreen = signal<{
+  frame?: { data: string; width: number; height: number };
+  control: "agents" | "person";
+  url: string;
+  unavailable?: boolean;
+}>({ control: "agents", url: "" });
+
 export function applyMessage(m: ServerMessage): void {
   switch (m.type) {
+    case "browser.frame":
+      browserScreen.value = {
+        ...browserScreen.value,
+        frame: { data: m.data, width: m.width, height: m.height },
+      };
+      return;
+    case "browser.state":
+      browserScreen.value = { ...browserScreen.value, control: m.control, url: m.url };
+      return;
+    case "error":
+      if (m.code === "unavailable")
+        browserScreen.value = { ...browserScreen.value, unavailable: true };
+      return;
     case "event": {
       const v = sessionView(m.sessionId);
       if (v.value.events.some((e) => e.seq === m.event.seq)) return;
@@ -460,7 +481,9 @@ export type Tab =
 /** What the area on the right shows, next to the chat. */
 export type SideView =
   | { id: string; type: "editor"; title: string; scope: string; path: string }
-  | { id: string; type: "terminal"; title: string; scope: string };
+  | { id: string; type: "terminal"; title: string; scope: string }
+  /** The personal agents' browser, live (G24.14b). */
+  | { id: string; type: "screen"; title: string };
 
 export type SettingsSection =
   | "general"
@@ -540,7 +563,7 @@ const SECTIONS: Record<string, SettingsSection> = {
 /** Opens something where it belongs: a tab in the middle, or a file or terminal on the right. */
 export function openTab(req: OpenRequest): void {
   drawerOpen.value = false;
-  if (req.type === "editor" || req.type === "terminal") {
+  if (req.type === "editor" || req.type === "terminal" || req.type === "screen") {
     if (!sideViews.value.some((v) => v.id === req.id)) sideViews.value = [...sideViews.value, req];
     activeSide.value = req.id;
     return;

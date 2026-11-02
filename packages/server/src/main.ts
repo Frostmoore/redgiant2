@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // RedGiant server. Configured by environment variables until the setup wizard (G17) exists.
 import { readFile } from "node:fs/promises";
+import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KvStore, LocalEngineProvider } from "@redgiant/engine-local";
@@ -14,6 +15,7 @@ import { SearxngSearch } from "@redgiant/tools";
 import Docker from "dockerode";
 import pg from "pg";
 import { TokenAuth } from "./auth.js";
+import { Browsers, DockerBrowserLauncher } from "./browser.js";
 import { RedGiantCore } from "./core.js";
 import { GitHosts } from "./git-hosts.js";
 import { HuggingFace } from "./hf.js";
@@ -195,6 +197,19 @@ const hooks = runtimeHooks({
       },
     }),
 });
+// The personal agents' browser (G24.14b): Chromium in a container next to RedGiant.
+if (docker && env.REDGIANT_ENGINE_NETWORK) {
+  core.browsers = new Browsers(
+    new DockerBrowserLauncher({
+      docker,
+      // Its own network: a page cannot reach the database, the engine or Gitea.
+      network: env.REDGIANT_BROWSER_NETWORK ?? "redgiant-browser",
+      join: env.REDGIANT_SERVER_CONTAINER ?? hostname(),
+      ...(env.REDGIANT_BROWSER_IMAGE && { image: env.REDGIANT_BROWSER_IMAGE }),
+    }),
+  );
+  shutdownHooks.push(async () => void (await core.browsers?.shutdown()));
+}
 const tgToken =
   env.REDGIANT_TELEGRAM_TOKEN ??
   (env.REDGIANT_TELEGRAM_TOKEN_FILE

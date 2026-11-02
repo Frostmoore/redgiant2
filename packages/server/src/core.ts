@@ -73,6 +73,7 @@ import {
 import { z } from "zod";
 import { type Alert, type AlertText, alertText } from "./alerts.js";
 import { HumanApprovals } from "./approvals.js";
+import { type Browsers, browserTools } from "./browser.js";
 import { DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
 import {
@@ -219,6 +220,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly inspector: Inspector;
   /** Group chats (G24.12). */
   readonly rooms: Rooms;
+  /** The personal agents' browser (G24.14b), when there is Docker to run it. */
+  browsers: Browsers | undefined;
   /** Long actions the user follows (downloads, the local engine, links). */
   readonly jobs = new Jobs();
   /** How the owner is told about finished automations (set by the Telegram gateway). */
@@ -661,6 +664,9 @@ export class RedGiantCore implements OrchestrationHost {
       );
     }
     if (agent.kind === "assistant") tools.push(this.requestConnectionTool(agent));
+    // The browser shared by the personal agents (G24.14b, D11).
+    if (agent.kind === "assistant" && this.browsers)
+      tools.push(...browserTools(this.browsers.get(ownerId)));
     const receivesTasks = ["orchestrator", "agent", "subagent"].includes(agent.kind);
     if (receivesTasks) tools.push(completeTaskTool(agent, ws, this.broker, this.tasks));
     const listeners = new Set<(m: ServerMessage) => void>();

@@ -1,7 +1,7 @@
 import { h, type JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
-import { IconClose, IconFile, IconTerminal } from "../icons.js";
+import { IconClose, IconFile, IconMonitor, IconTerminal } from "../icons.js";
 import { activeSide, closeSide, sideViews } from "../state.js";
 
 /**
@@ -24,6 +24,7 @@ function lazy<P extends object>(load: () => Promise<(props: P) => JSX.Element | 
 }
 
 import { Preview, previewKind } from "./Preview.js";
+import { Screen } from "./Screen.js";
 
 const Editor = lazy<{ scope: string; path: string }>(() =>
   import("./Editor.js").then((m) => m.Editor),
@@ -52,7 +53,13 @@ export function SideArea() {
               onClick={() => (activeSide.value = v.id)}
               title={v.title}
             >
-              {v.type === "terminal" ? <IconTerminal size={13} /> : <IconFile size={13} />}
+              {v.type === "terminal" ? (
+                <IconTerminal size={13} />
+              ) : v.type === "screen" ? (
+                <IconMonitor size={13} />
+              ) : (
+                <IconFile size={13} />
+              )}
               <span>{v.title}</span>
             </button>
             <button
@@ -74,6 +81,8 @@ export function SideArea() {
             ) : (
               <Editor scope={v.scope} path={v.path} />
             )
+          ) : v.type === "screen" ? (
+            <Screen />
           ) : (
             <TerminalView scope={v.scope} />
           )}

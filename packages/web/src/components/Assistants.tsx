@@ -7,7 +7,7 @@ import { MCP_CATALOG } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { Agent, McpEntry, McpStatus, ModelChoice } from "../api.js";
 import { t } from "../i18n.js";
-import { IconChat, IconCheck, IconPlus } from "../icons.js";
+import { IconChat, IconCheck, IconMonitor, IconPlus } from "../icons.js";
 import {
   agents,
   approvals,
@@ -345,6 +345,13 @@ export function AssistantPage({ agentId }: { agentId: string | null }) {
         </button>
         <button type="button" onClick={() => void attempt(() => newSession(a))}>
           <IconPlus size={14} /> {t("newConversation")}
+        </button>
+        <button
+          type="button"
+          title={t("screenShared")}
+          onClick={() => openTab({ id: "screen", type: "screen", title: t("screenTitle") })}
+        >
+          <IconMonitor size={14} /> {t("screenOpen")}
         </button>
       </header>
 

@@ -36,6 +36,7 @@ export function attachWebSocket(
     let offAutomations: (() => void) | undefined;
     let offPlatform: (() => void) | undefined;
     let offRooms: (() => void) | undefined;
+    let offScreen: (() => void) | undefined;
     const follows = new Map<string, () => void>();
     const send = (m: ServerMessage) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
     const fail = (code: string, message: string) => send({ type: "error", code, message });
@@ -139,6 +140,31 @@ export function attachWebSocket(
             if (!core.questions.answer(owner, msg.requestId, msg.answers))
               return fail("not_found", "No such open question");
             return;
+          // The agents' browser (G24.14b): watching, control, the person's input (never logged).
+          case "browser.watch": {
+            if (!core.browsers) return fail("unavailable", "The agents' browser needs Docker");
+            if (offScreen) return;
+            const b = core.browsers.get(owner);
+            offScreen = await b.watch((e) =>
+              e.type === "frame"
+                ? send({ type: "browser.frame", ...e.frame })
+                : send({ type: "browser.state", control: e.control, url: e.url }),
+            );
+            return;
+          }
+          case "browser.unwatch":
+            offScreen?.();
+            offScreen = undefined;
+            return;
+          case "browser.control":
+            core.browsers?.get(owner).setControl(msg.take ? "person" : "agents");
+            return;
+          case "browser.goto":
+            await core.browsers?.get(owner).goto(msg.url);
+            return;
+          case "browser.input":
+            await core.browsers?.get(owner).input(msg.event);
+            return;
           case "session.interrupt":
             await core.interrupt(owner, msg.sessionId);
             return;
@@ -184,6 +210,7 @@ export function attachWebSocket(
       offAutomations?.();
       offPlatform?.();
       offRooms?.();
+      offScreen?.();
     });
   }
   return wss;

@@ -2,6 +2,7 @@ export * from "./alerts.js";
 export * from "./app.js";
 export * from "./approvals.js";
 export * from "./auth.js";
+export * from "./browser.js";
 export * from "./chat.js";
 export * from "./code.js";
 export * from "./core.js";

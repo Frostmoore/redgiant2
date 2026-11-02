@@ -3230,3 +3230,64 @@ a.button.primary {
 .compaction-mark.undone {
   opacity: 0.6;
 }
+
+/* --- the agents' browser (G24.14b) --- */
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  padding: 8px;
+  box-sizing: border-box;
+}
+.screen-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.screen-url,
+.screen-address {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+.screen-address input {
+  width: 100%;
+}
+.screen-note {
+  margin: 0;
+}
+.screen-note.mine {
+  color: var(--accent);
+}
+.screen-view {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background: #000;
+}
+.screen-view.mine {
+  outline: 2px solid var(--accent);
+  cursor: pointer;
+}
+.screen-view img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+.asst-page header {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.asst-page header button {
+  white-space: nowrap;
+}
