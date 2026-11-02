@@ -229,6 +229,10 @@ pre {
   color: var(--ok);
   border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
 }
+.chip.warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+}
 .chip.muted {
   opacity: 0.65;
 }
@@ -2913,4 +2917,67 @@ a.button.primary {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+/* --- extensions (G24.9) --- */
+.ext-ask form input {
+  flex: 1;
+  min-width: 0;
+}
+.ext-ask .row button,
+.ext-catalog button,
+.ext-connected button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ext-chat {
+  display: flex;
+  height: 420px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.ext-chat .chat {
+  flex: 1;
+  min-width: 0;
+}
+.ext-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 200px;
+  color: var(--dim);
+}
+.ext-search input {
+  flex: 1;
+  min-width: 0;
+}
+.chip-button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 11px;
+  font-size: 12px;
+  background: var(--panel);
+  color: var(--dim);
+}
+.chip-button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ext-catalog .lm-cards {
+  margin-top: 10px;
+}
+.ext-add {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.extensions a {
+  color: var(--accent);
+}
+.extensions h3 + .ui-help {
+  margin-top: 0;
 }

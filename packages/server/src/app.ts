@@ -625,8 +625,16 @@ const routes = {
                   type: z.literal("http"),
                   url: z.url(),
                   headers: z.record(z.string(), z.string()).optional(),
+                  oauth: z.boolean().optional(),
                 }),
               ]),
+              /** Keys for the server: kept in a private file, never shown again. */
+              secrets: z
+                .object({
+                  headers: z.record(z.string(), z.string()).optional(),
+                  env: z.record(z.string(), z.string()).optional(),
+                })
+                .optional(),
             }),
           },
         },
@@ -728,6 +736,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       // Signing in with a password (G24.6): the password is the credential.
       "/api/auth/methods",
       "/api/auth/login",
+      // The service sends the person back here after signing in; the state is the credential.
+      "/api/extensions/oauth/callback",
     ];
     // Automation webhooks carry their own secret.
     if (open.includes(c.req.path) || /^\/api\/automations\/[\w-]+\/hook$/.test(c.req.path))
@@ -1227,7 +1237,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.openapi(routes.setMcp, async (c) => {
     const b = c.req.valid("json");
     if (!(await ownsProject(c, b.projectId))) return c.json({ error: "Project not found" }, 404);
-    await core.setMcp(owner(c), b as never);
+    const { secrets, ...config } = b;
+    await core.setMcp(owner(c), config as never, secrets as never);
     return c.json({ ok: true as const }, 200);
   });
   app.openapi(routes.deleteMcp, async (c) => {
@@ -1545,6 +1556,48 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     }),
   );
   app.delete("/api/setup/gitea", (c) => wizard(c, () => (setup as SetupService).stopGitea()));
+  // MCP servers that sign in with OAuth (G24.9): the service's page, then back here.
+  app.get("/api/extensions/mcp/status", async (c) => c.json(await core.mcpStatus(owner(c)), 200));
+  app.post("/api/extensions/mcp/:name/login", async (c) => {
+    const b = z.object({ origin: z.url() }).safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "RedGiant's address (origin) is needed" }, 400);
+    return c.json(await core.startMcpAuth(owner(c), c.req.param("name"), b.data.origin), 200);
+  });
+  app.get("/api/extensions/oauth/callback", async (c) => {
+    const page = (title: string, text: string, ok: boolean) =>
+      c.html(
+        `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>RedGiant</title>` +
+          `<body style="font-family:system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem;line-height:1.5">` +
+          `<h2 style="color:${ok ? "#2e9d5b" : "#d23d3d"}">${title}</h2><p>${text}</p>` +
+          `<script>setTimeout(()=>window.close(),${ok ? 1500 : 60000})</script></body>`,
+        ok ? 200 : 400,
+      );
+    const code = c.req.query("code");
+    const state = c.req.query("state");
+    const it = core.language(LOCAL_OWNER_ID) === "it";
+    if (!code || !state)
+      return page(
+        it ? "Collegamento non riuscito" : "Sign-in failed",
+        escapeHtml(c.req.query("error_description") ?? c.req.query("error") ?? "No code"),
+        false,
+      );
+    try {
+      const r = await core.finishMcpAuth(state, code);
+      return page(
+        it ? "Collegato" : "Connected",
+        it
+          ? `${escapeHtml(r.name)} è collegato a RedGiant (${r.tools} strumenti). Puoi chiudere questa scheda.`
+          : `${escapeHtml(r.name)} is connected to RedGiant (${r.tools} tools). You can close this tab.`,
+        true,
+      );
+    } catch (err) {
+      return page(
+        it ? "Collegamento non riuscito" : "Sign-in failed",
+        escapeHtml((err as Error).message),
+        false,
+      );
+    }
+  });
   app.post("/api/setup/git/sync", (c) => wizard(c, () => (setup as SetupService).gitSync()));
   // Access from outside home (G24.6): Tailscale, a Cloudflare Tunnel, or one's own domain.
   app.post("/api/setup/remote", (c) =>
@@ -1816,3 +1869,9 @@ const MIME: Record<string, string> = {
   ".webmanifest": "application/manifest+json",
   ".woff2": "font/woff2",
 };
+
+const escapeHtml = (s: string) =>
+  s.replace(
+    /[&<>"']/g,
+    (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+  );

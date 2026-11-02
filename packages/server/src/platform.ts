@@ -11,7 +11,13 @@ import {
   type PersistentBudget,
   type PolicySettings,
 } from "@redgiant/hierarchy";
-import { Effort, type ModelSpec, PermissionMode } from "@redgiant/protocol";
+import {
+  catalogConfig,
+  Effort,
+  MCP_CATALOG,
+  type ModelSpec,
+  PermissionMode,
+} from "@redgiant/protocol";
 import { z } from "zod";
 
 /** The part of the permission policy the user (or God, with the user's approval) can change. */
@@ -264,7 +270,17 @@ export interface ConfigHost {
   changes: PlatformChanges;
   /** Throws when the model does not answer a one-line request. */
   trialModel(ownerId: string, spec: ModelSpec): Promise<void>;
+  listMcp(ownerId: string): Promise<McpRow[]>;
+  setMcp(
+    ownerId: string,
+    config: { name: string; projectId: string | null } & McpTransport,
+  ): Promise<void>;
+  removeMcp(ownerId: string, name: string): Promise<void>;
 }
+
+type McpTransport = { transport: ReturnType<typeof catalogConfig>["transport"] };
+type McpRow = { name: string; project_id: string | null; transport: unknown };
+type McpSaved = { projectId: string | null; transport: McpTransport["transport"] };
 
 type AgentConfig = {
   model?: ModelSpec | null;
@@ -404,6 +420,63 @@ export class PlatformConfig {
     });
   }
 
+  /**
+   * Adds a server from the catalog (G24.9), or removes one. Servers that need a key are added
+   * by the person, who pastes it in Extensions: God never sees keys.
+   */
+  async mcp(
+    ownerId: string,
+    by: string,
+    a:
+      | { action: "add"; catalogId: string; projectId: string | null }
+      | { action: "remove"; name: string },
+  ): Promise<PlatformChange> {
+    const rows = await this.h.listMcp(ownerId);
+    const saved = (name: string): McpSaved | null => {
+      const r = rows.find((x) => x.name === name);
+      if (!r) return null;
+      const transport = typeof r.transport === "string" ? JSON.parse(r.transport) : r.transport;
+      return { projectId: r.project_id, transport };
+    };
+    let name: string;
+    let after: McpSaved | null;
+    if (a.action === "add") {
+      const entry = MCP_CATALOG.find((e) => e.id === a.catalogId);
+      if (!entry) throw new ConfigError(`"${a.catalogId}" is not in the catalog`);
+      if (entry.auth.type === "header" || entry.auth.type === "env")
+        throw new ConfigError(
+          `${entry.name} needs a key: ask the person to add it from Settings, Extensions, where they paste the key themselves`,
+        );
+      name = entry.id;
+      after = { projectId: a.projectId, ...catalogConfig(entry) };
+    } else {
+      name = a.name;
+      if (!saved(name)) throw new ConfigError(`No MCP server "${name}"`);
+      after = null;
+    }
+    return this.putMcp(ownerId, by, name, saved(name), after);
+  }
+
+  private async putMcp(
+    ownerId: string,
+    by: string,
+    name: string,
+    before: McpSaved | null,
+    after: McpSaved | null,
+  ): Promise<PlatformChange> {
+    if (after) await this.h.setMcp(ownerId, { name, ...after });
+    else await this.h.removeMcp(ownerId, name);
+    return this.h.changes.record(ownerId, {
+      kind: "config",
+      change: after ? `MCP server ${name}` : `MCP server ${name} removed`,
+      stage: "promoted",
+      target: `mcp:${name}`,
+      before,
+      after,
+      by,
+    });
+  }
+
   /** Puts back what a configuration change replaced; recorded as a change of its own. */
   async undo(ownerId: string, by: string, changeId: string): Promise<PlatformChange> {
     const c = await this.h.changes.get(ownerId, changeId);
@@ -417,6 +490,17 @@ export class PlatformConfig {
     } else if (type === "budget") {
       const [scope, id] = rest as [BudgetTarget["scope"], string];
       done = await this.setBudget(ownerId, by, { scope, id }, c.before as BudgetLimit);
+    } else if (type === "mcp") {
+      const name = rest.join(":");
+      const now = (await this.h.listMcp(ownerId)).find((r) => r.name === name);
+      const current = now
+        ? {
+            projectId: now.project_id,
+            transport:
+              typeof now.transport === "string" ? JSON.parse(now.transport) : now.transport,
+          }
+        : null;
+      done = await this.putMcp(ownerId, by, name, current, c.before as McpSaved | null);
     } else if (type === "policy") {
       done = await this.setPolicy(ownerId, by, c.before as PlatformPolicy);
     } else if (type === "automation") {
@@ -635,6 +719,43 @@ export function platformConfigTools(
       },
       schema: PlatformPolicy,
       run: async (p: PlatformPolicy) => show(await config.setPolicy(owner, by, p)),
+    } as Tool,
+    {
+      def: {
+        name: "platform_mcp",
+        description: `Add an MCP server from the catalog, or remove one. Servers that sign in with OAuth are added and then the person presses Connect in Settings, Extensions; servers that need a key cannot be added here (the person pastes the key there). Catalog: ${MCP_CATALOG.map((e) => `${e.id} (${e.name}, ${e.auth.type === "header" || e.auth.type === "env" ? "key" : e.auth.type}${e.official ? "" : ", community"})`).join("; ")}.`,
+        inputSchema: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["add", "remove"] },
+            catalog_id: { type: "string", enum: MCP_CATALOG.map((e) => e.id) },
+            name: { type: "string", description: "the server to remove" },
+            project_id: { type: "string", description: "only for this project (else everywhere)" },
+          },
+          required: ["action"],
+        },
+      },
+      schema: z.object({
+        action: z.enum(["add", "remove"]),
+        catalog_id: z.string().optional(),
+        name: z.string().optional(),
+        project_id: z.string().optional(),
+      }),
+      async run({ action, catalog_id, name, project_id }) {
+        if (action === "add" && !catalog_id) throw new ConfigError("add needs catalog_id");
+        if (action === "remove" && !name) throw new ConfigError("remove needs the server's name");
+        const c = await config.mcp(
+          owner,
+          by,
+          action === "add"
+            ? { action, catalogId: catalog_id as string, projectId: project_id ?? null }
+            : { action, name: name as string },
+        );
+        const entry = MCP_CATALOG.find((e) => e.id === catalog_id);
+        return entry?.auth.type === "oauth"
+          ? `${show(c)}\nThe person must now press Connect next to ${entry.name} in Settings, Extensions, to sign in.`
+          : show(c);
+      },
     } as Tool,
     {
       def: {

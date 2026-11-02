@@ -261,7 +261,7 @@ await core.extensions.propose({
 await core.setMcp("local", {
   name: "docs",
   projectId: null,
-  transport: { type: "http", url: "https://mcp.example.com/mcp" },
+  transport: { type: "http", url: "https://mcp.example.com/mcp", oauth: true },
 });
 const sid = await core.startSession("local", orch.id);
 await (await core.send("local", sid, "Give me a quick tour of the project.")).done;

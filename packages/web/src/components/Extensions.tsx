@@ -1,9 +1,33 @@
+// Extensions in plain words (G24.9): ask God for a new ability, add a service from the catalog
+// (its own sign-in page, or a key pasted once), see what is connected. Hand-made skills and
+// servers stay under "Advanced".
+import {
+  catalogConfig,
+  MCP_CATALOG,
+  type McpCatalogEntry,
+  type McpCategory,
+} from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
-import type { Installed, McpEntry, Proposal } from "../api.js";
-import { t } from "../i18n.js";
-import { IconCheck, IconClose } from "../icons.js";
+import type { Installed, McpEntry, McpStatus, Proposal } from "../api.js";
+import { lang, t } from "../i18n.js";
+import {
+  IconBoard,
+  IconCheck,
+  IconClose,
+  IconCompass,
+  IconCpu,
+  IconFile,
+  IconLayers,
+  IconPencil,
+  IconSearch,
+  IconSend,
+  IconTerminal,
+} from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
-import { agents, attempt, getApi, openTab, projects } from "../state.js";
+import { agents, attempt, getApi, getLive, openTab, projects } from "../state.js";
+import { explain } from "./Brain.js";
+import { Chat } from "./Chat.js";
+import { Advanced, Field } from "./ui.js";
 
 const scopeLabel = (projectId: string | null) =>
   projectId
@@ -19,7 +43,9 @@ function ProposalCard({ p, onDone }: { p: Proposal; onDone: () => void }) {
   return (
     <div class="approval">
       <div class="row">
-        <span class={`kind-badge ${p.kind === "tool" ? "result" : "decision"}`}>{p.kind}</span>
+        <span class={`kind-badge ${p.kind === "tool" ? "result" : "decision"}`}>
+          {t(p.kind === "tool" ? "extKindTool" : "extKindSkill")}
+        </span>
         <strong>{p.name}</strong>
         <span class="chip">{scopeLabel(p.projectId)}</span>
         <span class="dim">
@@ -59,6 +85,320 @@ function ProposalCard({ p, onDone }: { p: Proposal; onDone: () => void }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** "What should your agents be able to do?": a conversation with God, right here. */
+function AskGod() {
+  const god = agents.value.find((a) => a.kind === "god");
+  const [text, setText] = useState("");
+  const [session, setSession] = useState<string>();
+  const [error, setError] = useState<string>();
+  if (!god) return null;
+  const ask = async (e: Event) => {
+    e.preventDefault();
+    setError(undefined);
+    try {
+      const { sessionId } = await getApi().startSession(god.id);
+      getLive().send({
+        type: "session.send",
+        sessionId,
+        text: t("extAskGodMessage", { text: text.trim() }),
+      });
+      setSession(sessionId);
+      setText("");
+    } catch (err) {
+      setError(explain(err));
+    }
+  };
+  return (
+    <div class="ext-ask">
+      <h3>{t("extAskTitle")}</h3>
+      <p class="ui-help">{t("extAskHelp")}</p>
+      {session ? (
+        <>
+          <div class="ext-chat">
+            <Chat sessionId={session} agentId={god.id} />
+          </div>
+          <div class="row">
+            <button type="button" onClick={() => setSession(undefined)}>
+              {t("extAskAgain")}
+            </button>
+          </div>
+        </>
+      ) : (
+        <form class="row" onSubmit={(e) => void ask(e)}>
+          <input
+            aria-label={t("extAskTitle")}
+            placeholder={t("extAskPlaceholder")}
+            value={text}
+            onInput={(e) => setText((e.target as HTMLInputElement).value)}
+          />
+          <button type="submit" class="primary" disabled={!text.trim()}>
+            <IconSend size={14} /> {t("extAsk")}
+          </button>
+        </form>
+      )}
+      {error && <p class="notice error">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * Opens the service's sign-in page in a new tab. The tab is opened before asking the server,
+ * while the click still counts, or the browser would block it.
+ */
+async function signIn(name: string): Promise<boolean> {
+  const tab = window.open("", "_blank");
+  try {
+    const r = await getApi().mcpLogin(name, location.origin);
+    if ("authorizeUrl" in r) {
+      if (tab) tab.location.href = r.authorizeUrl;
+      else location.href = r.authorizeUrl;
+      return false;
+    }
+    tab?.close();
+    return true;
+  } catch (err) {
+    tab?.close();
+    throw err;
+  }
+}
+
+/** Adding one entry: where it works and, when it needs one, its key. */
+function AddForm({
+  entry,
+  onDone,
+  onCancel,
+}: {
+  entry: McpCatalogEntry;
+  onDone: (signingIn: boolean) => void;
+  onCancel: () => void;
+}) {
+  const [scope, setScope] = useState("");
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const a = entry.auth;
+  const needsKey = a.type === "header" || a.type === "env";
+  const add = async (e: Event) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(undefined);
+    try {
+      await getApi().setMcp({
+        name: entry.id,
+        projectId: scope || null,
+        ...catalogConfig(entry, key),
+      });
+      onDone(a.type === "oauth" && !(await signIn(entry.id)));
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form class="form ext-add" onSubmit={(e) => void add(e)}>
+      <Field label={t("extWhere")} help={t("extWhereHelp")}>
+        <select value={scope} onChange={(e) => setScope((e.target as HTMLSelectElement).value)}>
+          <option value="">{t("extEverywhere")}</option>
+          {projects.value.map((p) => (
+            <option key={p.id} value={p.id}>
+              {t("extOnlyProject", { name: p.name })}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {needsKey && (
+        <Field label={t("extKey", { name: entry.name })} help={t("extKeyHelp")}>
+          <input
+            type="password"
+            autocomplete="off"
+            placeholder={a.keyExample ?? ""}
+            value={key}
+            onInput={(e) => setKey((e.target as HTMLInputElement).value)}
+          />
+          <a href={a.keyUrl} target="_blank" rel="noreferrer">
+            {t("extKeyWhere", { name: entry.name })}
+          </a>
+        </Field>
+      )}
+      {a.type === "oauth" && <p class="ui-help">{t("extOauthHelp", { name: entry.name })}</p>}
+      {error && <p class="notice error">{error}</p>}
+      <div class="row">
+        <button type="submit" class="primary" disabled={busy || (needsKey && !key.trim())}>
+          {a.type === "oauth" ? t("extAddAndConnect") : t("extAdd")}
+        </button>
+        <button type="button" onClick={onCancel}>
+          {t("cancel")}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+const CATEGORIES = (
+  ["code", "docs", "web", "data", "work", "design", "cloud"] as McpCategory[]
+).filter((c) => MCP_CATALOG.some((e) => e.category === c));
+/** Drawn icons by kind of service: never the services' own logos. */
+const CATEGORY_ICON = {
+  code: IconTerminal,
+  docs: IconFile,
+  web: IconCompass,
+  data: IconLayers,
+  work: IconBoard,
+  design: IconPencil,
+  cloud: IconCpu,
+} as const;
+
+function Catalog({
+  added,
+  onAdded,
+}: {
+  added: Set<string>;
+  onAdded: (signingIn: boolean) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [category, setCategory] = useState<McpCategory | "">("");
+  const [open, setOpen] = useState<string>();
+  const words = q.trim().toLowerCase();
+  const shown = MCP_CATALOG.filter(
+    (e) =>
+      (!category || e.category === category) &&
+      (!words || `${e.name} ${e.description[lang.value]} ${e.id}`.toLowerCase().includes(words)),
+  ).sort((x, y) => Number(y.official) - Number(x.official));
+  return (
+    <div class="ext-catalog">
+      <h3>{t("extCatalog")}</h3>
+      <p class="ui-help">{t("extCatalogHelp")}</p>
+      <div class="row wrap">
+        <label class="ext-search">
+          <IconSearch size={14} />
+          <input
+            aria-label={t("extSearch")}
+            placeholder={t("extSearch")}
+            value={q}
+            onInput={(e) => setQ((e.target as HTMLInputElement).value)}
+          />
+        </label>
+        {(["", ...CATEGORIES] as const).map((c) => (
+          <button
+            key={c}
+            type="button"
+            class={`chip-button${category === c ? " on" : ""}`}
+            aria-pressed={category === c}
+            onClick={() => setCategory(c)}
+          >
+            {t(c ? `extCat_${c}` : "extCatAll")}
+          </button>
+        ))}
+      </div>
+      {shown.length === 0 && <p class="dim">{t("extNothingFound")}</p>}
+      <div class="lm-cards">
+        {shown.map((e) => (
+          <div key={e.id} class="lm-card">
+            <div class="row">
+              {(() => {
+                const Icon = CATEGORY_ICON[e.category];
+                return <Icon size={16} />;
+              })()}
+              <strong>{e.name}</strong>
+              <span class={`chip${e.official ? " ok" : ""}`}>
+                {t(e.official ? "extOfficial" : "extCommunity")}
+              </span>
+            </div>
+            <p class="ui-help">{e.description[lang.value]}</p>
+            <p class="lm-meta">{t(`extAuth_${e.auth.type === "env" ? "header" : e.auth.type}`)}</p>
+            {added.has(e.id) ? (
+              <span class="chip ok">
+                <IconCheck size={12} /> {t("extAdded")}
+              </span>
+            ) : open === e.id ? (
+              <AddForm
+                entry={e}
+                onCancel={() => setOpen(undefined)}
+                onDone={(signingIn) => {
+                  setOpen(undefined);
+                  onAdded(signingIn);
+                }}
+              />
+            ) : (
+              <div class="row">
+                <button type="button" class="primary" onClick={() => setOpen(e.id)}>
+                  {t("extAdd")}
+                </button>
+                <a href={e.homepage} target="_blank" rel="noreferrer">
+                  {t("extMore")}
+                </a>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The servers added, whether each works, and the button that signs in. */
+function Connected({
+  mcp,
+  status,
+  onChange,
+}: {
+  mcp: McpEntry[];
+  status: McpStatus[] | undefined;
+  onChange: (signingIn?: boolean) => void;
+}) {
+  const [error, setError] = useState<string>();
+  if (mcp.length === 0) return null;
+  const connect = async (name: string) => {
+    setError(undefined);
+    try {
+      onChange(!(await signIn(name)));
+    } catch (err) {
+      setError(explain(err));
+    }
+  };
+  return (
+    <div class="ext-connected">
+      <h3>{t("extConnected")}</h3>
+      {mcp.map((m) => {
+        const s = status?.find((x) => x.name === m.name);
+        const entry = MCP_CATALOG.find((e) => e.id === m.name);
+        return (
+          <div class="node-row" key={m.name}>
+            <strong>{entry?.name ?? m.name}</strong>
+            <span class="chip">{scopeLabel(m.project_id)}</span>
+            {!s ? (
+              <span class="dim">{t("extChecking")}</span>
+            ) : s.state === "connected" ? (
+              <span class="chip ok">{t("extWorks", { n: String(s.tools) })}</span>
+            ) : s.state === "login" ? (
+              <>
+                <span class="chip warn">{t("extNeedsLogin")}</span>
+                <button type="button" class="primary" onClick={() => void connect(m.name)}>
+                  {t("extConnect")}
+                </button>
+              </>
+            ) : (
+              <span class="chip danger" title={s.error}>
+                {t("extBroken")}
+              </span>
+            )}
+            <button
+              type="button"
+              class="danger"
+              onClick={() => void attempt(() => getApi().removeMcp(m.name)).then(() => onChange())}
+            >
+              {t("remove")}
+            </button>
+          </div>
+        );
+      })}
+      {status?.some((s) => s.state === "error") && <p class="ui-help">{t("extBrokenHelp")}</p>}
+      {error && <p class="notice error">{error}</p>}
     </div>
   );
 }
@@ -136,18 +476,31 @@ function NewSkill({ onDone }: { onDone: () => void }) {
   );
 }
 
+/** A server not in the catalog: its address (or command), and how it signs in. */
 function McpForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState("");
   const [type, setType] = useState<"stdio" | "http">("http");
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState("");
   const [url, setUrl] = useState("");
+  const [oauth, setOauth] = useState(false);
+  const [token, setToken] = useState("");
   const [scope, setScope] = useState("");
   const submit = async (e: Event) => {
     e.preventDefault();
     const transport =
-      type === "http" ? { type, url } : { type, command, args: args.split(" ").filter(Boolean) };
-    if (await attempt(() => getApi().setMcp({ name, projectId: scope || null, transport })))
+      type === "http"
+        ? { type, url, ...(oauth && { oauth }) }
+        : { type, command, args: args.split(" ").filter(Boolean) };
+    const secrets =
+      type === "http" && !oauth && token.trim()
+        ? { headers: { Authorization: `Bearer ${token.trim()}` } }
+        : undefined;
+    if (
+      await attempt(() =>
+        getApi().setMcp({ name, projectId: scope || null, transport, ...(secrets && { secrets }) }),
+      )
+    )
       onDone();
   };
   return (
@@ -173,25 +526,46 @@ function McpForm({ onDone }: { onDone: () => void }) {
         </select>
       </label>
       <label>
-        Transport
+        {t("extTransport")}
         <select
           value={type}
           onChange={(e) => setType((e.target as HTMLSelectElement).value as "stdio" | "http")}
         >
-          <option value="http">http</option>
-          <option value="stdio">stdio</option>
+          <option value="http">{t("extTransportHttp")}</option>
+          <option value="stdio">{t("extTransportStdio")}</option>
         </select>
       </label>
       {type === "http" ? (
-        <label class="wide">
-          {t("url")}
-          <input
-            required
-            type="url"
-            value={url}
-            onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
-          />
-        </label>
+        <>
+          <label class="wide">
+            {t("url")}
+            <input
+              required
+              type="url"
+              value={url}
+              onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
+            />
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={oauth}
+              onChange={(e) => setOauth((e.target as HTMLInputElement).checked)}
+            />{" "}
+            {t("extManualOauth")}
+          </label>
+          {!oauth && (
+            <label>
+              {t("extManualToken")}
+              <input
+                type="password"
+                autocomplete="off"
+                value={token}
+                onInput={(e) => setToken((e.target as HTMLInputElement).value)}
+              />
+            </label>
+          )}
+        </>
       ) : (
         <>
           <label>
@@ -217,13 +591,19 @@ function McpForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-/** Tools, skills and MCP servers: proposals to approve, what is installed, manual creation. */
+/** Abilities for the agents: ask God, the catalog, what is connected, the hand-made ones. */
 export function Extensions() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [installed, setInstalled] = useState<Installed[]>([]);
   const [mcp, setMcp] = useState<McpEntry[]>([]);
+  const [status, setStatus] = useState<McpStatus[]>();
   const [version, setVersion] = useState(0);
-  const reload = () => setVersion((v) => v + 1);
+  /** Until when to look again for a sign-in finished in the other tab. */
+  const [watchUntil, setWatchUntil] = useState(0);
+  const reload = (signingIn?: boolean) => {
+    if (signingIn) setWatchUntil(Date.now() + 5 * 60_000);
+    setVersion((v) => v + 1);
+  };
   useEffect(() => {
     const api = getApi();
     void attempt(() => Promise.all([api.proposals(), api.installed(), api.mcpServers()])).then(
@@ -234,79 +614,86 @@ export function Extensions() {
         setMcp(r[2]);
       },
     );
+    void api.mcpStatus().then(setStatus, () => setStatus([]));
   }, [version]);
+  useEffect(() => {
+    if (Date.now() > watchUntil) return;
+    if (status && !status.some((s) => s.state === "login")) return;
+    const timer = setTimeout(
+      () =>
+        void getApi()
+          .mcpStatus()
+          .then(setStatus, () => {}),
+      3000,
+    );
+    return () => clearTimeout(timer);
+  }, [status, watchUntil]);
   const pending = proposals.filter((p) => p.status === "pending");
   const failed = proposals.filter((p) => p.status === "failed").slice(0, 5);
   return (
     <div class="hierarchy extensions">
-      <h3>{t("proposals")}</h3>
-      {pending.length === 0 ? (
-        <div class="dim">{t("noProposals")}</div>
-      ) : (
-        pending.map((p) => <ProposalCard key={p.id} p={p} onDone={reload} />)
-      )}
-      {failed.length > 0 && (
-        <details>
-          <summary class="dim">
-            {t("failedTests")} ({failed.length})
-          </summary>
-          {failed.map((p) => (
+      <AskGod />
+      {pending.length > 0 && (
+        <>
+          <h3>{t("extProposals")}</h3>
+          <p class="ui-help">{t("extProposalsHelp")}</p>
+          {pending.map((p) => (
             <ProposalCard key={p.id} p={p} onDone={reload} />
           ))}
-        </details>
+        </>
+      )}
+      <Connected mcp={mcp} status={status} onChange={reload} />
+      <Catalog added={new Set(mcp.map((m) => m.name))} onAdded={reload} />
+
+      {installed.length > 0 && (
+        <>
+          <h3>{t("extSkills")}</h3>
+          <p class="ui-help">{t("extSkillsHelp")}</p>
+          {installed.map((x) => (
+            <div class="node-row" key={`${x.scope}:${x.kind}:${x.name}`}>
+              <span class={`kind-badge ${x.kind === "tool" ? "result" : "decision"}`}>
+                {t(x.kind === "tool" ? "extKindTool" : "extKindSkill")}
+              </span>
+              <button
+                type="button"
+                class="link"
+                onClick={() =>
+                  openTab({
+                    id: `edit:${x.scope}:${x.path}`,
+                    type: "editor",
+                    title: x.name,
+                    scope: x.scope,
+                    path: x.path,
+                  })
+                }
+              >
+                {x.name}
+              </button>
+              <span class="dim">{x.description}</span>
+              <span class="chip">
+                {x.scope === "platform" ? t("scopePlatform") : x.scope.slice(8)}
+              </span>
+            </div>
+          ))}
+        </>
       )}
 
-      <h3>{t("installedExt")}</h3>
-      {installed.map((x) => (
-        <div class="node-row" key={`${x.scope}:${x.kind}:${x.name}`}>
-          <span class={`kind-badge ${x.kind === "tool" ? "result" : "decision"}`}>{x.kind}</span>
-          <button
-            type="button"
-            class="link"
-            onClick={() =>
-              openTab({
-                id: `edit:${x.scope}:${x.path}`,
-                type: "editor",
-                title: x.name,
-                scope: x.scope,
-                path: x.path,
-              })
-            }
-          >
-            {x.name}
-          </button>
-          <span class="dim">{x.description}</span>
-          <span class="chip">{x.scope === "platform" ? t("scopePlatform") : x.scope.slice(8)}</span>
-        </div>
-      ))}
-      <details>
-        <summary>{t("newSkill")}</summary>
+      <Advanced>
+        {failed.length > 0 && (
+          <details>
+            <summary class="dim">
+              {t("failedTests")} ({failed.length})
+            </summary>
+            {failed.map((p) => (
+              <ProposalCard key={p.id} p={p} onDone={reload} />
+            ))}
+          </details>
+        )}
+        <h3>{t("newSkill")}</h3>
         <NewSkill onDone={reload} />
-      </details>
-
-      <h3>{t("mcpServers")}</h3>
-      {mcp.map((m) => (
-        <div class="node-row" key={m.name}>
-          <strong>{m.name}</strong>
-          <code>
-            {m.transport.type === "http"
-              ? m.transport.url
-              : `${m.transport.command} ${(m.transport.args ?? []).join(" ")}`}
-          </code>
-          <span class="chip">{scopeLabel(m.project_id)}</span>
-          <button
-            type="button"
-            class="danger"
-            onClick={() => void attempt(() => getApi().removeMcp(m.name)).then(reload)}
-          >
-            {t("remove")}
-          </button>
-        </div>
-      ))}
-      <details>
-        <summary>{t("addServer")}</summary>
+        <h3>{t("addServer")}</h3>
         <McpForm onDone={reload} />
-      </details>
+      </Advanced>
     </div>
   );
 }

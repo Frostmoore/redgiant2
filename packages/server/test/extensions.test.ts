@@ -146,4 +146,43 @@ describe("extensions end to end", () => {
       expect.arrayContaining(["skill_load", "skill_file", "mcp__echo__shout", "propose_extension"]),
     );
   });
+
+  it("keeps a server's keys out of its configuration, and refuses unknown sign-ins", async () => {
+    s = await startServer(() => ({ text: "ok" }));
+    const server = join(here, "../../extensions/test/mcp-server.mjs");
+    const saved = await s.api("PUT", "/api/extensions/mcp", {
+      name: "echo",
+      projectId: null,
+      transport: { type: "stdio", command: process.execPath, args: [server] },
+      secrets: { env: { ECHO_KEY: "secret-value-123" } },
+    });
+    expect(saved.status).toBe(200);
+    const list = await s.api("GET", "/api/extensions/mcp");
+    expect(JSON.stringify(list.body)).not.toContain("secret-value-123");
+    const status = await s.api<{ name: string; state: string; tools: number }[]>(
+      "GET",
+      "/api/extensions/mcp/status",
+    );
+    expect(status.body).toEqual([expect.objectContaining({ name: "echo", state: "connected" })]);
+    expect(status.body[0]?.tools).toBeGreaterThan(0);
+
+    // Only servers that sign in with OAuth have a sign-in.
+    const login = await s.api("POST", "/api/extensions/mcp/echo/login", { origin: s.url });
+    expect(login.status).toBe(400);
+    expect((await s.api("POST", "/api/extensions/mcp/nope/login", { origin: s.url })).status).toBe(
+      404,
+    );
+
+    // The callback is open (the service sends the browser there), so the state must be known.
+    const unknown = await fetch(`${s.url}/api/extensions/oauth/callback?code=abc&state=nope`);
+    expect(unknown.status).toBe(400);
+    expect(await unknown.text()).toMatch(/not known/);
+    const refused = await fetch(
+      `${s.url}/api/extensions/oauth/callback?error=access_denied&error_description=${encodeURIComponent("<script>x</script>")}`,
+    );
+    expect(refused.status).toBe(400);
+    const page = await refused.text();
+    expect(page).toContain("&lt;script&gt;x&lt;/script&gt;");
+    expect(page).not.toContain("<script>x</script>");
+  });
 });

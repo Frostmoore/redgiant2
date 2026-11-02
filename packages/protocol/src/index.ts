@@ -4,6 +4,7 @@ export * from "./dangers.js";
 export * from "./events.js";
 export * from "./jobs.js";
 export * from "./local-models.js";
+export * from "./mcp-catalog.js";
 export * from "./messages.js";
 export * from "./metrics.js";
 export * from "./providers.js";

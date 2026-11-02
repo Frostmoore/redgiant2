@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { AgentSession, type Engine, type SendResult, type Tool } from "@redgiant/agent";
@@ -17,9 +17,11 @@ import {
   loadCustomTools,
   loadSkills,
   McpConnection,
+  McpCredentialStore,
   type McpServerConfig,
   migrateExtensions,
   proposeTool,
+  StoredOAuthProvider,
   skillsIndex,
   skillTools,
 } from "@redgiant/extensions";
@@ -99,6 +101,8 @@ export interface CoreOptions {
   providers: ProviderRegistry;
   /** Root of the project workspaces. */
   workspacesDir: string;
+  /** Where the MCP servers' sign-ins and keys are kept (default: next to the workspaces). */
+  mcpCredentialsDir?: string;
   /** God's own workspace (the platform). */
   platformDir: string;
   sandbox?: SandboxProvider;
@@ -205,6 +209,13 @@ export class RedGiantCore implements OrchestrationHost {
   notify: ((ownerId: string, text: string) => Promise<void>) | undefined;
   /** Connected MCP servers, by owner and name. */
   private readonly mcp = new Map<string, McpConnection>();
+  /** Sign-ins and keys of MCP servers (G24.9): private files, never the database. */
+  readonly mcpCredentials: McpCredentialStore;
+  /** Sign-ins in progress, by OAuth state. */
+  private readonly mcpPending = new Map<
+    string,
+    { ownerId: string; name: string; conn: McpConnection; at: number }
+  >();
   readonly summarizer: BoardSummarizer | undefined;
   /** Where each agent receives delegated work. */
   private readonly workSessions = new Map<string, string>();
@@ -215,6 +226,9 @@ export class RedGiantCore implements OrchestrationHost {
 
   private constructor(private readonly o: CoreOptions) {
     this.store = new EventStore(o.db, o.redactor ? { redactor: o.redactor } : {});
+    this.mcpCredentials = new McpCredentialStore(
+      o.mcpCredentialsDir ?? join(dirname(o.workspacesDir), "mcp-credentials"),
+    );
     this.logins = new LoginStore(o.db);
     if (o.transcription?.key) o.redactor?.addSecret("transcription", o.transcription.key);
     if (o.images?.key) o.redactor?.addSecret("openai-images", o.images.key);
@@ -580,25 +594,69 @@ export class RedGiantCore implements OrchestrationHost {
     };
   }
 
-  /** MCP servers configured by the owner: global ones and the project's. Failing servers are skipped. */
-  private async mcpTools(ownerId: string, projectId: string | null): Promise<Tool[]> {
+  /** A connection to one configured server, with its keys and (if any) its OAuth sign-in. */
+  private async mcpConnection(
+    ownerId: string,
+    name: string,
+    transport: McpServerConfig["transport"],
+    redirect?: string,
+    onAuthorize: (url: URL) => void = () => {},
+    state = "",
+  ): Promise<McpConnection> {
+    const secrets = await this.mcpCredentials.load(ownerId, name);
+    const back = redirect ?? secrets.redirect;
+    return new McpConnection({ name, transport }, undefined, {
+      secrets: {
+        ...(secrets.headers && { headers: secrets.headers }),
+        ...(secrets.env && { env: secrets.env }),
+      },
+      ...(transport.type === "http" &&
+        transport.oauth &&
+        back && {
+          authProvider: new StoredOAuthProvider(
+            this.mcpCredentials,
+            ownerId,
+            name,
+            back,
+            state,
+            onAuthorize,
+          ),
+        }),
+    });
+  }
+
+  private async mcpRows(ownerId: string, projectId?: string | null) {
     const rows = await this.o.db.query<{
       name: string;
       project_id: string | null;
       transport: McpServerConfig["transport"] | string;
     }>(
-      "SELECT name, project_id, transport FROM rg_mcp_servers WHERE owner_id = $1 AND (project_id IS NULL OR project_id = $2) ORDER BY name",
-      [ownerId, projectId ?? ""],
+      projectId === undefined
+        ? "SELECT name, project_id, transport FROM rg_mcp_servers WHERE owner_id = $1 ORDER BY name"
+        : "SELECT name, project_id, transport FROM rg_mcp_servers WHERE owner_id = $1 AND (project_id IS NULL OR project_id = $2) ORDER BY name",
+      projectId === undefined ? [ownerId] : [ownerId, projectId ?? ""],
     );
+    return rows.map((r) => ({
+      ...r,
+      transport: (typeof r.transport === "string"
+        ? JSON.parse(r.transport)
+        : r.transport) as McpServerConfig["transport"],
+    }));
+  }
+
+  /** MCP servers configured by the owner: global ones and the project's. Failing servers are skipped. */
+  private async mcpTools(ownerId: string, projectId: string | null): Promise<Tool[]> {
     const out: Tool[] = [];
-    for (const r of rows) {
+    for (const r of await this.mcpRows(ownerId, projectId)) {
       const key = `${ownerId}/${r.name}`;
+      // A server waiting for its sign-in has no tools yet.
+      if (r.transport.type === "http" && r.transport.oauth) {
+        const s = await this.mcpCredentials.load(ownerId, r.name);
+        if (!s.tokens) continue;
+      }
       let conn = this.mcp.get(key);
       if (!conn) {
-        conn = new McpConnection({
-          name: r.name,
-          transport: typeof r.transport === "string" ? JSON.parse(r.transport) : r.transport,
-        });
+        conn = await this.mcpConnection(ownerId, r.name, r.transport);
         this.mcp.set(key, conn);
       }
       try {
@@ -618,15 +676,86 @@ export class RedGiantCore implements OrchestrationHost {
     );
   }
 
+  /** Each server and whether it works: connected (with its tools), waiting to sign in, failing. */
+  async mcpStatus(ownerId: string): Promise<
+    {
+      name: string;
+      projectId: string | null;
+      state: "connected" | "login" | "error";
+      tools: number;
+      error?: string;
+    }[]
+  > {
+    const out: {
+      name: string;
+      projectId: string | null;
+      state: "connected" | "login" | "error";
+      tools: number;
+      error?: string;
+    }[] = [];
+    for (const r of await this.mcpRows(ownerId)) {
+      if (r.transport.type === "http" && r.transport.oauth) {
+        const s = await this.mcpCredentials.load(ownerId, r.name);
+        if (!s.tokens) {
+          out.push({ name: r.name, projectId: r.project_id, state: "login", tools: 0 });
+          continue;
+        }
+      }
+      const key = `${ownerId}/${r.name}`;
+      try {
+        let conn = this.mcp.get(key);
+        if (!conn) {
+          conn = await this.mcpConnection(ownerId, r.name, r.transport);
+          this.mcp.set(key, conn);
+        }
+        out.push({
+          name: r.name,
+          projectId: r.project_id,
+          state: "connected",
+          // A first start (a package still downloading) must not hold the whole page.
+          tools: (
+            await Promise.race([
+              conn.tools(),
+              new Promise<never>((_, no) =>
+                setTimeout(() => no(new Error("No answer within 30 seconds")), 30_000).unref(),
+              ),
+            ])
+          ).length,
+        });
+      } catch (err) {
+        this.mcp.delete(key);
+        const message = (err as Error).message;
+        out.push({
+          name: r.name,
+          projectId: r.project_id,
+          state: /unauthori[sz]ed|401|invalid_token/i.test(message) ? "login" : "error",
+          tools: 0,
+          error: message.slice(0, 300),
+        });
+      }
+    }
+    return out;
+  }
+
   async setMcp(
     ownerId: string,
     config: McpServerConfig & { projectId: string | null },
+    /** Keys kept in a private file, not with the configuration. */
+    secrets?: { headers?: Record<string, string>; env?: Record<string, string> },
   ): Promise<void> {
     await this.o.db.query(
       `INSERT INTO rg_mcp_servers (owner_id, name, project_id, transport) VALUES ($1, $2, $3, $4)
        ON CONFLICT (owner_id, name) DO UPDATE SET project_id = EXCLUDED.project_id, transport = EXCLUDED.transport`,
       [ownerId, config.name, config.projectId, JSON.stringify(config.transport)],
     );
+    if (secrets) {
+      for (const v of [
+        ...Object.values(secrets.headers ?? {}),
+        ...Object.values(secrets.env ?? {}),
+      ])
+        this.o.redactor?.addSecret(`mcp-${config.name}`, v);
+      await this.mcpCredentials.save(ownerId, config.name, secrets);
+    }
     await this.mcp.get(`${ownerId}/${config.name}`)?.close();
     this.mcp.delete(`${ownerId}/${config.name}`);
   }
@@ -638,6 +767,60 @@ export class RedGiantCore implements OrchestrationHost {
     ]);
     await this.mcp.get(`${ownerId}/${name}`)?.close();
     this.mcp.delete(`${ownerId}/${name}`);
+    await this.mcpCredentials.remove(ownerId, name);
+  }
+
+  /**
+   * Signs in to a server with OAuth: returns the service's page to open, or `connected` when the
+   * saved sign-in still works. `origin` is RedGiant's address as the browser sees it.
+   */
+  async startMcpAuth(
+    ownerId: string,
+    name: string,
+    origin: string,
+  ): Promise<{ connected: true; tools: number } | { authorizeUrl: string }> {
+    const row = (await this.mcpRows(ownerId)).find((r) => r.name === name);
+    if (!row) throw new NotFoundError(`No MCP server "${name}"`);
+    if (row.transport.type !== "http" || !row.transport.oauth)
+      throw new BadRequestError(`"${name}" does not sign in with OAuth`);
+    const state = randomBytes(16).toString("base64url");
+    let page: URL | undefined;
+    const conn = await this.mcpConnection(
+      ownerId,
+      name,
+      row.transport,
+      `${origin.replace(/\/$/, "")}/api/extensions/oauth/callback`,
+      (u) => {
+        page = u;
+      },
+      state,
+    );
+    try {
+      const tools = await conn.tools();
+      this.mcp.set(`${ownerId}/${name}`, conn);
+      return { connected: true, tools: tools.length };
+    } catch (err) {
+      if (!page) throw err;
+      for (const [k, p] of this.mcpPending)
+        if (Date.now() - p.at > 15 * 60_000) this.mcpPending.delete(k);
+      this.mcpPending.set(state, { ownerId, name, conn, at: Date.now() });
+      return { authorizeUrl: page.toString() };
+    }
+  }
+
+  /** The service sent the person back with a code: the sign-in is finished and kept. */
+  async finishMcpAuth(
+    state: string,
+    code: string,
+  ): Promise<{ ownerId: string; name: string; tools: number }> {
+    const p = this.mcpPending.get(state);
+    if (!p) throw new BadRequestError("This sign-in is not known or too old: start it again");
+    this.mcpPending.delete(state);
+    await p.conn.finishAuth(code);
+    const tools = await p.conn.tools();
+    await this.mcp.get(`${p.ownerId}/${p.name}`)?.close();
+    this.mcp.set(`${p.ownerId}/${p.name}`, p.conn);
+    return { ownerId: p.ownerId, name: p.name, tools: tools.length };
   }
 
   /** Telegram: the owner's Demi-God answers, talking to God only (RD8). */

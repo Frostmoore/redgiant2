@@ -287,7 +287,17 @@ export interface Installed {
 export interface McpEntry {
   name: string;
   project_id: string | null;
-  transport: { type: "stdio"; command: string; args?: string[] } | { type: "http"; url: string };
+  transport:
+    | { type: "stdio"; command: string; args?: string[] }
+    | { type: "http"; url: string; oauth?: boolean };
+}
+
+export interface McpStatus {
+  name: string;
+  projectId: string | null;
+  state: "connected" | "login" | "error";
+  tools: number;
+  error?: string;
 }
 
 export class ApiError extends Error {
@@ -393,8 +403,20 @@ export class Api {
     this.call<Proposal>("POST", `/api/extensions/proposals/${id}/decision`, { decision });
   installed = () => this.call<Installed[]>("GET", "/api/extensions/installed");
   mcpServers = () => this.call<McpEntry[]>("GET", "/api/extensions/mcp");
-  setMcp = (m: { name: string; projectId: string | null; transport: McpEntry["transport"] }) =>
-    this.call("PUT", "/api/extensions/mcp", m);
+  setMcp = (m: {
+    name: string;
+    projectId: string | null;
+    transport: McpEntry["transport"];
+    secrets?: { headers?: Record<string, string>; env?: Record<string, string> };
+  }) => this.call("PUT", "/api/extensions/mcp", m);
+  mcpStatus = () => this.call<McpStatus[]>("GET", "/api/extensions/mcp/status");
+  /** Signs in to a server: either it already works, or the service's sign-in page. */
+  mcpLogin = (name: string, origin: string) =>
+    this.call<{ connected: true; tools: number } | { authorizeUrl: string }>(
+      "POST",
+      `/api/extensions/mcp/${encodeURIComponent(name)}/login`,
+      { origin },
+    );
   removeMcp = (name: string) =>
     this.call("DELETE", `/api/extensions/mcp/${encodeURIComponent(name)}`);
   chats = (projectId?: string) =>

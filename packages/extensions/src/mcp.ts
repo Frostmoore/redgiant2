@@ -1,3 +1,4 @@
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -6,7 +7,13 @@ import type { Tool } from "@redgiant/agent";
 
 export type McpTransportConfig =
   | { type: "stdio"; command: string; args?: string[]; env?: Record<string, string>; cwd?: string }
-  | { type: "http"; url: string; headers?: Record<string, string> };
+  | {
+      type: "http";
+      url: string;
+      headers?: Record<string, string>;
+      /** Signs in with the service's OAuth (G24.9): tokens kept by RedGiant, never here. */
+      oauth?: boolean;
+    };
 
 export interface McpServerConfig {
   name: string;
@@ -25,11 +32,26 @@ export class McpConnection {
   private client: Client | undefined;
   private connecting: Promise<Client> | undefined;
 
+  private http: StreamableHTTPClientTransport | undefined;
+
   constructor(
     readonly config: McpServerConfig,
     /** For tests: a ready transport instead of the configured one. */
     private readonly transport?: () => Transport,
+    private readonly extra: {
+      /** OAuth for remote servers that ask for it (`oauth: true`). */
+      authProvider?: OAuthClientProvider;
+      /** Keys kept apart from the configuration (headers, or variables for a local server). */
+      secrets?: { headers?: Record<string, string>; env?: Record<string, string> };
+    } = {},
   ) {}
+
+  /** The code the service gave after sign-in: the tokens are fetched and kept. */
+  async finishAuth(code: string): Promise<void> {
+    if (!this.http) throw new Error("No sign-in is in progress");
+    await this.http.finishAuth(code);
+    this.connecting = undefined;
+  }
 
   private connect(): Promise<Client> {
     if (this.client) return Promise.resolve(this.client);
@@ -41,13 +63,21 @@ export class McpConnection {
           ? new StdioClientTransport({
               command: this.config.transport.command,
               args: this.config.transport.args ?? [],
-              ...(this.config.transport.env && { env: this.config.transport.env }),
+              ...((this.config.transport.env || this.extra.secrets?.env) && {
+                env: { ...this.config.transport.env, ...this.extra.secrets?.env },
+              }),
               ...(this.config.transport.cwd && { cwd: this.config.transport.cwd }),
               stderr: "ignore",
             })
           : new StreamableHTTPClientTransport(new URL(this.config.transport.url), {
-              requestInit: { headers: this.config.transport.headers ?? {} },
+              requestInit: {
+                headers: { ...this.config.transport.headers, ...this.extra.secrets?.headers },
+              },
+              ...(this.config.transport.oauth &&
+                this.extra.authProvider && { authProvider: this.extra.authProvider }),
             }));
+      // Kept to finish an OAuth sign-in on the same transport.
+      if (t instanceof StreamableHTTPClientTransport) this.http = t;
       await c.connect(t);
       this.client = c;
       return c;

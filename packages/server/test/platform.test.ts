@@ -1,4 +1,4 @@
-import type { PermissionRequestInfo } from "@redgiant/protocol";
+import { MCP_CATALOG, type PermissionRequestInfo } from "@redgiant/protocol";
 import type { CompletionRequest } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
 import { startServer } from "./helpers.js";
@@ -159,6 +159,41 @@ describe("God on the platform's configuration", () => {
     expect((await core.budget.listFor("me", [], []))[0]?.limit).toEqual({});
     expect(await core.automations.list("me")).toEqual([]);
     expect(core.policies.get("me").rules).toEqual([]);
+  });
+
+  it("adds catalog servers with the human's approval, never ones that need a key", async () => {
+    const oauth = MCP_CATALOG.find((e) => e.auth.type === "oauth");
+    const keyed = MCP_CATALOG.find((e) => e.auth.type === "header" || e.auth.type === "env");
+    if (!oauth || !keyed) throw new Error("the catalog needs both kinds");
+    const { say, requests } = await setup({
+      add: { name: "platform_mcp", input: { action: "add", catalog_id: oauth.id } },
+      keyed: { name: "platform_mcp", input: { action: "add", catalog_id: keyed.id } },
+      remove: { name: "platform_mcp", input: { action: "remove", name: oauth.id } },
+    });
+    const core = (s as Server).core;
+    const added = await say("add");
+    expect(added?.ok).toBe(true);
+    expect(added?.output).toMatch(/press Connect/);
+    expect(requests.map((r) => r.tool)).toEqual(["platform_mcp"]);
+    const rows = await core.listMcp("me");
+    expect(rows.map((r) => r.name)).toEqual([oauth.id]);
+    expect(await core.mcpStatus("me")).toEqual([
+      expect.objectContaining({ name: oauth.id, state: "login" }),
+    ]);
+
+    const refused = await say("keyed");
+    expect(refused?.ok).toBe(false);
+    expect(refused?.output).toMatch(/needs a key/);
+
+    // Undoing the addition removes it; undoing the removal brings it back.
+    const [change] = await core.changes.list("me");
+    await core.config.undo("me", "human", change?.id ?? "");
+    expect(await core.listMcp("me")).toEqual([]);
+    const [undone] = await core.changes.list("me");
+    await core.config.undo("me", "human", undone?.id ?? "");
+    expect((await core.listMcp("me")).map((r) => r.name)).toEqual([oauth.id]);
+    expect((await say("remove"))?.ok).toBe(true);
+    expect(await core.listMcp("me")).toEqual([]);
   });
 
   it("on metal, every change God makes to its workspace asks the human", async () => {
