@@ -1950,21 +1950,6 @@ img.logo {
   flex-direction: column;
   gap: 8px;
 }
-.budgets {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 16px;
-  max-width: 900px;
-}
-.budgets td,
-.budgets th {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--line);
-}
-.budgets tr.over td {
-  color: var(--err);
-}
 .meter {
   height: 3px;
   background: #241d1e;
@@ -2980,4 +2965,113 @@ a.button.primary {
 }
 .extensions h3 + .ui-help {
   margin-top: 0;
+}
+
+/* --- budgets and history (G24.10) --- */
+.budgets-page {
+  padding: 16px;
+  max-width: 900px;
+}
+.budgets-page,
+.history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.budgets-page h3,
+.history h3 {
+  margin: 14px 0 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+}
+.budget-hero {
+  display: flex;
+  gap: 24px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.budget-total {
+  font-size: 32px;
+  font-weight: 600;
+}
+.budget-chart {
+  flex: 1;
+  min-width: 220px;
+  height: 80px;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+}
+.budget-chart span {
+  flex: 1;
+  max-width: 18px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+  min-width: 3px;
+}
+.budget-chart span.zero {
+  background: var(--line);
+}
+.budget-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.budget-row.over {
+  border-color: color-mix(in srgb, var(--err) 50%, var(--line));
+}
+.budget-name {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 200px;
+  flex: 1;
+}
+.budget-name .meter {
+  max-width: 260px;
+  height: 5px;
+  background: var(--line);
+}
+.budget-limit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.budget-limit input {
+  width: 90px;
+}
+.history-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.history-item.undone {
+  opacity: 0.6;
+}
+.history-item.bad {
+  border-color: color-mix(in srgb, var(--err) 50%, var(--line));
+}
+.history-text {
+  flex: 1;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.history-item .ui-advanced {
+  flex-basis: 100%;
 }

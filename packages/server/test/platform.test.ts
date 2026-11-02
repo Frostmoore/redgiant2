@@ -196,6 +196,21 @@ describe("God on the platform's configuration", () => {
     expect(await core.listMcp("me")).toEqual([]);
   });
 
+  it("puts the person's own budget changes in the history, undoable", async () => {
+    s = await startServer(() => ({ text: "ok" }));
+    const list = await s.api<{ scope: string; limit: object }[]>("GET", "/api/budgets");
+    expect(list.body).toEqual([expect.objectContaining({ scope: "global", limit: {} })]);
+    expect(
+      (await s.api("PUT", "/api/budgets", { scope: "global", id: "me", usd: 50 })).status,
+    ).toBe(200);
+    const [c] = await s.core.changes.list("me");
+    expect(c).toMatchObject({ by: "human", target: "budget:global:me", after: { usd: 50 } });
+    await s.core.config.undo("me", "human", c?.id ?? "");
+    expect((await s.core.budget.listFor("me", [], []))[0]?.limit).toEqual({});
+    expect((await s.api("GET", "/api/budgets/daily?from=nope")).status).toBe(400);
+    expect((await s.api("GET", "/api/budgets/daily?from=2026-11-01")).body).toEqual([]);
+  });
+
   it("on metal, every change God makes to its workspace asks the human", async () => {
     s = await startServer(() => ({ text: "x" }), {}, { metal: true });
     const g = await s.api<{ id: string }>("POST", "/api/agents", {

@@ -578,6 +578,13 @@ export class Api {
   cancelJob = (id: string) => this.call("POST", `/api/jobs/${encodeURIComponent(id)}/cancel`);
   platform = () => this.call<PlatformInfo>("GET", "/api/platform");
   platformChanges = () => this.call<PlatformChange[]>("GET", "/api/platform/changes");
+  promoteChange = (id: string) =>
+    this.call<{ commit: string }>("POST", `/api/platform/changes/${id}/promote`);
+  spendDaily = (from: string) =>
+    this.call<{ day: string; scope: Budget["scope"]; id: string; usd: number; tokens: number }[]>(
+      "GET",
+      `/api/budgets/daily?from=${from}`,
+    );
   undoChange = (id: string) =>
     this.call<PlatformChange>("POST", `/api/platform/changes/${id}/undo`);
   discardChange = (id: string) =>

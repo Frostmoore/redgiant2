@@ -29,3 +29,12 @@ export const bytes = (n: number) =>
       : n >= 1024
         ? `${(n / 1024).toFixed(1)} KB`
         : `${n} B`;
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/** The first day of this month and every day up to today, as YYYY-MM-DD. */
+export function monthDays(now = new Date()): string[] {
+  const out: string[] = [];
+  for (let d = 1; d <= now.getDate(); d++)
+    out.push(`${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(d)}`);
+  return out;
+}

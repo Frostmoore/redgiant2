@@ -81,6 +81,17 @@ export async function migrateHierarchy(db: SqlClient): Promise<void> {
       spent_tok  bigint NOT NULL DEFAULT 0,
       PRIMARY KEY (scope, key)
     )`);
+  // Spend per day (G24.10): what the counters above add up, for the month's chart.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS rg_spend_daily (
+      owner_id text NOT NULL,
+      day      text NOT NULL,
+      scope    text NOT NULL,
+      key      text NOT NULL,
+      usd      double precision NOT NULL DEFAULT 0,
+      tokens   bigint NOT NULL DEFAULT 0,
+      PRIMARY KEY (owner_id, day, scope, key)
+    )`);
 }
 
 const fromRow = (r: Row): AgentRecord => ({

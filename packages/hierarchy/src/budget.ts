@@ -26,7 +26,38 @@ export class PersistentBudget {
   constructor(
     private readonly db: SqlClient,
     private readonly store: EventStore,
+    /** The clock that dates spend (tests move it). */
+    private readonly now: () => Date = () => new Date(),
   ) {}
+
+  /**
+   * Spend per day and key from `from` (YYYY-MM-DD, the server's local date) on. Days with no
+   * spend are absent.
+   */
+  async daily(
+    ownerId: string,
+    from: string,
+  ): Promise<
+    { day: string; scope: BudgetKey["scope"]; id: string; usd: number; tokens: number }[]
+  > {
+    const rows = await this.db.query<{
+      day: string;
+      scope: BudgetKey["scope"];
+      key: string;
+      usd: number;
+      tokens: string | number;
+    }>(
+      "SELECT day, scope, key, usd, tokens FROM rg_spend_daily WHERE owner_id = $1 AND day >= $2 ORDER BY day, scope, key",
+      [ownerId, from],
+    );
+    return rows.map((r) => ({
+      day: r.day,
+      scope: r.scope,
+      id: r.key,
+      usd: r.usd,
+      tokens: Number(r.tokens),
+    }));
+  }
 
   /** Every counter of an owner: its global key, its projects and its agents. */
   async listFor(
@@ -107,6 +138,12 @@ export class PersistentBudget {
                                                  spent_tok = rg_budgets.spent_tok + EXCLUDED.spent_tok`,
         [key.scope, key.id, usd, tokens],
       );
+      await this.db.query(
+        `INSERT INTO rg_spend_daily (owner_id, day, scope, key, usd, tokens) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (owner_id, day, scope, key) DO UPDATE SET usd = rg_spend_daily.usd + EXCLUDED.usd,
+                                                               tokens = rg_spend_daily.tokens + EXCLUDED.tokens`,
+        [at.ownerId, localDay(this.now()), key.scope, key.id, usd, tokens],
+      );
     }
     const after = await this.check(keys);
     for (const b of after) {
@@ -127,3 +164,7 @@ export class PersistentBudget {
     return after;
   }
 }
+
+/** YYYY-MM-DD in the server's time zone. */
+export const localDay = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

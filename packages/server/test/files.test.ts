@@ -179,7 +179,10 @@ describe("budgets and web UI", () => {
       await s.api<{ scope: string; id: string; limit: { usd?: number } }[]>("GET", "/api/budgets")
     ).body;
     expect(list.map((b) => `${b.scope}:${b.id}`).sort()).toEqual(["global:me", "project:b"]);
-    expect((await s.api("GET", "/api/budgets", undefined, OTHER)).body).toEqual([]);
+    // Someone else sees only their own (empty) total.
+    expect((await s.api("GET", "/api/budgets", undefined, OTHER)).body).toEqual([
+      { scope: "global", id: "someone-else", limit: {}, used: { usd: 0, tokens: 0 } },
+    ]);
   });
 
   it("serves the built UI with a fallback to index.html, never outside its folder", async () => {

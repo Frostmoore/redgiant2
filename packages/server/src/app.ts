@@ -1077,7 +1077,11 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     const o = owner(c);
     const projects = (await core.projects.list(o)).map((p) => p.id);
     const agents = core.registry.list({ ownerId: o }).map((a) => a.id);
-    return c.json(await core.budget.listFor(o, projects, agents), 200);
+    const rows = await core.budget.listFor(o, projects, agents);
+    // The total is always there, so its limit can be set before anything is spent.
+    if (!rows.some((r) => r.scope === "global"))
+      rows.unshift({ scope: "global", id: o, limit: {}, used: { usd: 0, tokens: 0 } });
+    return c.json(rows, 200);
   });
   app.openapi(routes.setBudget, async (c) => {
     const b = c.req.valid("json");
@@ -1087,7 +1091,10 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       (b.scope === "project" && (await core.projects.get(o, b.id)) !== undefined) ||
       (b.scope === "agent" && core.registry.get(b.id)?.ownerId === o);
     if (!mine) return c.json({ error: "Not found" }, 404);
-    await core.budget.setLimit(
+    // Through the configuration, so the change is in the history and can be undone.
+    await core.config.setBudget(
+      o,
+      "human",
       { scope: b.scope, id: b.id },
       {
         ...(b.usd !== undefined && { usd: b.usd }),
@@ -1095,6 +1102,12 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       },
     );
     return c.json({ ok: true as const }, 200);
+  });
+  // Spend per day (G24.10), for the month's chart.
+  app.get("/api/budgets/daily", async (c) => {
+    const from = c.req.query("from") ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return c.json({ error: "from must be YYYY-MM-DD" }, 400);
+    return c.json(await core.budget.daily(owner(c), from), 200);
   });
 
   const ownsProject = async (c: Context<Env>, projectId: string | null | undefined) =>
@@ -1311,6 +1324,16 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       return c.json(await core.config.undo(owner(c), "human", c.req.param("id")), 200);
     } catch (err) {
       if (err instanceof ConfigError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
+  // The human promotes a tested change (G24.10): the same checks as God's tool.
+  app.post("/api/platform/changes/:id/promote", async (c) => {
+    if (!core.code) return c.json({ error: "Code changes are not enabled" }, 400);
+    try {
+      return c.json({ commit: await core.code.promote(owner(c), "human", c.req.param("id")) }, 200);
+    } catch (err) {
+      if (err instanceof CodeChangeError) return c.json({ error: err.message }, 400);
       throw err;
     }
   });

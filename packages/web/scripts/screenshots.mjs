@@ -100,7 +100,8 @@ for (const scheme of ["dark", "light"]) {
     ["Agenti", "11-settings-agents"],
     ["Automazioni", "12-settings-automations"],
     ["Estensioni", "13-settings-extensions"],
-    ["Piattaforma", "14-settings-platform"],
+    ["Storico delle modifiche", "14-settings-history"],
+    ["Budget", "19-settings-budget"],
     ["Configurazione", "15-settings-setup"],
     ["Modelli e abbonamenti", "16-settings-models"],
     ["Dove sta il codice", "17-settings-code"],
@@ -109,6 +110,17 @@ for (const scheme of ["dark", "light"]) {
     await page.locator(".settings-nav button", { hasText: section }).click();
     await page.waitForTimeout(500);
     await shot(name);
+    // No one types JSON (G24.10): a visible, writable field holding JSON is a failure.
+    const json = await page.evaluate(() =>
+      [...document.querySelectorAll(".settings input, .settings textarea")]
+        .filter((el) => el.offsetParent !== null && !el.readOnly && !el.disabled)
+        .map((el) => el.value.trim())
+        .filter((v) => /^[[{][\s\S]*[\]}]$/.test(v)),
+    );
+    if (json.length > 0) {
+      console.error(`JSON to type by hand in ${section}:`, json);
+      process.exitCode = 1;
+    }
   }
   await page.close();
 }

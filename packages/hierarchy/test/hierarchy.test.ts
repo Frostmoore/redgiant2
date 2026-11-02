@@ -345,3 +345,30 @@ describe("budgets", () => {
     expect((await store.list()).filter((e) => e.type === "budget.exceeded")).toHaveLength(1);
   });
 });
+
+describe("spend per day", () => {
+  it("dates each request's spend and adds up the same day", async () => {
+    const { db } = await memoryDb();
+    await migrate(db);
+    await migrateHierarchy(db);
+    let now = new Date(2026, 10, 1, 23, 30);
+    const b = new PersistentBudget(db, new EventStore(db), () => now);
+    const keys = [
+      { scope: "project" as const, id: "p1" },
+      { scope: "global" as const, id: "me" },
+    ];
+    const usage = { inputTokens: 100, outputTokens: 50 };
+    const at = { ownerId: "me", projectId: "p1", agentId: null };
+    await b.record(keys, usage as never, 0.5, at);
+    await b.record(keys, usage as never, 0.25, at);
+    now = new Date(2026, 10, 2, 8, 0);
+    await b.record(keys, usage as never, 1, at);
+    const rows = await b.daily("me", "2026-11-01");
+    expect(rows.filter((r) => r.scope === "global")).toEqual([
+      { day: "2026-11-01", scope: "global", id: "me", usd: 0.75, tokens: 300 },
+      { day: "2026-11-02", scope: "global", id: "me", usd: 1, tokens: 150 },
+    ]);
+    expect(await b.daily("me", "2026-11-02")).toHaveLength(2);
+    expect(await b.daily("someone-else", "2026-11-01")).toEqual([]);
+  });
+});

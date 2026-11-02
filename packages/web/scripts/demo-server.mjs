@@ -296,6 +296,40 @@ await core.config.configureAgent("local", god.id, coder.id, {
   model: { provider: "fake", model: "demo-model-small", effort: "low" },
   mode: "auto",
 });
+await core.config.setBudget("local", "human", { scope: "global", id: "local" }, { usd: 40 });
+await core.config.setPolicy("local", god.id, {
+  rules: [{ tool: "bash", match: "\\bnpm publish\\b", decision: "deny" }],
+  humanOnly: ["git-push"],
+  disabledDanger: [],
+});
+await core.config.mcp("local", god.id, { action: "add", catalogId: "linear", projectId: "demo" });
+// A month of spending for the chart: a little every day, more on some.
+{
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  for (let d = 1; d <= now.getDate(); d++) {
+    const day = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(d)}`;
+    const usd = Math.round((0.3 + ((d * 37) % 11) / 4) * 100) / 100;
+    for (const [scope, key, part] of [
+      ["global", "local", 1],
+      ["project", "demo", 0.7],
+      ["agent", orch.id, 0.4],
+      ["agent", coder.id, 0.3],
+    ]) {
+      await core.db.query(
+        `INSERT INTO rg_spend_daily (owner_id, day, scope, key, usd, tokens) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (owner_id, day, scope, key) DO UPDATE SET usd = rg_spend_daily.usd + EXCLUDED.usd`,
+        ["local", day, scope, key, usd * part, Math.round(usd * part * 200_000)],
+      );
+      await core.db.query(
+        `INSERT INTO rg_budgets (scope, key, spent_usd, spent_tok) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (scope, key) DO UPDATE SET spent_usd = rg_budgets.spent_usd + EXCLUDED.spent_usd,
+                                                 spent_tok = rg_budgets.spent_tok + EXCLUDED.spent_tok`,
+        [scope, key, usd * part, Math.round(usd * part * 200_000)],
+      );
+    }
+  }
+}
 await core.automations.create(
   "local",
   "name: review-on-push\non:\n  webhook: true\nagent: orchestrator\nproject: demo\ninstructions: Review the new commits.\n",
