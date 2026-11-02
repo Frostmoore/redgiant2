@@ -2775,3 +2775,68 @@ button.ui-card.on {
   align-items: center;
   gap: 6px;
 }
+
+/* --- G24.4: Telegram step by step (components/TelegramLink.tsx) --- */
+a.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: var(--text);
+  text-decoration: none;
+}
+a.button:hover {
+  border-color: var(--accent);
+}
+a.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  padding: 8px 14px;
+}
+.tg {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tg-token {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 6px;
+}
+.tg-token .ui-field {
+  width: min(460px, 100%);
+}
+.tg-pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: center;
+}
+.tg-pair > div:first-child {
+  flex: 1;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.tg-pair p {
+  margin: 0;
+}
+.tg-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.tg-qr .qr {
+  width: 170px;
+  height: 170px;
+}

@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import type { Job } from "@redgiant/protocol";
+import { DANGER_IDS, type Job } from "@redgiant/protocol";
 import { fireEvent, render } from "@testing-library/preact";
 import { beforeEach, describe, expect, it } from "vitest";
+import type { SetupState } from "../src/api.js";
 import { hardwareText } from "../src/components/LocalModels.js";
+import { Safety } from "../src/components/Safety.js";
 import {
   Choice,
   Field,
@@ -164,5 +166,43 @@ describe("ui pieces", () => {
     const iris = { name: "Intel Iris Xe", vramGb: 0, vendor: "intel" as const, integrated: true };
     expect(hardwareText(hw([iris], "igpu", "vulkan", 0, 8))).toMatch(/^Una scheda video integrata/);
     expect(hardwareText(hw([], "cpu", "cpu"))).toMatch(/^Nessuna scheda video da usare/);
+  });
+
+  it("safety: three ready choices, a switch per danger, spending only when paid per use", () => {
+    const state = (keys: string[], humanOnly: string[]) =>
+      ({
+        config: { completed: false },
+        secretsSet: { keys, server: false, telegram: false },
+        locked: {},
+        policy: { humanOnly, disabledDanger: [], dangers: DANGER_IDS.map((id) => ({ id })) },
+        budgetUsd: null,
+      }) as unknown as SetupState;
+    const balanced = [
+      "git-push",
+      "git-history",
+      "privilege",
+      "disk",
+      "deploy",
+      "database-drop",
+      "secrets-files",
+      "platform",
+    ];
+    const r = render(<Safety s={state([], balanced)} next={() => {}} />);
+    const card = (name: RegExp) => r.getByRole("button", { name });
+    expect(card(/^Equilibrata/).getAttribute("aria-pressed")).toBe("true");
+    // Nothing paid per use: no spending limit to ask for.
+    expect(r.getByText(/niente si paga a consumo/)).toBeTruthy();
+    expect(r.queryByText(/Quanto può spendere RedGiant/)).toBeNull();
+    fireEvent.click(card(/^Prudente/));
+    expect(card(/^Prudente/).getAttribute("aria-pressed")).toBe("true");
+    const switches = [...r.container.querySelectorAll('[role="switch"]')];
+    expect(switches).toHaveLength(DANGER_IDS.length);
+    expect(switches.every((x) => x.getAttribute("aria-checked") === "true")).toBe(true);
+    // One switch off: none of the ready choices any more.
+    fireEvent.click(switches[0] as Element);
+    expect(r.getByText(/Una scelta tua/)).toBeTruthy();
+    r.unmount();
+    const paid = render(<Safety s={state(["anthropic"], balanced)} next={() => {}} />);
+    expect(paid.getByText(/Quanto può spendere RedGiant/)).toBeTruthy();
   });
 });

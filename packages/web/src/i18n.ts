@@ -15,6 +15,61 @@ const en = {
   projectName: "Project name",
   create: "Create",
   cancel: "Cancel",
+  tgPurpose:
+    "Talk to RedGiant from your phone with Telegram, and get its alerts there (approvals, questions, long jobs, budgets). Optional: skip it if you do not use Telegram.",
+  tgStep1: "Open BotFather, Telegram's official bot for making bots:",
+  tgOpenBotFather: "Open BotFather",
+  tgStep2:
+    'Write /newbot to it. It asks for a name (whatever you like, e.g. My RedGiant) and then a username that ends in "bot" (e.g. mario_redgiant_bot).',
+  tgStep3: "BotFather answers with the bot's token: copy it and paste it here",
+  tgTokenHelp:
+    "It is a long line made of digits, a colon and letters, like 123456789:AAH… Keep it private: it is the bot's key.",
+  tgLastStep: "Last step: open @{bot} and press Start",
+  tgPressStart:
+    "Press the button (or scan the code with your phone): Telegram opens your bot; press Start and you are linked. Nothing to type.",
+  tgOpenBot: "Open @{bot}",
+  tgWaiting: "Waiting for you to press Start… this page notices by itself.",
+  tgQr: "Scan with your phone's camera",
+  tgChangeBot: "Use another bot",
+  tgLinked: "Linked to {who}",
+  tgLinkedHint:
+    "Write to your bot whenever you like: Demi-God passes it on to God and brings back the answer.",
+  err_token_rejected:
+    "Telegram refused this token. Copy it again from BotFather's message, all of it.",
+  safetyPurpose:
+    "What the agents may do on their own, how much they may spend, and how long the conversations are kept. You can change everything later.",
+  safetyWho: "Who says yes to risky actions",
+  safetyWhoHint:
+    "Before something risky (deleting folders, publishing, touching passwords…) an agent asks. Here you choose which of these only you may approve; for the others, the agent in charge (God or a project's lead) may say yes too.",
+  safetyCareful: "Careful",
+  safetyCarefulText: "Every risky action waits for you. The safest choice, also the slowest.",
+  safetyBalanced: "Balanced",
+  safetyBalancedText:
+    "You approve what cannot be undone (publishing, history, disks, passwords, changes to RedGiant); the agents in charge approve the rest.",
+  safetyFree: "Free",
+  safetyFreeText:
+    "The agents in charge approve almost everything; you are asked only for passwords and changes to RedGiant itself.",
+  safetyCustom: "Your own choice (see Customize).",
+  safetyPersonalize: "Customize",
+  safetyPersonalizeHint: "Switched on: only you may approve it.",
+  safetySpending: "Spending",
+  safetyBudget: "Most RedGiant may spend, in dollars",
+  safetyBudgetHelp:
+    "When it is reached the agents stop and tell you; raise it whenever you want. It counts everything paid with your keys, until you change it. Empty: no limit.",
+  safetyNoLimit: "no limit",
+  safetyNothingPaid:
+    "You use only subscriptions or local models: nothing is paid per use, so there is no spending limit to set. With subscriptions the plan's own limits count (shown at the top).",
+  safetyHistory: "Conversations",
+  safetyRetention: "Keep the conversations' details for",
+  safetyRetentionHelp: "After that their texts are erased; what was spent and when stays.",
+  safetyKeep_forever: "always",
+  safetyKeep_365: "one year",
+  safetyKeep_90: "three months",
+  safetyKeep_30: "one month",
+  safetySandboxDocker:
+    "The agents work in a closed box (a container): their commands cannot touch the rest of this computer.",
+  safetySandboxHost:
+    "Careful: the agents run their commands directly on this computer, without a closed box.",
   lmPurpose:
     "A model that runs here: free, and nothing leaves your computer. RedGiant suggests the ones that fit; download one and start it. You can skip this if you use a subscription or a key.",
   lmThisPc: "This computer",
@@ -311,11 +366,7 @@ const en = {
   scopePlatform: "platform",
   telegram: "Telegram",
   pair: "Pair a Telegram account",
-  pairHint: "Open the bot and send it this message within 10 minutes:",
-  linkedAccounts: "Linked accounts",
-  noLinks: "No account linked yet.",
   unlink: "Unlink",
-  telegramOff: "Telegram is not configured on this server.",
   automations: "Automations",
   newAutomation: "New automation",
   noAutomations:
@@ -364,15 +415,8 @@ const en = {
   wzGodName: "Name of God (the main agent)",
   wzDemigodName: "Name of Demi-God (on Telegram)",
   wzGodPrompt: "God's instructions (empty: the default ones)",
-  wzTelegramHint:
-    "Optional: talk to Demi-God from Telegram. Create a bot with @BotFather, paste its token, then send it the pairing code.",
   wzConnect: "Connect",
-  wzPairNow: "Bot @{bot} connected. Open it and send:",
-  wzSafetyHint: "What only you may approve, whatever the agents' settings:",
   wzBudget: "Global budget (USD)",
-  wzRetention: "Keep the details of the log for (days)",
-  wzForever: "forever",
-  wzSandbox: "Sandbox: {kind}. With «host» agents run commands directly on this system.",
   wzSubscription:
     "I know that using a personal subscription (instead of an API key) in a third-party tool may not be allowed by the provider's terms.",
   wzLocalModel: "Local model",
@@ -549,6 +593,60 @@ const it: Record<Key, string> = {
   projectName: "Nome del progetto",
   create: "Crea",
   cancel: "Annulla",
+  tgPurpose:
+    "Parla con RedGiant dal telefono con Telegram, e ricevi lì i suoi avvisi (approvazioni, domande, lavori lunghi, budget). Facoltativo: saltalo se non usi Telegram.",
+  tgStep1: "Apri BotFather, il bot ufficiale di Telegram che crea i bot:",
+  tgOpenBotFather: "Apri BotFather",
+  tgStep2:
+    'Scrivigli /newbot. Ti chiede un nome (quello che vuoi, per esempio Il mio RedGiant) e poi un nome utente che finisce con "bot" (per esempio mario_redgiant_bot).',
+  tgStep3: "BotFather risponde con il token del bot: copialo e incollalo qui",
+  tgTokenHelp:
+    "È una riga lunga fatta di numeri, due punti e lettere, tipo 123456789:AAH… Tienila per te: è la chiave del bot.",
+  tgLastStep: "Ultimo passo: apri @{bot} e premi Avvia",
+  tgPressStart:
+    "Premi il pulsante (o inquadra il codice con il telefono): Telegram apre il tuo bot; premi Avvia e sei collegato. Niente da scrivere.",
+  tgOpenBot: "Apri @{bot}",
+  tgWaiting: "Aspetto che premi Avvia… questa pagina se ne accorge da sola.",
+  tgQr: "Inquadra con la fotocamera del telefono",
+  tgChangeBot: "Usa un altro bot",
+  tgLinked: "Collegato a {who}",
+  tgLinkedHint: "Scrivi al tuo bot quando vuoi: Demi-God lo passa a God e ti riporta la risposta.",
+  err_token_rejected:
+    "Telegram ha rifiutato questo token. Copialo di nuovo dal messaggio di BotFather, tutto intero.",
+  safetyPurpose:
+    "Cosa possono fare da soli gli agenti, quanto possono spendere e per quanto si tengono le conversazioni. Puoi cambiare tutto anche dopo.",
+  safetyWho: "Chi dice sì alle azioni rischiose",
+  safetyWhoHint:
+    "Prima di fare qualcosa di rischioso (cancellare cartelle, pubblicare, toccare le password…) un agente chiede. Qui scegli quali di queste cose puoi approvare solo tu; per le altre può dire sì anche l'agente che lo guida (God o il capo di un progetto).",
+  safetyCareful: "Prudente",
+  safetyCarefulText: "Ogni azione rischiosa aspetta te. La scelta più sicura, anche la più lenta.",
+  safetyBalanced: "Equilibrata",
+  safetyBalancedText:
+    "Approvi tu quello che non si può annullare (pubblicare, storia del codice, dischi, password, modifiche a RedGiant); il resto lo approvano gli agenti che guidano.",
+  safetyFree: "Libera",
+  safetyFreeText:
+    "Gli agenti che guidano approvano quasi tutto; a te chiedono solo per le password e per cambiare RedGiant stesso.",
+  safetyCustom: "Una scelta tua (vedi Personalizza).",
+  safetyPersonalize: "Personalizza",
+  safetyPersonalizeHint: "Acceso: lo puoi approvare solo tu.",
+  safetySpending: "Spese",
+  safetyBudget: "Quanto può spendere RedGiant al massimo, in dollari",
+  safetyBudgetHelp:
+    "Quando ci arriva, gli agenti si fermano e te lo dicono; puoi alzarlo quando vuoi. Conta tutto quello che si paga con le tue chiavi, finché non lo cambi. Vuoto: nessun limite.",
+  safetyNoLimit: "nessun limite",
+  safetyNothingPaid:
+    "Usi solo abbonamenti o modelli locali: niente si paga a consumo, quindi non c'è un limite di spesa da mettere. Con gli abbonamenti contano i limiti del piano (li vedi in alto).",
+  safetyHistory: "Conversazioni",
+  safetyRetention: "Tieni i dettagli delle conversazioni per",
+  safetyRetentionHelp: "Dopo, i testi vengono cancellati; restano quanto si è speso e quando.",
+  safetyKeep_forever: "sempre",
+  safetyKeep_365: "un anno",
+  safetyKeep_90: "tre mesi",
+  safetyKeep_30: "un mese",
+  safetySandboxDocker:
+    "Gli agenti lavorano in una scatola chiusa (un container): i loro comandi non possono toccare il resto di questo computer.",
+  safetySandboxHost:
+    "Attenzione: gli agenti eseguono i comandi direttamente su questo computer, senza una scatola chiusa.",
   lmPurpose:
     "Un modello che gira qui: gratis, e niente esce dal tuo computer. RedGiant ti suggerisce quelli adatti; scaricane uno e avvialo. Puoi saltare questo passo se usi un abbonamento o una chiave.",
   lmThisPc: "Questo computer",
@@ -855,11 +953,7 @@ const it: Record<Key, string> = {
   scopePlatform: "piattaforma",
   telegram: "Telegram",
   pair: "Collega un account Telegram",
-  pairHint: "Apri il bot e mandagli questo messaggio entro 10 minuti:",
-  linkedAccounts: "Account collegati",
-  noLinks: "Ancora nessun account collegato.",
   unlink: "Scollega",
-  telegramOff: "Telegram non è configurato su questo server.",
   automations: "Automazioni",
   newAutomation: "Nuova automazione",
   noAutomations:
@@ -908,16 +1002,8 @@ const it: Record<Key, string> = {
   wzGodName: "Nome di God (l'agente principale)",
   wzDemigodName: "Nome di Demi-God (su Telegram)",
   wzGodPrompt: "Istruzioni per God (vuoto: quelle predefinite)",
-  wzTelegramHint:
-    "Facoltativo: parla con Demi-God da Telegram. Crea un bot con @BotFather, incolla il suo token, poi mandagli il codice di collegamento.",
   wzConnect: "Collega",
-  wzPairNow: "Bot @{bot} collegato. Aprilo e manda:",
-  wzSafetyHint: "Cosa puoi approvare solo tu, qualunque sia l'impostazione degli agenti:",
   wzBudget: "Budget globale (USD)",
-  wzRetention: "Tieni i dettagli del log per (giorni)",
-  wzForever: "per sempre",
-  wzSandbox:
-    "Sandbox: {kind}. Con «host» gli agenti eseguono comandi direttamente su questo sistema.",
   wzSubscription:
     "So che usare un abbonamento personale (al posto di una chiave API) in uno strumento di terzi può non essere permesso dalle condizioni del fornitore.",
   wzLocalModel: "Modello locale",

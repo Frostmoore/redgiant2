@@ -1,9 +1,11 @@
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
-import { danger, lang, setLang, t } from "../i18n.js";
-import { attempt, getApi, platformInfo, refresh } from "../state.js";
+import { lang, setLang, t } from "../i18n.js";
+import { attempt, getApi, refresh } from "../state.js";
 import { Brain, DefaultModel } from "./Brain.js";
 import { hardwareText, LocalModels } from "./LocalModels.js";
+import { Safety } from "./Safety.js";
+import { TelegramLink } from "./TelegramLink.js";
 import { Step } from "./ui.js";
 
 const STEPS = [
@@ -109,116 +111,33 @@ function Names({ s, next }: { s: SetupState; next: () => void }) {
   );
 }
 
-function Telegram({ s, next }: { s: SetupState; next: () => void }) {
-  const [token, setToken] = useState("");
-  const [bot, setBot] = useState<string | null>(null);
-  const [code, setCode] = useState<{ code: string; link: string } | null>(null);
-  const connect = async (e: Event) => {
-    e.preventDefault();
-    const r = await attempt(() => getApi().setupTelegram(token.trim()));
-    if (r) {
-      setBot(r.username);
-      const p = await attempt(() => getApi().telegramPair());
-      if (p) setCode({ code: p.code, link: p.link });
-    }
-  };
+/** Telegram, step by step: a bot of one's own, then Start in Telegram (no code to type). */
+function TelegramStep({
+  s,
+  next,
+  reload,
+}: {
+  s: SetupState;
+  next: () => void;
+  reload: () => void;
+}) {
   return (
-    <div class="form">
-      <p class="wide dim">{t("wzTelegramHint")}</p>
-      {s.locked.telegram ? (
-        <p class="wide notice">{t("wzLocked")}</p>
-      ) : (
-        <form class="row wide" onSubmit={(e) => void connect(e)}>
-          <input
-            type="password"
-            autocomplete="off"
-            placeholder={s.secretsSet.telegram ? t("wzAlreadySet") : "123456:ABC…"}
-            value={token}
-            onInput={(e) => setToken((e.target as HTMLInputElement).value)}
-          />
-          <button type="submit">{t("wzConnect")}</button>
-        </form>
-      )}
-      {bot && code && (
-        <div class="wide notice ok">
-          {t("wzPairNow", { bot })}{" "}
-          <a href={code.link} target="_blank" rel="noreferrer">
-            {code.link}
-          </a>
-          <pre>/start {code.code}</pre>
-        </div>
-      )}
-      <div class="row wide">
+    <Step title={t("wzTelegram")} purpose={t("tgPurpose")} onSkip={next}>
+      <TelegramLink s={s} onChange={reload} />
+      <div class="row">
         <button type="button" class="primary" onClick={next}>
-          {bot || s.secretsSet.telegram ? t("wzNext") : t("wzSkip")}
+          {t("wzNext")}
         </button>
       </div>
-    </div>
+    </Step>
   );
 }
 
-function Safety({ s, next }: { s: SetupState; next: () => void }) {
-  const [humanOnly, setHumanOnly] = useState<string[]>(s.policy.humanOnly);
-  const [budget, setBudget] = useState(s.budgetUsd?.toString() ?? "");
-  const [retention, setRetention] = useState(s.config.retentionDays?.toString() ?? "");
-  const save = async (e: Event) => {
-    e.preventDefault();
-    const r = await attempt(() =>
-      getApi().setupSafety({
-        humanOnly,
-        budgetUsd: budget.trim() ? Number(budget) : null,
-        retentionDays: retention.trim() ? Number(retention) : null,
-      }),
-    );
-    if (r !== undefined) next();
-  };
+function SafetyStep({ s, next }: { s: SetupState; next: () => void }) {
   return (
-    <form class="form" onSubmit={(e) => void save(e)}>
-      <p class="wide dim">{t("wzSafetyHint")}</p>
-      <div class="wide wz-checks">
-        {s.policy.dangers.map((d) => (
-          <label key={d.id} class="row">
-            <input
-              type="checkbox"
-              checked={humanOnly.includes(d.id)}
-              onChange={(e) =>
-                setHumanOnly(
-                  (e.target as HTMLInputElement).checked
-                    ? [...humanOnly, d.id]
-                    : humanOnly.filter((x) => x !== d.id),
-                )
-              }
-            />
-            {danger(d.id).name}
-          </label>
-        ))}
-      </div>
-      <Field label={t("wzBudget")}>
-        <input
-          type="number"
-          min="1"
-          step="1"
-          value={budget}
-          onInput={(e) => setBudget((e.target as HTMLInputElement).value)}
-        />
-      </Field>
-      <Field label={t("wzRetention")}>
-        <input
-          type="number"
-          min="1"
-          step="1"
-          placeholder={t("wzForever")}
-          value={retention}
-          onInput={(e) => setRetention((e.target as HTMLInputElement).value)}
-        />
-      </Field>
-      <p class="wide dim">{t("wzSandbox", { kind: platformInfo.value?.sandbox ?? "?" })}</p>
-      <div class="row wide">
-        <button type="submit" class="primary">
-          {t("wzSaveNext")}
-        </button>
-      </div>
-    </form>
+    <Step title={t("wzSafety")} purpose={t("safetyPurpose")}>
+      <Safety s={s} next={next} />
+    </Step>
   );
 }
 
@@ -247,7 +166,7 @@ export function Setup({ onDone }: { onDone?: () => void }) {
       </ol>
       <section class="wz-body">
         {/* Steps built from Step carry their own title. */}
-        {step !== 1 && step !== 2 && <h2>{t(STEPS[step] ?? "wzWelcome")}</h2>}
+        {![1, 2, 4, 5].includes(step) && <h2>{t(STEPS[step] ?? "wzWelcome")}</h2>}
         {step === 0 && (
           <div class="form">
             <p class="wide">{t("wzWelcomeText")}</p>
@@ -284,8 +203,8 @@ export function Setup({ onDone }: { onDone?: () => void }) {
         {step === 1 && <BrainStep s={s} next={next} reload={reload} />}
         {step === 2 && <LocalStep s={s} next={next} reload={reload} />}
         {step === 3 && <Names s={s} next={next} />}
-        {step === 4 && <Telegram s={s} next={next} />}
-        {step === 5 && <Safety s={s} next={next} />}
+        {step === 4 && <TelegramStep s={s} next={next} reload={reload} />}
+        {step === 5 && <SafetyStep s={s} next={next} />}
         {step === 6 && (
           <div class="form">
             <ul class="wide">

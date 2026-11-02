@@ -4,6 +4,7 @@
 import type { Job, JobProgress } from "@redgiant/protocol";
 import type { ComponentChildren, JSX } from "preact";
 import { useEffect, useId, useState } from "preact/hooks";
+import qrcode from "qrcode-generator";
 import { bytes } from "../format.js";
 import { t, tOptional } from "../i18n.js";
 import { IconAlert, IconCheck, IconChevron, IconSpinner, IconX } from "../icons.js";
@@ -300,5 +301,23 @@ export function JobView({ job, cancellable }: { job: Job; cancellable?: boolean 
         </button>
       )}
     </div>
+  );
+}
+
+/** The QR code of an address, drawn here as SVG (no service sees the address). */
+export function Qr({ text, label }: { text: string; label: string }) {
+  const qr = qrcode(0, "M");
+  qr.addData(text);
+  qr.make();
+  return (
+    <div
+      class="qr"
+      role="img"
+      aria-label={label}
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: SVG made here from our own address.
+      dangerouslySetInnerHTML={{
+        __html: qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true }),
+      }}
+    />
   );
 }

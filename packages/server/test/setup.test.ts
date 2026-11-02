@@ -125,9 +125,11 @@ describe("the setup wizard", () => {
     expect(agents[0]?.systemPrompt).toBe("Be brief.");
 
     expect((await api("PUT", "/api/setup/telegram", { token: "not a token" })).status).toBe(400);
-    expect(
-      (await api<{ error: string }>("PUT", "/api/setup/telegram", { token: "1:bad" })).body.error,
-    ).toMatch(/refused/);
+    const refused = await api<{ error: string; code: string }>("PUT", "/api/setup/telegram", {
+      token: "1:bad",
+    });
+    expect(refused.body.error).toMatch(/refused/);
+    expect(refused.body.code).toBe("token_rejected");
     expect((await api("PUT", "/api/setup/telegram", { token: "123:ABC-def" })).body).toEqual({
       username: "my_bot",
     });

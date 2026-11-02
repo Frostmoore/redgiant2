@@ -474,7 +474,17 @@ export class SetupService {
   /** Step "Telegram": the token is checked with Telegram before it is kept. */
   async saveTelegram(token: string | null): Promise<{ username: string } | null> {
     if (this.locked.telegram) throw new SetupError("Telegram is set by the environment");
-    const bot = await this.o.hooks.telegram(token);
+    let bot: { username: string } | null;
+    try {
+      bot = await this.o.hooks.telegram(token);
+    } catch (err) {
+      const message = (err as Error).message;
+      // Telegram answers 401 or 404 to a token that is wrong or revoked.
+      throw new SetupError(
+        message,
+        /401|404|unauthorized|not found|refused/i.test(message) ? "token_rejected" : "unreachable",
+      );
+    }
     if (token) this.secrets.telegramToken = token;
     else delete this.secrets.telegramToken;
     await this.save();
