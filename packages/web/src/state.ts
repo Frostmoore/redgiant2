@@ -61,6 +61,17 @@ export type ChatItem =
   | { kind: "notice"; key: string; tone: "info" | "warn" | "ok" | "error"; text: string }
   /** A call that should have been in the cache was not (G24.14c). */
   | { kind: "cache"; key: string; expected: number; cached: number }
+  /** A file the agent sent (G25.2): seen in place when it can be, otherwise opened or saved. */
+  | {
+      kind: "file";
+      key: string;
+      scope: string;
+      path: string;
+      name: string;
+      size: number;
+      mime: string;
+      caption?: string;
+    }
   /** Something the agent showed in the canvas (G25.1): a card that opens it. */
   | { kind: "canvas"; key: string; title: string; target: CanvasTarget }
   /** The conversation was summarised here (G24.14). */
@@ -191,6 +202,9 @@ export function buildItems(events: Event[]): ChatItem[] {
           undone: false,
           undoable: false,
         });
+        break;
+      case "file.sent":
+        items.push({ kind: "file", key, ...e.payload });
         break;
       case "canvas.show":
         items.push({ kind: "canvas", key, title: e.payload.title, target: e.payload.target });

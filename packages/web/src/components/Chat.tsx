@@ -34,6 +34,7 @@ import {
   sessionRows,
   sessionView,
 } from "../state.js";
+import { canvasKind } from "./Canvas.js";
 import { Composer, packMessage } from "./Composer.js";
 import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
@@ -269,6 +270,8 @@ function Item({
           {t("cacheMissed", { cached: kTokens(item.cached), expected: kTokens(item.expected) })}
         </div>
       );
+    case "file":
+      return <FileCard item={item} />;
     case "canvas":
       return (
         <button
@@ -301,6 +304,84 @@ function Item({
 const MODES = ["manual", "auto", "plan", "readonly"] as const;
 
 /** A live conversation with one agent. */
+/** A file an agent sent (G25.2): pictures, videos and sounds in place; anything opens or saves. */
+function FileCard({ item }: { item: Extract<ChatItem, { kind: "file" }> }) {
+  const kind = canvasKind({ kind: "file", scope: item.scope, path: item.path });
+  const inline = kind === "image" || kind === "video" || kind === "audio";
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    if (!inline) return;
+    void getApi()
+      .canvasLink({ kind: "file", scope: item.scope, path: item.path })
+      .then(
+        (r) => setUrl(r.url),
+        () => {},
+      );
+  }, [item.scope, item.path]);
+  const save = async () => {
+    const blob = await attempt(() => getApi().download(item.scope, item.path));
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = item.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+  return (
+    <div class="file-card">
+      {url && kind === "image" && (
+        <button
+          type="button"
+          class="file-card-image"
+          title={t("canvasOpen")}
+          onClick={() =>
+            openCanvas(item.name, { kind: "file", scope: item.scope, path: item.path })
+          }
+        >
+          <img src={url} alt={item.caption ?? item.name} />
+        </button>
+      )}
+      {url && kind === "video" && (
+        // biome-ignore lint/a11y/useMediaCaption: agents' videos come without captions.
+        <video src={url} controls />
+      )}
+      {url && kind === "audio" && (
+        // biome-ignore lint/a11y/useMediaCaption: agents' sounds come without captions.
+        <audio src={url} controls />
+      )}
+      {item.caption && <p>{item.caption}</p>}
+      <div class="row file-card-row">
+        <IconFile size={14} />
+        <span class="file-card-name" title={item.path}>
+          {item.name}
+        </span>
+        <span class="dim">{formatBytes(item.size)}</span>
+        <div class="spacer" />
+        <button
+          type="button"
+          class="tiny"
+          onClick={() =>
+            openCanvas(item.name, { kind: "file", scope: item.scope, path: item.path })
+          }
+        >
+          {t("canvasOpen")}
+        </button>
+        <button type="button" class="tiny" onClick={() => void save()}>
+          {t("fileSave")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** A size in words people read: 312 KB, 4.2 MB. */
+const formatBytes = (n: number) =>
+  n < 1024
+    ? `${n} B`
+    : n < 1048576
+      ? `${Math.round(n / 1024)} KB`
+      : `${(n / 1048576).toFixed(1)} MB`;
+
 export function Chat({ sessionId, agentId }: { sessionId: string; agentId: string }) {
   const view = sessionView(sessionId);
   const items = useComputed(() => buildItems(view.value.events));

@@ -77,7 +77,7 @@ import { z } from "zod";
 import { type Alert, type AlertText, alertText } from "./alerts.js";
 import { HumanApprovals } from "./approvals.js";
 import { type Browsers, browserTools } from "./browser.js";
-import { inside, lastChange, Previews, type PreviewTarget } from "./canvas.js";
+import { contentType, inside, lastChange, Previews, type PreviewTarget } from "./canvas.js";
 import { DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
 import { type EmailAccount, EmailWatcher, type Mailbox } from "./email.js";
@@ -726,7 +726,12 @@ export class RedGiantCore implements OrchestrationHost {
     tools.push(...skillTools(skills));
     if (agent.kind !== "demigod" && agent.kind !== "inspector") {
       // Always offered (the tool list never depends on settings); without a key it says so.
-      if (ws) tools.push(this.imageTool(agent, ws.root), this.showTool(agent, ws));
+      if (ws)
+        tools.push(
+          this.imageTool(agent, ws.root),
+          this.showTool(agent, ws),
+          this.sendFileTool(agent, ws),
+        );
       tools.push(
         ...customTools(await loadCustomTools(roots), ws),
         ...(await this.mcpTools(
@@ -1179,6 +1184,10 @@ export class RedGiantCore implements OrchestrationHost {
       .find((a) => a.kind === "demigod");
     if (!demigod) throw new Error("Demi-God is not set up yet: create it under God in RedGiant.");
     const sid = await this.workSession(demigod);
+    // What Demi-God and God send to the person goes to Telegram too (G25.2).
+    this.telegramSessions.add(sid);
+    const god = this.registry.list({ ownerId, activeOnly: true }).find((a) => a.kind === "god");
+    if (god) this.telegramSessions.add(await this.workSession(god));
     // Files are saved where God works; their paths travel with the message.
     let lines = "";
     if (extra.files?.length) {
@@ -1357,6 +1366,18 @@ export class RedGiantCore implements OrchestrationHost {
 
   /** Sends a picture to the owner's Telegram (set by the gateway). */
   sendPhoto: ((ownerId: string, png: Buffer, caption: string) => Promise<void>) | undefined;
+  /** Sends a file to the owner's Telegram (set by the gateway, G25.2). */
+  sendFile:
+    | ((
+        ownerId: string,
+        data: Buffer,
+        name: string,
+        mime: string,
+        caption: string,
+      ) => Promise<void>)
+    | undefined;
+  /** Conversations the person follows from Telegram (Demi-God's and God's): files go there too. */
+  private readonly telegramSessions = new Set<string>();
 
   /** Signed links to what agents show (G25.1). */
   readonly previews = new Previews();
@@ -1438,6 +1459,61 @@ export class RedGiantCore implements OrchestrationHost {
     const st = await stat(abs).catch(() => undefined);
     // A file in a folder: the site around it counts (its styles, its scripts).
     return lastChange(st && !st.isDirectory() ? dirname(abs) : abs);
+  }
+
+  private sendFileTool(agent: AgentRecord, ws: Workspace): Tool {
+    const Input = z.object({ path: z.string().min(1), caption: z.string().max(1000).optional() });
+    const MAX = 50 * 1024 * 1024;
+    return {
+      def: {
+        name: "send_file",
+        description:
+          "Send the person a file from your workspace (a picture, a video, a sound, a document, anything): it appears in the chat, and on Telegram when they talk to you from there. Use it whenever they should get the file itself, instead of telling them its path.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "The file in your workspace" },
+            caption: { type: "string", description: "A line that goes with it" },
+          },
+          required: ["path"],
+        },
+      },
+      schema: Input,
+      run: async (i: z.infer<typeof Input>, ctx) => {
+        if (!(await ws.isFile(i.path).catch(() => false)))
+          return { content: `There is no file "${i.path}" in your workspace.`, isError: true };
+        const abs = await new LocalWorkspace(ws.root).resolve(i.path);
+        const st = await stat(abs);
+        if (st.size > MAX)
+          return {
+            content: `${i.path} is ${Math.round(st.size / 1048576)} MB: at most 50 MB can be sent. Show it with show instead.`,
+            isError: true,
+          };
+        const where = await this.scopeOf(agent.ownerId, abs);
+        const name = basename(abs);
+        const mime = contentType(abs).split(";")[0] ?? "application/octet-stream";
+        await this.store.append({
+          ownerId: agent.ownerId,
+          projectId: agent.projectId,
+          agentId: agent.id,
+          sessionId: ctx.sessionId,
+          body: {
+            type: "file.sent",
+            payload: {
+              ...where,
+              name,
+              size: st.size,
+              mime,
+              ...(i.caption && { caption: i.caption }),
+            },
+          },
+        });
+        const telegram = this.telegramSessions.has(ctx.sessionId) && this.sendFile !== undefined;
+        if (telegram)
+          await this.sendFile?.(agent.ownerId, await readFile(abs), name, mime, i.caption ?? "");
+        return `Sent ${name} to the person, in the chat${telegram ? " and on Telegram" : ""}.`;
+      },
+    } as Tool;
   }
 
   private showTool(agent: AgentRecord, ws: Workspace): Tool {

@@ -24,7 +24,13 @@ export async function fakeTelegram() {
       return;
     }
     const method = (req.url ?? "").split("/").pop() ?? "";
-    const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    // Files come as multipart forms: only their fields' names are kept, to look at.
+    const multipart = (req.headers["content-type"] ?? "").startsWith("multipart/");
+    const body = multipart
+      ? { multipart: true, fields: [...raw.matchAll(/name="([^"]+)"/g)].map((m) => m[1]) }
+      : raw
+        ? (JSON.parse(raw) as Record<string, unknown>)
+        : {};
     const call: ApiCall = { method, body };
     calls.push(call);
     const result =

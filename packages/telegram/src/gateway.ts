@@ -455,6 +455,38 @@ export class TelegramGateway {
         .catch(() => {});
   }
 
+  /**
+   * A file an agent sent (G25.2), as Telegram shows it best: a photo, a video, a sound, or a
+   * document (anything else, and what is too big for the others).
+   */
+  async sendFile(
+    ownerId: string,
+    data: Buffer,
+    name: string,
+    mime: string,
+    caption: string,
+  ): Promise<void> {
+    const MB = 1024 * 1024;
+    const opts = caption ? { caption: caption.slice(0, 1000) } : {};
+    for (const link of await this.links(ownerId)) {
+      const file = new InputFile(data, name);
+      const api = this.bot.api;
+      const send =
+        /^image\/(png|jpeg|webp)$/.test(mime) && data.length <= 10 * MB
+          ? api.sendPhoto(link.chatId, file, opts)
+          : mime === "video/mp4" && data.length <= 50 * MB
+            ? api.sendVideo(link.chatId, file, opts)
+            : /^audio\/(mpeg|mp4|x-m4a)$/.test(mime) && data.length <= 50 * MB
+              ? api.sendAudio(link.chatId, file, opts)
+              : api.sendDocument(link.chatId, file, opts);
+      await send.catch(async () => {
+        await api
+          .sendMessage(link.chatId, this.say(ownerId, "fileTooBig", { name }))
+          .catch(() => {});
+      });
+    }
+  }
+
   /** As HTML when Telegram accepts it, as plain text otherwise (it rejects broken markup). */
   private async sendFormatted(chatId: number, text: string) {
     try {

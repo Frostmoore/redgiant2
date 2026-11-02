@@ -325,6 +325,33 @@ void (await core.send("local", godSid, "Plan the export feature for the reports.
   await writeFile(join(home, "cubo.stl"), stl);
   const shown = await core.startSession("local", god.id);
   await (await core.send("local", shown, "Mostrami quello che hai fatto")).done;
+  // Files sent in the chat (G25.2): a picture and a document.
+  await writeFile(
+    join(home, "anteprima.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b0f12"/><stop offset="1" stop-color="#e0482e"/></linearGradient></defs><rect width="640" height="360" fill="url(#g)"/><text x="320" y="190" font-family="sans-serif" font-size="36" fill="#fff" text-anchor="middle">Buon giorno, Red Giant</text></svg>`,
+  );
+  await writeFile(join(home, "relazione.txt"), "Relazione del progetto\n".repeat(40));
+  for (const [name, mime, caption] of [
+    ["anteprima.svg", "image/svg+xml", "Ecco come viene il sito"],
+    ["relazione.txt", "text/plain", undefined],
+  ])
+    await core.store.append({
+      ownerId: "local",
+      projectId: null,
+      agentId: god.id,
+      sessionId: shown,
+      body: {
+        type: "file.sent",
+        payload: {
+          scope: "platform",
+          path: name,
+          name,
+          size: 4096,
+          mime,
+          ...(caption && { caption }),
+        },
+      },
+    });
   for (const [title, path] of [
     ["Il sito", "site"],
     ["Spese", "spese.csv"],

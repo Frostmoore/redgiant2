@@ -155,6 +155,18 @@ export const EventBody = z.discriminatedUnion("type", [
       ]),
     }),
   }),
+  /** A file an agent sent to the person (G25.2): shown in the chat, and on Telegram there. */
+  z.object({
+    type: z.literal("file.sent"),
+    payload: z.object({
+      scope: z.string(),
+      path: z.string(),
+      name: z.string(),
+      size: z.number().int(),
+      mime: z.string(),
+      caption: z.string().optional(),
+    }),
+  }),
   /** A compaction undone by the person: the whole history comes back (nothing was deleted). */
   z.object({
     type: z.literal("compaction.undone"),

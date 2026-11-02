@@ -3488,3 +3488,43 @@ a.button.primary {
   display: flex;
   flex-direction: column;
 }
+
+/* A file an agent sent (G25.2). */
+.file-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 520px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.file-card p {
+  margin: 0;
+}
+.file-card-image {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+.file-card-image img,
+.file-card video {
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: 6px;
+  display: block;
+}
+.file-card audio {
+  width: 100%;
+}
+.file-card-row {
+  align-items: center;
+  gap: 8px;
+}
+.file-card-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

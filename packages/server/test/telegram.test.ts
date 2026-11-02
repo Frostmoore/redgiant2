@@ -119,6 +119,46 @@ describe("Demi-God on Telegram", () => {
     expect(texts.join("\n")).not.toMatch(/still working on your previous message/);
   });
 
+  it("sends God's files to Telegram when the person talks from there (G25.2)", async () => {
+    await setup((req) => {
+      if (req.system.startsWith("You are Demi-God")) {
+        const r = toolResult(req);
+        return r === undefined
+          ? { toolCalls: [{ name: "ask_god", input: { message: lastText(req) } }] }
+          : { text: `Demi-God: ${r}` };
+      }
+      const r = toolResult(req);
+      if (r === undefined)
+        return {
+          toolCalls: [{ name: "write_file", input: { path: "report.txt", content: "ok" } }],
+        };
+      if (r.startsWith("Wrote") || (r.includes("report.txt") && !r.startsWith("Sent")))
+        return {
+          toolCalls: [{ name: "send_file", input: { path: "report.txt", caption: "The report" } }],
+        };
+      return { text: "Here it is." };
+    });
+    await pair();
+    await s?.gateway?.handleUpdate(tg?.text(USER, "Send me the report") as never);
+    await s?.gateway?.idle();
+    const doc = tg?.calls.find((c) => c.method === "sendDocument");
+    expect(doc?.body).toMatchObject({ multipart: true });
+    expect((doc?.body as { fields?: string[] } | undefined)?.fields).toEqual(
+      expect.arrayContaining(["chat_id", "document", "caption"]),
+    );
+    const sent = (await s?.core.store.list({ types: ["file.sent"] })) ?? [];
+    expect(sent.map((e) => e.payload)).toEqual([
+      {
+        scope: "platform",
+        path: "report.txt",
+        name: "report.txt",
+        size: 2,
+        mime: "text/plain",
+        caption: "The report",
+      },
+    ]);
+  });
+
   it("relays to God through Demi-God, who can do nothing else", async () => {
     const demigodTools: string[][] = [];
     await setup((req) => {

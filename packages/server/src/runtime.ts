@@ -140,6 +140,8 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       await migrateTelegram(o.db);
       o.core.notify = (ownerId, text) => g.notify(ownerId, text);
       o.core.sendPhoto = (ownerId, png, caption) => g.sendPhoto(ownerId, png, caption);
+      o.core.sendFile = (ownerId, data, name, mime, caption) =>
+        g.sendFile(ownerId, data, name, mime, caption);
       if (!o.telegram.webhookSecret) await g.startPolling();
       gateway = g;
       o.telegram.gateway = g;

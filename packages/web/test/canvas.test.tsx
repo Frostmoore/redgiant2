@@ -49,4 +49,31 @@ describe("the canvas (G25.1)", () => {
       },
     ]);
   });
+
+  it("puts the file an agent sent in the chat (G25.2)", () => {
+    const e = {
+      seq: 5,
+      type: "file.sent",
+      payload: {
+        scope: "platform",
+        path: "shots/desktop.png",
+        name: "desktop.png",
+        size: 991_000,
+        mime: "image/png",
+        caption: "Il sito",
+      },
+    } as unknown as Event;
+    expect(buildItems([e])).toEqual([
+      {
+        kind: "file",
+        key: "e5",
+        scope: "platform",
+        path: "shots/desktop.png",
+        name: "desktop.png",
+        size: 991_000,
+        mime: "image/png",
+        caption: "Il sito",
+      },
+    ]);
+  });
 });

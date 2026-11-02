@@ -57,6 +57,9 @@ export async function startServer(
       host: redgiant,
       apiRoot: telegramApiRoot,
     });
+    const g = gateway;
+    redgiant.sendFile = (owner, data, name, mime, caption) =>
+      g.sendFile(owner, data, name, mime, caption);
   }
   const parts = extra ? await extra(redgiant, dir) : {};
   const running: Running = await serve(
