@@ -196,8 +196,8 @@ describe("live sessions", () => {
     c.close();
   });
 
-  it("refuses a second message while busy, and interrupts", async () => {
-    s = await startServer([{ text: "word ".repeat(200) }], {
+  it("queues a second message written while busy, and interrupts (G24.14f)", async () => {
+    s = await startServer([{ text: "word ".repeat(200) }, { text: "Read it." }], {
       tick: () => new Promise((r) => setTimeout(r, 5)),
     });
     const t = await tree(s);
@@ -207,18 +207,24 @@ describe("live sessions", () => {
     expect(
       (await s.api("POST", `/api/sessions/${body.sessionId}/messages`, { text: "go" })).status,
     ).toBe(202);
+    // Not refused: it waits in line and is read right after the turn running now.
     expect(
       (await s.api("POST", `/api/sessions/${body.sessionId}/messages`, { text: "again" })).status,
-    ).toBe(409);
+    ).toBe(202);
     expect(
       (await s.api<{ interrupted: boolean }>("POST", `/api/sessions/${body.sessionId}/interrupt`))
         .body,
     ).toEqual({ interrupted: true });
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 300));
     const events = (await s.api<Event[]>("GET", `/api/sessions/${body.sessionId}/events`)).body;
-    expect(events.at(-1)?.type === "message.assistant" && events.at(-1)?.payload).toMatchObject({
-      stopReason: "aborted",
-    });
+    const said = events.flatMap((e) =>
+      e.type === "message.user" && e.payload
+        ? [`user:${e.payload.text}`]
+        : e.type === "message.assistant" && e.payload
+          ? [`assistant:${e.payload.stopReason}`]
+          : [],
+    );
+    expect(said).toEqual(["user:go", "assistant:aborted", "user:again", "assistant:end_turn"]);
   });
 
   it("closes connections that do not authenticate", async () => {

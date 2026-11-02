@@ -371,8 +371,13 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
       </div>
       <Composer
         lang={lang.value}
-        placeholder={t("writeTo", { name: agent?.name ?? "" })}
+        placeholder={
+          v.state === "running"
+            ? t("writeWhileWorking", { name: agent?.name ?? "" })
+            : t("writeTo", { name: agent?.name ?? "" })
+        }
         running={v.state === "running"}
+        queues
         onSend={async (text, files) => {
           // Other files land in the workspace the agent works in: its project's, or God's.
           const scope = agent?.projectId ? `project:${agent.projectId}` : "platform";

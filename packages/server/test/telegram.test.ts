@@ -35,9 +35,10 @@ async function setup(
     toolCalls?: { name: string; input: unknown }[];
   },
   godMode?: string,
+  fake: Parameters<typeof startServer>[1] = {},
 ) {
   tg = await fakeTelegram();
-  s = await startServer(brain, {}, {}, undefined, tg.apiRoot);
+  s = await startServer(brain, fake, {}, undefined, tg.apiRoot);
   const god = await s.api<{ id: string }>("POST", "/api/agents", {
     kind: "god",
     parentId: null,
@@ -84,6 +85,38 @@ describe("Demi-God on Telegram", () => {
     expect(tg?.sent(USER).at(-1)?.text).toMatch(
       /^No model is chosen yet\. Open RedGiant, Settings/,
     );
+  });
+
+  it("takes a second message while it still answers the first, and says so (G24.14f)", async () => {
+    // God's first answer streams slowly: the second message arrives meanwhile.
+    await setup(
+      (req) => {
+        if (req.system.startsWith("You are Demi-God")) {
+          const r = toolResult(req);
+          return r === undefined
+            ? { toolCalls: [{ name: "ask_god", input: { message: lastText(req) } }] }
+            : { text: `Demi-God: ${r.split(" ").slice(0, 2).join(" ")}` };
+        }
+        const said = lastText(req).split("\n").pop() ?? "";
+        return { text: `God: ${said}${said === "first" ? " word".repeat(60) : ""}` };
+      },
+      undefined,
+      { tick: () => new Promise((r) => setTimeout(r, 5)) },
+    );
+    await pair();
+    await s?.gateway?.handleUpdate(tg?.text(USER, "first") as never);
+    await new Promise((r) => setTimeout(r, 50));
+    await s?.gateway?.handleUpdate(tg?.text(USER, "second") as never);
+    await s?.gateway?.idle();
+    const texts = tg?.sent(USER).map((m) => String(m.text)) ?? [];
+    expect(texts).toContain(
+      "Got it. I am still answering your previous message: I will read this one right after.",
+    );
+    expect(texts.filter((t) => t.startsWith("Demi-God: God:"))).toEqual([
+      "Demi-God: God: first",
+      "Demi-God: God: second",
+    ]);
+    expect(texts.join("\n")).not.toMatch(/still working on your previous message/);
   });
 
   it("relays to God through Demi-God, who can do nothing else", async () => {

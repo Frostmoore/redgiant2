@@ -146,7 +146,10 @@ export function Composer({
   chips,
   lang,
   mentions,
+  queues,
 }: {
+  /** Messages written while it works wait in line and are read right after (G24.14f). */
+  queues?: boolean;
   /** Names to suggest after "@" (group chats). */
   mentions?: string[];
   placeholder: string;
@@ -187,7 +190,7 @@ export function Composer({
   };
 
   const send = async () => {
-    if ((!text.trim() && files.length === 0) || running || busy) return;
+    if ((!text.trim() && files.length === 0) || (running && !queues) || busy) return;
     setBusy(true);
     try {
       await onSend(text.trim() ? text : t("seeAttachments"), files);
@@ -397,8 +400,8 @@ export function Composer({
           <button
             type="button"
             class="send"
-            title={t("send")}
-            disabled={(!text.trim() && files.length === 0) || running || busy}
+            title={running && queues ? t("sendQueued") : t("send")}
+            disabled={(!text.trim() && files.length === 0) || (running && !queues) || busy}
             onClick={() => void send()}
           >
             <IconSend size={16} />

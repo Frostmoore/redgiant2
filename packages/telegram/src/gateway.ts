@@ -21,7 +21,12 @@ export interface TelegramHost {
     ownerId: string,
     chatId: number,
     text: string,
-    extra?: { images?: ImagePart[]; files?: { name: string; data: Buffer }[] },
+    extra?: {
+      images?: ImagePart[];
+      files?: { name: string; data: Buffer }[];
+      /** Called when the message waits behind the previous one. */
+      onQueued?: () => void;
+    },
   ): Promise<string>;
   /** Voice notes to text (the server's transcription service), when one is set. */
   transcribe?(audio: Uint8Array, mime: string, language?: string): Promise<string>;
@@ -416,7 +421,10 @@ export class TelegramGateway {
     );
     void api.sendChatAction(chatId, "typing").catch(() => {});
     try {
-      const answer = await this.o.host.askDemigod(owner, chatId, text, extra);
+      const answer = await this.o.host.askDemigod(owner, chatId, text, {
+        ...extra,
+        onQueued: () => void api.sendMessage(chatId, this.say(owner, "queued")).catch(() => {}),
+      });
       for (const part of splitMessage(answer)) await this.sendFormatted(chatId, part);
     } catch (err) {
       await api.sendMessage(chatId, this.failure(owner, err)).catch(() => {});

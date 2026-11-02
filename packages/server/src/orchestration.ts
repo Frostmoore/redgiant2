@@ -34,8 +34,13 @@ export interface OrchestrationHost {
     ownerId: string,
     sessionId: string,
     text: string,
-    extra?: { images?: ImagePart[]; from?: string },
-  ): Promise<{ done: Promise<SendResult> }>;
+    extra?: {
+      images?: ImagePart[];
+      from?: string;
+      /** Busy: wait in line instead of failing. Only for whoever does not wait on the answer in a circle. */
+      queue?: boolean;
+    },
+  ): Promise<{ done: Promise<SendResult>; queued?: boolean }>;
   /** What came with the user's Telegram message (photos, saved files) for God, taken once. */
   takeRelay?(ownerId: string): { images: ImagePart[]; text: string } | undefined;
   projectWorkspaces(
@@ -58,6 +63,10 @@ interface Task {
   projectId: string | null;
   outcome?: Outcome;
   reminders: number;
+  /** Who handed it over, and in which conversation: the report goes back there (G24.14f). */
+  from?: { agentId: string; sessionId: string; name: string };
+  /** Its report was sent to `from`. */
+  reported?: boolean;
 }
 
 /**
@@ -71,7 +80,12 @@ export class TaskTracker {
 
   constructor(private readonly store: EventStore) {}
 
-  async open(agent: AgentRecord, sessionId: string, title: string): Promise<Task> {
+  async open(
+    agent: AgentRecord,
+    sessionId: string,
+    title: string,
+    from?: Task["from"],
+  ): Promise<Task> {
     const task: Task = {
       id: `task_${randomUUID().slice(0, 8)}`,
       title,
@@ -80,9 +94,13 @@ export class TaskTracker {
       ownerId: agent.ownerId,
       projectId: agent.projectId,
       reminders: 0,
+      ...(from && { from }),
     };
     this.tasks.set(task.id, task);
-    await this.log(task, { type: "task.opened", payload: { taskId: task.id, title } });
+    await this.log(task, {
+      type: "task.opened",
+      payload: { taskId: task.id, title, ...(from && { from }) },
+    });
     return task;
   }
 
@@ -93,7 +111,7 @@ export class TaskTracker {
   async rebuild(): Promise<number> {
     const events = await this.store.list({ types: ["task.opened", "task.closed"] });
     for (const e of events) {
-      const p = e.payload as { taskId: string; title?: string } | null;
+      const p = e.payload as { taskId: string; title?: string; from?: Task["from"] } | null;
       if (!p) continue;
       if (e.type === "task.opened" && e.agentId && e.sessionId)
         this.tasks.set(p.taskId, {
@@ -104,6 +122,7 @@ export class TaskTracker {
           ownerId: e.ownerId,
           projectId: e.projectId,
           reminders: 0,
+          ...(p.from && { from: p.from }),
         });
       else if (e.type === "task.closed") this.tasks.delete(p.taskId);
     }
@@ -119,6 +138,20 @@ export class TaskTracker {
     return [...this.tasks.values()]
       .reverse()
       .find((t) => t.agentId === agentId && t.sessionId === sessionId && !t.outcome);
+  }
+
+  /** Tasks this conversation handed over and still waits for. */
+  waitingIn(sessionId: string): Task[] {
+    return [...this.tasks.values()].filter((t) => t.from?.sessionId === sessionId && !t.outcome);
+  }
+
+  /** Tasks done in this conversation whose report has not gone back yet; marked as sent. */
+  toReport(sessionId: string): Task[] {
+    const out = [...this.tasks.values()].filter(
+      (t) => t.sessionId === sessionId && t.outcome && t.from && !t.reported,
+    );
+    for (const t of out) t.reported = true;
+    return out;
   }
 
   async verified(task: Task, verifier: string, passed: boolean): Promise<void> {
@@ -152,6 +185,8 @@ export class TaskTracker {
     return async (_completion, ctx) => {
       const task = this.openFor(agentId, ctx.sessionId);
       if (!task) return undefined;
+      // It handed parts over and waits for their reports: it goes on when they come.
+      if (this.waitingIn(ctx.sessionId).length > 0) return undefined;
       if (task.reminders >= TaskTracker.MAX_REMINDERS) {
         await this.close(task, {
           outcome: "abandoned",
@@ -216,6 +251,32 @@ export function orchestrationTools(
     return t;
   };
 
+  /**
+   * Hands a task over and returns at once (G24.14f): the agent works on it in its own
+   * conversation; the report comes back to this one as a message when the task closes.
+   */
+  const assign = async (to: AgentRecord, title: string, task: string, ctx: ToolContext) => {
+    if (!can(me, "message", to, host.registry.resolve))
+      throw new Error(`You cannot assign work to ${to.name}`);
+    const sid = await host.workSession(to);
+    const t = await tasks.open(to, sid, title, {
+      agentId: self.id,
+      sessionId: ctx.sessionId,
+      name: self.name,
+    });
+    const text =
+      `[Task ${t.id} from ${self.name}: ${title}]\n${task}\n\n` +
+      `When it is done, verify the result and call complete_task (taskId "${t.id}").`;
+    const { done, queued } = await host.send(self.ownerId, sid, text, { queue: true });
+    done.catch(() => {});
+    return (
+      `Task ${t.id} handed to ${to.name}${queued ? " (it is finishing something else first)" : ""}. ` +
+      "You do not need to wait: its report comes to you as a message when the task closes. " +
+      "Meanwhile you can do other things, and read_agent shows how it is going."
+    );
+  };
+
+  /** Hands a task over and waits for its end: for short-lived sub-agents. */
   const delegate = async (to: AgentRecord, title: string, task: string, sessionId?: string) => {
     if (!can(me, "message", to, host.registry.resolve))
       throw new Error(`You cannot assign work to ${to.name}`);
@@ -265,6 +326,8 @@ export function orchestrationTools(
           const relay = host.takeRelay?.(self.ownerId);
           const { done } = await host.send(self.ownerId, sid, `${message}${relay?.text ?? ""}`, {
             from: "Telegram",
+            // God may be answering something else: this waits its turn.
+            queue: true,
             ...(relay?.images.length ? { images: relay.images } : {}),
           });
           const r = await done;
@@ -489,7 +552,7 @@ export function orchestrationTools(
         def: {
           name: "delegate",
           description:
-            "Give a task to an agent you manage and wait for its report. The agent must verify its work before the task closes.",
+            "Give a task to an agent you manage. It returns at once: the agent works on it while you go on, and its report comes to you as a message when the task closes. The agent must verify its work before the task closes.",
           inputSchema: {
             type: "object",
             properties: {
@@ -505,7 +568,7 @@ export function orchestrationTools(
           title: z.string().min(1),
           task: z.string().min(1),
         }),
-        run: ({ agent_id, title, task }) => delegate(target(agent_id), title, task),
+        run: ({ agent_id, title, task }, ctx) => assign(target(agent_id), title, task, ctx),
       } as Tool,
       {
         def: {

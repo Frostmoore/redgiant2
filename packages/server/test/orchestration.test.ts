@@ -35,6 +35,14 @@ function step(req: CompletionRequest): { n: number; results: string[] } {
 const idIn = (text: string, kind: string) =>
   text.match(new RegExp(`\\((${kind}_[0-9a-f]+)\\)`))?.[1] ?? "";
 const call = (name: string, input: unknown): FakeTurn => ({ toolCalls: [{ name, input }] });
+/** The report of a task handed over, when that is what this turn answers (G24.14f). */
+const report = (req: CompletionRequest) => {
+  const last = [...req.messages]
+    .reverse()
+    .find((m) => m.role === "user" && m.parts.some((p) => p.type === "text"));
+  const m = textOf(last).match(/<task_report task="(task_[0-9a-f]+)"[^>]*outcome="(\w+)">/);
+  return m ? { task: m[1], outcome: m[2] } : undefined;
+};
 const role = (req: CompletionRequest) =>
   req.system.includes("Answer with exactly one word")
     ? "approver"
@@ -48,11 +56,15 @@ const role = (req: CompletionRequest) =>
 
 describe("orchestration", () => {
   it("runs God → orchestrator → agent → sub-agent, every level closing its task with a verifier", async () => {
+    let coderId = "";
     s = await startServer((req) => {
       const { n, results } = step(req);
       const last = results.at(-1) ?? "";
+      const r = report(req);
       switch (role(req)) {
         case "god":
+          // Delegating returns at once; the orchestrator's report comes later as a message.
+          if (r) return { text: `Done. Task ${r.task} — ${r.outcome}.` };
           if (n === 0) return call("create_project", { name: "Hello" });
           if (n === 1)
             return call("create_agent", {
@@ -67,22 +79,27 @@ describe("orchestration", () => {
               title: "Greeting",
               task: "Produce greeting.txt",
             });
-          return { text: `Done. ${last.split("\n")[0]}` };
+          return { text: "Handed over to the orchestrator." };
         case "orchestrator": {
-          const coder = idIn(results[0] ?? "", "agent");
+          if (r) {
+            // The coder's report: check its work and close the task God gave.
+            if (n === 0)
+              return call("complete_task", {
+                verify_command: exists(`.worktrees/${coderId}/greeting.txt`),
+              });
+            return { text: "The coder wrote greeting.txt; verified." };
+          }
           if (n === 0)
             return call("create_agent", { kind: "agent", name: "Coder", role: "Writes files" });
+          coderId = idIn(results[0] ?? "", "agent");
           if (n === 1)
             return call("delegate", {
-              agent_id: coder,
+              agent_id: coderId,
               title: "Write greeting",
               task: "Write greeting.txt",
             });
-          if (n === 2)
-            return call("complete_task", {
-              verify_command: exists(`.worktrees/${coder}/greeting.txt`),
-            });
-          return { text: "The coder wrote greeting.txt; verified." };
+          // Waiting for the coder's report: no reminder while it works.
+          return { text: "The coder is on it." };
         }
         case "agent":
           if (n === 0)
@@ -112,7 +129,10 @@ describe("orchestration", () => {
     c.send({ type: "session.send", sessionId: body.sessionId, text: "Build the Hello project" });
     const final = await c.waitFor(
       "event",
-      (m) => m.event.type === "message.assistant" && m.event.payload?.stopReason === "end_turn",
+      (m) =>
+        m.event.type === "message.assistant" &&
+        m.event.payload?.stopReason === "end_turn" &&
+        textOf(m.event.payload).startsWith("Done."),
       25_000,
     );
     c.close();
@@ -400,6 +420,7 @@ describe("orchestration", () => {
 
   it("lets three agents coordinate only through the board and the tree", async () => {
     let builderSaw = "";
+    const ids = { builder: "" };
     s = await startServer((req) => {
       const { n, results } = step(req);
       if (req.system.startsWith("You are the Designer")) {
@@ -429,7 +450,28 @@ describe("orchestration", () => {
           });
         return { text: "Built as decided on the board." };
       }
-      // The orchestrator: two agents, two delegations, never passing the format itself.
+      // The orchestrator: two agents, two delegations, never passing the format itself. The
+      // builder starts when the designer's report comes back (delegating returns at once).
+      const r = report(req);
+      const last = [...req.messages]
+        .reverse()
+        .find((m) => m.role === "user" && m.parts.some((p) => p.type === "text"));
+      if (r && textOf(last).includes('from="Designer"')) {
+        if (n === 0)
+          return call("delegate", {
+            agent_id: ids.builder,
+            title: "Write greeting.json",
+            task: "Write the greeting in the format decided on the board.",
+          });
+        return { text: "The builder is next." };
+      }
+      if (r) {
+        if (n === 0)
+          return call("complete_task", {
+            verify_command: exists(`.worktrees/${ids.builder}/greeting.json`),
+          });
+        return { text: "Both done." };
+      }
       const id = (k: number) => idIn(results[k] ?? "", "agent");
       if (n === 0)
         return call("create_agent", {
@@ -445,23 +487,14 @@ describe("orchestration", () => {
           role: "Builds",
           system_prompt: "You are the Builder.",
         });
+      ids.builder = id(1);
       if (n === 2)
         return call("delegate", {
           agent_id: id(0),
           title: "Decide the output format",
           task: "Decide it and post the decision on the board.",
         });
-      if (n === 3)
-        return call("delegate", {
-          agent_id: id(1),
-          title: "Write greeting.json",
-          task: "Write the greeting in the format decided on the board.",
-        });
-      if (n === 4)
-        return call("complete_task", {
-          verify_command: exists(`.worktrees/${id(1)}/greeting.json`),
-        });
-      return { text: "Both done." };
+      return { text: "The designer goes first." };
     });
     const { core } = s;
     const god = await s.api<{ id: string }>("POST", "/api/agents", {
@@ -484,6 +517,9 @@ describe("orchestration", () => {
     const sid = await core.workSession(orch);
     const task = await core.tasks.open(orch, sid, "Greeting in the agreed format");
     await (await core.send("me", sid, "Coordinate the designer and the builder.")).done;
+    // The rest happens as the reports come back.
+    for (let i = 0; i < 200 && !core.tasks.get(task.id)?.outcome; i++)
+      await new Promise((r) => setTimeout(r, 25));
 
     expect(builderSaw).toMatch(/Output format.*\[decision\].*Use JSON for the greeting output\./s);
     const builder =
@@ -505,6 +541,46 @@ describe("orchestration", () => {
       .filter((e) => e.type === "task.closed")
       .map((e) => (e.payload as { outcome: string }).outcome);
     expect(outcomes.sort()).toEqual(["not_testable", "verified", "verified"]);
+  });
+
+  it("tells who handed a task over when the agent stops on an error (G24.14f)", async () => {
+    const heard: string[] = [];
+    s = await startServer((req) => {
+      const { n, results } = step(req);
+      const r = report(req);
+      if (role(req) === "god") {
+        if (r) {
+          heard.push(r.outcome ?? "");
+          return { text: `Heard: ${r.outcome}.` };
+        }
+        if (n === 0) return call("create_project", { name: "Err" });
+        if (n === 1)
+          return call("create_agent", {
+            kind: "orchestrator",
+            name: "Orch",
+            role: "Runs Err",
+            project_id: "err",
+          });
+        if (n === 2)
+          return call("delegate", {
+            agent_id: idIn(results.at(-1) ?? "", "orchestrator"),
+            title: "Break",
+            task: "Try it",
+          });
+        // God is free at once: delegating did not wait for the orchestrator.
+        return { text: "Handed over." };
+      }
+      return { error: new Error("the provider went away") };
+    });
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const sid = await s.core.startSession("me", god.body.id);
+    await (await s.core.send("me", sid, "Go")).done;
+    for (let i = 0; i < 200 && heard.length === 0; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(heard).toEqual(["abandoned"]);
   });
 
   it("keeps delegation inside the hierarchy", async () => {

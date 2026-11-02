@@ -1063,6 +1063,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     const { done } = await core.send(owner(c), c.req.valid("param").id, text, {
       ...(images?.length ? { images } : {}),
       watch: true,
+      queue: true,
     });
     done.catch((err) => console.error("session failed:", err));
     return c.json({ accepted: true as const }, 202);
