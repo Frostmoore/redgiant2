@@ -4,6 +4,14 @@ import type { SqlClient } from "@redgiant/events";
 import { DEFAULT_POLICY } from "@redgiant/hierarchy";
 import { keyProvider, type ModelSpec, OWN_SERVER_ID } from "@redgiant/protocol";
 import { ProviderError } from "@redgiant/providers";
+import {
+  type ClaudeAccount,
+  ClaudeLogin,
+  ClaudeLoginError,
+  type ClaudeLoginOptions,
+  claudeAccount,
+  claudeLogout,
+} from "@redgiant/subscriptions";
 import { stringify } from "yaml";
 import type { RedGiantCore } from "./core.js";
 import { detectHardware, type Hardware } from "./hardware.js";
@@ -22,6 +30,8 @@ export interface SetupHooks {
   search(url: string | null): Promise<void>;
   /** Claude on a flat subscription (G21): its token, "" for the login already in its folder, null off. */
   claudeSubscription?(token: string | null): Promise<void>;
+  /** Where Claude's engine keeps its login, for signing in from the browser (G24.2). */
+  claudeAuth?(): ClaudeLoginOptions;
   /** ChatGPT on a flat subscription (G21): its login lives in Codex's own folder. */
   chatgptSubscription?(on: boolean): Promise<void>;
   /** Starts the local engine container with this model file (null stops it). */
@@ -103,6 +113,11 @@ export class SetupError extends Error {
   ) {
     super(message);
   }
+}
+
+function asSetupError(err: unknown): SetupError {
+  if (err instanceof ClaudeLoginError) return new SetupError(err.message, err.code);
+  return err instanceof SetupError ? err : new SetupError((err as Error).message);
 }
 
 /** Why a provider could not be connected, in a code the UI explains. */
@@ -439,7 +454,10 @@ export class SetupService {
   async saveSubscriptions(s: {
     claude?: { token?: string | undefined } | null | undefined;
     chatgpt?: boolean | undefined;
+    /** The user read the warning on the providers' terms, next to the subscription. */
+    ack?: boolean | undefined;
   }): Promise<void> {
+    if (s.ack !== undefined) this.config.subscriptionAck = s.ack;
     if (s.chatgpt !== undefined) {
       if (s.chatgpt && !this.config.subscriptionAck)
         throw new SetupError("Read and accept the warning on the providers' terms first");
@@ -464,6 +482,68 @@ export class SetupService {
       }
     }
     await this.save();
+  }
+
+  private claudeLogin: ClaudeLogin | undefined;
+
+  private claudeAuth(): ClaudeLoginOptions {
+    const auth = this.o.hooks.claudeAuth?.();
+    if (!auth || !this.o.hooks.claudeSubscription)
+      throw new SetupError("This installation cannot run subscription engines");
+    return auth;
+  }
+
+  /** Claude's subscription: on or off, and who is signed in. */
+  async claudeStatus(): Promise<{ on: boolean; account: ClaudeAccount | null }> {
+    const on = this.config.subscriptions?.claude === true;
+    const auth = this.o.hooks.claudeAuth?.();
+    return { on, account: auth ? await claudeAccount(auth).catch(() => null) : null };
+  }
+
+  /**
+   * Starts signing in to Claude: returns Anthropic's page. Reading the warning on the terms
+   * comes with it (`ack`), as for every subscription.
+   */
+  async claudeLoginStart(ack: boolean): Promise<{ url: string }> {
+    if (!ack && !this.config.subscriptionAck)
+      throw new SetupError("Read and accept the warning on the providers' terms first", "terms");
+    const auth = this.claudeAuth();
+    this.claudeLogin?.cancel();
+    if (ack && !this.config.subscriptionAck) {
+      this.config.subscriptionAck = true;
+      await this.save();
+    }
+    const login = new ClaudeLogin(auth);
+    this.claudeLogin = login;
+    try {
+      return await login.start();
+    } catch (err) {
+      throw asSetupError(err);
+    }
+  }
+
+  /** The code from Anthropic's page: the login is kept in the engine's folder and Claude is on. */
+  async claudeLoginFinish(code: string): Promise<ClaudeAccount> {
+    const login = this.claudeLogin;
+    if (!login) throw new SetupError("Start signing in first", "no_login");
+    try {
+      await login.finish(code);
+    } catch (err) {
+      throw asSetupError(err);
+    } finally {
+      this.claudeLogin = undefined;
+    }
+    // The login in the folder renews itself: an old pasted token would take its place.
+    delete this.secrets.claudeSubscriptionToken;
+    await this.saveSubscriptions({ claude: {} });
+    return claudeAccount(this.claudeAuth());
+  }
+
+  /** Signs out of Claude and switches the subscription off. */
+  async claudeSignOut(): Promise<void> {
+    this.claudeLogin?.cancel();
+    await claudeLogout(this.claudeAuth()).catch(() => {});
+    await this.saveSubscriptions({ claude: null });
   }
 
   private applyImages(): void {

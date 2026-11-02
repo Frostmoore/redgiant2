@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { FakeProvider } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
@@ -60,5 +61,75 @@ describe("flat subscriptions", () => {
     expect((await s.api("GET", "/api/limits")).body).toEqual([
       { provider: "fake-plan", windows: [{ id: "7d", label: "7g", usedPct: 36 }] },
     ]);
+  });
+
+  it("sign in to Claude from the browser: Anthropic's page, then the code it shows", async () => {
+    const calls: string[] = [];
+    let configDir = "";
+    const hooks: SetupHooks = {
+      key: async () => [],
+      server: async () => [],
+      telegram: async () => null,
+      search: async () => {},
+      engine: async () => {},
+      claudeSubscription: async (token) =>
+        void calls.push(`claude:${token === null ? "off" : token || "folder"}`),
+      claudeAuth: () => ({
+        configDir,
+        command: [
+          process.execPath,
+          join(import.meta.dirname, "../../subscriptions/test/fake-claude.mjs"),
+        ],
+      }),
+    };
+    s = await startServer([], {}, {}, undefined, undefined, async (core, dir) => {
+      configDir = join(dir, "claude");
+      await mkdir(configDir, { recursive: true });
+      const setup = new SetupService({
+        db: core.db,
+        core,
+        dataDir: join(dir, "data"),
+        ownerId: "me",
+        hooks,
+      });
+      await setup.applyAtStartup();
+      return { setup };
+    });
+    const api = (s as Server).api;
+    type Reply = { error?: string; code?: string; url?: string };
+    // Without reading the warning on the terms, nothing starts.
+    const first = await api<Reply>("POST", "/api/subscriptions/claude/login", {});
+    expect(first.body.code).toBe("terms");
+    expect(
+      (await api<Reply>("POST", "/api/subscriptions/claude/code", { code: "good-code#abc" })).body
+        .code,
+    ).toBe("no_login");
+    const page = await api<Reply>("POST", "/api/subscriptions/claude/login", { ack: true });
+    expect(page.body.url).toMatch(/^https:\/\/claude\.com\/cai\/oauth\/authorize/);
+    const wrong = await api<Reply>("POST", "/api/subscriptions/claude/code", {
+      code: "old-code#abc",
+    });
+    expect(wrong.body.code).toBe("code_rejected");
+    expect(calls).toEqual([]);
+    // A new sign-in, the right code: the login stays in the folder and Claude is on.
+    await api("POST", "/api/subscriptions/claude/login", {});
+    expect(
+      (await api("POST", "/api/subscriptions/claude/code", { code: "good-code#abc" })).body,
+    ).toEqual({
+      loggedIn: true,
+      email: "me@example.com",
+      plan: "max",
+    });
+    expect(calls).toEqual(["claude:folder"]);
+    expect((await api("GET", "/api/subscriptions/claude")).body).toEqual({
+      on: true,
+      account: { loggedIn: true, email: "me@example.com", plan: "max" },
+    });
+    await api("POST", "/api/subscriptions/claude/logout");
+    expect(calls).toEqual(["claude:folder", "claude:off"]);
+    expect((await api("GET", "/api/subscriptions/claude")).body).toEqual({
+      on: false,
+      account: { loggedIn: false, email: null, plan: null },
+    });
   });
 });

@@ -122,6 +122,10 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       o.core.clearKeyProblem("claude-subscription");
     },
 
+    claudeAuth() {
+      return { configDir: join(o.dataDir ?? ".", "engines", "claude") };
+    },
+
     async chatgptSubscription(on) {
       const old = o.providers.has("chatgpt-subscription")
         ? (o.providers.get("chatgpt-subscription") as ChatgptSubscriptionProvider)

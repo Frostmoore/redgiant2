@@ -1475,12 +1475,34 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       ),
     ),
   );
+  // Claude's subscription from the browser (G24.2): Anthropic's page, then the code it shows.
+  app.get("/api/subscriptions/claude", (c) =>
+    wizard(c, () => (setup as SetupService).claudeStatus()),
+  );
+  app.post("/api/subscriptions/claude/login", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).claudeLoginStart(
+        (await parsed(c, z.object({ ack: z.boolean().default(false) }))).ack,
+      ),
+    ),
+  );
+  app.post("/api/subscriptions/claude/code", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).claudeLoginFinish(
+        (await parsed(c, z.object({ code: z.string().trim().min(4).max(2000) }))).code,
+      ),
+    ),
+  );
+  app.post("/api/subscriptions/claude/logout", (c) =>
+    wizard(c, () => (setup as SetupService).claudeSignOut()),
+  );
   app.put("/api/setup/subscriptions", (c) =>
     wizard(c, async () =>
       (setup as SetupService).saveSubscriptions(
         await parsed(
           c,
           z.object({
+            ack: z.boolean().optional(),
             claude: z
               .object({ token: z.string().min(20).optional() })
               .nullable()
