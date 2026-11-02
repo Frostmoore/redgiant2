@@ -48,6 +48,16 @@ describe("compaction from the chat (G24.14)", () => {
     );
     expect(rows.body.find((r) => r.id === sid)?.title).toBe("first");
 
+    // Per-agent settings (G24.14c), no JSON in the UI: the API keeps them.
+    const tuned = await s.api<{ compaction: { at: number; keep: number } }>(
+      "PATCH",
+      `/api/agents/${god.body.id}`,
+      { compaction: { at: 0.6, keep: 0.1 } },
+    );
+    expect(tuned.body.compaction).toEqual({ at: 0.6, keep: 0.1 });
+    expect(
+      (await s.api("PATCH", `/api/agents/${god.body.id}`, { compaction: { at: 2 } })).status,
+    ).toBe(400);
     expect((await s.api("POST", `/api/sessions/${sid}/compaction/undo`)).status).toBe(200);
     expect((await s.api("POST", `/api/sessions/${sid}/compaction/undo`)).status).toBe(400);
     expect((await s.core.history("me", sid)).some((e) => e.type === "compaction.undone")).toBe(

@@ -32,6 +32,8 @@ export interface EngineTurn {
     model: string;
   }): Promise<void>;
   live?: ((e: StreamEvent) => void) | undefined;
+  /** The engine summarised its own conversation (shown in the chat; RedGiant's history stays). */
+  onCompaction?: ((info: { trigger: string; preTokens?: number | undefined }) => void) | undefined;
 }
 
 /**

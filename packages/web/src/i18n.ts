@@ -123,6 +123,17 @@ const en = {
   kind_subagent: "Helper",
   kind_inspector: "Inspector, reads only",
   kind_assistant: "Personal assistant",
+  compactSettings: "Summaries",
+  compactAtLabel: "Summarise when the conversation fills {n}% of the window",
+  compactAtHelp: "The summary is made ahead of time, after a turn, so you never wait for it.",
+  compactKeepLabel: "Keep the last {n}% word for word",
+  compactKeepHelp:
+    "More is more context after a summary; on a model on your computer every kept word is computed again once (12% is a good value there).",
+  compactDefaults: "Back to the defaults",
+  compactMark: "A summary is made past {n}%",
+  compaction_engine: "The subscription's engine summarised its conversation here (by itself)",
+  cacheMissed:
+    "This answer read only {cached} tokens from the cache instead of about {expected}: something changed the beginning of the conversation, so it was computed again (slower and, online, more expensive).",
   teachStart: "Teach a task",
   teachHint:
     "Do the task once yourself: every page, click and text is written down (never passwords), then the agent turns it into a skill you approve in Extensions",
@@ -1204,6 +1215,17 @@ const it: Record<Key, string> = {
   kind_subagent: "Aiutante",
   kind_inspector: "Ispettore, solo lettura",
   kind_assistant: "Assistente personale",
+  compactSettings: "Riassunti",
+  compactAtLabel: "Riassumi quando la conversazione riempie il {n}% della finestra",
+  compactAtHelp: "Il riassunto si prepara in anticipo, dopo un turno, così non lo aspetti mai.",
+  compactKeepLabel: "Tieni parola per parola l'ultimo {n}%",
+  compactKeepHelp:
+    "Di più vuol dire più contesto dopo un riassunto; con un modello sul tuo computer ogni parola tenuta si ricalcola una volta (lì 12% va bene).",
+  compactDefaults: "Torna ai valori predefiniti",
+  compactMark: "Oltre il {n}% si fa un riassunto",
+  compaction_engine: "Il motore dell'abbonamento ha riassunto la conversazione qui (da solo)",
+  cacheMissed:
+    "Questa risposta ha letto dalla cache solo {cached} token invece di circa {expected}: qualcosa ha cambiato l'inizio della conversazione, quindi è stata ricalcolata (più lenta e, online, più cara).",
   teachStart: "Insegna un compito",
   teachHint:
     "Fai tu il compito una volta: ogni pagina, clic e testo viene annotato (mai le password), poi l'agente ne fa una skill che approvi in Estensioni",

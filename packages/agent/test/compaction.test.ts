@@ -294,4 +294,52 @@ describe("compaction in a session (G24.14)", () => {
     expect(results[1]).toContain("NEEDLE");
     expect((await AgentSession.resume(options)).messages).toEqual(s.messages);
   });
+
+  it("notices a call that lost the cache it should have found", async () => {
+    let n = 0;
+    const usage = [
+      { inputTokens: 5000, cachedReadTokens: 100 },
+      { inputTokens: 6000, cachedReadTokens: 4900 },
+      { inputTokens: 7000, cachedReadTokens: 200 },
+    ];
+    const { options } = setup(() => ({ text: "ok", usage: usage[n++] }));
+    const s = await AgentSession.start(options);
+    for (const t of ["a", "b", "c"]) await s.send(t);
+    const missed = (await store.list({ sessionId: "s1" })).filter((e) => e.type === "cache.missed");
+    expect(missed.map((e) => e.payload)).toEqual([
+      { expected: 6000, cached: 200, provider: "fake" },
+    ]);
+  });
+
+  it("records when a subscription's engine summarises by itself", async () => {
+    const { options } = setup([]);
+    const s = await AgentSession.start({
+      ...options,
+      engine: {
+        id: "claude",
+        async turn(t) {
+          t.onCompaction?.({ trigger: "auto", preTokens: 150000 });
+          await t.onMessage({
+            parts: [{ type: "text", text: "done" }],
+            metrics: {
+              inputTokens: 1,
+              cachedReadTokens: 0,
+              outputTokens: 1,
+              contextUsed: 2,
+              contextWindow: 1000,
+              startedAt: "",
+              source: "client",
+            } as never,
+            stopReason: "end_turn",
+            model: "m",
+          });
+          return { resume: "r1", stopReason: "end_turn" };
+        },
+      },
+    });
+    await s.send("go");
+    await new Promise((r) => setTimeout(r, 20));
+    const e = (await store.list({ sessionId: "s1" })).find((x) => x.type === "engine.compacted");
+    expect(e?.payload).toEqual({ engine: "claude", trigger: "auto", preTokens: 150000 });
+  });
 });

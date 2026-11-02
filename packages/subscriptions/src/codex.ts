@@ -276,11 +276,15 @@ export class CodexEngine implements Engine {
         if (method === "thread/tokenUsage/updated") {
           const u = p.tokenUsage as { last: Json; modelContextWindow: number | null };
           this.usage.set(id, { last: u.last, window: u.modelContextWindow, at: Date.now() });
+        } else if (method === "thread/compacted") {
+          // Codex summarised its own context.
+          t.onCompaction?.({ trigger: "auto" });
         } else if (method === "item/agentMessage/delta") {
           t.live?.({ type: "text_delta", text: String(p.delta ?? "") });
         } else if (method === "item/completed") {
           const item = p.item as Json;
           const parts: AssistantPart[] = [];
+          if (item.type === "contextCompaction") t.onCompaction?.({ trigger: "auto" });
           if (item.type === "reasoning") {
             const text = [
               ...((item.summary as string[]) ?? []),

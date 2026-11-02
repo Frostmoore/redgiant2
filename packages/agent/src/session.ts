@@ -181,6 +181,10 @@ export class AgentSession {
   private engineSession: string | undefined;
   /** A summary being made ahead of time, after a turn (G24.14). */
   private background: Promise<void> | undefined;
+  /** The previous call's prompt, for noticing a cache that was lost (G24.14c). */
+  private prevPrompt = 0;
+  /** This provider has read from its cache in this session: a miss means something. */
+  private sawCache = false;
 
   constructor(private readonly o: AgentSessionOptions) {
     this.tools = canonicalTools(
@@ -252,6 +256,22 @@ export class AgentSession {
     };
   }
 
+  /**
+   * A call that appends to the previous one should find that one's prompt in the cache. When it
+   * finds less than half of it (and the provider does cache), something changed the prefix:
+   * recorded, so the chat can say so. A summary in between resets the expectation.
+   */
+  private async watchCache(c: Completion): Promise<void> {
+    const u = c.usage;
+    if (u.cachedReadTokens > 0) this.sawCache = true;
+    if (this.sawCache && this.prevPrompt > 2048 && u.cachedReadTokens < 0.5 * this.prevPrompt)
+      await this.record({
+        type: "cache.missed",
+        payload: { expected: this.prevPrompt, cached: u.cachedReadTokens, provider: c.provider },
+      });
+    this.prevPrompt = u.inputTokens;
+  }
+
   private async priced(c: Completion): Promise<number> {
     const usd = costUsd(c.usage, this.o.providers.get(c.provider).modelInfo(c.model).pricing);
     // Awaited: the next turn's budget check must see this spend.
@@ -310,6 +330,7 @@ export class AgentSession {
       }
       last = completion;
       this.lastMetrics = completion.metrics;
+      await this.watchCache(completion);
       const event = await this.record({
         type: "message.assistant",
         payload: {
@@ -391,6 +412,15 @@ export class AgentSession {
         resume: this.engineSession,
         signal: ctx.signal,
         live: this.o.live,
+        onCompaction: (info) =>
+          void this.record({
+            type: "engine.compacted",
+            payload: {
+              engine: engine.id,
+              trigger: info.trigger,
+              ...(info.preTokens !== undefined && { preTokens: info.preTokens }),
+            },
+          }).catch(() => {}),
         onMessage: async (m) => {
           this.lastMetrics = m.metrics;
           const e = await this.record({
@@ -689,6 +719,7 @@ export class AgentSession {
         ...kept.map((h) => ({ ...h, message: withoutReasoning(h.message) })),
       ];
       this.lastMetrics = undefined;
+      this.prevPrompt = 0;
       return true;
     } finally {
       this.o.onCompacting?.(false);
@@ -725,6 +756,7 @@ export class AgentSession {
       maxResultChars: this.maxResultChars,
     });
     this.lastMetrics = undefined;
+    this.prevPrompt = 0;
     return true;
   }
 

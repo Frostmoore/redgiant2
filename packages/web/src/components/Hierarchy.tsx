@@ -3,6 +3,7 @@ import type { Agent } from "../api.js";
 import { t, tOptional } from "../i18n.js";
 import { agents, attempt, getApi, openAgent, projects, refresh } from "../state.js";
 import { AgentWizard } from "./AgentWizard.js";
+import { CompactionSettings } from "./CompactionSettings.js";
 
 const CHILDREN: Record<Agent["kind"], Agent["kind"][]> = {
   god: ["demigod", "orchestrator", "inspector", "assistant"],
@@ -132,6 +133,7 @@ function NewAgentForm({ parent, onDone }: { parent: Agent | null; onDone: () => 
 
 function Node({ agent, depth }: { agent: Agent; depth: number }) {
   const [adding, setAdding] = useState(false);
+  const [tuning, setTuning] = useState(false);
   const children = agents.value.filter((a) => a.parentId === agent.id);
   const canAdd = CHILDREN[agent.kind].some((k) => k !== "subagent") && agent.status === "active";
   return (
@@ -152,6 +154,11 @@ function Node({ agent, depth }: { agent: Agent; depth: number }) {
           <span class="chip">{tOptional(`agentMode_${agent.mode}`) ?? agent.mode}</span>
         )}
         {agent.status === "stopped" && <span class="chip muted">{t("stopped")}</span>}
+        {agent.status === "active" && agent.kind !== "demigod" && (
+          <button type="button" class="tiny" onClick={() => setTuning(!tuning)}>
+            {t("compactSettings")}
+          </button>
+        )}
         {canAdd && (
           <button type="button" onClick={() => setAdding(!adding)}>
             +
@@ -168,6 +175,7 @@ function Node({ agent, depth }: { agent: Agent; depth: number }) {
         )}
       </div>
       {adding && <NewAgentForm parent={agent} onDone={() => setAdding(false)} />}
+      {tuning && <CompactionSettings agent={agent} />}
       {children.map((c) => (
         <Node key={c.id} agent={c} depth={depth + 1} />
       ))}

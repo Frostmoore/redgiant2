@@ -52,6 +52,16 @@ export const AgentSpec = z.object({
   systemPrompt: z.string().optional(),
   model: ModelSpec.optional(),
   mode: PermissionMode.optional(),
+  /**
+   * How its conversations are summarised (G24.14): past `at` of the window after a turn, keeping
+   * `keep` of it word for word. Defaults when absent.
+   */
+  compaction: z
+    .object({
+      at: z.number().min(0.3).max(0.95).optional(),
+      keep: z.number().min(0).max(0.5).optional(),
+    })
+    .optional(),
   /** The subproject it works in (G24.13), inside its project. */
   subprojectId: z.string().min(1).optional(),
   /** For assistants (G24.11): the MCP servers it may use, by name. None unless given. */

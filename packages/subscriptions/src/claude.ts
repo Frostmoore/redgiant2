@@ -193,6 +193,12 @@ export class ClaudeEngine implements Engine {
       });
       for await (const m of q) {
         if (typeof m.session_id === "string") session = m.session_id;
+        // The engine summarised its own context (Claude Agent SDK "compact_boundary").
+        if (m.type === "system" && (m as { subtype?: string }).subtype === "compact_boundary") {
+          const meta = (m as { compact_metadata?: { trigger?: string; pre_tokens?: number } })
+            .compact_metadata;
+          t.onCompaction?.({ trigger: meta?.trigger ?? "auto", preTokens: meta?.pre_tokens });
+        }
         if (m.type === "stream_event") {
           const e = m.event as {
             type?: string;

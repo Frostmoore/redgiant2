@@ -191,6 +191,8 @@ export interface Agent {
   connections?: string[];
   /** The subproject it works in (G24.13). */
   subprojectId?: string;
+  /** When its conversations are summarised and how much stays (G24.14c). */
+  compaction?: { at?: number; keep?: number };
   status: "active" | "stopped";
 }
 

@@ -561,7 +561,10 @@ export class RedGiantCore implements OrchestrationHost {
    * How a session summarises itself (G24.14). On a local engine every kept token is computed
    * again once, so less is kept word for word; tool results are cut to fit the model's window.
    */
-  private compactionOptions(model: ModelSpec): { keepRatio: number; maxResultChars: number } {
+  private compactionOptions(
+    model: ModelSpec,
+    agent?: AgentRecord,
+  ): { keepRatio: number; maxResultChars: number; compactAt?: number } {
     const p = this.o.providers.has(model.provider)
       ? (this.o.providers.get(model.provider) as { prefill?: unknown })
       : undefined;
@@ -570,9 +573,12 @@ export class RedGiantCore implements OrchestrationHost {
     try {
       window = this.o.providers.get(model.provider).modelInfo(model.model).contextWindow;
     } catch {}
+    // The agent's own settings win (G24.14c).
+    const own = agent?.compaction;
     return {
-      keepRatio: local ? 0.12 : 0.25,
+      keepRatio: own?.keep ?? (local ? 0.12 : 0.25),
       maxResultChars: Math.max(8_000, Math.min(100_000, Math.floor(window * 0.3 * 3.5))),
+      ...(own?.at !== undefined && { compactAt: own.at }),
     };
   }
 
@@ -694,7 +700,7 @@ export class RedGiantCore implements OrchestrationHost {
       projectId: agent.projectId,
       agentId,
       priority: PRIORITY[agent.kind],
-      ...this.compactionOptions(model),
+      ...this.compactionOptions(model, agent),
       // Demi-God only relays (RD8): its one tool is ask_god.
       ...(agent.kind === "demigod" && { historyTool: false }),
       onCompacting: (busy: boolean) => {

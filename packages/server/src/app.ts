@@ -73,6 +73,7 @@ const Agent = z
     mode: PermissionMode.optional(),
     connections: z.array(z.string()).optional(),
     subprojectId: z.string().optional(),
+    compaction: z.object({ at: z.number().optional(), keep: z.number().optional() }).optional(),
     status: z.enum(["active", "stopped"]),
   })
   .openapi("Agent");
@@ -226,6 +227,12 @@ const routes = {
               systemPrompt: z.string().optional(),
               role: z.string().min(1).optional(),
               connections: z.array(z.string().min(1)).optional(),
+              compaction: z
+                .object({
+                  at: z.number().min(0.3).max(0.95).optional(),
+                  keep: z.number().min(0).max(0.5).optional(),
+                })
+                .optional(),
             }),
           },
         },

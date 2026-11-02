@@ -10,10 +10,13 @@ export function MetricsBar({
   m,
   costUsd,
   model,
+  compactAt,
 }: {
   m: MessageMetrics;
   costUsd?: number;
   model?: string;
+  /** Where a summary is made (G24.14c): a mark on the bar. */
+  compactAt?: number | undefined;
 }) {
   const pct = (n: number) => `${Math.min(100, (n / m.contextWindow) * 100)}%`;
   const fresh = Math.max(0, m.inputTokens - m.cachedReadTokens);
@@ -33,6 +36,13 @@ export function MetricsBar({
         <span class="seg cached" style={{ width: pct(m.cachedReadTokens) }} />
         <span class="seg fresh" style={{ width: pct(fresh) }} />
         <span class="seg out" style={{ width: pct(m.outputTokens) }} />
+        {compactAt !== undefined && (
+          <span
+            class="compact-mark"
+            style={{ left: `${compactAt * 100}%` }}
+            title={t("compactMark", { n: String(Math.round(compactAt * 100)) })}
+          />
+        )}
       </div>
       <div class="metrics-text">
         <span>

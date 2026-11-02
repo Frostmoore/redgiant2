@@ -113,6 +113,23 @@ export const EventBody = z.discriminatedUnion("type", [
       stripped: z.boolean().optional(),
     }),
   }),
+  /** A subscription's engine summarised its own conversation (RedGiant's history is untouched). */
+  z.object({
+    type: z.literal("engine.compacted"),
+    payload: z.object({
+      engine: z.string(),
+      trigger: z.string(),
+      preTokens: z.number().optional(),
+    }),
+  }),
+  /**
+   * A call that should have been read from the cache was not (G24.14): what it reused against
+   * what the previous call had computed.
+   */
+  z.object({
+    type: z.literal("cache.missed"),
+    payload: z.object({ expected: z.number(), cached: z.number(), provider: z.string() }),
+  }),
   /** A compaction undone by the person: the whole history comes back (nothing was deleted). */
   z.object({
     type: z.literal("compaction.undone"),

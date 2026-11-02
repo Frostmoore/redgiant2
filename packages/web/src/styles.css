@@ -3295,3 +3295,25 @@ a.button.primary {
   gap: 6px;
   align-items: center;
 }
+
+/* --- compaction settings and mark (G24.14c) --- */
+.metrics-bar {
+  position: relative;
+}
+.metrics-bar .compact-mark {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--warn);
+}
+.compaction-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+  max-width: 520px;
+}
+.compaction-settings input[type="range"] {
+  width: 100%;
+}

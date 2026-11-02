@@ -24,6 +24,7 @@ import {
 } from "../state.js";
 import { Editor, recipeWhen } from "./Automations.js";
 import { explain, providerName } from "./Brain.js";
+import { CompactionSettings } from "./CompactionSettings.js";
 import { Advanced, Choice, Field, Toggle } from "./ui.js";
 
 /** Ready jobs; the job text is the user's, in their language, so they can read and change it. */
@@ -421,6 +422,8 @@ export function AssistantPage({ agentId }: { agentId: string | null }) {
       <p class="ui-help">{t("asstSkillsHelp")}</p>
 
       <Advanced>
+        <h3>{t("compactSettings")}</h3>
+        <CompactionSettings agent={a} />
         <button
           type="button"
           class="danger"

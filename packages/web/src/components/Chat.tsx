@@ -1,6 +1,7 @@
 import { useComputed } from "@preact/signals";
 import type { AssistantPart, PermissionRequestInfo } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { kTokens } from "../format.js";
 import { danger, lang, t } from "../i18n.js";
 import {
   IconAlert,
@@ -234,7 +235,12 @@ function Item({
       return (
         <div class="bubble assistant">
           <Parts parts={item.parts} />
-          <MetricsBar m={item.metrics} costUsd={item.costUsd} model={item.model} />
+          <MetricsBar
+            m={item.metrics}
+            costUsd={item.costUsd}
+            model={item.model}
+            compactAt={agents.value.find((a) => a.id === agentId)?.compaction?.at ?? 0.8}
+          />
         </div>
       );
     case "tool":
@@ -254,6 +260,13 @@ function Item({
       );
     case "compaction":
       return <CompactionMark item={item} sessionId={sessionId} />;
+    case "cache":
+      return (
+        <div class="notice warn">
+          <IconAlert size={13} />
+          {t("cacheMissed", { cached: kTokens(item.cached), expected: kTokens(item.expected) })}
+        </div>
+      );
     case "notice":
       return (
         <div class={`notice ${item.tone}`}>

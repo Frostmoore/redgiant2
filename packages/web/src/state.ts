@@ -52,13 +52,15 @@ export type ChatItem =
       answers?: Answers | null;
     }
   | { kind: "notice"; key: string; tone: "info" | "warn" | "ok" | "error"; text: string }
+  /** A call that should have been in the cache was not (G24.14c). */
+  | { kind: "cache"; key: string; expected: number; cached: number }
   /** The conversation was summarised here (G24.14). */
   | {
       kind: "compaction";
       key: string;
       seq: number;
       summary: string;
-      reason: "auto" | "manual" | "emergency";
+      reason: "auto" | "manual" | "emergency" | "engine";
       undone: boolean;
       /** The last summary asked by hand, nothing said since: it can be undone. */
       undoable: boolean;
@@ -168,6 +170,25 @@ export function buildItems(events: Event[]): ChatItem[] {
           reason: e.payload.reason ?? "auto",
           undone: false,
           undoable: false,
+        });
+        break;
+      case "engine.compacted":
+        items.push({
+          kind: "compaction",
+          key,
+          seq: e.seq,
+          summary: "",
+          reason: "engine",
+          undone: false,
+          undoable: false,
+        });
+        break;
+      case "cache.missed":
+        items.push({
+          kind: "cache",
+          key,
+          expected: e.payload.expected,
+          cached: e.payload.cached,
         });
         break;
       case "compaction.undone": {

@@ -25,6 +25,7 @@ export interface NewAgent {
   mode?: PermissionMode;
   connections?: string[];
   subprojectId?: string;
+  compaction?: { at?: number; keep?: number };
 }
 
 export class HierarchyError extends Error {
@@ -48,6 +49,7 @@ interface Row {
   mode: PermissionMode | null;
   connections: string | null;
   subproject_id: string | null;
+  compaction: string | null;
   status: "active" | "stopped";
 }
 
@@ -72,6 +74,8 @@ export async function migrateHierarchy(db: SqlClient): Promise<void> {
   await db.query("ALTER TABLE rg_agents ADD COLUMN IF NOT EXISTS connections text");
   // The subproject an agent works in (G24.13).
   await db.query("ALTER TABLE rg_agents ADD COLUMN IF NOT EXISTS subproject_id text");
+  // How its conversations are summarised (G24.14c).
+  await db.query("ALTER TABLE rg_agents ADD COLUMN IF NOT EXISTS compaction text");
   // One God and one Demi-God per owner, one orchestrator and one inspector per project.
   await db.query(
     "CREATE UNIQUE INDEX IF NOT EXISTS rg_agents_one_god ON rg_agents (owner_id, kind) WHERE kind IN ('god', 'demigod') AND status = 'active'",
@@ -118,6 +122,9 @@ const fromRow = (r: Row): AgentRecord => ({
   ...(r.mode !== null && { mode: r.mode }),
   ...(r.connections !== null && { connections: JSON.parse(r.connections) as string[] }),
   ...(r.subproject_id !== null && { subprojectId: r.subproject_id }),
+  ...(r.compaction !== null && {
+    compaction: JSON.parse(r.compaction) as { at?: number; keep?: number },
+  }),
   status: r.status,
 });
 
@@ -290,6 +297,7 @@ export class AgentRegistry {
       systemPrompt?: string | null;
       connections?: string[] | null;
       role?: string | null;
+      compaction?: { at?: number; keep?: number } | null;
     },
   ): Promise<AgentRecord> {
     const target = this.cache.get(id);
@@ -302,13 +310,18 @@ export class AgentRegistry {
       systemPrompt: "system_prompt",
       connections: "connections",
       role: "role",
+      compaction: "compaction",
     } as const;
     const sets: string[] = [];
     const params: unknown[] = [id];
     for (const [key, column] of Object.entries(columns) as [keyof typeof columns, string][]) {
       if (change[key] === undefined) continue;
       const v = change[key];
-      params.push((key === "model" || key === "connections") && v !== null ? JSON.stringify(v) : v);
+      params.push(
+        (key === "model" || key === "connections" || key === "compaction") && v !== null
+          ? JSON.stringify(v)
+          : v,
+      );
       sets.push(`${column} = $${params.length}`);
     }
     if (sets.length > 0)
