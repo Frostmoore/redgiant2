@@ -314,7 +314,7 @@ export interface Subproject {
 export interface Room {
   id: string;
   title: string;
-  members: { agentId: string; sessionId: string }[];
+  members: { agentId: string; sessionId: string; costUsd?: number; context?: number }[];
   createdAt: string;
   lastAt: string | null;
   answering: string[];
@@ -450,13 +450,16 @@ export class Api {
     title?: string;
     members: string[];
     from?: { agentId: string; sessionId: string };
+    /** An earlier chat this group continues. */
+    context?: string;
   }) => this.call<Room>("POST", "/api/rooms", r);
   roomEvents = (id: string) => this.call<Event[]>("GET", `/api/rooms/${id}/events`);
   addRoomMember = (id: string, agentId: string) =>
     this.call<Room>("POST", `/api/rooms/${id}/members`, { agentId });
   removeRoomMember = (id: string, agentId: string) =>
     this.call<Room>("DELETE", `/api/rooms/${id}/members/${encodeURIComponent(agentId)}`);
-  postRoom = (id: string, text: string) => this.call("POST", `/api/rooms/${id}/messages`, { text });
+  postRoom = (id: string, text: string, images: import("@redgiant/protocol").ImagePart[] = []) =>
+    this.call("POST", `/api/rooms/${id}/messages`, { text, ...(images.length > 0 && { images }) });
   mcpStatus = () => this.call<McpStatus[]>("GET", "/api/extensions/mcp/status");
   /** Signs in to a server: either it already works, or the service's sign-in page. */
   mcpLogin = (name: string, origin: string) =>

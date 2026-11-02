@@ -18,6 +18,7 @@ import { commitAll, mergeWorktree, worktreeBranch } from "@redgiant/sandbox";
 import type { Workspace } from "@redgiant/tools";
 import { z } from "zod";
 import type { ProjectStore } from "./projects.js";
+import type { Rooms } from "./rooms.js";
 
 /** What the orchestration tools need from the core. */
 export interface OrchestrationHost {
@@ -40,6 +41,10 @@ export interface OrchestrationHost {
   projectWorkspaces(
     agent: AgentRecord,
   ): Promise<{ root: Workspace; worktree: (agentId: string) => Promise<Workspace> }>;
+  /** Group chats (G24.12), for God's ask_group (G24.14c). */
+  rooms?: Rooms;
+  /** A project's inspector as an agent, made on first use. */
+  inspectorAgent?(ownerId: string, projectId: string): Promise<AgentRecord>;
 }
 
 type Outcome = "verified" | "not_testable" | "abandoned";
@@ -333,6 +338,70 @@ export function orchestrationTools(
         const r = await done;
         const answer = lastAssistantText(await host.store.list({ sessionId: sid }));
         return `${r.stopReason === "end_turn" ? "" : `(${to.name} stopped: ${r.stopReason})\n`}${clip(answer, 6000) || `${to.name} gave no answer.`}`;
+      },
+    } as Tool);
+  }
+
+  // A group chat on the user's behalf (G24.14c): from Telegram too, where there is no "Add".
+  if (self.kind === "god" && host.rooms) {
+    const rooms = host.rooms;
+    tools.push({
+      def: {
+        name: "ask_group",
+        description:
+          "Bring several agents into one group chat (the user can open it in RedGiant) and get their answers, for questions that need more than one of them, like two projects' inspectors. members: agent ids, or inspector:<project_id> for a project's inspector. The first member answers first; they pass the word to each other with @name.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            members: { type: "array", items: { type: "string" } },
+            message: { type: "string" },
+            title: { type: "string" },
+          },
+          required: ["members", "message"],
+        },
+      },
+      schema: z.object({
+        members: z.array(z.string().min(1)).min(1).max(6),
+        message: z.string().min(1),
+        title: z.string().optional(),
+      }),
+      async run({
+        members,
+        message,
+        title,
+      }: {
+        members: string[];
+        message: string;
+        title?: string;
+      }) {
+        const ids = await Promise.all(
+          members.map(async (m) => {
+            const p = m.match(/^inspector:(.+)$/)?.[1];
+            if (p && host.inspectorAgent) return (await host.inspectorAgent(self.ownerId, p)).id;
+            const byName = host.registry
+              .list({ ownerId: self.ownerId, activeOnly: true })
+              .find((a) => a.id === m || a.name.toLowerCase() === m.toLowerCase());
+            if (!byName) throw new Error(`No agent "${m}"`);
+            return byName.id;
+          }),
+        );
+        const room = await rooms.create(self.ownerId, {
+          members: ids,
+          ...(title && { title }),
+        });
+        const before = (await rooms.events(self.ownerId, room.id)).at(-1)?.seq ?? -1;
+        const { done } = await rooms.post(
+          self.ownerId,
+          room.id,
+          `${message}\n\n(Asked by ${self.name} for the user.)`,
+        );
+        await done;
+        const answers = (await rooms.events(self.ownerId, room.id)).flatMap((e) =>
+          e.seq > before && e.type === "room.message" && e.payload && e.payload.from !== "human"
+            ? [`${e.payload.name || "RedGiant"}: ${e.payload.text}`]
+            : [],
+        );
+        return `Group chat "${room.title}" (the user can open it among the groups).\n\n${clip(answers.join("\n\n"), 8000) || "No answer."}`;
       },
     } as Tool);
   }

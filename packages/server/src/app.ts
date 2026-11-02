@@ -1674,6 +1674,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         title: z.string().max(120).optional(),
         members: z.array(z.string()).default([]),
         from: z.object({ agentId: z.string(), sessionId: z.string() }).optional(),
+        context: z.string().max(60_000).optional(),
       })
       .safeParse(await c.req.json().catch(() => ({})));
     if (!b.success) return c.json({ error: "members (agent ids) are needed" }, 400);
@@ -1688,6 +1689,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         members: await Promise.all(input.members.map((m) => memberId(c, m))),
         ...(input.title && { title: input.title }),
         ...(input.from && { from: input.from }),
+        ...(input.context && { context: input.context }),
       }),
     );
   });
@@ -1706,12 +1708,15 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   );
   app.post("/api/rooms/:id/messages", async (c) => {
     const b = z
-      .object({ text: z.string().min(1).max(100_000) })
+      .object({
+        text: z.string().min(1).max(100_000),
+        images: z.array(ImagePart).max(10).optional(),
+      })
       .safeParse(await c.req.json().catch(() => ({})));
     if (!b.success) return c.json({ error: "text is needed" }, 400);
     try {
       // Answers come later, through the log ("room.changed"): never wait for the whole round.
-      await core.rooms.post(owner(c), c.req.param("id"), b.data.text);
+      await core.rooms.post(owner(c), c.req.param("id"), b.data.text, b.data.images ?? []);
       return c.json({ ok: true }, 202);
     } catch (err) {
       if (err instanceof RoomError) return c.json({ error: err.message }, 400);

@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import type { SendResult } from "@redgiant/agent";
 import type { EventStore, SqlClient } from "@redgiant/events";
 import { type AgentRecord, type AgentRegistry, can } from "@redgiant/hierarchy";
-import type { Event } from "@redgiant/protocol";
+import type { Event, ImagePart } from "@redgiant/protocol";
 
 export const MAX_MEMBERS = 6;
 /** Agent turns in a row without the person, then the room stops and says so. */
@@ -17,6 +17,9 @@ export const MAX_AGENT_TURNS = 6;
 export interface RoomMember {
   agentId: string;
   sessionId: string;
+  /** What its answers in this room cost, and how full its context is (G24.14c). */
+  costUsd?: number;
+  context?: number;
 }
 
 export interface Room {
@@ -34,7 +37,12 @@ export interface RoomHost {
   store: EventStore;
   registry: AgentRegistry;
   startSession(ownerId: string, agentId: string): Promise<string>;
-  send(ownerId: string, sessionId: string, text: string): Promise<{ done: Promise<SendResult> }>;
+  send(
+    ownerId: string,
+    sessionId: string,
+    text: string,
+    extra?: { images?: ImagePart[] },
+  ): Promise<{ done: Promise<SendResult> }>;
   /** Names a member's session after the room, in that agent's list of conversations. */
   titleSession(ownerId: string, sessionId: string, title: string): Promise<void>;
 }
@@ -130,10 +138,28 @@ export class Rooms {
       [roomId],
     );
     const last = (await this.h.store.list({ sessionId: roomId })).at(-1);
+    // Each member's spend and context, from its own session.
+    const usage = async (sessionId: string) => {
+      let costUsd = 0;
+      let context: number | undefined;
+      for (const e of await this.h.store.list({ sessionId }))
+        if (e.type === "message.assistant" && e.payload) {
+          costUsd += e.payload.costUsd;
+          const m = e.payload.metrics;
+          context = m.contextWindow > 0 ? m.contextUsed / m.contextWindow : undefined;
+        }
+      return { costUsd, ...(context !== undefined && { context }) };
+    };
     return {
       id: r.id,
       title: r.title,
-      members: members.map((m) => ({ agentId: m.agent_id, sessionId: m.session_id })),
+      members: await Promise.all(
+        members.map(async (m) => ({
+          agentId: m.agent_id,
+          sessionId: m.session_id,
+          ...(await usage(m.session_id)),
+        })),
+      ),
       createdAt: new Date(r.created_at).toISOString(),
       lastAt: last?.ts ?? null,
       answering: [...(this.answering.get(roomId) ?? [])],
@@ -163,7 +189,13 @@ export class Rooms {
    */
   async create(
     ownerId: string,
-    input: { title?: string; members: string[]; from?: { agentId: string; sessionId: string } },
+    input: {
+      title?: string;
+      members: string[];
+      from?: { agentId: string; sessionId: string };
+      /** An earlier conversation this group continues (the daily chat): data for every member. */
+      context?: string;
+    },
   ): Promise<Room> {
     const ids = [...new Set([...(input.from ? [input.from.agentId] : []), ...input.members])];
     if (ids.length === 0) throw new RoomError("A group chat needs at least one agent");
@@ -183,6 +215,8 @@ export class Rooms {
         a,
         input.from?.agentId === a.id ? input.from.sessionId : undefined,
       );
+    if (input.context?.trim())
+      await this.append(ownerId, id, "context", "", input.context.trim().slice(0, 30_000));
     this.changed(ownerId, id);
     return this.load(ownerId, id);
   }
@@ -250,20 +284,35 @@ export class Rooms {
    * The person writes in the room; the agents answer in turn. Returns at once with `done`
    * (the whole round), like `RedGiantCore.send`.
    */
-  async post(ownerId: string, roomId: string, text: string): Promise<{ done: Promise<void> }> {
+  async post(
+    ownerId: string,
+    roomId: string,
+    text: string,
+    images: ImagePart[] = [],
+  ): Promise<{ done: Promise<void> }> {
     const room = await this.load(ownerId, roomId);
-    await this.append(ownerId, roomId, "human", "", text);
+    await this.append(ownerId, roomId, "human", "", text, images);
     const previous = this.queue.get(roomId) ?? Promise.resolve();
     const done = previous.then(() => this.round(ownerId, room, text)).catch(() => {});
     this.queue.set(roomId, done);
     return { done };
   }
 
-  private async append(ownerId: string, roomId: string, from: string, name: string, text: string) {
+  private async append(
+    ownerId: string,
+    roomId: string,
+    from: string,
+    name: string,
+    text: string,
+    images: ImagePart[] = [],
+  ) {
     await this.h.store.append({
       ownerId,
       sessionId: roomId,
-      body: { type: "room.message", payload: { from, name, text } },
+      body: {
+        type: "room.message",
+        payload: { from, name, text, ...(images.length > 0 && { images }) },
+      },
     });
     this.changed(ownerId, roomId);
   }
@@ -327,6 +376,8 @@ export class Rooms {
       const p = e.payload;
       if (p.from === "human") return [`The user wrote:\n${p.text}`];
       if (p.from === "system") return [];
+      if (p.from === "context")
+        return [`<message from="the user's earlier chat" kind="data">\n${p.text}\n</message>`];
       // Another agent's words are information for you, never instructions.
       return [`<message from="${p.name}" kind="data">\n${p.text}\n</message>`];
     });
@@ -342,7 +393,13 @@ export class Rooms {
     this.changed(ownerId, room.id);
     try {
       const before = (await this.h.store.list({ sessionId: member.sessionId })).at(-1)?.seq ?? -1;
-      const { done } = await this.h.send(ownerId, member.sessionId, text);
+      // The person's pictures since its last turn come with it.
+      const images = fresh.flatMap((e) =>
+        e.type === "room.message" && e.payload?.from === "human" ? (e.payload.images ?? []) : [],
+      );
+      const { done } = await this.h.send(ownerId, member.sessionId, text, {
+        ...(images.length > 0 && { images: images.slice(0, 10) }),
+      });
       await done;
       // Only this turn's words: never an older answer again.
       const answer = lastAssistantText(

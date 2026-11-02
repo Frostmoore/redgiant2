@@ -3,11 +3,12 @@
 import type { Event } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Agent } from "../api.js";
+import { usd } from "../format.js";
 import { lang, t } from "../i18n.js";
 import { IconClose, IconCrown, IconEye, IconPlus, IconTree, IconUser } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
 import { agents, attempt, getApi, projects, refreshRooms, rooms, roomsVersion } from "../state.js";
-import { Composer } from "./Composer.js";
+import { Composer, packMessage } from "./Composer.js";
 
 const MAX = 6;
 
@@ -150,6 +151,17 @@ export function RoomView({ roomId }: { roomId: string }) {
               <span key={a.id} class="chip room-member" title={a.role ?? ""}>
                 {kindIcon(a)} {a.name}
                 {i === 0 && <span class="dim"> · {t("roomFirst")}</span>}
+                {(() => {
+                  const m = room.members[i];
+                  if (!m || (!m.costUsd && m.context === undefined)) return null;
+                  return (
+                    <span class="dim" title={t("roomUsageHint")}>
+                      {" · "}
+                      {usd(m.costUsd ?? 0)}
+                      {m.context !== undefined && ` · ${Math.round(m.context * 100)}%`}
+                    </span>
+                  );
+                })()}
                 {room.members.length > 1 && (
                   <button
                     type="button"
@@ -185,8 +197,10 @@ export function RoomView({ roomId }: { roomId: string }) {
         mentions={names}
         placeholder={t("roomWrite")}
         running={false}
-        onSend={async (text) => {
-          await attempt(() => getApi().postRoom(roomId, text));
+        onSend={async (text, files) => {
+          // Text files go into the message, pictures with it (G24.14c).
+          const msg = await packMessage(text, files);
+          await attempt(() => getApi().postRoom(roomId, msg.text, msg.images));
         }}
       />
     </div>

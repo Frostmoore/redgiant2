@@ -272,10 +272,12 @@ export const EventBody = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("room.message"),
     payload: z.object({
-      /** "human", an agent's id, or "system" (the room's own notes). */
+      /** "human", an agent's id, "system" (the room's own notes) or "context" (an earlier chat). */
       from: z.string(),
       name: z.string(),
       text: z.string(),
+      /** Pictures the person attached (G24.14c). */
+      images: z.array(ImagePart).optional(),
     }),
   }),
   z.object({

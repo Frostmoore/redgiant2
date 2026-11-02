@@ -155,4 +155,70 @@ describe("group chats (G24.12)", () => {
     const r = await s?.api("POST", `/api/rooms/${room.id}/members`, { agentId: dg?.body.id });
     expect(r?.status).toBe(400);
   });
+
+  it("carries pictures and an earlier chat to the members, and says what each costs (G24.14c)", async () => {
+    const got: CompletionRequest[] = [];
+    s = await startServer((req) => {
+      got.push(req);
+      return { text: "seen", usage: { inputTokens: 100, outputTokens: 10 } as never };
+    });
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const room = await s.api<Room>("POST", "/api/rooms", {
+      members: [god.body.id],
+      context: "User: what about the roof?\n\nAssistant: It leaks.",
+    });
+    await (
+      await s.core.rooms.post("me", room.body.id, "Look at this", [
+        { type: "image", mediaType: "image/png", data: "iVBORw0KGgo=" },
+      ])
+    ).done;
+    const last = got.at(-1)?.messages.at(-1);
+    expect(last?.parts.some((p) => p.type === "image")).toBe(true);
+    const text = last?.parts.find((p) => p.type === "text");
+    expect(text?.type === "text" && text.text).toMatch(
+      /<message from="the user's earlier chat" kind="data">[\s\S]*roof/,
+    );
+    const listed = (
+      await s.api<(Room & { members: { costUsd: number; context: number }[] })[]>(
+        "GET",
+        "/api/rooms",
+      )
+    ).body;
+    expect(listed[0]?.members[0]?.context).toBeGreaterThan(0);
+  });
+
+  it("lets God gather a group on the user's behalf, from Telegram too (G24.14c)", async () => {
+    let step = 0;
+    let project = "";
+    s = await startServer((req) => {
+      const sys = req.system ?? "";
+      if (sys.includes("project's inspector")) return { text: "Two endpoints change." };
+      const r = req.messages.at(-1)?.parts.find((p) => p.type === "tool_result");
+      if (r?.type === "tool_result") return { text: r.content };
+      if (++step === 1)
+        return {
+          toolCalls: [
+            {
+              name: "ask_group",
+              input: { members: [`inspector:${project}`], message: "What changes for the site?" },
+            },
+          ],
+        };
+      return { text: "ok" };
+    });
+    await s.api("POST", "/api/agents", { kind: "god", parentId: null, name: "God" });
+    project = (await s.api<{ id: string }>("POST", "/api/projects", { name: "Site" })).body.id;
+    const god = s.core.registry.list({ ownerId: "me" }).find((a) => a.kind === "god");
+    const sid = (await s.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: god?.id }))
+      .body.sessionId;
+    await (await s.core.send("me", sid, "Ask the site's inspector")).done;
+    const answer = (await s.core.history("me", sid)).filter((e) => e.type === "tool.result").at(-1)
+      ?.payload as { output: string };
+    expect(answer.output).toMatch(/Inspector Site: Two endpoints change/);
+    expect((await s.api<Room[]>("GET", "/api/rooms")).body).toHaveLength(1);
+  });
 });

@@ -2,13 +2,28 @@ import type { ImagePart } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ChatEntry, ChatSummary } from "../api.js";
 import { lang, t } from "../i18n.js";
-import { IconChat, IconEye, IconFile, IconSearch, IconSettings, IconTrash } from "../icons.js";
+import {
+  IconChat,
+  IconEye,
+  IconFile,
+  IconSearch,
+  IconSettings,
+  IconTrash,
+  IconUsers,
+} from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
-import { attempt, closeTab, getApi, openTab, refreshConversations } from "../state.js";
+import {
+  attempt,
+  closeTab,
+  getApi,
+  openTab,
+  refreshConversations,
+  refreshRooms,
+} from "../state.js";
 import { type Attachment, Composer } from "./Composer.js";
-
 import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
+import { joinable } from "./Room.js";
 
 /** The chat has no workspace: text files and images travel with the message, nothing else. */
 const chatAttachments = (files: Attachment[]) =>
@@ -215,7 +230,26 @@ export function DailyChat({
     tools: { name: string; input: unknown }[];
   } | null>(null);
   const [settings, setSettings] = useState(false);
+  const [grouping, setGrouping] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
+
+  /** This chat goes on as a group (G24.14c): the chosen agent gets it as earlier context. */
+  const toGroup = async (agentId: string) => {
+    const transcript = entries
+      .map((e) => {
+        const text = e.message.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("");
+        return text ? `${e.message.role === "user" ? "User" : "Assistant"}: ${text}` : "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
+    const r = await attempt(() =>
+      getApi().createRoom({ members: [agentId], ...(transcript && { context: transcript }) }),
+    );
+    if (!r) return;
+    await refreshRooms();
+    setGrouping(false);
+    openTab({ id: `room:${r.id}`, type: "room", title: r.title, roomId: r.id });
+  };
 
   const reload = () => {
     if (projectId) void attempt(() => getApi().chats(projectId)).then((l) => l && setChats(l));
@@ -285,6 +319,35 @@ export function DailyChat({
           </select>
         )}
         <div class="spacer" />
+        {grouping ? (
+          <select
+            aria-label={t("roomAdd")}
+            value=""
+            onChange={(e) => {
+              const id = (e.target as HTMLSelectElement).value;
+              if (id) void toGroup(id);
+            }}
+            onBlur={() => setGrouping(false)}
+          >
+            <option value="">{t("roomPick")}</option>
+            {joinable([]).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.group} · {o.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          entries.length > 0 && (
+            <button
+              type="button"
+              class="icon-button"
+              title={t("chatToGroup")}
+              onClick={() => setGrouping(true)}
+            >
+              <IconUsers size={15} />
+            </button>
+          )
+        )}
         <button
           type="button"
           class="icon-button"

@@ -123,6 +123,8 @@ const en = {
   kind_subagent: "Helper",
   kind_inspector: "Inspector, reads only",
   kind_assistant: "Personal assistant",
+  chatToGroup: "Go on as a group: add an agent, which gets this chat as context",
+  roomUsageHint: "What its answers here cost, and how full its context is",
   emailTitle: "Email for routines",
   emailPurpose:
     "A routine can start when an email arrives (an invoice, an alert). RedGiant looks only at new mail, every two minutes, and changes nothing in your mailbox; the email reaches the agent as information, never as instructions.",
@@ -1262,6 +1264,8 @@ const it: Record<Key, string> = {
   kind_subagent: "Aiutante",
   kind_inspector: "Ispettore, solo lettura",
   kind_assistant: "Assistente personale",
+  chatToGroup: "Continua in gruppo: aggiungi un agente, che riceve questa chat come contesto",
+  roomUsageHint: "Quanto sono costate le sue risposte qui, e quanto è pieno il suo contesto",
   emailTitle: "Email per le routine",
   emailPurpose:
     "Una routine può partire quando arriva una email (una fattura, un avviso). RedGiant guarda solo la posta nuova, ogni due minuti, e non cambia niente nella tua casella; l'email arriva all'agente come informazione, mai come istruzioni.",

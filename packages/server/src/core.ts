@@ -334,7 +334,7 @@ export class RedGiantCore implements OrchestrationHost {
       store: this.store,
       registry: this.registry,
       startSession: (owner, agent) => this.startSession(owner, agent),
-      send: (owner, session, text) => this.send(owner, session, text),
+      send: (owner, session, text, extra) => this.send(owner, session, text, extra ?? {}),
       titleSession: (owner, session, title) => this.updateSession(owner, session, { title }),
     });
     this.code = o.source
