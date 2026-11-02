@@ -303,6 +303,30 @@ await core.config.setPolicy("local", god.id, {
   disabledDanger: [],
 });
 await core.config.mcp("local", god.id, { action: "add", catalogId: "linear", projectId: "demo" });
+// Personal assistants (G24.11).
+const secretary = await core.registry.create(
+  { type: "human", ownerId: "local" },
+  {
+    kind: "assistant",
+    parentId: god.id,
+    name: "Segretaria",
+    role: "Tieni in ordine le mie attività e i miei appuntamenti e fammi il punto della giornata.",
+    connections: ["docs"],
+  },
+);
+await core.registry.create(
+  { type: "human", ownerId: "local" },
+  {
+    kind: "assistant",
+    parentId: god.id,
+    name: "Ricercatore",
+    role: "Cerca sul web e riportami quello che trovi, con le fonti.",
+  },
+);
+await core.automations.create(
+  "local",
+  `name: morning-brief\ndescription: Il punto della mattina\non:\n  cron: "0 8 * * 1-5"\nagent: ${secretary.id}\ninstructions: Fammi il punto della giornata.\n`,
+);
 // A month of spending for the chart: a little every day, more on some.
 {
   const now = new Date();

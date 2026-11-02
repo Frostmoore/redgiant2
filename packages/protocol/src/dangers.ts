@@ -50,6 +50,10 @@ const en: Record<string, Words> = {
     name: "Files with passwords and keys",
     hint: "Reading or touching .env files, SSH keys, certificates and similar.",
   },
+  outgoing: {
+    name: "Sending, publishing, deleting or paying",
+    hint: "Through a connected service: an email, a post, deleting a page, a payment.",
+  },
 };
 
 const it: Record<string, Words> = {
@@ -96,6 +100,10 @@ const it: Record<string, Words> = {
   "secrets-files": {
     name: "File con password e chiavi",
     hint: "Leggere o toccare file .env, chiavi SSH, certificati e simili.",
+  },
+  outgoing: {
+    name: "Inviare, pubblicare, cancellare o pagare",
+    hint: "Tramite un servizio collegato: una email, un post, cancellare una pagina, un pagamento.",
   },
 };
 

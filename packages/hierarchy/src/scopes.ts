@@ -52,6 +52,8 @@ const isAncestor = (maybe: AgentNode, of: AgentNode, resolve: Resolve) =>
  * - Agent: its own tasks and its sub-agents.
  * - Sub-agent: only its own task; cannot spawn (RD11).
  * - Inspector: reads its project; never acts on anyone (RD30).
+ * - Assistant: a personal agent (G24.11); reads and messages the other assistants (hand-offs),
+ *   messages God; sees no project and creates nobody.
  * Changing permissions ("configure") is reserved to God and the human; nobody configures
  * God but the human.
  */
@@ -93,17 +95,22 @@ export function can(
       return self && action === "read";
     case "inspector":
       return action === "read" && target.projectId !== null && target.projectId === a.projectId;
+    case "assistant":
+      if (target.kind === "god") return action === "message";
+      if (target.kind !== "assistant") return false;
+      return action === "read" || (action === "message" && !self);
   }
 }
 
 /** Kinds a parent may create below itself. */
 export const CHILD_KINDS: Record<AgentKind, AgentKind[]> = {
-  god: ["demigod", "orchestrator", "inspector"],
+  god: ["demigod", "orchestrator", "inspector", "assistant"],
   demigod: [],
   orchestrator: ["agent"],
   agent: ["subagent"],
   subagent: [],
   inspector: [],
+  assistant: [],
 };
 
 /**

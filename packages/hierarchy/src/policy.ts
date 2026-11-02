@@ -20,6 +20,8 @@ export interface DangerRule {
   pattern: string;
   /** Tools the rule never applies to (when `tool` is a prefix pattern). */
   except?: string[];
+  /** A regex the tool's name must match too (for tools of connected services). */
+  name?: string;
   enabled?: boolean;
 }
 
@@ -99,6 +101,15 @@ export const DEFAULT_DANGER_RULES: DangerRule[] = [
     except: ["platform_code_start", "platform_code_discard"],
   },
   {
+    // G24.11: what leaves through a connected service (an email, a post, a payment) asks first.
+    id: "outgoing",
+    label: "Sends, publishes, deletes or pays",
+    tool: "mcp__*",
+    // Whole words of the tool's own name: send_email and createPost ask, list_posts does not.
+    name: "(^|_)(send|post|publish|reply|forward|share|invite|delete|remove|trash|archive|cancel|pay|purchase|buy|order|charge|refund|transfer)(_|$)",
+    pattern: ".*",
+  },
+  {
     id: "secrets-files",
     label: "Secret files",
     tool: "*",
@@ -129,6 +140,7 @@ export const DEFAULT_POLICY: PolicySettings = {
     "database-drop",
     "secrets-files",
     "platform",
+    "outgoing",
   ],
   approverKinds: ["god", "orchestrator", "agent"],
 };
@@ -171,12 +183,21 @@ function subject(call: ToolCallInfo, field?: string): string {
   return JSON.stringify(call.input ?? "");
 }
 
+/** A tool's own name as snake_case words, without the `mcp__<server>__` prefix. */
+const toolWords = (name: string) =>
+  name
+    .replace(/^mcp__[a-z0-9-]+__/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[-\s]+/g, "_")
+    .toLowerCase();
+
 export function classify(call: ToolCallInfo, rules: DangerRule[]): DangerRule[] {
   return rules.filter(
     (r) =>
       r.enabled !== false &&
       toolMatches(r.tool, call.name) &&
       !r.except?.includes(call.name) &&
+      (!r.name || new RegExp(r.name, "i").test(toolWords(call.name))) &&
       new RegExp(r.pattern, "i").test(subject(call, r.field)),
   );
 }

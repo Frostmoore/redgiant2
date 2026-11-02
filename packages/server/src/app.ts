@@ -69,6 +69,7 @@ const Agent = z
     systemPrompt: z.string().optional(),
     model: ModelSpec.optional(),
     mode: PermissionMode.optional(),
+    connections: z.array(z.string()).optional(),
     status: z.enum(["active", "stopped"]),
   })
   .openapi("Agent");
@@ -83,6 +84,7 @@ const NewAgent = z
     systemPrompt: z.string().optional(),
     model: ModelSpec.optional(),
     mode: PermissionMode.optional(),
+    connections: z.array(z.string().min(1)).optional(),
   })
   .openapi("NewAgent");
 
@@ -218,6 +220,8 @@ const routes = {
               model: ModelSpec.optional(),
               mode: PermissionMode.optional(),
               systemPrompt: z.string().optional(),
+              role: z.string().min(1).optional(),
+              connections: z.array(z.string().min(1)).optional(),
             }),
           },
         },

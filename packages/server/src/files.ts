@@ -6,13 +6,20 @@ import { LocalWorkspace } from "@redgiant/tools";
 import type { RedGiantCore } from "./core.js";
 import { BadRequestError, NotFoundError } from "./core.js";
 
-export type FileScope = { kind: "project"; projectId: string } | { kind: "platform" };
+export type FileScope =
+  | { kind: "project"; projectId: string }
+  | { kind: "platform" }
+  /** The personal assistants' shared desk (G24.11). */
+  | { kind: "assistants" };
 
 export function parseScope(scope: string): FileScope {
   if (scope === "platform") return { kind: "platform" };
+  if (scope === "assistants") return { kind: "assistants" };
   const m = scope.match(/^project:([a-z0-9-]+)$/);
   if (!m?.[1])
-    throw new BadRequestError(`Invalid scope "${scope}" (use "platform" or "project:<id>")`);
+    throw new BadRequestError(
+      `Invalid scope "${scope}" (use "platform", "assistants" or "project:<id>")`,
+    );
   return { kind: "project", projectId: m[1] };
 }
 
@@ -51,6 +58,11 @@ export class FileService {
     ownerId: string,
     scope: FileScope,
   ): Promise<{ ws: LocalWorkspace; projectId: string | null }> {
+    if (scope.kind === "assistants") {
+      const dir = this.core.assistantsPath(ownerId);
+      await mkdir(dir, { recursive: true });
+      return { ws: new LocalWorkspace(dir), projectId: null };
+    }
     if (scope.kind === "platform") {
       const dir = this.core.platformPath(ownerId);
       await mkdir(dir, { recursive: true });

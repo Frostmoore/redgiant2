@@ -23,6 +23,7 @@ export interface NewAgent {
   systemPrompt?: string;
   model?: ModelSpec;
   mode?: PermissionMode;
+  connections?: string[];
 }
 
 export class HierarchyError extends Error {
@@ -44,6 +45,7 @@ interface Row {
   system_prompt: string | null;
   model: string | null;
   mode: PermissionMode | null;
+  connections: string | null;
   status: "active" | "stopped";
 }
 
@@ -64,6 +66,8 @@ export async function migrateHierarchy(db: SqlClient): Promise<void> {
       status        text NOT NULL DEFAULT 'active',
       created_at    timestamptz NOT NULL DEFAULT now()
     )`);
+  // The services an assistant may use (G24.11).
+  await db.query("ALTER TABLE rg_agents ADD COLUMN IF NOT EXISTS connections text");
   // One God and one Demi-God per owner, one orchestrator and one inspector per project.
   await db.query(
     "CREATE UNIQUE INDEX IF NOT EXISTS rg_agents_one_god ON rg_agents (owner_id, kind) WHERE kind IN ('god', 'demigod') AND status = 'active'",
@@ -106,6 +110,7 @@ const fromRow = (r: Row): AgentRecord => ({
   ...(r.system_prompt !== null && { systemPrompt: r.system_prompt }),
   ...(r.model !== null && { model: JSON.parse(r.model) as ModelSpec }),
   ...(r.mode !== null && { mode: r.mode }),
+  ...(r.connections !== null && { connections: JSON.parse(r.connections) as string[] }),
   status: r.status,
 });
 
@@ -190,12 +195,13 @@ export class AgentRegistry {
       ...(input.systemPrompt !== undefined && { systemPrompt: input.systemPrompt }),
       ...(input.model !== undefined && { model: input.model }),
       ...(input.mode !== undefined && { mode: input.mode }),
+      ...(input.connections !== undefined && { connections: input.connections }),
       status: "active",
     };
     try {
       await this.db.query(
-        `INSERT INTO rg_agents (id, owner_id, kind, parent_id, project_id, persistent, name, role, system_prompt, model, mode)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        `INSERT INTO rg_agents (id, owner_id, kind, parent_id, project_id, persistent, name, role, system_prompt, model, mode, connections)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           record.id,
           ownerId,
@@ -208,6 +214,7 @@ export class AgentRegistry {
           input.systemPrompt ?? null,
           input.model ? JSON.stringify(input.model) : null,
           input.mode ?? null,
+          input.connections ? JSON.stringify(input.connections) : null,
         ],
       );
     } catch (err) {
@@ -266,19 +273,27 @@ export class AgentRegistry {
       model?: ModelSpec | null;
       mode?: PermissionMode | null;
       systemPrompt?: string | null;
+      connections?: string[] | null;
+      role?: string | null;
     },
   ): Promise<AgentRecord> {
     const target = this.cache.get(id);
     if (!target) throw new HierarchyError(`Unknown agent "${id}"`);
     if (!can(actor, "configure", target, this.resolve))
       throw new HierarchyError(`Not allowed to configure "${target.name}"`);
-    const columns = { model: "model", mode: "mode", systemPrompt: "system_prompt" } as const;
+    const columns = {
+      model: "model",
+      mode: "mode",
+      systemPrompt: "system_prompt",
+      connections: "connections",
+      role: "role",
+    } as const;
     const sets: string[] = [];
     const params: unknown[] = [id];
     for (const [key, column] of Object.entries(columns) as [keyof typeof columns, string][]) {
       if (change[key] === undefined) continue;
       const v = change[key];
-      params.push(key === "model" && v !== null ? JSON.stringify(v) : v);
+      params.push((key === "model" || key === "connections") && v !== null ? JSON.stringify(v) : v);
       sets.push(`${column} = $${params.length}`);
     }
     if (sets.length > 0)

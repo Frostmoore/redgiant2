@@ -391,7 +391,9 @@ export type Tab =
   | { id: string; type: "dailychat"; title: string; chatId: string | null }
   | { id: string; type: "board"; title: string; projectId: string | null }
   | { id: string; type: "inspector"; title: string; projectId: string }
-  | { id: string; type: "settings"; title: string; section?: SettingsSection };
+  | { id: string; type: "settings"; title: string; section?: SettingsSection }
+  /** A personal assistant's page, or a new one when `agentId` is null (G24.11). */
+  | { id: string; type: "assistant"; title: string; agentId: string | null };
 
 /** What the area on the right shows, next to the chat. */
 export type SideView =

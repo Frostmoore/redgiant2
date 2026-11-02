@@ -180,6 +180,7 @@ const CreateAgentInput = z.object({
   role: z.string().min(1),
   system_prompt: z.string().optional(),
   project_id: z.string().optional(),
+  connections: z.array(z.string().min(1)).optional(),
   model: z
     .object({
       provider: z.string(),
@@ -293,6 +294,48 @@ export function orchestrationTools(
     } as Tool);
   }
 
+  // Personal assistants (G24.11): God hands work to the one whose job it is, and assistants hand
+  // work to each other; the answer comes back into the same conversation.
+  if (self.kind === "god" || self.kind === "assistant") {
+    tools.push({
+      def: {
+        name: "ask_assistant",
+        description:
+          "Hand a request to one of the user's personal assistants and wait for its answer. list_agents shows them (kind assistant) with their role: pick the one whose role already covers the work; do it yourself only if none fits. Say what you need and what to give back.",
+        inputSchema: {
+          type: "object",
+          properties: { assistant_id: { type: "string" }, request: { type: "string" } },
+          required: ["assistant_id", "request"],
+        },
+      },
+      schema: z.object({ assistant_id: z.string(), request: z.string().min(1) }),
+      async run({ assistant_id, request }: { assistant_id: string; request: string }) {
+        const to = target(assistant_id);
+        if (to.kind !== "assistant") throw new Error(`${to.name} is not an assistant`);
+        if (to.status !== "active") throw new Error(`${to.name} is stopped`);
+        if (to.id === self.id || !can(me, "message", to, host.registry.resolve))
+          throw new Error(`You cannot ask ${to.name}`);
+        const sid = await host.workSession(to);
+        let done: Promise<SendResult>;
+        try {
+          ({ done } = await host.send(
+            self.ownerId,
+            sid,
+            `[Request from ${self.name}]\n${request}`,
+          ));
+        } catch (err) {
+          // Its conversation is busy (maybe waiting on this very request): never wait in a circle.
+          if ((err as Error).name === "SessionBusyError")
+            return { content: `${to.name} is busy right now; try again later.`, isError: true };
+          throw err;
+        }
+        const r = await done;
+        const answer = lastAssistantText(await host.store.list({ sessionId: sid }));
+        return `${r.stopReason === "end_turn" ? "" : `(${to.name} stopped: ${r.stopReason})\n`}${clip(answer, 6000) || `${to.name} gave no answer.`}`;
+      },
+    } as Tool);
+  }
+
   if (self.kind === "god") {
     tools.push({
       def: {
@@ -328,6 +371,11 @@ export function orchestrationTools(
             role: { type: "string" },
             system_prompt: { type: "string" },
             project_id: { type: "string" },
+            connections: {
+              type: "array",
+              items: { type: "string" },
+              description: "assistant only: the MCP servers (by name) it may use",
+            },
             model: {
               type: "object",
               properties: {
@@ -352,6 +400,7 @@ export function orchestrationTools(
           role: i.role,
           ...(i.system_prompt && { systemPrompt: i.system_prompt }),
           ...(i.project_id && { projectId: i.project_id }),
+          ...(i.connections && { connections: i.connections }),
           ...(i.model && { model: i.model as ModelSpec }),
         });
         return `Created ${a.kind} ${a.name} (${a.id}) in project ${a.projectId ?? "-"}.`;

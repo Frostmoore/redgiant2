@@ -26,6 +26,8 @@ const tree = [
   n("S1", "subagent", "A1", "p1"),
   n("S2", "subagent", "A2", "p1"),
   n("I1", "inspector", "G", "p1"),
+  n("P1", "assistant", "G", null),
+  n("P2", "assistant", "G", null),
   n("X", "god", null, null, "someone-else"),
 ];
 const byId = new Map(tree.map((a) => [a.id, a]));
@@ -40,6 +42,9 @@ O1 read      A1 yes | O1 message  S1 yes | O1 stop   A2 yes | O1 spawn  A1 no  |
 A1 read      S1 yes | A1 message  S1 yes | A1 stop   S1 yes | A1 read   S2 no  | A1 message A2 no | A1 spawn A1 yes | A1 stop O1 no | A1 read A1 yes
 S1 read      S1 yes | S1 spawn    S1 no  | S1 message A1 no | S1 read   A1 no
 I1 read      A1 yes | I1 read     S2 yes | I1 message A1 no | I1 stop   A1 no  | I1 read A3 no | I1 spawn I1 no
+P1 read      P1 yes | P1 read     P2 yes | P1 message P2 yes | P1 stop   P2 no  | P1 configure P2 no | P1 spawn P1 no
+P1 message   G  yes | P1 read     G  no  | P1 read    A1 no  | P1 message O1 no | P1 read I1 no | P1 stop P1 no
+G  configure P1 yes | G  stop     P1 yes | O1 message P1 no  | O1 read   P1 no  | I1 read P1 no | A1 message P1 no | D message P1 no
 `
   .trim()
   .split(/\s*[|\n]\s*/)

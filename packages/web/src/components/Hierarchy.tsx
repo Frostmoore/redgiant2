@@ -5,12 +5,13 @@ import { agents, attempt, getApi, openAgent, projects, refresh } from "../state.
 import { AgentWizard } from "./AgentWizard.js";
 
 const CHILDREN: Record<Agent["kind"], Agent["kind"][]> = {
-  god: ["demigod", "orchestrator", "inspector"],
+  god: ["demigod", "orchestrator", "inspector", "assistant"],
   demigod: [],
   orchestrator: ["agent"],
   agent: ["subagent"],
   subagent: [],
   inspector: [],
+  assistant: [],
 };
 
 function NewAgentForm({ parent, onDone }: { parent: Agent | null; onDone: () => void }) {

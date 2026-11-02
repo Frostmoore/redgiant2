@@ -188,6 +188,13 @@ describe("evaluate", () => {
     ["plan", "edit_file", { path: "a", old_string: "", new_string: "" }, "deny"],
     ["readonly", "bash", { command: "ls" }, "deny"],
     ["readonly", "grep", { pattern: "x" }, "allow"],
+    // G24.11: what leaves through a connected service asks; reading does not.
+    ["auto", "mcp__gmail__send_email", { to: "a@b.c" }, "ask"],
+    ["auto", "mcp__notion__createPost", {}, "ask"],
+    ["auto", "mcp__my-shop__refund", { id: 1 }, "ask"],
+    ["auto", "mcp__notion__list_posts", {}, "allow"],
+    ["auto", "mcp__gmail__search_threads", { q: "send" }, "allow"],
+    ["auto", "mcp__delete-tracker__get_issue", {}, "allow"],
   ] as const)("%s %s %j → %s", (mode, tool, input, expected) => {
     expect(evaluate(mode, call(tool, input), s).decision).toBe(expected);
   });

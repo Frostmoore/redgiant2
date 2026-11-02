@@ -9,6 +9,8 @@ export const AgentKind = z.enum([
   "subagent",
   /** Read-only observer of a project, outside the chain of command (RD30). */
   "inspector",
+  /** A personal agent under God, outside the projects (G24.11): a narrow job, its own services. */
+  "assistant",
 ]);
 export type AgentKind = z.infer<typeof AgentKind>;
 
@@ -50,5 +52,7 @@ export const AgentSpec = z.object({
   systemPrompt: z.string().optional(),
   model: ModelSpec.optional(),
   mode: PermissionMode.optional(),
+  /** For assistants (G24.11): the MCP servers it may use, by name. None unless given. */
+  connections: z.array(z.string().min(1)).optional(),
 });
 export type AgentSpec = z.infer<typeof AgentSpec>;

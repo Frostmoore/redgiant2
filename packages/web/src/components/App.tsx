@@ -14,6 +14,7 @@ import {
   IconMenu,
   IconSearch,
   IconSettings,
+  IconUser,
   Logo,
 } from "../icons.js";
 import {
@@ -44,6 +45,7 @@ import {
   toggleExplorer,
   token,
 } from "../state.js";
+import { AssistantPage } from "./Assistants.js";
 import { Bell } from "./Bell.js";
 import { Board } from "./Board.js";
 import { Chat } from "./Chat.js";
@@ -196,6 +198,8 @@ const tabIcon = (tab: Tab) =>
     <IconBoard size={13} />
   ) : tab.type === "inspector" ? (
     <IconEye size={13} />
+  ) : tab.type === "assistant" ? (
+    <IconUser size={13} />
   ) : (
     <IconSettings size={13} />
   );
@@ -258,6 +262,8 @@ function View({ tab }: { tab: Tab }) {
       return <DailyChat projectId={tab.projectId} />;
     case "settings":
       return <Settings section={tab.section} />;
+    case "assistant":
+      return <AssistantPage key={tab.id} agentId={tab.agentId} />;
   }
 }
 

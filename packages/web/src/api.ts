@@ -179,13 +179,16 @@ export interface Project {
 
 export interface Agent {
   id: string;
-  kind: "god" | "demigod" | "orchestrator" | "agent" | "subagent" | "inspector";
+  kind: "god" | "demigod" | "orchestrator" | "agent" | "subagent" | "inspector" | "assistant";
   parentId: string | null;
   projectId: string | null;
   name: string;
   role?: string;
+  systemPrompt?: string;
   model?: { provider: string; model: string; effort?: string };
   mode?: string;
+  /** For assistants: the services they may use. */
+  connections?: string[];
   status: "active" | "stopped";
 }
 

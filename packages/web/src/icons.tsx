@@ -300,6 +300,13 @@ export const IconCpu = ({ size = 14 }: P) => (
     <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3" />
   </Svg>
 );
+/** A person: personal assistants (G24.11). */
+export const IconUser = ({ size = 19 }: P) => (
+  <Svg size={size}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" />
+  </Svg>
+);
 export const IconCompass = ({ size = 14 }: P) => (
   <Svg size={size}>
     <circle cx="12" cy="12" r="10" />

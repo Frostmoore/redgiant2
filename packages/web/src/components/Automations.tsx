@@ -153,7 +153,7 @@ export function whenWords(w: When): string {
 }
 
 /** When an automation runs, in words (a date for reminders). */
-function recipeWhen(a: Automation): string {
+export function recipeWhen(a: Automation): string {
   const on = a.recipe.on;
   if (on.at) return t("whenAt", { at: new Date(on.at).toLocaleString() });
   const words = whenWords(fromCron(on.cron, on.webhook));
@@ -198,6 +198,10 @@ function whoOptions(): { key: string; label: string; agent: string; project: str
   const out: { key: string; label: string; agent: string; project: string | null }[] = [];
   const god = agents.value.find((a) => a.kind === "god");
   if (god) out.push({ key: "god", label: god.name, agent: "god", project: null });
+  // Personal assistants (G24.11): a routine belongs to one of them.
+  for (const a of agents.value)
+    if (a.kind === "assistant" && a.status === "active")
+      out.push({ key: `p:${a.id}`, label: a.name, agent: a.id, project: null });
   for (const a of agents.value) {
     if (a.status !== "active" || !a.projectId) continue;
     if (a.kind === "orchestrator")
@@ -227,12 +231,15 @@ const templateWhen: Record<(typeof TEMPLATES)[number], When> = {
 };
 
 /** Making or changing an automation: when, who, what; the YAML under "Advanced". */
-function Editor({
+export function Editor({
   current,
   onSaved,
+  who: preset,
 }: {
   current: Automation | undefined;
   onSaved: (a: Automation, secret?: string) => void;
+  /** Who does it, chosen beforehand (an assistant's own routine). */
+  who?: string;
 }) {
   const r = current?.recipe;
   const who = whoOptions();
@@ -244,7 +251,7 @@ function Editor({
     r ? fromCron(r.on.cron, r.on.webhook) : templateWhen.morning,
   );
   const [whoKey, setWhoKey] = useState(() => {
-    if (!r) return "god";
+    if (!r) return preset ?? "god";
     if (r.agent === "god") return "god";
     if (r.agent === "orchestrator") return `o:${r.project}`;
     return who.find((x) => x.agent === r.agent && x.project === r.project)?.key ?? "god";

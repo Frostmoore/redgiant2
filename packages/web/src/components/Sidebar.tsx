@@ -13,6 +13,7 @@ import {
   IconPlus,
   IconSettings,
   IconTree,
+  IconUser,
 } from "../icons.js";
 import {
   activeTab,
@@ -29,6 +30,7 @@ import {
   type SessionRow,
   sessionRows,
 } from "../state.js";
+import { assistantState } from "./Assistants.js";
 
 const SHOWN = 8;
 
@@ -212,6 +214,77 @@ function Entry({
 }
 
 /**
+ * The personal assistants (G24.11): each with its state (free, at work, waiting for you), its
+ * conversations, and its page; "+ new" makes one step by step.
+ */
+function Assistants({ open, toggle }: { open: Set<string>; toggle: (key: string) => void }) {
+  const list = agents.value.filter((a) => a.kind === "assistant" && a.status === "active");
+  const page = (agentId: string | null, title: string) =>
+    openTab({ id: `assistant:${agentId ?? "new"}`, type: "assistant", title, agentId });
+  return (
+    <>
+      <div class="bar-title">
+        {t("assistants")}
+        <button type="button" class="add" onClick={() => page(null, t("asstNewTitle"))}>
+          <IconPlus size={12} /> {t("newShort")}
+        </button>
+      </div>
+      {list.length === 0 && (
+        <button type="button" class="bar-hint" onClick={() => page(null, t("asstNewTitle"))}>
+          {t("asstEmpty")}
+        </button>
+      )}
+      {list.map((a) => {
+        const key = `a:${a.id}`;
+        const state = assistantState(a);
+        return (
+          <div key={a.id}>
+            <div class="bar-row">
+              <button
+                type="button"
+                class="bar-item"
+                onClick={() => toggle(key)}
+                aria-expanded={open.has(key)}
+                title={a.role ?? ""}
+              >
+                <IconChevron open={open.has(key)} />
+                <IconUser size={14} />
+                <span class="name">{a.name}</span>
+                {state !== "free" && (
+                  <span
+                    class={`dot ${state === "working" ? "running" : "waiting"}`}
+                    title={t(`asstState_${state}`)}
+                  />
+                )}
+              </button>
+              <span class="project-actions">
+                <button
+                  type="button"
+                  class="icon-button"
+                  title={t("asstPage")}
+                  onClick={() => page(a.id, a.name)}
+                >
+                  <IconSettings size={14} />
+                </button>
+                <button
+                  type="button"
+                  class="icon-button"
+                  title={t("newConversation")}
+                  onClick={() => void attempt(() => newSession(a))}
+                >
+                  <IconPlus size={14} />
+                </button>
+              </span>
+            </div>
+            {open.has(key) && <Sessions agent={a} />}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/**
  * The left bar, as in Officina: only conversations and settings. God and the daily chat on
  * top, then the projects with their orchestrator's conversations.
  */
@@ -274,6 +347,8 @@ export function Sidebar() {
         }
       />
       {open.has("daily") && <DailyChats />}
+
+      <Assistants open={open} toggle={toggle} />
 
       <div class="bar-title">
         {t("projects")}

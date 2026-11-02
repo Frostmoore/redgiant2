@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { AgentSession, type Engine, type SendResult, type Tool } from "@redgiant/agent";
 import {
@@ -37,7 +37,14 @@ import {
   PersistentBudget,
   type PolicySettings,
 } from "@redgiant/hierarchy";
-import type { Event, ImagePart, ModelSpec, Recipe, ServerMessage } from "@redgiant/protocol";
+import {
+  type Event,
+  type ImagePart,
+  MCP_CATALOG,
+  type ModelSpec,
+  type Recipe,
+  type ServerMessage,
+} from "@redgiant/protocol";
 import {
   complete,
   costUsd,
@@ -132,6 +139,8 @@ export interface CoreOptions {
 export class SessionBusyError extends Error {
   constructor() {
     super("The agent is already working on a message; interrupt it or wait.");
+    // Recognised by name where importing this class would be circular (orchestration).
+    this.name = "SessionBusyError";
   }
 }
 
@@ -157,6 +166,7 @@ interface Live {
 const PRIORITY: Record<AgentRecord["kind"], number> = {
   god: 100,
   demigod: 100,
+  assistant: 80,
   orchestrator: 70,
   inspector: 60,
   agent: 50,
@@ -167,7 +177,7 @@ const PRIORITY: Record<AgentRecord["kind"], number> = {
 function defaultPrompt(agent: AgentRecord, god: string, demigod: string): string {
   switch (agent.kind) {
     case "god":
-      return `You are ${agent.name}, the main orchestrator of this RedGiant installation. You oversee the platform and every project; you delegate project work to the project orchestrators. Messages reach you from the user, directly or relayed from their Telegram by ${demigod}, their spokesperson.`;
+      return `You are ${agent.name}, the main orchestrator of this RedGiant installation. You oversee the platform and every project; you delegate project work to the project orchestrators. You are also the user's chief of staff: when a request is the job of one of their personal assistants (list_agents shows them, kind assistant, with their role), hand it over with ask_assistant and report the answer here; do it yourself only when no assistant fits. Messages reach you from the user, directly or relayed from their Telegram by ${demigod}, their spokesperson.`;
     case "demigod":
       return `You are ${agent.name}, the user's spokesperson on Telegram. Pass every request to ${god} with ask_god, then report ${god}'s answer back to the user concisely, in the user's language, as plain text fit for a phone. You never act on projects yourself.`;
     case "orchestrator":
@@ -178,6 +188,8 @@ function defaultPrompt(agent: AgentRecord, god: string, demigod: string): string
       return "You are a sub-agent with one task. Do it, verify it, and report the result briefly.";
     case "inspector":
       return "You are the project's inspector. You can only read. Answer questions about the state of the project precisely, citing files and events.";
+    case "assistant":
+      return `You are ${agent.name}, one of the user's personal assistants.${agent.role ? ` Your job: ${agent.role}` : ""} Stay within your job: hand other work to the assistant whose job it is (ask_assistant) or to ${god}. Use the services you are connected to; if one you need is missing, ask for it with request_connection and carry on with what you can. Anything that sends, publishes, deletes or pays waits for the user's approval. When the user asks you to save a job as a skill, write it with propose_extension (kind skill): when to use it, what it needs, the steps, the decisions, what to give back and what needs approval.`;
   }
 }
 
@@ -393,6 +405,14 @@ export class RedGiantCore implements OrchestrationHost {
     return sb;
   }
 
+  /**
+   * The personal assistants' workspace (G24.11): one per owner, shared by all of them like a
+   * desk (files, notes, memory), apart from God's and from every project.
+   */
+  assistantsPath(ownerId: string): string {
+    return join(this.o.platformDir, `${slug(ownerId) || "owner"}-assistants`);
+  }
+
   /** God's workspace: one per owner, under the platform directory. */
   platformPath(ownerId: string): string {
     return join(this.o.platformDir, slug(ownerId) || "owner");
@@ -400,6 +420,7 @@ export class RedGiantCore implements OrchestrationHost {
 
   /** The workspace behind a file/terminal scope ("platform" or "project:<id>"), in its sandbox. */
   async scopeWorkspace(ownerId: string, scope: string): Promise<Workspace> {
+    if (scope === "assistants") return this.assistantsWorkspace(ownerId);
     if (scope === "platform") {
       const platform = this.platformPath(ownerId);
       await mkdir(platform, { recursive: true });
@@ -438,9 +459,40 @@ export class RedGiantCore implements OrchestrationHost {
     return { root, worktree: async (agentId) => sb.workspace(await createWorktree(root, agentId)) };
   }
 
+  private async assistantsWorkspace(ownerId: string): Promise<Workspace> {
+    const dir = this.assistantsPath(ownerId);
+    await mkdir(join(dir, "memory"), { recursive: true });
+    const sb = await this.sandboxFor({
+      id: `${ownerId}-assistants`,
+      localPath: dir,
+      mount: { type: "bind", source: dir },
+    });
+    return sb.workspace();
+  }
+
+  /**
+   * What an assistant knows when a conversation starts (G24.11): the notes shared by every
+   * assistant and its own. Read once, so the instructions stay the same for the whole session.
+   */
+  private async assistantMemory(agent: AgentRecord): Promise<string> {
+    const dir = join(this.assistantsPath(agent.ownerId), "memory");
+    const read = (f: string) =>
+      readFile(join(dir, f), "utf8")
+        .then((t) => t.trim().slice(0, 8000))
+        .catch(() => "");
+    const shared = await read("shared.md");
+    const own = await read(`${agent.id}.md`);
+    return [
+      "## Memory",
+      `Shared notes about the user (memory/shared.md, every assistant reads them):\n${shared || "(empty)"}`,
+      `Your own notes (memory/${agent.id}.md: keep there what you must remember next time, short):\n${own || "(empty)"}`,
+    ].join("\n\n");
+  }
+
   /** The workspace an agent works in, and whether it may write there. */
   private async workspaceFor(agent: AgentRecord): Promise<Workspace | undefined> {
     if (agent.kind === "demigod") return undefined;
+    if (agent.kind === "assistant") return this.assistantsWorkspace(agent.ownerId);
     if (agent.kind === "god") {
       const platform = this.platformPath(agent.ownerId);
       await mkdir(platform, { recursive: true });
@@ -538,10 +590,16 @@ export class RedGiantCore implements OrchestrationHost {
       if (ws) tools.push(this.imageTool(agent, ws.root));
       tools.push(
         ...customTools(await loadCustomTools(roots), ws),
-        ...(await this.mcpTools(ownerId, agent.projectId)),
+        ...(await this.mcpTools(
+          ownerId,
+          agent.projectId,
+          // An assistant uses only the services it was given (G24.11).
+          agent.kind === "assistant" ? (agent.connections ?? []) : undefined,
+        )),
         proposeTool(agent, this.extensions),
       );
     }
+    if (agent.kind === "assistant") tools.push(this.requestConnectionTool(agent));
     const receivesTasks = ["orchestrator", "agent", "subagent"].includes(agent.kind);
     if (receivesTasks) tools.push(completeTaskTool(agent, ws, this.broker, this.tasks));
     const listeners = new Set<(m: ServerMessage) => void>();
@@ -554,7 +612,13 @@ export class RedGiantCore implements OrchestrationHost {
       providers: this.o.providers,
       model,
       ...(engine && { engine }),
-      system: [this.systemFor(agent), skillsIndex(skills)].filter(Boolean).join("\n\n"),
+      system: [
+        this.systemFor(agent),
+        agent.kind === "assistant" ? await this.assistantMemory(agent) : "",
+        skillsIndex(skills),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
       tools,
       ...(receivesTasks && { hooks: { stop: [this.tasks.stopHook(agentId)] } }),
       sessionId,
@@ -562,7 +626,9 @@ export class RedGiantCore implements OrchestrationHost {
       projectId: agent.projectId,
       agentId,
       priority: PRIORITY[agent.kind],
-      cacheScope: agent.projectId ?? `platform-${agent.ownerId}`,
+      cacheScope:
+        agent.projectId ??
+        (agent.kind === "assistant" ? `assistants-${agent.ownerId}` : `platform-${agent.ownerId}`),
       live: (e: { type: string; text?: string }) => {
         if (e.type !== "text_delta" && e.type !== "thinking_delta") return;
         for (const f of listeners)
@@ -592,6 +658,36 @@ export class RedGiantCore implements OrchestrationHost {
       model,
       usedAt: Date.now(),
     };
+  }
+
+  /**
+   * An assistant missing a service asks the person to connect it (G24.11): a message on
+   * Telegram and in the conversation; the assistant goes on with what it can.
+   */
+  private requestConnectionTool(agent: AgentRecord): Tool {
+    return {
+      def: {
+        name: "request_connection",
+        description: `Ask the user to connect a service you need (for example Notion or Linear) and to give it to you. Services in the catalog: ${MCP_CATALOG.map((e) => e.id).join(", ")}. Then go on with what you can.`,
+        inputSchema: {
+          type: "object",
+          properties: { service: { type: "string" }, why: { type: "string" } },
+          required: ["service", "why"],
+        },
+      },
+      schema: z.object({ service: z.string().min(1), why: z.string().min(1) }),
+      run: async ({ service, why }: { service: string; why: string }) => {
+        const name = MCP_CATALOG.find((e) => e.id === service)?.name ?? service;
+        const it = this.language(agent.ownerId) === "it";
+        await this.tell(
+          agent.ownerId,
+          it
+            ? `${agent.name} chiede di collegare ${name}: ${why}\nImpostazioni › Estensioni, poi dallo a ${agent.name} in Agenti.`
+            : `${agent.name} asks you to connect ${name}: ${why}\nSettings › Extensions, then give it to ${agent.name} in Agents.`,
+        ).catch(() => {});
+        return `Asked the user to connect ${name}. It takes effect in a new conversation once they give it to you; meanwhile, go on with what you can and tell them what is waiting on it.`;
+      },
+    } as Tool;
   }
 
   /** A connection to one configured server, with its keys and (if any) its OAuth sign-in. */
@@ -645,9 +741,14 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /** MCP servers configured by the owner: global ones and the project's. Failing servers are skipped. */
-  private async mcpTools(ownerId: string, projectId: string | null): Promise<Tool[]> {
+  private async mcpTools(
+    ownerId: string,
+    projectId: string | null,
+    only?: string[],
+  ): Promise<Tool[]> {
     const out: Tool[] = [];
     for (const r of await this.mcpRows(ownerId, projectId)) {
+      if (only && !only.includes(r.name)) continue;
       const key = `${ownerId}/${r.name}`;
       // A server waiting for its sign-in has no tools yet.
       if (r.transport.type === "http" && r.transport.oauth) {
