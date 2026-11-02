@@ -12,6 +12,7 @@ export * from "./hardware.js";
 export * from "./hf.js";
 export * from "./images.js";
 export * from "./inspector.js";
+export * from "./jobs.js";
 export * from "./orchestration.js";
 export * from "./platform.js";
 export * from "./projects.js";

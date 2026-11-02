@@ -918,6 +918,17 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   });
   // The plans' limits of the flat subscriptions (the header's bars).
   app.get("/api/limits", async (c) => c.json(await core.limits(), 200));
+  // Long actions (G24.1): the UI follows them and finds them again after a reload.
+  app.get("/api/jobs", (c) => c.json(core.jobs.list(owner(c)), 200));
+  app.get("/api/jobs/:id", (c) => {
+    const job = core.jobs.get(owner(c), c.req.param("id"));
+    return job ? c.json(job, 200) : c.json({ error: "No such job" }, 404);
+  });
+  app.post("/api/jobs/:id/cancel", (c) =>
+    core.jobs.cancel(owner(c), c.req.param("id"))
+      ? c.json({ ok: true }, 200)
+      : c.json({ error: "Nothing to cancel" }, 409),
+  );
   // What the composer offers: every provider's models, and whether they take an effort.
   app.get("/api/models", async (c) => c.json(await core.models(), 200));
   app.get("/api/search", async (c) =>

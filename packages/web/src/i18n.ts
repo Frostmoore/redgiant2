@@ -1,4 +1,5 @@
 import { signal } from "@preact/signals";
+import { dangerWords } from "@redgiant/protocol";
 
 export type Lang = "it" | "en";
 
@@ -795,6 +796,9 @@ export function setLang(l: Lang): void {
   lang.value = l;
   localStorage.setItem("rg.lang", l);
 }
+
+/** A danger of the permission policy in plain words: its name and a line with an example. */
+export const danger = (id: string) => dangerWords(lang.value, id);
 
 /** Translates a key; `{name}` placeholders are filled from `vars`. */
 export function t(key: Key, vars: Record<string, string> = {}): string {

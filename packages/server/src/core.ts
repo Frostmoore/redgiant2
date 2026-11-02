@@ -75,6 +75,7 @@ import {
   imageFileName,
 } from "./images.js";
 import { Inspector } from "./inspector.js";
+import { Jobs } from "./jobs.js";
 import {
   completeTaskTool,
   modelApprover,
@@ -197,6 +198,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly code: CodeChanges | undefined;
   readonly chat: DailyChat;
   readonly inspector: Inspector;
+  /** Long actions the user follows (downloads, the local engine, links). */
+  readonly jobs = new Jobs();
   /** How the owner is told about finished automations (set by the Telegram gateway). */
   notify: ((ownerId: string, text: string) => Promise<void>) | undefined;
   /** Connected MCP servers, by owner and name. */

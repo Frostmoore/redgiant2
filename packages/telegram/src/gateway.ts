@@ -3,6 +3,7 @@ import { autoRetry } from "@grammyjs/auto-retry";
 import type { SqlClient } from "@redgiant/events";
 import {
   type Answers,
+  dangerWords,
   type ImagePart,
   type PermissionRequestInfo,
   PLAN_APPROVE,
@@ -176,8 +177,12 @@ export class TelegramGateway {
     );
   }
 
+  private language(ownerId: string | undefined): Language {
+    return (ownerId && this.o.host.language?.(ownerId)) || "en";
+  }
+
   private say(ownerId: string | undefined, key: TextKey, vars?: Record<string, string>) {
-    return say((ownerId && this.o.host.language?.(ownerId)) || "en", key, vars);
+    return say(this.language(ownerId), key, vars);
   }
 
   /** Reads the bot's identity (also validates the token). */
@@ -465,7 +470,15 @@ export class TelegramGateway {
       }),
       input.length > 600 ? `${input.slice(0, 600)}…` : input,
       s("why", { reasons: info.reasons.join("; ") }),
-      ...(info.danger.length ? [s("danger", { danger: info.danger.join(", ") })] : []),
+      ...(info.danger.length
+        ? [
+            s("danger", {
+              danger: info.danger
+                .map((d) => dangerWords(this.language(ownerId), d).name)
+                .join(", "),
+            }),
+          ]
+        : []),
     ].join("\n");
     const keyboard = new InlineKeyboard()
       .text(s("allow"), `perm:${info.requestId}:allow`)

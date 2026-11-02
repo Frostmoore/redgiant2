@@ -1,7 +1,7 @@
 import { useComputed } from "@preact/signals";
 import type { AssistantPart, PermissionRequestInfo } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { lang, t } from "../i18n.js";
+import { danger, lang, t } from "../i18n.js";
 import {
   IconAlert,
   IconArrowDown,
@@ -129,7 +129,9 @@ export function PermissionCard({ r }: { r: PermissionRequestInfo }) {
       )}
       <div class="dim">
         {t("because")}: {r.reasons.join("; ")}
-        {r.danger.length > 0 && <span class="chip danger">{r.danger.join(", ")}</span>}
+        {r.danger.length > 0 && (
+          <span class="chip danger">{r.danger.map((d) => danger(d).name).join(", ")}</span>
+        )}
       </div>
       <div class="permission-actions" style={{ marginTop: "8px" }}>
         <button type="button" class="yes" onClick={() => resolve("allow")}>

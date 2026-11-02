@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { GgufFile, ModelDownload, SetupState } from "../api.js";
-import { lang, setLang, t } from "../i18n.js";
+import { danger, lang, setLang, t } from "../i18n.js";
 import { IconDownload, IconPlay } from "../icons.js";
 import { attempt, getApi, platformInfo, refresh } from "../state.js";
 
@@ -513,7 +513,7 @@ function Safety({ s, next }: { s: SetupState; next: () => void }) {
                 )
               }
             />
-            {d.label}
+            {danger(d.id).name}
           </label>
         ))}
       </div>
