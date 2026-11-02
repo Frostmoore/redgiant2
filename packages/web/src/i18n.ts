@@ -15,6 +15,83 @@ const en = {
   projectName: "Project name",
   create: "Create",
   cancel: "Cancel",
+  lmPurpose:
+    "A model that runs here: free, and nothing leaves your computer. RedGiant suggests the ones that fit; download one and start it. You can skip this if you use a subscription or a key.",
+  lmThisPc: "This computer",
+  lmHwGpu: "{name} with {vram} GB of video memory: models up to about {max} GB run on it, fast.",
+  lmHwGpuUnknown:
+    "An NVIDIA graphics card is available, but its memory is unknown: start with a small model.",
+  lmHwIgpu:
+    "A graphics chip built into the processor: a little faster than the processor alone; models up to about {max} GB.",
+  lmHwUnreachable:
+    "The graphics card cannot be used yet (AMD and Intel cards on Windows): models run on the processor, slower; up to about {max} GB.",
+  lmHwCpu:
+    "No graphics card to use: models run on the processor, slower; small ones, up to about {max} GB.",
+  lmSuggested: "Models that suit this computer",
+  lmLoading: "Looking up the models…",
+  lmRecommended: "recommended",
+  lmInUse: "in use",
+  lmQuality_high: "high quality",
+  lmQuality_good: "good quality",
+  lmQuality_reduced: "reduced quality, to fit",
+  lmDownload: "Download · {size}",
+  lmStarting: "Starting…",
+  lmPause: "Pause",
+  lmPaused: "Paused: {done} of {total}",
+  lmPausedAt: "Paused at {done}",
+  lmResume: "Go on",
+  lmDiscard: "Throw away the download",
+  lmStart: "Start",
+  lmDelete: "Delete",
+  lmUseForAgents: "Use it for the agents",
+  lmUsedForAgents: "The agents will use this model.",
+  lmTooBig: "It needs at least {need}: this computer has room for {max}.",
+  lmUnavailable: "Hugging Face does not answer: try again later.",
+  lmOther: "Other models in the folder",
+  lmEngine: "Engine",
+  lmEngineHelp:
+    "RedGiant picks the one that suits this computer. Change it only if starting fails.",
+  lmEngine_cpu: "Processor",
+  lmEngine_cuda: "NVIDIA graphics card (CUDA)",
+  lmEngine_vulkan: "AMD, Intel or built-in graphics (Vulkan)",
+  lmSearch: "Other models from Hugging Face",
+  lmSearchHint:
+    "Search by name, choose a repository and a file. Files that are not models are hidden.",
+  lmSearchPlaceholder: "e.g. gemma, qwen, mistral",
+  "lm_gemma-4-e2b":
+    "Google's smallest: quick even without a graphics card. Good for chatting and simple jobs.",
+  "lm_gemma-4-e4b": "Small but able: chat, summaries, simple tasks with tools.",
+  "lm_gemma-4-12b": "Writes and reasons well, understands Italian; the right size for 8 to 12 GB.",
+  "lm_gpt-oss-20b": "OpenAI's open model: reasons step by step and uses tools well.",
+  "lm_gemma-4-26b":
+    "Large but quick (only part of it works at each step): one of the best for 16 GB.",
+  "lm_qwen3-coder-30b": "Made for programming: reads and writes code, uses the terminal.",
+  "lm_qwen3.8-27b": "Among the best local models today, for 16 to 24 GB: code, reasoning, tools.",
+  job_model_download: "Downloading {model}",
+  job_step_download: "Downloading the model",
+  job_engine: "Starting {model}",
+  job_step_image: "Downloading the engine (only once)",
+  job_step_start: "Starting the engine",
+  job_step_load: "Loading the model into memory",
+  job_step_try: "Trying an answer",
+  job_error_out_of_memory:
+    "There is not enough memory for this model. Choose a smaller model, or the same one in a lower quality.",
+  job_error_no_gpu:
+    "The engine cannot see the graphics card. Update the card's drivers and restart the computer, or choose the processor under Advanced.",
+  job_error_bad_model: "This file is not a model the engine can run. Choose another one.",
+  job_error_model_missing: "The model file is not in the folder any more. Download it again.",
+  job_error_load_timeout: "The model did not load within 15 minutes. Try a smaller one.",
+  job_error_no_answer:
+    "The model loaded but did not answer the test. Try starting it again, or choose another one.",
+  job_error_image_download:
+    "The engine could not be downloaded. Check the internet connection and try again.",
+  job_error_engine_stopped: "The engine stopped by itself. The details below say why.",
+  job_error_start: "The engine did not start. The details below say why.",
+  job_error_unreachable:
+    "Hugging Face does not answer. Check the connection; the download will go on from where it stopped.",
+  job_error_incomplete:
+    "The download stopped before the end: press Go on to continue from where it stopped.",
+  job_error_bad_file: "This is not a model file of Hugging Face.",
   wzBrain: "How should RedGiant think?",
   brainPurpose:
     "RedGiant needs at least one model to think with. Pick one or more ways below; you can also skip this and add one later in Settings, but until then the agents cannot answer.",
@@ -266,7 +343,6 @@ const en = {
   wzLanguage: "Language",
   wzHardware: "This machine",
   wzDiskFree: "free disk",
-  wzDockerGpu: "Docker can use an NVIDIA GPU.",
   wzStart: "Start",
   wzLocked: "set by the environment",
   wzAlreadySet: "already set",
@@ -276,14 +352,7 @@ const en = {
   wzDefaultModel: "Default model",
   wzTrying: "Trying the model…",
   wzSaveNext: "Save and continue",
-  wzLocalHint:
-    "Download a GGUF model from Hugging Face and run it on the bundled engine. On this machine a model file up to about {gb} fits; the best quantisation that fits is suggested.",
   wzPickRepo: "Choose a repository",
-  wzSuggested: "suggested",
-  wzTooBig: "too big",
-  wzDownload: "Download",
-  wzStartEngine: "Run {model}",
-  wzEngineOn: "The local engine runs {model} (provider: local).",
   wzNext: "Next",
   wzSkip: "Skip",
   wzNamesHint: "How the main agents are called, and how God should work.",
@@ -386,10 +455,6 @@ const en = {
   wzImagesKey: "OpenAI key for pictures (generate_image)",
   wzImagesModel: "Picture model",
   newReminder: "New reminder",
-  hw_gpu: "NVIDIA GPU with {vram} GB: models up to about {max} GB run on it.",
-  "hw_gpu-unknown": "Docker can use an NVIDIA GPU; check its memory and pick a model that fits.",
-  hw_cpu:
-    "No GPU: small models (up to about {max} GB) run on the CPU, slowly. A cloud model is faster.",
   subscriptions: "Models and subscriptions",
   viaSubscription: "subscription",
   viaLocal: "local",
@@ -479,6 +544,86 @@ const it: Record<Key, string> = {
   projectName: "Nome del progetto",
   create: "Crea",
   cancel: "Annulla",
+  lmPurpose:
+    "Un modello che gira qui: gratis, e niente esce dal tuo computer. RedGiant ti suggerisce quelli adatti; scaricane uno e avvialo. Puoi saltare questo passo se usi un abbonamento o una chiave.",
+  lmThisPc: "Questo computer",
+  lmHwGpu: "{name} con {vram} GB di memoria video: ci girano veloci modelli fino a circa {max} GB.",
+  lmHwGpuUnknown:
+    "C'è una scheda video NVIDIA, ma non si sa quanta memoria ha: comincia da un modello piccolo.",
+  lmHwIgpu:
+    "Una scheda video integrata nel processore: un po' più veloce del solo processore; modelli fino a circa {max} GB.",
+  lmHwUnreachable:
+    "La scheda video per ora non si può usare (schede AMD e Intel su Windows): i modelli girano sul processore, più lenti; fino a circa {max} GB.",
+  lmHwCpu:
+    "Nessuna scheda video da usare: i modelli girano sul processore, più lenti; piccoli, fino a circa {max} GB.",
+  lmSuggested: "Modelli adatti a questo computer",
+  lmLoading: "Cerco i modelli…",
+  lmRecommended: "consigliato",
+  lmInUse: "in uso",
+  lmQuality_high: "qualità alta",
+  lmQuality_good: "qualità buona",
+  lmQuality_reduced: "qualità ridotta, per starci",
+  lmDownload: "Scarica · {size}",
+  lmStarting: "Comincio…",
+  lmPause: "Pausa",
+  lmPaused: "In pausa: {done} di {total}",
+  lmPausedAt: "In pausa a {done}",
+  lmResume: "Riprendi",
+  lmDiscard: "Butta via il download",
+  lmStart: "Avvia",
+  lmDelete: "Elimina",
+  lmUseForAgents: "Usalo per gli agenti",
+  lmUsedForAgents: "Gli agenti useranno questo modello.",
+  lmTooBig: "Serve almeno {need}: su questo computer ci sta fino a {max}.",
+  lmUnavailable: "Hugging Face non risponde: riprova più tardi.",
+  lmOther: "Altri modelli nella cartella",
+  lmEngine: "Motore",
+  lmEngineHelp:
+    "RedGiant sceglie quello adatto a questo computer. Cambialo solo se l'avvio non riesce.",
+  lmEngine_cpu: "Processore",
+  lmEngine_cuda: "Scheda video NVIDIA (CUDA)",
+  lmEngine_vulkan: "Scheda AMD, Intel o integrata (Vulkan)",
+  lmSearch: "Altri modelli da Hugging Face",
+  lmSearchHint:
+    "Cerca per nome, scegli un repository e un file. I file che non sono modelli sono nascosti.",
+  lmSearchPlaceholder: "per esempio gemma, qwen, mistral",
+  "lm_gemma-4-e2b":
+    "Il più piccolo di Google: veloce anche senza scheda video. Va bene per chiacchierare e lavoretti semplici.",
+  "lm_gemma-4-e4b": "Piccolo ma capace: chat, riassunti, compiti semplici con gli strumenti.",
+  "lm_gemma-4-12b": "Scrive e ragiona bene, capisce l'italiano; la misura giusta per 8-12 GB.",
+  "lm_gpt-oss-20b":
+    "Il modello aperto di OpenAI: ragiona passo per passo e usa bene gli strumenti.",
+  "lm_gemma-4-26b":
+    "Grande ma veloce (a ogni passo lavora solo una parte): fra i migliori per 16 GB.",
+  "lm_qwen3-coder-30b": "Fatto per programmare: legge e scrive codice, usa il terminale.",
+  "lm_qwen3.8-27b":
+    "Fra i migliori modelli locali di oggi, per 16-24 GB: codice, ragionamento, strumenti.",
+  job_model_download: "Download di {model}",
+  job_step_download: "Scarico il modello",
+  job_engine: "Avvio di {model}",
+  job_step_image: "Scarico il motore (una volta sola)",
+  job_step_start: "Avvio il motore",
+  job_step_load: "Carico il modello in memoria",
+  job_step_try: "Provo una risposta",
+  job_error_out_of_memory:
+    "Non c'è abbastanza memoria per questo modello. Scegline uno più piccolo, o lo stesso con una qualità più bassa.",
+  job_error_no_gpu:
+    "Il motore non vede la scheda video. Aggiorna i driver della scheda e riavvia il computer, oppure scegli il processore in Avanzate.",
+  job_error_bad_model:
+    "Questo file non è un modello che il motore sa far girare. Scegline un altro.",
+  job_error_model_missing: "Il file del modello non è più nella cartella. Scaricalo di nuovo.",
+  job_error_load_timeout: "Il modello non si è caricato in 15 minuti. Prova con uno più piccolo.",
+  job_error_no_answer:
+    "Il modello si è caricato ma non ha risposto alla prova. Riprova ad avviarlo, oppure scegline un altro.",
+  job_error_image_download:
+    "Non sono riuscito a scaricare il motore. Controlla la connessione a internet e riprova.",
+  job_error_engine_stopped: "Il motore si è fermato da solo. I dettagli qui sotto dicono perché.",
+  job_error_start: "Il motore non è partito. I dettagli qui sotto dicono perché.",
+  job_error_unreachable:
+    "Hugging Face non risponde. Controlla la connessione; il download riprenderà da dove si era fermato.",
+  job_error_incomplete:
+    "Il download si è fermato prima della fine: premi Riprendi per continuare da dove era.",
+  job_error_bad_file: "Questo non è un file di modello di Hugging Face.",
   wzBrain: "Come deve pensare RedGiant?",
   brainPurpose:
     "Per pensare RedGiant ha bisogno di almeno un modello. Scegli uno o più modi qui sotto; puoi anche saltare e aggiungerlo dopo dalle Impostazioni, ma fino ad allora gli agenti non possono rispondere.",
@@ -737,7 +882,6 @@ const it: Record<Key, string> = {
   wzLanguage: "Lingua",
   wzHardware: "Questa macchina",
   wzDiskFree: "disco libero",
-  wzDockerGpu: "Docker può usare una GPU NVIDIA.",
   wzStart: "Inizia",
   wzLocked: "impostato dall'ambiente",
   wzAlreadySet: "già impostata",
@@ -747,14 +891,7 @@ const it: Record<Key, string> = {
   wzDefaultModel: "Modello predefinito",
   wzTrying: "Provo il modello…",
   wzSaveNext: "Salva e continua",
-  wzLocalHint:
-    "Scarica un modello GGUF da Hugging Face e fallo girare sul motore incluso. Su questa macchina ci sta un file fino a circa {gb}; ti suggerisco la quantizzazione migliore che ci sta.",
   wzPickRepo: "Scegli un repository",
-  wzSuggested: "consigliato",
-  wzTooBig: "troppo grande",
-  wzDownload: "Scarica",
-  wzStartEngine: "Avvia {model}",
-  wzEngineOn: "Il motore locale fa girare {model} (provider: local).",
   wzNext: "Avanti",
   wzSkip: "Salta",
   wzNamesHint: "Come si chiamano gli agenti principali e come deve lavorare God.",
@@ -859,11 +996,6 @@ const it: Record<Key, string> = {
   wzImagesKey: "Chiave OpenAI per le immagini (generate_image)",
   wzImagesModel: "Modello per le immagini",
   newReminder: "Nuovo promemoria",
-  hw_gpu: "Scheda video NVIDIA con {vram} GB: ci girano modelli fino a circa {max} GB.",
-  "hw_gpu-unknown":
-    "Docker può usare una scheda video NVIDIA; controlla quanta memoria ha e scegli un modello che ci stia.",
-  hw_cpu:
-    "Nessuna scheda video: i modelli piccoli (fino a circa {max} GB) girano sul processore, lentamente. Un modello cloud è più veloce.",
   subscriptions: "Modelli e abbonamenti",
   viaSubscription: "abbonamento",
   viaLocal: "locale",

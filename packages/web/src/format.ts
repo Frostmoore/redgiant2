@@ -22,8 +22,10 @@ export const usd = (v: number) =>
 export const clock = (iso: string | undefined) => (iso ? new Date(iso).toLocaleTimeString() : "–");
 
 export const bytes = (n: number) =>
-  n >= 1_048_576
-    ? `${(n / 1_048_576).toFixed(1)} MB`
-    : n >= 1024
-      ? `${(n / 1024).toFixed(1)} KB`
-      : `${n} B`;
+  n >= 1_073_741_824
+    ? `${(n / 1_073_741_824).toFixed(2)} GB`
+    : n >= 1_048_576
+      ? `${(n / 1_048_576).toFixed(1)} MB`
+      : n >= 1024
+        ? `${(n / 1024).toFixed(1)} KB`
+        : `${n} B`;

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "preact/hooks";
-import type { GgufFile, ModelDownload, SetupState } from "../api.js";
+import type { SetupState } from "../api.js";
 import { danger, lang, setLang, t } from "../i18n.js";
-import { IconDownload, IconPlay } from "../icons.js";
 import { attempt, getApi, platformInfo, refresh } from "../state.js";
 import { Brain, DefaultModel } from "./Brain.js";
+import { hardwareText, LocalModels } from "./LocalModels.js";
 import { Step } from "./ui.js";
 
 const STEPS = [
@@ -43,145 +43,17 @@ function BrainStep({ s, next, reload }: { s: SetupState; next: () => void; reloa
   );
 }
 
-/** A local model from Hugging Face, sized for this machine, and the engine that runs it. */
-function Local({ s, next, reload }: { s: SetupState; next: () => void; reload: () => void }) {
-  const [q, setQ] = useState("gemma 4 gguf");
-  const [repos, setRepos] = useState<{ id: string; downloads: number }[]>([]);
-  const [repo, setRepo] = useState("");
-  const [files, setFiles] = useState<GgufFile[]>([]);
-  const [downloads, setDownloads] = useState<ModelDownload[]>([]);
-  const budget = s.hardware.suggestion.maxModelGb;
-  const [variant, setVariant] = useState<"cpu" | "cuda">(s.hardware.suggestion.engine);
-  useEffect(() => {
-    const tick = () =>
-      void getApi()
-        .hfDownloads()
-        .then(setDownloads, () => {});
-    tick();
-    const timer = setInterval(tick, 1500);
-    return () => clearInterval(timer);
-  }, []);
-  const best = (() => {
-    const fitting = files.filter((f) => f.sizeGb <= budget);
-    const order = [
-      "Q8_0",
-      "Q6_K",
-      "Q5_K_M",
-      "Q5_K_S",
-      "Q4_K_M",
-      "Q4_K_S",
-      "IQ4_XS",
-      "Q4_0",
-      "Q3_K_M",
-      "Q2_K",
-    ];
-    for (const o of order) {
-      const f = fitting.find((x) => x.quant === o);
-      if (f) return f.file;
-    }
-    return fitting.at(-1)?.file;
-  })();
-  const ready = downloads.filter((d) => d.state === "done");
+/** A model on this computer: the suggested ones, downloaded and started from here. */
+function LocalStep({ s, next, reload }: { s: SetupState; next: () => void; reload: () => void }) {
   return (
-    <div class="form">
-      <p class="wide dim">{t("wzLocalHint", { gb: gb(budget) })}</p>
-      {s.locked.engine && <p class="wide notice">{t("wzLocked")}</p>}
-      <form
-        class="row wide"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void attempt(() => getApi().hfSearch(q)).then((r) => r && setRepos(r));
-        }}
-      >
-        <input value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} />
-        <button type="submit">{t("search")}</button>
-      </form>
-      {repos.length > 0 && (
-        <select
-          class="wide"
-          value={repo}
-          onChange={(e) => {
-            const r = (e.target as HTMLSelectElement).value;
-            setRepo(r);
-            void attempt(() => getApi().hfFiles(r)).then((f) => f && setFiles(f));
-          }}
-        >
-          <option value="">{t("wzPickRepo")}</option>
-          {repos.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.id} · {r.downloads.toLocaleString()} {t("downloads")}
-            </option>
-          ))}
-        </select>
-      )}
-      {files.length > 0 && (
-        <div class="wide wz-files">
-          {files.map((f) => (
-            <div key={f.file} class={`row ${f.file === best ? "wz-best" : ""}`}>
-              <code>{f.file}</code>
-              <span class="dim">{gb(f.sizeGb)}</span>
-              {f.file === best && <span class="chip">{t("wzSuggested")}</span>}
-              {f.sizeGb > budget && <span class="chip danger">{t("wzTooBig")}</span>}
-              <div class="spacer" />
-              <button
-                type="button"
-                class="tiny"
-                onClick={() => void attempt(() => getApi().hfDownload(repo, f.file))}
-              >
-                <IconDownload /> {t("wzDownload")}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      {downloads.map((d) => (
-        <div key={d.target} class="wide row">
-          <code>{d.target}</code>
-          <span class="dim">
-            {d.state === "running"
-              ? d.total
-                ? `${Math.round((d.bytes / d.total) * 100)} %`
-                : gb(d.bytes / 1024 ** 3)
-              : d.state === "done"
-                ? t("downloaded")
-                : `${t("failed")}: ${d.error ?? ""}`}
-          </span>
-        </div>
-      ))}
-      {ready.length > 0 && !s.locked.engine && (
-        <div class="row wide">
-          <select
-            value={variant}
-            onChange={(e) => setVariant((e.target as HTMLSelectElement).value as "cpu" | "cuda")}
-          >
-            <option value="cpu">CPU</option>
-            <option value="cuda">NVIDIA (CUDA)</option>
-          </select>
-          {ready.map((d) => (
-            <button
-              key={d.target}
-              type="button"
-              class="primary"
-              onClick={() =>
-                void attempt(() => getApi().setupEngine({ variant, model: d.target })).then((r) => {
-                  if (r !== undefined) reload();
-                })
-              }
-            >
-              <IconPlay /> {t("wzStartEngine", { model: d.target })}
-            </button>
-          ))}
-        </div>
-      )}
-      {s.config.engine && (
-        <p class="wide notice ok">{t("wzEngineOn", { model: s.config.engine.model })}</p>
-      )}
-      <div class="row wide">
+    <Step title={t("wzLocal")} purpose={t("lmPurpose")} onSkip={next}>
+      <LocalModels s={s} reload={reload} />
+      <div class="row">
         <button type="button" class="primary" onClick={next}>
-          {s.config.engine ? t("wzNext") : t("wzSkip")}
+          {t("wzNext")}
         </button>
       </div>
-    </div>
+    </Step>
   );
 }
 
@@ -375,7 +247,7 @@ export function Setup({ onDone }: { onDone?: () => void }) {
       </ol>
       <section class="wz-body">
         {/* Steps built from Step carry their own title. */}
-        {step !== 1 && <h2>{t(STEPS[step] ?? "wzWelcome")}</h2>}
+        {step !== 1 && step !== 2 && <h2>{t(STEPS[step] ?? "wzWelcome")}</h2>}
         {step === 0 && (
           <div class="form">
             <p class="wide">{t("wzWelcomeText")}</p>
@@ -396,16 +268,11 @@ export function Setup({ onDone }: { onDone?: () => void }) {
               </div>
               {h.gpus.map((g) => (
                 <div key={g.name}>
-                  GPU {g.name} · {gb(g.vramGb)}
+                  GPU {g.name}
+                  {g.vramGb > 0 && ` · ${gb(g.vramGb)}`}
                 </div>
               ))}
-              {h.dockerGpu && <div>{t("wzDockerGpu")}</div>}
-              <div class="dim">
-                {t(`hw_${h.suggestion.kind}` as never, {
-                  vram: String(h.suggestion.vramGb),
-                  max: String(h.suggestion.maxModelGb),
-                })}
-              </div>
+              <div class="dim">{hardwareText(h)}</div>
             </div>
             <div class="row wide">
               <button type="button" class="primary" onClick={next}>
@@ -415,7 +282,7 @@ export function Setup({ onDone }: { onDone?: () => void }) {
           </div>
         )}
         {step === 1 && <BrainStep s={s} next={next} reload={reload} />}
-        {step === 2 && <Local s={s} next={next} reload={reload} />}
+        {step === 2 && <LocalStep s={s} next={next} reload={reload} />}
         {step === 3 && <Names s={s} next={next} />}
         {step === 4 && <Telegram s={s} next={next} />}
         {step === 5 && <Safety s={s} next={next} />}

@@ -6,7 +6,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { FakeProvider, ProviderError, ProviderRegistry } from "@redgiant/providers";
-import { RedGiantCore, SetupService, serve, TokenAuth } from "@redgiant/server";
+import {
+  HuggingFace,
+  JobFailure,
+  RedGiantCore,
+  SetupService,
+  serve,
+  TokenAuth,
+} from "@redgiant/server";
 
 const port = Number(process.argv[2] ?? 7650);
 // Set DEMO_TOKEN when the demo is reachable by others: the UI includes a terminal.
@@ -319,10 +326,32 @@ const setup = new SetupService({
     }),
     telegram: async () => null,
     search: async () => {},
-    engine: async () => {},
+    // The local engine's steps, acted out: a file called "huge…" runs out of memory.
+    engine: async (cfg, h) => {
+      if (!cfg || !h) return;
+      h.step("image");
+      for (let i = 0; i <= 10; i++) {
+        h.progress(i * 30_000_000, 300_000_000);
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      h.step("start");
+      await new Promise((r) => setTimeout(r, 800));
+      h.step("load");
+      await new Promise((r) => setTimeout(r, 1500));
+      if (cfg.model.startsWith("huge"))
+        throw new JobFailure(
+          "out_of_memory",
+          "ggml_backend_cuda_buffer_type_alloc_buffer: allocating 21000 MiB on device 0: cudaMalloc failed: out of memory",
+        );
+      core.providers.register(new FakeProvider(() => ({ text: "OK" }), { id: "local" }));
+    },
   },
 });
 await mkdir(join(dir, "claude"), { recursive: true });
+// Two models already in the folder, to start (one too big for the GPU).
+await mkdir(join(dir, "models"), { recursive: true });
+await writeFile(join(dir, "models", "my-model-Q4_K_M.gguf"), "demo");
+await writeFile(join(dir, "models", "huge-model-Q8_0.gguf"), "demo");
 await setup.applyAtStartup();
 await setup.complete();
 const running = await serve(core, new TokenAuth({ [token]: "local" }), {
@@ -330,6 +359,7 @@ const running = await serve(core, new TokenAuth({ [token]: "local" }), {
   host: "0.0.0.0",
   webDir: web,
   setup,
+  hf: new HuggingFace(join(dir, "models")),
 });
 console.log(
   JSON.stringify({

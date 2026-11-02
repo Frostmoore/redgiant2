@@ -50,7 +50,7 @@ export interface SetupState {
     transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
     imagesModel?: string;
     subscriptions?: { claude?: boolean; chatgpt?: boolean };
-    engine?: { variant: "cpu" | "cuda"; model: string };
+    engine?: { variant: EngineVariant; model: string };
     retentionDays?: number;
     subscriptionAck?: boolean;
   };
@@ -82,12 +82,18 @@ export interface SetupState {
     cores: number;
     ramGb: number;
     diskFreeGb: number | null;
-    gpus: { name: string; vramGb: number }[];
+    gpus: {
+      name: string;
+      vramGb: number;
+      vendor: "nvidia" | "amd" | "intel" | "other";
+      integrated: boolean;
+    }[];
     dockerGpu: boolean;
+    gpuAccess: "dri" | "";
     suggestion: {
-      engine: "cuda" | "cpu";
+      engine: EngineVariant;
       maxModelGb: number;
-      kind: "gpu" | "gpu-unknown" | "cpu";
+      kind: "gpu" | "gpu-unknown" | "igpu" | "cpu";
       vramGb: number;
     };
   };
@@ -106,14 +112,23 @@ export interface GgufFile {
   quant: string | null;
 }
 
-export interface ModelDownload {
+export type EngineVariant = "cpu" | "cuda" | "vulkan";
+
+/** A suggested local model with the best file for this computer (G24.3). */
+export interface LocalModelChoice {
+  id: string;
+  name: string;
   repo: string;
+  file: (GgufFile & { quality: "high" | "good" | "reduced" }) | null;
+  smallestGb: number | null;
+  unavailable?: boolean;
+}
+
+/** A file of the models folder: ready, or a download paused halfway. */
+export interface LocalFile {
   file: string;
-  target: string;
   bytes: number;
-  total: number | null;
-  state: "running" | "done" | "failed";
-  error?: string;
+  partial: boolean;
 }
 
 export interface PlatformInfo {
@@ -453,8 +468,9 @@ export class Api {
 
   setup = () => this.call<SetupState>("GET", "/api/setup");
   setupModels = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/models", b);
-  setupEngine = (engine: { variant: "cpu" | "cuda"; model: string } | null) =>
-    this.call("PUT", "/api/setup/engine", { engine });
+  /** Starts the local engine: a job to follow (null stops it). */
+  setupEngine = (engine: { variant: EngineVariant; model: string } | null) =>
+    this.call<Job>("PUT", "/api/setup/engine", { engine });
   setupNames = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/names", b);
   setupTelegram = (token: string | null) =>
     this.call<{ username: string } | null>("PUT", "/api/setup/telegram", { token });
@@ -491,9 +507,13 @@ export class Api {
     );
   hfFiles = (repo: string) =>
     this.call<GgufFile[]>("GET", `/api/setup/hf/files?repo=${encodeURIComponent(repo)}`);
-  hfDownload = (repo: string, file: string) =>
-    this.call<ModelDownload>("POST", "/api/setup/hf/download", { repo, file });
-  hfDownloads = () => this.call<ModelDownload[]>("GET", "/api/setup/hf/downloads");
+  localModels = () =>
+    this.call<{ models: LocalModelChoice[]; files: LocalFile[] }>("GET", "/api/setup/local-models");
+  /** Downloads a model file: a job to follow; cancelling it pauses, starting again goes on. */
+  downloadModel = (repo: string, file: string) =>
+    this.call<Job>("POST", "/api/setup/local-models/download", { repo, file });
+  removeModel = (file: string) =>
+    this.call("DELETE", `/api/setup/local-models/${encodeURIComponent(file)}`);
   jobs = () => this.call<Job[]>("GET", "/api/jobs");
   job = (id: string) => this.call<Job>("GET", `/api/jobs/${encodeURIComponent(id)}`);
   cancelJob = (id: string) => this.call("POST", `/api/jobs/${encodeURIComponent(id)}/cancel`);

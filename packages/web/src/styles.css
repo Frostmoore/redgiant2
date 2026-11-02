@@ -2676,3 +2676,102 @@ button.ui-card.on {
 .services > h2 {
   margin: 0;
 }
+
+/* --- G24.3: a model on this computer (components/LocalModels.tsx) --- */
+.lm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lm h3 {
+  margin: 6px 0 0;
+  font-size: 16px;
+}
+.lm-pc {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+.lm-pc p {
+  margin: 2px 0 0;
+}
+.lm-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.lm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.lm-card.best {
+  border: 2px solid var(--accent);
+  padding: 13px;
+}
+.lm-card.too-big {
+  opacity: 0.6;
+}
+.lm-card p {
+  margin: 0;
+}
+.lm-meta {
+  font-size: 13px;
+  font-weight: 600;
+}
+.lm-progress {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.lm-progress .ui-progress {
+  flex: 1;
+  min-width: 0;
+}
+.lm-ready {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lm-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lm-files > li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.lm-files code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lm-search {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+.lm-search form input {
+  flex: 1;
+  min-width: 0;
+}
+.lm button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

@@ -2,6 +2,7 @@
 import type { Job } from "@redgiant/protocol";
 import { fireEvent, render } from "@testing-library/preact";
 import { beforeEach, describe, expect, it } from "vitest";
+import { hardwareText } from "../src/components/LocalModels.js";
 import {
   Choice,
   Field,
@@ -116,5 +117,51 @@ describe("ui pieces", () => {
     expect(r.getAllByRole("listitem").map((li) => li.className)).toEqual(["done", "failed"]);
     expect(r.getByText(/Qualcosa non è andato/)).toBeTruthy();
     expect(r.getByText("llama.cpp: failed to load model")).toBeTruthy();
+  });
+
+  it("says what this computer can run, for every kind of graphics card", () => {
+    const hw = (
+      gpus: {
+        name: string;
+        vramGb: number;
+        vendor: "nvidia" | "amd" | "intel" | "other";
+        integrated: boolean;
+      }[],
+      kind: "gpu" | "gpu-unknown" | "igpu" | "cpu",
+      engine: "cpu" | "cuda" | "vulkan",
+      vramGb = 0,
+      maxModelGb = 6,
+    ) => ({
+      os: "linux",
+      cpu: "x",
+      cores: 8,
+      ramGb: 32,
+      diskFreeGb: 100,
+      gpus,
+      dockerGpu: false,
+      gpuAccess: "" as const,
+      suggestion: { engine, kind, vramGb, maxModelGb },
+    });
+    const rtx = {
+      name: "NVIDIA GeForce RTX 4080 SUPER",
+      vramGb: 16,
+      vendor: "nvidia" as const,
+      integrated: false,
+    };
+    expect(hardwareText(hw([rtx], "gpu", "cuda", 16, 12.8))).toBe(
+      "NVIDIA GeForce RTX 4080 SUPER con 16 GB di memoria video: ci girano veloci modelli fino a circa 12.8 GB.",
+    );
+    const radeon = {
+      name: "AMD Radeon RX 7800 XT",
+      vramGb: 16,
+      vendor: "amd" as const,
+      integrated: false,
+    };
+    expect(hardwareText(hw([radeon], "cpu", "cpu"))).toMatch(
+      /^La scheda video per ora non si può usare/,
+    );
+    const iris = { name: "Intel Iris Xe", vramGb: 0, vendor: "intel" as const, integrated: true };
+    expect(hardwareText(hw([iris], "igpu", "vulkan", 0, 8))).toMatch(/^Una scheda video integrata/);
+    expect(hardwareText(hw([], "cpu", "cpu"))).toMatch(/^Nessuna scheda video da usare/);
   });
 });

@@ -69,13 +69,19 @@ export function qualityOf(quant: string | null): "high" | "good" | "reduced" {
   return "reduced";
 }
 
+/** A file worth offering: a known good quantisation, or one named some other way (not 1-bit). */
+export function offered(f: GgufFile): boolean {
+  return f.quant === null || QUALITY.includes(f.quant);
+}
+
 export function suggest(files: GgufFile[], budgetGb: number): GgufFile | undefined {
   const fitting = files.filter((f) => f.sizeGb <= budgetGb);
   for (const q of QUALITY) {
     const f = fitting.find((x) => x.quant === q);
     if (f) return f;
   }
-  return fitting.sort((a, b) => b.sizeGb - a.sizeGb)[0];
+  // A file named some other way may still be good; the 1-bit ones (IQ1, TQ1) are not offered.
+  return fitting.filter((f) => f.quant === null).sort((a, b) => b.sizeGb - a.sizeGb)[0];
 }
 
 const safeName = (s: string) => s.replace(/[^\w.-]+/g, "_");
