@@ -119,6 +119,14 @@ export const DEFAULT_DANGER_RULES: DangerRule[] = [
       "\\b(send|invia|inviare|post|posta|pubblica|publish|pay|paga|pagare|buy|compra|acquista|purchase|order|ordina|checkout|delete|elimina|cancella|remove|rimuovi|transfer|bonifico|confirm|conferma)\\b",
   },
   {
+    // G24.14c: a pull request or an issue on the project's repository is public to its readers.
+    id: "git-publish",
+    label: "Opens a pull request or an issue",
+    tool: "repo_*",
+    pattern: ".*",
+    except: ["repo_list"],
+  },
+  {
     id: "secrets-files",
     label: "Secret files",
     tool: "*",
@@ -151,6 +159,7 @@ export const DEFAULT_POLICY: PolicySettings = {
     "platform",
     "outgoing",
     "outgoing-browser",
+    "git-publish",
   ],
   approverKinds: ["god", "orchestrator", "agent"],
 };

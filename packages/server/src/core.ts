@@ -80,6 +80,7 @@ import { type Browsers, browserTools } from "./browser.js";
 import { DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
 import { type EmailAccount, EmailWatcher, type Mailbox } from "./email.js";
+import type { GitHosts } from "./git-hosts.js";
 import {
   type GeneratedImage,
   generateImage,
@@ -232,6 +233,10 @@ export class RedGiantCore implements OrchestrationHost {
   readonly rooms: Rooms;
   /** Routines on email: the person's mailbox, read every few minutes (G24.14c). */
   readonly email: EmailWatcher;
+  /** Pull requests and issues on a project's repository (G24.14c), when GitHub or Gitea is set. */
+  repoActions:
+    | ((projectId: string, a: Parameters<GitHosts["repoAction"]>[3]) => Promise<string>)
+    | undefined;
   /** The personal agents' browser (G24.14b), when there is Docker to run it. */
   browsers: Browsers | undefined;
   /** Long actions the user follows (downloads, the local engine, links). */
@@ -710,6 +715,12 @@ export class RedGiantCore implements OrchestrationHost {
       );
     }
     if (agent.kind === "assistant") tools.push(this.requestConnectionTool(agent));
+    if (
+      agent.projectId &&
+      (agent.kind === "orchestrator" || agent.kind === "agent") &&
+      this.repoActions
+    )
+      tools.push(...this.repoTools(agent.projectId));
     // The browser shared by the personal agents (G24.14b, D11).
     if (agent.kind === "assistant" && this.browsers)
       tools.push(
@@ -788,6 +799,72 @@ export class RedGiantCore implements OrchestrationHost {
       model,
       usedAt: Date.now(),
     };
+  }
+
+  /**
+   * Pull requests and issues on the project's repository (G24.14c), through the server with the
+   * person's token. Opening one asks the person first (danger `git-publish`).
+   */
+  private repoTools(projectId: string): Tool[] {
+    const act = (a: Parameters<GitHosts["repoAction"]>[3]) => {
+      const f = this.repoActions;
+      if (!f) throw new Error("GitHub or Gitea is not connected any more");
+      return f(projectId, a);
+    };
+    return [
+      {
+        def: {
+          name: "repo_pull_request",
+          description:
+            "Open a pull request on the project's repository (GitHub or Gitea). Push your branch first (git push origin HEAD:<branch>), then give it as head. The user approves before it opens.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              body: { type: "string" },
+              head: { type: "string", description: "your pushed branch" },
+              base: { type: "string", description: "default: main" },
+            },
+            required: ["title", "body", "head"],
+          },
+        },
+        schema: z.object({
+          title: z.string().min(1),
+          body: z.string(),
+          head: z.string().min(1),
+          base: z.string().optional(),
+        }),
+        run: (i: { title: string; body: string; head: string; base?: string }) =>
+          act({ kind: "pull", title: i.title, body: i.body, head: i.head, base: i.base ?? "main" }),
+      } as Tool,
+      {
+        def: {
+          name: "repo_issue",
+          description:
+            "Open an issue on the project's repository (GitHub or Gitea). The user approves before it opens.",
+          inputSchema: {
+            type: "object",
+            properties: { title: { type: "string" }, body: { type: "string" } },
+            required: ["title", "body"],
+          },
+        },
+        schema: z.object({ title: z.string().min(1), body: z.string() }),
+        run: (i: { title: string; body: string }) => act({ kind: "issue", ...i }),
+      } as Tool,
+      {
+        def: {
+          name: "repo_list",
+          description: "The open issues or pull requests of the project's repository.",
+          inputSchema: {
+            type: "object",
+            properties: { what: { type: "string", enum: ["issues", "pulls"] } },
+            required: ["what"],
+          },
+        },
+        schema: z.object({ what: z.enum(["issues", "pulls"]) }),
+        run: ({ what }: { what: "issues" | "pulls" }) => act({ kind: "list", what }),
+      } as Tool,
+    ];
   }
 
   /**

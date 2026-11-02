@@ -244,4 +244,43 @@ describe("subprojects (G24.13)", () => {
     );
     expect(kept).toHaveLength(1);
   });
+
+  it("lets project agents open an issue through the server, after the person approves (G24.14c)", async () => {
+    let step = 0;
+    s = await startServer(() =>
+      ++step === 1
+        ? { toolCalls: [{ name: "repo_issue", input: { title: "Bug", body: "It breaks" } }] }
+        : { text: "done" },
+    );
+    const asked: string[][] = [];
+    s.core.approvals.on("request", (o, info) => {
+      asked.push(info.danger);
+      s?.core.approvals.decide(o, info.requestId, "allow");
+    });
+    const calls: unknown[] = [];
+    s.core.repoActions = async (projectId, a) => {
+      calls.push({ projectId, ...a });
+      return "Issue #1: https://x/1";
+    };
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const p = await s.api<{ id: string }>("POST", "/api/projects", { name: "Site" });
+    const lead = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "orchestrator",
+      parentId: god.body.id,
+      projectId: p.body.id,
+      name: "Lead",
+    });
+    const sid = (
+      await s.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: lead.body.id })
+    ).body.sessionId;
+    await (await s.core.send("me", sid, "report the bug")).done;
+    expect(asked).toEqual([["git-publish"]]);
+    expect(calls).toEqual([
+      { projectId: p.body.id, kind: "issue", title: "Bug", body: "It breaks" },
+    ]);
+  });
 });

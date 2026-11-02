@@ -54,6 +54,10 @@ const en: Record<string, Words> = {
     name: "Sending, publishing, deleting or paying",
     hint: "Through a connected service: an email, a post, deleting a page, a payment.",
   },
+  "git-publish": {
+    name: "Opening a pull request or an issue",
+    hint: "On the project's repository on GitHub or Gitea, where whoever reads it sees it.",
+  },
   "outgoing-browser": {
     name: "Sending, publishing, paying or deleting in the browser",
     hint: "An agent clicks a button like Send, Publish, Pay, Buy or Delete on a web page.",
@@ -108,6 +112,10 @@ const it: Record<string, Words> = {
   outgoing: {
     name: "Inviare, pubblicare, cancellare o pagare",
     hint: "Tramite un servizio collegato: una email, un post, cancellare una pagina, un pagamento.",
+  },
+  "git-publish": {
+    name: "Aprire una pull request o una issue",
+    hint: "Sul repository del progetto su GitHub o Gitea, dove la vede chi lo legge.",
   },
   "outgoing-browser": {
     name: "Inviare, pubblicare, pagare o cancellare nel browser",

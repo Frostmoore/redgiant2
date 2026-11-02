@@ -494,6 +494,14 @@ export class SetupService {
     if (!git) return;
     const { cfg, secrets } = this.gitParts();
     await git.writeRoutes(cfg, secrets);
+    // Pull requests and issues for the projects' agents (G24.14c), when there is a host.
+    this.o.core.repoActions =
+      cfg.github || cfg.gitea
+        ? (projectId, a) => {
+            const { cfg: c, secrets: s } = this.gitParts();
+            return git.repoAction(c, s, projectId, a);
+          }
+        : undefined;
     this.o.core.projects.onCreate =
       cfg.github || cfg.gitea
         ? async (p) => {

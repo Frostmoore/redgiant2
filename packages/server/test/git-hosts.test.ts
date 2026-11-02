@@ -31,6 +31,15 @@ function hosts(o: { badToken?: boolean; noAdmin?: boolean } = {}) {
     if (path === "gitea:/api/v1/user/repos") return new Response("{}", { status: 201 });
     if (path.startsWith("gitea:/api/v1/repos/") && path.endsWith("/push_mirrors"))
       return new Response("{}", { status: 201 });
+    if (/\/(pulls|issues)$/.test(path) && method === "POST") {
+      hooks.push({ path, body: JSON.parse(String(init?.body ?? "{}")) });
+      return Response.json({ number: 7, html_url: `https://x/${path}/7` }, { status: 201 });
+    }
+    if (path.includes("/issues?"))
+      return Response.json([
+        { number: 1, title: "Bug", html_url: "https://x/1", user: { login: "marta" } },
+        { number: 2, title: "A PR", html_url: "https://x/2", pull_request: {} },
+      ]);
     if (path.endsWith("/hooks")) {
       hooks.push({ path, body: JSON.parse(String(init?.body ?? "{}")) });
       return new Response("{}", { status: 201 });
@@ -44,6 +53,40 @@ const remote = async (path: string) =>
   (await git("git", ["-C", path, "remote", "get-url", "origin"])).stdout.trim();
 
 describe("where the code lives", () => {
+  it("opens pull requests and issues on the project's repository for its agents (G24.14c)", async () => {
+    const h = hosts();
+    const g = new GitHosts({ fetch: h.f });
+    const gitea = { gitea: { user: "marta", publicUrl: "" } } as never;
+    expect(
+      await g.repoAction(gitea, { giteaToken: "t" }, "sito", {
+        kind: "pull",
+        title: "Cart",
+        body: "Adds the cart",
+        head: "cart",
+        base: "main",
+      }),
+    ).toMatch(/^Pull request #7/);
+    expect(h.hooks[0]).toMatchObject({
+      path: "gitea:/api/v1/repos/marta/sito/pulls",
+      body: { head: "cart", base: "main" },
+    });
+    const gh = { github: { login: "mario" } };
+    expect(
+      await g.repoAction(gh, { githubToken: "ghp_good" }, "sito", {
+        kind: "issue",
+        title: "Bug",
+        body: "It breaks",
+      }),
+    ).toMatch(/^Issue #7/);
+    expect(h.hooks[1]?.path).toBe("github:/repos/mario/sito/issues");
+    // GitHub lists pull requests among issues: only the issues are shown.
+    const list = await g.repoAction(gh, { githubToken: "ghp_good" }, "sito", {
+      kind: "list",
+      what: "issues",
+    });
+    expect(list).toBe("#1 Bug (marta) https://x/1");
+  });
+
   it("adds a routine's webhook on Gitea, or on GitHub when it can reach RedGiant (G24.14c)", async () => {
     const h = hosts();
     const g = new GitHosts({ fetch: h.f });

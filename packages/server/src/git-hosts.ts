@@ -164,6 +164,73 @@ export class GitHosts {
   }
 
   /**
+   * Pull requests and issues on a project's repository (G24.14c): on Gitea when the code lives
+   * there, else on GitHub. Called by the server with the person's token; the agents never see it.
+   */
+  async repoAction(
+    cfg: GitHostsConfig,
+    s: GitHostsSecrets,
+    projectId: string,
+    a:
+      | { kind: "pull"; title: string; body: string; head: string; base: string }
+      | { kind: "issue"; title: string; body: string }
+      | { kind: "list"; what: "issues" | "pulls" },
+  ): Promise<string> {
+    const gitea = cfg.gitea && s.giteaToken ? cfg.gitea : undefined;
+    const github = !gitea && cfg.github && s.githubToken ? cfg.github : undefined;
+    if (!gitea && !github) throw new GitHostError("failed", "No GitHub or Gitea is connected");
+    const call = (path: string, init: RequestInit = {}) =>
+      gitea
+        ? this.gitea(
+            gitea.user,
+            s.giteaToken as string,
+            `/repos/${gitea.user}/${projectId}${path}`,
+            init,
+          )
+        : this.github(s.githubToken as string, `/repos/${github?.login}/${projectId}${path}`, init);
+    const where = gitea ? "Gitea" : "GitHub";
+    if (a.kind === "list") {
+      const r = await call(`/${a.what}?state=open&per_page=30&limit=30`);
+      if (!r.ok) throw new GitHostError("failed", `${where} answered ${r.status}`);
+      const items = (await r.json()) as {
+        number: number;
+        title: string;
+        html_url: string;
+        user?: { login?: string };
+        pull_request?: unknown;
+      }[];
+      // GitHub lists pull requests among the issues too.
+      const shown = a.what === "issues" ? items.filter((i) => !i.pull_request) : items;
+      return shown.length
+        ? shown
+            .map((i) => `#${i.number} ${i.title} (${i.user?.login ?? "?"}) ${i.html_url}`)
+            .join("\n")
+        : `No open ${a.what}.`;
+    }
+    const body =
+      a.kind === "pull"
+        ? { title: a.title, body: a.body, head: a.head, base: a.base }
+        : { title: a.title, body: a.body };
+    const r = await call(a.kind === "pull" ? "/pulls" : "/issues", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    if (r.status === 401) throw new GitHostError("token_rejected", `${where} refused the token`);
+    if (r.status === 403)
+      throw new GitHostError(
+        "missing_permission",
+        `${where} did not let the token do it (${a.kind === "pull" ? "Pull requests" : "Issues"}: read and write)`,
+      );
+    if (!r.ok)
+      throw new GitHostError(
+        "failed",
+        `${where} answered ${r.status}: ${(await r.text()).slice(0, 300)}`,
+      );
+    const made = (await r.json()) as { number: number; html_url: string };
+    return `${a.kind === "pull" ? "Pull request" : "Issue"} #${made.number}: ${made.html_url}`;
+  }
+
+  /**
    * A webhook on a project's repository that calls an automation (G24.14c): on Gitea when the
    * code lives there (it calls RedGiant inside Docker), else on GitHub (which needs RedGiant's
    * address from outside). `url` is the automation's address with its secret.
