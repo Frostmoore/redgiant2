@@ -244,6 +244,7 @@ const running = await serve(core, new TokenAuth({ [token]: owner }), {
   setup,
   hf: new HuggingFace(modelsDir),
   ...(winEngine && { winHf: new HuggingFace(winEngine.modelsDir) }),
+  loginOwner: owner,
   webDir: env.REDGIANT_WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 console.log(`RedGiant listening on ${running.url} (sandbox: ${sandbox.kind})`);

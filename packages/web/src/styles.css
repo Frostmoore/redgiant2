@@ -1703,7 +1703,8 @@ select.model:disabled {
   place-items: center;
   height: 100%;
 }
-.login form {
+.login form,
+.login-box {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -2840,4 +2841,27 @@ a.button.primary {
 .tg-qr .qr {
   width: 170px;
   height: 170px;
+}
+
+/* --- G24.6: access from outside home (components/RemoteAccess.tsx) --- */
+.remote-code {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.remote-code h4 {
+  margin: 0;
+}
+.remote-secret {
+  font-family: var(--mono);
+  font-size: 13px;
+  word-break: break-all;
+}
+.brain-panel.locked {
+  opacity: 0.85;
+}
+.login-box .ui-advanced {
+  margin-top: 6px;
 }

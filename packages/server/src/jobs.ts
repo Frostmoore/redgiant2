@@ -24,6 +24,8 @@ export interface JobHandle {
   skip(id: string): void;
   /** Progress of the running step (bytes for downloads). */
   progress(done: number, total: number | null): void;
+  /** Words the page needs while the job runs (a sign-in address…): merged into `vars`. */
+  info(vars: Record<string, string>): void;
 }
 
 interface Entry {
@@ -124,6 +126,9 @@ export class Jobs {
       skip: (id) => {
         const target = e.job.steps.find((s) => s.id === id);
         if (target && target.state === "waiting") target.state = "skipped";
+      },
+      info: (vars) => {
+        e.job.vars = { ...e.job.vars, ...vars };
       },
       progress: (done, total) => {
         const current = running();

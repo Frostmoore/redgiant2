@@ -65,6 +65,7 @@ export async function startServer(
     {
       port: 0,
       host: "127.0.0.1",
+      loginOwner: "me",
       ...(webDir && { webDir }),
       ...(gateway && { telegram: { gateway, webhookSecret: "webhook-secret-for-tests" } }),
       ...parts,

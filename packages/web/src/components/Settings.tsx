@@ -13,6 +13,7 @@ import {
   IconPhone,
   IconPuzzle,
   IconSettings,
+  IconShield,
   IconSun,
   IconTelegram,
   IconTree,
@@ -26,6 +27,7 @@ import { Devices } from "./Devices.js";
 import { Extensions } from "./Extensions.js";
 import { Hierarchy } from "./Hierarchy.js";
 import { Platform } from "./Platform.js";
+import { RemoteSettings } from "./RemoteSettings.js";
 import { Services } from "./Services.js";
 import { Setup } from "./Setup.js";
 import { Subscriptions } from "./Subscriptions.js";
@@ -41,6 +43,7 @@ const SECTIONS: { id: SettingsSection; label: () => string; icon: ComponentChild
   { id: "devices", label: () => t("devices"), icon: <IconPhone size={15} /> },
   { id: "subscriptions", label: () => t("subscriptions"), icon: <IconCard size={15} /> },
   { id: "code", label: () => t("wzCode"), icon: <IconFolder size={15} /> },
+  { id: "remote", label: () => t("wzRemote"), icon: <IconShield size={15} /> },
   { id: "budgets", label: () => t("budgets"), icon: <IconDollar size={15} /> },
   { id: "platform", label: () => t("platformView"), icon: <IconLayers size={15} /> },
 ];
@@ -125,6 +128,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "devices" && <Devices />}
         {section === "subscriptions" && <Subscriptions />}
         {section === "code" && <CodeSettings />}
+        {section === "remote" && <RemoteSettings />}
         {section === "budgets" && <Budgets />}
         {section === "platform" && <Platform />}
       </div>

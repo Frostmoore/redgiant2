@@ -18,6 +18,7 @@ import type { RedGiantCore } from "./core.js";
 import { GitHostError, type GitHosts, type GitHostsConfig } from "./git-hosts.js";
 import { detectHardware, type EngineVariant, type Hardware } from "./hardware.js";
 import { JobFailure, type JobHandle } from "./jobs.js";
+import { REMOTE_STEPS, type RemoteRequest } from "./remote.js";
 
 /** Applies a choice while the server runs (set by main.ts; tests pass fakes). */
 export interface SetupHooks {
@@ -51,6 +52,8 @@ export interface SetupHooks {
     o: { user: string; password: string } | null,
     h?: JobHandle,
   ): Promise<{ token: string; publicUrl: string } | null>;
+  /** A way to reach RedGiant from outside home (G24.6); null switches every way off. */
+  remote?(req: RemoteRequest | null, h?: JobHandle): Promise<{ url: string } | null>;
 }
 
 export interface SetupConfig {
@@ -76,6 +79,8 @@ export interface SetupConfig {
   mode?: "standard" | "advanced";
   /** Where the code lives: GitHub and/or Gitea (their tokens are in the secrets). */
   git?: GitHostsConfig;
+  /** How RedGiant is reached from outside home, and at which address (G24.6). */
+  remote?: { way: RemoteRequest["way"]; url: string };
 }
 
 interface Secrets {
@@ -88,6 +93,7 @@ interface Secrets {
   claudeSubscriptionToken?: string;
   githubToken?: string;
   giteaToken?: string;
+  cloudflareToken?: string;
 }
 
 /** What the environment already sets: the wizard shows it and does not change it. */
@@ -580,6 +586,39 @@ export class SetupService {
     this.config.git = rest;
     await this.save();
     await this.applyGit();
+  }
+
+  /**
+   * Opens a way in from outside home, as a job. Never without a password: the token in the
+   * link would be the only lock on a public address.
+   */
+  async startRemote(req: RemoteRequest): Promise<Job> {
+    const hook = this.o.hooks.remote;
+    if (!hook) throw new SetupError("This installation cannot open access from outside");
+    if (!(await this.o.core.logins.status(this.o.ownerId)).password)
+      throw new SetupError("Set a password first", "no_password");
+    return this.o.core.jobs.start(
+      this.o.ownerId,
+      "remote",
+      REMOTE_STEPS[req.way],
+      async (h) => {
+        const r = await hook(req, h);
+        if (!r) throw new JobFailure("start", "Nothing started");
+        this.config.remote = { way: req.way, url: r.url };
+        if (req.way === "cloudflare") this.secrets.cloudflareToken = req.token;
+        await this.save();
+        return r;
+      },
+      { way: req.way },
+    );
+  }
+
+  /** Closes every way in from outside home. */
+  async stopRemote(): Promise<void> {
+    await this.o.hooks.remote?.(null);
+    delete this.config.remote;
+    delete this.secrets.cloudflareToken;
+    await this.save();
   }
 
   /** A repository for every project that has none yet; each project's result. */

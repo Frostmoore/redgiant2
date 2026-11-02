@@ -15,6 +15,107 @@ const en = {
   projectName: "Project name",
   create: "Create",
   cancel: "Cancel",
+  wzRemote: "Access from outside home",
+  remotePurpose:
+    "Use RedGiant from your phone or another computer when you are away. First a password, then one of three ways; nothing is reachable from outside until you finish. Optional.",
+  remotePassword: "Your password",
+  remotePasswordHint:
+    "From outside, RedGiant asks for this password (the link with the token stays for this computer). Choose one you use nowhere else.",
+  remotePasswordSet: "A password is set",
+  remotePasswordChange: "Change it",
+  remotePasswordSaved: "Saved: every other signed-in browser has been signed out.",
+  remoteNewPassword: "New password",
+  remotePasswordRule:
+    "At least 10 characters. A short sentence is easy to remember and hard to guess.",
+  remoteCode: "Second check (recommended)",
+  remoteCodeHint:
+    "Besides the password, a 6-digit code from an app on your phone (Google Authenticator, Microsoft Authenticator, 2FAS…): someone who learns the password still cannot get in.",
+  remoteCodeStart: "Switch on the second check",
+  remoteCodeScan:
+    "Scan the code with the app (or type the key below in it), then write here the 6 digits it shows.",
+  remoteCodeQr: "Scan with the authenticator app",
+  remoteCodeConfirm: "Confirm",
+  remoteCodeOn: "Second check on",
+  remoteCodeOff: "Second check off.",
+  remoteSessions: "Signed-in browsers",
+  remoteSessionsHint:
+    "Each sign-in lasts 30 days. If you lost a phone, or think someone else got in:",
+  remoteSignOutAll: "Sign out everywhere",
+  remoteSignedOut: "Signed out everywhere.",
+  remoteHow: "How to reach it",
+  remoteNeedsPassword: "Set the password above first.",
+  remoteOn: "RedGiant can be reached from outside at this address:",
+  remoteOff: "Switch off access from outside",
+  remoteTailscale:
+    "A private network between your own devices: nothing opened on the router, free for personal use. You install Tailscale on your phone too.",
+  remoteCloudflare:
+    "An address on your own domain (about 10 euros a year), nothing opened on the router. A few more steps on Cloudflare's site.",
+  remoteOwnDomain: "Your domain, open router",
+  remoteCaddy:
+    "For experts: your domain pointing at home, ports 80 and 443 opened on the router. Anyone on the internet can reach the sign-in page.",
+  remoteConnect: "Connect",
+  tsStep1: "Make a free Tailscale account (with Google, Microsoft or GitHub is fine):",
+  tsSignUp: "Sign up on Tailscale",
+  tsStep2:
+    "In Tailscale's DNS page switch on MagicDNS and HTTPS Certificates (they give RedGiant a safe address):",
+  tsDns: "Tailscale DNS settings",
+  tsStep3: "Then here:",
+  tsStep4:
+    "Install Tailscale on your phone and the other computers, signed in with the same account:",
+  tsApps: "Tailscale apps",
+  tsSignIn: "Tailscale wants you to sign in, to add RedGiant to your network:",
+  tsOpenSignIn: "Open Tailscale's sign-in page",
+  cfStep1:
+    "If you have no domain yet, buy one (Cloudflare sells them at cost, about 10 euros a year):",
+  cfBuy: "Buy a domain on Cloudflare",
+  cfStep2:
+    "Open Tunnels in Cloudflare Zero Trust, press Create a tunnel, choose Cloudflared and give it a name (for example redgiant):",
+  cfTunnels: "Cloudflare tunnels",
+  cfStep3:
+    "In the step Public hostname: subdomain redgiant, your domain, Service type HTTP, URL redgiant:7600. Save.",
+  cfStep4:
+    "Cloudflare shows a command with a long token after --token: copy only the token and write the address here.",
+  cfToken: "The tunnel's token",
+  cfTokenHelp:
+    "The long string after --token in the command Cloudflare shows (it starts with eyJ).",
+  cfHost: "The address you chose",
+  cfHostHelp:
+    "For example redgiant.yourdomain.com: the subdomain and domain of the Public hostname.",
+  cfAccess:
+    "Safer still: in Cloudflare Zero Trust, Access, add an application for this address, so Cloudflare asks who you are before the page even appears.",
+  caddyWarning:
+    "With this way RedGiant's sign-in page is on the internet: keep the password strong and the second check on.",
+  caddyStep1:
+    "At your domain's provider, make a DNS record of type A for the address you want (for example redgiant.yourdomain.com) pointing at your home's public address. If it changes, use a dynamic DNS service.",
+  caddyStep2: "On your router, forward ports 80 and 443 to this computer.",
+  caddyDomain: "The address",
+  caddyDomainHelp: "RedGiant gets its HTTPS certificate from Let's Encrypt by itself.",
+  caddyPihole:
+    "Inside home some routers cannot reach their own public address: then open RedGiant at home with its usual link, or set a local DNS (Pi-hole) for this address.",
+  loginPassword: "Password",
+  loginCode: "Code from the app (6 digits)",
+  loginWithToken: "Sign in with the token or a pairing code",
+  err_wrong: "Wrong password or code.",
+  err_too_many: "Too many wrong tries: wait 15 minutes, then try again.",
+  err_weak: "The password needs at least 10 characters.",
+  err_no_password: "Set a password first.",
+  job_remote: "Opening access from outside",
+  job_step_remote_image: "Downloading what is needed (only once)",
+  job_step_remote_start: "Starting it",
+  job_step_remote_login: "Waiting for you to sign in to Tailscale",
+  job_step_remote_https: "Getting the safe address (HTTPS)",
+  job_step_remote_connect: "Connecting to Cloudflare",
+  job_step_remote_cert: "Getting the certificate from Let's Encrypt",
+  job_error_tailscale_https:
+    "Tailscale did not give an HTTPS address: switch on MagicDNS and HTTPS Certificates in Tailscale's DNS page (step 2), then connect again.",
+  job_error_login_timeout: "Nobody signed in to Tailscale within 15 minutes. Press Connect again.",
+  job_error_token_rejected:
+    "Cloudflare refused this token: copy it again, only the long string after --token.",
+  job_error_connect_timeout:
+    "The tunnel did not connect. Check the internet connection and the tunnel on Cloudflare's site.",
+  job_error_cert:
+    "Let's Encrypt did not give the certificate: check the DNS record and the router's ports 80 and 443 (steps 1 and 2).",
+  job_error_ports_busy: "Ports 80 or 443 are already used by another program on this computer.",
   wzMode: "How do you want RedGiant?",
   wzCode: "Where the code lives",
   modePurpose:
@@ -643,6 +744,107 @@ const it: Record<Key, string> = {
   projectName: "Nome del progetto",
   create: "Crea",
   cancel: "Annulla",
+  wzRemote: "Accesso da fuori casa",
+  remotePurpose:
+    "Usa RedGiant dal telefono o da un altro computer quando sei fuori. Prima una password, poi una di tre strade; niente è raggiungibile da fuori finché non hai finito. Facoltativo.",
+  remotePassword: "La tua password",
+  remotePasswordHint:
+    "Da fuori RedGiant chiede questa password (il link con il token resta per questo computer). Scegline una che non usi da nessun'altra parte.",
+  remotePasswordSet: "La password è impostata",
+  remotePasswordChange: "Cambiala",
+  remotePasswordSaved: "Salvata: tutti gli altri browser collegati sono stati scollegati.",
+  remoteNewPassword: "Nuova password",
+  remotePasswordRule:
+    "Almeno 10 caratteri. Una frase breve è facile da ricordare e difficile da indovinare.",
+  remoteCode: "Seconda verifica (consigliata)",
+  remoteCodeHint:
+    "Oltre alla password, un codice di 6 cifre da un'app sul telefono (Google Authenticator, Microsoft Authenticator, 2FAS…): chi scopre la password non entra lo stesso.",
+  remoteCodeStart: "Attiva la seconda verifica",
+  remoteCodeScan:
+    "Inquadra il codice con l'app (oppure scrivici la chiave qui sotto), poi scrivi qui le 6 cifre che ti mostra.",
+  remoteCodeQr: "Inquadra con l'app di autenticazione",
+  remoteCodeConfirm: "Conferma",
+  remoteCodeOn: "Seconda verifica attiva",
+  remoteCodeOff: "Seconda verifica spenta.",
+  remoteSessions: "Browser collegati",
+  remoteSessionsHint:
+    "Ogni accesso dura 30 giorni. Se hai perso un telefono, o pensi che qualcun altro sia entrato:",
+  remoteSignOutAll: "Scollega tutti",
+  remoteSignedOut: "Scollegati tutti.",
+  remoteHow: "Come raggiungerlo",
+  remoteNeedsPassword: "Prima imposta la password qui sopra.",
+  remoteOn: "RedGiant si raggiunge da fuori a questo indirizzo:",
+  remoteOff: "Spegni l'accesso da fuori",
+  remoteTailscale:
+    "Una rete privata fra i tuoi dispositivi: niente da aprire sul router, gratis per uso personale. Installi Tailscale anche sul telefono.",
+  remoteCloudflare:
+    "Un indirizzo sul tuo dominio (circa 10 euro l'anno), niente da aprire sul router. Qualche passo in più sul sito di Cloudflare.",
+  remoteOwnDomain: "Il tuo dominio, router aperto",
+  remoteCaddy:
+    "Per esperti: il tuo dominio che punta a casa, porte 80 e 443 aperte sul router. Chiunque su internet raggiunge la pagina di accesso.",
+  remoteConnect: "Collega",
+  tsStep1: "Crea un account gratuito su Tailscale (va bene con Google, Microsoft o GitHub):",
+  tsSignUp: "Iscriviti a Tailscale",
+  tsStep2:
+    "Nella pagina DNS di Tailscale attiva MagicDNS e HTTPS Certificates (danno a RedGiant un indirizzo sicuro):",
+  tsDns: "Impostazioni DNS di Tailscale",
+  tsStep3: "Poi qui:",
+  tsStep4: "Installa Tailscale sul telefono e sugli altri computer, con lo stesso account:",
+  tsApps: "App di Tailscale",
+  tsSignIn: "Tailscale vuole che tu acceda, per aggiungere RedGiant alla tua rete:",
+  tsOpenSignIn: "Apri la pagina di accesso di Tailscale",
+  cfStep1:
+    "Se non hai ancora un dominio, comprane uno (Cloudflare li vende a prezzo di costo, circa 10 euro l'anno):",
+  cfBuy: "Compra un dominio su Cloudflare",
+  cfStep2:
+    "Apri Tunnels in Cloudflare Zero Trust, premi Create a tunnel, scegli Cloudflared e dagli un nome (per esempio redgiant):",
+  cfTunnels: "Tunnel di Cloudflare",
+  cfStep3:
+    "Nel passo Public hostname: sottodominio redgiant, il tuo dominio, Service type HTTP, URL redgiant:7600. Salva.",
+  cfStep4:
+    "Cloudflare mostra un comando con un token lungo dopo --token: copia solo il token e scrivi qui l'indirizzo.",
+  cfToken: "Il token del tunnel",
+  cfTokenHelp:
+    "La stringa lunga dopo --token nel comando che mostra Cloudflare (comincia con eyJ).",
+  cfHost: "L'indirizzo che hai scelto",
+  cfHostHelp: "Per esempio redgiant.tuodominio.it: sottodominio e dominio del Public hostname.",
+  cfAccess:
+    "Ancora più sicuro: in Cloudflare Zero Trust, Access, aggiungi un'applicazione per questo indirizzo, così Cloudflare chiede chi sei prima ancora di mostrare la pagina.",
+  caddyWarning:
+    "Con questa strada la pagina di accesso di RedGiant è su internet: tieni la password forte e la seconda verifica attiva.",
+  caddyStep1:
+    "Dal fornitore del tuo dominio crea un record DNS di tipo A per l'indirizzo che vuoi (per esempio redgiant.tuodominio.it) che punti all'indirizzo pubblico di casa. Se cambia, usa un servizio di DNS dinamico.",
+  caddyStep2: "Sul router inoltra le porte 80 e 443 a questo computer.",
+  caddyDomain: "L'indirizzo",
+  caddyDomainHelp: "RedGiant prende da solo il certificato HTTPS da Let's Encrypt.",
+  caddyPihole:
+    "In casa alcuni router non riescono a raggiungere il proprio indirizzo pubblico: allora apri RedGiant in casa con il solito link, oppure imposta un DNS locale (Pi-hole) per questo indirizzo.",
+  loginPassword: "Password",
+  loginCode: "Codice dell'app (6 cifre)",
+  loginWithToken: "Entra con il token o con un codice di abbinamento",
+  err_wrong: "Password o codice sbagliati.",
+  err_too_many: "Troppi tentativi sbagliati: aspetta 15 minuti e riprova.",
+  err_weak: "La password deve avere almeno 10 caratteri.",
+  err_no_password: "Prima imposta una password.",
+  job_remote: "Apro l'accesso da fuori",
+  job_step_remote_image: "Scarico quello che serve (una volta sola)",
+  job_step_remote_start: "Lo avvio",
+  job_step_remote_login: "Aspetto che tu acceda a Tailscale",
+  job_step_remote_https: "Prendo l'indirizzo sicuro (HTTPS)",
+  job_step_remote_connect: "Mi collego a Cloudflare",
+  job_step_remote_cert: "Prendo il certificato da Let's Encrypt",
+  job_error_tailscale_https:
+    "Tailscale non ha dato un indirizzo HTTPS: attiva MagicDNS e HTTPS Certificates nella pagina DNS di Tailscale (passo 2), poi collega di nuovo.",
+  job_error_login_timeout:
+    "Nessuno ha fatto l'accesso a Tailscale in 15 minuti. Premi di nuovo Collega.",
+  job_error_token_rejected:
+    "Cloudflare ha rifiutato questo token: copialo di nuovo, solo la stringa lunga dopo --token.",
+  job_error_connect_timeout:
+    "Il tunnel non si è collegato. Controlla la connessione e il tunnel sul sito di Cloudflare.",
+  job_error_cert:
+    "Let's Encrypt non ha dato il certificato: controlla il record DNS e le porte 80 e 443 del router (passi 1 e 2).",
+  job_error_ports_busy:
+    "Le porte 80 o 443 sono già usate da un altro programma su questo computer.",
   wzMode: "Come vuoi RedGiant?",
   wzCode: "Dove sta il codice",
   modePurpose:

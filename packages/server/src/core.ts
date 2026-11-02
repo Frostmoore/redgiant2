@@ -76,6 +76,7 @@ import {
 } from "./images.js";
 import { Inspector } from "./inspector.js";
 import { Jobs } from "./jobs.js";
+import { LoginStore, migrateLogin } from "./login.js";
 import {
   completeTaskTool,
   modelApprover,
@@ -188,6 +189,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly questions = new HumanQuestions();
   /** Phones and browsers paired by QR code, each with its own revocable token. */
   readonly devices: DeviceStore;
+  /** Signing in with a password (G24.6). */
+  readonly logins: LoginStore;
   readonly tasks: TaskTracker;
   readonly board: Board;
   readonly extensions: ExtensionBuilder;
@@ -215,6 +218,7 @@ export class RedGiantCore implements OrchestrationHost {
   private constructor(private readonly o: CoreOptions) {
     this.store = new EventStore(o.db, o.redactor ? { redactor: o.redactor } : {});
     this.devices = new DeviceStore(o.db);
+    this.logins = new LoginStore(o.db);
     if (o.transcription?.key) o.redactor?.addSecret("transcription", o.transcription.key);
     if (o.images?.key) o.redactor?.addSecret("openai-images", o.images.key);
     this.registry = new AgentRegistry(o.db, this.store);
@@ -355,6 +359,7 @@ export class RedGiantCore implements OrchestrationHost {
     await migratePlatform(o.db);
     await migrateChat(o.db);
     await migrateDevices(o.db);
+    await migrateLogin(o.db);
     const core = new RedGiantCore(o);
     await core.registry.load();
     await core.policies.load();

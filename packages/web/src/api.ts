@@ -47,6 +47,7 @@ export interface SetupState {
     keyProviders?: string[];
     mode?: "standard" | "advanced";
     git?: { github?: { login: string }; gitea?: { user: string; publicUrl: string } };
+    remote?: { way: "tailscale" | "cloudflare" | "caddy"; url: string };
     server?: { baseUrl: string };
     searxngUrl?: string;
     transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
@@ -497,6 +498,30 @@ export class Api {
     this.call<{ models: string[] }>("PUT", "/api/setup/server", b);
   removeServer = () => this.call("DELETE", "/api/setup/server");
   setupMode = (mode: "standard" | "advanced") => this.call("PUT", "/api/setup/mode", { mode });
+  /** Opens a way in from outside home: a job to follow. */
+  startRemote = (
+    req:
+      | { way: "tailscale" }
+      | { way: "cloudflare"; token: string; hostname: string }
+      | { way: "caddy"; domain: string },
+  ) => this.call<Job>("POST", "/api/setup/remote", req);
+  stopRemote = () => this.call("DELETE", "/api/setup/remote");
+  setPassword = (password: string) => this.call("PUT", "/api/auth/password", { password });
+  newCodeSecret = () => this.call<{ secret: string; url: string }>("POST", "/api/auth/code/new");
+  enableCode = (secret: string, code: string) =>
+    this.call("POST", "/api/auth/code", { secret, code });
+  disableCode = () => this.call("DELETE", "/api/auth/code");
+  loginSessions = () =>
+    this.call<
+      {
+        id: string;
+        name: string;
+        createdAt: string;
+        expiresAt: string;
+        lastSeenAt: string | null;
+      }[]
+    >("GET", "/api/auth/sessions");
+  revokeSessions = () => this.call("POST", "/api/auth/sessions/revoke");
   setupGithub = (token: string) =>
     this.call<{ login: string }>("PUT", "/api/setup/github", { token });
   removeGithub = () => this.call("DELETE", "/api/setup/github");
@@ -739,4 +764,29 @@ export class Live {
     this.closed = true;
     this.ws?.close();
   }
+}
+
+/** How this installation signs in (before any token): a password, and a code too. */
+export async function loginMethods(): Promise<{ password: boolean; code: boolean }> {
+  const r = await fetch("/api/auth/methods");
+  return r.ok
+    ? ((await r.json()) as { password: boolean; code: boolean })
+    : { password: false, code: false };
+}
+
+/** A password (and code) for a session token; errors carry their code. */
+export async function passwordLogin(password: string, code?: string): Promise<string> {
+  const r = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ password, ...(code && { code }) }),
+  });
+  const data = (await r.json().catch(() => ({}))) as {
+    token?: string;
+    error?: string;
+    code?: string;
+  };
+  if (!r.ok || !data.token)
+    throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`, data.code);
+  return data.token;
 }

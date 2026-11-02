@@ -5,6 +5,7 @@ import { attempt, getApi, refresh } from "../state.js";
 import { Brain, DefaultModel } from "./Brain.js";
 import { GitCode } from "./GitCode.js";
 import { hardwareText, LocalModels } from "./LocalModels.js";
+import { RemoteAccess } from "./RemoteAccess.js";
 import { Safety } from "./Safety.js";
 import { TelegramLink } from "./TelegramLink.js";
 import { Choice, Step } from "./ui.js";
@@ -18,6 +19,7 @@ type StepKey =
   | "wzNames"
   | "wzTelegram"
   | "wzCode"
+  | "wzRemote"
   | "wzSafety"
   | "wzDone";
 const stepsFor = (s: SetupState): StepKey[] => [
@@ -27,7 +29,7 @@ const stepsFor = (s: SetupState): StepKey[] => [
   "wzLocal",
   "wzNames",
   "wzTelegram",
-  ...(s.config.mode === "advanced" ? (["wzCode"] as const) : []),
+  ...(s.config.mode === "advanced" ? (["wzCode", "wzRemote"] as const) : []),
   "wzSafety",
   "wzDone",
 ];
@@ -169,6 +171,19 @@ function CodeStep({ s, next, reload }: { s: SetupState; next: () => void; reload
   );
 }
 
+function RemoteStep({ s, next, reload }: { s: SetupState; next: () => void; reload: () => void }) {
+  return (
+    <Step title={t("wzRemote")} purpose={t("remotePurpose")} onSkip={next}>
+      <RemoteAccess s={s} onChange={reload} />
+      <div class="row">
+        <button type="button" class="primary" onClick={next}>
+          {t("wzNext")}
+        </button>
+      </div>
+    </Step>
+  );
+}
+
 /** Telegram, step by step: a bot of one's own, then Start in Telegram (no code to type). */
 function TelegramStep({
   s,
@@ -271,6 +286,7 @@ export function Setup({ onDone }: { onDone?: () => void }) {
         {key === "wzNames" && <Names s={s} next={next} />}
         {key === "wzTelegram" && <TelegramStep s={s} next={next} reload={reload} />}
         {key === "wzCode" && <CodeStep s={s} next={next} reload={reload} />}
+        {key === "wzRemote" && <RemoteStep s={s} next={next} reload={reload} />}
         {key === "wzSafety" && <SafetyStep s={s} next={next} />}
         {key === "wzDone" && (
           <div class="form">

@@ -31,6 +31,7 @@ import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
 import { HuggingFace } from "./hf.js";
 import { localModelChoices } from "./local-models.js";
+import { LoginError } from "./login.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
 import type { SetupService } from "./setup.js";
 import { MAX_AUDIO_BYTES, TranscriptionError } from "./voice.js";
@@ -693,6 +694,8 @@ export interface AppOptions {
   telegram?: { gateway?: TelegramGateway; webhookSecret?: string };
   setup?: SetupService;
   hf?: HuggingFace;
+  /** Whose password signs in (one owner per installation; default the local owner). */
+  loginOwner?: string;
   /** The models folder of the engine on Windows itself (G24.3b), when there is one. */
   winHf?: HuggingFace;
 }
@@ -725,6 +728,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       "/api/telegram/webhook",
       // A phone with a pairing code has no token yet: the code is its credential, once.
       "/api/devices/claim",
+      // Signing in with a password (G24.6): the password is the credential.
+      "/api/auth/methods",
+      "/api/auth/login",
     ];
     // Automation webhooks carry their own secret.
     if (open.includes(c.req.path) || /^\/api\/automations\/[\w-]+\/hook$/.test(c.req.path))
@@ -756,6 +762,78 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   });
 
   const owner = (c: Context<Env>) => c.get("principal").ownerId ?? LOCAL_OWNER_ID;
+  // Signing in with a password (G24.6): one owner per installation.
+  const loginOwner = options.loginOwner ?? LOCAL_OWNER_ID;
+  const loginFailure = (c: Context<Env>, err: unknown) =>
+    err instanceof LoginError
+      ? c.json({ error: err.message, code: err.code }, err.code === "too_many" ? 429 : 400)
+      : Promise.reject(err);
+  app.get("/api/auth/methods", async (c) => c.json(await core.logins.status(loginOwner), 200));
+  app.post("/api/auth/login", async (c) => {
+    const b = z
+      .object({ password: z.string().min(1).max(500), code: z.string().max(12).optional() })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "A password is needed" }, 400);
+    // Who is trying, as far as can be trusted: Cloudflare's header (it overwrites it), the
+    // last address our own proxy added, or the connection itself. The first X-Forwarded-For
+    // entry is whatever the client wrote.
+    const socket = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)
+      ?.incoming?.socket?.remoteAddress;
+    const address =
+      c.req.header("cf-connecting-ip") ||
+      c.req.header("x-forwarded-for")?.split(",").at(-1)?.trim() ||
+      socket ||
+      "local";
+    try {
+      return c.json(
+        await core.logins.login(
+          loginOwner,
+          b.data.password,
+          b.data.code,
+          address,
+          (c.req.header("user-agent") ?? "Browser").slice(0, 80),
+        ),
+        200,
+      );
+    } catch (err) {
+      return loginFailure(c, err);
+    }
+  });
+  app.get("/api/auth/sessions", async (c) => c.json(await core.logins.sessions(owner(c)), 200));
+  app.post("/api/auth/sessions/revoke", async (c) => {
+    await core.logins.revokeAll(owner(c));
+    return c.json({ ok: true }, 200);
+  });
+  app.put("/api/auth/password", async (c) => {
+    const b = z
+      .object({ password: z.string().max(500) })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "A password is needed" }, 400);
+    try {
+      await core.logins.setPassword(owner(c), b.data.password);
+      return c.json({ ok: true }, 200);
+    } catch (err) {
+      return loginFailure(c, err);
+    }
+  });
+  // The second check: a secret for the app, switched on by one of its codes.
+  app.post("/api/auth/code/new", (c) => c.json(core.logins.newCodeSecret(owner(c)), 200));
+  app.post("/api/auth/code", async (c) => {
+    const b = z
+      .object({ secret: z.string().min(16).max(64), code: z.string().max(12) })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "A secret and a code are needed" }, 400);
+    try {
+      await core.logins.enableCode(owner(c), b.data.secret, b.data.code);
+      return c.json({ ok: true }, 200);
+    } catch (err) {
+      return loginFailure(c, err);
+    }
+  });
+  app.delete("/api/auth/code", async (c) => {
+    await core.logins.disableCode(owner(c));
+    return c.json({ ok: true }, 200);
+  });
   const human = (c: Context<Env>) => ({ type: "human" as const, ownerId: owner(c) });
 
   app.openapi(routes.listProjects, async (c) => c.json(await core.projects.list(owner(c)), 200));
@@ -1491,6 +1569,35 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   );
   app.delete("/api/setup/gitea", (c) => wizard(c, () => (setup as SetupService).stopGitea()));
   app.post("/api/setup/git/sync", (c) => wizard(c, () => (setup as SetupService).gitSync()));
+  // Access from outside home (G24.6): Tailscale, a Cloudflare Tunnel, or one's own domain.
+  app.post("/api/setup/remote", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).startRemote(
+        await parsed(
+          c,
+          z.discriminatedUnion("way", [
+            z.object({ way: z.literal("tailscale") }),
+            z.object({
+              way: z.literal("cloudflare"),
+              token: z.string().trim().min(40).max(4000),
+              hostname: z
+                .string()
+                .trim()
+                .regex(/^[a-z0-9.-]+\.[a-z]{2,}$/i),
+            }),
+            z.object({
+              way: z.literal("caddy"),
+              domain: z
+                .string()
+                .trim()
+                .regex(/^[a-z0-9.-]+\.[a-z]{2,}$/i),
+            }),
+          ]),
+        ),
+      ),
+    ),
+  );
+  app.delete("/api/setup/remote", (c) => wizard(c, () => (setup as SetupService).stopRemote()));
   // Starting the local engine is a job (image, start, load, a first answer); null stops it.
   app.put("/api/setup/engine", (c) =>
     wizard(c, async () => {

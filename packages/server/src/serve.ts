@@ -2,7 +2,7 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { serve as nodeServe } from "@hono/node-server";
 import { type AppOptions, createApp } from "./app.js";
-import type { AuthProvider } from "./auth.js";
+import { type AuthProvider, ChainAuth } from "./auth.js";
 import type { RedGiantCore } from "./core.js";
 import { DeviceAuth } from "./devices.js";
 import { attachWebSocket } from "./ws.js";
@@ -23,15 +23,19 @@ export function serve(
     telegram?: AppOptions["telegram"];
     setup?: AppOptions["setup"];
     hf?: AppOptions["hf"];
+    winHf?: AppOptions["winHf"];
+    loginOwner?: string;
   },
 ): Promise<Running> {
-  // Paired devices sign in with their own tokens, next to the installation's.
-  const full = new DeviceAuth(auth, core.devices);
+  // Paired devices and password sessions sign in with their own tokens, next to the installation's.
+  const full = new ChainAuth([new DeviceAuth(auth, core.devices), core.logins]);
   const app = createApp(core, full, {
     ...(listen.webDir && { webDir: listen.webDir }),
     ...(listen.telegram && { telegram: listen.telegram }),
     ...(listen.setup && { setup: listen.setup }),
     ...(listen.hf && { hf: listen.hf }),
+    ...(listen.winHf && { winHf: listen.winHf }),
+    ...(listen.loginOwner && { loginOwner: listen.loginOwner }),
   });
   return new Promise((ok) => {
     const server = nodeServe(

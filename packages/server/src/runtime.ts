@@ -17,6 +17,7 @@ import type { RedGiantCore } from "./core.js";
 import { engineError } from "./engine-errors.js";
 import type { GpuAccess } from "./hardware.js";
 import { JobFailure, type JobHandle } from "./jobs.js";
+import { startRemote, stopRemote } from "./remote.js";
 import type { SetupHooks } from "./setup.js";
 import type { WinEngine } from "./win-engine.js";
 
@@ -398,6 +399,23 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         throw new JobFailure("account", token.out.slice(-500));
       o.redactor.addSecret("gitea", value);
       return { token: value, publicUrl: `http://localhost:${port}` };
+    },
+
+    async remote(req, h) {
+      const e = o.engine;
+      if (!e) throw new Error("Access from outside needs RedGiant's Docker installation");
+      const ro = {
+        docker: e.docker,
+        network: e.network,
+        pull: (image: string, jh?: JobHandle) => pullWithProgress(e.docker, image, jh),
+        exec: dockerExec,
+        hide: (name: string, value: string) => o.redactor.addSecret(name, value),
+      };
+      if (!req) {
+        await stopRemote(ro);
+        return null;
+      }
+      return startRemote(ro, req, h);
     },
 
     async dockerRuntimes() {

@@ -360,6 +360,20 @@ const setup = new SetupService({
         );
       core.providers.register(new FakeProvider(() => ({ text: "OK" }), { id: "local" }));
     },
+    // Tailscale acted out: a sign-in page, then a safe address.
+    remote: async (req, h) => {
+      if (!req) return null;
+      h?.step("remote_image");
+      await new Promise((r) => setTimeout(r, 800));
+      h?.step("remote_start");
+      await new Promise((r) => setTimeout(r, 800));
+      h?.step("remote_login");
+      h?.info({ url: "https://login.tailscale.com/a/demo" });
+      await new Promise((r) => setTimeout(r, 4000));
+      h?.step("remote_https");
+      await new Promise((r) => setTimeout(r, 800));
+      return { url: "https://redgiant.tail1234.ts.net" };
+    },
     // Gitea's steps, acted out.
     gitea: async (cfg, h) => {
       if (!cfg) return null;

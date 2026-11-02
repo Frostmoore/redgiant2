@@ -35,4 +35,20 @@ export class TokenAuth implements AuthProvider {
   }
 }
 
+/** Tries each way of signing in, in order: the first that knows the token wins. */
+export class ChainAuth implements AuthProvider {
+  constructor(
+    private readonly ways: { authenticate(token: string): Promise<Principal | null> }[],
+  ) {}
+
+  async authenticate(token: string | undefined): Promise<Principal | null> {
+    if (!token) return null;
+    for (const w of this.ways) {
+      const p = await w.authenticate(token);
+      if (p) return p;
+    }
+    return null;
+  }
+}
+
 export const bearer = (header: string | undefined) => header?.match(/^Bearer\s+(.+)$/i)?.[1];

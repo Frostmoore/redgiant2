@@ -409,6 +409,7 @@ export type SettingsSection =
   | "budgets"
   | "subscriptions"
   | "code"
+  | "remote"
   | "platform";
 
 /** Older ways to open things, still used by the views: they land in the new places. */
