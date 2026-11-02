@@ -191,6 +191,8 @@ export interface Agent {
   connections?: string[];
   /** The subproject it works in (G24.13). */
   subprojectId?: string;
+  /** The skills it uses; all when absent (G24.14c). */
+  skills?: string[];
   /** When its conversations are summarised and how much stays (G24.14c). */
   compaction?: { at?: number; keep?: number };
   status: "active" | "stopped";
@@ -649,6 +651,25 @@ export class Api {
   deleteAutomation = (id: string) => this.call("DELETE", `/api/automations/${id}`);
   enableAutomation = (id: string, enabled: boolean) =>
     this.call<Automation>("POST", `/api/automations/${id}/enabled`, { enabled });
+  emailSettings = () =>
+    this.call<{
+      configured: boolean;
+      host?: string;
+      port?: number;
+      secure?: boolean;
+      user?: string;
+    }>("GET", "/api/settings/email");
+  setEmailSettings = (a: {
+    host: string;
+    port: number;
+    secure: boolean;
+    user: string;
+    password: string;
+  }) => this.call("PUT", "/api/settings/email", a);
+  removeEmailSettings = () => this.call("DELETE", "/api/settings/email");
+  /** Adds the routine's webhook to the project's repository (Gitea or GitHub). */
+  repoHook = (id: string, secret: string, project: string) =>
+    this.call("POST", `/api/automations/${id}/repo-hook`, { secret, project });
   runAutomation = (id: string) => this.call<AutomationRun>("POST", `/api/automations/${id}/run`);
   rotateAutomationSecret = (id: string) =>
     this.call<{ webhookSecret: string }>("POST", `/api/automations/${id}/secret`);

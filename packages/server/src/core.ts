@@ -77,6 +77,7 @@ import { HumanApprovals } from "./approvals.js";
 import { type Browsers, browserTools } from "./browser.js";
 import { DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
+import { type EmailAccount, EmailWatcher, type Mailbox } from "./email.js";
 import {
   type GeneratedImage,
   generateImage,
@@ -109,6 +110,10 @@ import { type TranscriptionConfig, transcribe } from "./voice.js";
 
 export interface CoreOptions {
   db: SqlClient;
+  /** Where the mailbox for email routines is kept (default: next to the workspaces). */
+  emailDir?: string;
+  /** How mailboxes are read (tests use a fake; IMAP otherwise). */
+  mailbox?: Mailbox;
   providers: ProviderRegistry;
   /** Root of the project workspaces. */
   workspacesDir: string;
@@ -221,6 +226,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly inspector: Inspector;
   /** Group chats (G24.12). */
   readonly rooms: Rooms;
+  /** Routines on email: the person's mailbox, read every few minutes (G24.14c). */
+  readonly email: EmailWatcher;
   /** The personal agents' browser (G24.14b), when there is Docker to run it. */
   browsers: Browsers | undefined;
   /** Long actions the user follows (downloads, the local engine, links). */
@@ -315,6 +322,13 @@ export class RedGiantCore implements OrchestrationHost {
           : Promise.reject(new Error("No profile for the daily chat")),
     });
     this.inspector = new Inspector(this);
+    this.email = new EmailWatcher({
+      dir: o.emailDir ?? join(dirname(o.workspacesDir), "email"),
+      db: o.db,
+      automations: this.automations,
+      ...(o.mailbox && { mailbox: o.mailbox }),
+      owners: async () => [...new Set(this.registry.list({}).map((a) => a.ownerId))],
+    });
     this.rooms = new Rooms({
       db: o.db,
       store: this.store,
@@ -654,7 +668,11 @@ export class RedGiantCore implements OrchestrationHost {
       { dir: this.platformPath(ownerId), scope: "platform" as const },
       ...(project ? [{ dir: join(project.path, ".redgiant"), scope: "project" as const }] : []),
     ];
-    const skills = agent.kind === "demigod" ? [] : await loadSkills(roots);
+    // An agent may use only some skills (G24.14c); all of them otherwise.
+    const skills =
+      agent.kind === "demigod"
+        ? []
+        : (await loadSkills(roots)).filter((s) => !agent.skills || agent.skills.includes(s.name));
     tools.push(...skillTools(skills));
     if (agent.kind !== "demigod" && agent.kind !== "inspector") {
       // Always offered (the tool list never depends on settings); without a key it says so.
@@ -1844,6 +1862,12 @@ export class RedGiantCore implements OrchestrationHost {
     return { done };
   }
 
+  /** The mailbox for email routines (G24.14c); its password never reaches the log. */
+  async setEmail(ownerId: string, a: EmailAccount): Promise<void> {
+    this.o.redactor?.addSecret("email", a.password);
+    await this.email.set(ownerId, a);
+  }
+
   /** Undoes the summary the person asked for, while nothing was said since (G24.14). */
   async undoCompaction(ownerId: string, sessionId: string): Promise<boolean> {
     const l = await this.open(ownerId, sessionId);
@@ -1937,6 +1961,7 @@ export class RedGiantCore implements OrchestrationHost {
   /** Stops every running turn and denies every open approval (shutdown). */
   async close(): Promise<void> {
     await this.automations.stop();
+    this.email.stop();
     clearInterval(this.sweeper);
     this.inspector.stop();
     this.code?.unwatch();

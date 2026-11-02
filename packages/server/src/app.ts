@@ -74,6 +74,7 @@ const Agent = z
     connections: z.array(z.string()).optional(),
     subprojectId: z.string().optional(),
     compaction: z.object({ at: z.number().optional(), keep: z.number().optional() }).optional(),
+    skills: z.array(z.string()).optional(),
     status: z.enum(["active", "stopped"]),
   })
   .openapi("Agent");
@@ -233,6 +234,8 @@ const routes = {
                   keep: z.number().min(0).max(0.5).optional(),
                 })
                 .optional(),
+              /** The skills it uses; null: all of them again. */
+              skills: z.array(z.string().min(1)).nullable().optional(),
             }),
           },
         },
@@ -764,7 +767,10 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       "/api/extensions/oauth/callback",
     ];
     // Automation webhooks carry their own secret.
-    if (open.includes(c.req.path) || /^\/api\/automations\/[\w-]+\/hook$/.test(c.req.path))
+    if (
+      open.includes(c.req.path) ||
+      /^\/api\/automations\/[\w-]+\/hook(\/[\w-]+)?$/.test(c.req.path)
+    )
       return next();
     const principal = await auth.authenticate(bearer(c.req.header("authorization")));
     if (!principal) return c.json({ error: "Missing or invalid token" }, 401);
@@ -1755,6 +1761,57 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     }
   });
   app.post("/api/setup/git/sync", (c) => wizard(c, () => (setup as SetupService).gitSync()));
+  // The mailbox for email routines (G24.14c): the password is never sent back.
+  app.get("/api/settings/email", async (c) => {
+    const a = await core.email.account(owner(c));
+    return c.json(
+      a
+        ? { configured: true, host: a.host, port: a.port, secure: a.secure, user: a.user }
+        : { configured: false },
+      200,
+    );
+  });
+  app.put("/api/settings/email", async (c) => {
+    const b = z
+      .object({
+        host: z.string().min(1).max(200),
+        port: z.number().int().min(1).max(65535).default(993),
+        secure: z.boolean().default(true),
+        user: z.string().min(1).max(320),
+        password: z.string().min(1).max(500),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "Server, user and password are needed" }, 400);
+    try {
+      await core.setEmail(owner(c), b.data);
+      return c.json({ ok: true }, 200);
+    } catch (err) {
+      return c.json(
+        { error: `The mailbox did not answer: ${(err as Error).message}`, code: "email_failed" },
+        400,
+      );
+    }
+  });
+  app.delete("/api/settings/email", async (c) => {
+    await core.email.remove(owner(c));
+    return c.json({ ok: true }, 200);
+  });
+  // A routine on a project's repository events (G24.14c): the webhook is added on Gitea or GitHub.
+  app.post("/api/automations/:id/repo-hook", async (c) => {
+    const b = z
+      .object({
+        secret: z.string().regex(/^rgwh_[\w-]+$/),
+        project: z.string().min(1),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success)
+      return c.json({ error: "The routine's secret and its project are needed" }, 400);
+    const a = await autos.get(owner(c), c.req.param("id"));
+    const events = a.recipe.on.events ?? ["push"];
+    return wizard(c, () =>
+      (setup as SetupService).repoHook(b.data.project, a.id, b.data.secret, events),
+    );
+  });
   // Access from outside home (G24.6): Tailscale, a Cloudflare Tunnel, or one's own domain.
   app.post("/api/setup/remote", (c) =>
     wizard(c, async () =>
@@ -1964,27 +2021,31 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.openapi(routes.automationRuns, async (c) =>
     c.json(await autos.runs(owner(c), c.req.valid("param").id), 200),
   );
-  // The webhook: the recipe's secret in a header; any body up to 64 kB (JSON, or kept as text).
-  app.post("/api/automations/:id/hook", async (c) => {
+  // The webhook: the recipe's secret in a header, or in the address (GitHub and Gitea, which
+  // cannot send a header of ours); any body up to 1 MB (JSON, or kept as text).
+  const hook = async (c: Context<Env>, secret: string) => {
     const body = await c.req.text();
-    if (body.length > 65_536) return c.json({ error: "Body larger than 64 kB" }, 413);
+    if (body.length > 1_048_576) return c.json({ error: "Body larger than 1 MB" }, 413);
     let payload: unknown = body;
     try {
       payload = body ? JSON.parse(body) : {};
     } catch {}
+    const event =
+      c.req.header("x-github-event") ??
+      c.req.header("x-gitea-event") ??
+      c.req.header("x-gogs-event");
     try {
-      const { run, done } = await autos.webhook(
-        c.req.param("id"),
-        c.req.header("x-redgiant-secret") ?? "",
-        payload,
-      );
-      done.catch((err) => console.error("automation:", err));
-      return c.json({ runId: run.id, status: run.status }, 202);
+      const r = await autos.webhook(c.req.param("id") ?? "", secret, payload, event);
+      if (!r) return c.json({ ignored: true }, 202);
+      r.done.catch((err) => console.error("automation:", err));
+      return c.json({ runId: r.run.id, status: r.run.status }, 202);
     } catch (err) {
       if (err instanceof WebhookForbiddenError) return c.json({ error: "Forbidden" }, 403);
       throw err;
     }
-  });
+  };
+  app.post("/api/automations/:id/hook", (c) => hook(c, c.req.header("x-redgiant-secret") ?? ""));
+  app.post("/api/automations/:id/hook/:secret", (c) => hook(c, c.req.param("secret")));
 
   app.openapi(routes.verifyLog, async (c) => c.json(await core.store.verify(), 200));
 

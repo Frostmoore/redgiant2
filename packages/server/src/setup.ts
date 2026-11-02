@@ -621,6 +621,32 @@ export class SetupService {
     await this.save();
   }
 
+  /**
+   * A routine on a project's repository events (G24.14c): its webhook on Gitea or GitHub,
+   * pointing at the automation's address with its secret.
+   */
+  async repoHook(
+    projectId: string,
+    automationId: string,
+    secret: string,
+    events: string[],
+  ): Promise<{ home: "gitea" | "github" }> {
+    const git = this.o.git;
+    if (!git) throw new SetupError("Git is not set up", "no_git");
+    const { cfg, secrets } = this.gitParts();
+    const path = `/api/automations/${automationId}/hook/${secret}`;
+    const internal = `${process.env.REDGIANT_INTERNAL_URL ?? "http://redgiant:7600"}${path}`;
+    const pub = this.config.remote?.url
+      ? `${this.config.remote.url.replace(/\/+$/, "")}${path}`
+      : undefined;
+    try {
+      return await git.hookFor(cfg, secrets, projectId, { internal, public: pub }, events);
+    } catch (err) {
+      if (err instanceof GitHostError) throw new SetupError(err.message, err.code);
+      throw err;
+    }
+  }
+
   /** A repository for every project that has none yet; each project's result. */
   async gitSync(): Promise<{ project: string; ok: boolean; error?: string; code?: string }[]> {
     const git = this.o.git;

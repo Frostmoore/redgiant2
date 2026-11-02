@@ -3,7 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import { IconClock, IconPlay, IconPlus } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
-import { agents, attempt, automationsVersion, getApi, openTab } from "../state.js";
+import { agents, attempt, automationsVersion, getApi, openTab, projects } from "../state.js";
 import { explain } from "./Brain.js";
 import { Advanced, Choice, Field, Toggle } from "./ui.js";
 
@@ -87,6 +87,10 @@ type When =
   | { kind: "hours"; every: number }
   | { kind: "monthly"; time: string; day: number }
   | { kind: "webhook" }
+  /** On events of a project's repository (G24.14c): its webhook is added by RedGiant. */
+  | { kind: "repo"; project: string; events: string[] }
+  /** On new email in the person's mailbox that matches (G24.14c). */
+  | { kind: "email"; from: string; subject: string }
   | { kind: "custom"; cron: string };
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -97,7 +101,7 @@ const hm = (time: string) => {
 
 /** The cron expression of a choice (null: no schedule, only the webhook). */
 export function toCron(w: When): string | null {
-  if (w.kind === "webhook") return null;
+  if (w.kind === "webhook" || w.kind === "repo" || w.kind === "email") return null;
   if (w.kind === "custom") return w.cron;
   if (w.kind === "hours") return `0 */${Math.max(1, Math.min(23, w.every))} * * *`;
   const { h, m } = hm(w.time);
@@ -106,6 +110,14 @@ export function toCron(w: When): string | null {
   if (w.kind === "monthly") return `${m} ${h} ${w.day} * *`;
   if (w.kind === "weekly") return `${m} ${h} * * ${[...w.days].sort().join(",") || "1"}`;
   return `${m} ${h} * * *`;
+}
+
+/** The choice a recipe's `on` came from: repository events and email first, then the cron. */
+export function fromOn(on: Automation["recipe"]["on"], project: string | null): When {
+  if (on.email)
+    return { kind: "email", from: on.email.from ?? "", subject: on.email.subject ?? "" };
+  if (on.events && !on.cron) return { kind: "repo", project: project ?? "", events: on.events };
+  return fromCron(on.cron, on.webhook);
 }
 
 /** The choice a cron expression came from, when it is one of ours; otherwise "custom". */
@@ -147,6 +159,15 @@ export function whenWords(w: When): string {
       return t("whenMonthly", { day: String(w.day), time: w.time });
     case "webhook":
       return t("whenWebhook");
+    case "repo":
+      return t("whenRepo", { events: w.events.join(", ") });
+    case "email":
+      return t("whenEmail", {
+        filter:
+          [w.from && `${t("emailFrom")} ${w.from}`, w.subject && `«${w.subject}»`]
+            .filter(Boolean)
+            .join(" · ") || t("emailAny"),
+      });
     default:
       return t("whenCustom", { cron: w.cron });
   }
@@ -156,7 +177,7 @@ export function whenWords(w: When): string {
 export function recipeWhen(a: Automation): string {
   const on = a.recipe.on;
   if (on.at) return t("whenAt", { at: new Date(on.at).toLocaleString() });
-  const words = whenWords(fromCron(on.cron, on.webhook));
+  const words = whenWords(fromOn(on, a.recipe.project));
   return on.cron && on.webhook ? `${words} ${t("whenAlsoWebhook")}` : words;
 }
 
@@ -185,7 +206,16 @@ function recipeYaml(o: {
     `description: ${quote(o.title)}`,
     "on:",
     ...(cron ? [`  cron: ${quote(cron)}`, `  timezone: ${tz()}`] : []),
-    `  webhook: ${o.when.kind === "webhook"}`,
+    `  webhook: ${o.when.kind === "webhook" || o.when.kind === "repo"}`,
+    ...(o.when.kind === "repo" ? [`  events: ${JSON.stringify(o.when.events)}`] : []),
+    ...(o.when.kind === "email"
+      ? [
+          "  email:",
+          ...(o.when.from ? [`    from: ${quote(o.when.from)}`] : []),
+          ...(o.when.subject ? [`    subject: ${quote(o.when.subject)}`] : []),
+          ...(!o.when.from && !o.when.subject ? ["    {}"] : []),
+        ]
+      : []),
     `agent: ${quote(o.agent.agent)}`,
     ...(o.agent.project ? [`project: ${quote(o.agent.project)}`] : []),
     `instructions: ${quote(o.instructions)}`,
@@ -247,9 +277,7 @@ export function Editor({
   const [title, setTitle] = useState(
     r?.description || (current ? current.name : t("tplTitle_morning")),
   );
-  const [when, setWhen] = useState<When>(
-    r ? fromCron(r.on.cron, r.on.webhook) : templateWhen.morning,
-  );
+  const [when, setWhen] = useState<When>(r ? fromOn(r.on, r.project) : templateWhen.morning);
   const [whoKey, setWhoKey] = useState(() => {
     if (!r) return preset ?? "god";
     if (r.agent === "god") return "god";
@@ -286,6 +314,10 @@ export function Editor({
       const res = current
         ? await getApi().updateAutomation(current.id, text)
         : await getApi().createAutomation(text);
+      // A routine on repository events: its webhook goes on Gitea or GitHub now, with the
+      // secret that is shown only this once (G24.14c).
+      if (when.kind === "repo" && res.webhookSecret)
+        await getApi().repoHook(res.automation.id, res.webhookSecret, when.project);
       onSaved(res.automation, res.webhookSecret);
     } catch (err) {
       setError(explain(err));
@@ -358,9 +390,21 @@ export function Editor({
 
 function WhenPicker({ when, onChange }: { when: When; onChange: (w: When) => void }) {
   const time = "time" in when ? when.time : "08:00";
-  const kinds = ["daily", "weekdays", "weekly", "monthly", "hours", "webhook"] as const;
+  const kinds = [
+    "daily",
+    "weekdays",
+    "weekly",
+    "monthly",
+    "hours",
+    "repo",
+    "email",
+    "webhook",
+  ] as const;
   const set = (kind: (typeof kinds)[number]) => {
-    if (kind === "weekly") onChange({ kind, time, days: [5] });
+    if (kind === "repo")
+      onChange({ kind, project: projects.value[0]?.id ?? "", events: ["pull_request"] });
+    else if (kind === "email") onChange({ kind, from: "", subject: "" });
+    else if (kind === "weekly") onChange({ kind, time, days: [5] });
     else if (kind === "monthly") onChange({ kind, time, day: 1 });
     else if (kind === "hours") onChange({ kind, every: 3 });
     else if (kind === "webhook") onChange({ kind });
@@ -440,9 +484,61 @@ function WhenPicker({ when, onChange }: { when: When; onChange: (w: When) => voi
         {when.kind === "custom" && <code>{when.cron}</code>}
       </div>
       {when.kind === "webhook" && <p class="ui-help">{t("whenWebhookHelp")}</p>}
+      {when.kind === "repo" && (
+        <div class="row wrap">
+          <select
+            aria-label={t("projects")}
+            value={when.project}
+            onChange={(e) => onChange({ ...when, project: (e.target as HTMLSelectElement).value })}
+          >
+            {projects.value.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          {REPO_EVENTS.map((ev) => (
+            <label key={ev} class="row day">
+              <input
+                type="checkbox"
+                checked={when.events.includes(ev)}
+                onChange={(e) =>
+                  onChange({
+                    ...when,
+                    events: (e.target as HTMLInputElement).checked
+                      ? [...when.events, ev]
+                      : when.events.filter((x) => x !== ev),
+                  })
+                }
+              />
+              {t(`repoEvent_${ev}`)}
+            </label>
+          ))}
+          <p class="ui-help">{t("whenRepoHelp")}</p>
+        </div>
+      )}
+      {when.kind === "email" && (
+        <div class="row wrap">
+          <input
+            aria-label={t("emailFrom")}
+            placeholder={t("emailFromPlaceholder")}
+            value={when.from}
+            onInput={(e) => onChange({ ...when, from: (e.target as HTMLInputElement).value })}
+          />
+          <input
+            aria-label={t("emailSubject")}
+            placeholder={t("emailSubjectPlaceholder")}
+            value={when.subject}
+            onInput={(e) => onChange({ ...when, subject: (e.target as HTMLInputElement).value })}
+          />
+          <p class="ui-help">{t("whenEmailHelp")}</p>
+        </div>
+      )}
     </div>
   );
 }
+
+const REPO_EVENTS = ["push", "pull_request", "issues", "issue_comment", "release"] as const;
 
 /** A reminder: what, which day, what time; sent as written, no agent. */
 function ReminderForm({ onSaved }: { onSaved: (a: Automation) => void }) {

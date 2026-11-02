@@ -332,6 +332,8 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
             "GITEA__database__DB_TYPE=sqlite3",
             "GITEA__service__DISABLE_REGISTRATION=true",
             `GITEA__server__ROOT_URL=http://localhost:${port}/`,
+            // Routines on repository events (G24.14c): Gitea may call RedGiant inside Docker.
+            "GITEA__webhook__ALLOWED_HOST_LIST=external,redgiant",
           ],
           ...(e.gitea?.bind !== "" && { ExposedPorts: { "3000/tcp": {} } }),
           HostConfig: {

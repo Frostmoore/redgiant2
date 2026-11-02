@@ -314,7 +314,9 @@ export class AutomationService {
     id: string,
     secret: string,
     payload: unknown,
-  ): Promise<{ run: AutomationRun; done: Promise<void> }> {
+    /** The event a GitHub or Gitea webhook says it carries. */
+    event?: string,
+  ): Promise<{ run: AutomationRun; done: Promise<void> } | null> {
     const row = await this.row(null, id).catch(() => undefined);
     const expected = row?.webhook_secret_hash;
     const ok =
@@ -324,7 +326,29 @@ export class AutomationService {
       parseRecipe(row.yaml).on.webhook &&
       timingSafeEqual(Buffer.from(hash(secret)), Buffer.from(expected));
     if (!ok || !row) throw new WebhookForbiddenError("Forbidden");
-    return this.trigger(row, "webhook", payload);
+    // A repository's webhook sends every event it was given: only the recipe's run it.
+    const events = parseRecipe(row.yaml).on.events;
+    if (events && event && !events.includes(event)) return null;
+    return this.trigger(row, "webhook", event ? { event, body: payload } : payload);
+  }
+
+  /**
+   * A new email that matches the recipe's filter (G24.14c): a run, the email as data (never
+   * instructions). Ignored when the automation is off or no longer waits for email.
+   */
+  async email(
+    ownerId: string,
+    id: string,
+    mail: { from: string; subject: string; date: string; text: string },
+  ): Promise<{ run: AutomationRun; done: Promise<void> } | null> {
+    const row = await this.row(ownerId, id).catch(() => undefined);
+    if (!row?.enabled) return null;
+    const f = parseRecipe(row.yaml).on.email;
+    if (!f) return null;
+    const has = (where: string, what?: string) =>
+      !what || where.toLowerCase().includes(what.toLowerCase());
+    if (!has(mail.from, f.from) || !has(mail.subject, f.subject)) return null;
+    return this.trigger(row, "email", { email: mail });
   }
 
   private async trigger(

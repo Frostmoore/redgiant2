@@ -12,6 +12,7 @@ const git = promisify(execFile);
 /** GitHub and Gitea in miniature: records every call, answers as they would. */
 function hosts(o: { badToken?: boolean; noAdmin?: boolean } = {}) {
   const calls: string[] = [];
+  const hooks: { path: string; body: { events: string[]; config: { url: string } } }[] = [];
   const f = (async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     const path = url
@@ -30,15 +31,49 @@ function hosts(o: { badToken?: boolean; noAdmin?: boolean } = {}) {
     if (path === "gitea:/api/v1/user/repos") return new Response("{}", { status: 201 });
     if (path.startsWith("gitea:/api/v1/repos/") && path.endsWith("/push_mirrors"))
       return new Response("{}", { status: 201 });
+    if (path.endsWith("/hooks")) {
+      hooks.push({ path, body: JSON.parse(String(init?.body ?? "{}")) });
+      return new Response("{}", { status: 201 });
+    }
     return new Response("no", { status: 404 });
   }) as typeof fetch;
-  return { calls, f };
+  return { calls, f, hooks };
 }
 
 const remote = async (path: string) =>
   (await git("git", ["-C", path, "remote", "get-url", "origin"])).stdout.trim();
 
 describe("where the code lives", () => {
+  it("adds a routine's webhook on Gitea, or on GitHub when it can reach RedGiant (G24.14c)", async () => {
+    const h = hosts();
+    const g = new GitHosts({ fetch: h.f });
+    const url = { internal: "http://redgiant:7600/api/automations/a1/hook/rgwh_x" };
+    await g.hookFor(
+      { gitea: { user: "marta", publicUrl: "" } } as never,
+      { giteaToken: "t" },
+      "sito",
+      url,
+      ["pull_request"],
+    );
+    expect(h.hooks[0]).toMatchObject({
+      path: "gitea:/api/v1/repos/marta/sito/hooks",
+      body: { events: ["pull_request"], config: { url: url.internal } },
+    });
+    // GitHub needs RedGiant's address from outside.
+    await expect(
+      g.hookFor({ github: { login: "mario" } }, { githubToken: "ghp_good" }, "sito", url, ["push"]),
+    ).rejects.toMatchObject({ code: "unreachable" });
+    await g.hookFor(
+      { github: { login: "mario" } },
+      { githubToken: "ghp_good" },
+      "sito",
+      { ...url, public: "https://me.example/api/automations/a1/hook/rgwh_x" },
+      ["push"],
+    );
+    expect(h.hooks[1]?.path).toBe("github:/repos/mario/sito/hooks");
+    expect(h.hooks[1]?.body.config.url).toBe("https://me.example/api/automations/a1/hook/rgwh_x");
+  });
+
   it("checks a GitHub token and says why one is refused", async () => {
     const h = hosts();
     const g = new GitHosts({ fetch: h.f });

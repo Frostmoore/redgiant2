@@ -240,6 +240,48 @@ export function AssistantWizard({ onDone }: { onDone: (a?: Agent) => void }) {
   );
 }
 
+/** Which skills an agent uses (G24.14c): a switch each; all on means every skill, new ones too. */
+function SkillSwitches({ agent }: { agent: Agent }) {
+  const [skills, setSkills] = useState<{ name: string; description: string }[]>([]);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    void getApi()
+      .installed()
+      .then(
+        (l) => setSkills(l.filter((x) => x.kind === "skill" && x.scope === "platform")),
+        () => {},
+      );
+  }, []);
+  if (skills.length === 0) return null;
+  const on = (name: string) => !agent.skills || agent.skills.includes(name);
+  const toggle = async (name: string, want: boolean) => {
+    const current = skills.map((s) => s.name).filter(on);
+    const next = want ? [...new Set([...current, name])] : current.filter((n) => n !== name);
+    const all = next.length === skills.length;
+    const ok = await attempt(() =>
+      getApi().configureAgent(agent.id, { skills: all ? null : next }),
+    );
+    if (ok) {
+      setSaved(true);
+      await refresh();
+    }
+  };
+  return (
+    <div class="asst-connections">
+      {skills.map((s) => (
+        <Toggle
+          key={s.name}
+          label={s.name}
+          description={s.description}
+          checked={on(s.name)}
+          onChange={(v) => void toggle(s.name, v)}
+        />
+      ))}
+      {saved && <span class="ui-help">{t("asstSavedNewChats")}</span>}
+    </div>
+  );
+}
+
 /** A note file on the assistants' shared desk: read it, change it, save it. */
 function NoteEditor({ path, label, help }: { path: string; label: string; help: string }) {
   const [text, setText] = useState<string>();
@@ -420,6 +462,7 @@ export function AssistantPage({ agentId }: { agentId: string | null }) {
 
       <h3>{t("asstSkills")}</h3>
       <p class="ui-help">{t("asstSkillsHelp")}</p>
+      <SkillSwitches agent={a} />
 
       <Advanced>
         <h3>{t("compactSettings")}</h3>

@@ -291,7 +291,7 @@ describe("AutomationService", () => {
     await expect(svc.webhook("auto_missing", webhookSecret ?? "", {})).rejects.toThrow(
       WebhookForbiddenError,
     );
-    await (await svc.webhook(automation.id, webhookSecret ?? "", { ref: "main" })).done;
+    await (await svc.webhook(automation.id, webhookSecret ?? "", { ref: "main" }))?.done;
     expect(fake.calls[0]?.ctx).toMatchObject({ trigger: "webhook", payload: { ref: "main" } });
 
     const rotated = await svc.rotateSecret(OWNER, automation.id);
@@ -300,6 +300,24 @@ describe("AutomationService", () => {
     );
     await svc.setEnabled(OWNER, automation.id, false);
     await expect(svc.webhook(automation.id, rotated, {})).rejects.toThrow(WebhookForbiddenError);
+  });
+
+  it("runs only on the repository events it asks for (G24.14c)", async () => {
+    const { svc, fake } = await setup();
+    const { automation, webhookSecret } = await svc.create(
+      OWNER,
+      "name: on-pr\non: {webhook: true, events: [pull_request]}\ninstructions: Review the PR.\n",
+    );
+    expect(await svc.webhook(automation.id, webhookSecret ?? "", {}, "push")).toBeNull();
+    await (await svc.webhook(automation.id, webhookSecret ?? "", { number: 7 }, "pull_request"))
+      ?.done;
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0]?.ctx).toMatchObject({
+      payload: { event: "pull_request", body: { number: 7 } },
+    });
+    await expect(
+      svc.create(OWNER, "name: bad\non: {cron: '0 9 * * *', events: [push]}\ninstructions: x\n"),
+    ).rejects.toThrow(/events need webhook/);
   });
 
   it("after a restart: closes interrupted runs and catches up only when asked", async () => {

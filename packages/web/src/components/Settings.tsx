@@ -22,6 +22,7 @@ import { setTheme, theme } from "../theme.js";
 import { Automations } from "./Automations.js";
 import { Budgets } from "./Budgets.js";
 import { CodeSettings } from "./CodeSettings.js";
+import { EmailSettings } from "./EmailSettings.js";
 import { Extensions } from "./Extensions.js";
 import { Hierarchy } from "./Hierarchy.js";
 import { Platform } from "./Platform.js";
@@ -88,6 +89,7 @@ function General() {
         </div>
       </div>
       <Services />
+      <EmailSettings />
       <h2 style={{ marginTop: "24px" }}>{t("account")}</h2>
       <button type="button" onClick={signOut} class="row">
         <IconLogout /> {t("logout")}

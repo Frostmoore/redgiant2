@@ -62,6 +62,8 @@ export const AgentSpec = z.object({
       keep: z.number().min(0).max(0.5).optional(),
     })
     .optional(),
+  /** The skills it uses, by name (G24.14c); all of them when absent. */
+  skills: z.array(z.string().min(1)).optional(),
   /** The subproject it works in (G24.13), inside its project. */
   subprojectId: z.string().min(1).optional(),
   /** For assistants (G24.11): the MCP servers it may use, by name. None unless given. */

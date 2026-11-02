@@ -21,11 +21,27 @@ export const Recipe = z
         timezone: z.string().min(1).optional(),
         /** Also runs on POST /api/automations/{id}/hook with the recipe's secret. */
         webhook: z.boolean().default(false),
+        /**
+         * Only these events of a GitHub or Gitea webhook (`push`, `pull_request`, `issues`…);
+         * the others are ignored (G24.14c). Needs `webhook`.
+         */
+        events: z
+          .array(z.string().regex(/^[a-z_]+$/))
+          .min(1)
+          .optional(),
+        /** Runs on new email in the person's mailbox that matches (G24.14c). */
+        email: z
+          .object({
+            from: z.string().min(1).optional(),
+            subject: z.string().min(1).optional(),
+          })
+          .optional(),
       })
       .refine(
-        (o) => o.cron !== undefined || o.at !== undefined || o.webhook,
-        "set a cron expression, a date (at), a webhook, or a schedule and a webhook",
+        (o) => o.cron !== undefined || o.at !== undefined || o.webhook || o.email !== undefined,
+        "set a cron expression, a date (at), a webhook, an email, or a schedule and a webhook",
       )
+      .refine((o) => o.events === undefined || o.webhook, "events need webhook: true")
       .refine((o) => o.cron === undefined || o.at === undefined, "cron or at, not both"),
     /** `god`, `orchestrator` (of `project`), or an agent's id or name. */
     agent: z.string().min(1).default("god"),
@@ -56,7 +72,7 @@ export const Recipe = z
   });
 export type Recipe = z.infer<typeof Recipe>;
 
-export const AutomationTrigger = z.enum(["cron", "webhook", "manual", "missed"]);
+export const AutomationTrigger = z.enum(["cron", "webhook", "manual", "missed", "email"]);
 export type AutomationTrigger = z.infer<typeof AutomationTrigger>;
 
 export const AutomationRunStatus = z.enum(["running", "ok", "failed", "timeout", "skipped"]);

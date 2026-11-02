@@ -26,6 +26,7 @@ export interface NewAgent {
   connections?: string[];
   subprojectId?: string;
   compaction?: { at?: number; keep?: number };
+  skills?: string[];
 }
 
 export class HierarchyError extends Error {
@@ -50,6 +51,7 @@ interface Row {
   connections: string | null;
   subproject_id: string | null;
   compaction: string | null;
+  skills: string | null;
   status: "active" | "stopped";
 }
 
@@ -76,6 +78,8 @@ export async function migrateHierarchy(db: SqlClient): Promise<void> {
   await db.query("ALTER TABLE rg_agents ADD COLUMN IF NOT EXISTS subproject_id text");
   // How its conversations are summarised (G24.14c).
   await db.query("ALTER TABLE rg_agents ADD COLUMN IF NOT EXISTS compaction text");
+  // The skills an agent uses, when not all (G24.14c).
+  await db.query("ALTER TABLE rg_agents ADD COLUMN IF NOT EXISTS skills text");
   // One God and one Demi-God per owner, one orchestrator and one inspector per project.
   await db.query(
     "CREATE UNIQUE INDEX IF NOT EXISTS rg_agents_one_god ON rg_agents (owner_id, kind) WHERE kind IN ('god', 'demigod') AND status = 'active'",
@@ -122,6 +126,7 @@ const fromRow = (r: Row): AgentRecord => ({
   ...(r.mode !== null && { mode: r.mode }),
   ...(r.connections !== null && { connections: JSON.parse(r.connections) as string[] }),
   ...(r.subproject_id !== null && { subprojectId: r.subproject_id }),
+  ...(r.skills !== null && { skills: JSON.parse(r.skills) as string[] }),
   ...(r.compaction !== null && {
     compaction: JSON.parse(r.compaction) as { at?: number; keep?: number },
   }),
@@ -298,6 +303,7 @@ export class AgentRegistry {
       connections?: string[] | null;
       role?: string | null;
       compaction?: { at?: number; keep?: number } | null;
+      skills?: string[] | null;
     },
   ): Promise<AgentRecord> {
     const target = this.cache.get(id);
@@ -311,6 +317,7 @@ export class AgentRegistry {
       connections: "connections",
       role: "role",
       compaction: "compaction",
+      skills: "skills",
     } as const;
     const sets: string[] = [];
     const params: unknown[] = [id];
@@ -318,7 +325,8 @@ export class AgentRegistry {
       if (change[key] === undefined) continue;
       const v = change[key];
       params.push(
-        (key === "model" || key === "connections" || key === "compaction") && v !== null
+        (key === "model" || key === "connections" || key === "compaction" || key === "skills") &&
+          v !== null
           ? JSON.stringify(v)
           : v,
       );

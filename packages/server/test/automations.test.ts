@@ -96,7 +96,7 @@ describe("automations end to end", () => {
       });
     expect((await hook(undefined, "{}")).status).toBe(403);
     expect((await hook("rgwh_wrong", "{}")).status).toBe(403);
-    expect((await hook(body.webhookSecret, "x".repeat(70_000))).status).toBe(413);
+    expect((await hook(body.webhookSecret, "x".repeat(1_100_000))).status).toBe(413);
     const ok = await hook(body.webhookSecret, JSON.stringify({ ref: "refs/heads/main" }));
     expect(ok.status).toBe(202);
     const run = await waitRun(body.automation.id, (r) => r.status === "ok");

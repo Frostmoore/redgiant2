@@ -164,6 +164,64 @@ export class GitHosts {
   }
 
   /**
+   * A webhook on a project's repository that calls an automation (G24.14c): on Gitea when the
+   * code lives there (it calls RedGiant inside Docker), else on GitHub (which needs RedGiant's
+   * address from outside). `url` is the automation's address with its secret.
+   */
+  async hookFor(
+    cfg: GitHostsConfig,
+    s: GitHostsSecrets,
+    projectId: string,
+    urls: { internal: string; public?: string | undefined },
+    events: string[],
+  ): Promise<{ home: "gitea" | "github" }> {
+    if (cfg.gitea && s.giteaToken) {
+      const r = await this.gitea(
+        cfg.gitea.user,
+        s.giteaToken,
+        `/repos/${cfg.gitea.user}/${projectId}/hooks`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            type: "gitea",
+            active: true,
+            events,
+            config: { url: urls.internal, content_type: "json" },
+          }),
+        },
+      );
+      if (r.status === 401) throw new GitHostError("token_rejected", "Gitea refused the token");
+      if (!r.ok) throw new GitHostError("failed", `Gitea answered ${r.status} adding the webhook`);
+      return { home: "gitea" };
+    }
+    if (cfg.github && s.githubToken) {
+      if (!urls.public)
+        throw new GitHostError(
+          "unreachable",
+          "GitHub must reach RedGiant from outside: set up access from outside home first",
+        );
+      const r = await this.github(s.githubToken, `/repos/${cfg.github.login}/${projectId}/hooks`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: "web",
+          active: true,
+          events,
+          config: { url: urls.public, content_type: "json", insecure_ssl: "0" },
+        }),
+      });
+      if (r.status === 401) throw new GitHostError("token_rejected", "GitHub refused the token");
+      if (r.status === 403 || r.status === 404)
+        throw new GitHostError(
+          "missing_permission",
+          "GitHub did not let the token add a webhook (Webhooks: read and write)",
+        );
+      if (!r.ok) throw new GitHostError("failed", `GitHub answered ${r.status} adding the webhook`);
+      return { home: "github" };
+    }
+    throw new GitHostError("failed", "No GitHub or Gitea is connected");
+  }
+
+  /**
    * A repository for a project and its remote `origin` in the project's folder (git is set up
    * there if missing). Gitea keeps the code when there is one, with a copy on GitHub.
    */
