@@ -4,7 +4,6 @@ import { serve as nodeServe } from "@hono/node-server";
 import { type AppOptions, createApp } from "./app.js";
 import { type AuthProvider, ChainAuth } from "./auth.js";
 import type { RedGiantCore } from "./core.js";
-import { DeviceAuth } from "./devices.js";
 import { attachWebSocket } from "./ws.js";
 
 export interface Running {
@@ -27,8 +26,8 @@ export function serve(
     loginOwner?: string;
   },
 ): Promise<Running> {
-  // Paired devices and password sessions sign in with their own tokens, next to the installation's.
-  const full = new ChainAuth([new DeviceAuth(auth, core.devices), core.logins]);
+  // Password sessions sign in with their own tokens, next to the installation's.
+  const full = new ChainAuth([auth, core.logins]);
   const app = createApp(core, full, {
     ...(listen.webDir && { webDir: listen.webDir }),
     ...(listen.telegram && { telegram: listen.telegram }),

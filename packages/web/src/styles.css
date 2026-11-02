@@ -376,6 +376,27 @@ pre {
 /* --- left bar --- */
 .bar {
   padding: 8px;
+  display: flex;
+  flex-direction: column;
+  /* The whole height of the side: settings sit at the bottom. */
+  min-height: 100%;
+}
+.bar-foot {
+  margin-top: auto;
+  padding-top: 12px;
+  position: sticky;
+  bottom: 0;
+  background: inherit;
+}
+button.bar-settings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  font-weight: 600;
 }
 .bar-title {
   display: flex;

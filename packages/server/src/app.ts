@@ -26,7 +26,6 @@ import { type AuthProvider, bearer, type Principal } from "./auth.js";
 import { ChatError } from "./chat.js";
 import { CodeChangeError } from "./code.js";
 import { BadRequestError, NotFoundError, type RedGiantCore, SessionBusyError } from "./core.js";
-import { PairingError } from "./devices.js";
 import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
 import { HuggingFace } from "./hf.js";
@@ -726,8 +725,6 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       "/api/health",
       "/api/openapi.json",
       "/api/telegram/webhook",
-      // A phone with a pairing code has no token yet: the code is its credential, once.
-      "/api/devices/claim",
       // Signing in with a password (G24.6): the password is the credential.
       "/api/auth/methods",
       "/api/auth/login",
@@ -928,26 +925,6 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     });
     return c.json({ ok: true }, 200);
   });
-  // Devices (G20.9): a QR code to pair a phone, the list, revocation.
-  app.post("/api/devices/pair", (c) => c.json(core.devices.pairingCode(owner(c)), 200));
-  app.post("/api/devices/claim", async (c) => {
-    const b = z
-      .object({ code: z.string().min(4).max(20), name: z.string().max(200).default("") })
-      .safeParse(await c.req.json().catch(() => ({})));
-    if (!b.success) return c.json({ error: b.error.message }, 400);
-    try {
-      return c.json(await core.devices.claim(b.data.code, b.data.name), 200);
-    } catch (err) {
-      if (err instanceof PairingError) return c.json({ error: err.message }, 403);
-      throw err;
-    }
-  });
-  app.get("/api/devices", async (c) => c.json(await core.devices.list(owner(c)), 200));
-  app.delete("/api/devices/:id", async (c) =>
-    (await core.devices.revoke(owner(c), c.req.param("id")))
-      ? c.json({ ok: true }, 200)
-      : c.json({ error: "No such device" }, 404),
-  );
   // A conversation as a Markdown file.
   app.get("/api/sessions/:id/export", async (c) => {
     const o = owner(c);

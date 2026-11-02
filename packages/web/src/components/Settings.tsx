@@ -10,7 +10,6 @@ import {
   IconLogout,
   IconMonitor,
   IconMoon,
-  IconPhone,
   IconPuzzle,
   IconSettings,
   IconShield,
@@ -23,7 +22,6 @@ import { setTheme, theme } from "../theme.js";
 import { Automations } from "./Automations.js";
 import { Budgets } from "./Budgets.js";
 import { CodeSettings } from "./CodeSettings.js";
-import { Devices } from "./Devices.js";
 import { Extensions } from "./Extensions.js";
 import { Hierarchy } from "./Hierarchy.js";
 import { Platform } from "./Platform.js";
@@ -40,7 +38,6 @@ const SECTIONS: { id: SettingsSection; label: () => string; icon: ComponentChild
   { id: "automations", label: () => t("automations"), icon: <IconClock size={15} /> },
   { id: "extensions", label: () => t("extensions"), icon: <IconPuzzle size={15} /> },
   { id: "telegram", label: () => t("telegram"), icon: <IconTelegram size={15} /> },
-  { id: "devices", label: () => t("devices"), icon: <IconPhone size={15} /> },
   { id: "subscriptions", label: () => t("subscriptions"), icon: <IconCard size={15} /> },
   { id: "code", label: () => t("wzCode"), icon: <IconFolder size={15} /> },
   { id: "remote", label: () => t("wzRemote"), icon: <IconShield size={15} /> },
@@ -125,7 +122,6 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "automations" && <Automations />}
         {section === "extensions" && <Extensions />}
         {section === "telegram" && <Telegram />}
-        {section === "devices" && <Devices />}
         {section === "subscriptions" && <Subscriptions />}
         {section === "code" && <CodeSettings />}
         {section === "remote" && <RemoteSettings />}

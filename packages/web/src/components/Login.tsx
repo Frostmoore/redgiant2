@@ -1,20 +1,19 @@
 import { useEffect, useState } from "preact/hooks";
-import { claimDevice, deviceName, loginMethods, passwordLogin } from "../api.js";
+import { loginMethods, passwordLogin } from "../api.js";
 import { t } from "../i18n.js";
 import { Logo } from "../icons.js";
 import { signIn } from "../state.js";
 import { explain } from "./Brain.js";
 import { Advanced } from "./ui.js";
 
-/** The installation's token, or a pairing code (ten letters and digits). */
+/** The installation's token. */
 function TokenForm() {
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const submit = async (e: Event) => {
     e.preventDefault();
     try {
-      const v = value.trim();
-      await signIn(v.length <= 12 ? await claimDevice(v, deviceName()) : v);
+      await signIn(value.trim());
     } catch (err) {
       setError((err as Error).message);
     }

@@ -1,7 +1,8 @@
 import { useState } from "preact/hooks";
 import type { Agent } from "../api.js";
-import { t } from "../i18n.js";
+import { t, tOptional } from "../i18n.js";
 import { agents, attempt, getApi, openAgent, projects, refresh } from "../state.js";
+import { AgentWizard } from "./AgentWizard.js";
 
 const CHILDREN: Record<Agent["kind"], Agent["kind"][]> = {
   god: ["demigod", "orchestrator", "inspector"],
@@ -54,7 +55,9 @@ function NewAgentForm({ parent, onDone }: { parent: Agent | null; onDone: () => 
           onChange={(e) => setKind((e.target as HTMLSelectElement).value as Agent["kind"])}
         >
           {kinds.map((k) => (
-            <option key={k}>{k}</option>
+            <option key={k} value={k}>
+              {t(`kind_${k}`)}
+            </option>
           ))}
         </select>
       </label>
@@ -97,16 +100,20 @@ function NewAgentForm({ parent, onDone }: { parent: Agent | null; onDone: () => 
         {t("effort")}
         <select value={effort} onChange={(e) => setEffort((e.target as HTMLSelectElement).value)}>
           <option value="">–</option>
-          {["low", "medium", "high", "max"].map((x) => (
-            <option key={x}>{x}</option>
+          {(["low", "medium", "high", "max"] as const).map((x) => (
+            <option key={x} value={x}>
+              {t(`effort_${x}`)}
+            </option>
           ))}
         </select>
       </label>
       <label>
         {t("mode")}
         <select value={mode} onChange={(e) => setMode((e.target as HTMLSelectElement).value)}>
-          {["auto", "manual", "plan", "readonly"].map((x) => (
-            <option key={x}>{x}</option>
+          {(["auto", "manual", "plan", "readonly"] as const).map((x) => (
+            <option key={x} value={x}>
+              {t(`agentMode_${x}`)}
+            </option>
           ))}
         </select>
       </label>
@@ -129,7 +136,7 @@ function Node({ agent, depth }: { agent: Agent; depth: number }) {
   return (
     <div class="node" style={{ marginLeft: `${depth * 18}px` }}>
       <div class={`node-row ${agent.status}`}>
-        <span class={`kind ${agent.kind}`}>{agent.kind}</span>
+        <span class={`kind ${agent.kind}`}>{t(`kind_${agent.kind}`)}</span>
         <button type="button" class="link" onClick={() => void attempt(() => openAgent(agent))}>
           {agent.name}
         </button>
@@ -140,7 +147,9 @@ function Node({ agent, depth }: { agent: Agent; depth: number }) {
             {agent.model.effort ? ` · ${agent.model.effort}` : ""}
           </span>
         )}
-        {agent.mode && <span class="chip">{agent.mode}</span>}
+        {agent.mode && (
+          <span class="chip">{tOptional(`agentMode_${agent.mode}`) ?? agent.mode}</span>
+        )}
         {agent.status === "stopped" && <span class="chip muted">{t("stopped")}</span>}
         {canAdd && (
           <button type="button" onClick={() => setAdding(!adding)}>
@@ -165,12 +174,25 @@ function Node({ agent, depth }: { agent: Agent; depth: number }) {
   );
 }
 
-/** The agent tree: open conversations, create children, stop agents. */
+/** The agent tree: open conversations, create agents step by step, stop agents. */
 export function Hierarchy() {
   const [creatingGod, setCreatingGod] = useState(false);
+  const [wizard, setWizard] = useState(false);
   const roots = agents.value.filter((a) => a.parentId === null);
   return (
     <div class="hierarchy">
+      <p class="ui-purpose">{t("agentsPurpose")}</p>
+      {wizard ? (
+        <AgentWizard onDone={() => setWizard(false)} />
+      ) : (
+        roots.length > 0 && (
+          <div>
+            <button type="button" class="primary" onClick={() => setWizard(true)}>
+              {t("agentNew")}
+            </button>
+          </div>
+        )
+      )}
       {roots.length === 0 && !creatingGod && (
         <div class="empty">
           <p>{t("createGodFirst")}</p>

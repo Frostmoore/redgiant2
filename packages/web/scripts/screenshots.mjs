@@ -93,7 +93,7 @@ for (const scheme of ["dark", "light"]) {
   await shot("09-board");
 
   // Settings: every section.
-  await page.locator('button[title="Impostazioni"]').first().click();
+  await page.locator(".bar-settings").click();
   await page.waitForSelector(".settings");
   await shot("10-settings-general");
   for (const [section, name] of [
@@ -102,16 +102,14 @@ for (const scheme of ["dark", "light"]) {
     ["Estensioni", "13-settings-extensions"],
     ["Piattaforma", "14-settings-platform"],
     ["Configurazione", "15-settings-setup"],
-    ["Notifiche", "16-settings-notifications"],
-    ["Dispositivi", "17-settings-devices"],
+    ["Modelli e abbonamenti", "16-settings-models"],
+    ["Dove sta il codice", "17-settings-code"],
+    ["Accesso da fuori", "18-settings-remote"],
   ]) {
     await page.locator(".settings-nav button", { hasText: section }).click();
     await page.waitForTimeout(500);
     await shot(name);
   }
-  await page.locator(".settings button", { hasText: "Abbina un dispositivo" }).click();
-  await page.waitForSelector(".qr svg");
-  await shot("18-pairing");
   await page.close();
 }
 

@@ -272,16 +272,6 @@ export function Sidebar() {
             chatId: null,
           })
         }
-        extra={
-          <button
-            type="button"
-            class="round"
-            title={t("settings")}
-            onClick={() => openTab({ id: "settings", type: "settings", title: t("settings") })}
-          >
-            <IconSettings />
-          </button>
-        }
       />
       {open.has("daily") && <DailyChats />}
 
@@ -388,6 +378,16 @@ export function Sidebar() {
           </div>
         );
       })}
+      {/* Settings at the bottom, apart from the conversations (as in Officina). */}
+      <div class="bar-foot">
+        <button
+          type="button"
+          class="bar-settings"
+          onClick={() => openTab({ id: "settings", type: "settings", title: t("settings") })}
+        >
+          <IconSettings /> {t("settings")}
+        </button>
+      </div>
     </nav>
   );
 }

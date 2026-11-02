@@ -36,7 +36,7 @@ do is written to a tamper-evident log. You keep the keys, the data and the final
 - Every message shows tokens read, cached and generated, context usage and timings; budgets per agent,
   per project and overall.
 - Light and dark themes (or the system's), Italian and English, a phone layout. Installable on the phone
-  as an app (PWA); pair a device by scanning a QR code.
+  as an app (PWA); reachable from outside home with a password, through Tailscale, Cloudflare or your own domain.
 - Questions from agents arrive as cards you answer with a click; on Telegram, approvals and questions
   come with buttons, and long or failed turns, budgets and extensions to review are reported there too.
 

@@ -208,13 +208,6 @@ export interface PlanLimits {
   windows: { id: string; label: string; usedPct: number; resetsAt?: string }[];
 }
 
-export interface Device {
-  id: string;
-  name: string;
-  createdAt: string;
-  lastSeenAt: string | null;
-}
-
 export interface ModelChoice {
   provider: string;
   model: string;
@@ -363,9 +356,6 @@ export class Api {
     },
   ) => this.call("PATCH", `/api/sessions/${id}`, change);
   models = () => this.call<ModelChoice[]>("GET", "/api/models");
-  devices = () => this.call<Device[]>("GET", "/api/devices");
-  pairDevice = () => this.call<{ code: string; expiresAt: string }>("POST", "/api/devices/pair");
-  revokeDevice = (id: string) => this.call("DELETE", `/api/devices/${id}`);
   search = (q: string) => this.call<SearchHit[]>("GET", `/api/search?q=${encodeURIComponent(q)}`);
   startSession = (agentId: string) =>
     this.call<{ sessionId: string }>("POST", "/api/sessions", { agentId });
@@ -663,44 +653,6 @@ export class Api {
     if (!r.ok) throw new ApiError(r.status, `HTTP ${r.status}`);
     return r.blob();
   }
-}
-
-/** A name for a newly paired device, from what the browser says about itself. */
-export function deviceName(): string {
-  const ua = navigator.userAgent;
-  const os = /Android/.test(ua)
-    ? "Android"
-    : /iPhone|iPad/.test(ua)
-      ? "iOS"
-      : /Mac/.test(ua)
-        ? "macOS"
-        : /Windows/.test(ua)
-          ? "Windows"
-          : /Linux/.test(ua)
-            ? "Linux"
-            : "";
-  const browser = /Edg\//.test(ua)
-    ? "Edge"
-    : /Firefox\//.test(ua)
-      ? "Firefox"
-      : /Chrome\//.test(ua)
-        ? "Chrome"
-        : /Safari\//.test(ua)
-          ? "Safari"
-          : "";
-  return [browser, os].filter(Boolean).join(" · ") || "Browser";
-}
-
-/** A phone with a pairing code gets its own token (no token needed to ask). */
-export async function claimDevice(code: string, name: string): Promise<string> {
-  const r = await fetch("/api/devices/claim", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ code, name }),
-  });
-  const data = (await r.json().catch(() => ({}))) as { token?: string; error?: string };
-  if (!r.ok || !data.token) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
-  return data.token;
 }
 
 export const wsUrl = (path: string) =>
