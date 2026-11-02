@@ -8,10 +8,13 @@ import { startServer, wsClient } from "./helpers.js";
 
 type Server = Awaited<ReturnType<typeof startServer>>;
 let s: Server | undefined;
+// Closing waits for the reports still going back up (G24.14f) and, on Windows, for files to be
+// released: slow CI machines need more than the default 10 seconds.
 afterEach(async () => {
-  await s?.close();
+  const server = s;
   s = undefined;
-});
+  await server?.close();
+}, 60_000);
 
 /** Cross-platform verifier: exits 0 only if the file exists. */
 const exists = (path: string) => `node -e "require('fs').accessSync('${path}')"`;
