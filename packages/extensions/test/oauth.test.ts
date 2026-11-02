@@ -15,6 +15,7 @@ import { McpConnection, McpCredentialStore, StoredOAuthProvider } from "../src/i
 const codes = new Map<string, { challenge: string; redirect: string }>();
 const tokens = new Set<string>();
 const registered: Record<string, unknown>[] = [];
+const tokenRequests: URLSearchParams[] = [];
 let base = "";
 
 const service = http.createServer(async (req, res) => {
@@ -39,7 +40,7 @@ const service = http.createServer(async (req, res) => {
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
-      token_endpoint_auth_methods_supported: ["none"],
+      token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
     });
   if (url.pathname === "/register") {
     const meta = JSON.parse(body) as Record<string, unknown>;
@@ -61,6 +62,7 @@ const service = http.createServer(async (req, res) => {
   }
   if (url.pathname === "/token") {
     const p = new URLSearchParams(body);
+    tokenRequests.push(p);
     const c = codes.get(p.get("code") ?? "");
     const verifier = p.get("code_verifier") ?? "";
     const challenge = createHash("sha256").update(verifier).digest("base64url");
@@ -143,5 +145,51 @@ describe("signing in to a remote MCP server", () => {
     expect(registered).toHaveLength(1);
     await conn.close();
     await again.close();
+  });
+
+  it("uses the person's own app where the service does not let RedGiant register (G24.14c)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rg-oauth-app-"));
+    const store = new McpCredentialStore(dir);
+    const app = {
+      clientId: "my-own-app",
+      clientSecret: "my-secret",
+      scope: "mail.read mail.compose",
+      authParams: { access_type: "offline", prompt: "consent" },
+    };
+    await store.save("me", "mail", { app });
+    const redirect = "http://localhost:7600/api/extensions/oauth/callback";
+    let page: URL | undefined;
+    const before = registered.length;
+    const conn = new McpConnection(
+      { name: "mail", transport: { type: "http", url: `${base}/mcp`, oauth: true } },
+      undefined,
+      {
+        authProvider: new StoredOAuthProvider(
+          store,
+          "me",
+          "mail",
+          redirect,
+          "st",
+          (u) => {
+            page = u;
+          },
+          app,
+        ),
+      },
+    );
+    await expect(conn.tools()).rejects.toThrow();
+    // Never registered: the person's own client, its scopes, the service's extra parameters.
+    expect(registered).toHaveLength(before);
+    expect(page?.searchParams.get("client_id")).toBe("my-own-app");
+    expect(page?.searchParams.get("scope")).toBe("mail.read mail.compose");
+    expect(page?.searchParams.get("access_type")).toBe("offline");
+    expect(page?.searchParams.get("prompt")).toBe("consent");
+    const r = await fetch(page as URL, { redirect: "manual" });
+    const back = new URL(r.headers.get("location") ?? "");
+    await conn.finishAuth(back.searchParams.get("code") ?? "");
+    expect(tokenRequests.at(-1)?.get("client_id")).toBe("my-own-app");
+    expect(tokenRequests.at(-1)?.get("client_secret")).toBe("my-secret");
+    expect((await conn.tools()).length).toBe(1);
+    await conn.close();
   });
 });

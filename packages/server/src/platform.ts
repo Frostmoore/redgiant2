@@ -16,6 +16,7 @@ import {
   Effort,
   MCP_CATALOG,
   type ModelSpec,
+  needsInput,
   PermissionMode,
 } from "@redgiant/protocol";
 import { z } from "zod";
@@ -443,7 +444,7 @@ export class PlatformConfig {
     if (a.action === "add") {
       const entry = MCP_CATALOG.find((e) => e.id === a.catalogId);
       if (!entry) throw new ConfigError(`"${a.catalogId}" is not in the catalog`);
-      if (entry.auth.type === "header" || entry.auth.type === "env")
+      if (needsInput(entry))
         throw new ConfigError(
           `${entry.name} needs a key: ask the person to add it from Settings, Extensions, where they paste the key themselves`,
         );
@@ -723,7 +724,7 @@ export function platformConfigTools(
     {
       def: {
         name: "platform_mcp",
-        description: `Add an MCP server from the catalog, or remove one. Servers that sign in with OAuth are added and then the person presses Connect in Settings, Extensions; servers that need a key cannot be added here (the person pastes the key there). Catalog: ${MCP_CATALOG.map((e) => `${e.id} (${e.name}, ${e.auth.type === "header" || e.auth.type === "env" ? "key" : e.auth.type}${e.official ? "" : ", community"})`).join("; ")}.`,
+        description: `Add an MCP server from the catalog, or remove one. Servers that sign in with OAuth are added and then the person presses Connect in Settings, Extensions; servers that need something from the person (a key, their own app, their server's address) cannot be added here: the person adds them there, with a guide. Catalog: ${MCP_CATALOG.map((e) => `${e.id} (${e.name}, ${needsInput(e) ? "added by the person" : e.auth.type}${e.official ? "" : ", community"})`).join("; ")}.`,
         inputSchema: {
           type: "object",
           properties: {

@@ -3317,3 +3317,26 @@ a.button.primary {
 .compaction-settings input[type="range"] {
   width: 100%;
 }
+
+/* --- catalog guides (G24.14c) --- */
+.ext-guide-box {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+}
+.ext-guide-box summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.ext-guide {
+  margin: 8px 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.ext-redirect {
+  user-select: all;
+  word-break: break-all;
+}

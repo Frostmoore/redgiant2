@@ -15,6 +15,8 @@ RUN apt-get update \
  && corepack enable \
  && git config --system init.defaultBranch live \
  && git config --system safe.directory '*'
+# uv, for the catalog's MCP servers published on PyPI (uvx), G24.14c.
+COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /uvx /usr/local/bin/
 COPY --from=build /opt/redgiant /opt/redgiant
 COPY docker/entrypoint.sh /usr/local/bin/redgiant-entrypoint
 RUN chmod 755 /usr/local/bin/redgiant-entrypoint \

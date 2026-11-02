@@ -18,9 +18,23 @@ export interface McpSecrets {
   redirect?: string;
   tokens?: OAuthTokens;
   verifier?: string;
+  /**
+   * The person's own OAuth app (G24.14c), for services that do not let RedGiant register
+   * itself: its client id and secret, the scopes it asks for, extra authorisation parameters.
+   */
+  app?: McpApp;
   /** For servers with a key instead of OAuth. */
   headers?: Record<string, string>;
   env?: Record<string, string>;
+}
+
+export interface McpApp {
+  clientId: string;
+  clientSecret?: string;
+  /** Scopes asked at sign-in, space-separated. */
+  scope?: string;
+  /** Added to the sign-in address (Google: access_type=offline, prompt=consent). */
+  authParams?: Record<string, string>;
 }
 
 const safe = (s: string) => s.replace(/[^\w.-]+/g, "_");
@@ -39,7 +53,12 @@ export class McpCredentialStore {
       .catch(() => ({}));
   }
 
-  async save(ownerId: string, name: string, patch: Partial<McpSecrets>): Promise<void> {
+  /** Merges a patch; a field set to undefined is removed. */
+  async save(
+    ownerId: string,
+    name: string,
+    patch: { [K in keyof McpSecrets]?: McpSecrets[K] | undefined },
+  ): Promise<void> {
     const file = this.file(ownerId, name);
     const next = { ...(await this.load(ownerId, name)), ...patch };
     await mkdir(join(this.dir, safe(ownerId)), { recursive: true, mode: 0o700 });
@@ -66,10 +85,21 @@ export class StoredOAuthProvider implements OAuthClientProvider {
     private readonly stateValue: string,
     /** Called with the service's sign-in page when the person has to sign in. */
     private readonly onAuthorize: (url: URL) => void,
-  ) {}
+    /** The person's own app, when they brought one (known before any request is made). */
+    app?: McpApp,
+  ) {
+    this.app = app;
+  }
 
   get redirectUrl(): string {
     return this.redirect;
+  }
+
+  /** The person's own app, when they brought one; read once per sign-in. */
+  private app: McpApp | undefined;
+  private async ownApp(): Promise<McpApp | undefined> {
+    this.app ??= (await this.store.load(this.ownerId, this.name)).app;
+    return this.app;
   }
 
   get clientMetadata(): OAuthClientMetadata {
@@ -78,7 +108,8 @@ export class StoredOAuthProvider implements OAuthClientProvider {
       redirect_uris: [this.redirect],
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      token_endpoint_auth_method: "none",
+      token_endpoint_auth_method: this.app?.clientSecret ? "client_secret_post" : "none",
+      ...(this.app?.scope && { scope: this.app.scope }),
     };
   }
 
@@ -87,6 +118,14 @@ export class StoredOAuthProvider implements OAuthClientProvider {
   }
 
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
+    // The person's own app: never registered by RedGiant, always this one.
+    const app = await this.ownApp();
+    if (app)
+      return {
+        client_id: app.clientId,
+        ...(app.clientSecret && { client_secret: app.clientSecret }),
+        redirect_uris: [this.redirect],
+      } as OAuthClientInformationMixed;
     const s = await this.store.load(this.ownerId, this.name);
     // Registered for another address (RedGiant opened from elsewhere): register again.
     return s.redirect === this.redirect ? s.client : undefined;
@@ -105,6 +144,7 @@ export class StoredOAuthProvider implements OAuthClientProvider {
   }
 
   redirectToAuthorization(url: URL): void {
+    for (const [k, v] of Object.entries(this.app?.authParams ?? {})) url.searchParams.set(k, v);
     this.onAuthorize(url);
   }
 

@@ -3,6 +3,7 @@
 // servers stay under "Advanced".
 import {
   catalogConfig,
+  type Guide,
   MCP_CATALOG,
   type McpCatalogEntry,
   type McpCategory,
@@ -15,9 +16,11 @@ import {
   IconCheck,
   IconClose,
   IconCompass,
+  IconCopy,
   IconCpu,
   IconFile,
   IconLayers,
+  IconMonitor,
   IconPencil,
   IconSearch,
   IconSend,
@@ -167,6 +170,50 @@ async function signIn(name: string): Promise<boolean> {
 }
 
 /** Adding one entry: where it works and, when it needs one, its key. */
+/** What the card says about signing in. */
+const authLabel = (type: McpCatalogEntry["auth"]["type"]) =>
+  type === "app"
+    ? "extAuth_app"
+    : type === "oauth"
+      ? "extAuth_oauth"
+      : type === "none"
+        ? "extAuth_none"
+        : "extAuth_header";
+
+/** A guide in steps, with RedGiant's return address ready to copy where it is needed. */
+function GuideSteps({ guide }: { guide: Guide }) {
+  const redirect = `${location.origin}/api/extensions/oauth/callback`;
+  const [copied, setCopied] = useState(false);
+  return (
+    <ol class="ext-guide">
+      {guide[lang.value].map((step) => {
+        const [before, after] = step.split("{redirect}");
+        return (
+          <li key={step}>
+            {before}
+            {after !== undefined && (
+              <>
+                <code class="ext-redirect">{redirect}</code>{" "}
+                <button
+                  type="button"
+                  class="tiny"
+                  onClick={() =>
+                    void navigator.clipboard?.writeText(redirect).then(() => setCopied(true))
+                  }
+                >
+                  <IconCopy size={11} /> {copied ? t("copied") : t("copy")}
+                </button>
+                {after}
+              </>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** Adding one entry: where it works and what it needs from the person (a key, their app…). */
 function AddForm({
   entry,
   onDone,
@@ -178,10 +225,20 @@ function AddForm({
 }) {
   const [scope, setScope] = useState("");
   const [key, setKey] = useState("");
+  const [url, setUrl] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [fields, setFields] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const a = entry.auth;
   const needsKey = a.type === "header" || a.type === "env";
+  const signsIn = a.type === "oauth" || a.type === "app";
+  const ready =
+    (!needsKey || key.trim() !== "") &&
+    (!entry.userUrl || url.trim() !== "") &&
+    (a.type !== "app" || (clientId.trim() !== "" && (!a.secret || clientSecret.trim() !== ""))) &&
+    (a.type !== "fields" || a.fields.every((f) => f.optional || (fields[f.env] ?? "").trim()));
   const add = async (e: Event) => {
     e.preventDefault();
     setBusy(true);
@@ -190,17 +247,38 @@ function AddForm({
       await getApi().setMcp({
         name: entry.id,
         projectId: scope || null,
-        ...catalogConfig(entry, key),
+        ...catalogConfig(entry, {
+          key,
+          url,
+          fields,
+          app: { clientId, ...(clientSecret.trim() && { clientSecret }) },
+        }),
       });
-      onDone(a.type === "oauth" && !(await signIn(entry.id)));
+      onDone(signsIn && !(await signIn(entry.id)));
     } catch (err) {
       setError(explain(err));
     } finally {
       setBusy(false);
     }
   };
+  const guide = "guide" in a ? a.guide : undefined;
   return (
     <form class="form ext-add" onSubmit={(e) => void add(e)}>
+      {entry.note && <p class="notice warn">{entry.note[lang.value]}</p>}
+      {entry.unverified && <p class="ui-help">{t("extUnverified")}</p>}
+      {guide && (
+        <details class="ext-guide-box" open={a.type === "app" || a.type === "fields"}>
+          <summary>
+            {t(a.type === "app" ? "extAppGuide" : "extGuide", { name: entry.name })}
+          </summary>
+          <GuideSteps guide={guide} />
+          {a.type === "app" && (
+            <a href={a.consoleUrl} target="_blank" rel="noreferrer">
+              {t("extAppConsole", { name: entry.name })}
+            </a>
+          )}
+        </details>
+      )}
       <Field label={t("extWhere")} help={t("extWhereHelp")}>
         <select value={scope} onChange={(e) => setScope((e.target as HTMLSelectElement).value)}>
           <option value="">{t("extEverywhere")}</option>
@@ -211,6 +289,52 @@ function AddForm({
           ))}
         </select>
       </Field>
+      {entry.userUrl && (
+        <Field label={t("extServerUrl", { name: entry.name })} help={t("extServerUrlHelp")}>
+          <input
+            type="url"
+            placeholder={entry.userUrl.example}
+            value={url}
+            onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
+          />
+        </Field>
+      )}
+      {a.type === "app" && (
+        <>
+          <Field label={t("extClientId")}>
+            <input
+              autocomplete="off"
+              value={clientId}
+              onInput={(e) => setClientId((e.target as HTMLInputElement).value)}
+            />
+          </Field>
+          <Field
+            label={a.secret ? t("extClientSecret") : t("extClientSecretOptional")}
+            help={t("extKeyHelp")}
+          >
+            <input
+              type="password"
+              autocomplete="off"
+              value={clientSecret}
+              onInput={(e) => setClientSecret((e.target as HTMLInputElement).value)}
+            />
+          </Field>
+        </>
+      )}
+      {a.type === "fields" &&
+        a.fields.map((f) => (
+          <Field key={f.env} label={f.label[lang.value]}>
+            <input
+              type={(f.secret ? "password" : "text") as "text"}
+              autocomplete="off"
+              placeholder={f.example ?? ""}
+              value={fields[f.env] ?? ""}
+              onInput={(e) =>
+                setFields({ ...fields, [f.env]: (e.target as HTMLInputElement).value })
+              }
+            />
+          </Field>
+        ))}
       {needsKey && (
         <Field label={t("extKey", { name: entry.name })} help={t("extKeyHelp")}>
           <input
@@ -225,11 +349,11 @@ function AddForm({
           </a>
         </Field>
       )}
-      {a.type === "oauth" && <p class="ui-help">{t("extOauthHelp", { name: entry.name })}</p>}
+      {signsIn && <p class="ui-help">{t("extOauthHelp", { name: entry.name })}</p>}
       {error && <p class="notice error">{error}</p>}
       <div class="row">
-        <button type="submit" class="primary" disabled={busy || (needsKey && !key.trim())}>
-          {a.type === "oauth" ? t("extAddAndConnect") : t("extAdd")}
+        <button type="submit" class="primary" disabled={busy || !ready}>
+          {signsIn ? t("extAddAndConnect") : t("extAdd")}
         </button>
         <button type="button" onClick={onCancel}>
           {t("cancel")}
@@ -240,7 +364,7 @@ function AddForm({
 }
 
 const CATEGORIES = (
-  ["code", "docs", "web", "data", "work", "design", "cloud"] as McpCategory[]
+  ["code", "docs", "web", "data", "work", "design", "cloud", "home"] as McpCategory[]
 ).filter((c) => MCP_CATALOG.some((e) => e.category === c));
 /** Drawn icons by kind of service: never the services' own logos. */
 const CATEGORY_ICON = {
@@ -251,6 +375,7 @@ const CATEGORY_ICON = {
   work: IconBoard,
   design: IconPencil,
   cloud: IconCpu,
+  home: IconMonitor,
 } as const;
 
 function Catalog({
@@ -310,7 +435,10 @@ function Catalog({
               </span>
             </div>
             <p class="ui-help">{e.description[lang.value]}</p>
-            <p class="lm-meta">{t(`extAuth_${e.auth.type === "env" ? "header" : e.auth.type}`)}</p>
+            <p class="lm-meta">
+              {t(authLabel(e.auth.type))}
+              {e.unverified && ` · ${t("extUnverifiedShort")}`}
+            </p>
             {added.has(e.id) ? (
               <span class="chip ok">
                 <IconCheck size={12} /> {t("extAdded")}

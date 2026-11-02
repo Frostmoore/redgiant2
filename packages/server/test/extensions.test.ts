@@ -185,4 +185,34 @@ describe("extensions end to end", () => {
     expect(page).toContain("&lt;script&gt;x&lt;/script&gt;");
     expect(page).not.toContain("<script>x</script>");
   });
+
+  it("keeps the person's own OAuth app in the private file, never in the configuration", async () => {
+    s = await startServer(() => ({ text: "ok" }));
+    const saved = await s.api("PUT", "/api/extensions/mcp", {
+      name: "gmail",
+      projectId: null,
+      transport: { type: "http", url: "https://gmailmcp.googleapis.com/mcp/v1", oauth: true },
+      secrets: {
+        app: {
+          clientId: "123.apps.googleusercontent.com",
+          clientSecret: "GOCSPX-secret",
+          scope: "https://www.googleapis.com/auth/gmail.readonly",
+          authParams: { access_type: "offline", prompt: "consent" },
+        },
+      },
+    });
+    expect(saved.status).toBe(200);
+    expect(JSON.stringify((await s.api("GET", "/api/extensions/mcp")).body)).not.toContain(
+      "GOCSPX",
+    );
+    expect((await s.core.mcpCredentials.load("me", "gmail")).app).toMatchObject({
+      clientId: "123.apps.googleusercontent.com",
+      clientSecret: "GOCSPX-secret",
+    });
+    const status = await s.api<{ name: string; state: string }[]>(
+      "GET",
+      "/api/extensions/mcp/status",
+    );
+    expect(status.body).toEqual([expect.objectContaining({ name: "gmail", state: "login" })]);
+  });
 });

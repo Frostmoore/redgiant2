@@ -11,14 +11,30 @@ describe("MCP catalog", () => {
       expect(e.description.it.length, e.id).toBeGreaterThan(20);
       expect(e.description.en.length, e.id).toBeGreaterThan(20);
       expect(e.homepage, e.id).toMatch(/^https:\/\//);
-      if (e.transport.type === "http") expect(e.transport.url, e.id).toMatch(/^https:\/\//);
-      else expect(["npx", "uvx"], e.id).toContain(e.transport.command);
+      // A server of the person's own (Home Assistant) may be plain http on their network.
+      if (e.transport.type === "http") {
+        if (!e.userUrl) expect(e.transport.url, e.id).toMatch(/^https:\/\//);
+      } else expect(["npx", "uvx"], e.id).toContain(e.transport.command);
       if (e.auth.type === "header" || e.auth.type === "env")
         expect(e.auth.keyUrl, e.id).toMatch(/^https:\/\//);
       // OAuth needs an address the browser is sent from, so only online servers.
-      if (e.auth.type === "oauth") expect(e.transport.type, e.id).toBe("http");
+      if (e.auth.type === "oauth" || e.auth.type === "app")
+        expect(e.transport.type, e.id).toBe("http");
       if (e.auth.type === "header") expect(e.transport.type, e.id).toBe("http");
-      if (e.auth.type === "env") expect(e.transport.type, e.id).toBe("stdio");
+      if (e.auth.type === "env" || e.auth.type === "fields")
+        expect(e.transport.type, e.id).toBe("stdio");
+      // A guide says the same in both languages, and an app's guide where the return address goes.
+      const guide = "guide" in e.auth ? e.auth.guide : undefined;
+      if (guide) {
+        expect(guide.it.length, e.id).toBeGreaterThan(1);
+        expect(guide.it.length, e.id).toBe(guide.en.length);
+      }
+      if (e.auth.type === "app") {
+        expect(guide?.en.join(" "), e.id).toContain("{redirect}");
+        expect(guide?.it.join(" "), e.id).toContain("{redirect}");
+        expect(e.auth.consoleUrl, e.id).toMatch(/^https:\/\//);
+      }
+      if (e.userUrl) expect(e.transport.type, e.id).toBe("http");
     }
   });
 
@@ -61,5 +77,31 @@ describe("MCP catalog", () => {
       auth: { type: "env", env: "Y_KEY", keyUrl: "https://k" },
     };
     expect(catalogConfig(env, "k2").secrets).toEqual({ env: { Y_KEY: "k2" } });
+  });
+
+  it("turns the person's own app, their server's address and several fields into a configuration", () => {
+    const gmail = MCP_CATALOG.find((e) => e.id === "gmail") as McpCatalogEntry;
+    const c = catalogConfig(gmail, { app: { clientId: "id1", clientSecret: "s1" } });
+    expect(c.transport).toMatchObject({ type: "http", oauth: true });
+    expect(c.secrets?.app).toMatchObject({
+      clientId: "id1",
+      clientSecret: "s1",
+      authParams: { access_type: "offline", prompt: "consent" },
+    });
+    expect(c.secrets?.app?.scope).toMatch(/gmail\.readonly/);
+    expect(() => catalogConfig(gmail, { app: { clientId: "id1" } })).toThrow(/app's details/);
+    const ha = MCP_CATALOG.find((e) => e.id === "home-assistant") as McpCatalogEntry;
+    expect(catalogConfig(ha, { url: "http://ha.lan:8123/", key: "t" }).transport).toEqual({
+      type: "http",
+      url: "http://ha.lan:8123/api/mcp",
+    });
+    expect(() => catalogConfig(ha, { key: "t" })).toThrow(/address/);
+    const wp = MCP_CATALOG.find((e) => e.id === "wordpress") as McpCatalogEntry;
+    expect(
+      catalogConfig(wp, {
+        fields: { WP_API_URL: "https://x/wp-json/mcp", WP_API_USERNAME: "m", WP_API_PASSWORD: "p" },
+      }).secrets?.env,
+    ).toEqual({ WP_API_URL: "https://x/wp-json/mcp", WP_API_USERNAME: "m", WP_API_PASSWORD: "p" });
+    expect(() => catalogConfig(wp, { fields: { WP_API_URL: "x" } })).toThrow(/needs/);
   });
 });

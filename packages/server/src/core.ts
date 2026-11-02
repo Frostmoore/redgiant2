@@ -16,6 +16,7 @@ import {
   ExtensionBuilder,
   loadCustomTools,
   loadSkills,
+  type McpApp,
   McpConnection,
   McpCredentialStore,
   type McpServerConfig,
@@ -796,6 +797,7 @@ export class RedGiantCore implements OrchestrationHost {
             back,
             state,
             onAuthorize,
+            secrets.app,
           ),
         }),
     });
@@ -922,7 +924,7 @@ export class RedGiantCore implements OrchestrationHost {
     ownerId: string,
     config: McpServerConfig & { projectId: string | null },
     /** Keys kept in a private file, not with the configuration. */
-    secrets?: { headers?: Record<string, string>; env?: Record<string, string> },
+    secrets?: { headers?: Record<string, string>; env?: Record<string, string>; app?: McpApp },
   ): Promise<void> {
     await this.o.db.query(
       `INSERT INTO rg_mcp_servers (owner_id, name, project_id, transport) VALUES ($1, $2, $3, $4)
@@ -933,9 +935,14 @@ export class RedGiantCore implements OrchestrationHost {
       for (const v of [
         ...Object.values(secrets.headers ?? {}),
         ...Object.values(secrets.env ?? {}),
+        ...(secrets.app?.clientSecret ? [secrets.app.clientSecret] : []),
       ])
         this.o.redactor?.addSecret(`mcp-${config.name}`, v);
-      await this.mcpCredentials.save(ownerId, config.name, secrets);
+      // A new app of the person's: the old sign-in belonged to another one.
+      await this.mcpCredentials.save(ownerId, config.name, {
+        ...secrets,
+        ...(secrets.app && { tokens: undefined, client: undefined, verifier: undefined }),
+      });
     }
     await this.mcp.get(`${ownerId}/${config.name}`)?.close();
     this.mcp.delete(`${ownerId}/${config.name}`);

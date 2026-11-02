@@ -648,6 +648,15 @@ const routes = {
                 .object({
                   headers: z.record(z.string(), z.string()).optional(),
                   env: z.record(z.string(), z.string()).optional(),
+                  /** The person's own OAuth app (G24.14c). */
+                  app: z
+                    .object({
+                      clientId: z.string().min(1).max(500),
+                      clientSecret: z.string().max(2000).optional(),
+                      scope: z.string().max(4000).optional(),
+                      authParams: z.record(z.string(), z.string()).optional(),
+                    })
+                    .optional(),
                 })
                 .optional(),
             }),
