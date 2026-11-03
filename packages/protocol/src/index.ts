@@ -1,5 +1,6 @@
 export * from "./agents.js";
 export * from "./automations.js";
+export * from "./backup.js";
 export * from "./dangers.js";
 export * from "./events.js";
 export * from "./jobs.js";

@@ -85,6 +85,7 @@ import {
 import { z } from "zod";
 import { type Alert, type AlertText, alertText } from "./alerts.js";
 import { HumanApprovals } from "./approvals.js";
+import type { BackupDeps } from "./backup.js";
 import { type Browsers, browserTools } from "./browser.js";
 import { contentType, inside, lastChange, Previews, type PreviewTarget } from "./canvas.js";
 import { DailyChat, migrateChat } from "./chat.js";
@@ -297,6 +298,13 @@ export class RedGiantCore implements OrchestrationHost {
   browsers: Browsers | undefined;
   /** Long actions the user follows (downloads, the local engine, links). */
   readonly jobs = new Jobs();
+  /** Backups made or being imported (2026-11-03): next to the workspaces, in the data volume. */
+  get backupsDir(): string {
+    return join(dirname(this.o.workspacesDir), "backups");
+  }
+  get backupDeps(): BackupDeps {
+    return { db: this.o.db, store: this.store, workspacesDir: this.o.workspacesDir };
+  }
   /** How the owner is told about finished automations (set by the Telegram gateway). */
   notify: ((ownerId: string, text: string) => Promise<void>) | undefined;
   /** Connected MCP servers, by owner and name. */

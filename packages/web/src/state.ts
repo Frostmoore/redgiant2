@@ -591,6 +591,7 @@ export type SettingsSection =
   | "subscriptions"
   | "code"
   | "remote"
+  | "backup"
   | "platform";
 
 /** Older ways to open things, still used by the views: they land in the new places. */

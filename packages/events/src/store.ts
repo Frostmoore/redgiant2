@@ -12,6 +12,9 @@ export interface AppendInput {
   agentId?: string | null;
   sessionId?: string | null;
   body: EventBody;
+  /** Kept from another installation's log (a backup being imported); new ones otherwise. */
+  id?: string;
+  ts?: string;
 }
 
 export interface EventFilter {
@@ -77,9 +80,9 @@ export class EventStore {
         "SELECT seq, hash FROM rg_events ORDER BY seq DESC LIMIT 1",
       );
       const fields = {
-        id: this.options.newId?.() ?? randomUUID(),
+        id: input.id ?? this.options.newId?.() ?? randomUUID(),
         seq: head ? Number(head.seq) + 1 : 0,
-        ts: (this.options.now?.() ?? new Date()).toISOString(),
+        ts: input.ts ?? (this.options.now?.() ?? new Date()).toISOString(),
         ownerId: input.ownerId ?? LOCAL_OWNER_ID,
         projectId: input.projectId ?? null,
         agentId: input.agentId ?? null,

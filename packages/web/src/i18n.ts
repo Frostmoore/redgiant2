@@ -561,6 +561,40 @@ const en = {
   asstProjectsHelp:
     "Choose the projects {name} also works for: there it sits under the project's orchestrator, which gives it tasks.",
   asstProjectCard: "Works here too, under the orchestrator",
+  backup: "Backup",
+  backupPurpose:
+    "Every project with its files, the agents and the conversations in one file: keep it safe, or carry it to another RedGiant.",
+  backupExport: "Make a backup",
+  backupExportHint:
+    "Projects with their files, agents, conversations, chats and the board. Keys and sign-ins to services are not in it: they stay on this computer. node_modules folders are left out (they are rebuilt).",
+  backupMake: "Prepare the backup",
+  backupMakeAgain: "Prepare it again",
+  backupDownload: "Download {file}",
+  backupSaved: "Saved in your Downloads folder.",
+  backupImport: "Import a backup",
+  backupImportHint:
+    "From another RedGiant or from this one. Nothing here is deleted or replaced: what is in the backup is added, and what is already here stays as it is.",
+  backupChoose: "Choose the backup file",
+  backupSending: "Sending the file to RedGiant",
+  backupFrom: "Backup of {when}",
+  backupAlreadyHere: "already here, left as it is",
+  backupCounts: "{agents} agents · {conversations} conversations · {size} of files",
+  backupNameQuestion:
+    "{who} is called {here} here and {backup} in the backup. Which name does it keep?",
+  backupKeepName: "Keep {name}",
+  backupTakeName: "Use {name}",
+  backupAddsHint:
+    "A project whose name is taken here comes in beside it, with a number after the name.",
+  backupNothingNew: "Every project in this backup is here already: only what is missing is added.",
+  backupImportNow: "Import",
+  backupImported:
+    "Done: {projects} projects, {agents} agents and {conversations} conversations added.",
+  backupAnother: "Import another backup",
+  job_backup_export: "Preparing the backup",
+  job_backup_import: "Importing the backup",
+  job_step_data: "Projects, agents and settings",
+  job_step_conversations: "Conversations",
+  job_step_files: "The projects' files",
   job_pihole: "Starting Pi-hole",
   job_step_pihole_image: "Downloading Pi-hole (only once)",
   job_step_pihole_start: "Starting Pi-hole",
@@ -1878,6 +1912,40 @@ const it: Record<Key, string> = {
   asstProjectsHelp:
     "Scegli i progetti per cui lavora anche {name}: lì sta sotto l'orchestratore del progetto, che gli dà i compiti.",
   asstProjectCard: "Lavora anche qui, sotto l'orchestratore",
+  backup: "Backup",
+  backupPurpose:
+    "Tutti i progetti con i loro file, gli agenti e le conversazioni in un file solo: da tenere al sicuro, o da portare in un altro RedGiant.",
+  backupExport: "Fai un backup",
+  backupExportHint:
+    "Progetti con i loro file, agenti, conversazioni, chat e bacheca. Le chiavi e gli accessi ai servizi non ci sono: restano su questo computer. Le cartelle node_modules sono lasciate fuori (si ricreano).",
+  backupMake: "Prepara il backup",
+  backupMakeAgain: "Preparalo di nuovo",
+  backupDownload: "Scarica {file}",
+  backupSaved: "Salvato nella cartella Download.",
+  backupImport: "Importa un backup",
+  backupImportHint:
+    "Da un altro RedGiant o da questo. Qui non si cancella né si sostituisce niente: quello che c'è nel backup viene aggiunto, e quello che c'è già resta com'è.",
+  backupChoose: "Scegli il file del backup",
+  backupSending: "Mando il file a RedGiant",
+  backupFrom: "Backup del {when}",
+  backupAlreadyHere: "c'è già, resta com'è",
+  backupCounts: "{agents} agenti · {conversations} conversazioni · {size} di file",
+  backupNameQuestion: "{who} qui si chiama {here} e nel backup {backup}. Che nome tiene?",
+  backupKeepName: "Tieni {name}",
+  backupTakeName: "Usa {name}",
+  backupAddsHint:
+    "Un progetto con un nome già usato qui entra accanto all'altro, con un numero dopo il nome.",
+  backupNothingNew:
+    "Tutti i progetti di questo backup ci sono già: si aggiunge solo quello che manca.",
+  backupImportNow: "Importa",
+  backupImported:
+    "Fatto: aggiunti {projects} progetti, {agents} agenti e {conversations} conversazioni.",
+  backupAnother: "Importa un altro backup",
+  job_backup_export: "Preparo il backup",
+  job_backup_import: "Importo il backup",
+  job_step_data: "Progetti, agenti e impostazioni",
+  job_step_conversations: "Conversazioni",
+  job_step_files: "I file dei progetti",
   job_pihole: "Avvio di Pi-hole",
   job_step_pihole_image: "Scarico Pi-hole (una volta sola)",
   job_step_pihole_start: "Avvio Pi-hole",

@@ -4088,3 +4088,41 @@ button.agent-add {
 button.agent-add:hover {
   background: var(--panel);
 }
+/* Backup (2026-11-03): export and import, one under the other. */
+.backup-part {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 18px 0 26px;
+  max-width: 640px;
+}
+.backup-part > .ui-progress,
+.backup-part > div,
+.backup-part > .ui-job {
+  align-self: stretch;
+}
+.backup-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.backup-card ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.backup-name {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.backup-name legend {
+  padding: 0 4px;
+}

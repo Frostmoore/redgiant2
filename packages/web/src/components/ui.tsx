@@ -257,7 +257,16 @@ const STEP_ICONS = {
  * A long action as people see it: its steps with what is happening now, the progress of the
  * running step, and at the end "done" or the error in plain words with the details below.
  */
-export function JobView({ job, cancellable }: { job: Job; cancellable?: boolean }) {
+export function JobView({
+  job,
+  cancellable,
+  countSteps = [],
+}: {
+  job: Job;
+  cancellable?: boolean;
+  /** Steps whose progress counts things (conversations…), not bytes. */
+  countSteps?: string[];
+}) {
   return (
     <div class={`ui-job ${job.state}`} aria-live="polite">
       <strong>{tOptional(`job_${job.kind}`, job.vars) ?? job.kind}</strong>
@@ -268,7 +277,12 @@ export function JobView({ job, cancellable }: { job: Job; cancellable?: boolean 
             <span>
               {tOptional(`job_step_${s.id}`, job.vars) ?? s.id}
               {s.state === "skipped" && <span class="dim"> · {t("uiNotNeeded")}</span>}
-              {s.progress && <Progress progress={s.progress} />}
+              {s.progress && (
+                <Progress
+                  progress={s.progress}
+                  unit={countSteps.includes(s.id) ? "count" : "bytes"}
+                />
+              )}
             </span>
           </li>
         ))}

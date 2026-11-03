@@ -1,6 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { lang, setLang, t } from "../i18n.js";
 import {
+  IconArchive,
   IconCard,
   IconClock,
   IconCompass,
@@ -20,6 +21,7 @@ import {
 import { openTab, type SettingsSection, signOut } from "../state.js";
 import { setTheme, theme } from "../theme.js";
 import { Automations } from "./Automations.js";
+import { Backup } from "./Backup.js";
 import { Budgets } from "./Budgets.js";
 import { CodeSettings } from "./CodeSettings.js";
 import { EmailSettings } from "./EmailSettings.js";
@@ -43,6 +45,7 @@ const SECTIONS: { id: SettingsSection; label: () => string; icon: ComponentChild
   { id: "code", label: () => t("wzCode"), icon: <IconFolder size={15} /> },
   { id: "remote", label: () => t("wzRemote"), icon: <IconShield size={15} /> },
   { id: "budgets", label: () => t("budgets"), icon: <IconDollar size={15} /> },
+  { id: "backup", label: () => t("backup"), icon: <IconArchive size={15} /> },
   { id: "platform", label: () => t("platformView"), icon: <IconLayers size={15} /> },
 ];
 
@@ -128,6 +131,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "code" && <CodeSettings />}
         {section === "remote" && <RemoteSettings />}
         {section === "budgets" && <Budgets />}
+        {section === "backup" && <Backup />}
         {section === "platform" && <Platform />}
       </div>
     </div>

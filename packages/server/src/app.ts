@@ -1,7 +1,9 @@
-import { timingSafeEqual } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { randomUUID, timingSafeEqual } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { extname, join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { AutomationNotFoundError, RecipeError, WebhookForbiddenError } from "@redgiant/automations";
 import { loadCustomTools, loadSkills } from "@redgiant/extensions";
@@ -24,6 +26,7 @@ import { PathOutsideWorkspaceError } from "@redgiant/tools";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { type AuthProvider, bearer, type Principal } from "./auth.js";
+import { BackupError, exportBackup, importBackup, previewBackup, removeBackup } from "./backup.js";
 import { bridge, PREVIEW_HEADERS, serveFile } from "./canvas.js";
 import { ChatError } from "./chat.js";
 import { CodeChangeError } from "./code.js";
@@ -1149,6 +1152,103 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
       },
     });
+  });
+
+  // Backup (2026-11-03): every project, agent and conversation in one file, and back. Outside
+  // OpenAPI: the file goes up and down as raw bytes.
+  const BACKUP_NAME = /^[a-z0-9-]+\.rgbackup$/;
+  app.post("/api/backup/export", async (c) => {
+    const o = owner(c);
+    const running = core.jobs
+      .list(o)
+      .find((j) => j.kind === "backup_export" && j.state === "running");
+    if (running) return c.json(running, 200);
+    const dir = core.backupsDir;
+    const name = `redgiant-backup-${new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-")}.rgbackup`;
+    const job = core.jobs.start(
+      o,
+      "backup_export",
+      ["data", "conversations", "files"],
+      async (h) => {
+        // One backup at a time stays here: the older ones were downloaded already.
+        await mkdir(dir, { recursive: true });
+        for (const f of await readdir(dir))
+          if (f.startsWith("redgiant-backup-")) await removeBackup(join(dir, f));
+        await exportBackup(core.backupDeps, o, join(dir, name), h);
+        h.info({ file: name });
+      },
+      { file: name },
+    );
+    return c.json(job, 200);
+  });
+  app.get("/api/backup/file/:name", async (c) => {
+    const name = c.req.param("name");
+    if (!BACKUP_NAME.test(name)) return c.json({ error: "No such backup" }, 404);
+    const file = join(core.backupsDir, name);
+    const st = await stat(file).catch(() => undefined);
+    if (!st) return c.json({ error: "No such backup" }, 404);
+    return new Response(Readable.toWeb(createReadStream(file)) as ReadableStream, {
+      headers: {
+        "content-type": "application/octet-stream",
+        "content-length": String(st.size),
+        "content-disposition": `attachment; filename="${name}"`,
+      },
+    });
+  });
+  // The file to import, streamed to disk; what it holds comes back for the person to confirm.
+  app.post("/api/backup/upload", async (c) => {
+    const body = c.req.raw.body;
+    if (!body) return c.json({ error: "No file" }, 400);
+    const id = `import-${randomUUID()}`;
+    const file = join(core.backupsDir, `${id}.rgbackup`);
+    await mkdir(core.backupsDir, { recursive: true });
+    await pipeline(Readable.fromWeb(body as never), createWriteStream(file));
+    try {
+      return c.json({ id, preview: await previewBackup(core.backupDeps, owner(c), file) }, 200);
+    } catch (err) {
+      await removeBackup(file);
+      if (err instanceof BackupError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
+  app.post("/api/backup/import", async (c) => {
+    const b = await c.req.json<{ id?: string; godName?: string; demigodName?: string }>();
+    const name = `${b.id ?? ""}.rgbackup`;
+    if (!b.id?.startsWith("import-") || !BACKUP_NAME.test(name))
+      return c.json({ error: "No such backup" }, 404);
+    const file = join(core.backupsDir, name);
+    if (!(await stat(file).catch(() => undefined))) return c.json({ error: "No such backup" }, 404);
+    const o = owner(c);
+    const job = core.jobs.start(
+      o,
+      "backup_import",
+      ["data", "conversations", "files"],
+      async (h) => {
+        try {
+          const r = await importBackup(
+            core.backupDeps,
+            o,
+            file,
+            {
+              ...(b.godName && { godName: b.godName }),
+              ...(b.demigodName && { demigodName: b.demigodName }),
+            },
+            h,
+          );
+          h.info({
+            projects: String(r.projects.length),
+            agents: String(r.agents),
+            conversations: String(r.conversations),
+            files: String(r.files),
+          });
+        } finally {
+          // The agents in memory follow what was added.
+          await core.registry.load();
+          await removeBackup(file);
+        }
+      },
+    );
+    return c.json(job, 200);
   });
 
   app.openapi(routes.budgets, async (c) => {

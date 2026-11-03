@@ -1,6 +1,7 @@
 import {
   type Automation,
   type AutomationRun,
+  type BackupPreview,
   type ClientMessage,
   type Event,
   type Job,
@@ -813,6 +814,55 @@ export class Api {
       "GET",
       `/api/canvas/version?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
     );
+
+  /** Backup (2026-11-03): made on the server as a job, then downloaded with its progress. */
+  exportBackup = () => this.call<Job>("POST", "/api/backup/export");
+  importBackup = (b: { id: string; godName?: string; demigodName?: string }) =>
+    this.call<Job>("POST", "/api/backup/import", b);
+  async downloadBackup(
+    name: string,
+    progress: (done: number, total: number) => void,
+  ): Promise<Blob> {
+    const r = await fetch(`/api/backup/file/${encodeURIComponent(name)}`, {
+      headers: { authorization: `Bearer ${this.token}` },
+    });
+    if (!r.ok || !r.body) throw new ApiError(r.status, `HTTP ${r.status}`);
+    const total = Number(r.headers.get("content-length") ?? 0);
+    const parts: BlobPart[] = [];
+    let done = 0;
+    const reader = r.body.getReader();
+    for (;;) {
+      const { done: end, value } = await reader.read();
+      if (end) break;
+      parts.push(value);
+      done += value.length;
+      progress(done, total);
+    }
+    return new Blob(parts, { type: "application/octet-stream" });
+  }
+  /** A backup file sent up with its progress (fetch cannot tell an upload's), then what it holds. */
+  uploadBackup(
+    file: Blob,
+    progress: (done: number, total: number) => void,
+  ): Promise<{ id: string; preview: BackupPreview }> {
+    return new Promise((ok, ko) => {
+      const x = new XMLHttpRequest();
+      x.open("POST", "/api/backup/upload");
+      x.setRequestHeader("authorization", `Bearer ${this.token}`);
+      x.setRequestHeader("content-type", "application/octet-stream");
+      x.upload.onprogress = (e) => progress(e.loaded, e.total || file.size);
+      x.onerror = () => ko(new ApiError(0, "Network error"));
+      x.onload = () => {
+        let data: { error?: string } = {};
+        try {
+          data = JSON.parse(x.responseText) as { error?: string };
+        } catch {}
+        if (x.status >= 200 && x.status < 300) ok(data as { id: string; preview: BackupPreview });
+        else ko(new ApiError(x.status, data.error ?? `HTTP ${x.status}`));
+      };
+      x.send(file);
+    });
+  }
 
   async download(scope: string, path: string): Promise<Blob> {
     const r = await fetch(

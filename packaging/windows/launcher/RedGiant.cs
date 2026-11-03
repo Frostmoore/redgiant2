@@ -123,6 +123,10 @@ sealed class Launcher : ApplicationContext
         if (!background) splash.Show();
         WinEngine.Watch();
         StartEngine();
+        // The first start of the day looks for a newer RedGiant (Updates.cs); its questions are
+        // asked on the splash's thread, whose handle exists even when the splash stays hidden.
+        if (!splash.IsHandleCreated) { var unused = splash.Handle; }
+        Updates.Start(splash);
     }
 
     static bool DistroInstalled()

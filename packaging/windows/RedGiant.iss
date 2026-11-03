@@ -18,7 +18,8 @@ AppVersion={#AppVersion}
 AppPublisher=RedGiant
 AppPublisherURL=https://github.com/Frostmoore/redgiant2
 DefaultDirName={localappdata}\RedGiant
-DisableDirPage=yes
+; Asked on a first installation only ("auto": an update keeps the folder it has).
+DisableDirPage=auto
 DisableProgramGroupPage=yes
 DisableReadyPage=no
 PrivilegesRequired=lowest
@@ -34,8 +35,10 @@ SolidCompression=no
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 MinVersion=10.0.19041
-; The language is the one of Windows: no question at the start.
-ShowLanguageDialog=no
+; A first installation asks the language (Windows' one proposed); an update uses the one chosen
+; then and asks nothing at all (2026-11-03).
+ShowLanguageDialog=yes
+UsePreviousLanguage=yes
 LanguageDetectionMethod=uilanguage
 ; RedGiant is closed by the setup itself (PrepareToInstall): Windows' own "close the
 ; applications" page listed nothing it could name, and left the old RedGiant running.
@@ -59,6 +62,12 @@ it.Importing=Preparo RedGiant…
 en.Importing=Preparing RedGiant…
 it.ImportFailed=Non sono riuscito a preparare RedGiant dentro WSL (codice %1). Riprova; se succede ancora, chiedi aiuto.
 en.ImportFailed=RedGiant could not be prepared inside WSL (code %1). Try again; if it happens again, ask for help.
+it.DataTitle=Dove mettere i dati
+en.DataTitle=Where the data go
+it.DataSub=Progetti, conversazioni e impostazioni di RedGiant.
+en.DataSub=RedGiant's projects, conversations and settings.
+it.DataText=RedGiant tiene qui tutto quello che fai: scegli un disco con spazio (servono almeno 20 GB, di più se userai modelli sul computer).
+en.DataText=RedGiant keeps everything you do here: choose a disk with room (at least 20 GB, more if you will run models on this computer).
 it.KeepData=Vuoi tenere le conversazioni, i progetti e le impostazioni di RedGiant?%n%nSì: restano sul computer e li ritrovi se lo reinstalli.%nNo: vengono cancellati per sempre.
 en.KeepData=Keep RedGiant's conversations, projects and settings?%n%nYes: they stay on the computer and come back if you install it again.%nNo: they are deleted for good.
 
@@ -81,8 +90,15 @@ Name: "{userprograms}\RedGiant"; Filename: "{app}\RedGiant.exe"; IconFilename: "
 Name: "{userdesktop}\RedGiant"; Filename: "{app}\RedGiant.exe"; IconFilename: "{app}\redgiant.ico"; Tasks: desktopicon
 Name: "{userstartup}\RedGiant"; Filename: "{app}\RedGiant.exe"; Parameters: "--background"; IconFilename: "{app}\redgiant.ico"; Tasks: autostart
 
+[Registry]
+; What RedGiant.exe reads: its version (to look for newer ones) and where the data are.
+; DataDir outlives an uninstallation that keeps the data, so installing again finds them.
+Root: HKCU; Subkey: "Software\RedGiant"; ValueType: string; ValueName: "Version"; ValueData: "{#AppVersion}"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\RedGiant"; ValueType: string; ValueName: "DataDir"; ValueData: "{code:DataDir}"
+
 [Run]
-Filename: "{app}\RedGiant.exe"; Description: "{cm:LaunchProgram,RedGiant}"; Flags: nowait postinstall skipifsilent
+; A first installation asks; an update opens RedGiant by itself (CurStepChanged).
+Filename: "{app}\RedGiant.exe"; Description: "{cm:LaunchProgram,RedGiant}"; Flags: nowait postinstall; Check: not IsUpdate
 
 [Code]
 const
@@ -106,6 +122,53 @@ end;
 function DistroExists(): Boolean;
 begin
   Result := RunHidden('-d ' + Distro + ' -u root -- true') = 0;
+end;
+
+var
+  Updating: Boolean;
+  DataPage: TInputDirWizardPage;
+
+{ RedGiant already there: this is an update, done without a question. }
+function IsUpdate(): Boolean;
+begin
+  Result := Updating;
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  Updating := WslWorks() and DistroExists();
+  Result := True;
+end;
+
+procedure InitializeWizard();
+var
+  Previous: String;
+begin
+  DataPage := CreateInputDirPage(wpSelectDir, CustomMessage('DataTitle'), CustomMessage('DataSub'),
+    CustomMessage('DataText'), False, '');
+  DataPage.Add('');
+  if not RegQueryStringValue(HKCU, 'Software\RedGiant', 'DataDir', Previous) then
+    Previous := ExpandConstant('{localappdata}\RedGiant\data');
+  DataPage.Values[0] := Previous;
+end;
+
+{ Where the distribution (projects, conversations, settings) lives. }
+function DataDir(Param: String): String;
+var
+  Kept: String;
+begin
+  if Updating and RegQueryStringValue(HKCU, 'Software\RedGiant', 'DataDir', Kept) then
+    Result := Kept
+  else if Updating then
+    Result := ExpandConstant('{app}\wsl')
+  else
+    Result := DataPage.Values[0];
+end;
+
+{ An update shows nothing but its progress; it ends by opening RedGiant. }
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := Updating and (PageID <> wpInstalling);
 end;
 
 { Before anything is copied: WSL must work. Switching it on is the one step that asks for
@@ -140,6 +203,10 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   Code: Integer;
 begin
+  if (CurStep = ssDone) and Updating then begin
+    Exec(ExpandConstant('{app}\RedGiant.exe'), '', '', SW_SHOWNORMAL, ewNoWait, Code);
+    Exit;
+  end;
   if CurStep <> ssPostInstall then Exit;
   WizardForm.StatusLabel.Caption := CustomMessage('Importing');
   if DistroExists() then begin
@@ -152,13 +219,21 @@ begin
     { The new wsl.conf applies at the distribution's next start. }
     RunHidden('--terminate ' + Distro);
   end else begin
-    Code := RunHidden('--import ' + Distro + ' "' + ExpandConstant('{app}\wsl') + '" "' +
+    ForceDirectories(DataDir(''));
+    Code := RunHidden('--import ' + Distro + ' "' + DataDir('') + '" "' +
       ExpandConstant('{app}\redgiant-rootfs.tar.gz') + '" --version 2');
     if Code <> 0 then
       MsgBox(FmtMessage(CustomMessage('ImportFailed'), [IntToStr(Code)]), mbError, MB_OK);
   end;
   { The copy left for a restart is no longer needed. }
   DeleteFile(ExpandConstant('{localappdata}\RedGiant-Setup.exe'));
+end;
+
+{ An update ends by itself: RedGiant was opened again at ssDone (CurStepChanged). }
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if Updating and (CurPageID = wpFinished) then
+    WizardForm.NextButton.OnClick(WizardForm.NextButton);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
