@@ -270,7 +270,7 @@ describe("Anthropic's own web search (2026-11-03)", () => {
     expect(text).toContain("Marengo");
     // No tool for RedGiant to run: the search happened on Anthropic's side.
     expect(c.message.parts.some((x) => x.type === "tool_call")).toBe(false);
-    const blocks = (c.message.native?.content as { type: string }[]).map((b) => b.type);
+    const blocks = ((c.message.native?.content ?? []) as { type: string }[]).map((b) => b.type);
     expect(blocks).toContain("server_tool_use");
     expect(c.usage.extraUsd).toBe(0.01);
     expect(costUsd(c.usage, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })).toBeCloseTo(
