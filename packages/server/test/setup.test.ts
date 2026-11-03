@@ -377,14 +377,15 @@ describe("the setup wizard", () => {
     expect(state.config.engine?.stream).toBe(true);
     expect(state.config.engine?.tuning?.moeCacheShare).toBeDefined();
     expect(state.config.engine?.plan?.ctx).toBe(131072);
-    // Started again with the same model: the tuning found is used, no new measuring.
+    // Asked again while it runs as asked: nothing is done again (2026-11-04).
     const before = calls.length;
     const again = await api<Job>("PUT", "/api/setup/engine", {
       engine: { variant: "cuda", model: "qwen.gguf", stream: true },
     });
     const second = await s?.core.jobs.settled(again.body.id);
     expect(second?.steps.find((x) => x.id === "tune")?.state).toBe("skipped");
-    expect(calls.length - before).toBe(1);
+    expect(calls.length - before).toBe(0);
+    expect(second?.steps.every((x) => x.state === "skipped")).toBe(true);
   });
 
   it("runs Pi-hole by choice, keeps its password and stops it", async () => {
@@ -661,6 +662,56 @@ describe("Hugging Face models", () => {
     ]);
   });
 
+  it("offers a model split in parts as one, downloads every part with one bar (2026-11-04)", async () => {
+    const sizes: Record<string, number> = {
+      "Q4/big-Q4_K_M-00001-of-00002.gguf": 1200,
+      "Q4/big-Q4_K_M-00002-of-00002.gguf": 800,
+    };
+    const fake = (async (url: string) => {
+      if (url.includes("/tree/main"))
+        return Response.json([
+          ...Object.entries(sizes).map(([path, size]) => ({ path, lfs: { size } })),
+          { path: "Q8/big-Q8_0-00001-of-00002.gguf", lfs: { size: 3000 } },
+        ]);
+      const part = Object.keys(sizes).find((k) => url.endsWith(`/resolve/main/${k}`));
+      if (part) {
+        const body = new Uint8Array(sizes[part] as number);
+        return new Response(body, { headers: { "content-length": String(body.length) } });
+      }
+      return new Response("no", { status: 404 });
+    }) as typeof fetch;
+    s = await startServer(() => ({ text: "x" }));
+    const hf = new HuggingFace(join(s.dir, "models-split"), fake);
+    const listed = await hf.files("acme/big-GGUF");
+    // The Q8 one lacks a part: not offered.
+    expect(listed).toEqual([
+      {
+        file: "Q4/big-Q4_K_M-00001-of-00002.gguf",
+        sizeGb: 0,
+        quant: "Q4_K_M",
+        parts: Object.keys(sizes),
+      },
+    ]);
+    const jobs = new Jobs();
+    const seen: number[] = [];
+    const job = jobs.start("me", "model_download", ["download"], (h) =>
+      hf.download("acme/big-GGUF", "Q4/big-Q4_K_M-00001-of-00002.gguf", {
+        ...h,
+        progress: (done, total) => {
+          seen.push(done);
+          h.progress(done, total);
+        },
+      }),
+    );
+    expect((await jobs.settled(job.id))?.state).toBe("done");
+    expect(Math.max(...seen)).toBe(2000);
+    expect(await hf.local()).toEqual([
+      { file: "big-Q4_K_M-00001-of-00002.gguf", bytes: 2000, partial: false },
+    ]);
+    await hf.remove("big-Q4_K_M-00001-of-00002.gguf");
+    expect(await hf.local()).toEqual([]);
+  });
+
   it("downloads a model as a job, and a paused download goes on from where it was", async () => {
     const payload = new Uint8Array(1500).map((_, i) => i % 251);
     const ranges: (string | null)[] = [];
@@ -754,7 +805,9 @@ describe("Hugging Face models", () => {
     expect(byId["gemma-4-e2b"]?.file).toMatchObject({ quant: "Q4_K_M", quality: "good" });
     expect(byId["gemma-4-e4b"]).toMatchObject({ file: null, unavailable: true });
     expect(byId["qwen3.8-27b"]).toMatchObject({ file: null, smallestGb: 17 });
-    expect((await localModelChoices(hf, 8))[2]?.file?.file).toBe("gemma-4-12b-it-Q4_K_M.gguf");
+    expect((await localModelChoices(hf, 8)).find((m) => m.id === "gemma-4-12b")?.file?.file).toBe(
+      "gemma-4-12b-it-Q4_K_M.gguf",
+    );
   });
 
   it("explains why the engine did not start", () => {

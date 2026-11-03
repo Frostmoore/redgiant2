@@ -45,7 +45,12 @@ export class MetricsClock {
     if (prefillMs !== undefined) metrics.prefillMs = prefillMs;
     if (decodeMs !== undefined) {
       metrics.decodeMs = decodeMs;
-      if (decodeMs > 0) metrics.tokPerSec = (usage.outputTokens * 1000) / decodeMs;
+      // The server's own count goes with its own time; a rate no machine reaches (a burst of a
+      // whole tool call at the end, 4,563 tokens a second seen 2026-11-04) is not a speed.
+      const tokens =
+        fromServer && server?.decodeTokens !== undefined ? server.decodeTokens : usage.outputTokens;
+      const rate = decodeMs > 0 ? (tokens * 1000) / decodeMs : 0;
+      if (rate > 0 && rate < 1500) metrics.tokPerSec = rate;
     }
     return metrics;
   }

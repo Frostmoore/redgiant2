@@ -77,7 +77,8 @@ export class WinEngine {
       // One pool for every slot (--kv-unified): each conversation can use all of it.
       ctx: plan?.ctx ?? 65536,
       parallel: 4,
-      ...(plan && plan.args.length > 0 && { args: plan.args.join(" ") }),
+      // Each conversation may use the whole pool (llama.cpp gives a slot a quarter otherwise).
+      args: [...(plan?.args ?? []), "--kv-unified-per-slot", String(plan?.ctx ?? 65536)].join(" "),
       ...(plan?.fit && { fit: "1" as const }),
     };
     await mkdir(this.o.dir, { recursive: true });

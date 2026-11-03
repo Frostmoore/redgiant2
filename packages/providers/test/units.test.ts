@@ -33,8 +33,19 @@ describe("MetricsClock", () => {
   });
 
   it("prefers server timings when both are present", () => {
-    const m = new MetricsClock(() => 0).finish(usage, 8192, { prefillMs: 5, decodeMs: 20 });
-    expect(m).toMatchObject({ prefillMs: 5, decodeMs: 20, source: "server", tokPerSec: 5000 });
+    const m = new MetricsClock(() => 0).finish(usage, 8192, { prefillMs: 5, decodeMs: 2000 });
+    expect(m).toMatchObject({ prefillMs: 5, decodeMs: 2000, source: "server", tokPerSec: 50 });
+  });
+
+  it("counts the server's own tokens, and says no speed for a burst no machine reaches", () => {
+    const own = new MetricsClock(() => 0).finish(usage, 8192, {
+      prefillMs: 5,
+      decodeMs: 2000,
+      decodeTokens: 40,
+    });
+    expect(own.tokPerSec).toBe(20);
+    const burst = new MetricsClock(() => 0).finish(usage, 8192, { prefillMs: 5, decodeMs: 20 });
+    expect(burst.tokPerSec).toBeUndefined();
   });
 });
 

@@ -360,3 +360,34 @@ export function Pick({
     </button>
   );
 }
+
+/** A window over the page, closed with its button, Escape or a click outside (2026-11-04). */
+export function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ComponentChildren;
+}) {
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [onClose]);
+  return (
+    <div class="ui-modal-back">
+      <button type="button" class="ui-modal-veil" aria-label={t("close")} onClick={onClose} />
+      <div class="ui-modal" role="dialog" aria-modal="true" aria-label={title}>
+        <header>
+          <strong>{title}</strong>
+          <button type="button" class="link" onClick={onClose}>
+            {t("close")}
+          </button>
+        </header>
+        <div class="ui-modal-body">{children}</div>
+      </div>
+    </div>
+  );
+}

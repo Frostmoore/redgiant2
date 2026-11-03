@@ -310,7 +310,11 @@ export class OpenAICompatProvider implements Provider {
     const usage = normaliseUsage(usageChunk, timings);
     const server: ServerTimings | undefined =
       timings?.prompt_ms !== undefined && timings.predicted_ms !== undefined
-        ? { prefillMs: timings.prompt_ms, decodeMs: timings.predicted_ms }
+        ? {
+            prefillMs: timings.prompt_ms,
+            decodeMs: timings.predicted_ms,
+            ...(timings.predicted_n !== undefined && { decodeTokens: timings.predicted_n }),
+          }
         : undefined;
     yield {
       type: "done",

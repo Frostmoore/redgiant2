@@ -5,8 +5,9 @@ export class Redactor {
       name: "private-key",
       re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
     },
-    { name: "anthropic-key", re: /sk-ant-[A-Za-z0-9_-]{20,}/g },
-    { name: "openai-key", re: /sk-(?:proj-)?[A-Za-z0-9_-]{20,}/g },
+    // A key starts a word and has digits: "elon-musk-s-2026-political-…" in a URL is not one.
+    { name: "anthropic-key", re: /\bsk-ant-(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}/g },
+    { name: "openai-key", re: /\bsk-(?:proj-)?(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}/g },
     { name: "github-token", re: /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})/g },
     { name: "huggingface-token", re: /\bhf_[A-Za-z0-9]{30,}/g },
     { name: "aws-access-key", re: /\bAKIA[0-9A-Z]{16}\b/g },

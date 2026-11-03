@@ -15,9 +15,20 @@ export interface HfModel {
 }
 
 export interface GgufFile {
+  /** The file, or the first part of a model split in parts (llama.cpp finds the others). */
   file: string;
+  /** All of it, every part together. */
   sizeGb: number;
   quant: string | null;
+  /** A model split in parts (big ones, 2026-11-04): every part, the first one first. */
+  parts?: string[];
+}
+
+/** "model-Q4_K_M-00002-of-00003.gguf": its base and which part of how many. */
+const SPLIT = /^(.*)-(\d{5})-of-(\d{5})\.gguf$/;
+export function splitPart(path: string): { base: string; n: number; of: number } | undefined {
+  const m = SPLIT.exec(path);
+  return m ? { base: m[1] as string, n: Number(m[2]), of: Number(m[3]) } : undefined;
 }
 
 /** Best first. A model file should use at most `budget` GB; the best quantisation that fits wins. */
@@ -133,14 +144,38 @@ export class HuggingFace {
     const r = await this.fetchImpl(`${HF}/api/models/${repo}/tree/main?recursive=true`);
     if (!r.ok) throw new Error(`Hugging Face answered ${r.status}`);
     const tree = (await r.json()) as { path: string; size?: number; lfs?: { size?: number } }[];
-    const files = tree
+    const gb = (bytes: number) => Math.round((bytes / 1024 ** 3) * 100) / 100;
+    const files: GgufFile[] = tree
       .filter((f) => isModelFile(f.path))
       .map((f) => ({
         file: f.path,
-        sizeGb: Math.round(((f.lfs?.size ?? f.size ?? 0) / 1024 ** 3) * 100) / 100,
+        sizeGb: gb(f.lfs?.size ?? f.size ?? 0),
         quant: quantOf(f.path),
-      }))
-      .sort((a, b) => a.sizeGb - b.sizeGb);
+      }));
+    // Models split in parts: one entry each, offered only when every part is there.
+    const groups = new Map<
+      string,
+      { of: number; parts: { n: number; path: string; bytes: number }[] }
+    >();
+    for (const f of tree) {
+      const sp = splitPart(f.path);
+      if (!sp || !isModelFile(`${sp.base}.gguf`)) continue;
+      const g = groups.get(sp.base) ?? { of: sp.of, parts: [] };
+      g.parts.push({ n: sp.n, path: f.path, bytes: f.lfs?.size ?? f.size ?? 0 });
+      groups.set(sp.base, g);
+    }
+    for (const g of groups.values()) {
+      if (g.parts.length !== g.of) continue;
+      g.parts.sort((a, b) => a.n - b.n);
+      const first = g.parts[0]?.path as string;
+      files.push({
+        file: first,
+        sizeGb: gb(g.parts.reduce((x, p) => x + p.bytes, 0)),
+        quant: quantOf(first),
+        parts: g.parts.map((p) => p.path),
+      });
+    }
+    files.sort((a, b) => a.sizeGb - b.sizeGb);
     this.cache.set(repo, { at: Date.now(), files });
     return files;
   }
@@ -154,12 +189,28 @@ export class HuggingFace {
   async local(): Promise<LocalFile[]> {
     const names = await readdir(this.modelsDir).catch(() => [] as string[]);
     const out: LocalFile[] = [];
+    const split = new Map<string, LocalFile & { have: number; of: number }>();
     for (const n of names) {
       const partial = n.endsWith(".gguf.part");
       if (!partial && !n.endsWith(".gguf")) continue;
       const st = await stat(join(this.modelsDir, n)).catch(() => null);
-      if (st?.isFile()) out.push({ file: partial ? n.slice(0, -5) : n, bytes: st.size, partial });
+      if (!st?.isFile()) continue;
+      const name = partial ? n.slice(0, -5) : n;
+      const sp = splitPart(name);
+      if (!sp) {
+        out.push({ file: name, bytes: st.size, partial });
+        continue;
+      }
+      // A model in parts is one entry, named after its first part; ready when all are.
+      const first = `${sp.base}-00001-of-${String(sp.of).padStart(5, "0")}.gguf`;
+      const g = split.get(first) ?? { file: first, bytes: 0, partial: false, have: 0, of: sp.of };
+      g.bytes += st.size;
+      if (partial) g.partial = true;
+      else g.have++;
+      split.set(first, g);
     }
+    for (const g of split.values())
+      out.push({ file: g.file, bytes: g.bytes, partial: g.partial || g.have < g.of });
     return out.sort((a, b) => a.file.localeCompare(b.file));
   }
 
@@ -167,8 +218,18 @@ export class HuggingFace {
   async remove(target: string): Promise<void> {
     if (target !== safeName(target) || !target.endsWith(".gguf"))
       throw new Error("Not a model of the models folder");
-    await rm(join(this.modelsDir, `${target}.part`), { force: true });
-    await rm(join(this.modelsDir, target), { force: true });
+    const sp = splitPart(target);
+    const names = sp
+      ? Array.from(
+          { length: sp.of },
+          (_, i) =>
+            `${sp.base}-${String(i + 1).padStart(5, "0")}-of-${String(sp.of).padStart(5, "0")}.gguf`,
+        )
+      : [target];
+    for (const n of names) {
+      await rm(join(this.modelsDir, `${n}.part`), { force: true });
+      await rm(join(this.modelsDir, n), { force: true });
+    }
   }
 
   /**
@@ -178,6 +239,31 @@ export class HuggingFace {
   async download(repo: string, file: string, h: JobHandle): Promise<{ target: string }> {
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || file.includes("..") || !file.endsWith(".gguf"))
       throw new JobFailure("bad_file", "Not a GGUF file of a Hugging Face repository");
+    // A model in parts: every part, one after the other, with one bar for all of them.
+    const listed = splitPart(file)
+      ? (await this.files(repo)).find((f) => f.file === file)
+      : undefined;
+    if (listed?.parts && listed.parts.length > 1) {
+      h.step("download");
+      const total = Math.round(listed.sizeGb * 1024 ** 3);
+      let before = 0;
+      for (const part of listed.parts) {
+        const sub: JobHandle = {
+          ...h,
+          signal: h.signal,
+          step: () => {},
+          progress: (done) => h.progress(before + done, total),
+        };
+        await this.downloadOne(repo, part, sub);
+        before += (await stat(join(this.modelsDir, HuggingFace.target(part)))).size;
+      }
+      return { target: HuggingFace.target(file) };
+    }
+    return this.downloadOne(repo, file, h);
+  }
+
+  /** One file into the models folder, going on from where a paused download stopped. */
+  private async downloadOne(repo: string, file: string, h: JobHandle): Promise<{ target: string }> {
     const target = HuggingFace.target(file);
     const final = join(this.modelsDir, target);
     const part = `${final}.part`;

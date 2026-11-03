@@ -18,10 +18,11 @@ import type { AppOptions } from "./app.js";
 import type { RedGiantCore } from "./core.js";
 import { engineError } from "./engine-errors.js";
 import { detectHardware, type GpuAccess } from "./hardware.js";
+import { splitPart } from "./hf.js";
 import { JobFailure, type JobHandle, type Jobs } from "./jobs.js";
 import { startRemote, stopRemote } from "./remote.js";
 import type { EngineConfig, SetupHooks } from "./setup.js";
-import { type EnginePlan, streamPlan } from "./stream.js";
+import { type EnginePlan, NORMAL_CTX, streamPlan } from "./stream.js";
 import type { WinEngine } from "./win-engine.js";
 
 export interface RuntimeOptions {
@@ -113,7 +114,22 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
     const path = join(dir ?? "/models", cfg.model);
     const [meta, size, hw] = await Promise.all([
       readLocalGgufMeta(path),
-      stat(path).then((x) => x.size / 1024 ** 3),
+      // A model in parts: its size is all the parts together.
+      (async () => {
+        const sp = splitPart(cfg.model);
+        if (!sp) return (await stat(path)).size / 1024 ** 3;
+        let bytes = 0;
+        for (let i = 1; i <= sp.of; i++)
+          bytes += (
+            await stat(
+              join(
+                dir ?? "/models",
+                `${sp.base}-${String(i).padStart(5, "0")}-of-${String(sp.of).padStart(5, "0")}.gguf`,
+              ),
+            )
+          ).size;
+        return bytes / 1024 ** 3;
+      })(),
       detectHardware({ dataDir: o.dataDir ?? "." }),
     ]);
     return streamPlan(
@@ -292,8 +308,15 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
               : gpu
                 ? ["--n-gpu-layers", "999"]
                 : []),
+            // One pool shared by the slots, and each conversation may use all of it: without
+            // this llama.cpp gives each slot a quarter (16k of 65k, seen 2026-11-04).
+            "--kv-unified-per-slot",
+            String(plan?.ctx ?? NORMAL_CTX),
           ],
           Labels: { "io.redgiant.engine": "1" },
+          // CUDA's compiled kernels kept in the KV volume: a card newer than the image's build
+          // (an RTX 50) compiles them at the first use, for minutes; once is enough (2026-11-04).
+          Env: ["CUDA_CACHE_PATH=/kv/cuda-cache", "CUDA_CACHE_MAXSIZE=4294967296"],
           HostConfig: {
             RestartPolicy: { Name: "unless-stopped" },
             NetworkMode: e.network,

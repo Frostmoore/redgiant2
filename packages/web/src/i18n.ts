@@ -738,6 +738,21 @@ const en = {
   job_models_move: "Moving the models",
   job_step_move: "Copying to the new disk",
   job_error_move_failed: "The models could not be moved.",
+  lmWarmHelp:
+    "The model reads its first context and writes a few words. The first time on a new graphics card this takes minutes: the card prepares its programs once, and then it is fast.",
+  lmShowActivation: "Show the activation",
+  "lm_qwen3-4b": "Small and quick: good with tools for its size, fine for simple jobs.",
+  "lm_qwen3-14b": "A solid all-rounder for 10 to 12 GB: reasons step by step.",
+  "lm_mistral-small-24b": "Mistral's: writes well in many languages, reliable with tools.",
+  "lm_devstral-small-24b":
+    "Mistral's model for programming agents: edits files and uses the terminal well.",
+  "lm_qwen3-30b-a3b":
+    "Large but fast (few parts work for each word): a good general model, great with SSD stream.",
+  "lm_qwen3-next-80b": "Big mixture of experts, very fast for its size: made for SSD stream.",
+  "lm_glm-4.5-air":
+    "Among the strongest open models for code and tools; needs SSD stream on most computers.",
+  "lm_gpt-oss-120b":
+    "OpenAI's large open model: reasons and uses tools very well; with SSD stream on 32 GB of RAM or more.",
   job_pihole: "Starting Pi-hole",
   job_step_pihole_image: "Downloading Pi-hole (only once)",
   job_step_pihole_start: "Starting Pi-hole",
@@ -2234,6 +2249,23 @@ const it: Record<Key, string> = {
   job_models_move: "Sposto i modelli",
   job_step_move: "Copio sul nuovo disco",
   job_error_move_failed: "Non sono riuscito a spostare i modelli.",
+  lmWarmHelp:
+    "Il modello legge il suo primo contesto e scrive qualche parola. La prima volta su una scheda video nuova ci vogliono minuti: la scheda prepara i suoi programmi una volta sola, poi è veloce.",
+  lmShowActivation: "Mostra l'attivazione",
+  "lm_qwen3-4b":
+    "Piccolo e veloce: bravo con gli strumenti per la sua taglia, va bene per i lavori semplici.",
+  "lm_qwen3-14b": "Un buon tuttofare per 10-12 GB: ragiona passo per passo.",
+  "lm_mistral-small-24b": "Di Mistral: scrive bene in molte lingue, affidabile con gli strumenti.",
+  "lm_devstral-small-24b":
+    "Il modello di Mistral per gli agenti che programmano: modifica file e usa il terminale bene.",
+  "lm_qwen3-30b-a3b":
+    "Grande ma veloce (lavorano poche parti per ogni parola): un buon modello generale, ottimo con lo SSD stream.",
+  "lm_qwen3-next-80b":
+    "Grande modello a esperti, velocissimo per la sua taglia: fatto per lo SSD stream.",
+  "lm_glm-4.5-air":
+    "Tra i modelli aperti più forti per codice e strumenti; sulla maggior parte dei computer serve lo SSD stream.",
+  "lm_gpt-oss-120b":
+    "Il grande modello aperto di OpenAI: ragiona e usa gli strumenti molto bene; con lo SSD stream da 32 GB di RAM in su.",
   job_pihole: "Avvio di Pi-hole",
   job_step_pihole_image: "Scarico Pi-hole (una volta sola)",
   job_step_pihole_start: "Avvio Pi-hole",

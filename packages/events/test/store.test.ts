@@ -138,7 +138,7 @@ describe("Redactor", () => {
       "hf_abcdefghijklmnopqrstuvwxyz0123456",
       "123456789:AAbbccddeeffgghhiijjkkllmmnnooppqqr",
       "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----",
-      "sk-proj-abcdefghijklmnopqrstuvwx",
+      "sk-proj-abc1defghijklmnopqrstuvwx",
     ].join(" ");
     const out = r.redactText(text);
     expect(out.count).toBe(6);
@@ -147,5 +147,9 @@ describe("Redactor", () => {
 
   it("leaves ordinary text alone", () => {
     expect(new Redactor().redactText("the sky is blue; sk-short").count).toBe(0);
+    // A link of a search result is not a key (2026-11-04: "elon-musk-s-2026-political-…").
+    const url =
+      "https://www.today.com/video/inside-look-at-elon-musk-s-2026-political-spending-spree-250812";
+    expect(new Redactor().redactText(url).text).toBe(url);
   });
 });

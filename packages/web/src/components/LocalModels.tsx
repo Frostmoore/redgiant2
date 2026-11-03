@@ -9,7 +9,7 @@ import { t, tOptional } from "../i18n.js";
 import { IconCpu, IconDownload, IconPlay, IconTrash } from "../icons.js";
 import { attempt, getApi } from "../state.js";
 import { explain } from "./Brain.js";
-import { Advanced, Field, JobView, Pick, Progress, useJob } from "./ui.js";
+import { Advanced, Field, JobView, Modal, Pick, Progress, useJob } from "./ui.js";
 
 const gb = (n: number) => `${n.toFixed(1)} GB`;
 /** The name a repository's file gets in the models folder (as the server names it). */
@@ -304,6 +304,8 @@ function FileActions({
   const eng = latest(jobs, "engine", name);
   const [error, setError] = useState<string>();
   const [used, setUsed] = useState(false);
+  /** The activation's window closed by the person (it goes on underneath). */
+  const [hidden, setHidden] = useState(false);
   const act = (f: () => Promise<unknown>) => {
     setError(undefined);
     void f().then(onChange, (e: unknown) => setError(explain(e)));
@@ -345,8 +347,24 @@ function FileActions({
   } else if (local) {
     body = (
       <div class="lm-ready">
-        {eng && (eng.state === "running" || eng.state === "failed") && <JobView job={eng} />}
-        {eng?.vars.trials && <TuneTrials json={eng.vars.trials} />}
+        {eng && (eng.state === "running" || eng.state === "failed") && !hidden && (
+          <Modal
+            title={tOptional(`job_${eng.kind}`, eng.vars) ?? eng.kind}
+            onClose={() => setHidden(true)}
+          >
+            <JobView job={eng} countSteps={["try", "tune"]} />
+            {eng.steps.find((x) => x.id === "try")?.state === "running" && (
+              <p class="ui-help">{t("lmWarmHelp")}</p>
+            )}
+            {eng.vars.trials && <TuneTrials json={eng.vars.trials} />}
+          </Modal>
+        )}
+        {eng?.state === "running" && hidden && (
+          <button type="button" class="link" onClick={() => setHidden(false)}>
+            {t("lmShowActivation")}
+          </button>
+        )}
+        {eng?.state === "done" && eng.vars.trials && <TuneTrials json={eng.vars.trials} />}
         <div class="row wrap">
           {active && eng?.state !== "running" ? (
             <>

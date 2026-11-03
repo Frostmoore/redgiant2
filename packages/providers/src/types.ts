@@ -58,6 +58,8 @@ export interface Usage {
 export interface ServerTimings {
   prefillMs?: number | undefined;
   decodeMs?: number | undefined;
+  /** The tokens the server timed while generating (its own count, which goes with decodeMs). */
+  decodeTokens?: number | undefined;
 }
 
 export interface AssistantMessage {

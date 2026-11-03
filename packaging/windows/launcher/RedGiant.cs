@@ -398,6 +398,32 @@ sealed class Launcher : ApplicationContext
         {
             var p = Process.Start(new ProcessStartInfo("wsl.exe", "--terminate " + Distro) { UseShellExecute = false, CreateNoWindow = true });
             p.WaitForExit(15000);
+            // WSL's machine (vmmem) lingers a minute or more after the last distribution stops:
+            // with nothing else of the person's running in it, it is shut now (2026-11-04).
+            var list = new ProcessStartInfo("wsl.exe", "--list --running --quiet")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                StandardOutputEncoding = Encoding.Unicode,
+            };
+            string running;
+            using (var q = Process.Start(list))
+            {
+                running = q.StandardOutput.ReadToEnd();
+                q.WaitForExit(10000);
+            }
+            bool others = false;
+            foreach (var line in running.Split('\n'))
+            {
+                string name = line.Replace("\0", "").Trim();
+                if (name.Length > 0 && !string.Equals(name, Distro, StringComparison.OrdinalIgnoreCase)) others = true;
+            }
+            if (!others)
+            {
+                var down = Process.Start(new ProcessStartInfo("wsl.exe", "--shutdown") { UseShellExecute = false, CreateNoWindow = true });
+                down.WaitForExit(20000);
+            }
         }
         catch (Exception) { }
         tray.Visible = false;

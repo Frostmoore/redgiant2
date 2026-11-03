@@ -613,6 +613,22 @@ export class SetupService {
       ["image", "start", "load", "tune", "try"],
       async (h) => {
         const { plan: _old, ...asked } = e;
+        // Already running as asked: nothing to do again (2026-11-04, «non ha senso»).
+        const now = this.config.engine;
+        if (
+          now &&
+          now.variant === e.variant &&
+          now.model === e.model &&
+          Boolean(now.stream) === Boolean(e.stream) &&
+          this.o.core.providers.has("local") &&
+          (await this.o.core
+            .trialModel(this.o.ownerId, { provider: "local", model: e.model })
+            .then(() => true)
+            .catch(() => false))
+        ) {
+          for (const step of ["image", "start", "load", "tune", "try"]) h.skip(step);
+          return;
+        }
         let wanted: EngineConfig = asked;
         let plan = await this.o.hooks.engine(wanted, h);
         // SSD stream of a mixture of experts, not tuned yet for this model: the card's room is
@@ -662,7 +678,7 @@ export class SetupService {
         }
         h.step("try");
         try {
-          await this.o.core.trialModel(this.o.ownerId, { provider: "local", model: e.model });
+          await this.warmLocal(e.model, h);
         } catch (err) {
           throw new JobFailure("no_answer", (err as Error).message);
         }
@@ -689,6 +705,31 @@ export class SetupService {
       await new Promise((r) => setTimeout(r, 2000));
     }
     throw new JobFailure("load_timeout", "The model did not load again within 15 minutes");
+  }
+
+  /**
+   * The first real answer, as a warm-up (2026-11-04): a context of about 3,000 tokens read and
+   * a few words written, the reading shown as it goes. The first time on a new card the engine
+   * prepares its programs here (minutes, once), not at the person's first message.
+   */
+  private async warmLocal(model: string, h: JobHandle): Promise<void> {
+    const p = this.o.core.providers.get("local");
+    const text = "RedGiant warms up the model before the first conversation. ".repeat(260);
+    let written = 0;
+    for await (const ev of p.stream({
+      model,
+      system: "",
+      tools: [],
+      messages: [
+        { role: "user", parts: [{ type: "text", text: `${text}\nReply with the word OK.` }] },
+      ],
+      maxTokens: 32,
+    })) {
+      if (h.signal.aborted) throw new Error("cancelled");
+      if (ev.type === "prefill_progress") h.progress(ev.processed, ev.total);
+      if (ev.type === "text_delta" || ev.type === "thinking_delta")
+        h.info({ written: String(++written) });
+    }
   }
 
   /** How fast the local engine reads a context of about 2,000 tokens and writes 64. */
