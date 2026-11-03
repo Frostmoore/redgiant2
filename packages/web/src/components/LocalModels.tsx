@@ -376,7 +376,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
               <Meter label={t("lmScore_smart")} value={m.scores.smart} />
               <Meter label={t("lmScore_code")} value={m.scores.code} />
               <Meter label={t("lmScore_tools")} value={m.scores.tools} />
-              <Meter label={t("lmScore_italian")} value={m.scores.italian} />
+              <Meter label={t("lmScore_languages")} value={m.scores.languages} />
               {m.file && (
                 <Meter
                   label={t("lmScore_speed")}

@@ -6,7 +6,7 @@
  *
  * Scores (2026-11-03, the person's request: "stars or a bar, not ambiguous words") are 1 to 5
  * and compare these models with each other, not with the big hosted ones: how well each one
- * reasons, writes code, uses tools and writes Italian. Speed depends on the computer and is
+ * reasons, writes code, uses tools and writes languages other than English. Speed depends on the computer and is
  * estimated by `estimatedSpeed`.
  */
 export interface LocalModel {
@@ -16,7 +16,7 @@ export interface LocalModel {
   /** Billions of parameters in all, and those working on each word (mixture of experts). */
   totalB: number;
   activeB: number;
-  scores: { smart: number; code: number; tools: number; italian: number };
+  scores: { smart: number; code: number; tools: number; languages: number };
 }
 
 export const LOCAL_MODELS: readonly LocalModel[] = [
@@ -26,7 +26,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     repo: "unsloth/gemma-4-E2B-it-GGUF",
     totalB: 5,
     activeB: 2,
-    scores: { smart: 1, code: 1, tools: 2, italian: 3 },
+    scores: { smart: 1, code: 1, tools: 2, languages: 3 },
   },
   {
     id: "gemma-4-e4b",
@@ -34,7 +34,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     repo: "unsloth/gemma-4-E4B-it-GGUF",
     totalB: 8,
     activeB: 4,
-    scores: { smart: 2, code: 2, tools: 2, italian: 3 },
+    scores: { smart: 2, code: 2, tools: 2, languages: 3 },
   },
   {
     id: "gemma-4-12b",
@@ -42,7 +42,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     repo: "unsloth/gemma-4-12b-it-GGUF",
     totalB: 12,
     activeB: 12,
-    scores: { smart: 3, code: 2, tools: 3, italian: 4 },
+    scores: { smart: 3, code: 2, tools: 3, languages: 4 },
   },
   {
     id: "gpt-oss-20b",
@@ -50,7 +50,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     repo: "unsloth/gpt-oss-20b-GGUF",
     totalB: 21,
     activeB: 3.6,
-    scores: { smart: 3, code: 3, tools: 4, italian: 2 },
+    scores: { smart: 3, code: 3, tools: 4, languages: 2 },
   },
   {
     id: "gemma-4-26b",
@@ -58,7 +58,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     repo: "unsloth/gemma-4-26B-A4B-it-GGUF",
     totalB: 26,
     activeB: 4,
-    scores: { smart: 4, code: 3, tools: 3, italian: 4 },
+    scores: { smart: 4, code: 3, tools: 3, languages: 4 },
   },
   {
     id: "qwen3-coder-30b",
@@ -66,7 +66,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     repo: "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
     totalB: 30.5,
     activeB: 3.3,
-    scores: { smart: 3, code: 5, tools: 4, italian: 2 },
+    scores: { smart: 3, code: 5, tools: 4, languages: 2 },
   },
   {
     id: "qwen3.8-27b",
@@ -74,7 +74,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     repo: "unsloth/Qwen3.8-27B-GGUF",
     totalB: 27,
     activeB: 27,
-    scores: { smart: 5, code: 4, tools: 5, italian: 3 },
+    scores: { smart: 5, code: 4, tools: 5, languages: 3 },
   },
 ];
 

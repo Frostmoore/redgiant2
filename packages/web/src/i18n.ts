@@ -631,7 +631,7 @@ const en = {
   lmScore_smart: "Intelligence",
   lmScore_code: "Programming",
   lmScore_tools: "Using tools",
-  lmScore_italian: "Italian",
+  lmScore_languages: "Other languages",
   lmScore_speed: "Speed here",
   lmWordsPerSec: "about {n} words a second",
   lmRoom: "Room",
@@ -825,7 +825,7 @@ const en = {
   "lm_gemma-4-e2b":
     "Google's smallest: quick even without a graphics card. Good for chatting and simple jobs.",
   "lm_gemma-4-e4b": "Small but able: chat, summaries, simple tasks with tools.",
-  "lm_gemma-4-12b": "Writes and reasons well, understands Italian; the right size for 8 to 12 GB.",
+  "lm_gemma-4-12b": "Writes and reasons well, in many languages; the right size for 8 to 12 GB.",
   "lm_gpt-oss-20b": "OpenAI's open model: reasons step by step and uses tools well.",
   "lm_gemma-4-26b":
     "Large but quick (only part of it works at each step): one of the best for 16 GB.",
@@ -2024,7 +2024,7 @@ const it: Record<Key, string> = {
   lmScore_smart: "Intelligenza",
   lmScore_code: "Programmazione",
   lmScore_tools: "Uso degli strumenti",
-  lmScore_italian: "Italiano",
+  lmScore_languages: "Altre lingue",
   lmScore_speed: "Velocità qui",
   lmWordsPerSec: "circa {n} parole al secondo",
   lmRoom: "Spazio",
@@ -2220,7 +2220,7 @@ const it: Record<Key, string> = {
   "lm_gemma-4-e2b":
     "Il più piccolo di Google: veloce anche senza scheda video. Va bene per chiacchierare e lavoretti semplici.",
   "lm_gemma-4-e4b": "Piccolo ma capace: chat, riassunti, compiti semplici con gli strumenti.",
-  "lm_gemma-4-12b": "Scrive e ragiona bene, capisce l'italiano; la misura giusta per 8-12 GB.",
+  "lm_gemma-4-12b": "Scrive e ragiona bene, in molte lingue; la misura giusta per 8-12 GB.",
   "lm_gpt-oss-20b":
     "Il modello aperto di OpenAI: ragiona passo per passo e usa bene gli strumenti.",
   "lm_gemma-4-26b":
