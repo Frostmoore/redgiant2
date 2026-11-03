@@ -63,6 +63,11 @@ export interface SetupHooks {
     o: { user: string; password: string } | null,
     h?: JobHandle,
   ): Promise<{ token: string; publicUrl: string } | null>;
+  /**
+   * SearXNG run by RedGiant (2026-11-03): a search engine of one's own for the models that
+   * cannot search by themselves (local ones). false stops it.
+   */
+  searxng?(on: boolean, h?: JobHandle): Promise<{ url: string } | null>;
   /** A way to reach RedGiant from outside home (G24.6); null switches every way off. */
   remote?(req: RemoteRequest | null, h?: JobHandle): Promise<{ url: string } | null>;
   /**
@@ -84,6 +89,8 @@ export interface SetupConfig {
   /** The user's own OpenAI-compatible server (its key, if any, is in the secrets). */
   server?: { baseUrl: string };
   searxngUrl?: string;
+  /** The search engine is the one RedGiant runs itself (started again at each start). */
+  searxngManaged?: boolean;
   /** Speech to text for voice messages; its key, if any, is in the secrets. */
   transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
   /** Flat subscriptions switched on (their tokens are in the secrets). */
@@ -159,6 +166,8 @@ export interface SetupState {
     dangers: { id: string }[];
   };
   budgetUsd: number | null;
+  /** RedGiant can run its own search engine here (SearXNG in Docker). */
+  canRunSearch: boolean;
 }
 
 export class SetupError extends Error {
@@ -327,6 +336,8 @@ export class SetupService {
         "own server",
         h.server({ baseUrl: c.server.baseUrl, ...(s.serverKey && { key: s.serverKey }) }),
       );
+    // RedGiant's own search engine is started again (a restart of the computer stops it).
+    if (!this.locked.search && c.searxngManaged && h.searxng) await run("searxng", h.searxng(true));
     if (!this.locked.search && c.searxngUrl) await run("search", h.search(c.searxngUrl));
     if (!this.locked.engine && c.engine) await run("engine", h.engine(c.engine));
     if (!this.locked.voice && c.transcription) this.applyTranscription();
@@ -386,6 +397,7 @@ export class SetupService {
         dangers: DEFAULT_POLICY.danger.map((d) => ({ id: d.id })),
       },
       budgetUsd: global?.limit.usd ?? null,
+      canRunSearch: this.canRunSearch,
     };
   }
 
@@ -534,6 +546,8 @@ export class SetupService {
         }
         this.config.engine = e;
         await this.save();
+        // A local model cannot search the web by itself: RedGiant's search engine starts too.
+        if (!this.config.searxngUrl && this.canRunSearch) this.startSearch();
       },
       { model: e.model },
     );
@@ -662,6 +676,48 @@ export class SetupService {
       },
       { user },
     );
+  }
+
+  /** RedGiant's own search engine can be started here (Docker installation). */
+  get canRunSearch(): boolean {
+    return !!this.o.hooks.searxng && !this.locked.search;
+  }
+
+  /**
+   * Starts RedGiant's own search engine as a job (2026-11-03): the image, the container, a
+   * check that it answers; then every agent and the Chat search through it.
+   */
+  startSearch(): Job {
+    const hook = this.o.hooks.searxng;
+    if (!hook || this.locked.search)
+      throw new SetupError("This installation cannot run the search engine");
+    const running = this.o.core.jobs
+      .list(this.o.ownerId)
+      .find((j) => j.kind === "searxng" && j.state === "running");
+    if (running) return running;
+    return this.o.core.jobs.start(
+      this.o.ownerId,
+      "searxng",
+      ["searxng_image", "searxng_start", "searxng_check"],
+      async (h) => {
+        const r = await hook(true, h);
+        if (!r) throw new JobFailure("searxng_silent", "The search engine did not start");
+        this.config.searxngUrl = r.url;
+        this.config.searxngManaged = true;
+        await this.save();
+        await this.o.hooks.search(r.url);
+      },
+    );
+  }
+
+  async stopSearch(): Promise<void> {
+    await this.o.hooks.searxng?.(false);
+    if (this.config.searxngManaged) {
+      delete this.config.searxngUrl;
+      delete this.config.searxngManaged;
+      await this.o.hooks.search(null);
+    }
+    await this.save();
   }
 
   /**

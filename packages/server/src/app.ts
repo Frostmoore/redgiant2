@@ -1819,6 +1819,11 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     wizard(c, () => (setup as SetupService).mediaVoices(c.req.query("provider") ?? "")),
   );
   // Pi-hole, the home's own DNS, by choice (G24.14c).
+  // RedGiant's own search engine (SearXNG, 2026-11-03).
+  app.post("/api/setup/searxng", (c) =>
+    wizard(c, async () => (setup as SetupService).startSearch()),
+  );
+  app.delete("/api/setup/searxng", (c) => wizard(c, () => (setup as SetupService).stopSearch()));
   app.post("/api/setup/pihole", (c) =>
     wizard(c, async () => {
       const b = await parsed(

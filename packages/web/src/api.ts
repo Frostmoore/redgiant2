@@ -55,6 +55,7 @@ export interface SetupState {
     pihole?: { lanIp: string; domain?: string; adminUrl: string };
     server?: { baseUrl: string };
     searxngUrl?: string;
+    searxngManaged?: boolean;
     transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
     imagesModel?: string;
     media?: Partial<
@@ -123,6 +124,7 @@ export interface SetupState {
     dangers: { id: string }[];
   };
   budgetUsd: number | null;
+  canRunSearch: boolean;
 }
 
 export interface GgufFile {
@@ -813,6 +815,9 @@ export class Api {
       `/api/canvas/version?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
     );
 
+  /** RedGiant's own search engine (SearXNG). */
+  startSearch = () => this.call<Job>("POST", "/api/setup/searxng");
+  stopSearch = () => this.call("DELETE", "/api/setup/searxng");
   /** Backup (2026-11-03): made on the server as a job, then downloaded with its progress. */
   exportBackup = () => this.call<Job>("POST", "/api/backup/export");
   importBackup = (b: { id: string; godName?: string; demigodName?: string }) =>

@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { Resolver } from "node:dns/promises";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -73,6 +74,32 @@ export interface RuntimeOptions {
 
 const ENGINE = "redgiant-engine";
 const PIHOLE = "redgiant-pihole";
+const SEARXNG = "redgiant-searxng";
+/** The search engine RedGiant runs for models that cannot search themselves (2026-11-03). */
+export const SEARXNG_IMAGE = "searxng/searxng:latest";
+
+/** A tar archive with one file: what Docker takes to put a file into a container. */
+export function tarFile(name: string, content: string): Buffer {
+  const body = Buffer.from(content);
+  const header = Buffer.alloc(512);
+  const put = (s: string, at: number, len: number) => header.write(s, at, len, "ascii");
+  const octal = (n: number, len: number) => `${n.toString(8).padStart(len - 1, "0")}\0`;
+  put(name, 0, 100);
+  put(octal(0o644, 8), 100, 8);
+  put(octal(0, 8), 108, 8);
+  put(octal(0, 8), 116, 8);
+  put(octal(body.length, 12), 124, 12);
+  put(octal(Math.floor(Date.now() / 1000), 12), 136, 12);
+  put("        ", 148, 8);
+  put("0", 156, 1);
+  put("ustar\0", 257, 6);
+  put("00", 263, 2);
+  let sum = 0;
+  for (const b of header) sum += b;
+  put(`${sum.toString(8).padStart(6, "0")}\0 `, 148, 8);
+  const pad = Buffer.alloc((512 - (body.length % 512)) % 512);
+  return Buffer.concat([header, body, pad, Buffer.alloc(1024)]);
+}
 const GITEA = "redgiant-gitea";
 
 /** How the wizard's choices take effect while the server runs (G17). */
@@ -304,6 +331,79 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         await container.remove({ force: true }).catch(() => {});
         throw new JobFailure("no_gpu", "llama.cpp found no usable GPU and would run on the CPU");
       }
+    },
+
+    async searxng(on, h) {
+      const e = o.engine;
+      if (!e) throw new Error("The search engine needs RedGiant's Docker installation");
+      const name = SEARXNG;
+      const old = e.docker.getContainer(name);
+      if (!on) {
+        await old.remove({ force: true }).catch(() => {});
+        return null;
+      }
+      const url = `http://${name}:8080`;
+      const running = await old
+        .inspect()
+        .then((x) => x.State.Running)
+        .catch(() => false);
+      if (!running) {
+        await old.remove({ force: true }).catch(() => {});
+        const present = await e.docker
+          .getImage(SEARXNG_IMAGE)
+          .inspect()
+          .then(() => true)
+          .catch(() => false);
+        if (present) h?.skip("searxng_image");
+        else {
+          h?.step("searxng_image");
+          await pullWithProgress(e.docker, SEARXNG_IMAGE, h);
+        }
+        h?.step("searxng_start");
+        const c = await e.docker.createContainer({
+          name,
+          Image: SEARXNG_IMAGE,
+          Labels: { "io.redgiant.searxng": "1" },
+          HostConfig: { RestartPolicy: { Name: "unless-stopped" }, NetworkMode: e.network },
+        });
+        // Its settings: JSON answers for RedGiant, no rate limiter (only RedGiant asks it).
+        await c.putArchive(
+          tarFile(
+            "settings.yml",
+            [
+              "use_default_settings: true",
+              "server:",
+              `  secret_key: "${randomBytes(24).toString("hex")}"`,
+              "  limiter: false",
+              "  image_proxy: false",
+              "search:",
+              "  formats: [html, json]",
+              "",
+            ].join("\n"),
+          ),
+          { path: "/etc/searxng" },
+        );
+        await c.start();
+      } else {
+        h?.skip("searxng_image");
+        h?.skip("searxng_start");
+      }
+      h?.step("searxng_check");
+      for (let i = 0; ; i++) {
+        const ok = await fetch(`${url}/search?q=redgiant&format=json`, {
+          signal: AbortSignal.timeout(5000),
+        })
+          .then((r) => r.ok)
+          .catch(() => false);
+        if (ok) break;
+        if (i > 30)
+          throw new JobFailure(
+            "searxng_silent",
+            "The search engine did not answer within a minute",
+          );
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      return { url };
     },
 
     async pihole(cfg, h) {

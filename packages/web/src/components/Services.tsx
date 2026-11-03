@@ -3,9 +3,61 @@
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
 import { t } from "../i18n.js";
-import { getApi } from "../state.js";
+import { attempt, getApi } from "../state.js";
 import { explain } from "./Brain.js";
-import { Field } from "./ui.js";
+import { Field, JobView, useJob } from "./ui.js";
+
+/**
+ * RedGiant's own search engine (SearXNG in Docker, 2026-11-03): one button, the steps with
+ * their bar, then every agent and the Chat can search the web, local models too.
+ */
+function OwnSearch({ s, onChange }: { s: SetupState; onChange: (url: string) => void }) {
+  const [jobId, setJobId] = useState<string>();
+  const [on, setOn] = useState(!!s.config.searxngManaged);
+  const job = useJob(jobId);
+  useEffect(() => {
+    if (job?.state === "done") {
+      setOn(true);
+      void getApi()
+        .setup()
+        .then(
+          (x) => onChange(x.config.searxngUrl ?? ""),
+          () => {},
+        );
+    }
+  }, [job?.state]);
+  if (!s.canRunSearch) return null;
+  return (
+    <div class="own-search">
+      <p class="ui-help">{on ? t("ownSearchOn") : t("ownSearchHint")}</p>
+      {job?.state !== "running" &&
+        (on ? (
+          <button
+            type="button"
+            onClick={() =>
+              void attempt(() => getApi().stopSearch()).then(() => {
+                setOn(false);
+                onChange("");
+              })
+            }
+          >
+            {t("ownSearchStop")}
+          </button>
+        ) : (
+          <button
+            type="button"
+            class="primary"
+            onClick={() =>
+              void attempt(() => getApi().startSearch()).then((j) => j && setJobId(j.id))
+            }
+          >
+            {t("ownSearchStart")}
+          </button>
+        ))}
+      {job && job.state !== "done" && <JobView job={job} />}
+    </div>
+  );
+}
 
 export function Services() {
   const [s, setS] = useState<SetupState | null>(null);
@@ -64,6 +116,7 @@ function ServicesForm({ s }: { s: SetupState }) {
       <p class="ui-help">{t("servicesHint")}</p>
       <div class="brain-panel">
         <h3>{t("servicesSearch")}</h3>
+        <OwnSearch s={s} onChange={(url) => setSearx(url)} />
         <Field
           label={t("servicesSearchUrl")}
           help={s.locked.search ? t("wzLocked") : t("servicesSearchHelp")}
