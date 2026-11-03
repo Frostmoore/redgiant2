@@ -5,6 +5,7 @@ import {
   type ClientMessage,
   type Event,
   type Job,
+  type LocalModel,
   type PermissionRequestInfo,
   PROTOCOL_VERSION,
   type ServerMessage,
@@ -133,10 +134,7 @@ export interface GgufFile {
 export type EngineVariant = "cpu" | "cuda" | "vulkan" | "windows";
 
 /** A suggested local model with the best file for this computer (G24.3). */
-export interface LocalModelChoice {
-  id: string;
-  name: string;
-  repo: string;
+export interface LocalModelChoice extends LocalModel {
   file: (GgufFile & { quality: "high" | "good" | "reduced" }) | null;
   smallestGb: number | null;
   unavailable?: boolean;

@@ -7,6 +7,7 @@ import { ApiError, type ClaudeAccount, type SetupState } from "../api.js";
 import { t, tOptional } from "../i18n.js";
 import { IconCard, IconCheck, IconCpu, IconLayers, IconMonitor } from "../icons.js";
 import { getApi, refreshLimits } from "../state.js";
+import { LocalModels } from "./LocalModels.js";
 import { Advanced, Choice, Field, Pick } from "./ui.js";
 
 /** An error in plain words: its code when the server gives one, otherwise its message. */
@@ -608,7 +609,12 @@ export function Brain({
       {ways.includes("local") && (
         <div class="brain-panel">
           <h3>{t("brainLocal")}</h3>
-          <p class="ui-help">{wizard ? t("brainLocalNext") : t("brainLocalSettings")}</p>
+          {/* In Settings the whole page: download, start, delete, search (2026-11-03). */}
+          {wizard ? (
+            <p class="ui-help">{t("brainLocalNext")}</p>
+          ) : (
+            <LocalModels s={s} reload={reload} />
+          )}
         </div>
       )}
       {ways.includes("server") && <ServerPanel s={s} onChange={reload} />}

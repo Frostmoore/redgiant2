@@ -4694,3 +4694,59 @@ button.pick-tile.on {
   flex-wrap: wrap;
   gap: 6px;
 }
+/* Local models compared at a glance (2026-11-03): five-step bars and the room a file takes. */
+.lm-meters {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 8px 0;
+}
+.lm-meter,
+.lm-room {
+  display: grid;
+  grid-template-columns: 9.5em auto 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.lm-meter-label {
+  color: var(--dim);
+}
+.lm-meter-bar {
+  display: inline-flex;
+  gap: 3px;
+}
+.lm-meter-bar span {
+  width: 18px;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.lm-meter-bar span.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.lm-meter-note {
+  color: var(--dim);
+  font-size: 12px;
+}
+.lm-room-bar {
+  width: 102px;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.lm-room-bar span {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+.lm-room-bar.tight span {
+  background: var(--warn);
+}
+.lm-meter-note {
+  white-space: nowrap;
+}

@@ -1,7 +1,7 @@
 // "A model on this computer" (G24.3): what this computer can run, the suggested models as
 // cards (what each is good at, its size and quality, whether it fits), downloads with a real
 // progress bar that can be paused, and starting the engine with its steps and plain errors.
-import type { Job } from "@redgiant/protocol";
+import { estimatedSpeed, type Job } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { EngineVariant, LocalFile, LocalModelChoice, SetupState } from "../api.js";
 import { bytes } from "../format.js";
@@ -29,10 +29,48 @@ export function hardwareText(h: SetupState["hardware"]): string {
   return t("lmHwCpu", { max });
 }
 
-/** The one to suggest: the largest model that fits with at least a good quality. */
-function recommended(models: LocalModelChoice[]): string | undefined {
+/**
+ * The one to suggest: among those that fit at a good quality and are not too slow here, the
+ * cleverest (tools and code as tie-breakers); none of them: the largest that fits.
+ */
+function recommended(models: LocalModelChoice[], hw: SetupState["hardware"]): string | undefined {
   const fitting = models.filter((m) => m.file);
-  return ([...fitting].reverse().find((m) => m.file?.quality !== "reduced") ?? fitting.at(-1))?.id;
+  const score = (m: LocalModelChoice) => m.scores.smart * 10 + m.scores.tools * 2 + m.scores.code;
+  const usable = fitting.filter(
+    (m) =>
+      m.file?.quality !== "reduced" &&
+      estimatedSpeed(m, m.file?.sizeGb ?? 0, hw.suggestion).stars >= 2,
+  );
+  return ([...usable].sort((a, b) => score(b) - score(a))[0] ?? fitting.at(-1))?.id;
+}
+
+/** A drawn bar of five steps: how a model does at one thing, compared with the others. */
+function Meter({ label, value, note }: { label: string; value: number; note?: string }) {
+  return (
+    <div class="lm-meter" role="img" aria-label={`${label}: ${value}/5${note ? `, ${note}` : ""}`}>
+      <span class="lm-meter-label">{label}</span>
+      <span class="lm-meter-bar">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <span key={i} class={i <= value ? "on" : ""} />
+        ))}
+      </span>
+      {note && <span class="lm-meter-note">{note}</span>}
+    </div>
+  );
+}
+
+/** How much of the room for models the file takes. */
+function RoomBar({ sizeGb, maxGb }: { sizeGb: number; maxGb: number }) {
+  const pct = Math.min(100, Math.round((sizeGb / Math.max(maxGb, 0.1)) * 100));
+  return (
+    <div class="lm-room">
+      <span class="lm-meter-label">{t("lmRoom")}</span>
+      <span class={`lm-room-bar${pct > 85 ? " tight" : ""}`}>
+        <span style={{ width: `${pct}%` }} />
+      </span>
+      <span class="lm-meter-note">{t("lmRoomOf", { size: gb(sizeGb), max: gb(maxGb) })}</span>
+    </div>
+  );
 }
 
 const latest = (jobs: Job[], kind: string, model: string) =>
@@ -302,7 +340,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
     reload();
   };
   const active = s.config.engine?.model;
-  const best = data && recommended(data.models);
+  const best = data && recommended(data.models, s.hardware);
   const files = data?.files ?? [];
   const known = new Set(data?.models.flatMap((m) => (m.file ? [target(m.file.file)] : [])) ?? []);
   const others = files.filter((f) => !known.has(f.file) && !f.partial);
@@ -318,6 +356,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
       {s.locked.engine && <p class="notice">{t("wzLocked")}</p>}
       {error && <p class="notice error">{error}</p>}
       <h3>{t("lmSuggested")}</h3>
+      <p class="ui-help">{t("lmScoresHint")}</p>
       {!data && <p class="ui-help">{t("lmLoading")}</p>}
       <div class="lm-cards">
         {data?.models.map((m) => (
@@ -333,11 +372,25 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
               )}
             </div>
             <p class="ui-help">{tOptional(`lm_${m.id}`) ?? ""}</p>
+            <div class="lm-meters">
+              <Meter label={t("lmScore_smart")} value={m.scores.smart} />
+              <Meter label={t("lmScore_code")} value={m.scores.code} />
+              <Meter label={t("lmScore_tools")} value={m.scores.tools} />
+              <Meter label={t("lmScore_italian")} value={m.scores.italian} />
+              {m.file && (
+                <Meter
+                  label={t("lmScore_speed")}
+                  value={estimatedSpeed(m, m.file.sizeGb, s.hardware.suggestion).stars}
+                  note={t("lmWordsPerSec", {
+                    n: String(estimatedSpeed(m, m.file.sizeGb, s.hardware.suggestion).wordsPerSec),
+                  })}
+                />
+              )}
+            </div>
             {m.file ? (
               <>
-                <p class="lm-meta">
-                  {gb(m.file.sizeGb)} · {t(`lmQuality_${m.file.quality}`)}
-                </p>
+                <RoomBar sizeGb={m.file.sizeGb} maxGb={s.hardware.suggestion.maxModelGb} />
+                <p class="lm-meta">{t(`lmQuality_${m.file.quality}`)}</p>
                 <FileActions
                   repo={m.repo}
                   file={m.file.file}
