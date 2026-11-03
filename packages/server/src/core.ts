@@ -247,9 +247,9 @@ const PRIORITY: Record<AgentRecord["kind"], number> = {
 function defaultPrompt(agent: AgentRecord, god: string, demigod: string): string {
   switch (agent.kind) {
     case "god":
-      return `You are ${agent.name}, the main orchestrator of this RedGiant installation. You oversee the platform and every project; you delegate project work to the project orchestrators. You are also the user's chief of staff: when a request is the job of one of their personal assistants (list_agents shows them, kind assistant, with their role), hand it over with ask_assistant and report the answer here; do it yourself only when no assistant fits. Messages reach you from the user, directly or relayed from their Telegram by ${demigod}, their spokesperson. Handing work over with delegate returns at once: tell the user it has started, stay available, and when its <task_report> comes back as a message, tell them how it went.`;
+      return `You are ${agent.name}, the main orchestrator of this RedGiant installation. You oversee the platform and every project; you delegate project work to the project orchestrators. You do not do the work yourself: you organise it and hand it over. When the user asks to build, make or change something (a site, an app, a document, code, a design), use the project it belongs to, or create one with create_project and its orchestrator with create_agent (kind orchestrator), then give the work to that orchestrator with delegate. When the user asks about a project (how it is going, what it contains), ask its inspector with ask_inspector, which only reads; when something must be done in it, delegate to its orchestrator. Tasks for the same agent go into the same conversation, so it keeps the context. You are also the user's chief of staff: when a request is the job of one of their personal assistants (list_agents shows them, kind assistant, with their role), hand it over with ask_assistant and report the answer here. Do yourself only what is talk: answering, explaining, planning with the user, the platform's settings. Messages reach you from the user, directly or relayed from their Telegram by ${demigod}, their spokesperson. Handing work over with delegate returns at once: tell the user it has started, stay available, and when its <task_report> comes back as a message, tell them how it went.`;
     case "demigod":
-      return `You are ${agent.name}, the user's spokesperson on Telegram. Pass every request to ${god} with ask_god, then report ${god}'s answer back to the user concisely, in the user's language, as plain text fit for a phone. You never act on projects yourself.`;
+      return `You are ${agent.name}, the user's spokesperson on Telegram. Pass every request to ${god} with ask_god, then report ${god}'s answer back to the user concisely, in the user's language, as plain text fit for a phone. You never do anything yourself: ${god} organises the work and hands it to the agents.`;
     case "orchestrator":
       return "You are the orchestrator of this project. You plan the work, delegate it to the project's agents and check their results. delegate returns at once: hand over what can run in parallel, end your turn while they work, and go on when their <task_report> messages come back.";
     case "agent":
@@ -1259,9 +1259,15 @@ export class RedGiantCore implements OrchestrationHost {
   /** Telegram's /new: Demi-God and God start fresh conversations (the old ones stay in the log). */
   newConversation(ownerId: string): void {
     for (const a of this.registry.list({ ownerId, activeOnly: true }))
-      if (a.kind === "demigod" || a.kind === "god") this.workSessions.delete(a.id);
+      if (a.kind === "demigod" || a.kind === "god") {
+        this.workSessions.delete(a.id);
+        this.freshWork.add(a.id);
+      }
     this.relay.delete(ownerId);
   }
+
+  /** Agents whose next work conversation starts anew (/new), not the one kept. */
+  private readonly freshWork = new Set<string>();
 
   /** Telegram's /stop: interrupts what Demi-God and God are doing for it. */
   async stopWork(ownerId: string): Promise<boolean> {
@@ -2292,9 +2298,42 @@ export class RedGiantCore implements OrchestrationHost {
   async workSession(agent: AgentRecord): Promise<string> {
     const existing = this.workSessions.get(agent.id);
     if (existing) return existing;
+    // The same conversation after a restart too: the agent keeps the context of its tasks.
+    const key = `work_session:${agent.id}`;
+    const fresh = this.freshWork.delete(agent.id);
+    const [kept] = fresh
+      ? []
+      : await this.o.db.query<{ value: unknown }>(
+          "SELECT value FROM rg_settings WHERE owner_id = $1 AND key = $2",
+          [agent.ownerId, key],
+        );
+    const keptId = kept && (typeof kept.value === "string" ? JSON.parse(kept.value) : kept.value);
+    if (typeof keptId === "string") {
+      const [row] = await this.o.db.query<{ id: string }>(
+        "SELECT id FROM rg_sessions WHERE id = $1 AND agent_id = $2",
+        [keptId, agent.id],
+      );
+      if (row) {
+        this.workSessions.set(agent.id, keptId);
+        return keptId;
+      }
+    }
     const id = await this.startSession(agent.ownerId, agent.id);
     this.workSessions.set(agent.id, id);
+    await this.o.db.query(
+      `INSERT INTO rg_settings (owner_id, key, value) VALUES ($1, $2, $3)
+       ON CONFLICT (owner_id, key) DO UPDATE SET value = EXCLUDED.value`,
+      [agent.ownerId, key, JSON.stringify(id)],
+    );
     return id;
+  }
+
+  /** Gives a conversation a name people read (the list on the left). */
+  async nameSession(sessionId: string, title: string): Promise<void> {
+    await this.o.db.query("UPDATE rg_sessions SET title = $2 WHERE id = $1", [
+      sessionId,
+      title.slice(0, 80),
+    ]);
   }
 
   /**
@@ -2395,8 +2434,9 @@ export class RedGiantCore implements OrchestrationHost {
       archived: boolean;
       last_at: Date | null;
       model: ModelSpec | string | null;
+      folder: string | null;
     }>(
-      `SELECT id, agent_id, project_id, created_at, title, pinned, archived, last_at, model FROM rg_sessions WHERE owner_id = $1${agentId ? " AND agent_id = $2" : ""} ORDER BY created_at`,
+      `SELECT id, agent_id, project_id, created_at, title, pinned, archived, last_at, model, folder FROM rg_sessions WHERE owner_id = $1${agentId ? " AND agent_id = $2" : ""} ORDER BY created_at`,
       agentId ? [ownerId, agentId] : [ownerId],
     );
   }
@@ -2454,7 +2494,7 @@ export class RedGiantCore implements OrchestrationHost {
   async updateSession(
     ownerId: string,
     sessionId: string,
-    change: { title?: string; pinned?: boolean; archived?: boolean },
+    change: { title?: string; pinned?: boolean; archived?: boolean; folder?: string | null },
   ): Promise<void> {
     const [row] = await this.o.db.query<{ id: string }>(
       "SELECT id FROM rg_sessions WHERE id = $1 AND owner_id = $2",
@@ -2465,6 +2505,11 @@ export class RedGiantCore implements OrchestrationHost {
       "UPDATE rg_sessions SET title = COALESCE($2, title), pinned = COALESCE($3, pinned), archived = COALESCE($4, archived) WHERE id = $1",
       [sessionId, change.title ?? null, change.pinned ?? null, change.archived ?? null],
     );
+    if (change.folder !== undefined)
+      await this.o.db.query("UPDATE rg_sessions SET folder = $2 WHERE id = $1", [
+        sessionId,
+        change.folder,
+      ]);
   }
 
   /**

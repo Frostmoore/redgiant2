@@ -3727,3 +3727,231 @@ a.button.primary {
   max-width: 100%;
   border-radius: 6px;
 }
+
+/* The default extensions (G25.3), at the top of Extensions: one card per kind, as a wizard. */
+.default-extensions {
+  margin-bottom: 18px;
+}
+.media-kind-head {
+  align-items: center;
+  gap: 10px;
+}
+.media-kind-head h3 {
+  margin: 0;
+}
+.media-step {
+  font-weight: 600;
+  margin: 6px 0 4px;
+}
+
+/* The left bar, chosen 2026-11-03 ("tastoni nella barra"): God in gold, two big buttons for
+   projects and personal agents, folders of conversations, and the chats behind a green button. */
+:root {
+  --god: #b8860b;
+  --god-bg: #fbf3dc;
+  --god-line: #e7cf86;
+}
+html[data-theme="dark"] {
+  --god: #f0c24e;
+  --god-bg: #2e2510;
+  --god-line: #6b5418;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-theme="system"] {
+    --god: #f0c24e;
+    --god-bg: #2e2510;
+    --god-line: #6b5418;
+  }
+}
+.bar-god {
+  border: 1px solid var(--god-line);
+  background: var(--god-bg);
+  border-radius: 14px;
+  padding: 6px 6px 8px;
+  margin-bottom: 10px;
+}
+.bar-god .bar-item.strong,
+.bar-god .bar-item.strong svg {
+  color: var(--god);
+  font-weight: 700;
+}
+.bar-big {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.bar-big button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  font-weight: 700;
+  text-align: left;
+  min-width: 0;
+}
+.bar-big button small {
+  color: var(--dim);
+  font-weight: 500;
+  font-size: 12px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bar-big button.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.bar-list {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 6px;
+}
+button.bar-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  padding: 6px 8px;
+  font-size: 13px;
+}
+button.bar-chat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 11px 16px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--ok);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--ok) 35%, transparent);
+}
+button.bar-chat:hover {
+  filter: brightness(1.08);
+}
+.conv-folder-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  font-size: 12.5px;
+  padding: 4px 6px;
+}
+.conv-folder-body {
+  padding-left: 12px;
+}
+
+/* Every chat, as cards in folders. */
+.chats-page {
+  height: 100%;
+  overflow: auto;
+  padding: 20px 24px 32px;
+}
+.chats-page h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+}
+.chats-folder h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  margin: 22px 0 8px;
+}
+.chat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.chat-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  padding: 4px;
+  min-height: 96px;
+}
+.chat-card-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  border: 0;
+  background: none;
+  text-align: left;
+  padding: 10px;
+}
+.chat-card-open strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.chat-card-open small {
+  color: var(--dim);
+}
+button.chat-card-new {
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-style: dashed;
+  color: var(--ok);
+  font-weight: 700;
+}
+.bar-notice {
+  margin-top: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: var(--accent-soft, var(--panel));
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.bar-notice p {
+  margin: 0 0 8px;
+}
+.bar-notice .row {
+  gap: 8px;
+  align-items: center;
+}
+
+/* Hidden actions take no room: the title gets the whole row until the pointer is on it. */
+@media (hover: hover) {
+  .session-row {
+    position: relative;
+  }
+  .session-row .row-actions {
+    position: absolute;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--panel-2);
+    border-radius: 8px;
+    pointer-events: none;
+  }
+  .session-row:hover .row-actions,
+  .session-row:focus-within .row-actions {
+    pointer-events: auto;
+  }
+}

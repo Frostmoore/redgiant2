@@ -24,6 +24,7 @@ export async function migrateChat(db: SqlClient): Promise<void> {
     "ALTER TABLE rg_chats ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'daily'",
   );
   await db.query("ALTER TABLE rg_chats ADD COLUMN IF NOT EXISTS project_id text");
+  await db.query("ALTER TABLE rg_chats ADD COLUMN IF NOT EXISTS folder text");
   await db.query(`
     CREATE TABLE IF NOT EXISTS rg_chat_messages (
       id         bigserial PRIMARY KEY,
@@ -62,6 +63,8 @@ export interface ChatSummary {
   kind: "daily" | "inspector";
   projectId: string | null;
   title: string;
+  /** Its folder, if the person put it in one. */
+  folder: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -138,6 +141,7 @@ export class DailyChat {
       kind: "daily" | "inspector";
       project_id: string | null;
       title: string;
+      folder: string | null;
       created_at: Date;
       updated_at: Date;
     }>(
@@ -149,6 +153,7 @@ export class DailyChat {
       kind: r.kind,
       projectId: r.project_id,
       title: r.title,
+      folder: r.folder ?? null,
       createdAt: new Date(r.created_at).toISOString(),
       updatedAt: new Date(r.updated_at).toISOString(),
     }));
@@ -205,6 +210,12 @@ export class DailyChat {
   async rename(ownerId: string, chatId: string, title: string): Promise<void> {
     await this.own(ownerId, chatId);
     await this.o.db.query("UPDATE rg_chats SET title = $2 WHERE id = $1", [chatId, title]);
+  }
+
+  /** Puts a chat in a folder; null takes it out. */
+  async setFolder(ownerId: string, chatId: string, folder: string | null): Promise<void> {
+    await this.own(ownerId, chatId);
+    await this.o.db.query("UPDATE rg_chats SET folder = $2 WHERE id = $1", [chatId, folder]);
   }
 
   /** Deleted for good: messages included (it is not the event log). */

@@ -960,6 +960,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         title: r.title,
         pinned: r.pinned,
         archived: r.archived,
+        folder: r.folder ?? null,
         running: core.isRunning(r.id),
         model: (typeof r.model === "string"
           ? JSON.parse(r.model)
@@ -975,6 +976,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         pinned: z.boolean().optional(),
         archived: z.boolean().optional(),
         model: ModelSpec.nullable().optional(),
+        /** A folder's name; null takes it out of any folder. */
+        folder: z.string().trim().min(1).max(60).nullable().optional(),
       })
       .safeParse(await c.req.json().catch(() => ({})));
     if (!b.success) return c.json({ error: b.error.message }, 400);
@@ -984,6 +987,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       ...(b.data.title !== undefined && { title: b.data.title }),
       ...(b.data.pinned !== undefined && { pinned: b.data.pinned }),
       ...(b.data.archived !== undefined && { archived: b.data.archived }),
+      ...(b.data.folder !== undefined && { folder: b.data.folder }),
     });
     return c.json({ ok: true }, 200);
   });
@@ -1431,7 +1435,14 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     }
   });
   app.patch("/api/chats/:id", async (c) => {
-    const { title } = (await c.req.json()) as { title?: string };
+    const { title, folder } = (await c.req.json()) as { title?: string; folder?: string | null };
+    if (folder !== undefined) {
+      const f = typeof folder === "string" ? folder.trim().slice(0, 60) || null : null;
+      await core.chat.setFolder(owner(c), c.req.param("id"), f).catch((e) => {
+        throw chatError(e);
+      });
+      if (title === undefined) return c.json({ ok: true }, 200);
+    }
     if (!title?.trim()) return c.json({ error: "title is required" }, 400);
     await core.chat.rename(owner(c), c.req.param("id"), title.trim().slice(0, 120)).catch((e) => {
       throw chatError(e);

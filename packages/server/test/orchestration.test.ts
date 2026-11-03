@@ -177,6 +177,10 @@ describe("orchestration", () => {
       "verified",
     ]);
     expect((await s.core.store.verify()).ok).toBe(true);
+    // The work conversations are named after who gave the task and what, not after an id.
+    const titles = (await s.core.listSessions("me")).map((r) => r.title);
+    expect(titles).toEqual(expect.arrayContaining(["God: Greeting", "Orch: Write greeting"]));
+    expect(titles.some((t) => t?.startsWith("[Task"))).toBe(false);
   });
 
   it("reminds an agent that stops with an open task, and requires a passing verifier", async () => {

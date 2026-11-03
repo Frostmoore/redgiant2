@@ -564,6 +564,10 @@ export type Tab =
   | { id: string; type: "room"; title: string; roomId: string }
   /** A personal assistant's page, or a new one when `agentId` is null (G24.11). */
   | { id: string; type: "assistant"; title: string; agentId: string | null }
+  /** Every chat, as cards in folders, and the group chats (2026-11-03). */
+  | { id: string; type: "chats"; title: string }
+  /** The agents of one project, as a tree. */
+  | { id: string; type: "agents"; title: string; projectId: string }
   /** A board of variants an agent published (G25.4), a page of its own as in Officina. */
   | { id: string; type: "tavola"; title: string; sessionId: string; proposalId: string };
 
@@ -585,7 +589,6 @@ export type SettingsSection =
   | "telegram"
   | "budgets"
   | "subscriptions"
-  | "media"
   | "code"
   | "remote"
   | "platform";
@@ -756,6 +759,8 @@ export interface SessionRow {
   archived: boolean;
   running: boolean;
   model?: { provider: string; model: string; effort?: string } | null;
+  /** Its folder, if the person put it in one. */
+  folder?: string | null;
 }
 
 export const sessionRows = signal<SessionRow[]>([]);

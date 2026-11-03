@@ -12,6 +12,8 @@ import {
 export interface ChatSummary {
   id: string;
   title: string;
+  /** Its folder, if the person put it in one. */
+  folder?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -402,6 +404,7 @@ export class Api {
       pinned?: boolean;
       archived?: boolean;
       model?: { provider: string; model: string; effort?: string } | null;
+      folder?: string | null;
     },
   ) => this.call("PATCH", `/api/sessions/${id}`, change);
   models = () => this.call<ModelChoice[]>("GET", "/api/models");
@@ -513,6 +516,8 @@ export class Api {
     this.call("PUT", `/api/projects/${encodeURIComponent(projectId)}/inspector/settings`, s);
   chat = (id: string) => this.call<ChatEntry[]>("GET", `/api/chats/${id}`);
   renameChat = (id: string, title: string) => this.call("PATCH", `/api/chats/${id}`, { title });
+  setChatFolder = (id: string, folder: string | null) =>
+    this.call("PATCH", `/api/chats/${id}`, { folder });
   deleteChat = (id: string) => this.call("DELETE", `/api/chats/${id}`);
   chatSettings = () =>
     this.call<{

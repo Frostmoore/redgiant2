@@ -68,6 +68,8 @@ export async function migrateProjects(db: SqlClient): Promise<void> {
     "ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false",
   );
   await db.query("ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS last_at timestamptz");
+  // Folders of conversations (2026-11-03): a name, or none.
+  await db.query("ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS folder text");
 }
 
 export const slug = (name: string) =>

@@ -15,6 +15,7 @@ import {
   IconMenu,
   IconSearch,
   IconSettings,
+  IconTree,
   IconUser,
   IconUsers,
   Logo,
@@ -52,9 +53,11 @@ import { AssistantPage } from "./Assistants.js";
 import { Bell } from "./Bell.js";
 import { Board } from "./Board.js";
 import { Chat } from "./Chat.js";
+import { Chats } from "./Chats.js";
 import { DailyChat } from "./DailyChat.js";
 import { Downloads } from "./Downloads.js";
 import { Explorer } from "./Explorer.js";
+import { ProjectAgents } from "./Hierarchy.js";
 import { Login } from "./Login.js";
 import { RoomView } from "./Room.js";
 import { Search } from "./Search.js";
@@ -208,6 +211,10 @@ const tabIcon = (tab: Tab) =>
     <IconUser size={13} />
   ) : tab.type === "room" ? (
     <IconUsers size={13} />
+  ) : tab.type === "chats" ? (
+    <IconChat size={13} />
+  ) : tab.type === "agents" ? (
+    <IconTree size={13} />
   ) : tab.type === "tavola" ? (
     <IconCanvas size={13} />
   ) : (
@@ -276,6 +283,10 @@ function View({ tab }: { tab: Tab }) {
       return <AssistantPage key={tab.id} agentId={tab.agentId} />;
     case "room":
       return <RoomView key={tab.id} roomId={tab.roomId} />;
+    case "chats":
+      return <Chats />;
+    case "agents":
+      return <ProjectAgents key={tab.id} projectId={tab.projectId} />;
     case "tavola":
       return <Variants key={tab.id} sessionId={tab.sessionId} proposalId={tab.proposalId} />;
   }

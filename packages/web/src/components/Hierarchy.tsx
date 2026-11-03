@@ -220,6 +220,24 @@ function Node({ agent, depth }: { agent: Agent; depth: number }) {
 }
 
 /** The agent tree: open conversations, create agents step by step, stop agents. */
+/** The agents of one project only: its tree, from its orchestrator (and its inspector) down. */
+export function ProjectAgents({ projectId }: { projectId: string }) {
+  const mine = agents.value.filter((a) => a.projectId === projectId);
+  const ids = new Set(mine.map((a) => a.id));
+  const roots = mine.filter((a) => !a.parentId || !ids.has(a.parentId));
+  const name = projects.value.find((p) => p.id === projectId)?.name ?? projectId;
+  return (
+    <div class="hierarchy settings-section">
+      <h2>{t("agentsOf", { project: name })}</h2>
+      <p class="ui-purpose">{t("projectAgentsPurpose")}</p>
+      {roots.length === 0 && <p class="empty">{t("noOrchestrator")}</p>}
+      {roots.map((a) => (
+        <Node key={a.id} agent={a} depth={0} />
+      ))}
+    </div>
+  );
+}
+
 export function Hierarchy() {
   const [creatingGod, setCreatingGod] = useState(false);
   const [wizard, setWizard] = useState(false);

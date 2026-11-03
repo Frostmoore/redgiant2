@@ -30,6 +30,7 @@ import { renderMarkdown } from "../markdown.js";
 import { agents, attempt, getApi, getLive, openTab, projects } from "../state.js";
 import { explain } from "./Brain.js";
 import { Chat } from "./Chat.js";
+import { DefaultExtensions } from "./Media.js";
 import { Advanced, Field } from "./ui.js";
 
 const scopeLabel = (projectId: string | null) =>
@@ -760,6 +761,7 @@ export function Extensions() {
   const failed = proposals.filter((p) => p.status === "failed").slice(0, 5);
   return (
     <div class="hierarchy extensions">
+      <DefaultExtensions />
       <AskGod />
       {pending.length > 0 && (
         <>

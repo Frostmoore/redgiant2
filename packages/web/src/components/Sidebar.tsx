@@ -1,9 +1,10 @@
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import type { Agent } from "../api.js";
 import { t } from "../i18n.js";
 import {
   IconArchive,
   IconBoard,
+  IconBox,
   IconChat,
   IconChevron,
   IconCrown,
@@ -15,13 +16,11 @@ import {
   IconSettings,
   IconTree,
   IconUser,
-  IconUsers,
 } from "../icons.js";
 import {
   activeTab,
   agents,
   attempt,
-  chatRows,
   getApi,
   newSession,
   openSession,
@@ -30,7 +29,6 @@ import {
   refresh,
   refreshConversations,
   refreshSubprojects,
-  rooms,
   type SessionRow,
   sessionRows,
   subprojects,
@@ -46,10 +44,35 @@ const shortDate = (iso: string) => {
     : d.toLocaleDateString([], { day: "2-digit", month: "2-digit" });
 };
 
+/**
+ * Asks which folder a conversation goes in: a name (new or existing), or empty to take it out.
+ * undefined: the person cancelled.
+ */
+export function askFolder(current: string | null): string | null | undefined {
+  const answer = window.prompt(t("folderAsk"), current ?? "");
+  if (answer === null) return undefined;
+  return answer.trim().slice(0, 60) || null;
+}
+
+/** A folder of conversations, open until the person closes it. */
+function Folder({ name, children }: { name: string; children: preact.ComponentChildren }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div class="conv-folder">
+      <button type="button" class="conv-folder-head" onClick={() => setOpen(!open)}>
+        <IconChevron open={open} />
+        <IconFolder size={13} />
+        <span>{name}</span>
+      </button>
+      {open && <div class="conv-folder-body">{children}</div>}
+    </div>
+  );
+}
+
 /** One conversation: open it, pin it, archive it (the log is never touched). */
 function SessionLine({ row }: { row: SessionRow }) {
   const active = activeTab.value === `chat:${row.id}`;
-  const update = (change: { pinned?: boolean; archived?: boolean }) =>
+  const update = (change: { pinned?: boolean; archived?: boolean; folder?: string | null }) =>
     void attempt(() => getApi().updateSession(row.id, change)).then(refreshConversations);
   return (
     <div class={`session-row ${active ? "active" : ""}`}>
@@ -72,6 +95,17 @@ function SessionLine({ row }: { row: SessionRow }) {
           onClick={() => update({ pinned: !row.pinned })}
         >
           <IconPin filled={row.pinned} />
+        </button>
+        <button
+          type="button"
+          class="icon-button"
+          title={t("folderMove")}
+          onClick={() => {
+            const f = askFolder(row.folder ?? null);
+            if (f !== undefined) update({ folder: f });
+          }}
+        >
+          <IconFolder size={13} />
         </button>
         <button
           type="button"
@@ -114,7 +148,9 @@ function Sessions({ agent }: { agent: Agent }) {
         Number(b.pinned) - Number(a.pinned) ||
         (b.lastAt ?? b.createdAt).localeCompare(a.lastAt ?? a.createdAt),
     );
-  const shown = all ? rows : rows.slice(0, SHOWN);
+  const loose = rows.filter((r) => !r.folder);
+  const folders = [...new Set(rows.flatMap((r) => (r.folder ? [r.folder] : [])))].sort();
+  const shown = all ? loose : loose.slice(0, SHOWN);
   const archivedCount = sessionRows.value.filter(
     (r) => r.agentId === agent.id && r.archived,
   ).length;
@@ -123,12 +159,21 @@ function Sessions({ agent }: { agent: Agent }) {
       <button type="button" class="new" onClick={() => void attempt(() => newSession(agent))}>
         <IconPlus /> {t("newConversation")}
       </button>
+      {folders.map((f) => (
+        <Folder key={f} name={f}>
+          {rows
+            .filter((r) => r.folder === f)
+            .map((r) => (
+              <SessionLine key={r.id} row={r} />
+            ))}
+        </Folder>
+      ))}
       {shown.map((r) => (
         <SessionLine key={r.id} row={r} />
       ))}
-      {rows.length > SHOWN && (
+      {loose.length > SHOWN && (
         <button type="button" class="more" onClick={() => setAll(!all)}>
-          {all ? t("showLess") : t("showAll", { n: String(rows.length) })}
+          {all ? t("showLess") : t("showAll", { n: String(loose.length) })}
         </button>
       )}
       {(archivedCount > 0 || archived) && (
@@ -136,46 +181,6 @@ function Sessions({ agent }: { agent: Agent }) {
           {archived ? t("backToConversations") : t("archivedN", { n: String(archivedCount) })}
         </button>
       )}
-    </div>
-  );
-}
-
-/** The daily chat's conversations. */
-function DailyChats() {
-  const rows = chatRows.value.slice(0, SHOWN);
-  return (
-    <div class="sessions">
-      <button
-        type="button"
-        class="new"
-        onClick={() =>
-          openTab({
-            id: `daily:new:${Date.now()}`,
-            type: "dailychat",
-            title: t("newChat"),
-            chatId: null,
-          })
-        }
-      >
-        <IconPlus /> {t("newChat")}
-      </button>
-      {rows.map((c) => (
-        <div
-          key={c.id}
-          class={`session-row ${activeTab.value === `daily:${c.id}` ? "active" : ""}`}
-        >
-          <button
-            type="button"
-            class="open"
-            onClick={() =>
-              openTab({ id: `daily:${c.id}`, type: "dailychat", title: c.title, chatId: c.id })
-            }
-          >
-            <span class="title">{c.title}</span>
-            <span class="date">{shortDate(c.updatedAt)}</span>
-          </button>
-        </div>
-      ))}
     </div>
   );
 }
@@ -228,12 +233,9 @@ function Assistants({ open, toggle }: { open: Set<string>; toggle: (key: string)
     openTab({ id: `assistant:${agentId ?? "new"}`, type: "assistant", title, agentId });
   return (
     <>
-      <div class="bar-title">
-        {t("assistants")}
-        <button type="button" class="add" onClick={() => page(null, t("asstNewTitle"))}>
-          <IconPlus size={12} /> {t("newShort")}
-        </button>
-      </div>
+      <button type="button" class="bar-new" onClick={() => page(null, t("asstNewTitle"))}>
+        <IconPlus size={13} /> {t("asstNewTitle")}
+      </button>
       {list.length === 0 && (
         <button type="button" class="bar-hint" onClick={() => page(null, t("asstNewTitle"))}>
           {t("asstEmpty")}
@@ -419,64 +421,67 @@ function Subprojects({
   );
 }
 
-/** Group chats (G24.12): the person and several agents; made from a chat or here. */
-function Groups() {
-  const [picking, setPicking] = useState(false);
-  const god = agents.value.find((a) => a.kind === "god");
-  const open = (id: string, title: string) =>
-    openTab({ id: `room:${id}`, type: "room", title, roomId: id });
-  return (
-    <>
-      <div class="bar-title">
-        {t("groups")}
-        {god && (
-          <button type="button" class="add" onClick={() => setPicking(!picking)}>
-            <IconPlus size={12} /> {t("newShort")}
-          </button>
-        )}
-      </div>
-      {picking && god && (
-        <button
-          type="button"
-          class="bar-hint"
-          onClick={() => {
-            setPicking(false);
-            void attempt(() => getApi().createRoom({ members: [god.id] })).then(async (r) => {
-              if (!r) return;
-              await refresh();
-              open(r.id, r.title);
-            });
-          }}
-        >
-          {t("groupsNewHint", { god: god.name })}
-        </button>
-      )}
-      {rooms.value.length === 0 && !picking && <div class="bar-hint dim">{t("groupsEmpty")}</div>}
-      {rooms.value.map((r) => (
-        <div key={r.id} class="bar-row">
-          <button
-            type="button"
-            class={`bar-item${activeTab.value === `room:${r.id}` ? " active" : ""}`}
-            onClick={() => open(r.id, r.title)}
-          >
-            <IconUsers size={14} />
-            <span class="name">{r.title}</span>
-            {r.answering.length > 0 && <span class="dot running" />}
-          </button>
-        </div>
-      ))}
-    </>
-  );
-}
-
 /**
  * The left bar, as in Officina: only conversations and settings. God and the daily chat on
  * top, then the projects with their orchestrator's conversations.
  */
+/**
+ * Access from outside home not set up (2026-11-03): a notice that asks for it, with a way to
+ * the settings page and a way to hide it for good.
+ */
+function RemoteNotice() {
+  const [missing, setMissing] = useState(false);
+  const [hidden, setHidden] = useState(localStorage.getItem("rg.remoteNotice") === "hidden");
+  useEffect(() => {
+    if (hidden) return;
+    void getApi()
+      .setup()
+      .then(
+        (s) => setMissing(!s.config.remote),
+        () => {},
+      );
+  }, [hidden]);
+  if (hidden || !missing) return null;
+  return (
+    <div class="bar-notice" role="note">
+      <p>{t("remoteNotice")}</p>
+      <div class="row">
+        <button
+          type="button"
+          class="primary tiny"
+          onClick={() =>
+            openTab({ id: "settings", type: "settings", title: t("settings"), section: "remote" })
+          }
+        >
+          {t("remoteNoticeSet")}
+        </button>
+        <button
+          type="button"
+          class="link tiny"
+          onClick={() => {
+            localStorage.setItem("rg.remoteNotice", "hidden");
+            setHidden(true);
+          }}
+        >
+          {t("remoteNoticeHide")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Sidebar() {
   const [open, setOpen] = useState<Set<string>>(new Set(["god"]));
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
+  /** Which big button is chosen: the projects or the personal agents. */
+  const [section, setSectionState] = useState<"projects" | "agents">(
+    localStorage.getItem("rg.barSection") === "agents" ? "agents" : "projects",
+  );
+  const setSection = (x: "projects" | "agents") => {
+    localStorage.setItem("rg.barSection", x);
+    setSectionState(x);
+  };
   const toggle = (key: string) => {
     const next = new Set(open);
     if (next.has(key)) next.delete(key);
@@ -484,6 +489,7 @@ export function Sidebar() {
     setOpen(next);
   };
   const god = agents.value.find((a) => a.kind === "god");
+  const assistants = agents.value.filter((a) => a.kind === "assistant" && a.status === "active");
   const create = async (e: Event) => {
     e.preventDefault();
     const project = await attempt(() => getApi().createProject(name.trim()));
@@ -506,7 +512,7 @@ export function Sidebar() {
   return (
     <nav class="bar">
       {god && (
-        <>
+        <div class="bar-god">
           <Entry
             icon={<IconCrown />}
             name={god.name}
@@ -515,133 +521,154 @@ export function Sidebar() {
             onNew={() => void attempt(() => newSession(god))}
           />
           {open.has("god") && <Sessions agent={god} />}
-        </>
+        </div>
       )}
-      <Entry
-        icon={<IconChat />}
-        name={t("dailyChat")}
-        open={open.has("daily")}
-        toggle={() => toggle("daily")}
-        onNew={() =>
-          openTab({
-            id: `daily:new:${Date.now()}`,
-            type: "dailychat",
-            title: t("newChat"),
-            chatId: null,
-          })
-        }
-      />
-      {open.has("daily") && <DailyChats />}
 
-      <Assistants open={open} toggle={toggle} />
-      <Groups />
-
-      <div class="bar-title">
-        {t("projects")}
-        <button type="button" class="add" onClick={() => setAdding(!adding)}>
-          <IconPlus size={12} /> {t("newShort")}
+      <div class="bar-big">
+        <button
+          type="button"
+          class={section === "projects" ? "on" : ""}
+          aria-pressed={section === "projects"}
+          onClick={() => setSection("projects")}
+        >
+          <IconBox size={18} />
+          <span>{t("projects")}</span>
+          <small>{t("barProjectsN", { n: String(projects.value.length) })}</small>
+        </button>
+        <button
+          type="button"
+          class={section === "agents" ? "on" : ""}
+          aria-pressed={section === "agents"}
+          onClick={() => setSection("agents")}
+        >
+          <IconUser size={18} />
+          <span>{t("assistants")}</span>
+          <small>
+            {assistants.length > 0 ? assistants.map((a) => a.name).join(", ") : t("barAgentsNone")}
+          </small>
         </button>
       </div>
-      {adding && (
-        <form class="new-project" onSubmit={(e) => void create(e)}>
-          <input
-            required
-            placeholder={t("projectName")}
-            value={name}
-            onInput={(e) => setName((e.target as HTMLInputElement).value)}
-          />
-          <div class="row">
-            <button type="submit" class="primary" disabled={!name.trim()}>
-              {t("create")}
+
+      <div class="bar-list">
+        {section === "agents" ? (
+          <Assistants open={open} toggle={toggle} />
+        ) : (
+          <>
+            <button type="button" class="bar-new" onClick={() => setAdding(!adding)}>
+              <IconPlus size={13} /> {t("projectNew")}
             </button>
-            <button type="button" onClick={() => setAdding(false)}>
-              {t("cancel")}
-            </button>
-          </div>
-        </form>
-      )}
-      {projects.value.length === 0 && !adding && <div class="empty">{t("noProjects")}</div>}
-      {projects.value.map((p) => {
-        const key = `p:${p.id}`;
-        const orchestrator = agents.value.find(
-          (a) => a.kind === "orchestrator" && a.projectId === p.id,
-        );
-        const running = sessionRows.value.some((r) => r.projectId === p.id && r.running);
-        return (
-          <div key={p.id}>
-            <div class="bar-row">
-              <button
-                type="button"
-                class="bar-item"
-                onClick={() => toggle(key)}
-                aria-expanded={open.has(key)}
-              >
-                <IconChevron open={open.has(key)} />
-                <span class="name">{p.name}</span>
-                {running && <span class="dot running" />}
-              </button>
-              <span class="project-actions">
-                <button
-                  type="button"
-                  class="icon-button"
-                  title={t("board")}
-                  onClick={() =>
-                    openTab({
-                      id: `board:${p.id}`,
-                      type: "board",
-                      title: `${t("board")} · ${p.name}`,
-                      projectId: p.id,
-                    })
-                  }
-                >
-                  <IconBoard />
-                </button>
-                <button
-                  type="button"
-                  class="icon-button"
-                  title={t("inspector")}
-                  onClick={() =>
-                    openTab({
-                      id: `inspector:${p.id}`,
-                      type: "inspector",
-                      title: `${t("inspector")} · ${p.name}`,
-                      projectId: p.id,
-                    })
-                  }
-                >
-                  <IconEye />
-                </button>
-                <button
-                  type="button"
-                  class="icon-button"
-                  title={t("agentsOf", { project: p.name })}
-                  onClick={() =>
-                    openTab({
-                      id: "settings",
-                      type: "settings",
-                      title: t("settings"),
-                      section: "agents",
-                    })
-                  }
-                >
-                  <IconTree size={14} />
-                </button>
-              </span>
-            </div>
-            {open.has(key) &&
-              (orchestrator ? (
-                <Sessions agent={orchestrator} />
-              ) : (
-                <div class="sessions">
-                  <span class="dim">{t("noOrchestrator")}</span>
+            {adding && (
+              <form class="new-project" onSubmit={(e) => void create(e)}>
+                <input
+                  required
+                  placeholder={t("projectName")}
+                  value={name}
+                  onInput={(e) => setName((e.target as HTMLInputElement).value)}
+                />
+                <div class="row">
+                  <button type="submit" class="primary" disabled={!name.trim()}>
+                    {t("create")}
+                  </button>
+                  <button type="button" onClick={() => setAdding(false)}>
+                    {t("cancel")}
+                  </button>
                 </div>
-              ))}
-            {open.has(key) && <Subprojects projectId={p.id} open={open} toggle={toggle} />}
-          </div>
-        );
-      })}
-      {/* Settings at the bottom, apart from the conversations (as in Officina). */}
+              </form>
+            )}
+            {projects.value.length === 0 && !adding && <div class="empty">{t("noProjects")}</div>}
+            {projects.value.map((p) => {
+              const key = `p:${p.id}`;
+              const orchestrator = agents.value.find(
+                (a) => a.kind === "orchestrator" && a.projectId === p.id,
+              );
+              const running = sessionRows.value.some((r) => r.projectId === p.id && r.running);
+              return (
+                <div key={p.id}>
+                  <div class="bar-row">
+                    <button
+                      type="button"
+                      class="bar-item"
+                      onClick={() => toggle(key)}
+                      aria-expanded={open.has(key)}
+                    >
+                      <IconChevron open={open.has(key)} />
+                      <span class="name">{p.name}</span>
+                      {running && <span class="dot running" />}
+                    </button>
+                    <span class="project-actions">
+                      <button
+                        type="button"
+                        class="icon-button"
+                        title={t("board")}
+                        onClick={() =>
+                          openTab({
+                            id: `board:${p.id}`,
+                            type: "board",
+                            title: `${t("board")} · ${p.name}`,
+                            projectId: p.id,
+                          })
+                        }
+                      >
+                        <IconBoard />
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-button"
+                        title={t("inspector")}
+                        onClick={() =>
+                          openTab({
+                            id: `inspector:${p.id}`,
+                            type: "inspector",
+                            title: `${t("inspector")} · ${p.name}`,
+                            projectId: p.id,
+                          })
+                        }
+                      >
+                        <IconEye />
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-button"
+                        title={t("agentsOf", { project: p.name })}
+                        onClick={() =>
+                          openTab({
+                            id: `agents:${p.id}`,
+                            type: "agents",
+                            title: t("agentsOf", { project: p.name }),
+                            projectId: p.id,
+                          })
+                        }
+                      >
+                        <IconTree size={14} />
+                      </button>
+                    </span>
+                  </div>
+                  {open.has(key) &&
+                    (orchestrator ? (
+                      <Sessions agent={orchestrator} />
+                    ) : (
+                      <div class="sessions">
+                        <span class="dim">{t("noOrchestrator")}</span>
+                      </div>
+                    ))}
+                  {open.has(key) && <Subprojects projectId={p.id} open={open} toggle={toggle} />}
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+
       <div class="bar-foot">
+        <RemoteNotice />
+        {/* The chats: a floating green button that opens every chat, as cards in folders. */}
+        <button
+          type="button"
+          class="bar-chat"
+          onClick={() => openTab({ id: "chats", type: "chats", title: t("dailyChat") })}
+        >
+          <IconChat size={16} /> {t("dailyChat")}
+        </button>
         <button
           type="button"
           class="bar-settings"

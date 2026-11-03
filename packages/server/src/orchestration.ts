@@ -28,6 +28,8 @@ export interface OrchestrationHost {
   broker: PermissionBroker;
   /** The session an agent receives delegated work in (created on first use). */
   workSession(agent: AgentRecord): Promise<string>;
+  /** Names a conversation in the list (tasks: who gave the latest, and what). */
+  nameSession?(sessionId: string, title: string): Promise<void>;
   /** A brand-new session: isolated context. */
   startSession(ownerId: string, agentId: string): Promise<string>;
   send(
@@ -265,8 +267,10 @@ export function orchestrationTools(
       name: self.name,
     });
     const text =
-      `[Task ${t.id} from ${self.name}: ${title}]\n${task}\n\n` +
+      `Task from ${self.name}: «${title}»\n\n${task}\n\n` +
       `When it is done, verify the result and call complete_task (taskId "${t.id}").`;
+    // The conversation is named after who gives the work and the latest task, not an id.
+    await host.nameSession?.(sid, `${self.name}: ${title}`);
     const { done, queued } = await host.send(self.ownerId, sid, text, { queue: true });
     done.catch(() => {});
     return (
@@ -283,8 +287,9 @@ export function orchestrationTools(
     const sid = sessionId ?? (await host.workSession(to));
     const t = await tasks.open(to, sid, title);
     const text =
-      `[Task ${t.id} from ${self.name}: ${title}]\n${task}\n\n` +
+      `Task from ${self.name}: «${title}»\n\n${task}\n\n` +
       `When it is done, verify the result and call complete_task (taskId "${t.id}").`;
+    await host.nameSession?.(sid, `${self.name}: ${title}`);
     const { done } = await host.send(self.ownerId, sid, text);
     const r = await done;
     const answer = lastAssistantText(await host.store.list({ sessionId: sid }));
