@@ -304,7 +304,23 @@ export interface SessionView {
   compacting?: boolean;
   /** generate_image at work: its step and latest preview (base64 PNG). */
   drawing?: { percent: number; preview?: string } | undefined;
+  /** The model request now running (2026-11-03): its phases for the progress line. */
+  call?: ModelCall | undefined;
 }
+
+/**
+ * One model request seen live: when it started, how far the prompt was read (local engines
+ * report it), when the first word came and how much has been written since.
+ */
+export interface ModelCall {
+  since: number;
+  prefill?: { total: number; cached: number; processed: number; ms: number };
+  firstToken?: number;
+  chars: number;
+  writing?: "text" | "thinking";
+}
+
+const newCall = (): ModelCall => ({ since: Date.now(), chars: 0 });
 
 const sessions = new Map<string, Signal<SessionView>>();
 
@@ -356,10 +372,16 @@ export function applyMessage(m: ServerMessage): void {
       // Shown while the person watches: the canvas opens by itself (not when the log replays).
       if (m.event.type === "canvas.show" && m.event.payload && v.value.synced)
         openCanvas(m.event.payload.title, m.event.payload.target);
+      // A request ends with its message; while the turn runs, a user message or a tool's
+      // result means the next request is being prepared.
+      const next =
+        v.value.state === "running" &&
+        (m.event.type === "tool.result" || m.event.type === "message.user");
       v.value = {
         ...v.value,
         events: [...v.value.events, m.event],
-        ...(done && { text: "", thinking: "" }),
+        ...(done && { text: "", thinking: "", call: undefined }),
+        ...(next && { call: newCall() }),
         // The picture is in the tool's result now: the live preview goes.
         ...(m.event.type === "tool.result" && { drawing: undefined }),
       };
@@ -380,14 +402,34 @@ export function applyMessage(m: ServerMessage): void {
     }
     case "delta": {
       const v = sessionView(m.sessionId);
+      const c = v.value.call ?? newCall();
+      const call: ModelCall = {
+        ...c,
+        firstToken: c.firstToken ?? Date.now(),
+        chars: c.chars + m.text.length,
+        writing: m.kind,
+      };
       v.value =
         m.kind === "text"
-          ? { ...v.value, text: v.value.text + m.text }
-          : { ...v.value, thinking: v.value.thinking + m.text };
+          ? { ...v.value, text: v.value.text + m.text, call }
+          : { ...v.value, thinking: v.value.thinking + m.text, call };
+      return;
+    }
+    case "prefill": {
+      const v = sessionView(m.sessionId);
+      const { total, cached, processed, ms } = m;
+      v.value = {
+        ...v.value,
+        call: { ...(v.value.call ?? newCall()), prefill: { total, cached, processed, ms } },
+      };
       return;
     }
     case "session.state":
-      sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, state: m.state };
+      sessionView(m.sessionId).value = {
+        ...sessionView(m.sessionId).value,
+        state: m.state,
+        call: m.state === "running" ? newCall() : undefined,
+      };
       // A turn just ended: the plan's limits may have moved.
       if (m.state === "idle") void refreshLimits().catch(() => {});
       sessionRows.value = sessionRows.value.map((r) =>

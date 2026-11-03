@@ -205,6 +205,38 @@ describe("OpenAICompatProvider response", () => {
     });
   });
 
+  it("passes on how far llama.cpp has read the prompt (return_progress, 2026-11-03)", async () => {
+    const { fetch } = fakeFetch(() =>
+      sseResponse([
+        {
+          data: {
+            choices: [],
+            prompt_progress: { total: 1000, cache: 600, processed: 600, time_ms: 0 },
+          },
+        },
+        {
+          data: {
+            choices: [],
+            prompt_progress: { total: 1000, cache: 600, processed: 1000, time_ms: 80 },
+          },
+        },
+        ...openAiTextEvents("ok"),
+      ]),
+    );
+    const seen: unknown[] = [];
+    for await (const e of new OpenAICompatProvider({ baseURL: "x", fetch }).stream({
+      model: "m",
+      system: "",
+      tools: [],
+      messages: [user("x")],
+    }))
+      if (e.type === "prefill_progress") seen.push(e);
+    expect(seen).toEqual([
+      { type: "prefill_progress", total: 1000, cached: 600, processed: 600, ms: 0 },
+      { type: "prefill_progress", total: 1000, cached: 600, processed: 1000, ms: 80 },
+    ]);
+  });
+
   it("reads OpenAI usage with cached tokens when there are no timings", async () => {
     const { fetch } = fakeFetch(() =>
       sseResponse([

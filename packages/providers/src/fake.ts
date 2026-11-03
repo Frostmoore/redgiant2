@@ -31,6 +31,8 @@ export interface FakeProviderOptions {
   tick?: () => Promise<void>;
   /** What `models()` offers (the composer's menu). */
   models?: string[];
+  /** Reports reading a prompt of this many tokens (part from the cache) before writing. */
+  prefill?: { total: number; cached: number; steps: number; stepMs: number };
 }
 
 /**
@@ -84,6 +86,21 @@ export class FakeProvider implements Provider {
         yield piece;
       }
     };
+
+    const pre = this.options.prefill;
+    if (pre) {
+      for (let i = 0; i <= pre.steps; i++) {
+        if (signal?.aborted) break;
+        yield {
+          type: "prefill_progress",
+          total: pre.total,
+          cached: pre.cached,
+          processed: Math.round(pre.cached + ((pre.total - pre.cached) * i) / pre.steps),
+          ms: i * pre.stepMs,
+        };
+        if (i < pre.steps) await new Promise((ok) => setTimeout(ok, pre.stepMs));
+      }
+    }
 
     if (turn.thinking) {
       for await (const piece of chunks(turn.thinking, this.options.tick)) {

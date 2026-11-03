@@ -82,6 +82,18 @@ export const ServerMessage = z.discriminatedUnion("type", [
     kind: z.enum(["text", "thinking"]),
     text: z.string(),
   }),
+  /**
+   * The engine reading the prompt before it writes (local engines report it, 2026-11-03):
+   * tokens in all, found in the cache, processed so far (cache included), milliseconds.
+   */
+  z.object({
+    type: z.literal("prefill"),
+    sessionId: z.string(),
+    total: z.number(),
+    cached: z.number(),
+    processed: z.number(),
+    ms: z.number(),
+  }),
   z.object({
     type: z.literal("session.state"),
     sessionId: z.string(),

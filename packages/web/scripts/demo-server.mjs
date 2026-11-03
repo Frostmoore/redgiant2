@@ -122,6 +122,8 @@ const core = await RedGiantCore.create({
         contextWindow: 32_768,
         models: ["demo-model", "demo-large", "demo-small"],
         tick: () => new Promise((r) => setTimeout(r, 15)),
+        // As a local engine reports it: the reading of the context shows its progress.
+        prefill: { total: 18_400, cached: 14_200, steps: 12, stepMs: 250 },
       }),
     )
     // A Claude subscription stand-in: God runs on it, so the header shows the plan's limits.
@@ -131,6 +133,12 @@ const core = await RedGiantCore.create({
           id: "claude-subscription",
           contextWindow: 200_000,
           models: ["claude-opus-5-5", "claude-sonnet-5-5"],
+          // REDGIANT_DEMO_SLOW=1: God writes slowly, reading its context like a local engine
+          // (to look at the progress line).
+          ...(process.env.REDGIANT_DEMO_SLOW && {
+            tick: () => new Promise((r) => setTimeout(r, 60)),
+            prefill: { total: 42_000, cached: 31_500, steps: 16, stepMs: 300 },
+          }),
         }),
         {
           limits: async () => [

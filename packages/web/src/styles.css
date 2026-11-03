@@ -4826,3 +4826,30 @@ button.pick-tile.on {
 .lm-actions button {
   white-space: nowrap;
 }
+/* What the model is doing now (2026-11-03): reading the context or writing, with speeds. */
+.turn-progress {
+  align-self: flex-start;
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 13px;
+}
+.turn-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.turn-progress-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+.turn-progress-stats .tp-good {
+  color: var(--ok);
+}

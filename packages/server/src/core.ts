@@ -63,6 +63,7 @@ import {
   hasLimits,
   ProviderError,
   type ProviderRegistry,
+  type StreamEvent,
   type SubscriptionWindow,
   streamWithFallback,
 } from "@redgiant/providers";
@@ -863,7 +864,13 @@ export class RedGiantCore implements OrchestrationHost {
         assignedTo ??
         agent.projectId ??
         (agent.kind === "assistant" ? `assistants-${agent.ownerId}` : `platform-${agent.ownerId}`),
-      live: (e: { type: string; text?: string }) => {
+      live: (e: StreamEvent) => {
+        if (e.type === "prefill_progress") {
+          const { total, cached, processed, ms } = e;
+          for (const f of listeners)
+            f({ type: "prefill", sessionId, total, cached, processed, ms });
+          return;
+        }
         if (e.type !== "text_delta" && e.type !== "thinking_delta") return;
         for (const f of listeners)
           f({

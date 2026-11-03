@@ -42,6 +42,7 @@ import { MetricsBar } from "./MetricsBar.js";
 import { ModelMenu } from "./ModelMenu.js";
 import { WorkspaceImage } from "./Preview.js";
 import { QuestionCard } from "./QuestionCard.js";
+import { TurnProgress } from "./TurnProgress.js";
 
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -461,6 +462,7 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
               <div class="dim">{t("compacting")}</div>
             </div>
           )}
+          {v.state === "running" && v.call && !v.compacting && <TurnProgress call={v.call} />}
           {(v.thinking || v.text) && (
             <div class="bubble assistant streaming">
               {v.thinking && !v.text && <div class="dim">{t("thinking")}…</div>}

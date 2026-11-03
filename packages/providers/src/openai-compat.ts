@@ -78,6 +78,8 @@ interface Chunk {
     completion_tokens?: number;
     prompt_tokens_details?: { cached_tokens?: number };
   } | null;
+  /** llama.cpp server extension: the prompt being read (`return_progress`). */
+  prompt_progress?: { total?: number; cache?: number; processed?: number; time_ms?: number };
   /** llama.cpp server extension. */
   timings?: {
     cache_n?: number;
@@ -231,6 +233,15 @@ export class OpenAICompatProvider implements Provider {
         if (chunk.model) servedModel = chunk.model;
         if (chunk.usage) usageChunk = chunk.usage;
         if (chunk.timings) timings = chunk.timings;
+        const pp = chunk.prompt_progress;
+        if (pp?.total)
+          yield {
+            type: "prefill_progress",
+            total: pp.total,
+            cached: pp.cache ?? 0,
+            processed: pp.processed ?? 0,
+            ms: pp.time_ms ?? 0,
+          };
         for (const choice of chunk.choices ?? []) {
           const d = choice.delta;
           if (choice.finish_reason) finish = choice.finish_reason;

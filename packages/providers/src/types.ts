@@ -80,6 +80,11 @@ export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; text: string }
   | { type: "tool_call"; callId: string; name: string; input: unknown; rawInput: string }
+  /**
+   * How far the engine has read the prompt (llama.cpp's `return_progress`, 2026-11-03): tokens
+   * in all, those found in its cache, those processed so far (cache included), milliseconds.
+   */
+  | { type: "prefill_progress"; total: number; cached: number; processed: number; ms: number }
   | { type: "done"; completion: Completion };
 
 export interface ModelInfo {

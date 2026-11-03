@@ -51,7 +51,12 @@ export class LocalEngineProvider implements Provider {
     this.inner = new OpenAICompatProvider({
       ...o,
       id: this.id,
-      extraBody: (req) => ({ id_slot: this.slotFor.get(req) ?? -1, cache_prompt: true }),
+      // return_progress: the prompt's reading shows its progress in the chat (2026-11-03).
+      extraBody: (req) => ({
+        id_slot: this.slotFor.get(req) ?? -1,
+        cache_prompt: true,
+        return_progress: true,
+      }),
     });
   }
 
