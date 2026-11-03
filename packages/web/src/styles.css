@@ -4463,16 +4463,16 @@ button.org-add {
 }
 .agent-panel-tabs {
   display: flex;
-  gap: 2px;
+  flex-wrap: wrap;
+  gap: 0 2px;
   padding: 0 10px;
   border-bottom: 1px solid var(--line);
-  overflow-x: auto;
 }
 .agent-panel-tabs button {
   border: 0;
   background: none;
   border-radius: 0;
-  padding: 8px 9px;
+  padding: 8px 7px;
   color: var(--dim);
   border-bottom: 2px solid transparent;
   white-space: nowrap;
@@ -4639,4 +4639,58 @@ button.org-add {
 }
 .org-project > ul::before {
   display: none;
+}
+/* Selectable squares instead of check boxes (2026-11-03, the user's request). */
+.pick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+button.pick-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--panel);
+  text-align: left;
+  min-height: 52px;
+}
+button.pick-tile.small {
+  min-height: 0;
+  padding: 6px 10px;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--dim);
+}
+button.pick-tile.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.pick-mark {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1.5px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+}
+.small .pick-mark {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+}
+.on .pick-mark {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.pick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }

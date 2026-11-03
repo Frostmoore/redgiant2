@@ -25,6 +25,7 @@ import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
 import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
 import { joinable } from "./Room.js";
+import { Pick } from "./ui.js";
 
 /** The chat has no workspace: text files and images travel with the message, nothing else. */
 const chatAttachments = (files: Attachment[]) =>
@@ -193,14 +194,9 @@ function InspectorSettings({ projectId, onClose }: { projectId: string; onClose:
   };
   return (
     <form class="form dc-settings" onSubmit={(e) => void save(e)}>
-      <label class="wide row">
-        <input
-          type="checkbox"
-          checked={alerts}
-          onChange={(e) => setAlerts((e.target as HTMLInputElement).checked)}
-        />
+      <Pick small on={alerts} onChange={(v) => setAlerts(v)}>
         {t("inspectorAlerts")}
-      </label>
+      </Pick>
       <label>
         {t("inspectorSummary")}
         <select value={hour} onChange={(e) => setHour((e.target as HTMLSelectElement).value)}>

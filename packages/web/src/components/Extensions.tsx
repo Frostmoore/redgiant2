@@ -31,7 +31,7 @@ import { agents, attempt, getApi, getLive, openTab, projects } from "../state.js
 import { explain } from "./Brain.js";
 import { Chat } from "./Chat.js";
 import { DefaultExtensions } from "./Media.js";
-import { Advanced, Field } from "./ui.js";
+import { Advanced, Field, Pick } from "./ui.js";
 
 const scopeLabel = (projectId: string | null) =>
   projectId
@@ -675,14 +675,9 @@ function McpForm({ onDone }: { onDone: () => void }) {
               onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
             />
           </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={oauth}
-              onChange={(e) => setOauth((e.target as HTMLInputElement).checked)}
-            />{" "}
+          <Pick small on={oauth} onChange={(v) => setOauth(v)}>
             {t("extManualOauth")}
-          </label>
+          </Pick>
           {!oauth && (
             <label>
               {t("extManualToken")}

@@ -6,7 +6,7 @@
 import { useRef, useState } from "preact/hooks";
 import type { Agent, Budget } from "../api.js";
 import { t, tOptional } from "../i18n.js";
-import { IconClose, IconPlus } from "../icons.js";
+import { IconCheck, IconClose, IconPlus } from "../icons.js";
 import { agents, attempt, budgets, getApi, openAgent, projects, refresh } from "../state.js";
 import { useSwipeAway } from "../swipe.js";
 import { AgentWizard } from "./AgentWizard.js";
@@ -223,18 +223,24 @@ function GeneralTab({ agent }: { agent: Agent }) {
         <fieldset class="agent-projects">
           <legend>{t("asstProjects")}</legend>
           <span class="ui-help">{t("asstProjectsHelp", { name: agent.name })}</span>
-          {projects.value
-            .filter((p) => p.id !== agent.projectId)
-            .map((p) => (
-              <label key={p.id} class="row">
-                <input
-                  type="checkbox"
-                  checked={agent.projects?.includes(p.id) ?? false}
-                  onChange={(e) => assign(p.id, (e.target as HTMLInputElement).checked)}
-                />
-                {p.name}
-              </label>
-            ))}
+          <div class="pick-grid">
+            {projects.value
+              .filter((p) => p.id !== agent.projectId)
+              .map((p) => (
+                <button
+                  type="button"
+                  key={p.id}
+                  class={`pick-tile ${agent.projects?.includes(p.id) ? "on" : ""}`}
+                  aria-pressed={agent.projects?.includes(p.id) ?? false}
+                  onClick={() => assign(p.id, !agent.projects?.includes(p.id))}
+                >
+                  <span class="pick-mark">
+                    {agent.projects?.includes(p.id) && <IconCheck size={13} />}
+                  </span>
+                  <span>{p.name}</span>
+                </button>
+              ))}
+          </div>
         </fieldset>
       )}
     </div>
@@ -769,14 +775,15 @@ function AgentsPage({ projectId = null }: { projectId?: string | null }) {
               ))}
             </select>
           )}
-          <label class="row agents-stopped">
-            <input
-              type="checkbox"
-              checked={showStopped}
-              onChange={(e) => setShowStopped((e.target as HTMLInputElement).checked)}
-            />
-            {t("agentsShowStopped")}
-          </label>
+          <button
+            type="button"
+            class={`pick-tile small ${showStopped ? "on" : ""}`}
+            aria-pressed={showStopped}
+            onClick={() => setShowStopped(!showStopped)}
+          >
+            <span class="pick-mark">{showStopped && <IconCheck size={12} />}</span>
+            <span>{t("agentsShowStopped")}</span>
+          </button>
           {hasGod && !projectId && (
             <button type="button" class="primary row" onClick={() => setWizard(true)}>
               <IconPlus size={13} /> {t("agentNew")}

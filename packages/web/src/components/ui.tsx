@@ -335,3 +335,28 @@ export function Qr({ text, label }: { text: string; label: string }) {
     />
   );
 }
+
+/** A selectable square with its words: what the page uses instead of a check box (2026-11-03). */
+export function Pick({
+  on,
+  onChange,
+  children,
+  small,
+}: {
+  on: boolean;
+  onChange: (on: boolean) => void;
+  children: ComponentChildren;
+  small?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      class={`pick-tile ${small ? "small" : ""} ${on ? "on" : ""}`}
+      aria-pressed={on}
+      onClick={() => onChange(!on)}
+    >
+      <span class="pick-mark">{on && <IconCheck size={small ? 12 : 13} />}</span>
+      <span>{children}</span>
+    </button>
+  );
+}

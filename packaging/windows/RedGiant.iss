@@ -60,8 +60,16 @@ it.WslFailed=Non sono riuscito ad attivare WSL. Controlla che la virtualizzazion
 en.WslFailed=WSL could not be switched on. Check that virtualization is enabled in the computer's BIOS, or ask for help.
 it.Importing=Preparo RedGiant…
 en.Importing=Preparing RedGiant…
-it.ImportFailed=Non sono riuscito a preparare RedGiant dentro WSL (codice %1). Riprova; se succede ancora, chiedi aiuto.
-en.ImportFailed=RedGiant could not be prepared inside WSL (code %1). Try again; if it happens again, ask for help.
+it.ImportFailed=Non sono riuscito a preparare RedGiant dentro WSL (codice %1).%n%nCosa ha risposto WSL:%n%2%n%nRiprova; se succede ancora, manda a chi ti aiuta il file:%n%3
+en.ImportFailed=RedGiant could not be prepared inside WSL (code %1).%n%nWhat WSL said:%n%2%n%nTry again; if it happens again, send this file to whoever helps you:%n%3
+it.NoVirtualization=Il computer ha la virtualizzazione spenta, e senza di lei WSL non può partire.%n%nSi accende nel BIOS: riavvia il computer, entra nel BIOS (di solito con Canc, F2 o F10 all'accensione) e attiva «Intel VT-x», «Intel Virtualization Technology» o «AMD-V / SVM Mode». Poi esegui di nuovo questa installazione.
+en.NoVirtualization=Virtualization is off on this computer, and WSL cannot start without it.%n%nIt is switched on in the BIOS: restart the computer, enter the BIOS (usually Del, F2 or F10 at power-on) and enable "Intel VT-x", "Intel Virtualization Technology" or "AMD-V / SVM Mode". Then run this setup again.
+it.VmPlatform=Su questo computer manca un pezzo di Windows che WSL usa: la «Piattaforma macchina virtuale».%n%nOra la attivo: Windows ti chiederà il permesso (rispondi Sì). Poi va riavviato il computer, e dopo il riavvio l'installazione di RedGiant riprende da sola.
+en.VmPlatform=A part of Windows that WSL uses is missing on this computer: the "Virtual Machine Platform".%n%nIt will be switched on now: Windows will ask for permission (answer Yes). Then the computer must restart, and after the restart RedGiant's setup continues by itself.
+it.UpdateWsl=Aggiorno WSL e riprovo…
+en.UpdateWsl=Updating WSL and trying again…
+it.AlreadyInstalled=RedGiant %1 è già installato su questo computer.%n%nVuoi aggiornarlo alla versione %2? Conversazioni, progetti e impostazioni restano come sono.
+en.AlreadyInstalled=RedGiant %1 is already installed on this computer.%n%nUpdate it to version %2? Conversations, projects and settings stay as they are.
 it.DataTitle=Dove mettere i dati
 en.DataTitle=Where the data go
 it.DataSub=Progetti, conversazioni e impostazioni di RedGiant.
@@ -124,20 +132,60 @@ begin
   Result := RunHidden('-d ' + Distro + ' -u root -- true') = 0;
 end;
 
+{ Runs wsl and keeps what it said (in UTF-8, WSL_UTF8), to show it when something fails. }
+function RunCaptured(Params: String; var Output: String): Integer;
+var
+  Code: Integer;
+  Log: String;
+  Text: AnsiString;
+begin
+  Log := ExpandConstant('{tmp}\wsl-output.txt');
+  DeleteFile(Log);
+  if not Exec(ExpandConstant('{cmd}'), '/c set WSL_UTF8=1&& "' + ExpandConstant('{sys}\wsl.exe') + '" ' +
+      Params + ' > "' + Log + '" 2>&1', '', SW_HIDE, ewWaitUntilTerminated, Code) then
+    Code := -1;
+  Output := '';
+  if LoadStringFromFile(Log, Text) then
+    Output := Trim(String(Text));
+  Result := Code;
+end;
+
+const
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{6F0E3B52-8D4A-4C1E-9B7A-2E1D5C9F4A10}_is1';
+
+{ The version already installed, from Windows' own list of programs; '' when there is none. }
+function InstalledVersion(): String;
+begin
+  Result := '';
+  if not RegQueryStringValue(HKCU, UninstallKey, 'DisplayVersion', Result) then
+    if RegKeyExists(HKCU, UninstallKey) then Result := '?';
+end;
+
 var
   Updating: Boolean;
+  { The Virtual Machine Platform was switched on during this run: Windows must restart. }
+  VmRestart: Boolean;
   DataPage: TInputDirWizardPage;
 
-{ RedGiant already there: this is an update, done without a question. }
+{ RedGiant already there: this is an update, asked once and then done without pages. }
 function IsUpdate(): Boolean;
 begin
   Result := Updating;
 end;
 
+{ Windows' list of programs says whether RedGiant is there (no WSL call before the window: it
+  can be slow or fail). An update asks one question, unless it runs silently from RedGiant. }
 function InitializeSetup(): Boolean;
+var
+  Old: String;
 begin
-  Updating := WslWorks() and DistroExists();
   Result := True;
+  Old := InstalledVersion();
+  Updating := Old <> '';
+  { Setup going on after a restart it asked for: no question. }
+  if Updating and not WizardSilent() and (ExpandConstant('{param:CONTINUE|0}') <> '1') then
+    Result := MsgBox(FmtMessage(CustomMessage('AlreadyInstalled'), [Old, '{#AppVersion}']),
+      mbConfirmation, MB_YESNO) = IDYES;
 end;
 
 procedure InitializeWizard();
@@ -193,10 +241,91 @@ begin
   end;
   { Restart needed: a copy of this setup runs once at the next sign-in. }
   Copy := ExpandConstant('{localappdata}\RedGiant-Setup.exe');
-  FileCopy(ExpandConstant('{srcexe}'), Copy, False);
-  RegWriteStringValue(HKCU, RunOnceKey, 'RedGiantSetup', '"' + Copy + '"');
+  CopyFile(ExpandConstant('{srcexe}'), Copy, False);
+  RegWriteStringValue(HKCU, RunOnceKey, 'RedGiantSetup', '"' + Copy + '" /CONTINUE=1');
   NeedsRestart := True;
   Result := CustomMessage('WslRestart');
+end;
+
+function Contains(Text, Part: String): Boolean;
+begin
+  Result := Pos(Lowercase(Part), Lowercase(Text)) > 0;
+end;
+
+function NoHypervisor(Output: String): Boolean;
+begin
+  Result := Contains(Output, 'HCS_E_HYPERV_NOT_INSTALLED') or Contains(Output, '0x80370102') or
+    Contains(Output, 'virtualiz');
+end;
+
+{ WSL cannot start a virtual machine. First the Virtual Machine Platform is switched on (once):
+  Windows restarts and setup goes on by itself. If it is still missing after that, the cause is
+  virtualization off in the BIOS, which only the person can switch on: explained. }
+procedure HypervisorMissing();
+var
+  Code: Integer;
+  Tried, Copy: String;
+begin
+  if RegQueryStringValue(HKCU, 'Software\RedGiant', 'VmPlatformTried', Tried) then begin
+    MsgBox(CustomMessage('NoVirtualization'), mbError, MB_OK);
+    Exit;
+  end;
+  MsgBox(CustomMessage('VmPlatform'), mbInformation, MB_OK);
+  ShellExec('runas', ExpandConstant('{sys}\wsl.exe'), '--install --no-distribution', '',
+    SW_SHOW, ewWaitUntilTerminated, Code);
+  RegWriteStringValue(HKCU, 'Software\RedGiant', 'VmPlatformTried', '1');
+  Copy := ExpandConstant('{localappdata}\RedGiant-Setup.exe');
+  CopyFile(ExpandConstant('{srcexe}'), Copy, False);
+  RegWriteStringValue(HKCU, RunOnceKey, 'RedGiantSetup', '"' + Copy + '" /CONTINUE=1');
+  VmRestart := True;
+end;
+
+{ Inno asks to restart at the end when this is true. }
+function NeedRestart(): Boolean;
+begin
+  Result := VmRestart;
+end;
+
+{ The distribution into the data folder. The data of an earlier installation, kept when it was
+  removed, are taken back as they are; a WSL too old is updated and the import tried again;
+  virtualization switched off is explained; any other failure shows what WSL said and leaves it
+  in a file. }
+procedure ImportDistro();
+var
+  Code: Integer;
+  Output, Disk, Report: String;
+begin
+  ForceDirectories(DataDir(''));
+  Disk := AddBackslash(DataDir('')) + 'ext4.vhdx';
+  if FileExists(Disk) then
+    Code := RunCaptured('--import-in-place ' + Distro + ' "' + Disk + '"', Output)
+  else
+    Code := RunCaptured('--import ' + Distro + ' "' + DataDir('') + '" "' +
+      ExpandConstant('{app}\redgiant-rootfs.tar.gz') + '" --version 2', Output);
+  if Code = 0 then Exit;
+  if NoHypervisor(Output) then begin
+    HypervisorMissing();
+    Exit;
+  end;
+  { Often an old WSL: updated (Windows asks permission), then once more. }
+  WizardForm.StatusLabel.Caption := CustomMessage('UpdateWsl');
+  ShellExec('runas', ExpandConstant('{sys}\wsl.exe'), '--update', '', SW_SHOW, ewWaitUntilTerminated, Code);
+  if FileExists(Disk) then
+    Code := RunCaptured('--import-in-place ' + Distro + ' "' + Disk + '"', Output)
+  else
+    Code := RunCaptured('--import ' + Distro + ' "' + DataDir('') + '" "' +
+      ExpandConstant('{app}\redgiant-rootfs.tar.gz') + '" --version 2', Output);
+  WizardForm.StatusLabel.Caption := CustomMessage('Importing');
+  if Code = 0 then Exit;
+  if NoHypervisor(Output) then begin
+    HypervisorMissing();
+    Exit;
+  end;
+  Report := ExpandConstant('{localappdata}\RedGiant-install-error.txt');
+  SaveStringToFile(Report, 'RedGiant {#AppVersion}' + #13#10 + 'Data: ' + DataDir('') + #13#10 +
+    'Code: ' + IntToStr(Code) + #13#10 + Output + #13#10, False);
+  if Output = '' then Output := '-';
+  MsgBox(FmtMessage(CustomMessage('ImportFailed'), [IntToStr(Code), Output, Report]), mbError, MB_OK);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -219,14 +348,12 @@ begin
     { The new wsl.conf applies at the distribution's next start. }
     RunHidden('--terminate ' + Distro);
   end else begin
-    ForceDirectories(DataDir(''));
-    Code := RunHidden('--import ' + Distro + ' "' + DataDir('') + '" "' +
-      ExpandConstant('{app}\redgiant-rootfs.tar.gz') + '" --version 2');
-    if Code <> 0 then
-      MsgBox(FmtMessage(CustomMessage('ImportFailed'), [IntToStr(Code)]), mbError, MB_OK);
+    ImportDistro();
   end;
+  if VmRestart then Exit;
   { The copy left for a restart is no longer needed. }
   DeleteFile(ExpandConstant('{localappdata}\RedGiant-Setup.exe'));
+  RegDeleteValue(HKCU, 'Software\RedGiant', 'VmPlatformTried');
 end;
 
 { An update ends by itself: RedGiant was opened again at ssDone (CurStepChanged). }

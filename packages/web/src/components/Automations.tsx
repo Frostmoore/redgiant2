@@ -5,7 +5,7 @@ import { IconClock, IconPlay, IconPlus } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
 import { agents, attempt, automationsVersion, getApi, openTab, projects } from "../state.js";
 import { explain } from "./Brain.js";
-import { Advanced, Choice, Field, Toggle } from "./ui.js";
+import { Advanced, Choice, Field, Pick, Toggle } from "./ui.js";
 
 const STATUSES: AutomationRun["status"][] = ["running", "ok", "failed", "timeout", "skipped"];
 const TRIGGERS: AutomationRun["trigger"][] = ["cron", "webhook", "manual", "missed"];
@@ -435,24 +435,25 @@ function WhenPicker({ when, onChange }: { when: When; onChange: (w: When) => voi
             />
           </label>
         )}
-        {when.kind === "weekly" &&
-          DAYS.map((d) => (
-            <label key={d} class="row day">
-              <input
-                type="checkbox"
-                checked={when.days.includes(d)}
-                onChange={(e) =>
+        {when.kind === "weekly" && (
+          <div class="pick-row">
+            {DAYS.map((d) => (
+              <Pick
+                key={d}
+                small
+                on={when.days.includes(d)}
+                onChange={(v) =>
                   onChange({
                     ...when,
-                    days: (e.target as HTMLInputElement).checked
-                      ? [...when.days, d]
-                      : when.days.filter((x) => x !== d),
+                    days: v ? [...when.days, d] : when.days.filter((x) => x !== d),
                   })
                 }
-              />
-              {dayName(d)}
-            </label>
-          ))}
+              >
+                {dayName(d)}
+              </Pick>
+            ))}
+          </div>
+        )}
         {when.kind === "monthly" && (
           <label class="row">
             {t("whenDayOfMonth")}
@@ -497,23 +498,23 @@ function WhenPicker({ when, onChange }: { when: When; onChange: (w: When) => voi
               </option>
             ))}
           </select>
-          {REPO_EVENTS.map((ev) => (
-            <label key={ev} class="row day">
-              <input
-                type="checkbox"
-                checked={when.events.includes(ev)}
-                onChange={(e) =>
+          <div class="pick-row">
+            {REPO_EVENTS.map((ev) => (
+              <Pick
+                key={ev}
+                small
+                on={when.events.includes(ev)}
+                onChange={(v) =>
                   onChange({
                     ...when,
-                    events: (e.target as HTMLInputElement).checked
-                      ? [...when.events, ev]
-                      : when.events.filter((x) => x !== ev),
+                    events: v ? [...when.events, ev] : when.events.filter((x) => x !== ev),
                   })
                 }
-              />
-              {t(`repoEvent_${ev}`)}
-            </label>
-          ))}
+              >
+                {t(`repoEvent_${ev}`)}
+              </Pick>
+            ))}
+          </div>
           <p class="ui-help">{t("whenRepoHelp")}</p>
         </div>
       )}

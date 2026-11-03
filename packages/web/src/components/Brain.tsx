@@ -7,7 +7,7 @@ import { ApiError, type ClaudeAccount, type SetupState } from "../api.js";
 import { t, tOptional } from "../i18n.js";
 import { IconCard, IconCheck, IconCpu, IconLayers, IconMonitor } from "../icons.js";
 import { getApi, refreshLimits } from "../state.js";
-import { Advanced, Choice, Field } from "./ui.js";
+import { Advanced, Choice, Field, Pick } from "./ui.js";
 
 /** An error in plain words: its code when the server gives one, otherwise its message. */
 export function explain(err: unknown): string {
@@ -24,14 +24,9 @@ const TERMS = [
 function Terms({ ack, setAck }: { ack: boolean; setAck: (v: boolean) => void }) {
   return (
     <div class="brain-terms">
-      <label class="row">
-        <input
-          type="checkbox"
-          checked={ack}
-          onChange={(e) => setAck((e.target as HTMLInputElement).checked)}
-        />
+      <Pick small on={ack} onChange={(v) => setAck(v)}>
         <span>{t("wzSubscription")}</span>
-      </label>
+      </Pick>
       <span class="ui-help">
         {TERMS.map((x, i) => (
           <span key={x.name}>

@@ -4,7 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import { attempt, getApi } from "../state.js";
 import { explain } from "./Brain.js";
-import { Advanced, Field } from "./ui.js";
+import { Advanced, Field, Pick } from "./ui.js";
 
 type Shown = { configured: boolean; host?: string; port?: number; secure?: boolean; user?: string };
 
@@ -93,14 +93,9 @@ export function EmailSettings() {
               onInput={(e) => setPort(Number((e.target as HTMLInputElement).value) || 993)}
             />
           </Field>
-          <label class="row">
-            <input
-              type="checkbox"
-              checked={secure}
-              onChange={(e) => setSecure((e.target as HTMLInputElement).checked)}
-            />
+          <Pick small on={secure} onChange={(v) => setSecure(v)}>
             {t("emailSecure")}
-          </label>
+          </Pick>
         </Advanced>
         <div class="row">
           <button
