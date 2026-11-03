@@ -43,6 +43,12 @@ export const DEFAULT_CHAT_PROMPT =
   "Search the web when the answer depends on recent or specific facts, and read the pages you rely on. " +
   "When you use web sources, cite them inline as [1], [2]… and end with a short list of those sources (title and URL).";
 
+/**
+ * The Chat as an agent (2026-11-03): the everyday assistant with every tool. Its instructions
+ * when the person wrote none.
+ */
+export const CHAT_AGENT_PROMPT = `${DEFAULT_CHAT_PROMPT} You have a folder of your own and every tool: files and commands, the canvas (show) to show what you make, boards (publish_board) to propose variants to choose from, send_file, pictures, videos and sounds, web search and pages. Use them instead of describing what you would do. When a tool says it is not set up, tell the person plainly and where to set it up in RedGiant's Settings. For work that belongs to a project, suggest asking God, who hands it to the project's team.`;
+
 export interface ChatSettings {
   model?: ModelSpec;
   systemPrompt?: string;

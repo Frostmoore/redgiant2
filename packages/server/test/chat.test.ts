@@ -105,3 +105,38 @@ describe("the daily chat", () => {
     ).toBe(404);
   });
 });
+
+describe("the Chat as an agent (2026-11-03)", () => {
+  it("is made once under God, with every tool, and follows the chat's settings", async () => {
+    const seen: CompletionRequest[] = [];
+    s = await startServer((req) => {
+      seen.push(req);
+      return { text: "Ciao!" };
+    });
+    expect((await s.api("GET", "/api/chat/agent")).status).toBe(400);
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const a = await s.api<{ id: string; kind: string; name: string; parentId: string }>(
+      "GET",
+      "/api/chat/agent",
+    );
+    expect(a.body).toMatchObject({ kind: "assistant", name: "Chat", parentId: god.body.id });
+    expect((await s.api<{ id: string }>("GET", "/api/chat/agent")).body.id).toBe(a.body.id);
+
+    const { sessionId } = (
+      await s.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: a.body.id })
+    ).body;
+    const me = s.core.registry.get(a.body.id)?.ownerId as string;
+    await (await s.core.send(me, sessionId, "Ciao")).done;
+    const tools = seen.at(-1)?.tools.map((t) => t.name) ?? [];
+    for (const name of ["write_file", "bash", "show", "publish_board", "send_file", "web_search"])
+      expect(tools).toContain(name);
+    expect(seen.at(-1)?.system).toContain("every tool");
+
+    await s.api("PUT", "/api/chat/settings", { systemPrompt: "Be brief." });
+    expect(s.core.registry.get(a.body.id)?.systemPrompt).toBe("Be brief.");
+  });
+});

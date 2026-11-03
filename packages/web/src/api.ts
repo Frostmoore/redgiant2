@@ -398,6 +398,10 @@ export class Api {
     this.call<{ stopped: string[] }>("POST", `/api/agents/${id}/stop`, {
       reason: "stopped from the web UI",
     });
+  /** The Chat's agent (2026-11-03), made on first use. */
+  chatAgent = () => this.call<Agent>("GET", "/api/chat/agent");
+  /** Its id if it exists already (nothing is made). */
+  chatAgentIdOf = () => this.call<{ id: string | null }>("GET", "/api/chat/agent-id");
   sessions = (agentId?: string) =>
     this.call<SessionInfo[]>("GET", `/api/sessions${agentId ? `?agentId=${agentId}` : ""}`);
   updateSession = (

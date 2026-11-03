@@ -1581,6 +1581,18 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     return c.json({ ok: true }, 200);
   });
   app.get("/api/chat/settings", async (c) => c.json(await core.chat.settings(owner(c)), 200));
+  // The Chat's agent (2026-11-03): made on first use, its conversations are the chats.
+  app.get("/api/chat/agent-id", async (c) =>
+    c.json({ id: await core.chatAgentIdOf(owner(c)) }, 200),
+  );
+  app.get("/api/chat/agent", async (c) => {
+    try {
+      return c.json(agentOut(await core.chatAgent(owner(c))), 200);
+    } catch (err) {
+      if (err instanceof ChatError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
   app.put("/api/chat/settings", async (c) => {
     const body = z
       .object({
@@ -1598,6 +1610,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       ...(model && { model }),
       ...(body.data.systemPrompt && { systemPrompt: body.data.systemPrompt }),
     });
+    await core.syncChatAgent(owner(c));
     return c.json({ ok: true }, 200);
   });
   // A message: the answer streams back as server-sent events (delta, tool, entry, done, error).

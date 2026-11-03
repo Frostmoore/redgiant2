@@ -659,6 +659,7 @@ const en = {
   job_step_searxng_start: "Starting it",
   job_step_searxng_check: "Checking that it answers",
   job_error_searxng_silent: "The search engine did not answer: try again in a minute.",
+  chatsBefore: "Earlier chats",
   job_pihole: "Starting Pi-hole",
   job_step_pihole_image: "Downloading Pi-hole (only once)",
   job_step_pihole_start: "Starting Pi-hole",
@@ -1340,7 +1341,7 @@ const en = {
   newChat: "New chat",
   deleteChatConfirm: "Delete this chat for good?",
   chatHint:
-    "Ask anything: the assistant searches the web and cites its sources. This chat stays outside the agents and their log; you can delete it.",
+    "Ask anything: the Chat searches the web and cites its sources, makes files, pages and pictures and shows them to you, and proposes variants to choose from.",
   chatPlaceholder: "Write a message (Enter to send, Shift+Enter for a new line)",
   attach: "Attach files and photos",
   notSent: "not sent: this chat has no folder for files",
@@ -2076,6 +2077,7 @@ const it: Record<Key, string> = {
   job_step_searxng_start: "Lo avvio",
   job_step_searxng_check: "Controllo che risponda",
   job_error_searxng_silent: "Il motore di ricerca non ha risposto: riprova tra un minuto.",
+  chatsBefore: "Chat di prima",
   job_pihole: "Avvio di Pi-hole",
   job_step_pihole_image: "Scarico Pi-hole (una volta sola)",
   job_step_pihole_start: "Avvio Pi-hole",
@@ -2770,7 +2772,7 @@ const it: Record<Key, string> = {
   newChat: "Nuova chat",
   deleteChatConfirm: "Eliminare questa chat per sempre?",
   chatHint:
-    "Chiedi quello che vuoi: l'assistente cerca sul web e cita le fonti. Questa chat sta fuori dagli agenti e dal loro log; la puoi cancellare.",
+    "Chiedi quello che vuoi: la Chat cerca sul web e cita le fonti, crea file, pagine e immagini e te li mostra, e ti propone varianti tra cui scegliere.",
   chatPlaceholder: "Scrivi un messaggio (Invio per mandare, Maiusc+Invio per andare a capo)",
   attach: "Allega file e foto",
   notSent: "non inviato: questa chat non ha una cartella per i file",

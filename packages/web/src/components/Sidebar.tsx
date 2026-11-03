@@ -21,6 +21,7 @@ import {
   activeTab,
   agents,
   attempt,
+  chatAgentId,
   getApi,
   newSession,
   openSession,
@@ -213,7 +214,10 @@ function Entry({
  * conversations, and its page; "+ new" makes one step by step.
  */
 function Assistants({ open, toggle }: { open: Set<string>; toggle: (key: string) => void }) {
-  const list = agents.value.filter((a) => a.kind === "assistant" && a.status === "active");
+  // The Chat's agent has its own green button: not among the personal agents.
+  const list = agents.value.filter(
+    (a) => a.kind === "assistant" && a.status === "active" && a.id !== chatAgentId.value,
+  );
   const page = (agentId: string | null, title: string) =>
     openTab({ id: `assistant:${agentId ?? "new"}`, type: "assistant", title, agentId });
   return (
@@ -474,7 +478,9 @@ export function Sidebar() {
     setOpen(next);
   };
   const god = agents.value.find((a) => a.kind === "god");
-  const assistants = agents.value.filter((a) => a.kind === "assistant" && a.status === "active");
+  const assistants = agents.value.filter(
+    (a) => a.kind === "assistant" && a.status === "active" && a.id !== chatAgentId.value,
+  );
   const create = async (e: Event) => {
     e.preventDefault();
     const project = await attempt(() => getApi().createProject(name.trim()));

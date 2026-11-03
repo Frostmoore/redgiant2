@@ -89,7 +89,7 @@ import { HumanApprovals } from "./approvals.js";
 import type { BackupDeps } from "./backup.js";
 import { type Browsers, browserTools } from "./browser.js";
 import { contentType, inside, lastChange, Previews, type PreviewTarget } from "./canvas.js";
-import { DailyChat, migrateChat } from "./chat.js";
+import { CHAT_AGENT_PROMPT, ChatError, DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
 import { type EmailAccount, EmailWatcher, type Mailbox } from "./email.js";
 import type { GitHosts } from "./git-hosts.js";
@@ -262,6 +262,16 @@ function defaultPrompt(agent: AgentRecord, god: string, demigod: string): string
       return "You are the project's inspector. You can only read. Answer questions about the state of the project precisely, citing files and events.";
     case "assistant":
       return `You are ${agent.name}, one of the user's personal assistants.${agent.role ? ` Your job: ${agent.role}` : ""} Stay within your job: hand other work to the assistant whose job it is (ask_assistant) or to ${god}. Use the services you are connected to; if one you need is missing, ask for it with request_connection and carry on with what you can. Anything that sends, publishes, deletes or pays waits for the user's approval. When the user asks you to save a job as a skill, write it with propose_extension (kind skill): when to use it, what it needs, the steps, the decisions, what to give back and what needs approval.`;
+  }
+}
+
+/** A value of rg_settings: JSON text or already parsed, as the driver gives it. */
+function settingValue(v: unknown): unknown {
+  if (typeof v !== "string") return v;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return v;
   }
 }
 
@@ -2367,6 +2377,68 @@ export class RedGiantCore implements OrchestrationHost {
       [agent.ownerId, key, JSON.stringify(id)],
     );
     return id;
+  }
+
+  /**
+   * The Chat (2026-11-03): an agent like the others (every base tool, its folder, the canvas,
+   * boards, files, media, the progress line), made on first use under God. Its model and
+   * instructions are the chat's settings; the old chats stay readable as they were.
+   */
+  async chatAgent(ownerId: string): Promise<AgentRecord> {
+    const [kept] = await this.o.db.query<{ value: unknown }>(
+      "SELECT value FROM rg_settings WHERE owner_id = $1 AND key = 'chat_agent'",
+      [ownerId],
+    );
+    const id = settingValue(kept?.value);
+    const found = typeof id === "string" ? this.registry.get(id) : undefined;
+    if (found?.status === "active") return found;
+    const god = this.registry.list({ ownerId, activeOnly: true }).find((a) => a.kind === "god");
+    if (!god) throw new ChatError("Set up God first: the Chat works beside him");
+    const settings = await this.chat.settings(ownerId);
+    const agent = await this.registry.create(
+      { type: "human", ownerId },
+      {
+        kind: "assistant",
+        parentId: god.id,
+        name: "Chat",
+        role: "The everyday assistant: answers anything, searches the web, makes and shows things.",
+        systemPrompt: settings.systemPrompt ?? CHAT_AGENT_PROMPT,
+        ...(settings.model && { model: settings.model }),
+        mode: "auto",
+      },
+    );
+    await this.o.db.query(
+      `INSERT INTO rg_settings (owner_id, key, value) VALUES ($1, 'chat_agent', $2)
+       ON CONFLICT (owner_id, key) DO UPDATE SET value = EXCLUDED.value`,
+      [ownerId, JSON.stringify(agent.id)],
+    );
+    return agent;
+  }
+
+  /** The Chat's agent if it was made already (nothing is made here). */
+  async chatAgentIdOf(ownerId: string): Promise<string | null> {
+    const [kept] = await this.o.db.query<{ value: unknown }>(
+      "SELECT value FROM rg_settings WHERE owner_id = $1 AND key = 'chat_agent'",
+      [ownerId],
+    );
+    const id = settingValue(kept?.value);
+    return typeof id === "string" && this.registry.get(id)?.status === "active" ? id : null;
+  }
+
+  /** The chat's settings changed: its agent follows (model and instructions). */
+  async syncChatAgent(ownerId: string): Promise<void> {
+    const [kept] = await this.o.db.query<{ value: unknown }>(
+      "SELECT value FROM rg_settings WHERE owner_id = $1 AND key = 'chat_agent'",
+      [ownerId],
+    );
+    const id = settingValue(kept?.value);
+    if (typeof id !== "string" || this.registry.get(id)?.status !== "active") return;
+    const s = await this.chat.settings(ownerId);
+    await this.registry.configure({ type: "human", ownerId }, id, {
+      model: s.model ?? null,
+      systemPrompt: s.systemPrompt ?? CHAT_AGENT_PROMPT,
+    });
+    this.agentModelChanged(id);
   }
 
   /** Gives a conversation a name people read (the list on the left). */

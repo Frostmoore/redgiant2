@@ -1,17 +1,23 @@
 // Every chat (2026-11-03): opened from the green button in the left bar. The chats as cards, in
-// their folders, a card to start a new one, and the group chats with several agents.
-import { useEffect } from "preact/hooks";
+// their folders, a card to start a new one, and the group chats with several agents. A chat is
+// a conversation with the Chat's agent (every tool, the canvas, the progress line); the chats
+// made before it are kept below, as they were.
+import { useEffect, useState } from "preact/hooks";
 import type { ChatSummary } from "../api.js";
 import { t } from "../i18n.js";
 import { IconChat, IconFolder, IconPlus, IconUsers } from "../icons.js";
 import {
   attempt,
+  chatAgentId,
   chatRows,
   getApi,
+  openSession,
   openTab,
   refresh,
   refreshConversations,
   rooms,
+  type SessionRow,
+  sessionRows,
 } from "../state.js";
 import { FolderMenu } from "./FolderMenu.js";
 
@@ -48,31 +54,68 @@ function ChatCard({ c, folders }: { c: ChatSummary; folders: string[] }) {
   );
 }
 
+/** A conversation with the Chat's agent, as a card. */
+function SessionCard({ r, folders }: { r: SessionRow; folders: string[] }) {
+  return (
+    <div class="chat-card">
+      <button type="button" class="chat-card-open" onClick={() => openSession(r)}>
+        <IconChat size={16} />
+        <strong>{r.title ?? t("newChat")}</strong>
+        {r.running && <span class="dot running" />}
+      </button>
+      <FolderMenu
+        current={r.folder ?? null}
+        folders={folders}
+        onPick={(f) =>
+          void attempt(() => getApi().updateSession(r.id, { folder: f })).then(refreshConversations)
+        }
+      />
+    </div>
+  );
+}
+
 export function Chats() {
-  useEffect(() => void refreshConversations().catch(() => {}), []);
-  const all = chatRows.value;
-  const folders = [...new Set(all.flatMap((c) => (c.folder ? [c.folder] : [])))].sort();
-  const loose = all.filter((c) => !c.folder);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    void refreshConversations().catch(() => {});
+    void getApi()
+      .chatAgent()
+      .then(
+        (a) => {
+          chatAgentId.value = a.id;
+          return refresh();
+        },
+        (e: unknown) => setError((e as Error).message),
+      );
+  }, []);
+  const mine = sessionRows.value.filter((r) => r.agentId === chatAgentId.value && !r.archived);
+  const old = chatRows.value;
+  const folders = [
+    ...new Set([...mine, ...old].flatMap((c) => (c.folder ? [c.folder] : []))),
+  ].sort();
   const newChat = () =>
-    openTab({
-      id: `daily:new:${Date.now()}`,
-      type: "dailychat",
-      title: t("newChat"),
-      chatId: null,
+    void attempt(async () => {
+      const id = chatAgentId.value ?? (await getApi().chatAgent()).id;
+      const { sessionId } = await getApi().startSession(id);
+      await refreshConversations();
+      openSession({ id: sessionId, agentId: id, title: null });
     });
   return (
     <div class="chats-page">
       <header>
         <h1>{t("dailyChat")}</h1>
         <p class="ui-help">{t("chatHint")}</p>
+        {error && <p class="notice error">{error}</p>}
       </header>
       <div class="chat-grid">
         <button type="button" class="chat-card chat-card-new" onClick={newChat}>
           <IconPlus size={18} /> {t("newChat")}
         </button>
-        {loose.map((c) => (
-          <ChatCard key={c.id} c={c} folders={folders} />
-        ))}
+        {mine
+          .filter((r) => !r.folder)
+          .map((r) => (
+            <SessionCard key={r.id} r={r} folders={folders} />
+          ))}
       </div>
       {folders.map((f) => (
         <section key={f} class="chats-folder">
@@ -80,7 +123,12 @@ export function Chats() {
             <IconFolder size={15} /> {f}
           </h2>
           <div class="chat-grid">
-            {all
+            {mine
+              .filter((r) => r.folder === f)
+              .map((r) => (
+                <SessionCard key={r.id} r={r} folders={folders} />
+              ))}
+            {old
               .filter((c) => c.folder === f)
               .map((c) => (
                 <ChatCard key={c.id} c={c} folders={folders} />
@@ -88,6 +136,20 @@ export function Chats() {
           </div>
         </section>
       ))}
+      {old.some((c) => !c.folder) && (
+        <section class="chats-folder">
+          <h2>
+            <IconChat size={15} /> {t("chatsBefore")}
+          </h2>
+          <div class="chat-grid">
+            {old
+              .filter((c) => !c.folder)
+              .map((c) => (
+                <ChatCard key={c.id} c={c} folders={folders} />
+              ))}
+          </div>
+        </section>
+      )}
       <section class="chats-folder">
         <h2>
           <IconUsers size={15} /> {t("groups")}

@@ -555,6 +555,7 @@ export async function refresh(): Promise<void> {
   [projects.value, agents.value, approvals.value, budgets.value, platformInfo.value] =
     await Promise.all([a.projects(), a.agents(), a.approvals(), a.budgets(), a.platform()]);
   await refreshConversations().catch(() => {});
+  chatAgentId.value = (await a.chatAgentIdOf().catch(() => ({ id: null }))).id;
   await refreshRooms();
   await refreshSubprojects();
   await refreshLimits();
@@ -807,6 +808,8 @@ export interface SessionRow {
 }
 
 export const sessionRows = signal<SessionRow[]>([]);
+/** The Chat's agent (2026-11-03): its conversations are the chats. */
+export const chatAgentId = signal<string | null>(null);
 export const chatRows = signal<import("./api.js").ChatSummary[]>([]);
 
 export async function refreshConversations(): Promise<void> {
