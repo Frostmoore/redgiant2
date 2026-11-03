@@ -96,6 +96,11 @@ export class Supervisor {
     req: ReleaseRequest | undefined,
     reason?: string,
   ) {
+    // The request may have been written after the commit was seen (a slow machine): read again.
+    if (req?.commit !== commit) {
+      const late = await readRequest(this.o.stateDir);
+      if (late?.commit === commit) req = late;
+    }
     this.state.history.push({
       commit,
       result,

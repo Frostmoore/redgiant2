@@ -1844,6 +1844,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     wizard(c, () => (setup as SetupService).mediaVoices(c.req.query("provider") ?? "")),
   );
   // Pi-hole, the home's own DNS, by choice (G24.14c).
+  // «Look for updates» (2026-11-04).
+  app.post("/api/update/check", (c) => wizard(c, () => (setup as SetupService).checkUpdates()));
   // The models moved to another SSD (Windows, 2026-11-03).
   app.post("/api/setup/models-disk", (c) =>
     wizard(c, async () => {

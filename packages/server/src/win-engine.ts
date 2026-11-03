@@ -145,6 +145,27 @@ export class WinEngine {
     }
   }
 
+  /**
+   * «Look for updates» (2026-11-04): RedGiant.exe looks now and, with a newer version, asks
+   * the person on the desktop as every morning. Its answer, or null when it did not pick it up.
+   */
+  async checkUpdate(): Promise<{ state: string; version: string } | null> {
+    const id = randomUUID();
+    await mkdir(this.o.dir, { recursive: true });
+    const file = join(this.o.dir, "update.json");
+    await writeFile(`${file}.tmp`, JSON.stringify({ id }));
+    await rename(`${file}.tmp`, file);
+    const until = Date.now() + 30_000;
+    while (Date.now() < until) {
+      const s = await readFile(join(this.o.dir, "update-status.json"), "utf8")
+        .then((x) => JSON.parse(x) as { id: string; state: string; version: string })
+        .catch(() => undefined);
+      if (s?.id === id) return { state: s.state, version: s.version };
+      await new Promise((r) => setTimeout(r, this.o.pollMs ?? 1000));
+    }
+    return null;
+  }
+
   async start(
     model: string,
     h?: JobHandle,

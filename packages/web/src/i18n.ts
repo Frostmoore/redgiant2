@@ -753,6 +753,17 @@ const en = {
     "Among the strongest open models for code and tools; needs SSD stream on most computers.",
   "lm_gpt-oss-120b":
     "OpenAI's large open model: reasons and uses tools very well; with SSD stream on 32 GB of RAM or more.",
+  updTitle: "Updates",
+  updHelp:
+    "RedGiant looks for a new version by itself at the first start of each day. Here you can look now.",
+  updLook: "Look for updates",
+  updLooking: "Looking…",
+  updAvailable:
+    "RedGiant {version} is out: RedGiant's window on the desktop asks whether to update now.",
+  updLatest: "You have the latest version ({version}).",
+  updManual:
+    "The latest version is {version}. On this server run RedGiant's install.sh again: it downloads the new version and starts it.",
+  updUnreachable: "GitHub did not answer: try again in a moment.",
   job_pihole: "Starting Pi-hole",
   job_step_pihole_image: "Downloading Pi-hole (only once)",
   job_step_pihole_start: "Starting Pi-hole",
@@ -2266,6 +2277,17 @@ const it: Record<Key, string> = {
     "Tra i modelli aperti più forti per codice e strumenti; sulla maggior parte dei computer serve lo SSD stream.",
   "lm_gpt-oss-120b":
     "Il grande modello aperto di OpenAI: ragiona e usa gli strumenti molto bene; con lo SSD stream da 32 GB di RAM in su.",
+  updTitle: "Aggiornamenti",
+  updHelp:
+    "RedGiant cerca da solo una versione nuova al primo avvio di ogni giorno. Qui puoi cercarla adesso.",
+  updLook: "Cerca aggiornamenti",
+  updLooking: "Cerco…",
+  updAvailable:
+    "È disponibile RedGiant {version}: la finestra di RedGiant sul desktop ti chiede se aggiornare adesso.",
+  updLatest: "Hai già l'ultima versione ({version}).",
+  updManual:
+    "L'ultima versione è la {version}. Su questo server rilancia install.sh di RedGiant: scarica la nuova versione e la avvia.",
+  updUnreachable: "GitHub non ha risposto: riprova tra poco.",
   job_pihole: "Avvio di Pi-hole",
   job_step_pihole_image: "Scarico Pi-hole (una volta sola)",
   job_step_pihole_start: "Avvio Pi-hole",

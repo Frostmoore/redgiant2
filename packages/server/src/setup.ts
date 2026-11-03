@@ -77,6 +77,8 @@ export interface SetupHooks {
    * the whole distribution for the engines in Docker. Only where RedGiant.exe can do it.
    */
   moveModels?(kind: "models" | "distro", to: string, h?: JobHandle): Promise<void>;
+  /** Asks RedGiant.exe to look for a newer version now (Windows); null where it cannot. */
+  checkUpdate?(): Promise<{ state: string; version: string } | null>;
   /** A way to reach RedGiant from outside home (G24.6); null switches every way off. */
   remote?(req: RemoteRequest | null, h?: JobHandle): Promise<{ url: string } | null>;
   /**
@@ -938,6 +940,29 @@ export class SetupService {
       },
       { to },
     );
+  }
+
+  /**
+   * «Look for updates» (2026-11-04). On Windows RedGiant.exe looks and asks (it installs);
+   * elsewhere the latest release is read from GitHub and the page says how to update.
+   */
+  async checkUpdates(): Promise<{
+    state: "available" | "latest" | "unreachable" | "manual";
+    version?: string;
+  }> {
+    const win = await this.o.hooks.checkUpdate?.();
+    if (win)
+      return { state: win.state as "available" | "latest" | "unreachable", version: win.version };
+    try {
+      const r = await fetch("https://api.github.com/repos/Frostmoore/redgiant2/releases/latest", {
+        headers: { "user-agent": "RedGiant", accept: "application/vnd.github+json" },
+        signal: AbortSignal.timeout(15_000),
+      });
+      const tag = ((await r.json()) as { tag_name?: string }).tag_name;
+      return tag ? { state: "manual", version: tag.replace(/^v/, "") } : { state: "unreachable" };
+    } catch {
+      return { state: "unreachable" };
+    }
   }
 
   /** RedGiant's own search engine can be started here (Docker installation). */

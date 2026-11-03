@@ -388,6 +388,10 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       return plan;
     },
 
+    async checkUpdate() {
+      return (await o.engine?.windows?.checkUpdate()) ?? null;
+    },
+
     async moveModels(kind, to, h) {
       const win = o.engine?.windows;
       if (!win) throw new Error("Models can be moved only in RedGiant's Windows installation");

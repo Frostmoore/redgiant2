@@ -87,6 +87,49 @@ static class Updates
         }
     }
 
+    static System.Threading.Timer watcher;
+    static string lastAsk;
+
+    /**
+     * «Look for updates» from RedGiant's settings (2026-11-04): update.json in the engine's
+     * folder asks for a look now (snoozes ignored); the answer goes to update-status.json and,
+     * when there is a newer version, the same question as every morning appears.
+     */
+    public static void Watch(Control owner, string folder)
+    {
+        watcher = new System.Threading.Timer(_ =>
+        {
+            string json;
+            try { json = File.ReadAllText(Path.Combine(folder, "update.json")); } catch (Exception) { return; }
+            var m = Regex.Match(json, "\"id\"\\s*:\\s*\"([^\"]+)\"");
+            if (!m.Success || m.Groups[1].Value == lastAsk) return;
+            lastAsk = m.Groups[1].Value;
+            string id = lastAsk;
+            string state, version = "";
+            try
+            {
+                Release r = Find();
+                Set("UpdateLastCheck", Today);
+                if (r != null && Compare(Get("Version"), r.Version) < 0)
+                {
+                    state = "available";
+                    version = r.Version;
+                    Set("UpdateSnoozeUntil", null);
+                    try { owner.BeginInvoke(new Action(() => Ask(r))); } catch (Exception) { }
+                }
+                else
+                {
+                    state = "latest";
+                    version = Get("Version") ?? "";
+                }
+            }
+            catch (Exception) { state = "unreachable"; }
+            string answer = "{\"id\":\"" + id + "\",\"state\":\"" + state + "\",\"version\":\"" + version + "\"}";
+            string file = Path.Combine(folder, "update-status.json");
+            try { File.WriteAllText(file + ".tmp", answer); File.Copy(file + ".tmp", file, true); } catch (Exception) { }
+        }, null, 2000, 2000);
+    }
+
     /** Looks in the background; asks on the UI thread of `owner` when a newer version is out. */
     public static void Start(Control owner)
     {

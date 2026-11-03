@@ -844,6 +844,12 @@ export class Api {
   /** The models to another SSD (Windows): a job for the engine's folder; the distribution restarts RedGiant. */
   moveModels = (drive: string, kind: "models" | "distro") =>
     this.call<Job>("POST", "/api/setup/models-disk", { drive, kind });
+  /** Looks for a newer RedGiant (on Windows RedGiant.exe asks on the desktop). */
+  checkUpdates = () =>
+    this.call<{ state: "available" | "latest" | "unreachable" | "manual"; version?: string }>(
+      "POST",
+      "/api/update/check",
+    );
   /** RedGiant's own search engine (SearXNG). */
   startSearch = () => this.call<Job>("POST", "/api/setup/searxng");
   stopSearch = () => this.call("DELETE", "/api/setup/searxng");

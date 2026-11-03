@@ -149,6 +149,7 @@ sealed class Launcher : ApplicationContext
         // asked on the splash's thread, whose handle exists even when the splash stays hidden.
         if (!splash.IsHandleCreated) { var unused = splash.Handle; }
         Updates.Start(splash);
+        Updates.Watch(splash, WinEngine.Dir);
     }
 
     static bool DistroInstalled()

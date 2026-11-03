@@ -1,4 +1,5 @@
 import type { ComponentChildren } from "preact";
+import { useState } from "preact/hooks";
 import { lang, setLang, t } from "../i18n.js";
 import {
   IconArchive,
@@ -12,13 +13,14 @@ import {
   IconMonitor,
   IconMoon,
   IconPuzzle,
+  IconRefresh,
   IconSettings,
   IconShield,
   IconSun,
   IconTelegram,
   IconTree,
 } from "../icons.js";
-import { openTab, type SettingsSection, signOut } from "../state.js";
+import { attempt, getApi, openTab, type SettingsSection, signOut } from "../state.js";
 import { setTheme, theme } from "../theme.js";
 import { Automations } from "./Automations.js";
 import { Backup } from "./Backup.js";
@@ -93,10 +95,44 @@ function General() {
       </div>
       <Services />
       <EmailSettings />
+      <Updates />
       <h2 style={{ marginTop: "24px" }}>{t("account")}</h2>
       <button type="button" onClick={signOut} class="row">
         <IconLogout /> {t("logout")}
       </button>
+    </div>
+  );
+}
+
+/** «Look for updates» (2026-11-04): the answer in words; on Windows the question on the desktop. */
+function Updates() {
+  const [busy, setBusy] = useState(false);
+  const [answer, setAnswer] = useState<{ ok: boolean; text: string }>();
+  const look = async () => {
+    setBusy(true);
+    setAnswer(undefined);
+    const r = await attempt(() => getApi().checkUpdates());
+    setBusy(false);
+    if (!r) return;
+    const v = r.version ?? "";
+    setAnswer(
+      r.state === "available"
+        ? { ok: true, text: t("updAvailable", { version: v }) }
+        : r.state === "latest"
+          ? { ok: true, text: t("updLatest", { version: v }) }
+          : r.state === "manual"
+            ? { ok: true, text: t("updManual", { version: v }) }
+            : { ok: false, text: t("updUnreachable") },
+    );
+  };
+  return (
+    <div class="updates">
+      <h2 style={{ marginTop: "24px" }}>{t("updTitle")}</h2>
+      <p class="ui-help">{t("updHelp")}</p>
+      <button type="button" class="row" disabled={busy} onClick={() => void look()}>
+        <IconRefresh size={14} /> {busy ? t("updLooking") : t("updLook")}
+      </button>
+      {answer && <p class={`notice ${answer.ok ? "ok" : "error"}`}>{answer.text}</p>}
     </div>
   );
 }
