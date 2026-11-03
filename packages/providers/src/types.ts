@@ -50,6 +50,8 @@ export interface Usage {
   cachedReadTokens: number;
   cacheWriteTokens: number;
   outputTokens: number;
+  /** Billed apart from the tokens: the provider's own tools (Anthropic's web search). */
+  extraUsd?: number;
 }
 
 /** Timings reported by the server itself (llama.cpp, Ollama), when available. */

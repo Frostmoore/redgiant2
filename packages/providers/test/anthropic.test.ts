@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { AnthropicProvider, type ChatMessage, complete, costUsd } from "../src/index.js";
 import { anthropicEvents, fakeFetch, sseResponse } from "./helpers.js";
@@ -6,6 +9,7 @@ const tools = [
   { name: "a_tool", description: "A", inputSchema: { type: "object", properties: {} } },
   { name: "b_tool", description: "B", inputSchema: { type: "object", properties: {} } },
 ];
+const here = dirname(fileURLToPath(import.meta.url));
 const user = (text: string): ChatMessage => ({ role: "user", parts: [{ type: "text", text }] });
 
 describe("AnthropicProvider request", () => {
@@ -218,5 +222,65 @@ describe("AnthropicProvider response", () => {
     ).rejects.toMatchObject({
       retriable: false,
     });
+  });
+});
+
+describe("Anthropic's own web search (2026-11-03)", () => {
+  const search = {
+    name: "web_search",
+    description: "Search the web.",
+    inputSchema: { type: "object", properties: { query: { type: "string" } } },
+  };
+  const req = (model: string) => ({
+    model,
+    system: "S",
+    tools: [tools[0] as (typeof tools)[number], search],
+    messages: [user("who?")],
+  });
+
+  it("turns RedGiant's web_search into Anthropic's, filtered with code on newer models", () => {
+    const p = new AnthropicProvider({ apiKey: "t" });
+    expect(p.buildParams(req("claude-sonnet-5-5")).tools?.[1]).toEqual({
+      type: "web_search_20260318",
+      response_inclusion: "excluded",
+      name: "web_search",
+      max_uses: 8,
+      cache_control: { type: "ephemeral" },
+    });
+    expect(p.buildParams(req("claude-haiku-5-5")).tools?.[1]).toMatchObject({
+      type: "web_search_20250305",
+      name: "web_search",
+    });
+    // Off: RedGiant's own tool (SearXNG) as for every other provider.
+    const off = new AnthropicProvider({ apiKey: "t", nativeWebSearch: false });
+    expect(off.buildParams(req("claude-sonnet-5-5")).tools?.[1]).toMatchObject({
+      name: "web_search",
+      input_schema: search.inputSchema,
+    });
+  });
+
+  it("reads a real answer that searched: the text, the blocks to send back, the search's cost", async () => {
+    const recorded = readFileSync(join(here, "fixtures", "anthropic-web-search.sse"), "utf8");
+    const { fetch } = fakeFetch(
+      () => new Response(recorded, { headers: { "content-type": "text/event-stream" } }),
+    );
+    const p = new AnthropicProvider({ apiKey: "t", fetch, maxRetries: 0 });
+    const c = await complete(p.stream(req("claude-sonnet-5-5")));
+    const text = c.message.parts.flatMap((x) => (x.type === "text" ? [x.text] : [])).join("");
+    expect(text).toContain("Marengo");
+    // No tool for RedGiant to run: the search happened on Anthropic's side.
+    expect(c.message.parts.some((x) => x.type === "tool_call")).toBe(false);
+    const blocks = (c.message.native?.content as { type: string }[]).map((b) => b.type);
+    expect(blocks).toContain("server_tool_use");
+    expect(c.usage.extraUsd).toBe(0.01);
+    expect(costUsd(c.usage, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })).toBeCloseTo(
+      0.01,
+    );
+    // The next request sends those blocks back exactly as they came.
+    const next = p.buildParams({
+      ...req("claude-sonnet-5-5"),
+      messages: [user("who?"), c.message, user("and then?")],
+    });
+    expect(next.messages[1]?.content).toEqual(c.message.native?.content);
   });
 });

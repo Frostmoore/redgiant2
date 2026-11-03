@@ -29,6 +29,8 @@ export interface ChatgptSubscriptionOptions {
   /** The program to run; default the bundled `codex app-server`. Tests pass a fake. */
   command?: { file: string; args: string[] };
   now?: () => number;
+  /** Codex's own live web search (2026-11-03) instead of RedGiant's `web_search`. Default on. */
+  nativeWebSearch?: boolean;
 }
 
 type Json = Record<string, unknown>;
@@ -237,12 +239,16 @@ export class CodexEngine implements Engine {
 
   async turn(t: EngineTurn): Promise<{ resume: string; stopReason: "end_turn" | "aborted" }> {
     await this.conn.start();
-    const tools = t.tools.map((d) => ({
-      type: "function",
-      name: d.name,
-      description: d.description,
-      inputSchema: d.inputSchema,
-    }));
+    const native = this.o.nativeWebSearch !== false;
+    // With Codex's own search, RedGiant's is not offered too (one way to search).
+    const tools = t.tools
+      .filter((d) => !native || d.name !== "web_search")
+      .map((d) => ({
+        type: "function",
+        name: d.name,
+        description: d.description,
+        inputSchema: d.inputSchema,
+      }));
     const threadParams = {
       model: t.model.model,
       cwd: this.o.cwd,
@@ -250,11 +256,11 @@ export class CodexEngine implements Engine {
       sandbox: "read-only",
       baseInstructions: t.system,
       dynamicTools: tools,
-      // Codex's own shell and web search off: commands run through RedGiant's tools.
+      // Codex's own shell off (commands run through RedGiant's tools); its web search live.
       config: {
         "features.shell_tool": false,
         "features.unified_exec": false,
-        web_search: "disabled",
+        web_search: native ? "live" : "disabled",
       },
     };
     let threadId = t.resume;

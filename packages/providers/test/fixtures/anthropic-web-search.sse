@@ -1,0 +1,201 @@
+event: message_start
+data: {"type":"message_start","message":{"model":"claude-sonnet-5-5","id":"msg_011CggbtXNVGd8Kxm2WyLETE","type":"message","role":"assistant","content":[],"container":null,"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":4,"cache_creation_input_tokens":6193,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":6193,"ephemeral_1h_input_tokens":0},"output_tokens":16,"service_tier":"standard","inference_geo":"global","speed":"standard"},"diagnostics":null}            }
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_01Q2xJp4J9UiG4evbev9zrxm","name":"code_execution","input":{}}               }
+
+event: ping
+data: {"type": "ping"}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":""}         }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"code\": \"r ="}   }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":" await web_search({\\\"query\\\":"}   }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":" \\\"Napoleon's most"}            }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":" famous horse name\\\"})"}            }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\\nfor x in r[:4"}           }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"]:\\n    print(x['"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"url'], x['content"}         }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"'][:400"}               }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"]."}       }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"replace(\\\""}        }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\\\\n\\\",\\\" \\\"))"}               }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"}"}   }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0              }
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"code_execution_tool_result","tool_use_id":"srvtoolu_01Q2xJp4J9UiG4evbev9zrxm","content":{"type":"encrypted_code_execution_result","encrypted_stdout":"Eo4BCioIFRgCIiQ0YzNhMzJmNS0wZmE4LTRkYzctOGJmNi04OTU0MmJjMDk0MDISDJ5R3CL3KaUYOPpTuhoMmoW7KnTe/B5jvZm7IjDb22hoDOearlumi+a0qu8+Kj8D0ND6SdA5yMUlGV6s2Jim69/nUlwwEt/2WIw0VYQqEjGouzMZ69+DTtnFZHyNp171/RgD","stderr":"Traceback (most recent call last):\n  File \"/usr/local/lib/python3.11/asyncio/runners.py\", line 190, in run\n    return runner.run(main)\n           ^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/asyncio/base_events.py\", line 654, in run_until_complete\n    return future.result()\n           ^^^^^^^^^^^^^^^\n  File \"/tmp/srvtoolu_01Q2xJp4J9UiG4evbev9zrxm/cell.py\", line 10, in <module>\n    print(x['url'], x['content'][:400].replace(\"\\n\",\" \"))\n          ~^^^^^^^\nTypeError: string indices must be integers, not 'str'\n","return_code":1,"content":[]}}          }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1      }
+
+event: content_block_start
+data: {"type":"content_block_start","index":2,"content_block":{"type":"server_tool_use","id":"srvtoolu_01X7c4mvh3NyCTZyaXohD37A","name":"code_execution","input":{}}   }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":""}          }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"code\": \"print(type("} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"r), str(r)[:"} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"1500])"}            }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"\"}"}           }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":2        }
+
+event: content_block_start
+data: {"type":"content_block_start","index":3,"content_block":{"type":"code_execution_tool_result","tool_use_id":"srvtoolu_01X7c4mvh3NyCTZyaXohD37A","content":{"type":"code_execution_result","stdout":"<class 'str'> [{\"type\": \"web_search_result\", \"title\": \"Faq#13: What was the name of Napoleon's horse?\", \"url\": \"https://www.napoleon-series.org/faq/c_horses.html\", \"content\": \"The Waterloo Association: Members Area. Get Involved: Join The Waterloo Association. The Napoleon Series > FAQ >.\\n\\nWhat was the name of Napoleon's horse? By J.F. Lozier Since so many of the paintings of Napoleon show him riding a horse, it has become a common trivia question to ask \\\"What was the name of Napoleon's horse?\\\". However, it is not an easy one to answer, for Napoleon owned and used over 150 horses during the course of his life. The most famous ones were: Wagram, a gray Arab Napoleon rode from 1809 onwards, it was brought along during the Elba exile.\\n\\nRoitelet, an English-Limousin chestnut given to Napoleon by Prince Eugene de Beauharnais, it carried Napoleon back from Russia and was ridden at Lutzen and Arcis-sur-Aube. Intendant, a pure white Norman nicknamed \\\"Coco\\\" by the Imperial Guard. He was mainly used for parades and reviews because of his calm, steady, and graceful nature during such ceremonies. Vizir, one of the Emperor's favorites, this gray Arab was a gift from the Sultan of Turkey in 1805 and 10 years later Napoleon brought it with him to Saint-Helena.\\n\\nStyrie, ridden by Bonaparte across the Great Saint-Bernard, and at Marengo. D\\u00e9sir\\u00e9e, ridden at Waterloo.\"}, {\"type\": \"web_search_result\", \"title\": \"Marengo (horse)\", \"url\": \"https://en.wikipedia.org/wiki/Marengo_(horse)\", \"cont\n","stderr":"","return_code":0,"content":[],"abort_reason":null}}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":3              }
+
+event: content_block_start
+data: {"type":"content_block_start","index":4,"content_block":{"type":"thinking","thinking":"","signature":""}               }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"thinking_delta","thinking":"I'm sett"}   }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"thinking_delta","thinking":"ling on Marengo as the"}              }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"thinking_delta","thinking":" most famous one, though"} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"thinking_delta","thinking":" I'm"}           }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"thinking_delta","thinking":" not"}          }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"thinking_delta","thinking":" sure of the citation indices"}         }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"thinking_delta","thinking":". I'll check the Mar"} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"thinking_delta","thinking":"engo content to conf"}            }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"thinking_delta","thinking":"irm before"}   }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"thinking_delta","thinking":" answering."}               }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"thinking_delta","thinking":"\n\n"}           }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"signature_delta","signature":"CAQSsQYKEAgTGAI4AUIIdGhpbmtpbmcSDMn5iB6FMvspy3aHHRoMGn8MKe7MvOsLsHpiIjD/V7diQSJiDoILo3804X50PqQ7w6EiMfDyNWWxuptdvwVHVCN2a6Q5EbkaRUX9D24qzgUu8mU7k+ntJ0qd4Mz9/stOW2hkn92X1gFNyFBHNO4pDRrOm+srmwEItc0FPuSeQMwIWk26WY/8qO2W9J/qWry8jFMSReAQFKX9myj2mxCQplZlL9suJclNbHH7E5FXMbwaDmabKFUBg8ff5iPrqBgc8LlutLw0DXZD2A/ClxOpa324emTM6fVb1mTfRG21ihlEhMNreR6srEPO0hRLcn2e75T8ZgfT5TzQOWBxgtMOUpJT0rc//j1wzHoxTaGUL2uKXJQfahUOCKcWtzHgBmMHNUyTYy9GPrEyYccyHe6NOFpbIkflA8IAUGZzxkzCLikhO5q3VwSEgU2mLHK8mtfn8dwavUqwb6wMJLPf0UAGWgJ2Tv4qoKapy5Tb3SiMEBlxkw2SeTJw9kh8LqaJcHkrrC37lnoiAUAPgOsJvCA+PSkwknYYeEjN9LaLEriO00HuIbIzA3CTYzJLm0dWMrFDNxZHTFTQkGlCKFOCxMm7adVcGaqm1t6xMnbY6/oBkqEMdNifLrsbwO0YA2ku72NOq5aBzopBX844Ho7JeXHa41mx4ACkwf9RR++R+iQyoG4LTu+Dx+GHsKVeA1QjNEt7eiWhTEFGxsGKSTWLsqmOJvhiaJP8eTrz1fZecS4qv14Eww6rORkFPtAmFOT8hYwTDv5xunXCyWGTe1SCq+kDBVe54ckGo+cE7JXDa4eILMfrKkq8fbLsYuNhdjutXZ3aGL6QAoiNSTasFbj2q7DyrP5OsNSktqisDGwOOgNFs9D5zJ/WkehK+956Pb6Ws7s4undOSkYRNBPdp2QuWSkriTtxwmSCwAr01PDBnFSi6ZiSvSMpigSHM02FLenp2uZFffdGVx6aJo0xgW+qPztOJQPyvhfTKzqu+mEq+okSBgLNSHjEXsWNAJsGoBwCujYcg2Dijnj2Z20hoVkQAGQLayY2weRxk5CPiplukRnvGAE="}        }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":4  }
+
+event: content_block_start
+data: {"type":"content_block_start","index":5,"content_block":{"type":"server_tool_use","id":"srvtoolu_01BfJqoW6DaAKHZumLFSWD6o","name":"code_execution","input":{}}     }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":5,"delta":{"type":"input_json_delta","partial_json":""}    }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":5,"delta":{"type":"input_json_delta","partial_json":"{\"code\": \"import json\\nd"}              }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":5,"delta":{"type":"input_json_delta","partial_json":"=json.loads(r)"}            }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":5,"delta":{"type":"input_json_delta","partial_json":"\\nprint(d[1]['"}          }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":5,"delta":{"type":"input_json_delta","partial_json":"content'][:500"}               }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":5,"delta":{"type":"input_json_delta","partial_json":"])"}     }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":5,"delta":{"type":"input_json_delta","partial_json":"\"}"}         }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":5             }
+
+event: content_block_start
+data: {"type":"content_block_start","index":6,"content_block":{"type":"code_execution_tool_result","tool_use_id":"srvtoolu_01BfJqoW6DaAKHZumLFSWD6o","content":{"type":"code_execution_result","stdout":"This article needs\nMarengo (c. 1793 – 1831) was the famous\n[war horse](https://en.wikipedia.org/wiki/War_horse) of [Napoleon I of France](https://en.wikipedia.org/wiki/Napoleon_I_of_France).\n\nAn [Arabian](https://en.wikipedia.org/wiki/Arabian_horse) breed, greyish-white coat, Marengo was probably bred at the famous [El Naseri](https://en.wikipedia.org/wiki/El_Naseri?action=edit&redlink=1) stud. Although small in size (only 14.1 [hands](https://en.wikipedia.org/wiki/Hand_(unit)) (57 inches, 145 c\n","stderr":"","return_code":0,"content":[],"abort_reason":null}}   }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":6         }
+
+event: content_block_start
+data: {"type":"content_block_start","index":7,"content_block":{"type":"text","text":""}        }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"text_delta","text":"Napoleon's most fam"}      }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"text_delta","text":"ous horse was"} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"text_delta","text":" Marengo, a gre"}           }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"text_delta","text":"yish-white Arabian"}     }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"text_delta","text":", though"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"text_delta","text":" he owned over 150 hor"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"text_delta","text":"ses, and others"}   }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"text_delta","text":" like Wagram, V"}             }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"text_delta","text":"izir and Intendant were"}  }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"text_delta","text":" also well known."}      }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":7           }
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null,"stop_details":null,"container":{"id":"container_0168NBqbdgo8uoiZk1D1Mqn8","expires_at":"2026-11-03T21:10:45.270155Z"}},"usage":{"input_tokens":10,"cache_creation_input_tokens":7777,"cache_read_input_tokens":20229,"output_tokens":381,"output_tokens_details":{"thinking_tokens":74},"server_tool_use":{"web_search_requests":1,"web_fetch_requests":0},"iterations":[{"input_tokens":4,"output_tokens":108,"cache_read_input_tokens":0,"cache_creation_input_tokens":6193,"cache_creation":{"ephemeral_5m_input_tokens":6193,"ephemeral_1h_input_tokens":0},"type":"message","model":null},{"input_tokens":2,"output_tokens":62,"cache_read_input_tokens":6193,"cache_creation_input_tokens":472,"cache_creation":{"ephemeral_5m_input_tokens":472,"ephemeral_1h_input_tokens":0},"type":"message","model":null},{"input_tokens":2,"output_tokens":148,"cache_read_input_tokens":6665,"cache_creation_input_tokens":706,"cache_creation":{"ephemeral_5m_input_tokens":706,"ephemeral_1h_input_tokens":0},"type":"message","model":null},{"input_tokens":2,"output_tokens":63,"cache_read_input_tokens":7371,"cache_creation_input_tokens":406,"cache_creation":{"ephemeral_5m_input_tokens":406,"ephemeral_1h_input_tokens":0},"type":"message","model":null}]}  }
+
+event: message_stop
+data: {"type":"message_stop"              }
+

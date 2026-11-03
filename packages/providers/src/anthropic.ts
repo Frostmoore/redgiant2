@@ -84,7 +84,18 @@ export interface AnthropicProviderOptions {
    */
   serverFallbacks?: boolean;
   models?: Record<string, Partial<CatalogEntry>>;
+  /**
+   * RedGiant's `web_search` tool becomes Anthropic's own (2026-11-03): Claude searches on the
+   * server, filters the results with code (newer models) and cites its sources. Default on.
+   */
+  nativeWebSearch?: boolean;
 }
+
+/** USD for one search of Anthropic's web search ($10 for 1000). */
+const WEB_SEARCH_USD = 0.01;
+/** Models that filter search results with code (Claude 4.6 and later, not Haiku). */
+const filtersSearch = (model: string) =>
+  /^claude-(opus|sonnet|fable|mythos)-5|^claude-(opus|sonnet)-4-[6-9]/.test(model);
 
 const STOP_REASONS: Record<string, StopReason> = {
   end_turn: "end_turn",
@@ -162,13 +173,27 @@ export class AnthropicProvider implements Provider {
       ? { type: "ephemeral", ttl: "1h" }
       : { type: "ephemeral" };
 
-    const tools: Anthropic.Tool[] = request.tools.map((t, i) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
-      eager_input_streaming: true,
-      ...(i === request.tools.length - 1 && { cache_control: cacheControl }),
-    }));
+    const native = this.options.nativeWebSearch !== false;
+    const tools: Anthropic.Tool[] = request.tools.map((t, i) => {
+      const last = i === request.tools.length - 1 && { cache_control: cacheControl };
+      // The same name, done by Anthropic: the tool list stays the same for RedGiant.
+      if (native && t.name === "web_search")
+        return {
+          ...(filtersSearch(request.model)
+            ? { type: "web_search_20260318", response_inclusion: "excluded" }
+            : { type: "web_search_20250305" }),
+          name: "web_search",
+          max_uses: 8,
+          ...last,
+        } as unknown as Anthropic.Tool;
+      return {
+        name: t.name,
+        description: t.description,
+        input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
+        eager_input_streaming: true,
+        ...last,
+      };
+    });
 
     const params: Anthropic.MessageCreateParamsStreaming = {
       model: request.model,
@@ -260,7 +285,12 @@ export class AnthropicProvider implements Provider {
       const final = await stream.finalMessage();
 
       const parts: AssistantPart[] = [];
+      // Sources Claude cited from its own web search, listed once at the end of the answer.
+      const sources = new Map<string, string>();
       for (const block of final.content) {
+        for (const c of (block as { citations?: { url?: string; title?: string }[] | null })
+          .citations ?? [])
+          if (c.url && !sources.has(c.url)) sources.set(c.url, c.title || c.url);
         if (block.type === "text") parts.push({ type: "text", text: block.text });
         if (block.type === "thinking") parts.push({ type: "thinking", text: block.thinking });
         if (block.type === "tool_use") {
@@ -275,8 +305,16 @@ export class AnthropicProvider implements Provider {
           yield { ...call };
         }
       }
+      if (sources.size > 0) {
+        const list = [...sources].map(([url, title], i) => `${i + 1}. [${title}](${url})`);
+        parts.push({ type: "text", text: `\n\n${list.join("\n")}` });
+      }
       const u = final.usage;
+      const searches =
+        (u as { server_tool_use?: { web_search_requests?: number } | null }).server_tool_use
+          ?.web_search_requests ?? 0;
       const usage: Usage = {
+        ...(searches > 0 && { extraUsd: searches * WEB_SEARCH_USD }),
         cachedReadTokens: u.cache_read_input_tokens ?? 0,
         cacheWriteTokens: u.cache_creation_input_tokens ?? 0,
         inputTokens:

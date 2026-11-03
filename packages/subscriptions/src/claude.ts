@@ -52,7 +52,15 @@ export interface ClaudeSubscriptionOptions {
   cwd: string;
   sdk?: ClaudeSdk;
   now?: () => number;
+  /**
+   * The engine's own web search (2026-11-03) instead of RedGiant's `web_search`: Claude
+   * searches with the subscription and cites its sources. Default on.
+   */
+  nativeWebSearch?: boolean;
 }
+
+/** RedGiant's search tool, done by the engine itself when its own search is on. */
+const OWN_SEARCH = "web_search";
 
 const loadSdk = async (): Promise<ClaudeSdk> =>
   (await import("@anthropic-ai/claude-agent-sdk")) as unknown as ClaudeSdk;
@@ -122,7 +130,8 @@ export class ClaudeEngine implements Engine {
     return {
       model: model.model,
       ...(model.effort && { effort: model.effort }),
-      tools: [],
+      // Only the engine's own web search among its tools (the rest are RedGiant's).
+      tools: this.o.nativeWebSearch === false ? [] : ["WebSearch"],
       // No skills listing, no settings files: the agent is RedGiant's, not Claude Code's.
       skills: [],
       // Only RedGiant's MCP server: the account's claude.ai connectors would add tens of
@@ -141,7 +150,9 @@ export class ClaudeEngine implements Engine {
     // The SDK's tool calls reach our handlers without their tool_use id: each call takes the
     // oldest announced id with that name (the assistant message always comes first).
     const pending = new Map<string, string[]>();
-    const tools = t.tools.map((d) =>
+    const native = this.o.nativeWebSearch !== false;
+    const offered = native ? t.tools.filter((d) => d.name !== OWN_SEARCH) : t.tools;
+    const tools = offered.map((d) =>
       sdk.tool(d.name, d.description, shapeOf(d.inputSchema), async (args) => {
         const callId = pending.get(d.name)?.shift() ?? `call_${d.name}_${now()}`;
         const r = await t.runTool({ callId, name: d.name, input: args });
@@ -182,7 +193,10 @@ export class ClaudeEngine implements Engine {
         options: this.options(t.model, {
           systemPrompt: t.system,
           mcpServers: { [SERVER]: sdk.createSdkMcpServer({ name: SERVER, tools }) },
-          allowedTools: t.tools.map((d) => `${PREFIX}${d.name}`),
+          allowedTools: [
+            ...offered.map((d) => `${PREFIX}${d.name}`),
+            ...(native ? ["WebSearch"] : []),
+          ],
           // Only RedGiant's tools are allowed, and RedGiant asks its own permissions inside
           // each of them; anything else the engine would refuse without asking.
           permissionMode: "dontAsk",

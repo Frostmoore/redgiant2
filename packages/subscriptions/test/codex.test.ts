@@ -86,7 +86,7 @@ describe("ChatGPT on a subscription", () => {
       config: {
         "features.shell_tool": false,
         "features.unified_exec": false,
-        web_search: "disabled",
+        web_search: "live",
       },
     });
   });

@@ -91,6 +91,8 @@ export interface SetupConfig {
   searxngUrl?: string;
   /** The search engine is the one RedGiant runs itself (started again at each start). */
   searxngManaged?: boolean;
+  /** The person switched RedGiant's search engine off: it is not started by itself again. */
+  searxngDeclined?: boolean;
   /** Speech to text for voice messages; its key, if any, is in the secrets. */
   transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
   /** Flat subscriptions switched on (their tokens are in the secrets). */
@@ -339,6 +341,8 @@ export class SetupService {
     // RedGiant's own search engine is started again (a restart of the computer stops it).
     if (!this.locked.search && c.searxngManaged && h.searxng) await run("searxng", h.searxng(true));
     if (!this.locked.search && c.searxngUrl) await run("search", h.search(c.searxngUrl));
+    // No search set at all: RedGiant's own starts, so every model can search (2026-11-03).
+    else if (c.completed && this.canRunSearch && !c.searxngDeclined) this.startSearch();
     if (!this.locked.engine && c.engine) await run("engine", h.engine(c.engine));
     if (!this.locked.voice && c.transcription) this.applyTranscription();
     if (!this.locked.images && s.openaiImagesKey) this.applyImages();
@@ -547,7 +551,8 @@ export class SetupService {
         this.config.engine = e;
         await this.save();
         // A local model cannot search the web by itself: RedGiant's search engine starts too.
-        if (!this.config.searxngUrl && this.canRunSearch) this.startSearch();
+        if (!this.config.searxngUrl && this.canRunSearch && !this.config.searxngDeclined)
+          this.startSearch();
       },
       { model: e.model },
     );
@@ -704,6 +709,7 @@ export class SetupService {
         if (!r) throw new JobFailure("searxng_silent", "The search engine did not start");
         this.config.searxngUrl = r.url;
         this.config.searxngManaged = true;
+        delete this.config.searxngDeclined;
         await this.save();
         await this.o.hooks.search(r.url);
       },
@@ -712,6 +718,7 @@ export class SetupService {
 
   async stopSearch(): Promise<void> {
     await this.o.hooks.searxng?.(false);
+    this.config.searxngDeclined = true;
     if (this.config.searxngManaged) {
       delete this.config.searxngUrl;
       delete this.config.searxngManaged;

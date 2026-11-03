@@ -143,13 +143,13 @@ describe("Claude on a subscription", () => {
     expect(asked[0]).toMatchObject({
       model: "claude-opus-5-5",
       effort: "high",
-      tools: [],
+      tools: ["WebSearch"],
       skills: [],
       strictMcpConfig: true,
       permissionMode: "dontAsk",
       settingSources: [],
       systemPrompt: "You are God.",
-      allowedTools: ["mcp__redgiant__read_file"],
+      allowedTools: ["mcp__redgiant__read_file", "WebSearch"],
       env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-x", CLAUDE_CONFIG_DIR: "/tmp/c" },
     });
     expect(asked[0]).not.toHaveProperty("resume");
