@@ -1494,6 +1494,17 @@ export class RedGiantCore implements OrchestrationHost {
     return lastChange(st && !st.isDirectory() ? dirname(abs) : abs);
   }
 
+  /** RedGiant's address from outside home (the setup's way in), for links sent to the phone. */
+  private publicUrl: string | undefined;
+  setPublicUrl(url: string | undefined): void {
+    this.publicUrl = url?.replace(/\/+$/, "") || undefined;
+  }
+
+  /** A link that opens a board in RedGiant (as Officina's), or undefined with no way in. */
+  boardUrl(sessionId: string, proposalId: string): string | undefined {
+    return this.publicUrl && `${this.publicUrl}/#tavola=${sessionId}.${proposalId}`;
+  }
+
   /** Where boards' pages are kept, apart from every workspace (G25.4). */
   private boardDir(id: string): string {
     return join(dirname(this.o.platformDir), "boards", id);
@@ -1600,11 +1611,20 @@ export class RedGiantCore implements OrchestrationHost {
         });
         const list = variants.map((v, n) => `${n + 1}. ${v.title}`).join(" · ");
         const it = this.language(agent.ownerId) === "it";
+        // As Officina: who prepared how many proposals, the title, and the link that opens it.
+        const count = variants.length;
+        const head = it
+          ? `${agent.name} ti ha preparato ${count} ${count === 1 ? "proposta" : "proposte"}: «${i.title}»`
+          : `${agent.name} prepared ${count} ${count === 1 ? "proposal" : "proposals"} for you: «${i.title}»`;
+        const url = this.boardUrl(ctx.sessionId, proposalId);
         await this.tell(
           agent.ownerId,
-          it
-            ? `Tavola «${i.title}»: ${variants.length} ${variants.length === 1 ? "variante" : "varianti"} — ${list}. La trovi in RedGiant, nella conversazione con ${agent.name}.`
-            : `Board «${i.title}»: ${variants.length} variant(s) — ${list}. Open it in RedGiant, in the conversation with ${agent.name}.`,
+          `${head}\n${
+            url ??
+            (it
+              ? "La trovi in RedGiant, nella conversazione. Per aprirla dal telefono serve l'accesso da fuori casa (Impostazioni)."
+              : "Open it in RedGiant, in the conversation. To open it from the phone, set up access from outside home (Settings).")
+          }`,
         ).catch(() => {});
         return [
           `Board published: «${i.title}»`,

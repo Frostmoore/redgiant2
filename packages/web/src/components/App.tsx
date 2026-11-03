@@ -33,6 +33,7 @@ import {
   firstRun,
   lastError,
   limits,
+  openBoard,
   openTab,
   platformInfo,
   questions,
@@ -291,12 +292,26 @@ export function App() {
     const fromLink = hash.get("token");
     if (fromLink) history.replaceState(null, "", location.pathname + location.search);
     if (fromLink) token.value = fromLink;
+    // A board's link from Telegram (G25.4): opened once signed in, even after the password page.
+    const board = hash.get("tavola");
+    if (board) {
+      sessionStorage.setItem("rg.tavola", board);
+      history.replaceState(null, "", location.pathname + location.search);
+    }
     if (token.value)
       void signIn(token.value)
         .catch(() => signOut())
         .finally(() => setReady(true));
     else setReady(true);
   }, []);
+
+  useEffect(() => {
+    if (!ready || !token.value) return;
+    const board = sessionStorage.getItem("rg.tavola")?.match(/^([\w-]+)\.([0-9a-f]{12})$/);
+    if (!board) return;
+    sessionStorage.removeItem("rg.tavola");
+    openBoard(board[1] ?? "", board[2] ?? "", t("boardTab"));
+  }, [ready, token.value]);
 
   useEffect(() => {
     if (!token.value) return;

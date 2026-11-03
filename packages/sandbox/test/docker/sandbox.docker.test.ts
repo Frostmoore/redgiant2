@@ -23,7 +23,10 @@ import {
  */
 const env = process.env;
 const image = env.REDGIANT_SANDBOX_IMAGE ?? "redgiant/sandbox:dev";
-const base = resolve(env.REDGIANT_TEST_DIR ?? "/mnt/archive1/officina-dati/rg-test", `run-${Date.now()}`);
+const base = resolve(
+  env.REDGIANT_TEST_DIR ?? "/mnt/archive1/officina-dati/rg-test",
+  `run-${Date.now()}`,
+);
 const outbound = env.REDGIANT_TEST_OUTBOUND ?? "bridge";
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = resolve(here, "../../dist");

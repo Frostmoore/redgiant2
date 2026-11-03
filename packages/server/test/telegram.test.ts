@@ -159,6 +159,41 @@ describe("Demi-God on Telegram", () => {
     ]);
   });
 
+  it("sends the link of a board to Telegram, as Officina does (G25.4)", async () => {
+    await setup((req) => {
+      if (req.system.startsWith("You are Demi-God")) {
+        const r = toolResult(req);
+        return r === undefined
+          ? { toolCalls: [{ name: "ask_god", input: { message: lastText(req) } }] }
+          : { text: `Demi-God: ${r.split("\n")[0]}` };
+      }
+      return toolResult(req) === undefined
+        ? {
+            toolCalls: [
+              {
+                name: "publish_board",
+                input: {
+                  title: "La home",
+                  variants: [
+                    { title: "A", html: "<h1>A</h1>" },
+                    { title: "B", html: "<h1>B</h1>" },
+                  ],
+                },
+              },
+            ],
+          }
+        : { text: "Done." };
+    });
+    await pair();
+    s?.core.setPublicUrl("https://rg.example.ts.net/");
+    await s?.gateway?.handleUpdate(tg?.text(USER, "Two options for the home") as never);
+    await s?.gateway?.idle();
+    const notice = tg?.sent(USER).find((m) => String(m.text).includes("prepared 2 proposals"));
+    expect(String(notice?.text)).toMatch(
+      /^God prepared 2 proposals for you: «La home»\nhttps:\/\/rg\.example\.ts\.net\/#tavola=sess_[\w-]+\.[0-9a-f]{12}$/,
+    );
+  });
+
   it("relays to God through Demi-God, who can do nothing else", async () => {
     const demigodTools: string[][] = [];
     await setup((req) => {

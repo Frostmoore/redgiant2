@@ -332,6 +332,8 @@ export class SetupService {
     if (!this.locked.voice && c.transcription) this.applyTranscription();
     if (!this.locked.images && s.openaiImagesKey) this.applyImages();
     this.applyMedia();
+    // Links sent to the phone (boards on Telegram) use the way in from outside.
+    this.o.core.setPublicUrl(c.remote?.url);
     if (c.subscriptions?.chatgpt && h.chatgptSubscription)
       await run("ChatGPT subscription", h.chatgptSubscription(true));
     if (c.subscriptions?.claude && h.claudeSubscription)
@@ -726,6 +728,7 @@ export class SetupService {
         this.config.remote = { way: req.way, url: r.url };
         if (req.way === "cloudflare") this.secrets.cloudflareToken = req.token;
         await this.save();
+        this.o.core.setPublicUrl(r.url);
         return r;
       },
       { way: req.way },
@@ -738,6 +741,7 @@ export class SetupService {
     delete this.config.remote;
     delete this.secrets.cloudflareToken;
     await this.save();
+    this.o.core.setPublicUrl(undefined);
   }
 
   /**
