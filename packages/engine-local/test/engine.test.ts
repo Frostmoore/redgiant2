@@ -58,6 +58,13 @@ async function setup(slots: number, kvDir = dir) {
 }
 
 describe("LocalEngineProvider", () => {
+  it("does not look like an agent loop to the core (no `engine` property)", async () => {
+    const { provider } = await setup(1);
+    // The core runs a turn through `provider.engine` when there is one (flat subscriptions):
+    // a local model answered "engine.turn is not a function" on Telegram (v1.57.1).
+    expect("engine" in provider).toBe(false);
+  });
+
   it("keeps a session's cache warm in its slot", async () => {
     const { engine, provider } = await setup(2);
     const t1 = await turn(provider, "A", [], longDoc);

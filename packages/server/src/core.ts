@@ -825,9 +825,11 @@ export class RedGiantCore implements OrchestrationHost {
     if (receivesTasks) tools.push(completeTaskTool(agent, ws, this.broker, this.tasks));
     const listeners = new Set<(m: ServerMessage) => void>();
     // A flat subscription's engine runs the turns (G21); everything else stays the same.
-    const engine = this.o.providers.has(model.provider)
-      ? (this.o.providers.get(model.provider) as { engine?: Engine }).engine
+    const found = this.o.providers.has(model.provider)
+      ? (this.o.providers.get(model.provider) as { engine?: Partial<Engine> }).engine
       : undefined;
+    // Only a real agent loop: a provider's other helper with that name must not take the turn.
+    const engine = typeof found?.turn === "function" ? (found as Engine) : undefined;
     const options = {
       store: this.store,
       providers: this.o.providers,

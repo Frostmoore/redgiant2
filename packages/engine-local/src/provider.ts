@@ -37,7 +37,8 @@ interface SessionState {
 export class LocalEngineProvider implements Provider {
   readonly id: string;
   private readonly inner: OpenAICompatProvider;
-  private readonly engine: LlamaCppEngine;
+  /** The llama.cpp server (slots): not called `engine`, which means an agent loop to the core. */
+  private readonly llama: LlamaCppEngine;
   private scheduler: SlotScheduler | undefined;
   private props: EngineProps | undefined;
   private readonly sessions = new Map<string, SessionState>();
@@ -46,7 +47,7 @@ export class LocalEngineProvider implements Provider {
 
   constructor(private readonly o: LocalEngineOptions) {
     this.id = o.id ?? "local";
-    this.engine = new LlamaCppEngine(o.baseURL, o.fetch);
+    this.llama = new LlamaCppEngine(o.baseURL, o.fetch);
     this.inner = new OpenAICompatProvider({
       ...o,
       id: this.id,
@@ -57,7 +58,7 @@ export class LocalEngineProvider implements Provider {
   /** Reads slots and context size from the engine; called lazily before the first request. */
   async connect(): Promise<EngineProps> {
     if (!this.props) {
-      this.props = await this.engine.props();
+      this.props = await this.llama.props();
       this.scheduler = new SlotScheduler(this.props.slots);
       await this.inner.discover().catch(() => []);
     }
@@ -81,7 +82,7 @@ export class LocalEngineProvider implements Provider {
     const props = this.props;
     if (!kv || !state || !props || state.tokens < (this.o.kvMinTokens ?? 256)) return;
     const file = kvFileName(state.scope, sessionId);
-    const saved = await this.engine.save(slot, file);
+    const saved = await this.llama.save(slot, file);
     await kv.put({
       file,
       scope: state.scope,
@@ -114,7 +115,7 @@ export class LocalEngineProvider implements Provider {
           hashes: prefixHashes(request),
         });
         if (match) {
-          restored = await this.engine.restore(lease.slot, match.entry.file).catch(() => undefined);
+          restored = await this.llama.restore(lease.slot, match.entry.file).catch(() => undefined);
           if (restored) await this.o.kv.touch(match.entry);
         }
       }
