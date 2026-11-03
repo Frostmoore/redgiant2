@@ -76,6 +76,10 @@ it.DataSub=Progetti, conversazioni e impostazioni di RedGiant.
 en.DataSub=RedGiant's projects, conversations and settings.
 it.DataText=RedGiant tiene qui tutto quello che fai: scegli un disco con spazio (servono almeno 20 GB, di più se userai modelli sul computer).
 en.DataText=RedGiant keeps everything you do here: choose a disk with room (at least 20 GB, more if you will run models on this computer).
+it.DeleteModels=Vuoi eliminare anche i modelli scaricati e i motori per farli girare (%1)?%n%nSì: liberi lo spazio; se reinstalli RedGiant li riscarichi.%nNo: restano, pronti per la prossima volta.
+en.DeleteModels=Delete the downloaded models and the engines that run them as well (%1)?%n%nYes: the space is freed; if you install RedGiant again they are downloaded again.%nNo: they stay, ready for next time.
+it.RemoveWsl=WSL l'aveva installato RedGiant e ora nessun altro programma lo usa.%n%nVuoi toglierlo dal computer? Windows ti chiederà il permesso.
+en.RemoveWsl=WSL was installed by RedGiant and nothing else uses it now.%n%nRemove it from the computer? Windows will ask for permission.
 it.KeepData=Vuoi tenere le conversazioni, i progetti e le impostazioni di RedGiant?%n%nSì: restano sul computer e li ritrovi se lo reinstalli.%nNo: vengono cancellati per sempre.
 en.KeepData=Keep RedGiant's conversations, projects and settings?%n%nYes: they stay on the computer and come back if you install it again.%nNo: they are deleted for good.
 
@@ -139,7 +143,8 @@ var
   Log: String;
   Text: AnsiString;
 begin
-  Log := ExpandConstant('{tmp}\wsl-output.txt');
+  { The uninstaller has no setup temp folder of its own: the user's temporary folder. }
+  Log := AddBackslash(GetTempDir()) + 'redgiant-wsl-output.txt';
   DeleteFile(Log);
   if not Exec(ExpandConstant('{cmd}'), '/c set WSL_UTF8=1&& "' + ExpandConstant('{sys}\wsl.exe') + '" ' +
       Params + ' > "' + Log + '" 2>&1', '', SW_HIDE, ewWaitUntilTerminated, Code) then
@@ -234,6 +239,8 @@ begin
   MsgBox(CustomMessage('WslNeeded'), mbInformation, MB_OK);
   ShellExec('runas', ExpandConstant('{sys}\wsl.exe'), '--install --no-distribution', '',
     SW_SHOW, ewWaitUntilTerminated, Code);
+  { Removed again with RedGiant if nothing else uses it then (CurUninstallStepChanged). }
+  RegWriteStringValue(HKCU, 'Software\RedGiant', 'WslInstalledByRedGiant', '1');
   if WslWorks() then Exit;
   if (Code <> 0) and (Code <> 3010) and (Code <> 1641) then begin
     Result := CustomMessage('WslFailed');
@@ -363,13 +370,139 @@ begin
     WizardForm.NextButton.OnClick(WizardForm.NextButton);
 end;
 
+{ A folder RedGiant made for itself (its name says so): only those are deleted whole. A folder
+  the person chose (D:\, Documents) keeps everything that is not RedGiant's. }
+function Ours(Dir: String): Boolean;
+begin
+  Result := (Dir <> '') and (Pos('redgiant', Lowercase(Dir)) > 0) and
+    (Length(RemoveBackslashUnlessRoot(Dir)) > 3);
+end;
+
+procedure DeleteOurs(Dir: String);
+begin
+  if Ours(Dir) then DelTree(Dir, True, True, True);
+end;
+
+{ Bytes in a folder and everything under it. }
+function FolderBytes(Dir: String): Extended;
+var
+  F: TFindRec;
+begin
+  Result := 0;
+  if FindFirst(AddBackslash(Dir) + '*', F) then
+    try
+      repeat
+        if (F.Name <> '.') and (F.Name <> '..') then begin
+          if F.Attributes and FILE_ATTRIBUTE_DIRECTORY <> 0 then
+            Result := Result + FolderBytes(AddBackslash(Dir) + F.Name)
+          else
+            Result := Result + F.SizeHigh * 4294967296.0 + F.SizeLow;
+        end;
+      until not FindNext(F);
+    finally
+      FindClose(F);
+    end;
+end;
+
+{ The folders where models are kept outside the program's folder (an SSD chosen for streaming). }
+function ModelDirs(): TArrayOfString;
+var
+  List: String;
+  P: Integer;
+begin
+  SetArrayLength(Result, 0);
+  if not RegQueryStringValue(HKCU, 'Software\RedGiant', 'ModelDirs', List) then Exit;
+  while List <> '' do begin
+    P := Pos(';', List);
+    if P = 0 then P := Length(List) + 1;
+    if Trim(Copy(List, 1, P - 1)) <> '' then begin
+      SetArrayLength(Result, GetArrayLength(Result) + 1);
+      Result[GetArrayLength(Result) - 1] := Trim(Copy(List, 1, P - 1));
+    end;
+    Delete(List, 1, P);
+  end;
+end;
+
+{ How big the models are: those of the engine on Windows, those inside the distribution (its
+  models and KV caches), and those on other disks. }
+function ModelsBytes(): Extended;
+var
+  Output: String;
+  Dirs: TArrayOfString;
+  I: Integer;
+begin
+  Result := FolderBytes(ExpandConstant('{app}\engine'));
+  Dirs := ModelDirs();
+  for I := 0 to GetArrayLength(Dirs) - 1 do
+    Result := Result + FolderBytes(Dirs[I]);
+  if RunCaptured('-d ' + Distro + ' -u root -- sh -c "du -sbc /var/lib/docker/volumes/redgiant-models /var/lib/docker/volumes/redgiant-kv 2>/dev/null | tail -1 | cut -f1"', Output) = 0 then
+    Result := Result + StrToInt64Def(Trim(Output), 0);
+end;
+
+function GbText(Bytes: Extended): String;
+begin
+  Result := Format('%.1f GB', [Bytes / 1073741824.0]);
+end;
+
+{ The models and the engines, everywhere: inside the distribution (volumes, engine images),
+  on Windows (the engine folder) and on the disks chosen for them. }
+procedure DeleteModels(InDistro: Boolean);
+var
+  Code: Integer;
+  Dirs: TArrayOfString;
+  I: Integer;
+begin
+  if InDistro then
+    RunHidden('-d ' + Distro + ' -u root -- sh -c "docker ps -aq --filter volume=redgiant-models | xargs -r docker rm -f; ' +
+      'docker volume rm -f redgiant-models redgiant-kv; ' +
+      'docker images --format {{.Repository}}:{{.Tag}} | grep redgiant2-engine | xargs -r docker rmi -f" ');
+  DelTree(ExpandConstant('{app}\engine'), True, True, True);
+  Dirs := ModelDirs();
+  for I := 0 to GetArrayLength(Dirs) - 1 do
+    DeleteOurs(Dirs[I]);
+  RegDeleteValue(HKCU, 'Software\RedGiant', 'ModelDirs');
+  Code := 0;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Code: Integer;
+  Data, Mine, Output: String;
 begin
   if CurUninstallStep <> usUninstall then Exit;
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM RedGiant.exe /F', '', SW_HIDE, ewWaitUntilTerminated, Code);
   RunHidden('--terminate ' + Distro);
-  if MsgBox(CustomMessage('KeepData'), mbConfirmation, MB_YESNO or MB_DEFBUTTON1) = IDNO then
-    RunHidden('--unregister ' + Distro);
+  if MsgBox(CustomMessage('KeepData'), mbConfirmation, MB_YESNO or MB_DEFBUTTON1) = IDYES then begin
+    { The projects stay; the models (often the biggest part) are asked about on their own. }
+    if MsgBox(FmtMessage(CustomMessage('DeleteModels'), [GbText(ModelsBytes())]), mbConfirmation,
+      MB_YESNO or MB_DEFBUTTON1) = IDYES then
+      DeleteModels(True);
+    RunHidden('--terminate ' + Distro);
+    Exit;
+  end;
+  { Nothing stays: the distribution (Docker, its images and volumes inside it), the models on
+    Windows and on other disks, the data folder, RedGiant's settings in the registry. }
+  DeleteModels(False);
+  RunHidden('--unregister ' + Distro);
+  { The distribution's disk is gone with it; the folder too, if it is RedGiant's or empty. }
+  if RegQueryStringValue(HKCU, 'Software\RedGiant', 'DataDir', Data) then begin
+    DeleteFile(AddBackslash(Data) + 'ext4.vhdx');
+    DeleteOurs(Data);
+    RemoveDir(Data);
+  end;
+  { WSL itself, if RedGiant brought it and nothing else uses it. }
+  if RegQueryStringValue(HKCU, 'Software\RedGiant', 'WslInstalledByRedGiant', Mine) and
+     (RunCaptured('--list --quiet', Output) = 0) and (Trim(Output) = '') and
+     (MsgBox(CustomMessage('RemoveWsl'), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES) then
+    ShellExec('runas', ExpandConstant('{sys}\wsl.exe'), '--uninstall', '', SW_SHOW,
+      ewWaitUntilTerminated, Code);
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\RedGiant');
+end;
+
+{ What setup left beside the installed files (logs, the engine, caches): gone with the program
+  when nothing was kept. }
+procedure DeinitializeUninstall();
+begin
+  if not RegKeyExists(HKCU, 'Software\RedGiant') then
+    DeleteOurs(ExpandConstant('{app}'));
 end;
