@@ -699,14 +699,30 @@ export class RedGiantCore implements OrchestrationHost {
     sessionId: string,
     resume: boolean,
     sessionModel?: ModelSpec,
+    /** The project the conversation works in, when not the agent's own (an assignment). */
+    workProject?: string | null,
   ): Promise<Live> {
-    const agent = this.registry.get(agentId);
-    if (!agent || agent.ownerId !== ownerId)
+    const record = this.registry.get(agentId);
+    if (!record || record.ownerId !== ownerId)
       throw new NotFoundError(`Agent "${agentId}" not found`);
+    // Assigned to another project (2026-11-03): there it works as one of the project's agents,
+    // in its own worktree, and closes the tasks the orchestrator gives it.
+    const assignedTo =
+      workProject && workProject !== record.projectId && record.projects?.includes(workProject)
+        ? workProject
+        : undefined;
+    const agent = record;
     if (agent.status !== "active") throw new Error(`Agent "${agent.name}" is stopped`);
     const model = sessionModel ?? this.registry.effectiveModel(agentId) ?? this.o.defaultModel;
     if (!model) throw new NoModelError(`No model configured for "${agent.name}" or its ancestors`);
-    const ws = await this.workspaceFor(agent);
+    const ws = assignedTo
+      ? await this.workspaceFor({
+          ...agent,
+          kind: "agent",
+          projectId: assignedTo,
+          subprojectId: undefined,
+        } as AgentRecord)
+      : await this.workspaceFor(agent);
     const tools: Tool[] = ws
       ? baseTools({
           workspace: ws,
@@ -796,7 +812,8 @@ export class RedGiantCore implements OrchestrationHost {
           })(),
         }),
       );
-    const receivesTasks = ["orchestrator", "agent", "subagent"].includes(agent.kind);
+    const receivesTasks =
+      assignedTo !== undefined || ["orchestrator", "agent", "subagent"].includes(agent.kind);
     if (receivesTasks) tools.push(completeTaskTool(agent, ws, this.broker, this.tasks));
     const listeners = new Set<(m: ServerMessage) => void>();
     // A flat subscription's engine runs the turns (G21); everything else stays the same.
@@ -812,6 +829,9 @@ export class RedGiantCore implements OrchestrationHost {
         this.systemFor(agent),
         agent.kind === "assistant" ? await this.assistantMemory(agent) : "",
         await this.subprojectNote(agent),
+        assignedTo
+          ? `## Assigned to a project\nIn this conversation you work for the project "${(await this.projects.get(ownerId, assignedTo))?.name ?? assignedTo}", on tasks its orchestrator gives you. Your files here are your own worktree of that project; close each task with complete_task.`
+          : "",
         skillsIndex(skills),
       ]
         .filter(Boolean)
@@ -820,7 +840,7 @@ export class RedGiantCore implements OrchestrationHost {
       ...(receivesTasks && { hooks: { stop: [this.tasks.stopHook(agentId)] } }),
       sessionId,
       ownerId,
-      projectId: agent.projectId,
+      projectId: assignedTo ?? agent.projectId,
       agentId,
       priority: PRIORITY[agent.kind],
       ...this.compactionOptions(model, agent),
@@ -830,6 +850,7 @@ export class RedGiantCore implements OrchestrationHost {
         for (const f of listeners) f({ type: "session.compacting", sessionId, busy });
       },
       cacheScope:
+        assignedTo ??
         agent.projectId ??
         (agent.kind === "assistant" ? `assistants-${agent.ownerId}` : `platform-${agent.ownerId}`),
       live: (e: { type: string; text?: string }) => {
@@ -2295,11 +2316,14 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /** The session where an agent receives delegated work (created on first use). */
-  async workSession(agent: AgentRecord): Promise<string> {
-    const existing = this.workSessions.get(agent.id);
+  async workSession(agent: AgentRecord, projectId?: string): Promise<string> {
+    // In a project it is assigned to, a conversation of its own for that project.
+    const there = projectId && projectId !== agent.projectId ? projectId : undefined;
+    const slot = there ? `${agent.id}@${there}` : agent.id;
+    const existing = this.workSessions.get(slot);
     if (existing) return existing;
     // The same conversation after a restart too: the agent keeps the context of its tasks.
-    const key = `work_session:${agent.id}`;
+    const key = `work_session:${slot}`;
     const fresh = this.freshWork.delete(agent.id);
     const [kept] = fresh
       ? []
@@ -2314,12 +2338,12 @@ export class RedGiantCore implements OrchestrationHost {
         [keptId, agent.id],
       );
       if (row) {
-        this.workSessions.set(agent.id, keptId);
+        this.workSessions.set(slot, keptId);
         return keptId;
       }
     }
-    const id = await this.startSession(agent.ownerId, agent.id);
-    this.workSessions.set(agent.id, id);
+    const id = await this.startSession(agent.ownerId, agent.id, there ? { projectId: there } : {});
+    this.workSessions.set(slot, id);
     await this.o.db.query(
       `INSERT INTO rg_settings (owner_id, key, value) VALUES ($1, $2, $3)
        ON CONFLICT (owner_id, key) DO UPDATE SET value = EXCLUDED.value`,
@@ -2359,18 +2383,21 @@ export class RedGiantCore implements OrchestrationHost {
   async startSession(
     ownerId: string,
     agentId: string,
-    opts: { model?: ModelSpec } = {},
+    /** `projectId`: a project the agent is assigned to, where this conversation works. */
+    opts: { model?: ModelSpec; projectId?: string } = {},
   ): Promise<string> {
     const id = `sess_${randomUUID().slice(0, 12)}`;
     const agent = this.registry.get(agentId);
     if (!agent || agent.ownerId !== ownerId)
       throw new NotFoundError(`Agent "${agentId}" not found`);
+    const project =
+      opts.projectId && agent.projects?.includes(opts.projectId) ? opts.projectId : agent.projectId;
     await this.o.db.query(
       "INSERT INTO rg_sessions (id, owner_id, agent_id, project_id, model) VALUES ($1, $2, $3, $4, $5)",
-      [id, ownerId, agentId, agent.projectId, opts.model ? JSON.stringify(opts.model) : null],
+      [id, ownerId, agentId, project, opts.model ? JSON.stringify(opts.model) : null],
     );
     try {
-      this.live.set(id, await this.build(ownerId, agentId, id, false, opts.model));
+      this.live.set(id, await this.build(ownerId, agentId, id, false, opts.model, project));
     } catch (err) {
       // No model yet: the conversation opens all the same, the model is chosen from its menu and
       // the first message says what to do until then.
@@ -2403,13 +2430,21 @@ export class RedGiantCore implements OrchestrationHost {
       agent_id: string;
       owner_id: string;
       model: ModelSpec | string | null;
-    }>("SELECT agent_id, owner_id, model FROM rg_sessions WHERE id = $1", [sessionId]);
+      project_id: string | null;
+    }>("SELECT agent_id, owner_id, model, project_id FROM rg_sessions WHERE id = $1", [sessionId]);
     if (!row || row.owner_id !== ownerId)
       throw new NotFoundError(`Session "${sessionId}" not found`);
     const model = typeof row.model === "string" ? (JSON.parse(row.model) as ModelSpec) : row.model;
     // Opened without a model (none was chosen yet): nothing in its log, it starts now.
     const resume = (await this.store.list({ sessionId })).length > 0;
-    const built = await this.build(ownerId, row.agent_id, sessionId, resume, model ?? undefined);
+    const built = await this.build(
+      ownerId,
+      row.agent_id,
+      sessionId,
+      resume,
+      model ?? undefined,
+      row.project_id,
+    );
     this.live.set(sessionId, built);
     // Whoever followed it while it could not run follows it now.
     const waiting = this.waiting.get(sessionId);

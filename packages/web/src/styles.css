@@ -3955,3 +3955,73 @@ button.chat-card-new {
     pointer-events: auto;
   }
 }
+
+/* The folder menu of a conversation. */
+.folder-menu {
+  position: relative;
+  display: inline-flex;
+}
+.folder-menu-list {
+  position: fixed;
+  z-index: 80;
+  width: 220px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.folder-menu-title {
+  font-size: 11px;
+  color: var(--dim);
+  padding: 4px 8px;
+}
+.folder-menu-list > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: none;
+  padding: 7px 8px;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text);
+}
+.folder-menu-list > button:hover {
+  background: var(--panel-2);
+}
+.folder-menu-list > button span {
+  flex: 1;
+}
+.folder-menu-new {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+}
+.folder-menu-new input {
+  flex: 1;
+  min-width: 0;
+}
+.agent-projects {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 10px;
+}
+.agent-projects label {
+  gap: 8px;
+  align-items: center;
+}
+.assigned {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.assigned-agent {
+  border-left: 2px dashed var(--line);
+  padding-left: 8px;
+}

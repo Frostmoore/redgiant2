@@ -68,5 +68,7 @@ export const AgentSpec = z.object({
   subprojectId: z.string().min(1).optional(),
   /** For assistants (G24.11): the MCP servers it may use, by name. None unless given. */
   connections: z.array(z.string().min(1)).optional(),
+  /** Other projects it is assigned to (2026-11-03): it sits under their orchestrators too. */
+  projects: z.array(z.string().min(1)).optional(),
 });
 export type AgentSpec = z.infer<typeof AgentSpec>;

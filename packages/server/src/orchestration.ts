@@ -27,7 +27,7 @@ export interface OrchestrationHost {
   store: EventStore;
   broker: PermissionBroker;
   /** The session an agent receives delegated work in (created on first use). */
-  workSession(agent: AgentRecord): Promise<string>;
+  workSession(agent: AgentRecord, projectId?: string): Promise<string>;
   /** Names a conversation in the list (tasks: who gave the latest, and what). */
   nameSession?(sessionId: string, title: string): Promise<void>;
   /** A brand-new session: isolated context. */
@@ -87,6 +87,8 @@ export class TaskTracker {
     sessionId: string,
     title: string,
     from?: Task["from"],
+    /** The project it is done for, when not the agent's own (an assignment). */
+    projectId?: string,
   ): Promise<Task> {
     const task: Task = {
       id: `task_${randomUUID().slice(0, 8)}`,
@@ -94,7 +96,7 @@ export class TaskTracker {
       agentId: agent.id,
       sessionId,
       ownerId: agent.ownerId,
-      projectId: agent.projectId,
+      projectId: projectId ?? agent.projectId,
       reminders: 0,
       ...(from && { from }),
     };
@@ -260,12 +262,19 @@ export function orchestrationTools(
   const assign = async (to: AgentRecord, title: string, task: string, ctx: ToolContext) => {
     if (!can(me, "message", to, host.registry.resolve))
       throw new Error(`You cannot assign work to ${to.name}`);
-    const sid = await host.workSession(to);
-    const t = await tasks.open(to, sid, title, {
-      agentId: self.id,
-      sessionId: ctx.sessionId,
-      name: self.name,
-    });
+    // An agent assigned to this project works on it in a conversation of its own for it.
+    const here =
+      self.kind === "orchestrator" && self.projectId && to.projects?.includes(self.projectId)
+        ? self.projectId
+        : undefined;
+    const sid = await host.workSession(to, here);
+    const t = await tasks.open(
+      to,
+      sid,
+      title,
+      { agentId: self.id, sessionId: ctx.sessionId, name: self.name },
+      here,
+    );
     const text =
       `Task from ${self.name}: «${title}»\n\n${task}\n\n` +
       `When it is done, verify the result and call complete_task (taskId "${t.id}").`;

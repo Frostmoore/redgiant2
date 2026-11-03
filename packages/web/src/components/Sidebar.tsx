@@ -34,6 +34,7 @@ import {
   subprojects,
 } from "../state.js";
 import { assistantState } from "./Assistants.js";
+import { FolderMenu } from "./FolderMenu.js";
 
 const SHOWN = 8;
 
@@ -43,16 +44,6 @@ const shortDate = (iso: string) => {
     ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : d.toLocaleDateString([], { day: "2-digit", month: "2-digit" });
 };
-
-/**
- * Asks which folder a conversation goes in: a name (new or existing), or empty to take it out.
- * undefined: the person cancelled.
- */
-export function askFolder(current: string | null): string | null | undefined {
-  const answer = window.prompt(t("folderAsk"), current ?? "");
-  if (answer === null) return undefined;
-  return answer.trim().slice(0, 60) || null;
-}
 
 /** A folder of conversations, open until the person closes it. */
 function Folder({ name, children }: { name: string; children: preact.ComponentChildren }) {
@@ -70,7 +61,7 @@ function Folder({ name, children }: { name: string; children: preact.ComponentCh
 }
 
 /** One conversation: open it, pin it, archive it (the log is never touched). */
-function SessionLine({ row }: { row: SessionRow }) {
+function SessionLine({ row, folders }: { row: SessionRow; folders: string[] }) {
   const active = activeTab.value === `chat:${row.id}`;
   const update = (change: { pinned?: boolean; archived?: boolean; folder?: string | null }) =>
     void attempt(() => getApi().updateSession(row.id, change)).then(refreshConversations);
@@ -96,17 +87,11 @@ function SessionLine({ row }: { row: SessionRow }) {
         >
           <IconPin filled={row.pinned} />
         </button>
-        <button
-          type="button"
-          class="icon-button"
-          title={t("folderMove")}
-          onClick={() => {
-            const f = askFolder(row.folder ?? null);
-            if (f !== undefined) update({ folder: f });
-          }}
-        >
-          <IconFolder size={13} />
-        </button>
+        <FolderMenu
+          current={row.folder ?? null}
+          folders={folders}
+          onPick={(folder) => update({ folder })}
+        />
         <button
           type="button"
           class="icon-button"
@@ -164,12 +149,12 @@ function Sessions({ agent }: { agent: Agent }) {
           {rows
             .filter((r) => r.folder === f)
             .map((r) => (
-              <SessionLine key={r.id} row={r} />
+              <SessionLine key={r.id} row={r} folders={folders} />
             ))}
         </Folder>
       ))}
       {shown.map((r) => (
-        <SessionLine key={r.id} row={r} />
+        <SessionLine key={r.id} row={r} folders={folders} />
       ))}
       {loose.length > SHOWN && (
         <button type="button" class="more" onClick={() => setAll(!all)}>

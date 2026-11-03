@@ -83,6 +83,7 @@ const Agent = z
     subprojectId: z.string().optional(),
     compaction: z.object({ at: z.number().optional(), keep: z.number().optional() }).optional(),
     skills: z.array(z.string()).optional(),
+    projects: z.array(z.string()).optional(),
     status: z.enum(["active", "stopped"]),
   })
   .openapi("Agent");
@@ -245,6 +246,12 @@ const routes = {
                 .optional(),
               /** The skills it uses; null: all of them again. */
               skills: z.array(z.string().min(1)).nullable().optional(),
+              /** Other projects it is assigned to; null or []: none. */
+              projects: z
+                .array(z.string().regex(/^[a-z0-9-]+$/))
+                .max(50)
+                .nullable()
+                .optional(),
             }),
           },
         },
@@ -934,6 +941,20 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     const id = c.req.valid("param").id;
     if (core.registry.get(id)?.ownerId !== owner(c))
       return c.json({ error: "Agent not found" }, 404);
+    // Only working agents go to other projects, and only to projects that exist (2026-11-03).
+    const assigned = change.projects as string[] | null | undefined;
+    if (assigned && assigned.length > 0) {
+      const a = core.registry.get(id);
+      if (a?.kind !== "agent" && a?.kind !== "assistant")
+        return c.json(
+          { error: "Only agents and personal agents can be assigned to projects" },
+          400,
+        );
+      for (const p of assigned)
+        if (!(await core.projects.get(owner(c), p)))
+          return c.json({ error: `No project "${p}"` }, 400);
+      change.projects = [...new Set(assigned)].filter((p) => p !== a.projectId);
+    }
     const updated = await core.registry.configure(human(c), id, change);
     if ("model" in change) core.agentModelChanged(id);
     return c.json(agentOut(updated), 200);

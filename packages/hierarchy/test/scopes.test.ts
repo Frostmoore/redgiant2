@@ -8,6 +8,7 @@ const n = (
   projectId: string | null,
   ownerId = "me",
   subprojectId: string | null = null,
+  projects: string[] = [],
 ): AgentNode => ({
   id,
   name: id,
@@ -16,6 +17,7 @@ const n = (
   projectId,
   ownerId,
   subprojectId,
+  projects,
 });
 const tree = [
   n("G", "god", null, null),
@@ -35,6 +37,9 @@ const tree = [
   n("S4", "subagent", "A4", "p1", "me", "s1"),
   n("I2", "inspector", "G", "p1", "me", "s1"),
   n("P2", "assistant", "G", null),
+  // Assigned to other projects (2026-11-03): an assistant to p1, an agent of p2 to p1 too.
+  n("P3", "assistant", "G", null, "me", null, ["p1"]),
+  n("A6", "agent", "O2", "p2", "me", null, ["p1"]),
   n("X", "god", null, null, "someone-else"),
 ];
 const byId = new Map(tree.map((a) => [a.id, a]));
@@ -55,6 +60,8 @@ O1 message  A4 yes | O1 stop     A5 yes | O1 read   S4 yes | I1 read   A4 yes | 
 A4 message  A5 no  | A4 read     A5 no  | A5 read   S4 no  | I2 read   A4 yes | I2 read S4 yes | I2 read A5 no | I2 read A1 no
 G  join      A1 no  | O1 join     A1 no  | P1 join   P2 no  | I1 join    I1 no  | A1 join A1 no
 G  configure P1 yes | G  stop     P1 yes | O1 message P1 no  | O1 read   P1 no  | I1 read P1 no | A1 message P1 no | D message P1 no
+O1 read      P3 yes | O1 message  P3 yes | O1 stop    P3 no  | O1 configure P3 no | O1 spawn P3 no | O2 message P3 no | I1 read P3 yes | A1 message P3 no
+O1 message   A6 yes | O1 read     A6 yes | O1 stop    A6 no  | O2 message A6 yes | O2 stop A6 yes | I1 read A6 yes | A1 message A6 no
 `
   .trim()
   .split(/\s*[|\n]\s*/)

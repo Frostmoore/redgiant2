@@ -590,6 +590,71 @@ describe("orchestration", () => {
     expect(heard).toEqual(["abandoned"]);
   });
 
+  it("gives tasks to an agent assigned to the project, which works there in its own worktree", async () => {
+    let helperId = "";
+    s = await startServer((req) => {
+      const { n } = step(req);
+      if (req.system.includes("## Assigned to a project")) {
+        if (n === 0) return call("write_file", { path: "note.txt", content: "from the helper" });
+        if (n === 1) return call("complete_task", { verify_command: exists("note.txt") });
+        return { text: "Written." };
+      }
+      if (report(req)) return { text: "Thanks." };
+      if (n === 0)
+        return call("delegate", { agent_id: helperId, title: "Write a note", task: "note.txt" });
+      return { text: "Handed over." };
+    });
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    await s.api("POST", "/api/projects", { name: "Shared" });
+    const orch = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "orchestrator",
+      parentId: god.body.id,
+      projectId: "shared",
+      name: "O",
+    });
+    const helper = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "assistant",
+      parentId: god.body.id,
+      name: "Helper",
+      role: "Helps",
+    });
+    helperId = helper.body.id;
+    // Not assigned: the orchestrator cannot give it work.
+    expect(
+      (await s.api("PATCH", `/api/agents/${orch.body.id}`, { projects: ["shared"] })).status,
+    ).toBe(400);
+    expect((await s.api("PATCH", `/api/agents/${helperId}`, { projects: ["nope"] })).status).toBe(
+      400,
+    );
+    const set = await s.api<{ projects?: string[] }>("PATCH", `/api/agents/${helperId}`, {
+      projects: ["shared"],
+    });
+    expect(set.body.projects).toEqual(["shared"]);
+    const o = s.core.registry.get(orch.body.id);
+    if (!o) throw new Error("no orchestrator");
+    const sid = await s.core.workSession(o);
+    await (await s.core.send("me", sid, "Get a note written")).done;
+    for (let i = 0; i < 200; i++) {
+      const closed = await s.core.store.list({ types: ["task.closed"] });
+      if (closed.length > 0) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const closed = await s.core.store.list({ types: ["task.closed"] });
+    expect(closed.map((e) => (e.payload as { outcome: string }).outcome)).toEqual(["verified"]);
+    // It wrote in its own worktree of the project, in a conversation of that project.
+    expect(
+      await readFile(
+        join(s.dir, "workspaces", "me", "shared", ".worktrees", helperId, "note.txt"),
+        "utf8",
+      ),
+    ).toBe("from the helper");
+    expect(closed[0]?.projectId).toBe("shared");
+  });
+
   it("keeps delegation inside the hierarchy", async () => {
     s = await startServer((req) => {
       const { n, results } = step(req);

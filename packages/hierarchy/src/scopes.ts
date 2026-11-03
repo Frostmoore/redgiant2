@@ -10,6 +10,11 @@ export interface AgentNode {
   ownerId: string;
   /** The subproject it works in (G24.13), inside its project; none for the project's own agents. */
   subprojectId?: string | null | undefined;
+  /**
+   * Other projects it is assigned to (2026-11-03): it sits under their orchestrators too, who
+   * give it tasks there; it stays where it was created.
+   */
+  projects?: readonly string[] | undefined;
 }
 
 /** The human owner acts as itself; agents act through their node. */
@@ -56,7 +61,8 @@ const isAncestor = (maybe: AgentNode, of: AgentNode, resolve: Resolve) =>
  * The scope table (plan §5.2):
  * - God: platform and every project of its owner.
  * - Demi-God: talks to God only; does nothing else.
- * - Orchestrator: the agents of its own project.
+ * - Orchestrator: the agents of its own project, and those assigned to it (read and give tasks
+ *   only: they are stopped and configured where they were created).
  * - Agent: its own tasks and its sub-agents.
  * - Sub-agent: only its own task; cannot spawn (RD11).
  * - Inspector: reads its project (every subproject), or only its subproject; never acts (RD30).
@@ -93,6 +99,8 @@ export function can(
     case "orchestrator": {
       if (self) return action === "read" || action === "spawn";
       const inProject = target.projectId !== null && target.projectId === a.projectId;
+      const assigned = a.projectId !== null && (target.projects?.includes(a.projectId) ?? false);
+      if (assigned && !inProject) return action === "read" || action === "message";
       if (!inProject || (target.kind !== "agent" && target.kind !== "subagent")) return false;
       if (action === "configure") return false;
       // Children are created by their parent (or by God and the human), never by a grandparent.
@@ -108,8 +116,10 @@ export function can(
       return self && action === "read";
     case "inspector":
       // The project's inspector reads every subproject; a subproject's inspector only its own.
+      if (action !== "read" || a.projectId === null) return false;
+      // An agent assigned to the project is read by the project's inspector too.
+      if (!a.subprojectId && target.projects?.includes(a.projectId)) return true;
       return (
-        action === "read" &&
         target.projectId !== null &&
         target.projectId === a.projectId &&
         (!a.subprojectId || target.subprojectId === a.subprojectId)

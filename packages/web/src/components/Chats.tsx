@@ -14,7 +14,7 @@ import {
   refreshConversations,
   rooms,
 } from "../state.js";
-import { askFolder } from "./Sidebar.js";
+import { FolderMenu } from "./FolderMenu.js";
 
 const when = (iso: string) =>
   new Date(iso).toLocaleString([], {
@@ -24,7 +24,7 @@ const when = (iso: string) =>
     minute: "2-digit",
   });
 
-function ChatCard({ c }: { c: ChatSummary }) {
+function ChatCard({ c, folders }: { c: ChatSummary; folders: string[] }) {
   return (
     <div class="chat-card">
       <button
@@ -38,18 +38,13 @@ function ChatCard({ c }: { c: ChatSummary }) {
         <strong>{c.title}</strong>
         <small>{when(c.updatedAt)}</small>
       </button>
-      <button
-        type="button"
-        class="icon-button"
-        title={t("folderMove")}
-        onClick={() => {
-          const f = askFolder(c.folder ?? null);
-          if (f !== undefined)
-            void attempt(() => getApi().setChatFolder(c.id, f)).then(refreshConversations);
-        }}
-      >
-        <IconFolder size={14} />
-      </button>
+      <FolderMenu
+        current={c.folder ?? null}
+        folders={folders}
+        onPick={(f) =>
+          void attempt(() => getApi().setChatFolder(c.id, f)).then(refreshConversations)
+        }
+      />
     </div>
   );
 }
@@ -78,7 +73,7 @@ export function Chats() {
           <IconPlus size={18} /> {t("newChat")}
         </button>
         {loose.map((c) => (
-          <ChatCard key={c.id} c={c} />
+          <ChatCard key={c.id} c={c} folders={folders} />
         ))}
       </div>
       {folders.map((f) => (
@@ -90,7 +85,7 @@ export function Chats() {
             {all
               .filter((c) => c.folder === f)
               .map((c) => (
-                <ChatCard key={c.id} c={c} />
+                <ChatCard key={c.id} c={c} folders={folders} />
               ))}
           </div>
         </section>

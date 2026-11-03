@@ -158,10 +158,42 @@ function AgentModel({ agent }: { agent: Agent }) {
   );
 }
 
+/** Assigns an agent to other projects (2026-11-03): it then sits under their orchestrators. */
+function AgentProjects({ agent }: { agent: Agent }) {
+  const others = projects.value.filter((p) => p.id !== agent.projectId);
+  const mine = new Set(agent.projects ?? []);
+  const save = (next: Set<string>) =>
+    void attempt(() => getApi().configureAgent(agent.id, { projects: [...next] })).then(refresh);
+  if (others.length === 0) return <p class="ui-help">{t("assignNoProjects")}</p>;
+  return (
+    <div class="agent-projects">
+      <span class="ui-help">{t("assignHelp", { name: agent.name })}</span>
+      {others.map((p) => (
+        <label key={p.id} class="row">
+          <input
+            type="checkbox"
+            checked={mine.has(p.id)}
+            onChange={(e) => {
+              const next = new Set(mine);
+              if ((e.target as HTMLInputElement).checked) next.add(p.id);
+              else next.delete(p.id);
+              save(next);
+            }}
+          />
+          {p.name}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 function Node({ agent, depth }: { agent: Agent; depth: number }) {
   const [adding, setAdding] = useState(false);
   const [tuning, setTuning] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const canAssign =
+    (agent.kind === "agent" || agent.kind === "assistant") && agent.status === "active";
   const children = agents.value.filter((a) => a.parentId === agent.id);
   const canAdd = CHILDREN[agent.kind].some((k) => k !== "subagent") && agent.status === "active";
   return (
@@ -189,6 +221,17 @@ function Node({ agent, depth }: { agent: Agent; depth: number }) {
           <span class="chip">{tOptional(`agentMode_${agent.mode}`) ?? agent.mode}</span>
         )}
         {agent.status === "stopped" && <span class="chip muted">{t("stopped")}</span>}
+        {canAssign && (
+          <button
+            type="button"
+            class="tiny"
+            title={t("assignTitle")}
+            onClick={() => setAssigning(!assigning)}
+          >
+            {t("assignButton")}
+            {(agent.projects?.length ?? 0) > 0 ? ` · ${agent.projects?.length}` : ""}
+          </button>
+        )}
         {agent.status === "active" && agent.kind !== "demigod" && (
           <button type="button" class="tiny" onClick={() => setTuning(!tuning)}>
             {t("compactSettings")}
@@ -211,6 +254,7 @@ function Node({ agent, depth }: { agent: Agent; depth: number }) {
       </div>
       {adding && <NewAgentForm parent={agent} onDone={() => setAdding(false)} />}
       {choosing && <AgentModel agent={agent} />}
+      {assigning && <AgentProjects agent={agent} />}
       {tuning && <CompactionSettings agent={agent} />}
       {children.map((c) => (
         <Node key={c.id} agent={c} depth={depth + 1} />
@@ -226,14 +270,81 @@ export function ProjectAgents({ projectId }: { projectId: string }) {
   const ids = new Set(mine.map((a) => a.id));
   const roots = mine.filter((a) => !a.parentId || !ids.has(a.parentId));
   const name = projects.value.find((p) => p.id === projectId)?.name ?? projectId;
+  // Agents of other places assigned here: under the orchestrator, who gives them tasks.
+  const assigned = agents.value.filter(
+    (a) => a.status === "active" && a.projectId !== projectId && a.projects?.includes(projectId),
+  );
+  const candidates = agents.value.filter(
+    (a) =>
+      a.status === "active" &&
+      (a.kind === "agent" || a.kind === "assistant") &&
+      a.projectId !== projectId &&
+      !a.projects?.includes(projectId),
+  );
+  const assign = (a: Agent, on: boolean) => {
+    const next = new Set(a.projects ?? []);
+    if (on) next.add(projectId);
+    else next.delete(projectId);
+    void attempt(() => getApi().configureAgent(a.id, { projects: [...next] })).then(refresh);
+  };
+  const assignedBlock = (
+    <AssignedUnder assigned={assigned} candidates={candidates} assign={assign} />
+  );
   return (
     <div class="hierarchy settings-section">
       <h2>{t("agentsOf", { project: name })}</h2>
       <p class="ui-purpose">{t("projectAgentsPurpose")}</p>
       {roots.length === 0 && <p class="empty">{t("noOrchestrator")}</p>}
       {roots.map((a) => (
-        <Node key={a.id} agent={a} depth={0} />
+        <div key={a.id}>
+          <Node agent={a} depth={0} />
+          {a.kind === "orchestrator" && assignedBlock}
+        </div>
       ))}
+      {!roots.some((a) => a.kind === "orchestrator") && assignedBlock}
+    </div>
+  );
+}
+
+/** The agents assigned to a project, right under its orchestrator, and how to add one. */
+function AssignedUnder({
+  assigned,
+  candidates,
+  assign,
+}: {
+  assigned: Agent[];
+  candidates: Agent[];
+  assign: (a: Agent, on: boolean) => void;
+}) {
+  return (
+    <div class="assigned" style={{ marginLeft: "18px" }}>
+      {assigned.map((a) => (
+        <div key={a.id} class="assigned-agent">
+          <span class="chip">{t("assignedChip")}</span>
+          <Node agent={a} depth={0} />
+          <button type="button" class="link tiny" onClick={() => assign(a, false)}>
+            {t("assignRemove")}
+          </button>
+        </div>
+      ))}
+      {candidates.length > 0 && (
+        <select
+          aria-label={t("assignHere")}
+          value=""
+          onChange={(e) => {
+            const a = candidates.find((x) => x.id === (e.target as HTMLSelectElement).value);
+            if (a) assign(a, true);
+          }}
+        >
+          <option value="">{t("assignHere")}</option>
+          {candidates.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+              {a.role ? ` — ${a.role}` : ""}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   );
 }

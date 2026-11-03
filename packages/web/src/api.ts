@@ -206,6 +206,8 @@ export interface Agent {
   skills?: string[];
   /** When its conversations are summarised and how much stays (G24.14c). */
   compaction?: { at?: number; keep?: number };
+  /** Other projects it is assigned to, under their orchestrators (2026-11-03). */
+  projects?: string[];
   status: "active" | "stopped";
 }
 
