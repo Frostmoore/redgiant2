@@ -4879,3 +4879,18 @@ button.pick-tile.on {
   color: var(--accent);
   font-weight: 600;
 }
+/* SSD stream (2026-11-03). */
+.lm-stream {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 10px 0;
+}
+.lm-stream.off .pick-tile {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

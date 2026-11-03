@@ -22,3 +22,16 @@ describe("local models compared (2026-11-03)", () => {
     expect(estimatedSpeed(dense, 30, gpu).stars).toBeLessThanOrEqual(2);
   });
 });
+
+describe("speed with SSD stream (2026-11-03)", () => {
+  it("is slower when part of the model must come from the SSD at each word", () => {
+    const moe = { totalB: 30, activeB: 3 };
+    const hw = { kind: "gpu" as const, vramGb: 12, ramGb: 32 };
+    const inRam = estimatedSpeed(moe, 17, hw, { stream: true });
+    const onSsd = estimatedSpeed(moe, 17, { ...hw, ramGb: 4 }, { stream: true });
+    expect(inRam.wordsPerSec).toBeGreaterThan(onSsd.wordsPerSec);
+    expect(onSsd.wordsPerSec).toBeGreaterThan(0);
+    // Without streaming nothing changes.
+    expect(estimatedSpeed(moe, 10, hw)).toEqual(estimatedSpeed(moe, 10, hw, { stream: false }));
+  });
+});

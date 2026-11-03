@@ -67,7 +67,19 @@ export interface SetupState {
       >
     >;
     subscriptions?: { claude?: boolean; chatgpt?: boolean };
-    engine?: { variant: EngineVariant; model: string };
+    engine?: {
+      variant: EngineVariant;
+      model: string;
+      stream?: boolean;
+      tuning?: { moeCacheShare?: number };
+      /** What the last start decided (SSD stream). */
+      plan?: {
+        ctx: number;
+        moeCacheMib: number;
+        source: "card" | "ram" | "ssd";
+        ssdGbPerWord: number;
+      };
+    };
     retentionDays?: number;
     subscriptionAck?: boolean;
   };
@@ -580,7 +592,7 @@ export class Api {
   setup = () => this.call<SetupState>("GET", "/api/setup");
   setupModels = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/models", b);
   /** Starts the local engine: a job to follow (null stops it). */
-  setupEngine = (engine: { variant: EngineVariant; model: string } | null) =>
+  setupEngine = (engine: { variant: EngineVariant; model: string; stream?: boolean } | null) =>
     this.call<Job>("PUT", "/api/setup/engine", { engine });
   setupNames = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/names", b);
   setupTelegram = (token: string | null) =>
@@ -662,10 +674,10 @@ export class Api {
   hfFiles = (repo: string) =>
     this.call<GgufFile[]>("GET", `/api/setup/hf/files?repo=${encodeURIComponent(repo)}`);
   /** The suggested models and the folder's files, for the engine `variant` (each has its folder). */
-  localModels = (variant: EngineVariant) =>
+  localModels = (variant: EngineVariant, stream = false) =>
     this.call<{ models: LocalModelChoice[]; files: LocalFile[] }>(
       "GET",
-      `/api/setup/local-models?variant=${variant}`,
+      `/api/setup/local-models?variant=${variant}${stream ? "&stream=1" : ""}`,
     );
   /** Downloads a model file: a job to follow; cancelling it pauses, starting again goes on. */
   downloadModel = (repo: string, file: string, variant: EngineVariant) =>

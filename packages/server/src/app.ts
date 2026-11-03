@@ -2308,7 +2308,13 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     wizard(c, async () => {
       const folder = modelsFor(c.req.query("variant"));
       if (!folder) return { models: [], files: [] };
-      const budget = (await (setup as SetupService).state()).hardware.suggestion.maxModelGb;
+      const hw = (await (setup as SetupService).state()).hardware;
+      // SSD stream (2026-11-03): a model may be as big as RAM and card together; what does not
+      // fit there is read from the SSD, slower but possible.
+      const budget =
+        c.req.query("stream") === "1"
+          ? Math.max(hw.suggestion.maxModelGb, Math.round(hw.ramGb * 0.85 + hw.suggestion.vramGb))
+          : hw.suggestion.maxModelGb;
       return { models: await localModelChoices(folder, budget), files: await folder.local() };
     }),
   );

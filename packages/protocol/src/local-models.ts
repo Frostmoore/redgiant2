@@ -82,7 +82,12 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
 export interface SpeedHardware {
   kind: "gpu" | "gpu-unknown" | "igpu" | "cpu";
   vramGb: number;
+  /** For SSD stream: what does not fit in RAM is read from the SSD. */
+  ramGb?: number;
 }
+
+/** GB a second a good NVMe SSD gives to reads of this kind (spread, not one long file). */
+const SSD_GB_S = 3;
 
 /**
  * About how many words a second a model writes here, and that as 1 to 5. Writing one word
@@ -94,7 +99,18 @@ export function estimatedSpeed(
   m: Pick<LocalModel, "totalB" | "activeB">,
   fileGb: number,
   hw: SpeedHardware,
+  opts: { stream?: boolean } = {},
 ): { wordsPerSec: number; stars: number } {
+  // SSD stream and a model bigger than the card: the working part comes from RAM, and what
+  // does not fit in RAM either from the SSD at each word (2026-11-03).
+  if (opts.stream && !(hw.kind === "gpu" && fileGb <= hw.vramGb * 0.9)) {
+    const perWord = Math.max(0.2, (fileGb * m.activeB) / m.totalB);
+    const ram = (hw.ramGb ?? 16) * 0.85 + (hw.kind === "gpu" ? hw.vramGb : 0);
+    const fromSsd = Math.max(0, (fileGb - ram) / fileGb);
+    const seconds = (perWord * (1 - fromSsd)) / 45 + (perWord * fromSsd) / SSD_GB_S;
+    const wordsPerSec = Math.max(0, Math.round((0.5 * 0.75) / seconds));
+    return { wordsPerSec, stars: starsFor(wordsPerSec) };
+  }
   const inCard = hw.kind === "gpu" && fileGb <= hw.vramGb * 0.9;
   const bandwidth =
     hw.kind === "gpu"
@@ -109,15 +125,7 @@ export function estimatedSpeed(
   const readPerWord = Math.max(0.2, (fileGb * m.activeB) / m.totalB);
   // Real engines reach about half of the bandwidth; a token is about three quarters of a word.
   const wordsPerSec = Math.round((bandwidth / readPerWord) * 0.5 * 0.75);
-  const stars =
-    wordsPerSec >= 60
-      ? 5
-      : wordsPerSec >= 30
-        ? 4
-        : wordsPerSec >= 15
-          ? 3
-          : wordsPerSec >= 7
-            ? 2
-            : 1;
-  return { wordsPerSec, stars };
+  return { wordsPerSec, stars: starsFor(wordsPerSec) };
 }
+
+const starsFor = (w: number) => (w >= 60 ? 5 : w >= 30 ? 4 : w >= 15 ? 3 : w >= 7 ? 2 : 1);

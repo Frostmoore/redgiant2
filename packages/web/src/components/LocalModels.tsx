@@ -9,7 +9,7 @@ import { t, tOptional } from "../i18n.js";
 import { IconCpu, IconDownload, IconPlay, IconTrash } from "../icons.js";
 import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
-import { Advanced, Field, JobView, Progress } from "./ui.js";
+import { Advanced, Field, JobView, Pick, Progress } from "./ui.js";
 
 const gb = (n: number) => `${n.toFixed(1)} GB`;
 /** The name a repository's file gets in the models folder (as the server names it). */
@@ -84,6 +84,65 @@ function RoomBar({ sizeGb, maxGb }: { sizeGb: number; maxGb: number }) {
 const latest = (jobs: Job[], kind: string, model: string) =>
   jobs.filter((j) => j.kind === kind && j.vars.model === model).at(-1);
 
+type Availability = { ok: boolean; reason?: string; warn?: string };
+
+/**
+ * SSD stream needs the models on a solid-state disk with room (2026-11-03). The disk is the
+ * one the chosen engine keeps its models on: unknown (an older RedGiant.exe) still allows it.
+ */
+function streamAvailable(s: SetupState, variant: EngineVariant): Availability {
+  const hw = s.hardware;
+  const name = variant === "windows" ? hw.modelDisk?.windows : hw.modelDisk?.docker;
+  const disk =
+    hw.disks?.find((d) => d.name === name) ?? (hw.disks?.length === 1 ? hw.disks[0] : undefined);
+  if (!disk) return { ok: true, warn: t("lmStreamUnknownDisk") };
+  const label = disk.name === "/" ? t("lmStreamThisDisk") : `${disk.name}:`;
+  if (disk.ssd === false) return { ok: false, reason: t("lmStreamHdd", { disk: label }) };
+  if (disk.freeGb < 20)
+    return { ok: false, reason: t("lmStreamNoRoom", { disk: label, free: gb(disk.freeGb) }) };
+  if (disk.ssd === null) return { ok: true, warn: t("lmStreamMaybeSsd", { disk: label }) };
+  return { ok: true };
+}
+
+/** The switch with what it does, why it is off when it is, and what the last start decided. */
+function StreamSwitch({
+  on,
+  available,
+  plan,
+  onChange,
+}: {
+  on: boolean;
+  available: Availability;
+  plan: { ctx: number; moeCacheMib: number; source: string; ssdGbPerWord: number } | undefined;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <div class={`lm-stream${available.ok ? "" : " off"}`}>
+      <Pick on={on} onChange={(v) => available.ok && onChange(v)}>
+        <strong>{t("lmStream")}</strong>
+      </Pick>
+      <p class="ui-help">{t("lmStreamHelp")}</p>
+      {!available.ok && <p class="notice">{available.reason}</p>}
+      {available.ok && available.warn && <p class="ui-help">{available.warn}</p>}
+      {on && plan && (
+        <p class="ui-help">
+          {t("lmStreamPlan", {
+            ctx: `${Math.round(plan.ctx / 1024)}k`,
+            cache:
+              plan.moeCacheMib > 0 ? t("lmStreamCache", { gb: gb(plan.moeCacheMib / 1024) }) : "",
+            source:
+              plan.source === "ssd"
+                ? t("lmStreamFromSsd", { gb: plan.ssdGbPerWord.toFixed(2) })
+                : plan.source === "ram"
+                  ? t("lmStreamFromRam")
+                  : t("lmStreamFromCard"),
+          })}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** What can be done with one model file: download, pause, go on, start, use, delete. */
 function FileActions({
   repo,
@@ -93,6 +152,7 @@ function FileActions({
   jobs,
   active,
   variant,
+  stream,
   onChange,
 }: {
   repo: string | null;
@@ -102,6 +162,8 @@ function FileActions({
   jobs: Job[];
   active: boolean;
   variant: EngineVariant;
+  /** Start it with SSD stream (2026-11-03). */
+  stream?: boolean;
   onChange: () => void;
 }) {
   const name = target(file);
@@ -177,7 +239,7 @@ function FileActions({
               <button
                 type="button"
                 class="primary"
-                onClick={() => act(() => getApi().setupEngine({ variant, model: name }))}
+                onClick={() => act(() => getApi().setupEngine({ variant, model: name, stream }))}
               >
                 <IconPlay /> {t("lmStart")}
               </button>
@@ -225,12 +287,14 @@ function HfSearch({
   files,
   active,
   variant,
+  stream,
   onChange,
 }: {
   jobs: Job[];
   files: LocalFile[];
   active: string | undefined;
   variant: EngineVariant;
+  stream: boolean;
   onChange: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -293,6 +357,7 @@ function HfSearch({
                 jobs={jobs}
                 active={active === target(f.file)}
                 variant={variant}
+                stream={stream}
                 onChange={onChange}
               />
             </li>
@@ -311,16 +376,18 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
     s.config.engine?.variant ?? s.hardware.suggestion.engine,
   );
   const [error, setError] = useState<string>();
-  const load = (v: EngineVariant = variant) => {
+  const [stream, setStream] = useState(s.config.engine?.stream ?? false);
+  const canStream = streamAvailable(s, variant);
+  const load = (v: EngineVariant = variant, st: boolean = stream) => {
     void getApi()
-      .localModels(v)
+      .localModels(v, st && canStream.ok)
       .then(setData, (e: unknown) => setError(explain(e)));
     void getApi()
       .jobs()
       .then(setJobs, () => {});
   };
   // Each engine keeps its models in its own folder: changing engine shows that folder.
-  useEffect(() => load(variant), [variant]);
+  useEffect(() => load(variant, stream), [variant, stream]);
   // While something runs, its progress is read every second; when it ends, everything again.
   const running = jobs.some((j) => j.state === "running");
   useEffect(() => {
@@ -363,6 +430,12 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
       </div>
       {s.locked.engine && <p class="notice">{t("wzLocked")}</p>}
       {error && <p class="notice error">{error}</p>}
+      <StreamSwitch
+        on={stream && canStream.ok}
+        available={canStream}
+        plan={s.config.engine?.stream ? s.config.engine.plan : undefined}
+        onChange={(v) => setStream(v)}
+      />
       <h3>{t("lmSuggested")}</h3>
       <p class="ui-help">{t("lmScoresHint")}</p>
       {!data && <p class="ui-help">{t("lmLoading")}</p>}
@@ -425,6 +498,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
                     jobs={jobs}
                     active={inUse}
                     variant={variant}
+                    stream={stream}
                     onChange={changed}
                   />
                 ) : (
@@ -460,6 +534,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
                   jobs={jobs}
                   active={active === f.file}
                   variant={variant}
+                  stream={stream}
                   onChange={changed}
                 />
               </li>
@@ -492,6 +567,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
             files={files}
             active={active}
             variant={variant}
+            stream={stream && canStream.ok}
             onChange={changed}
           />
         </div>

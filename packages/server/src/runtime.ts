@@ -257,10 +257,13 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
           await provider.connect();
           o.providers.register(provider);
         };
-        if (h) return started();
+        if (h) {
+          await started();
+          return plan;
+        }
         // At startup nobody waits: the launcher may still be starting.
         void started().catch((err) => console.warn(`engine (Windows): ${(err as Error).message}`));
-        return;
+        return plan;
       }
       const image = e.image[cfg.variant];
       const present = await e.docker
@@ -335,7 +338,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
           }
           console.warn("engine: the local engine did not answer within 10 minutes");
         })();
-        return;
+        return plan;
       }
       // Loading a model takes from seconds to minutes; a container that stops tells why.
       h.step("load");
@@ -361,6 +364,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         await container.remove({ force: true }).catch(() => {});
         throw new JobFailure("no_gpu", "llama.cpp found no usable GPU and would run on the CPU");
       }
+      return plan;
     },
 
     async searxng(on, h) {

@@ -56,7 +56,20 @@ function fakeHooks() {
       calls.push(`search:${c ? (c.url ?? `${c.provider}:${c.key ? "key" : "none"}`) : null}`);
     },
     async engine(cfg) {
-      calls.push(`engine:${cfg ? `${cfg.variant}:${cfg.model}` : "off"}`);
+      const share = cfg?.tuning?.moeCacheShare;
+      calls.push(
+        `engine:${cfg ? `${cfg.variant}:${cfg.model}${cfg.stream ? `:stream${share ?? ""}` : ""}` : "off"}`,
+      );
+      // A mixture of experts streamed: a plan with a cache for its experts.
+      if (cfg?.stream)
+        return {
+          ctx: 131072,
+          args: ["--cpu-moe"],
+          fit: true,
+          moeCacheMib: Math.round((share ?? 0.3) * 8192),
+          source: "ram" as const,
+          ssdGbPerWord: 0,
+        };
     },
     async pihole(o, h) {
       if (o?.lanIp === "10.9.9.9") throw new JobFailure("port_busy", "port 53 is taken");
@@ -147,7 +160,7 @@ describe("the setup wizard", () => {
     const job = await api<Job>("PUT", "/api/setup/engine", {
       engine: { variant: "cuda", model: "gemma.gguf" },
     });
-    expect(job.body.steps.map((x) => x.id)).toEqual(["image", "start", "load", "try"]);
+    expect(job.body.steps.map((x) => x.id)).toEqual(["image", "start", "load", "tune", "try"]);
     expect((await s?.core.jobs.settled(job.body.id))?.state).toBe("done");
     expect(
       (await api("PUT", "/api/setup/engine", { engine: { variant: "cpu", model: "../x.gguf" } }))
@@ -329,6 +342,40 @@ describe("the setup wizard", () => {
     });
     expect(calls.at(-1)).toBe("search:http://s:8080");
     expect((await api<SetupState>("GET", "/api/setup")).body.secretsSet.search).toEqual(["tavily"]);
+  });
+
+  it("streams a mixture of experts from the SSD, tuning the card's split by measuring (2026-11-03)", async () => {
+    const { calls } = await setup();
+    const api = (s as Server).api;
+    // The engine writes fastest with 30 % of the card for the experts (the fake's say).
+    const share = 0;
+    s?.core.providers.register(
+      new FakeProvider(() => ({ text: "OK" }), { id: "local", now: () => 0 }),
+    );
+    const job = await api<Job>("PUT", "/api/setup/engine", {
+      engine: { variant: "cuda", model: "qwen.gguf", stream: true },
+    });
+    const done = await s?.core.jobs.settled(job.body.id);
+    expect(done?.state).toBe("done");
+    expect(done?.steps.find((x) => x.id === "tune")?.state).toBe("done");
+    const tries = calls.filter((c) => c.startsWith("engine:cuda:qwen.gguf:stream0."));
+    expect(tries.slice(0, 3)).toEqual([
+      "engine:cuda:qwen.gguf:stream0.15",
+      "engine:cuda:qwen.gguf:stream0.3",
+      "engine:cuda:qwen.gguf:stream0.5",
+    ]);
+    const state = (await api<SetupState>("GET", "/api/setup")).body;
+    expect(state.config.engine?.stream).toBe(true);
+    expect(state.config.engine?.tuning?.moeCacheShare).toBeDefined();
+    expect(state.config.engine?.plan?.ctx).toBe(131072);
+    // Started again with the same model: the tuning found is used, no new measuring.
+    const before = calls.length;
+    const again = await api<Job>("PUT", "/api/setup/engine", {
+      engine: { variant: "cuda", model: "qwen.gguf", stream: true },
+    });
+    const second = await s?.core.jobs.settled(again.body.id);
+    expect(second?.steps.find((x) => x.id === "tune")?.state).toBe("skipped");
+    expect(calls.length - before).toBe(1);
   });
 
   it("runs Pi-hole by choice, keeps its password and stops it", async () => {

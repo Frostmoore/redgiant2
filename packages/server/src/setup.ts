@@ -14,7 +14,7 @@ import {
   OWN_SERVER_ID,
   type SearchProviderId,
 } from "@redgiant/protocol";
-import { ProviderError } from "@redgiant/providers";
+import { complete, ProviderError } from "@redgiant/providers";
 import {
   type ClaudeAccount,
   ClaudeLogin,
@@ -593,10 +593,34 @@ export class SetupService {
     return this.o.core.jobs.start(
       this.o.ownerId,
       "engine",
-      ["image", "start", "load", "try"],
+      ["image", "start", "load", "tune", "try"],
       async (h) => {
-        const { plan: _old, ...wanted } = e;
-        const plan = await this.o.hooks.engine(wanted, h);
+        const { plan: _old, ...asked } = e;
+        let wanted: EngineConfig = asked;
+        let plan = await this.o.hooks.engine(wanted, h);
+        // SSD stream of a mixture of experts, not tuned yet for this model: the card's room is
+        // split three ways between the experts' cache and the context, each one measured, and
+        // the fastest kept (2026-11-03).
+        const tuned = this.config.engine?.model === e.model && this.config.engine?.tuning;
+        if (plan && plan.moeCacheMib > 0 && !e.tuning && !tuned) {
+          h.step("tune");
+          const shares = [0.15, 0.3, 0.5];
+          let best = { share: 0.3, speed: -1 };
+          for (const [i, share] of shares.entries()) {
+            h.progress(i, shares.length);
+            const cfg = { ...asked, tuning: { moeCacheShare: share } };
+            await this.o.hooks.engine(cfg);
+            await this.waitLocal(h);
+            const speed = await this.benchLocal(e.model).catch(() => 0);
+            if (speed > best.speed) best = { share, speed };
+          }
+          h.progress(shares.length, shares.length);
+          wanted = { ...asked, tuning: { moeCacheShare: best.share } };
+          plan = await this.o.hooks.engine(wanted, h);
+        } else {
+          h.skip("tune");
+          if (tuned) wanted = { ...asked, tuning: tuned };
+        }
         h.step("try");
         try {
           await this.o.core.trialModel(this.o.ownerId, { provider: "local", model: e.model });
@@ -612,6 +636,41 @@ export class SetupService {
       },
       { model: e.model },
     );
+  }
+
+  /** Until the local engine answers (after a restart without a job of its own). */
+  private async waitLocal(h: JobHandle): Promise<void> {
+    for (let i = 0; i < 450; i++) {
+      if (h.signal.aborted) throw new Error("cancelled");
+      const ok = await this.o.core
+        .trialModel(this.o.ownerId, { provider: "local", model: "probe" })
+        .then(() => true)
+        .catch(() => false);
+      if (ok) return;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    throw new JobFailure("load_timeout", "The model did not load again within 15 minutes");
+  }
+
+  /** Words a second the local engine writes after reading a context of about 2,000 tokens. */
+  private async benchLocal(model: string): Promise<number> {
+    const p = this.o.core.providers.get("local");
+    const text = "RedGiant measures how fast this computer runs the model. ".repeat(180);
+    const c = await complete(
+      p.stream({
+        model,
+        system: "",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            parts: [{ type: "text", text: `${text}\nSay in three sentences what this text is.` }],
+          },
+        ],
+        maxTokens: 64,
+      }),
+    );
+    return c.metrics.tokPerSec ?? 0;
   }
 
   private checkEngine(e: EngineConfig | null): void {
