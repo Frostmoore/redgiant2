@@ -1543,7 +1543,7 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /** Where boards' pages are kept, apart from every workspace (G25.4). */
-  private boardDir(id: string): string {
+  boardDir(id: string): string {
     return join(dirname(this.o.platformDir), "boards", id);
   }
 
@@ -2960,6 +2960,13 @@ export class RedGiantCore implements OrchestrationHost {
             text: reply.slice(0, 300),
           }),
     });
+  }
+
+  /** Conversations working or with messages waiting (the evals wait for none after delegating). */
+  busySessions(): string[] {
+    return [...this.live.values()]
+      .filter((l) => l.running || (l.queue?.length ?? 0) > 0)
+      .map((l) => l.id);
   }
 
   async interrupt(ownerId: string, sessionId: string): Promise<boolean> {
