@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import type { Agent } from "../api.js";
 import { t, tOptional } from "../i18n.js";
+import { IconPlus, IconSettings } from "../icons.js";
 import { agents, attempt, getApi, openAgent, projects, refresh } from "../state.js";
 import { AgentWizard } from "./AgentWizard.js";
 import { CompactionSettings } from "./CompactionSettings.js";
@@ -158,107 +159,93 @@ function AgentModel({ agent }: { agent: Agent }) {
   );
 }
 
-/** Assigns an agent to other projects (2026-11-03): it then sits under their orchestrators. */
-function AgentProjects({ agent }: { agent: Agent }) {
-  const others = projects.value.filter((p) => p.id !== agent.projectId);
-  const mine = new Set(agent.projects ?? []);
-  const save = (next: Set<string>) =>
-    void attempt(() => getApi().configureAgent(agent.id, { projects: [...next] })).then(refresh);
-  if (others.length === 0) return <p class="ui-help">{t("assignNoProjects")}</p>;
-  return (
-    <div class="agent-projects">
-      <span class="ui-help">{t("assignHelp", { name: agent.name })}</span>
-      {others.map((p) => (
-        <label key={p.id} class="row">
-          <input
-            type="checkbox"
-            checked={mine.has(p.id)}
-            onChange={(e) => {
-              const next = new Set(mine);
-              if ((e.target as HTMLInputElement).checked) next.add(p.id);
-              else next.delete(p.id);
-              save(next);
-            }}
-          />
-          {p.name}
-        </label>
-      ))}
-    </div>
-  );
-}
-
 function Node({ agent, depth }: { agent: Agent; depth: number }) {
   const [adding, setAdding] = useState(false);
-  const [tuning, setTuning] = useState(false);
-  const [choosing, setChoosing] = useState(false);
-  const [assigning, setAssigning] = useState(false);
-  const canAssign =
-    (agent.kind === "agent" || agent.kind === "assistant") && agent.status === "active";
+  const [panel, setPanel] = useState<"model" | "settings" | null>(null);
   const children = agents.value.filter((a) => a.parentId === agent.id);
   const canAdd = CHILDREN[agent.kind].some((k) => k !== "subagent") && agent.status === "active";
+  const active = agent.status === "active";
+  const toggle = (p: "model" | "settings") => setPanel(panel === p ? null : p);
   return (
-    <div class="node" style={{ marginLeft: `${depth * 18}px` }}>
-      <div class={`node-row ${agent.status}`}>
-        <span class={`kind ${agent.kind}`}>{t(`kind_${agent.kind}`)}</span>
-        <button type="button" class="link" onClick={() => void attempt(() => openAgent(agent))}>
-          {agent.name}
-        </button>
-        {agent.role && <span class="dim">{agent.role}</span>}
-        {agent.status === "active" ? (
+    <div class="node" style={{ marginLeft: `${depth * 22}px` }}>
+      <div class={`agent-card ${agent.status}`}>
+        <div class="agent-card-head">
+          <span class={`kind ${agent.kind}`}>{t(`kind_${agent.kind}`)}</span>
           <button
             type="button"
-            class={`chip ${agent.model ? "" : "muted"}`}
-            title={t("agentModelChange")}
-            onClick={() => setChoosing(!choosing)}
+            class="link agent-card-name"
+            onClick={() => void attempt(() => openAgent(agent))}
           >
-            {agent.model ? modelName(agent.model.model) : t("agentModelNone")}
-            {agent.model?.effort ? ` · ${t(`effort_${agent.model.effort}` as never)}` : ""}
+            {agent.name}
           </button>
-        ) : (
-          agent.model && <span class="chip">{modelName(agent.model.model)}</span>
+          {agent.status === "stopped" && <span class="chip muted">{t("stopped")}</span>}
+        </div>
+        {agent.role && <p class="agent-card-role">{agent.role}</p>}
+        {active && (
+          <div class="agent-card-actions">
+            <button
+              type="button"
+              aria-expanded={panel === "model"}
+              title={t("agentModelChange")}
+              onClick={() => toggle("model")}
+            >
+              {t("model")}:{" "}
+              <strong>
+                {agent.model ? modelName(agent.model.model) : t("agentModelNone")}
+                {agent.model?.effort ? ` · ${t(`effort_${agent.model.effort}` as never)}` : ""}
+              </strong>
+            </button>
+            {agent.kind !== "demigod" && (
+              <button
+                type="button"
+                aria-expanded={panel === "settings"}
+                onClick={() => toggle("settings")}
+              >
+                <IconSettings size={14} /> {t("agentSettings")}
+              </button>
+            )}
+            <span class="spacer" />
+            {agent.kind !== "god" && (
+              <button
+                type="button"
+                class="danger"
+                onClick={() => {
+                  if (confirm(t("agentStopConfirm", { name: agent.name })))
+                    void attempt(() => getApi().stopAgent(agent.id)).then(refresh);
+                }}
+              >
+                {t("stop")}
+              </button>
+            )}
+          </div>
         )}
-        {agent.mode && (
-          <span class="chip">{tOptional(`agentMode_${agent.mode}`) ?? agent.mode}</span>
-        )}
-        {agent.status === "stopped" && <span class="chip muted">{t("stopped")}</span>}
-        {canAssign && (
-          <button
-            type="button"
-            class="tiny"
-            title={t("assignTitle")}
-            onClick={() => setAssigning(!assigning)}
-          >
-            {t("assignButton")}
-            {(agent.projects?.length ?? 0) > 0 ? ` · ${agent.projects?.length}` : ""}
-          </button>
-        )}
-        {agent.status === "active" && agent.kind !== "demigod" && (
-          <button type="button" class="tiny" onClick={() => setTuning(!tuning)}>
-            {t("compactSettings")}
-          </button>
-        )}
-        {canAdd && (
-          <button type="button" onClick={() => setAdding(!adding)}>
-            +
-          </button>
-        )}
-        {agent.status === "active" && agent.kind !== "god" && (
-          <button
-            type="button"
-            class="danger"
-            onClick={() => void attempt(() => getApi().stopAgent(agent.id)).then(refresh)}
-          >
-            {t("stop")}
-          </button>
+        {panel === "model" && <AgentModel agent={agent} />}
+        {panel === "settings" && (
+          <div class="agent-card-settings">
+            <h4>{t("compactTitle")}</h4>
+            <p class="ui-help">{t("compactExplain")}</p>
+            <CompactionSettings agent={agent} />
+          </div>
         )}
       </div>
-      {adding && <NewAgentForm parent={agent} onDone={() => setAdding(false)} />}
-      {choosing && <AgentModel agent={agent} />}
-      {assigning && <AgentProjects agent={agent} />}
-      {tuning && <CompactionSettings agent={agent} />}
       {children.map((c) => (
         <Node key={c.id} agent={c} depth={depth + 1} />
       ))}
+      {canAdd &&
+        (adding ? (
+          <div style={{ marginLeft: "22px" }}>
+            <NewAgentForm parent={agent} onDone={() => setAdding(false)} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            class="agent-add"
+            style={{ marginLeft: "22px", width: "calc(100% - 22px)" }}
+            onClick={() => setAdding(true)}
+          >
+            <IconPlus size={14} /> {t("agentAddUnder", { name: agent.name })}
+          </button>
+        ))}
     </div>
   );
 }
@@ -274,22 +261,13 @@ export function ProjectAgents({ projectId }: { projectId: string }) {
   const assigned = agents.value.filter(
     (a) => a.status === "active" && a.projectId !== projectId && a.projects?.includes(projectId),
   );
-  const candidates = agents.value.filter(
-    (a) =>
-      a.status === "active" &&
-      (a.kind === "agent" || a.kind === "assistant") &&
-      a.projectId !== projectId &&
-      !a.projects?.includes(projectId),
-  );
   const assign = (a: Agent, on: boolean) => {
     const next = new Set(a.projects ?? []);
     if (on) next.add(projectId);
     else next.delete(projectId);
     void attempt(() => getApi().configureAgent(a.id, { projects: [...next] })).then(refresh);
   };
-  const assignedBlock = (
-    <AssignedUnder assigned={assigned} candidates={candidates} assign={assign} />
-  );
+  const assignedBlock = <AssignedUnder assigned={assigned} assign={assign} />;
   return (
     <div class="hierarchy settings-section">
       <h2>{t("agentsOf", { project: name })}</h2>
@@ -309,13 +287,12 @@ export function ProjectAgents({ projectId }: { projectId: string }) {
 /** The agents assigned to a project, right under its orchestrator, and how to add one. */
 function AssignedUnder({
   assigned,
-  candidates,
   assign,
 }: {
   assigned: Agent[];
-  candidates: Agent[];
   assign: (a: Agent, on: boolean) => void;
 }) {
+  if (assigned.length === 0) return null;
   return (
     <div class="assigned" style={{ marginLeft: "18px" }}>
       {assigned.map((a) => (
@@ -327,24 +304,6 @@ function AssignedUnder({
           </button>
         </div>
       ))}
-      {candidates.length > 0 && (
-        <select
-          aria-label={t("assignHere")}
-          value=""
-          onChange={(e) => {
-            const a = candidates.find((x) => x.id === (e.target as HTMLSelectElement).value);
-            if (a) assign(a, true);
-          }}
-        >
-          <option value="">{t("assignHere")}</option>
-          {candidates.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-              {a.role ? ` — ${a.role}` : ""}
-            </option>
-          ))}
-        </select>
-      )}
     </div>
   );
 }

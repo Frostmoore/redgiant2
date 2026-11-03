@@ -198,11 +198,11 @@ export class Rooms {
     },
   ): Promise<Room> {
     const ids = [...new Set([...(input.from ? [input.from.agentId] : []), ...input.members])];
-    if (ids.length === 0) throw new RoomError("A group chat needs at least one agent");
+    // An empty group is fine (2026-11-03): the person adds whoever they want after.
     if (ids.length > MAX_MEMBERS) throw new RoomError(`At most ${MAX_MEMBERS} agents`);
     const agents = ids.map((id) => this.agent(ownerId, id));
     const id = `room_${randomUUID().slice(0, 12)}`;
-    const title = input.title?.trim() || agents.map((a) => a.name).join(", ");
+    const title = input.title?.trim() || agents.map((a) => a.name).join(", ") || "New group";
     await this.h.db.query("INSERT INTO rg_rooms (id, owner_id, title) VALUES ($1, $2, $3)", [
       id,
       ownerId,

@@ -5,7 +5,6 @@ import type { ChatSummary } from "../api.js";
 import { t } from "../i18n.js";
 import { IconChat, IconFolder, IconPlus, IconUsers } from "../icons.js";
 import {
-  agents,
   attempt,
   chatRows,
   getApi,
@@ -54,7 +53,6 @@ export function Chats() {
   const all = chatRows.value;
   const folders = [...new Set(all.flatMap((c) => (c.folder ? [c.folder] : [])))].sort();
   const loose = all.filter((c) => !c.folder);
-  const god = agents.value.find((a) => a.kind === "god");
   const newChat = () =>
     openTab({
       id: `daily:new:${Date.now()}`,
@@ -96,21 +94,21 @@ export function Chats() {
         </h2>
         <p class="ui-help">{t("groupsEmpty")}</p>
         <div class="chat-grid">
-          {god && (
-            <button
-              type="button"
-              class="chat-card chat-card-new"
-              onClick={() =>
-                void attempt(() => getApi().createRoom({ members: [god.id] })).then(async (r) => {
+          <button
+            type="button"
+            class="chat-card chat-card-new"
+            onClick={() =>
+              void attempt(() => getApi().createRoom({ members: [], title: t("groupNew") })).then(
+                async (r) => {
                   if (!r) return;
                   await refresh();
                   openTab({ id: `room:${r.id}`, type: "room", title: r.title, roomId: r.id });
-                })
-              }
-            >
-              <IconPlus size={18} /> {t("groupsNewHint", { god: god.name })}
-            </button>
-          )}
+                },
+              )
+            }
+          >
+            <IconPlus size={18} /> {t("groupNew")}
+          </button>
           {rooms.value.map((r) => (
             <div key={r.id} class="chat-card">
               <button

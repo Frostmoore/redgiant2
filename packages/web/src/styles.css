@@ -3921,7 +3921,7 @@ button.chat-card-new {
   font-weight: 700;
 }
 .bar-notice {
-  margin-top: 10px;
+  margin: 10px 0 12px;
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
   background: var(--accent-soft, var(--panel));
   border-radius: 12px;
@@ -4024,4 +4024,67 @@ button.chat-card-new {
 .assigned-agent {
   border-left: 2px dashed var(--line);
   padding-left: 8px;
+}
+
+/* Agents as cards (2026-11-03): who, what it does, three clear actions, a wide "+" under it. */
+.agent-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.agent-card.stopped {
+  opacity: 0.6;
+}
+.agent-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.agent-card-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+.agent-card-role {
+  margin: 6px 0 0;
+  color: var(--dim);
+  font-size: 13px;
+}
+.agent-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.agent-card-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-card-settings {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.agent-card-settings h4 {
+  margin: 0 0 4px;
+}
+button.agent-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
+}
+button.agent-add:hover {
+  background: var(--panel);
 }

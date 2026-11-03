@@ -70,6 +70,11 @@ export async function migrateProjects(db: SqlClient): Promise<void> {
   await db.query("ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS last_at timestamptz");
   // Folders of conversations (2026-11-03): a name, or none.
   await db.query("ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS folder text");
+  // Work conversations once named after the task's id ("[Task task_… from God: title]"): the
+  // readable name they have now ("God: title").
+  await db.query(
+    String.raw`UPDATE rg_sessions SET title = rtrim(regexp_replace(title, '^\[Task task_[0-9a-f]+ from ([^:]+): (.*)$', '\1: \2'), ']') WHERE title LIKE '[Task task\_%'`,
+  );
 }
 
 export const slug = (name: string) =>

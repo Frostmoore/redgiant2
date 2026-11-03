@@ -18,6 +18,7 @@ import {
   openAgent,
   openSession,
   openTab,
+  projects,
   questions,
   refresh,
   sessionRows,
@@ -452,6 +453,25 @@ export function AssistantPage({ agentId }: { agentId: string | null }) {
         </button>
       )}
 
+      <h3>{t("asstProjects")}</h3>
+      <p class="ui-help">{t("asstProjectsHelp", { name: a.name })}</p>
+      {projects.value.length === 0 ? (
+        <p class="ui-help">{t("assignNoProjects")}</p>
+      ) : (
+        <Choice<string>
+          multiple
+          value={a.projects ?? []}
+          onChange={(next) =>
+            void attempt(() => getApi().configureAgent(a.id, { projects: next })).then(refresh)
+          }
+          options={projects.value.map((p) => ({
+            id: p.id,
+            title: p.name,
+            description: t("asstProjectCard"),
+          }))}
+        />
+      )}
+
       <h3>{t("asstMemory")}</h3>
       <NoteEditor
         path={`memory/${a.id}.md`}
@@ -465,7 +485,8 @@ export function AssistantPage({ agentId }: { agentId: string | null }) {
       <SkillSwitches agent={a} />
 
       <Advanced>
-        <h3>{t("compactSettings")}</h3>
+        <h3>{t("compactTitle")}</h3>
+        <p class="ui-help">{t("compactExplain")}</p>
         <CompactionSettings agent={a} />
         <button
           type="button"

@@ -34,7 +34,12 @@ SolidCompression=no
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 MinVersion=10.0.19041
-CloseApplications=force
+; The language is the one of Windows: no question at the start.
+ShowLanguageDialog=no
+LanguageDetectionMethod=uilanguage
+; RedGiant is closed by the setup itself (PrepareToInstall): Windows' own "close the
+; applications" page listed nothing it could name, and left the old RedGiant running.
+CloseApplications=no
 RestartApplications=no
 
 [Languages]
@@ -77,7 +82,7 @@ Name: "{userdesktop}\RedGiant"; Filename: "{app}\RedGiant.exe"; IconFilename: "{
 Name: "{userstartup}\RedGiant"; Filename: "{app}\RedGiant.exe"; Parameters: "--background"; IconFilename: "{app}\redgiant.ico"; Tasks: autostart
 
 [Run]
-Filename: "{app}\RedGiant.exe"; Description: "{cm:LaunchProgram,RedGiant}"; Flags: nowait postinstall
+Filename: "{app}\RedGiant.exe"; Description: "{cm:LaunchProgram,RedGiant}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 const
@@ -111,6 +116,9 @@ var
   Copy: String;
 begin
   Result := '';
+  { An open RedGiant (often only in the tray) would keep its files and stop the new one from
+    starting at the end: closed first. }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM RedGiant.exe /F', '', SW_HIDE, ewWaitUntilTerminated, Code);
   if WslWorks() then Exit;
   MsgBox(CustomMessage('WslNeeded'), mbInformation, MB_OK);
   ShellExec('runas', ExpandConstant('{sys}\wsl.exe'), '--install --no-distribution', '',
