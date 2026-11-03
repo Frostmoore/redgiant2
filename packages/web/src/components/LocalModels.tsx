@@ -143,6 +143,66 @@ function StreamSwitch({
   );
 }
 
+/**
+ * The SSD stream's tuning as it happens (2026-11-03): each split of the card tried, the context
+ * and the experts' cache it gave, how fast it read and wrote, and the one kept.
+ */
+function TuneTrials({ json }: { json: string }) {
+  let trials: {
+    share: number;
+    ctx: number;
+    cacheMib: number;
+    state: "running" | "done" | "failed";
+    genTps?: number;
+    prefillTps?: number;
+    chosen?: boolean;
+    error?: string;
+  }[] = [];
+  try {
+    trials = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  return (
+    <div class="lm-trials">
+      <strong>{t("lmTuneTitle")}</strong>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("lmTuneCache")}</th>
+            <th>{t("lmTuneCtx")}</th>
+            <th>{t("lmTuneRead")}</th>
+            <th>{t("lmTuneWrite")}</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {trials.map((x) => (
+            <tr key={x.share} class={x.chosen ? "chosen" : ""}>
+              <td>
+                {gb(x.cacheMib / 1024)} ({Math.round(x.share * 100)}%)
+              </td>
+              <td>{x.ctx ? `${Math.round(x.ctx / 1024)}k` : "–"}</td>
+              <td>{x.prefillTps ? `${x.prefillTps} tok/s` : "–"}</td>
+              <td>{x.genTps ? `${x.genTps} tok/s` : "–"}</td>
+              <td>
+                {x.state === "running"
+                  ? t("lmTuneRunning")
+                  : x.state === "failed"
+                    ? t("lmTuneFailed")
+                    : x.chosen
+                      ? t("lmTuneChosen")
+                      : ""}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p class="ui-help">{t("lmTuneHelp")}</p>
+    </div>
+  );
+}
+
 /** What can be done with one model file: download, pause, go on, start, use, delete. */
 function FileActions({
   repo,
@@ -213,6 +273,7 @@ function FileActions({
     body = (
       <div class="lm-ready">
         {eng && (eng.state === "running" || eng.state === "failed") && <JobView job={eng} />}
+        {eng?.vars.trials && <TuneTrials json={eng.vars.trials} />}
         <div class="row wrap">
           {active && eng?.state !== "running" ? (
             <>

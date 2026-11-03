@@ -84,6 +84,18 @@ export interface SetupHooks {
   ): Promise<{ adminUrl: string } | null>;
 }
 
+/** One try of the SSD stream's tuning, as the engine page shows it. */
+interface Trial {
+  share: number;
+  ctx: number;
+  cacheMib: number;
+  state: "running" | "done" | "failed";
+  genTps?: number;
+  prefillTps?: number;
+  chosen?: boolean;
+  error?: string;
+}
+
 /** A web search service with what it needs (2026-11-03). */
 export interface SearchChoice {
   provider: SearchProviderId;
@@ -605,17 +617,39 @@ export class SetupService {
         if (plan && plan.moeCacheMib > 0 && !e.tuning && !tuned) {
           h.step("tune");
           const shares = [0.15, 0.3, 0.5];
-          let best = { share: 0.3, speed: -1 };
+          // Each try as the page shows it (2026-11-03): the split, what it gave, how fast it went.
+          const trials: Trial[] = [];
+          const show = () => h.info({ trials: JSON.stringify(trials) });
           for (const [i, share] of shares.entries()) {
             h.progress(i, shares.length);
             const cfg = { ...asked, tuning: { moeCacheShare: share } };
-            await this.o.hooks.engine(cfg);
-            await this.waitLocal(h);
-            const speed = await this.benchLocal(e.model).catch(() => 0);
-            if (speed > best.speed) best = { share, speed };
+            const tried = await this.o.hooks.engine(cfg);
+            trials.push({
+              share,
+              ctx: tried ? tried.ctx : 0,
+              cacheMib: tried ? tried.moeCacheMib : 0,
+              state: "running",
+            });
+            show();
+            const trial = trials[trials.length - 1] as Trial;
+            try {
+              await this.waitLocal(h);
+              Object.assign(trial, await this.benchLocal(e.model), { state: "done" });
+            } catch (err) {
+              Object.assign(trial, {
+                state: "failed",
+                error: (err as Error).message.slice(0, 200),
+              });
+            }
+            show();
           }
           h.progress(shares.length, shares.length);
-          wanted = { ...asked, tuning: { moeCacheShare: best.share } };
+          const best = trials
+            .filter((x) => x.state === "done")
+            .sort((x, y) => (y.genTps ?? 0) - (x.genTps ?? 0))[0];
+          for (const x of trials) x.chosen = x === best;
+          show();
+          wanted = { ...asked, tuning: { moeCacheShare: best?.share ?? 0.3 } };
           plan = await this.o.hooks.engine(wanted, h);
         } else {
           h.skip("tune");
@@ -652,8 +686,8 @@ export class SetupService {
     throw new JobFailure("load_timeout", "The model did not load again within 15 minutes");
   }
 
-  /** Words a second the local engine writes after reading a context of about 2,000 tokens. */
-  private async benchLocal(model: string): Promise<number> {
+  /** How fast the local engine reads a context of about 2,000 tokens and writes 64. */
+  private async benchLocal(model: string): Promise<{ genTps: number; prefillTps: number }> {
     const p = this.o.core.providers.get("local");
     const text = "RedGiant measures how fast this computer runs the model. ".repeat(180);
     const c = await complete(
@@ -670,7 +704,11 @@ export class SetupService {
         maxTokens: 64,
       }),
     );
-    return c.metrics.tokPerSec ?? 0;
+    const fresh = Math.max(0, c.usage.inputTokens - c.usage.cachedReadTokens);
+    return {
+      genTps: Math.round((c.metrics.tokPerSec ?? 0) * 10) / 10,
+      prefillTps: c.metrics.prefillMs ? Math.round(fresh / (c.metrics.prefillMs / 1000)) : 0,
+    };
   }
 
   private checkEngine(e: EngineConfig | null): void {

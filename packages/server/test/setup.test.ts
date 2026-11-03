@@ -358,6 +358,15 @@ describe("the setup wizard", () => {
     const done = await s?.core.jobs.settled(job.body.id);
     expect(done?.state).toBe("done");
     expect(done?.steps.find((x) => x.id === "tune")?.state).toBe("done");
+    // Each try is on the job for the page: the split, the context, the speeds, the one kept.
+    const trials = JSON.parse(done?.vars.trials ?? "[]") as {
+      share: number;
+      ctx: number;
+      chosen?: boolean;
+    }[];
+    expect(trials.map((x) => x.share)).toEqual([0.15, 0.3, 0.5]);
+    expect(trials.every((x) => x.ctx === 131072)).toBe(true);
+    expect(trials.filter((x) => x.chosen)).toHaveLength(1);
     const tries = calls.filter((c) => c.startsWith("engine:cuda:qwen.gguf:stream0."));
     expect(tries.slice(0, 3)).toEqual([
       "engine:cuda:qwen.gguf:stream0.15",
