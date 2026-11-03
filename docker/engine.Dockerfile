@@ -10,12 +10,15 @@ FROM ghcr.io/ggml-org/llama.cpp:${VARIANT}
 #  --swa-full             keep sliding-window layers whole, or prefixes beyond the window
 #                         are recomputed every turn (Gemma and others)
 #  --jinja                the model's own chat template (tool calls, reasoning)
+#  --kv-unified           one memory pool for all slots: each conversation can use the whole
+#                         context (65536), not a quarter of it (8192 was too small for God)
 ENV LLAMA_ARG_HOST=0.0.0.0 \
     LLAMA_ARG_PORT=8080 \
     LLAMA_ARG_N_PARALLEL=4 \
     LLAMA_ARG_SWA_FULL=1 \
     LLAMA_ARG_JINJA=1 \
-    LLAMA_ARG_CTX_SIZE=32768
+    LLAMA_ARG_KV_UNIFIED=1 \
+    LLAMA_ARG_CTX_SIZE=65536
 VOLUME ["/kv", "/models"]
 # --slot-save-path has no environment variable: it is part of the entrypoint, so it can
 # never be silently missing. Arguments given to `docker run` (e.g. -m /models/x.gguf) follow.

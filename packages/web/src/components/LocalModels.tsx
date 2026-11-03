@@ -44,32 +44,40 @@ function recommended(models: LocalModelChoice[], hw: SetupState["hardware"]): st
   return ([...usable].sort((a, b) => score(b) - score(a))[0] ?? fitting.at(-1))?.id;
 }
 
-/** A drawn bar of five steps: how a model does at one thing, compared with the others. */
+/** Five drawn steps: how a model does at one thing, compared with the others (a table cell). */
 function Meter({ label, value, note }: { label: string; value: number; note?: string }) {
   return (
-    <div class="lm-meter" role="img" aria-label={`${label}: ${value}/5${note ? `, ${note}` : ""}`}>
-      <span class="lm-meter-label">{label}</span>
-      <span class="lm-meter-bar">
+    <span
+      role="img"
+      class="lm-meter"
+      data-label={label}
+      aria-label={`${label}: ${value}/5${note ? `, ${note}` : ""}`}
+    >
+      <span class="lm-meter-bar" aria-hidden="true">
         {[1, 2, 3, 4, 5].map((i) => (
           <span key={i} class={i <= value ? "on" : ""} />
         ))}
       </span>
       {note && <span class="lm-meter-note">{note}</span>}
-    </div>
+    </span>
   );
 }
 
-/** How much of the room for models the file takes. */
+/** How much of the room for models the file takes (a table cell). */
 function RoomBar({ sizeGb, maxGb }: { sizeGb: number; maxGb: number }) {
   const pct = Math.min(100, Math.round((sizeGb / Math.max(maxGb, 0.1)) * 100));
   return (
-    <div class="lm-room">
-      <span class="lm-meter-label">{t("lmRoom")}</span>
-      <span class={`lm-room-bar${pct > 85 ? " tight" : ""}`}>
+    <span
+      class="lm-room"
+      data-label={t("lmRoom")}
+      role="img"
+      aria-label={t("lmRoomOf", { size: gb(sizeGb), max: gb(maxGb) })}
+    >
+      <span class={`lm-room-bar${pct > 85 ? " tight" : ""}`} aria-hidden="true">
         <span style={{ width: `${pct}%` }} />
       </span>
       <span class="lm-meter-note">{t("lmRoomOf", { size: gb(sizeGb), max: gb(maxGb) })}</span>
-    </div>
+    </span>
   );
 }
 
@@ -358,62 +366,81 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
       <h3>{t("lmSuggested")}</h3>
       <p class="ui-help">{t("lmScoresHint")}</p>
       {!data && <p class="ui-help">{t("lmLoading")}</p>}
-      <div class="lm-cards">
-        {data?.models.map((m) => (
-          <div
-            key={m.id}
-            class={`lm-card${m.file ? "" : " too-big"}${m.id === best ? " best" : ""}`}
-          >
-            <div class="row">
-              <strong>{m.name}</strong>
-              {m.id === best && <span class="chip ok">{t("lmRecommended")}</span>}
-              {m.file && active === target(m.file.file) && (
-                <span class="chip ok">{t("lmInUse")}</span>
-              )}
-            </div>
-            <p class="ui-help">{tOptional(`lm_${m.id}`) ?? ""}</p>
-            <div class="lm-meters">
+      {/* One row a model, one column a quality: compared at a glance (2026-11-03). */}
+      <div class="lm-table">
+        <div class="lm-row lm-head">
+          <span>{t("lmModel")}</span>
+          <span>{t("lmScore_smart")}</span>
+          <span>{t("lmScore_code")}</span>
+          <span>{t("lmScore_tools")}</span>
+          <span>{t("lmScore_languages")}</span>
+          <span>{t("lmScore_speed")}</span>
+          <span>{t("lmRoom")}</span>
+          <span />
+        </div>
+        {data?.models.map((m) => {
+          const speed = m.file
+            ? estimatedSpeed(m, m.file.sizeGb, s.hardware.suggestion)
+            : undefined;
+          const inUse = !!m.file && active === target(m.file.file);
+          return (
+            <div
+              key={m.id}
+              class={`lm-row${m.file ? "" : " too-big"}${m.id === best ? " best" : ""}${inUse ? " in-use" : ""}`}
+            >
+              <span class="lm-name">
+                <span class="row wrap">
+                  <strong>{m.name}</strong>
+                  {m.id === best && <span class="chip ok">{t("lmRecommended")}</span>}
+                  {inUse && <span class="chip ok">{t("lmInUse")}</span>}
+                </span>
+                <span class="ui-help">{tOptional(`lm_${m.id}`) ?? ""}</span>
+                {m.file && <span class="lm-meta">{t(`lmQuality_${m.file.quality}`)}</span>}
+              </span>
               <Meter label={t("lmScore_smart")} value={m.scores.smart} />
               <Meter label={t("lmScore_code")} value={m.scores.code} />
               <Meter label={t("lmScore_tools")} value={m.scores.tools} />
               <Meter label={t("lmScore_languages")} value={m.scores.languages} />
-              {m.file && (
+              {speed ? (
                 <Meter
                   label={t("lmScore_speed")}
-                  value={estimatedSpeed(m, m.file.sizeGb, s.hardware.suggestion).stars}
-                  note={t("lmWordsPerSec", {
-                    n: String(estimatedSpeed(m, m.file.sizeGb, s.hardware.suggestion).wordsPerSec),
-                  })}
+                  value={speed.stars}
+                  note={t("lmWordsShort", { n: String(speed.wordsPerSec) })}
                 />
+              ) : (
+                <span />
               )}
-            </div>
-            {m.file ? (
-              <>
+              {m.file ? (
                 <RoomBar sizeGb={m.file.sizeGb} maxGb={s.hardware.suggestion.maxModelGb} />
-                <p class="lm-meta">{t(`lmQuality_${m.file.quality}`)}</p>
-                <FileActions
-                  repo={m.repo}
-                  file={m.file.file}
-                  sizeGb={m.file.sizeGb}
-                  local={files.find((f) => f.file === target(m.file?.file ?? ""))}
-                  jobs={jobs}
-                  active={active === target(m.file.file)}
-                  variant={variant}
-                  onChange={changed}
-                />
-              </>
-            ) : (
-              <p class="ui-help">
-                {m.unavailable
-                  ? t("lmUnavailable")
-                  : t("lmTooBig", {
-                      need: m.smallestGb ? gb(m.smallestGb) : "?",
-                      max: gb(s.hardware.suggestion.maxModelGb),
-                    })}
-              </p>
-            )}
-          </div>
-        ))}
+              ) : (
+                <span />
+              )}
+              <span class="lm-actions">
+                {m.file ? (
+                  <FileActions
+                    repo={m.repo}
+                    file={m.file.file}
+                    sizeGb={m.file.sizeGb}
+                    local={files.find((f) => f.file === target(m.file?.file ?? ""))}
+                    jobs={jobs}
+                    active={inUse}
+                    variant={variant}
+                    onChange={changed}
+                  />
+                ) : (
+                  <span class="ui-help">
+                    {m.unavailable
+                      ? t("lmUnavailable")
+                      : t("lmTooBig", {
+                          need: m.smallestGb ? gb(m.smallestGb) : "?",
+                          max: gb(s.hardware.suggestion.maxModelGb),
+                        })}
+                  </span>
+                )}
+              </span>
+            </div>
+          );
+        })}
       </div>
       {others.length > 0 && (
         <>

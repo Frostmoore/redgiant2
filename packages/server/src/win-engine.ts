@@ -68,7 +68,8 @@ export class WinEngine {
       id: randomUUID(),
       model,
       build: WIN_ENGINE_BUILD,
-      ctx: 32768,
+      // One pool for every slot (--kv-unified): each conversation can use all of it.
+      ctx: 65536,
       parallel: 4,
     };
     await mkdir(this.o.dir, { recursive: true });

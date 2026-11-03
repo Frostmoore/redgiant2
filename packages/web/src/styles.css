@@ -4694,31 +4694,74 @@ button.pick-tile.on {
   flex-wrap: wrap;
   gap: 6px;
 }
-/* Local models compared at a glance (2026-11-03): five-step bars and the room a file takes. */
-.lm-meters {
+/* Local models compared at a glance (2026-11-03): a table, one row a model; on a phone each
+   row becomes a card with the column's name before each value. */
+.lm {
+  container: local-models / inline-size;
+}
+.lm-table {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  margin: 8px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 8px 0 16px;
+}
+.lm-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) repeat(4, 84px) 120px 120px minmax(140px, 1.2fr);
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+.lm-row.lm-head {
+  border-top: 0;
+  background: var(--panel-2);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dim);
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.lm-row.best {
+  box-shadow: inset 3px 0 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel));
+}
+.lm-row.too-big > :not(.lm-name):not(.lm-actions) {
+  opacity: 0.35;
+}
+.lm-row.too-big .lm-name strong {
+  color: var(--dim);
+}
+.lm-name {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.lm-name .ui-help {
+  font-size: 12.5px;
+}
+.lm-meta {
+  font-size: 12px;
+  color: var(--dim);
 }
 .lm-meter,
 .lm-room {
-  display: grid;
-  grid-template-columns: 9.5em auto 1fr;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-}
-.lm-meter-label {
-  color: var(--dim);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 .lm-meter-bar {
   display: inline-flex;
   gap: 3px;
 }
 .lm-meter-bar span {
-  width: 18px;
-  height: 7px;
+  width: 14px;
+  height: 8px;
   border-radius: 4px;
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -4730,10 +4773,12 @@ button.pick-tile.on {
 .lm-meter-note {
   color: var(--dim);
   font-size: 12px;
+  white-space: nowrap;
 }
 .lm-room-bar {
-  width: 102px;
-  height: 7px;
+  width: 100%;
+  max-width: 120px;
+  height: 8px;
   border-radius: 4px;
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -4747,6 +4792,37 @@ button.pick-tile.on {
 .lm-room-bar.tight span {
   background: var(--warn);
 }
-.lm-meter-note {
+.lm-actions {
+  min-width: 0;
+}
+@container local-models (max-width: 1000px) {
+  .lm-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: start;
+    row-gap: 12px;
+  }
+  .lm-row > .lm-meter[data-label]:nth-child(6),
+  .lm-row > .lm-room {
+    grid-column: span 2;
+  }
+  .lm-row.lm-head {
+    display: none;
+  }
+  .lm-name,
+  .lm-actions {
+    grid-column: 1 / -1;
+  }
+  .lm-meter::before,
+  .lm-room::before {
+    content: attr(data-label);
+    font-size: 12px;
+    color: var(--dim);
+  }
+}
+/* The models page is wide enough for the comparison table. */
+.settings-section.brain-settings {
+  max-width: 1200px;
+}
+.lm-actions button {
   white-space: nowrap;
 }

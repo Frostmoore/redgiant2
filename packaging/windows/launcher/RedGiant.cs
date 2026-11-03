@@ -418,7 +418,7 @@ static class WinEngine
         int gen;
         lock (gate) gen = ++generation;
         var t = new Thread(() => Handle(gen, id, Field(json, "model"), Field(json, "build"),
-            Field(json, "ctx") ?? "32768", Field(json, "parallel") ?? "4")) { IsBackground = true };
+            Field(json, "ctx") ?? "65536", Field(json, "parallel") ?? "4")) { IsBackground = true };
         t.Start();
     }
 
@@ -475,7 +475,7 @@ static class WinEngine
             var info = new ProcessStartInfo(Exe,
                 "-m \"" + Path.Combine(Dir, "models", model) + "\" --host 0.0.0.0 --port " + Port
                 + " -c " + ctx + " --parallel " + parallel + " --slot-save-path \"" + Path.Combine(Dir, "kv")
-                + "\" --swa-full --jinja --n-gpu-layers 999")
+                + "\" --swa-full --kv-unified --jinja --n-gpu-layers 999")
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
