@@ -79,7 +79,8 @@ export class WinEngine {
       parallel: 4,
       // Each conversation may use the whole pool (llama.cpp gives a slot a quarter otherwise).
       args: [...(plan?.args ?? []), "--kv-unified-per-slot", String(plan?.ctx ?? 65536)].join(" "),
-      ...(plan?.fit && { fit: "1" as const }),
+      // Always fitted by llama.cpp to the card's free memory (no --n-gpu-layers 999).
+      fit: "1" as const,
     };
     await mkdir(this.o.dir, { recursive: true });
     const file = join(this.o.dir, "engine.json");

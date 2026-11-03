@@ -302,12 +302,10 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
           Cmd: [
             "-m",
             `/models/${cfg.model}`,
-            // Streaming: llama.cpp fits the layers to the card itself (--fit, its default).
-            ...(plan
-              ? ["-c", String(plan.ctx), ...plan.args]
-              : gpu
-                ? ["--n-gpu-layers", "999"]
-                : []),
+            // llama.cpp fits the layers to the card's free memory itself (--fit, its default):
+            // forcing them all in (--n-gpu-layers 999) let a 12 GB model on a 16 GB card spill
+            // into shared memory at the first long read, minutes instead of seconds (2026-11-04).
+            ...(plan ? ["-c", String(plan.ctx), ...plan.args] : []),
             // One pool shared by the slots, and each conversation may use all of it: without
             // this llama.cpp gives each slot a quarter (16k of 65k, seen 2026-11-04).
             "--kv-unified-per-slot",
