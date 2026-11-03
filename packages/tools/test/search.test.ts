@@ -19,7 +19,8 @@ describe("web search services (2026-11-03)", () => {
     });
     const r = await searchProvider({ provider: "tavily", key: "tvly-1" }, f)?.search("horse", opts);
     expect(calls[0]?.url).toBe("https://api.tavily.com/search");
-    expect((calls[0]?.init.headers as Record<string, string>).authorization).toBe("Bearer tvly-1");
+    const headers = calls[0]?.init.headers as Record<string, string> | undefined;
+    expect(headers?.authorization).toBe("Bearer tvly-1");
     expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
       query: "horse",
       max_results: 2,
@@ -33,7 +34,8 @@ describe("web search services (2026-11-03)", () => {
     });
     const r = await searchProvider({ provider: "exa", key: "k" }, f)?.search("docs", opts);
     expect(calls[0]?.url).toBe("https://api.exa.ai/search");
-    expect((calls[0]?.init.headers as Record<string, string>)["x-api-key"]).toBe("k");
+    const headers = calls[0]?.init.headers as Record<string, string> | undefined;
+    expect(headers?.["x-api-key"]).toBe("k");
     expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({ query: "docs", numResults: 2 });
     expect(r).toEqual([{ title: "Doc", url: "https://x/d", snippet: "one … two" }]);
   });
