@@ -11,4 +11,5 @@ export * from "./messages.js";
 export * from "./metrics.js";
 export * from "./providers.js";
 export * from "./questions.js";
+export * from "./search.js";
 export * from "./wire.js";

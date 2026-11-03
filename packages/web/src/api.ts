@@ -8,6 +8,7 @@ import {
   type LocalModel,
   type PermissionRequestInfo,
   PROTOCOL_VERSION,
+  type SearchProviderId,
   type ServerMessage,
 } from "@redgiant/protocol";
 
@@ -56,6 +57,7 @@ export interface SetupState {
     server?: { baseUrl: string };
     searxngUrl?: string;
     searxngManaged?: boolean;
+    searchProvider?: SearchProviderId;
     transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
     imagesModel?: string;
     media?: Partial<
@@ -80,6 +82,8 @@ export interface SetupState {
     claudeSubscription?: boolean;
     github?: boolean;
     gitea?: boolean;
+    /** Web search services with a saved key (2026-11-03). */
+    search?: string[];
   };
   locked: Partial<
     Record<
@@ -819,6 +823,9 @@ export class Api {
       `/api/canvas/version?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
     );
 
+  /** A web search service tried before it is saved: how many results, the first's title. */
+  trySearch = (c: { provider: SearchProviderId; url?: string; key?: string }) =>
+    this.call<{ results: number; first?: string }>("POST", "/api/setup/search/try", c);
   /** RedGiant's own search engine (SearXNG). */
   startSearch = () => this.call<Job>("POST", "/api/setup/searxng");
   stopSearch = () => this.call("DELETE", "/api/setup/searxng");

@@ -20,6 +20,7 @@ import {
   PermissionMode,
   PermissionRequestInfo,
   PROTOCOL_VERSION,
+  SEARCH_PROVIDER_IDS,
 } from "@redgiant/protocol";
 import type { TelegramGateway } from "@redgiant/telegram";
 import { PathOutsideWorkspaceError } from "@redgiant/tools";
@@ -1728,6 +1729,14 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
           c,
           z.object({
             searxngUrl: z.url().nullable().optional(),
+            search: z
+              .object({
+                provider: z.enum(SEARCH_PROVIDER_IDS),
+                url: z.url().optional(),
+                key: z.string().trim().min(8).max(500).optional(),
+              })
+              .nullable()
+              .optional(),
             images: z
               .object({ key: z.string().min(10).optional(), model: z.string().min(1).optional() })
               .nullable()
@@ -1833,6 +1842,24 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   );
   // Pi-hole, the home's own DNS, by choice (G24.14c).
   // RedGiant's own search engine (SearXNG, 2026-11-03).
+  // A web search service tried before it is saved (2026-11-03).
+  app.post("/api/setup/search/try", (c) =>
+    wizard(c, async () => {
+      const b = await parsed(
+        c,
+        z.object({
+          provider: z.enum(SEARCH_PROVIDER_IDS),
+          url: z.string().url().optional(),
+          key: z.string().min(1).max(500).optional(),
+        }),
+      );
+      return (setup as SetupService).tryWebSearch({
+        provider: b.provider,
+        ...(b.url && { url: b.url }),
+        ...(b.key && { key: b.key }),
+      });
+    }),
+  );
   app.post("/api/setup/searxng", (c) =>
     wizard(c, async () => (setup as SetupService).startSearch()),
   );

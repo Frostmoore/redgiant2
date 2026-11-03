@@ -52,8 +52,8 @@ function fakeHooks() {
       calls.push(`telegram:${token ? "on" : "off"}`);
       return token ? { username: "my_bot" } : null;
     },
-    async search(url) {
-      calls.push(`search:${url}`);
+    async search(c) {
+      calls.push(`search:${c ? (c.url ?? `${c.provider}:${c.key ? "key" : "none"}`) : null}`);
     },
     async engine(cfg) {
       calls.push(`engine:${cfg ? `${cfg.variant}:${cfg.model}` : "off"}`);
@@ -179,6 +179,7 @@ describe("the setup wizard", () => {
       claudeSubscription: false,
       github: false,
       gitea: false,
+      search: [],
     });
     expect(state.budgetUsd).toBe(25);
     expect(state.policy.humanOnly).toEqual(["git-push", "platform"]);
@@ -307,6 +308,27 @@ describe("the setup wizard", () => {
       serverKey: "old-server-key",
     });
     next.stop();
+  });
+
+  it("uses a web search service with a key, the key kept only with the secrets (2026-11-03)", async () => {
+    const { calls, dataDir } = await setup();
+    const api = (s as Server).api;
+    const r = await api("PUT", "/api/setup/models", {
+      search: { provider: "tavily", key: "tvly-secret-123456" },
+    });
+    expect(r.status).toBe(200);
+    expect(calls).toContain("search:tavily:key");
+    const state = (await api<SetupState>("GET", "/api/setup")).body;
+    expect(state.config.searchProvider).toBe("tavily");
+    expect(state.secretsSet.search).toEqual(["tavily"]);
+    expect(JSON.stringify(state)).not.toContain("tvly-secret-123456");
+    expect(await readFile(join(dataDir, "redgiant.yaml"), "utf8")).not.toContain("tvly-secret");
+    // Back to SearXNG at an address: the Tavily key stays for later.
+    await api("PUT", "/api/setup/models", {
+      search: { provider: "searxng", url: "http://s:8080" },
+    });
+    expect(calls.at(-1)).toBe("search:http://s:8080");
+    expect((await api<SetupState>("GET", "/api/setup")).body.secretsSet.search).toEqual(["tavily"]);
   });
 
   it("runs Pi-hole by choice, keeps its password and stops it", async () => {

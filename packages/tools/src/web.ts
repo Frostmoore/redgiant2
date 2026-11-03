@@ -63,6 +63,9 @@ export class BraveSearch implements WebSearchProvider {
       headers: { accept: "application/json", "x-subscription-token": this.apiKey },
       ...(signal && { signal }),
     });
+    if (r.status === 401 || r.status === 403) throw new Error("Brave Search: the key was refused");
+    if (r.status === 429)
+      throw new Error("Brave Search: too many searches (limit or credit reached)");
     if (!r.ok) throw new Error(`Brave Search HTTP ${r.status}`);
     const body = (await r.json()) as {
       web?: { results?: { title?: string; url?: string; description?: string }[] };
@@ -73,6 +76,134 @@ export class BraveSearch implements WebSearchProvider {
       snippet: x.description ?? "",
     }));
   }
+}
+
+/** A search service answering JSON over HTTP with a key (2026-11-03). */
+async function postJson(
+  fetchImpl: typeof fetch,
+  name: string,
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  signal: AbortSignal | undefined,
+): Promise<unknown> {
+  const r = await fetchImpl(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json", ...headers },
+    body: JSON.stringify(body),
+    ...(signal && { signal }),
+  });
+  if (r.status === 401 || r.status === 403) throw new Error(`${name}: the key was refused`);
+  if (r.status === 429) throw new Error(`${name}: too many searches (limit or credit reached)`);
+  if (!r.ok) throw new Error(`${name} HTTP ${r.status}`);
+  return r.json();
+}
+
+/** Tavily: made for AI agents, clean extracts of each page. */
+export class TavilySearch implements WebSearchProvider {
+  readonly name = "tavily";
+  constructor(
+    private readonly apiKey: string,
+    private readonly fetchImpl: typeof fetch = globalThis.fetch,
+  ) {}
+
+  async search(
+    query: string,
+    { maxResults, signal }: { maxResults: number; signal?: AbortSignal | undefined },
+  ) {
+    const body = (await postJson(
+      this.fetchImpl,
+      "Tavily",
+      "https://api.tavily.com/search",
+      { authorization: `Bearer ${this.apiKey}` },
+      { query, max_results: maxResults, search_depth: "basic" },
+      signal,
+    )) as { results?: { title?: string; url?: string; content?: string }[] };
+    return (body.results ?? []).slice(0, maxResults).map((x) => ({
+      title: x.title ?? "",
+      url: x.url ?? "",
+      snippet: x.content ?? "",
+    }));
+  }
+}
+
+/** Exa: search by meaning, strong on documentation and technical articles. */
+export class ExaSearch implements WebSearchProvider {
+  readonly name = "exa";
+  constructor(
+    private readonly apiKey: string,
+    private readonly fetchImpl: typeof fetch = globalThis.fetch,
+  ) {}
+
+  async search(
+    query: string,
+    { maxResults, signal }: { maxResults: number; signal?: AbortSignal | undefined },
+  ) {
+    const body = (await postJson(
+      this.fetchImpl,
+      "Exa",
+      "https://api.exa.ai/search",
+      { "x-api-key": this.apiKey },
+      {
+        query,
+        numResults: maxResults,
+        type: "auto",
+        contents: { highlights: { maxCharacters: 500 } },
+      },
+      signal,
+    )) as {
+      results?: { title?: string | null; url?: string; highlights?: string[]; text?: string }[];
+    };
+    return (body.results ?? []).slice(0, maxResults).map((x) => ({
+      title: x.title ?? "",
+      url: x.url ?? "",
+      snippet: (x.highlights ?? []).join(" … ") || (x.text ?? "").slice(0, 500),
+    }));
+  }
+}
+
+/** Serper: Google's results. */
+export class SerperSearch implements WebSearchProvider {
+  readonly name = "serper";
+  constructor(
+    private readonly apiKey: string,
+    private readonly fetchImpl: typeof fetch = globalThis.fetch,
+  ) {}
+
+  async search(
+    query: string,
+    { maxResults, signal }: { maxResults: number; signal?: AbortSignal | undefined },
+  ) {
+    const body = (await postJson(
+      this.fetchImpl,
+      "Serper",
+      "https://google.serper.dev/search",
+      { "x-api-key": this.apiKey },
+      { q: query, num: maxResults },
+      signal,
+    )) as { organic?: { title?: string; link?: string; snippet?: string }[] };
+    return (body.organic ?? []).slice(0, maxResults).map((x) => ({
+      title: x.title ?? "",
+      url: x.link ?? "",
+      snippet: x.snippet ?? "",
+    }));
+  }
+}
+
+/** The services `searchProvider` makes (the same ids as the protocol's SEARCH_PROVIDER_IDS). */
+export type SearchProviderId = "searxng" | "brave" | "tavily" | "exa" | "serper";
+
+/** The search service chosen in the settings, ready to use; undefined without what it needs. */
+export function searchProvider(
+  c: { provider: SearchProviderId; url?: string | undefined; key?: string | undefined },
+  fetchImpl: typeof fetch = globalThis.fetch,
+): WebSearchProvider | undefined {
+  if (c.provider === "searxng") return c.url ? new SearxngSearch(c.url, fetchImpl) : undefined;
+  if (!c.key) return undefined;
+  if (c.provider === "brave") return new BraveSearch(c.key, fetchImpl);
+  if (c.provider === "tavily") return new TavilySearch(c.key, fetchImpl);
+  if (c.provider === "exa") return new ExaSearch(c.key, fetchImpl);
+  return new SerperSearch(c.key, fetchImpl);
 }
 
 const SearchInput = z.object({

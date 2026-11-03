@@ -660,6 +660,39 @@ const en = {
   job_step_searxng_check: "Checking that it answers",
   job_error_searxng_silent: "The search engine did not answer: try again in a minute.",
   chatsBefore: "Earlier chats",
+  searchWho:
+    "Claude and the subscriptions search by themselves. The others (local models, OpenAI-compatible keys) use the service chosen here.",
+  searchInUse: "in use",
+  searchCard_searxng:
+    "Free, no key, no account: RedGiant runs it for you (button above) or you give the address of your own.",
+  searchCard_brave:
+    "Its own index, independent of Google and Bing; private. Free monthly credit, then pay as you go.",
+  searchCard_tavily:
+    "Made for AI agents: clean extracts of each page. 1,000 free searches a month.",
+  searchCard_exa:
+    "Searches by meaning: strong on documentation, papers and technical articles. Free credit to start.",
+  searchCard_serper: "Google's results, fast and cheap. 2,500 free searches when you sign up.",
+  searchHowTitle: "How to set up {name}",
+  searchHow_searxng:
+    "Easiest: press «Start RedGiant's search engine» above, and RedGiant does everything.\nIf you have your own SearXNG instead, write its address below (for example http://192.168.1.20:8080).\nIn its settings.yml, «json» must be among search.formats, or RedGiant cannot read its answers.",
+  searchHow_brave:
+    "Open the Brave Search API page (link below) and create an account.\nChoose the free plan (or a paid one) under Subscriptions.\nUnder API Keys press «Add API key», copy it and paste it here.",
+  searchHow_tavily:
+    "Open Tavily (link below) and sign in with Google, GitHub or your email.\nOn the home page your key is already there: it starts with tvly-. Copy it.\nPaste it here: the free plan gives 1,000 searches a month.",
+  searchHow_exa:
+    "Open Exa's dashboard (link below) and create an account.\nUnder API Keys create a key and copy it.\nPaste it here: new accounts get free credit.",
+  searchHow_serper:
+    "Open serper.dev (link below) and sign up: no card needed.\nUnder API Keys your key is already there: copy it.\nPaste it here: 2,500 free searches to start, then you buy packs.",
+  searchKeyPage: "Open the page of {name}'s keys",
+  searchDocs: "How to install SearXNG yourself",
+  searchUrlHelp: "The address where your SearXNG answers.",
+  searchKey: "Key",
+  searchKeyKept: "A key is saved: leave empty to keep it.",
+  searchTry: "Try it",
+  searchUse: "Use this",
+  searchTried: "It works: {n} results, the first «{first}».",
+  searchTriedEmpty: "It answered, but with no results for the test search.",
+  searchSaved: "From now on the models that cannot search by themselves use {name}.",
   job_pihole: "Starting Pi-hole",
   job_step_pihole_image: "Downloading Pi-hole (only once)",
   job_step_pihole_start: "Starting Pi-hole",
@@ -2078,6 +2111,40 @@ const it: Record<Key, string> = {
   job_step_searxng_check: "Controllo che risponda",
   job_error_searxng_silent: "Il motore di ricerca non ha risposto: riprova tra un minuto.",
   chatsBefore: "Chat di prima",
+  searchWho:
+    "Claude e gli abbonamenti cercano da soli. Gli altri (modelli locali, chiavi compatibili OpenAI) usano il servizio scelto qui.",
+  searchInUse: "in uso",
+  searchCard_searxng:
+    "Gratis, senza chiave né account: lo avvia RedGiant per te (pulsante sopra) oppure dai l'indirizzo del tuo.",
+  searchCard_brave:
+    "Ha un indice suo, indipendente da Google e Bing; rispetta la privacy. Credito gratuito ogni mese, poi a consumo.",
+  searchCard_tavily:
+    "Fatto per gli agenti: estratti già puliti di ogni pagina. 1.000 ricerche gratis al mese.",
+  searchCard_exa:
+    "Cerca per significato: forte su documentazione, articoli scientifici e tecnici. Credito gratuito all'inizio.",
+  searchCard_serper:
+    "I risultati di Google, veloce ed economico. 2.500 ricerche gratis all'iscrizione.",
+  searchHowTitle: "Come configurare {name}",
+  searchHow_searxng:
+    "La via più semplice: premi «Avvia il motore di ricerca di RedGiant» qui sopra e RedGiant fa tutto.\nSe invece hai già un tuo SearXNG, scrivi qui sotto il suo indirizzo (per esempio http://192.168.1.20:8080).\nNel suo settings.yml, tra i search.formats ci deve essere «json», altrimenti RedGiant non legge le risposte.",
+  searchHow_brave:
+    "Apri la pagina della Brave Search API (link qui sotto) e crea un account.\nIn Subscriptions scegli il piano gratuito (o uno a pagamento).\nIn API Keys premi «Add API key», copiala e incollala qui.",
+  searchHow_tavily:
+    "Apri Tavily (link qui sotto) ed entra con Google, GitHub o la tua email.\nNella pagina iniziale la chiave c'è già: comincia con tvly-. Copiala.\nIncollala qui: il piano gratuito dà 1.000 ricerche al mese.",
+  searchHow_exa:
+    "Apri la dashboard di Exa (link qui sotto) e crea un account.\nIn API Keys crea una chiave e copiala.\nIncollala qui: i nuovi account hanno un credito gratuito.",
+  searchHow_serper:
+    "Apri serper.dev (link qui sotto) e iscriviti: non serve la carta.\nIn API Keys la chiave c'è già: copiala.\nIncollala qui: 2.500 ricerche gratis per cominciare, poi si comprano pacchetti.",
+  searchKeyPage: "Apri la pagina delle chiavi di {name}",
+  searchDocs: "Come installare SearXNG da solo",
+  searchUrlHelp: "L'indirizzo a cui risponde il tuo SearXNG.",
+  searchKey: "Chiave",
+  searchKeyKept: "Una chiave è salvata: lascia vuoto per tenerla.",
+  searchTry: "Prova",
+  searchUse: "Usa questo",
+  searchTried: "Funziona: {n} risultati, il primo «{first}».",
+  searchTriedEmpty: "Ha risposto, ma senza risultati per la ricerca di prova.",
+  searchSaved: "Da ora i modelli che non sanno cercare da soli usano {name}.",
   job_pihole: "Avvio di Pi-hole",
   job_step_pihole_image: "Scarico Pi-hole (una volta sola)",
   job_step_pihole_start: "Avvio Pi-hole",

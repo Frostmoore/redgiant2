@@ -5,6 +5,7 @@ import type { SetupState } from "../api.js";
 import { t } from "../i18n.js";
 import { attempt, getApi } from "../state.js";
 import { explain } from "./Brain.js";
+import { SearchSettings } from "./SearchSettings.js";
 import { Field, JobView, useJob } from "./ui.js";
 
 /**
@@ -70,7 +71,6 @@ export function Services() {
 }
 
 function ServicesForm({ s }: { s: SetupState }) {
-  const [searx, setSearx] = useState(s.config.searxngUrl ?? "");
   const [voiceApi, setVoiceApi] = useState(s.config.transcription?.api ?? "whisper-asr");
   const [voiceUrl, setVoiceUrl] = useState(s.config.transcription?.url ?? "");
   const [voiceModel, setVoiceModel] = useState(s.config.transcription?.model ?? "");
@@ -85,7 +85,6 @@ function ServicesForm({ s }: { s: SetupState }) {
     setResult(undefined);
     try {
       await getApi().setupModels({
-        ...(!s.locked.search && { searxngUrl: searx.trim() || null }),
         ...(!s.locked.images &&
           (imagesKey || imagesModel !== (s.config.imagesModel ?? "")) && {
             images: {
@@ -116,18 +115,8 @@ function ServicesForm({ s }: { s: SetupState }) {
       <p class="ui-help">{t("servicesHint")}</p>
       <div class="brain-panel">
         <h3>{t("servicesSearch")}</h3>
-        <OwnSearch s={s} onChange={(url) => setSearx(url)} />
-        <Field
-          label={t("servicesSearchUrl")}
-          help={s.locked.search ? t("wzLocked") : t("servicesSearchHelp")}
-        >
-          <input
-            placeholder="http://searxng:8080"
-            disabled={s.locked.search}
-            value={searx}
-            onInput={(e) => setSearx((e.target as HTMLInputElement).value)}
-          />
-        </Field>
+        <OwnSearch s={s} onChange={() => {}} />
+        <SearchSettings s={s} onSaved={() => {}} />
       </div>
       <div class="brain-panel">
         <h3>{t("servicesVoice")}</h3>

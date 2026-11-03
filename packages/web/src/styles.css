@@ -4853,3 +4853,29 @@ button.pick-tile.on {
 .turn-progress-stats .tp-good {
   color: var(--ok);
 }
+/* Web search services (2026-11-03). */
+.search-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.search-how {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--panel);
+}
+.search-how ol {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.search-how a {
+  color: var(--accent);
+  font-weight: 600;
+}

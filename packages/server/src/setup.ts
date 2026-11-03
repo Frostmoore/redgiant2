@@ -12,6 +12,7 @@ import {
   type ModelSpec,
   mediaProvider,
   OWN_SERVER_ID,
+  type SearchProviderId,
 } from "@redgiant/protocol";
 import { ProviderError } from "@redgiant/providers";
 import {
@@ -22,6 +23,7 @@ import {
   claudeAccount,
   claudeLogout,
 } from "@redgiant/subscriptions";
+import { searchProvider } from "@redgiant/tools";
 import { stringify } from "yaml";
 import type { RedGiantCore } from "./core.js";
 import { GitHostError, type GitHosts, type GitHostsConfig } from "./git-hosts.js";
@@ -42,7 +44,8 @@ export interface SetupHooks {
   server(o: { baseUrl: string; key?: string | undefined } | null): Promise<string[]>;
   /** Starts Demi-God's bot (null stops it); returns the bot's username. */
   telegram(token: string | null): Promise<{ username: string } | null>;
-  search(url: string | null): Promise<void>;
+  /** The web search service for models that cannot search by themselves (null: none). */
+  search(c: SearchChoice | null): Promise<void>;
   /** Claude on a flat subscription (G21): its token, "" for the login already in its folder, null off. */
   claudeSubscription?(token: string | null): Promise<void>;
   /** Where Claude's engine keeps its login, for signing in from the browser (G24.2). */
@@ -80,6 +83,13 @@ export interface SetupHooks {
   ): Promise<{ adminUrl: string } | null>;
 }
 
+/** A web search service with what it needs (2026-11-03). */
+export interface SearchChoice {
+  provider: SearchProviderId;
+  url?: string;
+  key?: string;
+}
+
 export interface SetupConfig {
   completed: boolean;
   language?: "it" | "en";
@@ -89,6 +99,11 @@ export interface SetupConfig {
   /** The user's own OpenAI-compatible server (its key, if any, is in the secrets). */
   server?: { baseUrl: string };
   searxngUrl?: string;
+  /**
+   * The search service chosen (2026-11-03); none chosen: SearXNG when its address is set.
+   * Its key, for those that need one, is among the secrets.
+   */
+  searchProvider?: SearchProviderId;
   /** The search engine is the one RedGiant runs itself (started again at each start). */
   searxngManaged?: boolean;
   /** The person switched RedGiant's search engine off: it is not started by itself again. */
@@ -128,6 +143,8 @@ interface Secrets {
   githubToken?: string;
   giteaToken?: string;
   piholePassword?: string;
+  /** Keys of the web search services, by id (Brave, Tavily, Exa, Serper). */
+  searchKeys?: Record<string, string>;
   cloudflareToken?: string;
 }
 
@@ -157,6 +174,8 @@ export interface SetupState {
     claudeSubscription: boolean;
     github: boolean;
     gitea: boolean;
+    /** Web search services with a saved key. */
+    search: string[];
   };
   locked: Locked;
   providers: string[];
@@ -340,9 +359,11 @@ export class SetupService {
       );
     // RedGiant's own search engine is started again (a restart of the computer stops it).
     if (!this.locked.search && c.searxngManaged && h.searxng) await run("searxng", h.searxng(true));
-    if (!this.locked.search && c.searxngUrl) await run("search", h.search(c.searxngUrl));
+    const search = this.searchChoice();
+    if (!this.locked.search && search) await run("search", h.search(search));
     // No search set at all: RedGiant's own starts, so every model can search (2026-11-03).
-    else if (c.completed && this.canRunSearch && !c.searxngDeclined) this.startSearch();
+    else if (!this.locked.search && c.completed && this.canRunSearch && !c.searxngDeclined)
+      this.startSearch();
     if (!this.locked.engine && c.engine) await run("engine", h.engine(c.engine));
     if (!this.locked.voice && c.transcription) this.applyTranscription();
     if (!this.locked.images && s.openaiImagesKey) this.applyImages();
@@ -383,6 +404,7 @@ export class SetupService {
         claudeSubscription: Boolean(this.secrets.claudeSubscriptionToken),
         github: Boolean(this.secrets.githubToken),
         gitea: Boolean(this.secrets.giteaToken),
+        search: Object.keys(this.secrets.searchKeys ?? {}),
       },
       locked: this.locked,
       providers: this.o.core.providerIds(),
@@ -473,6 +495,11 @@ export class SetupService {
   /** Search, voice messages, pictures and the default model (Settings, General). */
   async saveModels(m: {
     searxngUrl?: string | null | undefined;
+    /** The search service (2026-11-03): which, its address (SearXNG) or its key. */
+    search?:
+      | { provider: SearchProviderId; url?: string | undefined; key?: string | undefined }
+      | null
+      | undefined;
     /** null removes the key; a model alone keeps the saved key. */
     images?: { key?: string | undefined; model?: string | undefined } | null | undefined;
     transcription?:
@@ -487,9 +514,23 @@ export class SetupService {
     defaultModel?: ModelSpec | undefined;
   }): Promise<void> {
     if (m.searxngUrl !== undefined && !this.locked.search) {
-      await this.o.hooks.search(m.searxngUrl);
       if (m.searxngUrl) this.config.searxngUrl = m.searxngUrl;
       else delete this.config.searxngUrl;
+      await this.o.hooks.search(this.searchChoice() ?? null);
+    }
+    if (m.search !== undefined && !this.locked.search) {
+      if (!m.search) {
+        delete this.config.searchProvider;
+      } else {
+        this.config.searchProvider = m.search.provider;
+        if (m.search.provider === "searxng" && m.search.url) this.config.searxngUrl = m.search.url;
+        if (m.search.key)
+          this.secrets.searchKeys = {
+            ...this.secrets.searchKeys,
+            [m.search.provider]: m.search.key,
+          };
+      }
+      await this.o.hooks.search(this.searchChoice() ?? null);
     }
     if (m.images !== undefined && !this.locked.images) {
       if (m.images) {
@@ -551,7 +592,7 @@ export class SetupService {
         this.config.engine = e;
         await this.save();
         // A local model cannot search the web by itself: RedGiant's search engine starts too.
-        if (!this.config.searxngUrl && this.canRunSearch && !this.config.searxngDeclined)
+        if (!this.searchChoice() && this.canRunSearch && !this.config.searxngDeclined)
           this.startSearch();
       },
       { model: e.model },
@@ -683,6 +724,33 @@ export class SetupService {
     );
   }
 
+  /** The search service in use, with what it needs; none when it lacks its address or key. */
+  searchChoice(): SearchChoice | undefined {
+    const c = this.config;
+    const provider = c.searchProvider ?? (c.searxngUrl ? "searxng" : undefined);
+    if (!provider) return undefined;
+    if (provider === "searxng") return c.searxngUrl ? { provider, url: c.searxngUrl } : undefined;
+    const key = this.secrets.searchKeys?.[provider];
+    return key ? { provider, key } : undefined;
+  }
+
+  /** A search with these settings, before they are saved: how many results came, or why not. */
+  async tryWebSearch(c: SearchChoice): Promise<{ results: number; first?: string }> {
+    const key = c.key ?? this.secrets.searchKeys?.[c.provider];
+    const url = c.url ?? (c.provider === "searxng" ? this.config.searxngUrl : undefined);
+    const p = searchProvider({ provider: c.provider, ...(url && { url }), ...(key && { key }) });
+    if (!p)
+      throw new SetupError(
+        c.provider === "searxng" ? "The address is missing" : "The key is missing",
+      );
+    try {
+      const r = await p.search("RedGiant", { maxResults: 3, signal: AbortSignal.timeout(15_000) });
+      return { results: r.length, ...(r[0] && { first: r[0].title }) };
+    } catch (err) {
+      throw new SetupError((err as Error).message);
+    }
+  }
+
   /** RedGiant's own search engine can be started here (Docker installation). */
   get canRunSearch(): boolean {
     return !!this.o.hooks.searxng && !this.locked.search;
@@ -710,8 +778,10 @@ export class SetupService {
         this.config.searxngUrl = r.url;
         this.config.searxngManaged = true;
         delete this.config.searxngDeclined;
+        // Another service chosen meanwhile stays the one in use.
+        if (!this.config.searchProvider) this.config.searchProvider = "searxng";
         await this.save();
-        await this.o.hooks.search(r.url);
+        await this.o.hooks.search(this.searchChoice() ?? null);
       },
     );
   }
@@ -722,7 +792,8 @@ export class SetupService {
     if (this.config.searxngManaged) {
       delete this.config.searxngUrl;
       delete this.config.searxngManaged;
-      await this.o.hooks.search(null);
+      if (this.config.searchProvider === "searxng") delete this.config.searchProvider;
+      await this.o.hooks.search(this.searchChoice() ?? null);
     }
     await this.save();
   }

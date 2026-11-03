@@ -12,7 +12,7 @@ import {
 } from "@redgiant/providers";
 import { ChatgptSubscriptionProvider, ClaudeSubscriptionProvider } from "@redgiant/subscriptions";
 import { migrateTelegram, TelegramGateway } from "@redgiant/telegram";
-import { SearxngSearch } from "@redgiant/tools";
+import { searchProvider } from "@redgiant/tools";
 import type Docker from "dockerode";
 import type { AppOptions } from "./app.js";
 import type { RedGiantCore } from "./core.js";
@@ -203,8 +203,8 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       o.core.clearKeyProblem("chatgpt-subscription");
     },
 
-    async search(url) {
-      o.core.setSearch(url ? new SearxngSearch(url) : undefined);
+    async search(c) {
+      o.core.setSearch(c ? searchProvider(c) : undefined);
     },
 
     async engine(cfg, h) {
