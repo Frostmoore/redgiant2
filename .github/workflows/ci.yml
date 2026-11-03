@@ -45,7 +45,7 @@ jobs:
         shell: pwsh
         working-directory: packaging/windows
         run: |
-          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll launcher\RedGiant.cs launcher\Updates.cs
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Management.dll launcher\RedGiant.cs launcher\Updates.cs
           if ($LASTEXITCODE -ne 0) { exit 1 }
       # The engine on Windows (G24.3b): RedGiant.exe downloads llama.cpp's Vulkan build, starts it
       # and reports. The runner has no GPU: the engine must be found and that must be said (no_gpu).

@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.Management;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -152,6 +153,65 @@ sealed class Launcher : ApplicationContext
 
     // Windows' display adapters (G24.3): every GPU, NVIDIA or not, with its real memory, as
     // "name:GB;name:GB". The registry keeps the memory as a 64-bit number (WMI stops at 4 GB).
+    /**
+     * The computer's disks (2026-11-03), for the models streamed from an SSD: "letter|ssd|bus|
+     * free GB|total GB" separated by ";" (ssd: ssd, hdd or ? when Windows does not say; bus:
+     * nvme, sata, usb…). Read from Windows' storage classes; a failure leaves the list empty.
+     */
+    static string WindowsDisks()
+    {
+        var list = new List<string>();
+        try
+        {
+            var media = new Dictionary<string, string>();
+            var bus = new Dictionary<string, string>();
+            var scope = new ManagementScope(@"\\.\root\Microsoft\Windows\Storage");
+            using (var q = new ManagementObjectSearcher(scope, new ObjectQuery("SELECT DeviceId, MediaType, BusType FROM MSFT_PhysicalDisk")))
+                foreach (ManagementObject d in q.Get())
+                {
+                    string id = Convert.ToString(d["DeviceId"]);
+                    int mt = Convert.ToInt32(d["MediaType"]);
+                    int bt = Convert.ToInt32(d["BusType"]);
+                    media[id] = mt == 4 ? "ssd" : mt == 3 ? "hdd" : "?";
+                    bus[id] = bt == 17 ? "nvme" : bt == 11 ? "sata" : bt == 7 ? "usb" : bt == 8 ? "raid" : "other";
+                    // NVMe is solid state even when Windows leaves the media type unspecified.
+                    if (bt == 17) media[id] = "ssd";
+                }
+            using (var q = new ManagementObjectSearcher(scope, new ObjectQuery("SELECT DriveLetter, DiskNumber FROM MSFT_Partition")))
+                foreach (ManagementObject p in q.Get())
+                {
+                    char letter = Convert.ToChar(p["DriveLetter"]);
+                    if (letter == '\0' || !char.IsLetter(letter)) continue;
+                    string disk = Convert.ToString(p["DiskNumber"]);
+                    var drive = new DriveInfo(letter + ":\\");
+                    if (!drive.IsReady || drive.DriveType != DriveType.Fixed) continue;
+                    list.Add(string.Format(CultureInfo.InvariantCulture, "{0}|{1}|{2}|{3:0.0}|{4:0.0}",
+                        char.ToUpperInvariant(letter),
+                        media.ContainsKey(disk) ? media[disk] : "?",
+                        bus.ContainsKey(disk) ? bus[disk] : "other",
+                        drive.AvailableFreeSpace / 1073741824.0,
+                        drive.TotalSize / 1073741824.0));
+                }
+        }
+        catch (Exception) { }
+        return string.Join(";", list.ToArray());
+    }
+
+    /** The data folder the installer chose (registry), or the default one. */
+    static string DataDir()
+    {
+        try
+        {
+            using (var k = Registry.CurrentUser.OpenSubKey(@"Software\RedGiant"))
+            {
+                var v = k == null ? null : k.GetValue("DataDir") as string;
+                if (!string.IsNullOrEmpty(v)) return v;
+            }
+        }
+        catch (Exception) { }
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RedGiant", "wsl");
+    }
+
     static string WindowsGpus()
     {
         var list = new List<string>();
@@ -199,11 +259,14 @@ sealed class Launcher : ApplicationContext
         };
         // The GPUs reach the distribution through WSLENV (only the variables it names cross over).
         info.EnvironmentVariables["REDGIANT_WIN_GPUS"] = WindowsGpus();
+        info.EnvironmentVariables["REDGIANT_WIN_DISKS"] = WindowsDisks();
+        // Where the distribution's disk is (its models among the data): the installer's choice.
+        info.EnvironmentVariables["REDGIANT_WIN_DATA_DIR"] = DataDir();
         // The folder of the engine on Windows (/p: WSL sees it as /mnt/c/...).
         info.EnvironmentVariables["REDGIANT_WIN_ENGINE_DIR"] = WinEngine.Dir;
         string wslenv = Environment.GetEnvironmentVariable("WSLENV") ?? "";
         info.EnvironmentVariables["WSLENV"] = (wslenv.Length > 0 ? wslenv + ":" : "")
-            + "REDGIANT_WIN_GPUS/u:REDGIANT_WIN_ENGINE_DIR/up";
+            + "REDGIANT_WIN_GPUS/u:REDGIANT_WIN_DISKS/u:REDGIANT_WIN_DATA_DIR/u:REDGIANT_WIN_ENGINE_DIR/up";
         engine = new Process { StartInfo = info, EnableRaisingEvents = true };
         string port = "7600", token = "";
         engine.OutputDataReceived += (s, e) =>

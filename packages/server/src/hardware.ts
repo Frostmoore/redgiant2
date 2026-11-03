@@ -25,6 +25,39 @@ export type EngineVariant = "cpu" | "cuda" | "vulkan" | "windows";
  */
 export type GpuAccess = "dri" | "";
 
+/** A disk of the computer (2026-11-03): models are streamed only from a solid-state one. */
+export interface Disk {
+  /** A drive letter on Windows ("C"), "/" for the one Docker uses on Linux. */
+  name: string;
+  /** Solid state (true), spinning (false), or not said (null). */
+  ssd: boolean | null;
+  bus: string;
+  freeGb: number;
+  totalGb: number;
+}
+
+/** "C|ssd|nvme|120.5|476.9;D|hdd|sata|900.0|1863.0" as Windows' launcher or the installer write it. */
+export function parseDisks(text: string | undefined): Disk[] {
+  return (text ?? "")
+    .split(";")
+    .map((x) => x.trim().split("|"))
+    .filter((p) => p.length === 5 && p[0])
+    .map(([name, kind, bus, free, total]) => ({
+      name: name as string,
+      ssd: kind === "ssd" ? true : kind === "hdd" ? false : null,
+      bus: bus ?? "other",
+      freeGb: Number(free) || 0,
+      totalGb: Number(total) || 0,
+    }));
+}
+
+/** The drive letter of a Windows path ("D:\\x") or of WSL's view of it ("/mnt/d/x"). */
+export function driveOf(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  const m = /^([a-zA-Z]):[\\/]/.exec(path) ?? /^\/mnt\/([a-zA-Z])(?:\/|$)/.exec(path);
+  return m?.[1]?.toUpperCase();
+}
+
 export interface Hardware {
   os: string;
   cpu: string;
@@ -32,6 +65,9 @@ export interface Hardware {
   ramGb: number;
   freeRamGb: number;
   diskFreeGb: number | null;
+  /** The computer's disks, and the one each kind of engine keeps its models on. */
+  disks: Disk[];
+  modelDisk: { docker?: string; windows?: string };
   gpus: Gpu[];
   /** Docker can give containers an NVIDIA GPU (the NVIDIA runtime is installed). */
   dockerGpu: boolean;
@@ -121,6 +157,7 @@ export async function detectHardware(o: {
   dockerRuntimes?: () => Promise<string[]>;
   gpus?: () => Promise<Gpu[]>;
   hostGpus?: string | undefined;
+  hostDisks?: string | undefined;
   gpuAccess?: string | undefined;
   /** The engine can run on Windows itself (RedGiant's Windows install). */
   windowsEngine?: boolean | undefined;
@@ -139,6 +176,17 @@ export async function detectHardware(o: {
   const gpuAccess: GpuAccess = access === "dri" ? "dri" : "";
   o = { ...o, windowsEngine: o.windowsEngine ?? Boolean(process.env.REDGIANT_WIN_HOST) };
   const ramGb = round(totalmem() / GB);
+  const disks = parseDisks(o.hostDisks ?? process.env.REDGIANT_HOST_DISKS);
+  // On Windows the engines in Docker read from the distribution's disk, the Windows engine from
+  // its folder; on Linux there is one entry, the disk of Docker's volumes.
+  const dockerDisk =
+    driveOf(process.env.REDGIANT_HOST_DATA_DIR) ??
+    (disks.length === 1 ? disks[0]?.name : undefined);
+  const windowsDisk = driveOf(process.env.REDGIANT_HOST_ENGINE_DIR);
+  const modelDisk = {
+    ...(dockerDisk && { docker: dockerDisk }),
+    ...(windowsDisk && { windows: windowsDisk }),
+  };
   const nvidia = gpus.filter((g) => g.vendor === "nvidia" && !g.integrated);
   // Without Docker's NVIDIA runtime an NVIDIA card still works through Vulkan.
   const others = gpus.filter((g) => !g.integrated && (g.vendor !== "nvidia" || !dockerGpu));
@@ -191,6 +239,8 @@ export async function detectHardware(o: {
     ramGb,
     freeRamGb: round(freemem() / GB),
     diskFreeGb: disk,
+    disks,
+    modelDisk,
     gpus,
     dockerGpu,
     gpuAccess,

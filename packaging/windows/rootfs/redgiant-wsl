@@ -208,6 +208,9 @@ run() {
   step "Avvio di RedGiant"
   # The GPUs RedGiant cannot see from its container ("" when there are none), and the way to them.
   set_setting REDGIANT_HOST_GPUS "${GPUS:-}"
+  # Windows' disks ("letter|ssd|bus|free GB|total GB;…"), for models streamed from an SSD.
+  set_setting REDGIANT_HOST_DISKS "${REDGIANT_WIN_DISKS:-}"
+  set_setting REDGIANT_HOST_DATA_DIR "${REDGIANT_WIN_DATA_DIR:-}"
   win_engine_settings
   (cd "$HOME_DIR" && docker compose up -d >/var/log/redgiant-start.log 2>&1) \
     || fail "RedGiant non parte (registro: /var/log/redgiant-start.log)."
@@ -235,6 +238,7 @@ case "${1:-run}" in
     ensure_gpu
     if [ -f "$HOME_DIR/.env" ]; then
       set_setting REDGIANT_HOST_GPUS "${GPUS:-}"
+      set_setting REDGIANT_HOST_DISKS "${REDGIANT_WIN_DISKS:-}"
       # Only the files here: the images are pulled at the next start, with the bar in the window
       # (a silent pull here kept the installer still for minutes).
       if command -v jq >/dev/null 2>&1; then

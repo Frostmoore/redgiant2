@@ -105,6 +105,9 @@ export interface SetupState {
     cores: number;
     ramGb: number;
     diskFreeGb: number | null;
+    /** The computer's disks and the one each engine keeps its models on (2026-11-03). */
+    disks?: { name: string; ssd: boolean | null; bus: string; freeGb: number; totalGb: number }[];
+    modelDisk?: { docker?: string; windows?: string };
     gpus: {
       name: string;
       vramGb: number;

@@ -40,6 +40,13 @@ services:
       # The host's GPUs when the server cannot see them itself ("name:GB;…", written by the installer),
       # and how the engine reaches a GPU that is not NVIDIA's through Vulkan: dri (Linux only).
       REDGIANT_HOST_GPUS: ${REDGIANT_HOST_GPUS:-}
+      # The host's disks ("name|ssd|bus|free GB|total GB;…", written by the installer or Windows'
+      # launcher): models are streamed only from an SSD with room (2026-11-03).
+      REDGIANT_HOST_DISKS: ${REDGIANT_HOST_DISKS:-}
+      # Windows: where the distribution's disk is (the models of the engines in Docker live there).
+      REDGIANT_HOST_DATA_DIR: ${REDGIANT_HOST_DATA_DIR:-}
+      # Windows: the engine's folder as WSL sees it (/mnt/c/…), to know the disk of its models.
+      REDGIANT_HOST_ENGINE_DIR: ${REDGIANT_WIN_ENGINE_DIR:-}
       REDGIANT_ENGINE_GPU: ${REDGIANT_ENGINE_GPU:-}
       # Windows only (G24.3b): the engine RedGiant.exe runs on Windows, reached at this address,
       # with its folder (models, KV caches, commands) mounted at /winengine.

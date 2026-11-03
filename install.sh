@@ -116,7 +116,25 @@ gpu_names() {
     printf "%s:%s;" "${name//[:;]/ }" "$vram"
   done
 }
+# The disk Docker keeps its volumes on (the models among them): solid state or not, its bus,
+# free and total GB ("/|ssd|nvme|120.0|500.0"), for models streamed from an SSD (2026-11-03).
+disk_info() {
+  local dir src dev rota tran free total
+  dir=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)
+  [ -d "$dir" ] || dir=/
+  src=$(df --output=source "$dir" 2>/dev/null | tail -1)
+  dev=$(lsblk -no PKNAME "$src" 2>/dev/null | head -1)
+  [ -n "$dev" ] || dev=$(basename "$src")
+  rota=$(cat "/sys/block/$dev/queue/rotational" 2>/dev/null || echo "")
+  tran=$(lsblk -dno TRAN "/dev/$dev" 2>/dev/null | head -1)
+  case "$rota" in 0) rota=ssd ;; 1) rota=hdd ;; *) rota="?" ;; esac
+  case "$dev" in nvme*) rota=ssd; tran=${tran:-nvme} ;; esac
+  free=$(df -BG --output=avail "$dir" 2>/dev/null | tail -1 | tr -dc 0-9)
+  total=$(df -BG --output=size "$dir" 2>/dev/null | tail -1 | tr -dc 0-9)
+  printf "/|%s|%s|%s.0|%s.0" "$rota" "${tran:-other}" "${free:-0}" "${total:-0}"
+}
 if [ "$os" = Linux ] && [ "${REDGIANT_SKIP_GPU:-}" != 1 ]; then
+  set_env REDGIANT_HOST_DISKS "$(disk_info)"
   set_env REDGIANT_HOST_GPUS "$(gpu_names | sed 's/;$//')"
   if [ ! -e /dev/dxg ] && ls /dev/dri/renderD* >/dev/null 2>&1; then
     set_env REDGIANT_ENGINE_GPU dri
