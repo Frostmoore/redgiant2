@@ -237,6 +237,8 @@ const routes = {
             schema: z.object({
               /** null: the default model again (or the parent's). */
               model: ModelSpec.nullable().optional(),
+              /** A new name (2026-11-03): every agent can be renamed by the person. */
+              name: z.string().trim().min(1).max(60).optional(),
               mode: PermissionMode.optional(),
               systemPrompt: z.string().optional(),
               role: z.string().min(1).optional(),
@@ -958,7 +960,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
           return c.json({ error: `No project "${p}"` }, 400);
       change.projects = [...new Set(assigned)].filter((p) => p !== a.projectId);
     }
-    const updated = await core.registry.configure(human(c), id, change);
+    const { name, ...rest } = change as typeof change & { name?: string };
+    if (name !== undefined) await core.registry.rename(id, name);
+    const updated = await core.registry.configure(human(c), id, rest);
     if ("model" in change) core.agentModelChanged(id);
     return c.json(agentOut(updated), 200);
   });

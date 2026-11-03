@@ -8,7 +8,7 @@ import { agents, attempt, budgets, getApi, projects } from "../state.js";
 
 type Daily = { day: string; scope: Budget["scope"]; id: string; usd: number; tokens: number };
 
-function LimitEditor({ row, onSaved }: { row: Budget; onSaved: () => void }) {
+export function LimitEditor({ row, onSaved }: { row: Budget; onSaved: () => void }) {
   const [value, setValue] = useState(row.limit.usd !== undefined ? String(row.limit.usd) : "");
   const [editing, setEditing] = useState(false);
   const save = async (usdLimit: number | undefined) => {

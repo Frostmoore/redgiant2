@@ -1,5 +1,5 @@
 import { OWN_SERVER_ID } from "@redgiant/protocol";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { usd } from "../format.js";
 import { t } from "../i18n.js";
 import {
@@ -49,6 +49,7 @@ import {
   toggleExplorer,
   token,
 } from "../state.js";
+import { useSwipeAway } from "../swipe.js";
 import { AssistantPage } from "./Assistants.js";
 import { Bell } from "./Bell.js";
 import { Board } from "./Board.js";
@@ -296,6 +297,9 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [search, setSearch] = useState(false);
   const [bell, setBell] = useState(false);
+  // On a phone the left bar slides away with the finger (2026-11-03).
+  const side = useRef<HTMLElement>(null);
+  useSwipeAway(side, "left", () => (drawerOpen.value = false), drawerOpen.value);
 
   useEffect(() => {
     // The installer opens the page with #token=…: signed in at once, then the address is cleaned.
@@ -446,7 +450,7 @@ export function App() {
       <div class="body">
         {search && <Search close={() => setSearch(false)} />}
         {bell && <Bell close={() => setBell(false)} />}
-        <aside class="side">
+        <aside class="side" ref={side}>
           <Sidebar />
         </aside>
         <button

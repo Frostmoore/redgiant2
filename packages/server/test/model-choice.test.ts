@@ -72,6 +72,20 @@ describe("choosing models (decision 2026-11-02)", () => {
       model: null,
     });
     expect(back.body.model).toBeUndefined();
+    // Every changeable thing of an agent, from its settings (2026-11-03).
+    const all = await s.api<{ name: string; role?: string; systemPrompt?: string; mode?: string }>(
+      "PATCH",
+      `/api/agents/${god.body.id}`,
+      { name: "Zeus", role: "Leads everything", systemPrompt: "Speak Italian.", mode: "plan" },
+    );
+    expect(all.body).toMatchObject({
+      name: "Zeus",
+      role: "Leads everything",
+      systemPrompt: "Speak Italian.",
+      mode: "plan",
+    });
+    expect(s.core.registry.get(god.body.id)?.name).toBe("Zeus");
+    expect((await s.api("PATCH", `/api/agents/${god.body.id}`, { name: "  " })).status).toBe(400);
     stop();
   });
 

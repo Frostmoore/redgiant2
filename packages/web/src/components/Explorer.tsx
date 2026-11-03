@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { ApiError, type FileEntry } from "../api.js";
 import { bytes } from "../format.js";
 import { t } from "../i18n.js";
@@ -18,6 +18,7 @@ import {
   IconUpload,
 } from "../icons.js";
 import { attempt, currentScope, getApi, openTab, toggleExplorer } from "../state.js";
+import { useSwipeAway } from "../swipe.js";
 
 /** A file's content as base64 (FileReader: fast even for large files). */
 const asBase64 = (file: File) =>
@@ -207,6 +208,8 @@ function Folder({
 /** The files of the active conversation's project (or God's platform), on the right. */
 export function Explorer() {
   const { scope, title, focus } = currentScope();
+  const panel = useRef<HTMLElement>(null);
+  useSwipeAway(panel, "right", () => toggleExplorer(false));
   const [version, setVersion] = useState(0);
   const [selected, setSelected] = useState<FileEntry | null>(null);
   const reload = () => setVersion((v) => v + 1);
@@ -263,7 +266,7 @@ export function Explorer() {
     input.click();
   };
   return (
-    <aside class="explorer">
+    <aside class="explorer" ref={panel}>
       <div class="explorer-head">
         <strong title={title}>{title}</strong>
         <button
