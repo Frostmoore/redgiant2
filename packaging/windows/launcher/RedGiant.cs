@@ -32,6 +32,10 @@ static class Texts
     public static string Running { get { return It ? "RedGiant è acceso" : "RedGiant is running"; } }
     public static string Of { get { return It ? "di" : "of"; } }
     public static string Downloaded { get { return It ? "Scaricati" : "Downloaded"; } }
+    public static string Moving(string to, long percent)
+    {
+        return (It ? "Sposto RedGiant in " : "Moving RedGiant to ") + to + " · " + percent + "%";
+    }
     public static string Left(double seconds)
     {
         if (seconds < 60) return It ? "manca meno di un minuto" : "less than a minute left";
@@ -123,6 +127,23 @@ sealed class Launcher : ApplicationContext
         }
         if (!background) splash.Show();
         WinEngine.Watch();
+        // Models moved to another SSD (Moves.cs): the distribution moves with RedGiant stopped,
+        // the splash saying how far it is.
+        Moves.Say = (text) => Ui(() => { status.Text = text; bar.Style = ProgressBarStyle.Marquee; splash.Show(); });
+        Moves.WithDistroStopped = (work) =>
+        {
+            Ui(() => splash.Show());
+            StopEngine();
+            try
+            {
+                var p = Process.Start(new ProcessStartInfo("wsl.exe", "--terminate " + Distro) { UseShellExecute = false, CreateNoWindow = true });
+                p.WaitForExit(30000);
+            }
+            catch (Exception) { }
+            try { work(); }
+            finally { Ui(() => StartEngine()); }
+        };
+        Moves.Watch();
         StartEngine();
         // The first start of the day looks for a newer RedGiant (Updates.cs); its questions are
         // asked on the splash's thread, whose handle exists even when the splash stays hidden.
@@ -456,6 +477,12 @@ static class WinEngine
     {
         foreach (var d in new[] { "models", "kv", "bin" }) Directory.CreateDirectory(Path.Combine(Dir, d));
         timer = new System.Threading.Timer(_ => Check(), null, 1000, 1000);
+    }
+
+    /** Stops the engine now (its models are being moved); a new request starts it again. */
+    public static void Stop()
+    {
+        lock (gate) { generation++; Kill(); }
     }
 
     public static void Shutdown()

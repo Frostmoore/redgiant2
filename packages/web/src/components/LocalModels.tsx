@@ -7,9 +7,9 @@ import type { EngineVariant, LocalFile, LocalModelChoice, SetupState } from "../
 import { bytes } from "../format.js";
 import { t, tOptional } from "../i18n.js";
 import { IconCpu, IconDownload, IconPlay, IconTrash } from "../icons.js";
-import { getApi } from "../state.js";
+import { attempt, getApi } from "../state.js";
 import { explain } from "./Brain.js";
-import { Advanced, Field, JobView, Pick, Progress } from "./ui.js";
+import { Advanced, Field, JobView, Pick, Progress, useJob } from "./ui.js";
 
 const gb = (n: number) => `${n.toFixed(1)} GB`;
 /** The name a repository's file gets in the models folder (as the server names it). */
@@ -102,6 +102,79 @@ function streamAvailable(s: SetupState, variant: EngineVariant): Availability {
     return { ok: false, reason: t("lmStreamNoRoom", { disk: label, free: gb(disk.freeGb) }) };
   if (disk.ssd === null) return { ok: true, warn: t("lmStreamMaybeSsd", { disk: label }) };
   return { ok: true };
+}
+
+/**
+ * Where the models are, and the other SSDs they can go to (Windows, 2026-11-03): the Windows
+ * engine's folder moves with a bar; for the engines in Docker the whole distribution moves
+ * (projects too) and RedGiant starts again.
+ */
+function ModelsDisk({
+  s,
+  variant,
+  onMoved,
+}: {
+  s: SetupState;
+  variant: EngineVariant;
+  onMoved: () => void;
+}) {
+  const [jobId, setJobId] = useState<string>();
+  const [restarting, setRestarting] = useState(false);
+  const job = useJob(jobId);
+  useEffect(() => {
+    if (job?.state === "done") onMoved();
+  }, [job?.state]);
+  const hw = s.hardware;
+  if (!hw.windowsEngine || !hw.disks?.length) return null;
+  const kind = variant === "windows" ? "models" : "distro";
+  const here = variant === "windows" ? hw.modelDisk?.windows : hw.modelDisk?.docker;
+  const current = hw.disks.find((d) => d.name === here);
+  const kindOf = (d: { ssd: boolean | null; bus: string }) =>
+    `${d.ssd === true ? "SSD" : d.ssd === false ? t("lmDiskHdd") : t("lmDiskUnknown")}${d.bus !== "other" ? ` ${d.bus.toUpperCase()}` : ""}`;
+  const move = (drive: string) => {
+    if (kind === "distro" && !confirm(t("lmMoveDistroConfirm", { disk: `${drive}:` }))) return;
+    void attempt(() => getApi().moveModels(drive, kind)).then((j) => {
+      if (!j) return;
+      if (kind === "distro") setRestarting(true);
+      else setJobId(j.id);
+    });
+  };
+  return (
+    <div class="lm-disk">
+      <strong>{t("lmDiskTitle")}</strong>
+      <p class="ui-help">
+        {current
+          ? t("lmDiskNow", {
+              disk: `${current.name}:`,
+              kind: kindOf(current),
+              free: gb(current.freeGb),
+            })
+          : t("lmDiskNowUnknown")}
+      </p>
+      <ul>
+        {hw.disks
+          .filter((d) => d.name !== here)
+          .map((d) => (
+            <li key={d.name} class="row">
+              <span>
+                <strong>{d.name}:</strong> {kindOf(d)} · {t("lmDiskFree", { free: gb(d.freeGb) })}
+              </span>
+              <button
+                type="button"
+                disabled={d.ssd === false || job?.state === "running" || restarting}
+                title={d.ssd === false ? t("lmStreamHdd", { disk: `${d.name}:` }) : undefined}
+                onClick={() => move(d.name)}
+              >
+                {t("lmDiskMove")}
+              </button>
+            </li>
+          ))}
+      </ul>
+      <p class="ui-help">{kind === "models" ? t("lmMoveModelsHelp") : t("lmMoveDistroHelp")}</p>
+      {job && <JobView job={job} />}
+      {restarting && <p class="notice">{t("lmMoveDistroRunning")}</p>}
+    </div>
+  );
 }
 
 /** The switch with what it does, why it is off when it is, and what the last start decided. */
@@ -491,6 +564,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
       </div>
       {s.locked.engine && <p class="notice">{t("wzLocked")}</p>}
       {error && <p class="notice error">{error}</p>}
+      <ModelsDisk s={s} variant={variant} onMoved={changed} />
       <StreamSwitch
         on={stream && canStream.ok}
         available={canStream}

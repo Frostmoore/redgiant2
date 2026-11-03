@@ -841,6 +841,9 @@ export class Api {
   /** A web search service tried before it is saved: how many results, the first's title. */
   trySearch = (c: { provider: SearchProviderId; url?: string; key?: string }) =>
     this.call<{ results: number; first?: string }>("POST", "/api/setup/search/try", c);
+  /** The models to another SSD (Windows): a job for the engine's folder; the distribution restarts RedGiant. */
+  moveModels = (drive: string, kind: "models" | "distro") =>
+    this.call<Job>("POST", "/api/setup/models-disk", { drive, kind });
   /** RedGiant's own search engine (SearXNG). */
   startSearch = () => this.call<Job>("POST", "/api/setup/searxng");
   stopSearch = () => this.call("DELETE", "/api/setup/searxng");

@@ -211,6 +211,7 @@ run() {
   # Windows' disks ("letter|ssd|bus|free GB|total GB;…"), for models streamed from an SSD.
   set_setting REDGIANT_HOST_DISKS "${REDGIANT_WIN_DISKS:-}"
   set_setting REDGIANT_HOST_DATA_DIR "${REDGIANT_WIN_DATA_DIR:-}"
+  set_setting REDGIANT_WIN_MOUNTS /mnt
   win_engine_settings
   (cd "$HOME_DIR" && docker compose up -d >/var/log/redgiant-start.log 2>&1) \
     || fail "RedGiant non parte (registro: /var/log/redgiant-start.log)."

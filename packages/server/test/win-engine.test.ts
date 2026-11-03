@@ -102,6 +102,44 @@ describe("the engine on Windows itself", () => {
     expect((err as { code?: string }).code).toBe("launcher_missing");
   });
 
+  it("moves the models to another SSD, following the launcher's progress (2026-11-03)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rg-win-"));
+    let stop = false;
+    let asked: { kind?: string; to?: string } = {};
+    void (async () => {
+      while (!stop) {
+        const raw = await readFile(join(dir, "move.json"), "utf8").catch(() => "");
+        if (raw) {
+          const r = JSON.parse(raw) as { id: string; kind: string; to: string };
+          asked = r;
+          for (const done of [4, 8]) {
+            await writeFile(
+              join(dir, "move-status.json"),
+              JSON.stringify({ id: r.id, state: "moving", done, total: 8 }),
+            );
+            await new Promise((ok) => setTimeout(ok, 40));
+          }
+          await writeFile(
+            join(dir, "move-status.json"),
+            JSON.stringify({ id: r.id, state: "done", done: 8, total: 8 }),
+          );
+          return;
+        }
+        await new Promise((ok) => setTimeout(ok, 15));
+      }
+    })();
+    const engine = new WinEngine({ dir, host: "172.28.0.1", pollMs: 10 });
+    const jobs = new Jobs();
+    const job = jobs.start("me", "models_move", ["move"], async (h) => {
+      h.step("move");
+      await engine.move("models", "D:\\RedGiant\\models", h);
+    });
+    const end = await jobs.settled(job.id);
+    stop = true;
+    expect(end?.state).toBe("done");
+    expect(asked).toMatchObject({ kind: "models", to: "D:\\RedGiant\\models" });
+  });
+
   it("is what the wizard suggests on Windows for AMD, Intel and built-in GPUs", async () => {
     const h = (gpus: string) =>
       detectHardware({

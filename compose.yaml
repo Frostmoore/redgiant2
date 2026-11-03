@@ -71,6 +71,9 @@ services:
     volumes:
       - redgiant-data:/data
       - ${REDGIANT_WIN_ENGINE_DIR:-./windows-engine}:/winengine
+      # Windows: its disks at the path WSL gives them (/mnt/c, /mnt/d…), so models moved to
+      # another SSD are found through the engine folder's link (2026-11-03). Elsewhere empty.
+      - ${REDGIANT_WIN_MOUNTS:-./no-win-mounts}:/mnt
       - redgiant-egress:/egress
       - redgiant-kv:/kv
       - redgiant-models:/models

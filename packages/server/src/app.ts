@@ -1844,6 +1844,16 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     wizard(c, () => (setup as SetupService).mediaVoices(c.req.query("provider") ?? "")),
   );
   // Pi-hole, the home's own DNS, by choice (G24.14c).
+  // The models moved to another SSD (Windows, 2026-11-03).
+  app.post("/api/setup/models-disk", (c) =>
+    wizard(c, async () => {
+      const b = await parsed(
+        c,
+        z.object({ drive: z.string().regex(/^[A-Za-z]$/), kind: z.enum(["models", "distro"]) }),
+      );
+      return (setup as SetupService).startModelsMove(b.drive, b.kind);
+    }),
+  );
   // RedGiant's own search engine (SearXNG, 2026-11-03).
   // A web search service tried before it is saved (2026-11-03).
   app.post("/api/setup/search/try", (c) =>

@@ -367,6 +367,12 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       return plan;
     },
 
+    async moveModels(kind, to, h) {
+      const win = o.engine?.windows;
+      if (!win) throw new Error("Models can be moved only in RedGiant's Windows installation");
+      await win.move(kind, to, h);
+    },
+
     async searxng(on, h) {
       const e = o.engine;
       if (!e) throw new Error("The search engine needs RedGiant's Docker installation");

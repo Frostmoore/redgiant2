@@ -102,6 +102,47 @@ export class WinEngine {
    * Asks the launcher to run this model and follows it: the engine's download (`image`), its
    * start (`start`) and the model loading (`load`). Returns the engine's address.
    */
+  /**
+   * Moves the models (2026-11-03): `models` the Windows engine's folder to `to`, `distro` the
+   * whole distribution (RedGiant stops and starts again: nobody follows that here). The launcher
+   * does it and reports in move-status.json.
+   */
+  async move(kind: "models" | "distro", to: string, h?: JobHandle): Promise<void> {
+    const id = randomUUID();
+    await mkdir(this.o.dir, { recursive: true });
+    const file = join(this.o.dir, "move.json");
+    await writeFile(`${file}.tmp`, JSON.stringify({ id, kind, to }));
+    await rename(`${file}.tmp`, file);
+    if (kind === "distro") return;
+    const asked = Date.now();
+    for (;;) {
+      if (h?.signal.aborted) throw new Error("cancelled");
+      const s = await readFile(join(this.o.dir, "move-status.json"), "utf8")
+        .then(
+          (x) =>
+            JSON.parse(x) as {
+              id: string;
+              state: string;
+              done: number;
+              total: number;
+              error?: string;
+            },
+        )
+        .catch(() => undefined);
+      if (s?.id === id) {
+        if (s.state === "moving") h?.progress(s.done, s.total || null);
+        if (s.state === "done") return;
+        if (s.state === "failed") throw new JobFailure("move_failed", s.error ?? "The move failed");
+      } else if (Date.now() - asked > (this.o.noticeMs ?? 60_000)) {
+        throw new JobFailure(
+          "launcher_missing",
+          "RedGiant's Windows program did not pick up the request: is RedGiant open next to the clock?",
+        );
+      }
+      await new Promise((r) => setTimeout(r, this.o.pollMs ?? 1000));
+    }
+  }
+
   async start(
     model: string,
     h?: JobHandle,

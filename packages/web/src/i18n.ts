@@ -719,6 +719,25 @@ const en = {
   lmTuneChosen: "kept",
   lmTuneHelp:
     "Each row is a real try: the model reads a context of about 2,000 tokens and writes 64. The one that writes fastest is kept for this model.",
+  lmDiskTitle: "Where the models are",
+  lmDiskNow: "Now on {disk} ({kind}, {free} free).",
+  lmDiskNowUnknown:
+    "RedGiant does not know yet which disk holds them (it learns at its next start).",
+  lmDiskHdd: "spinning disk",
+  lmDiskUnknown: "disk",
+  lmDiskFree: "{free} free",
+  lmDiskMove: "Move here",
+  lmMoveModelsHelp:
+    "The Windows engine's models are copied with a bar, then the old folder points to the new one. The engine stops while they move and starts again after.",
+  lmMoveDistroHelp:
+    "The engines in Docker read their models from RedGiant's own disk: moving them moves RedGiant's data too (projects and conversations), and RedGiant starts again. The window next to the clock shows how far it is.",
+  lmMoveDistroConfirm:
+    "Move all of RedGiant's data (projects, conversations and models) to {disk}? RedGiant stops while it moves and starts again by itself.",
+  lmMoveDistroRunning:
+    "RedGiant is moving and will start again by itself: the window next to the clock shows how far it is. This page comes back when it is done.",
+  job_models_move: "Moving the models",
+  job_step_move: "Copying to the new disk",
+  job_error_move_failed: "The models could not be moved.",
   job_pihole: "Starting Pi-hole",
   job_step_pihole_image: "Downloading Pi-hole (only once)",
   job_step_pihole_start: "Starting Pi-hole",
@@ -2197,6 +2216,24 @@ const it: Record<Key, string> = {
   lmTuneChosen: "scelta",
   lmTuneHelp:
     "Ogni riga è una prova vera: il modello legge un contesto di circa 2.000 token e ne scrive 64. Resta quella che scrive più veloce, per questo modello.",
+  lmDiskTitle: "Dove stanno i modelli",
+  lmDiskNow: "Ora su {disk} ({kind}, {free} liberi).",
+  lmDiskNowUnknown: "RedGiant non sa ancora su che disco stanno (lo saprà al prossimo avvio).",
+  lmDiskHdd: "disco meccanico",
+  lmDiskUnknown: "disco",
+  lmDiskFree: "{free} liberi",
+  lmDiskMove: "Sposta qui",
+  lmMoveModelsHelp:
+    "I modelli del motore Windows vengono copiati con la barra, poi la vecchia cartella rimanda alla nuova. Il motore si ferma durante lo spostamento e riparte dopo.",
+  lmMoveDistroHelp:
+    "I motori in Docker leggono i modelli dal disco di RedGiant: spostarli sposta anche i dati di RedGiant (progetti e conversazioni), e RedGiant si riavvia. La finestra vicino all'orologio mostra a che punto è.",
+  lmMoveDistroConfirm:
+    "Spostare tutti i dati di RedGiant (progetti, conversazioni e modelli) su {disk}? RedGiant si ferma durante lo spostamento e riparte da solo.",
+  lmMoveDistroRunning:
+    "RedGiant si sta spostando e ripartirà da solo: la finestra vicino all'orologio mostra a che punto è. Questa pagina torna quando ha finito.",
+  job_models_move: "Sposto i modelli",
+  job_step_move: "Copio sul nuovo disco",
+  job_error_move_failed: "Non sono riuscito a spostare i modelli.",
   job_pihole: "Avvio di Pi-hole",
   job_step_pihole_image: "Scarico Pi-hole (una volta sola)",
   job_step_pihole_start: "Avvio Pi-hole",
