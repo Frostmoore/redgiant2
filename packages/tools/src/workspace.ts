@@ -244,19 +244,30 @@ export class LocalWorkspace implements Workspace {
     shell?: string,
   ): Promise<ExecResult> {
     return new Promise((done) => {
+      // Its own process group: stopping it stops what it started too (a shell's `sleep`
+      // would otherwise keep the output open, and the turn waiting, until it ended).
+      const group = process.platform !== "win32";
       const child = spawn(file, args, {
         cwd: this.root,
         ...(shell && { shell }),
         env: process.env,
-        ...(signal && { signal }),
+        detached: group,
       });
+      const stop = () => {
+        try {
+          if (group && child.pid) process.kill(-child.pid, "SIGKILL");
+          else child.kill("SIGKILL");
+        } catch {}
+      };
       let stdout = "";
       let stderr = "";
       let timedOut = false;
       const timer = setTimeout(() => {
         timedOut = true;
-        child.kill("SIGKILL");
+        stop();
       }, timeoutMs);
+      if (signal?.aborted) stop();
+      signal?.addEventListener("abort", stop, { once: true });
       child.stdout.on("data", (d: Buffer) => {
         stdout += d.toString();
       });
@@ -268,6 +279,7 @@ export class LocalWorkspace implements Workspace {
       });
       child.on("close", (code) => {
         clearTimeout(timer);
+        signal?.removeEventListener("abort", stop);
         done({ stdout, stderr, exitCode: code, timedOut });
       });
     });

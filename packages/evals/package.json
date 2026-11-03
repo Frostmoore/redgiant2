@@ -20,9 +20,13 @@
     "@redgiant/protocol": "workspace:*",
     "@redgiant/providers": "workspace:*",
     "@redgiant/sandbox": "workspace:*",
-    "@redgiant/server": "workspace:*"
+    "@redgiant/server": "workspace:*",
+    "dockerode": "^5.0.1"
   },
   "scripts": {
     "start": "node dist/main.js"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^4.0.2"
   }
 }

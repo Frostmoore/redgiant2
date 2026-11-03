@@ -66,6 +66,23 @@ describe("baseTools", () => {
 });
 
 describe("LocalWorkspace", () => {
+  it.skipIf(process.platform === "win32")(
+    "stops a command and what it started, on interrupt and on timeout (harness eval 2026-11-03)",
+    async () => {
+      const c = new AbortController();
+      const t0 = Date.now();
+      const run = ws.exec("sleep 30; echo late", { timeoutMs: 60_000, signal: c.signal });
+      setTimeout(() => c.abort(), 300);
+      const r = await run;
+      expect(Date.now() - t0).toBeLessThan(5000);
+      expect(r.stdout).not.toContain("late");
+      const t1 = Date.now();
+      const slow = await ws.exec("sh -c 'sleep 30'; echo late", { timeoutMs: 500 });
+      expect(slow.timedOut).toBe(true);
+      expect(Date.now() - t1).toBeLessThan(5000);
+    },
+  );
+
   it("refuses paths outside the root, including through symlinks", async () => {
     await expect(ws.readText("../etc/passwd")).rejects.toBeInstanceOf(PathOutsideWorkspaceError);
     await expect(ws.readText("/etc/passwd")).rejects.toBeInstanceOf(PathOutsideWorkspaceError);

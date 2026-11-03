@@ -1,6 +1,6 @@
 // Runs the harness scenarios one after another, each in a fresh RedGiant, within a total budget:
 // a scenario is not started when what is left would not cover its planned spend.
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ModelSpec } from "@redgiant/protocol";
 import type { ProviderRegistry } from "@redgiant/providers";
@@ -85,7 +85,13 @@ export async function runHarness(o: HarnessOptions): Promise<ScenarioResult[]> {
     log(`${s.id} · ${s.title} (${name})`);
     const dir = join(o.workDir, s.id);
     await mkdir(dir, { recursive: true });
-    const ctx = new ScenarioContext({ providers: o.providers, model, dir, log });
+    const ctx = new ScenarioContext({
+      providers: o.providers,
+      model,
+      dir,
+      log,
+      ...(s.docker && { docker: true }),
+    });
     const started = Date.now();
     let checks: Check[] = [];
     let error: string | undefined;
@@ -103,7 +109,13 @@ export async function runHarness(o: HarnessOptions): Promise<ScenarioResult[]> {
       error = (err as Error).stack?.slice(0, 600) ?? String(err);
     }
     await ctx.interruptAll().catch(() => {});
-    const metrics = harnessMetrics(await ctx.events().catch(() => []));
+    const events = await ctx.events().catch(() => []);
+    const metrics = harnessMetrics(events);
+    // The log stays next to the scenario's files: the database lives only in memory.
+    await writeFile(
+      join(dir, "events.jsonl"),
+      events.map((e) => JSON.stringify(e)).join("\n"),
+    ).catch(() => {});
     await ctx.close().catch(() => {});
     spent += metrics.usd;
     const r: ScenarioResult = {

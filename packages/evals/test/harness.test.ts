@@ -118,7 +118,7 @@ describe("harness suite", () => {
       cheapModel: fake,
       scenarios: SCENARIOS.filter((s) =>
         ["compute", "boundaries", "concurrency"].includes(s.id),
-      ).map((s) => ({ ...s, timeoutMin: 0.5 })),
+      ).map((s) => ({ ...s, timeoutMin: 0.5, docker: false })),
       workDir: dir,
       budgetUsd: 100,
     });

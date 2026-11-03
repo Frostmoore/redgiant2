@@ -2,14 +2,26 @@
 // God already there, helpers to talk to agents, to wait until every conversation and every
 // delegated task has finished, and to read the log.
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import type { SqlClient } from "@redgiant/events";
-import type { Event, ModelSpec, PermissionRequestInfo } from "@redgiant/protocol";
+import type {
+  Event,
+  ModelSpec,
+  PermissionRequestInfo,
+  QuestionRequestInfo,
+} from "@redgiant/protocol";
 import type { ProviderRegistry } from "@redgiant/providers";
-import { commitAll, ensureRepo, HostSandboxProvider } from "@redgiant/sandbox";
+import {
+  commitAll,
+  DockerSandboxProvider,
+  ensureRepo,
+  HostSandboxProvider,
+} from "@redgiant/sandbox";
 import { RedGiantCore } from "@redgiant/server";
+import Docker from "dockerode";
 
 export type AgentRecord = NonNullable<ReturnType<RedGiantCore["registry"]["get"]>>;
 
@@ -34,6 +46,46 @@ export interface ContextOptions {
   model: ModelSpec;
   dir: string;
   log: (line: string) => void;
+  /** Commands in containers (the published sandbox image) instead of on this machine. */
+  docker?: boolean;
+}
+
+/**
+ * The agents' Docker reached over SSH (DOCKER_HOST=ssh://user@host): the library needs the
+ * key spelled out, the docker command finds it alone.
+ */
+async function sshDocker(): Promise<{ docker?: Docker }> {
+  const m = /^ssh:\/\/(?:([^@]+)@)?([^:/]+)(?::(\d+))?/.exec(process.env.DOCKER_HOST ?? "");
+  if (!m) return {};
+  const key = await readFile(join(homedir(), ".ssh", "id_ed25519"), "utf8").catch(() => undefined);
+  return {
+    docker: new Docker({
+      protocol: "ssh",
+      host: m[2] as string,
+      port: Number(m[3] ?? 22),
+      username: m[1] ?? "root",
+      ...(key && { sshOptions: { privateKey: key } }),
+    } as Docker.DockerOptions),
+  };
+}
+
+/** The sandbox image the releases publish. */
+export const SANDBOX_IMAGE =
+  process.env.REDGIANT_SANDBOX_IMAGE ?? "ghcr.io/frostmoore/redgiant2-sandbox:latest";
+
+/**
+ * The person's answer to an agent's question: the option that does nothing risky (skip, no,
+ * keep, cancel…), else the first one. Nobody answering would leave the agent waiting.
+ */
+export function cautiousAnswer(info: QuestionRequestInfo): string[][] {
+  return info.questions.map((q) => {
+    const safe = q.options.find((o) =>
+      /\b(skip|no|don't|do not|keep|cancel|stop|none|refuse)\b/i.test(
+        `${o.label} ${o.description ?? ""}`,
+      ),
+    );
+    return [(safe ?? q.options[0])?.label ?? "No"];
+  });
 }
 
 export class ScenarioContext {
@@ -42,6 +94,8 @@ export class ScenarioContext {
   db!: SqlClient;
   approver: Approver = () => "deny";
   readonly approvals: { tool: string; danger: string[]; decision: string }[] = [];
+  /** What the agents asked the person (answered with `cautiousAnswer`). */
+  readonly questions: string[] = [];
 
   constructor(readonly o: ContextOptions) {}
 
@@ -52,7 +106,14 @@ export class ScenarioContext {
       providers: this.o.providers,
       workspacesDir: join(this.o.dir, "workspaces"),
       platformDir: join(this.o.dir, "platform"),
-      sandbox: new HostSandboxProvider(),
+      sandbox: this.o.docker
+        ? new DockerSandboxProvider({
+            image: SANDBOX_IMAGE,
+            network: "rg-eval-sandbox",
+            prefix: "rg-eval",
+            ...(await sshDocker()),
+          })
+        : new HostSandboxProvider(),
       defaultModel: this.o.model,
       // A child's question goes to the person, who is this scenario.
       askAgent: async () => "escalate",
@@ -61,6 +122,10 @@ export class ScenarioContext {
       const decision = this.approver(info);
       this.approvals.push({ tool: info.tool, danger: info.danger, decision });
       this.core.approvals.decide(owner, info.requestId, decision);
+    });
+    this.core.questions.on("request", (owner: string, info: QuestionRequestInfo) => {
+      this.questions.push(info.questions.map((q) => q.question).join(" / "));
+      this.core.questions.answer(owner, info.requestId, cautiousAnswer(info));
     });
     const existing = this.core.registry
       .list({ ownerId: OWNER, activeOnly: true })

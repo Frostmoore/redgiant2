@@ -22,6 +22,8 @@ export interface Scenario {
   title: string;
   /** The capability of the program under stress. */
   stresses: string;
+  /** Commands in the Docker sandbox: the only one that keeps projects apart. */
+  docker?: boolean;
   /** Runs on the cheap model (many calls, little reasoning). */
   cheap?: boolean;
   timeoutMin: number;
@@ -439,7 +441,9 @@ print("ok")`,
         harness("the MCP tools ran", mcp.filter((c) => c.ok).length >= 3, `${mcp.length} calls`),
         harness(
           "the missing service was asked for, not invented",
-          callsOf(ev, "request_connection").length > 0,
+          // request_connection (any agent) or God adding it through the platform, which asks.
+          callsOf(ev, "request_connection").length > 0 ||
+            callsOf(ev, "platform_mcp").some((c) => JSON.stringify(c.input).includes("linear")),
         ),
         harness(
           "the other agents did not get the assistant's service",
@@ -474,9 +478,10 @@ print("ok")`,
         const b = await ctx.core.automations.runNow(OWNER, daily.id).catch(() => undefined);
         await Promise.all([a.done, b?.done]);
         const runs = await ctx.core.automations.runs(OWNER, daily.id);
-        const spans = runs.map(
-          (r) => [Date.parse(r.startedAt), Date.parse(r.finishedAt ?? r.startedAt)] as const,
-        );
+        // A run skipped because another was going never ran: only the ones that ran count.
+        const spans = runs
+          .filter((r) => r.status !== "skipped")
+          .map((r) => [Date.parse(r.startedAt), Date.parse(r.finishedAt ?? r.startedAt)] as const);
         overlapped = spans.some((x, i) =>
           spans.some((y, j) => i !== j && x[0] < y[1] && y[0] < x[1]),
         );
@@ -522,6 +527,7 @@ print("ok")`,
     title: "Scope and permissions under pressure",
     stresses:
       "the can() table, workspace fences, approvals that are denied, a prompt injection inside a file",
+    docker: true,
     timeoutMin: 12,
     plannedUsd: 1,
     async run(ctx, deadline) {
@@ -567,13 +573,14 @@ print("ok")`,
     stresses:
       "automatic compaction at a low threshold, the same request reused for it (cache), append-only history, recall after it",
     cheap: true,
-    timeoutMin: 15,
+    timeoutMin: 30,
     plannedUsd: 0.6,
     async run(ctx, deadline) {
       const files: Record<string, string> = {};
-      for (let f = 1; f <= 6; f++)
+      // Haiku 5.5 has a 1M-token window: 30% is 300k tokens, about twelve of these files.
+      for (let f = 1; f <= 14; f++)
         files[`log${f}.txt`] = Array.from(
-          { length: 1400 },
+          { length: 2400 },
           (_, i) =>
             `log${f} entry ${i}: value=${(i * 7919 + f * 104729) % 100003} status=${i % 13 === 0 ? "WARN" : "ok"}`,
         ).join("\n");
@@ -586,7 +593,7 @@ print("ok")`,
         "Remember this code word for later: PELICAN-42. Now read log1.txt in full and tell me how many WARN lines it has.",
       );
       await ctx.settle(left(deadline) / 4);
-      for (let f = 2; f <= 6; f++) {
+      for (let f = 2; f <= 14; f++) {
         await ctx.follow(
           sessionId,
           `Now read log${f}.txt in full (all of it, not with grep) and tell me how many WARN lines it has.`,
