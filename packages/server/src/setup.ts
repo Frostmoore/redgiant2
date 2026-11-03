@@ -32,6 +32,7 @@ import { IMAGE_MODEL } from "./images.js";
 import { JobFailure, type JobHandle } from "./jobs.js";
 import { elevenVoices } from "./media.js";
 import { REMOTE_STEPS, type RemoteRequest } from "./remote.js";
+import type { EnginePlan } from "./stream.js";
 
 /** Applies a choice while the server runs (set by main.ts; tests pass fakes). */
 export interface SetupHooks {
@@ -56,7 +57,7 @@ export interface SetupHooks {
    * Starts the local engine container with this model file (null stops it); with a job, it
    * reports its steps (`image`, `start`, `load`) and throws `JobFailure`s the UI explains.
    */
-  engine(o: { variant: EngineVariant; model: string } | null, h?: JobHandle): Promise<void>;
+  engine(o: EngineConfig | null, h?: JobHandle): Promise<void | EnginePlan>;
   dockerRuntimes?(): Promise<string[]>;
   /**
    * Gitea, the code server of one's own (G24.5): started (or found running) with an admin of
@@ -90,6 +91,18 @@ export interface SearchChoice {
   key?: string;
 }
 
+/**
+ * The local engine: its build, the model file, and SSD streaming (2026-11-03) with its plan
+ * as the last start computed it and the tuning that changes it.
+ */
+export interface EngineConfig {
+  variant: EngineVariant;
+  model: string;
+  stream?: boolean | undefined;
+  tuning?: { moeCacheShare?: number | undefined } | undefined;
+  plan?: EnginePlan | undefined;
+}
+
 export interface SetupConfig {
   completed: boolean;
   language?: "it" | "en";
@@ -116,7 +129,7 @@ export interface SetupConfig {
   imagesModel?: string;
   /** Who makes pictures, videos and sounds (G25.3), by kind. */
   media?: Partial<Record<MediaKind, MediaChoice>>;
-  engine?: { variant: EngineVariant; model: string };
+  engine?: EngineConfig;
   retentionDays?: number;
   /** The user read that a personal subscription may not be allowed in third-party tools (RD23). */
   subscriptionAck?: boolean;
@@ -575,21 +588,23 @@ export class SetupService {
    * Starts the local engine as a job the UI follows: the engine's image (downloaded if
    * missing), the container, the model loaded, a first answer. Kept only when it answers.
    */
-  startEngine(e: { variant: EngineVariant; model: string }): Job {
+  startEngine(e: EngineConfig): Job {
     this.checkEngine(e);
     return this.o.core.jobs.start(
       this.o.ownerId,
       "engine",
       ["image", "start", "load", "try"],
       async (h) => {
-        await this.o.hooks.engine(e, h);
+        const { plan: _old, ...wanted } = e;
+        const plan = await this.o.hooks.engine(wanted, h);
         h.step("try");
         try {
           await this.o.core.trialModel(this.o.ownerId, { provider: "local", model: e.model });
         } catch (err) {
           throw new JobFailure("no_answer", (err as Error).message);
         }
-        this.config.engine = e;
+        // The plan the start computed (SSD stream): the page shows its context and source.
+        this.config.engine = { ...wanted, ...(plan && { plan }) };
         await this.save();
         // A local model cannot search the web by itself: RedGiant's search engine starts too.
         if (!this.searchChoice() && this.canRunSearch && !this.config.searxngDeclined)
@@ -599,13 +614,13 @@ export class SetupService {
     );
   }
 
-  private checkEngine(e: { variant: EngineVariant; model: string } | null): void {
+  private checkEngine(e: EngineConfig | null): void {
     if (this.locked.engine) throw new SetupError("The local engine is set by the environment");
     if (e && (e.model.includes("/") || e.model.includes("..") || !e.model.endsWith(".gguf")))
       throw new SetupError("The model is a .gguf file in the models folder");
   }
 
-  async saveEngine(e: { variant: EngineVariant; model: string } | null): Promise<void> {
+  async saveEngine(e: EngineConfig | null): Promise<void> {
     this.checkEngine(e);
     await this.o.hooks.engine(e);
     if (e) this.config.engine = e;

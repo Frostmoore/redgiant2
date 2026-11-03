@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { Resolver } from "node:dns/promises";
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { KvStore, LocalEngineProvider } from "@redgiant/engine-local";
+import { KvStore, LocalEngineProvider, readLocalGgufMeta } from "@redgiant/engine-local";
 import type { Redactor, SqlClient } from "@redgiant/events";
 import { keyProvider, OWN_SERVER_ID } from "@redgiant/protocol";
 import {
@@ -17,10 +17,11 @@ import type Docker from "dockerode";
 import type { AppOptions } from "./app.js";
 import type { RedGiantCore } from "./core.js";
 import { engineError } from "./engine-errors.js";
-import type { GpuAccess } from "./hardware.js";
+import { detectHardware, type GpuAccess } from "./hardware.js";
 import { JobFailure, type JobHandle, type Jobs } from "./jobs.js";
 import { startRemote, stopRemote } from "./remote.js";
-import type { SetupHooks } from "./setup.js";
+import type { EngineConfig, SetupHooks } from "./setup.js";
+import { type EnginePlan, streamPlan } from "./stream.js";
 import type { WinEngine } from "./win-engine.js";
 
 export interface RuntimeOptions {
@@ -65,6 +66,8 @@ export interface RuntimeOptions {
       webPort?: number;
     };
     network: string;
+    /** Where this server sees the models (to read a file's header). */
+    modelsDir?: string;
     modelsVolume: string;
     kvVolume: string;
     /** Where this server sees the KV volume. */
@@ -104,6 +107,22 @@ const GITEA = "redgiant-gitea";
 
 /** How the wizard's choices take effect while the server runs (G17). */
 export function runtimeHooks(o: RuntimeOptions): SetupHooks {
+  /** The streaming plan for a model file, from its header and this computer's memory. */
+  const planFor = async (cfg: EngineConfig): Promise<EnginePlan> => {
+    const dir = cfg.variant === "windows" ? o.engine?.windows?.modelsDir : o.engine?.modelsDir;
+    const path = join(dir ?? "/models", cfg.model);
+    const [meta, size, hw] = await Promise.all([
+      readLocalGgufMeta(path),
+      stat(path).then((x) => x.size / 1024 ** 3),
+      detectHardware({ dataDir: o.dataDir ?? "." }),
+    ]);
+    return streamPlan(
+      meta,
+      size,
+      { kind: hw.suggestion.kind, vramGb: hw.suggestion.vramGb, ramGb: hw.ramGb },
+      cfg.tuning ?? {},
+    );
+  };
   let gateway: TelegramGateway | undefined;
   return {
     async key(id, key) {
@@ -219,6 +238,8 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         o.providers.remove("local");
         return;
       }
+      // SSD stream (2026-11-03): the numbers come from the model's file and this computer.
+      const plan = cfg.stream ? await planFor(cfg) : undefined;
       if (cfg.variant === "windows") {
         const win = e.windows;
         if (!win)
@@ -227,7 +248,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
             "The Windows engine exists only in RedGiant's Windows install",
           );
         const started = async () => {
-          const baseURL = await win.start(cfg.model, h);
+          const baseURL = await win.start(cfg.model, h, plan);
           const provider = new LocalEngineProvider({
             id: "local",
             baseURL,
@@ -259,7 +280,16 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         container = await e.docker.createContainer({
           name: ENGINE,
           Image: image,
-          Cmd: ["-m", `/models/${cfg.model}`, ...(gpu ? ["--n-gpu-layers", "999"] : [])],
+          Cmd: [
+            "-m",
+            `/models/${cfg.model}`,
+            // Streaming: llama.cpp fits the layers to the card itself (--fit, its default).
+            ...(plan
+              ? ["-c", String(plan.ctx), ...plan.args]
+              : gpu
+                ? ["--n-gpu-layers", "999"]
+                : []),
+          ],
           Labels: { "io.redgiant.engine": "1" },
           HostConfig: {
             RestartPolicy: { Name: "unless-stopped" },

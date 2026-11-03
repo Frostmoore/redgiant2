@@ -24,6 +24,9 @@ export interface WinEngineRequest {
   build: string;
   ctx: number;
   parallel: number;
+  /** Extra flags for llama-server (SSD stream), and whether llama.cpp fits the layers itself. */
+  args?: string;
+  fit?: "1";
 }
 
 export interface WinEngineStatus {
@@ -63,14 +66,19 @@ export class WinEngine {
     return join(this.o.dir, "kv");
   }
 
-  private async request(model: string | null): Promise<string> {
+  private async request(
+    model: string | null,
+    plan?: { ctx: number; args: string[]; fit: boolean },
+  ): Promise<string> {
     const r: WinEngineRequest = {
       id: randomUUID(),
       model,
       build: WIN_ENGINE_BUILD,
       // One pool for every slot (--kv-unified): each conversation can use all of it.
-      ctx: 65536,
+      ctx: plan?.ctx ?? 65536,
       parallel: 4,
+      ...(plan && plan.args.length > 0 && { args: plan.args.join(" ") }),
+      ...(plan?.fit && { fit: "1" as const }),
     };
     await mkdir(this.o.dir, { recursive: true });
     const file = join(this.o.dir, "engine.json");
@@ -94,8 +102,12 @@ export class WinEngine {
    * Asks the launcher to run this model and follows it: the engine's download (`image`), its
    * start (`start`) and the model loading (`load`). Returns the engine's address.
    */
-  async start(model: string, h?: JobHandle): Promise<string> {
-    const id = await this.request(model);
+  async start(
+    model: string,
+    h?: JobHandle,
+    plan?: { ctx: number; args: string[]; fit: boolean },
+  ): Promise<string> {
+    const id = await this.request(model, plan);
     const poll = this.o.pollMs ?? 1000;
     const asked = Date.now();
     let seen = false;

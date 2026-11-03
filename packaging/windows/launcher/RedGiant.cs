@@ -481,7 +481,8 @@ static class WinEngine
         int gen;
         lock (gate) gen = ++generation;
         var t = new Thread(() => Handle(gen, id, Field(json, "model"), Field(json, "build"),
-            Field(json, "ctx") ?? "65536", Field(json, "parallel") ?? "4")) { IsBackground = true };
+            Field(json, "ctx") ?? "65536", Field(json, "parallel") ?? "4", Field(json, "args"),
+            Field(json, "fit"))) { IsBackground = true };
         t.Start();
     }
 
@@ -520,7 +521,14 @@ static class WinEngine
         server = null;
     }
 
-    static void Handle(int gen, string id, string model, string build, string ctx, string parallel)
+    /** Extra flags for llama-server from RedGiant (SSD stream, 2026-11-03): plain words only. */
+    static string SafeArgs(string args)
+    {
+        if (string.IsNullOrEmpty(args)) return "";
+        return Regex.IsMatch(args, "^[A-Za-z0-9 _.=-]*$") ? " " + args.Trim() : "";
+    }
+
+    static void Handle(int gen, string id, string model, string build, string ctx, string parallel, string args, string fit)
     {
         lock (gate) { if (gen != generation) return; Kill(); }
         if (model == null) { Status(gen, id, "stopped", null); return; }
@@ -538,7 +546,9 @@ static class WinEngine
             var info = new ProcessStartInfo(Exe,
                 "-m \"" + Path.Combine(Dir, "models", model) + "\" --host 0.0.0.0 --port " + Port
                 + " -c " + ctx + " --parallel " + parallel + " --slot-save-path \"" + Path.Combine(Dir, "kv")
-                + "\" --swa-full --kv-unified --jinja --n-gpu-layers 999")
+                + "\" --swa-full --kv-unified --jinja"
+                // SSD stream: llama.cpp fits the layers to the card itself (--fit, its default).
+                + (fit == "1" ? "" : " --n-gpu-layers 999") + SafeArgs(args))
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,

@@ -200,6 +200,7 @@ const hooks = runtimeHooks({
           bind: env.REDGIANT_GITEA_BIND ?? "127.0.0.1",
         },
         network: env.REDGIANT_ENGINE_NETWORK,
+        modelsDir: env.REDGIANT_MODELS_DIR ?? "/models",
         modelsVolume: env.REDGIANT_MODELS_VOLUME ?? "redgiant-models",
         kvVolume: env.REDGIANT_KV_VOLUME ?? "redgiant-kv",
         kvDir: env.REDGIANT_KV_DIR ?? "/kv",
