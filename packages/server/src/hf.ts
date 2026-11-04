@@ -127,6 +127,11 @@ export class HuggingFace {
     private readonly fetchImpl: typeof fetch = globalThis.fetch,
   ) {}
 
+  /** The folder the models are downloaded to. */
+  get dir(): string {
+    return this.modelsDir;
+  }
+
   async search(query: string): Promise<HfModel[]> {
     const r = await this.fetchImpl(
       `${HF}/api/models?search=${encodeURIComponent(query)}&filter=gguf&sort=downloads&direction=-1&limit=20`,

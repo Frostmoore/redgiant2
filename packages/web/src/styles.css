@@ -4748,6 +4748,10 @@ button.pick-tile.on {
   font-size: 12px;
   color: var(--dim);
 }
+.lm-meta.warn {
+  display: block;
+  color: var(--warn);
+}
 .lm-meter,
 .lm-room {
   display: flex;
@@ -4775,21 +4779,36 @@ button.pick-tile.on {
   font-size: 12px;
   white-space: nowrap;
 }
+/* The room in tiers (2026-11-04): card, then RAM, then SSD, each filled by its part of the model. */
 .lm-room-bar {
+  display: flex;
+  gap: 2px;
   width: 100%;
-  max-width: 120px;
+  max-width: 160px;
   height: 8px;
-  border-radius: 4px;
+}
+.lm-tier {
+  display: flex;
+  box-sizing: border-box;
+  height: 8px;
+  flex-basis: 0;
+  min-width: 6px;
+  border-radius: 3px;
   background: var(--panel-2);
   border: 1px solid var(--line);
   overflow: hidden;
 }
-.lm-room-bar span {
-  display: block;
-  height: 100%;
+.lm-tier > span {
+  flex: none;
+}
+.lm-tier.tier-card > span,
+.lm-tier.tier-memory > span {
   background: var(--ok);
 }
-.lm-room-bar.tight span {
+.lm-tier.tier-ram > span {
+  background: color-mix(in srgb, var(--ok) 50%, var(--warn));
+}
+.lm-tier.tier-ssd > span {
   background: var(--warn);
 }
 .lm-actions {

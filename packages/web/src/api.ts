@@ -163,6 +163,8 @@ export interface LocalModelChoice extends LocalModel {
   file: (GgufFile & { quality: "high" | "good" | "reduced" }) | null;
   smallestGb: number | null;
   unavailable?: boolean;
+  /** SSD stream: bigger than RAM and card together, part of it read from the SSD at each token. */
+  beyondMemory?: boolean;
 }
 
 /** A file of the models folder: ready, or a download paused halfway. */
@@ -679,10 +681,12 @@ export class Api {
     this.call<GgufFile[]>("GET", `/api/setup/hf/files?repo=${encodeURIComponent(repo)}`);
   /** The suggested models and the folder's files, for the engine `variant` (each has its folder). */
   localModels = (variant: EngineVariant, stream = false) =>
-    this.call<{ models: LocalModelChoice[]; files: LocalFile[] }>(
-      "GET",
-      `/api/setup/local-models?variant=${variant}${stream ? "&stream=1" : ""}`,
-    );
+    this.call<{
+      models: LocalModelChoice[];
+      files: LocalFile[];
+      budgetGb?: number;
+      diskFreeGb?: number;
+    }>("GET", `/api/setup/local-models?variant=${variant}${stream ? "&stream=1" : ""}`);
   /** Downloads a model file: a job to follow; cancelling it pauses, starting again goes on. */
   downloadModel = (repo: string, file: string, variant: EngineVariant) =>
     this.call<Job>("POST", "/api/setup/local-models/download", { repo, file, variant });

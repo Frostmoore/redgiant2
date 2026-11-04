@@ -808,6 +808,14 @@ describe("Hugging Face models", () => {
     expect((await localModelChoices(hf, 8)).find((m) => m.id === "gemma-4-12b")?.file?.file).toBe(
       "gemma-4-12b-it-Q4_K_M.gguf",
     );
+    // SSD stream (2026-11-04): too big for memory, but the disk has room: the smallest file comes.
+    const streamed = await localModelChoices(hf, 12.8, { diskFreeGb: 100 });
+    expect(streamed.find((m) => m.id === "qwen3.8-27b")).toMatchObject({
+      beyondMemory: true,
+      file: { sizeGb: 17 },
+    });
+    const full = await localModelChoices(hf, 12.8, { diskFreeGb: 20 });
+    expect(full.find((m) => m.id === "qwen3.8-27b")).toMatchObject({ file: null });
   });
 
   it("explains why the engine did not start", () => {

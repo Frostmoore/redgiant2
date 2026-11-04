@@ -1,6 +1,6 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, statfs } from "node:fs/promises";
 import { extname, join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -2323,11 +2323,25 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       const hw = (await (setup as SetupService).state()).hardware;
       // SSD stream (2026-11-03): a model may be as big as RAM and card together; what does not
       // fit there is read from the SSD, slower but possible.
-      const budget =
-        c.req.query("stream") === "1"
-          ? Math.max(hw.suggestion.maxModelGb, Math.round(hw.ramGb * 0.85 + hw.suggestion.vramGb))
-          : hw.suggestion.maxModelGb;
-      return { models: await localModelChoices(folder, budget), files: await folder.local() };
+      const stream = c.req.query("stream") === "1";
+      // In order (2026-11-04): the card, then the RAM free now, then the SSD. Memory shared by
+      // the card and the processor counts once (the RAM).
+      const card = hw.suggestion.kind === "gpu" ? hw.suggestion.maxModelGb : 0;
+      const budget = stream
+        ? Math.max(hw.suggestion.maxModelGb, Math.round((card + hw.freeRamGb * 0.9) * 10) / 10)
+        : hw.suggestion.maxModelGb;
+      // Beyond that, with SSD stream: a model as big as the models' disk allows.
+      const diskFreeGb = stream
+        ? await statfs(folder.dir)
+            .then((d) => (d.bavail * d.bsize) / 1024 ** 3)
+            .catch(() => 0)
+        : 0;
+      return {
+        models: await localModelChoices(folder, budget, stream ? { diskFreeGb } : undefined),
+        files: await folder.local(),
+        budgetGb: budget,
+        ...(stream && { diskFreeGb: Math.round(diskFreeGb * 10) / 10 }),
+      };
     }),
   );
   // A download is a job: followed with its progress, cancelled to pause, started again to go on.

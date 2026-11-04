@@ -34,7 +34,7 @@ export function hardwareText(h: SetupState["hardware"]): string {
  * cleverest (tools and code as tie-breakers); none of them: the largest that fits.
  */
 function recommended(models: LocalModelChoice[], hw: SetupState["hardware"]): string | undefined {
-  const fitting = models.filter((m) => m.file);
+  const fitting = models.filter((m) => m.file && !m.beyondMemory);
   const score = (m: LocalModelChoice) => m.scores.smart * 10 + m.scores.tools * 2 + m.scores.code;
   const usable = fitting.filter(
     (m) =>
@@ -64,19 +64,73 @@ function Meter({ label, value, note }: { label: string; value: number; note?: st
 }
 
 /** How much of the room for models the file takes (a table cell). */
-function RoomBar({ sizeGb, maxGb }: { sizeGb: number; maxGb: number }) {
-  const pct = Math.min(100, Math.round((sizeGb / Math.max(maxGb, 0.1)) * 100));
+/** Where a model's room comes from, in order: the card, then the RAM, then the SSD. */
+export interface Tier {
+  kind: "card" | "ram" | "memory" | "ssd";
+  gb: number;
+}
+
+/**
+ * The tiers of this computer for local models (2026-11-04): the card's memory, then the RAM free
+ * now, then (SSD stream) the models' disk. A card that shares the computer's memory (a GPU in the
+ * processor, unified memory) has one tier, the memory.
+ */
+export function roomTiers(hw: SetupState["hardware"], diskFreeGb?: number): Tier[] {
+  const s = hw.suggestion;
+  const free = (hw.freeRamGb ?? hw.ramGb * 0.6) * 0.9;
+  const tiers: Tier[] =
+    s.kind === "gpu" || s.kind === "gpu-unknown"
+      ? [
+          { kind: "card", gb: s.maxModelGb },
+          ...(diskFreeGb !== undefined ? [{ kind: "ram" as const, gb: free }] : []),
+        ]
+      : [{ kind: "memory", gb: diskFreeGb !== undefined ? free : s.maxModelGb }];
+  if (diskFreeGb !== undefined) tiers.push({ kind: "ssd", gb: Math.max(0, diskFreeGb - 10) });
+  return tiers.filter((x) => x.gb > 0);
+}
+
+/** How a model of `sizeGb` fills the tiers, the first ones first. */
+export function placeModel(sizeGb: number, tiers: Tier[]): Tier[] {
+  let left = sizeGb;
+  const out: Tier[] = [];
+  for (const tier of tiers) {
+    if (left <= 0) break;
+    const take = Math.min(left, tier.gb);
+    if (take > 0) out.push({ kind: tier.kind, gb: take });
+    left -= take;
+  }
+  return out;
+}
+
+function RoomBar({ sizeGb, tiers }: { sizeGb: number; tiers: Tier[] }) {
+  const parts = placeModel(sizeGb, tiers);
+  // A big SSD would squash the other tiers: it is drawn at most as wide as card and RAM together.
+  const memory = tiers.filter((x) => x.kind !== "ssd").reduce((n, x) => n + x.gb, 0);
+  const shown = (tier: Tier) =>
+    tier.kind === "ssd" ? Math.min(tier.gb, Math.max(memory, 1)) : tier.gb;
+  const total = tiers.reduce((n, x) => n + shown(x), 0);
+  const words = parts
+    .map((p) => t(`lmTier_${p.kind}`, { gb: gb(Math.round(p.gb * 10) / 10) }))
+    .join(" · ");
   return (
-    <span
-      class="lm-room"
-      data-label={t("lmRoom")}
-      role="img"
-      aria-label={t("lmRoomOf", { size: gb(sizeGb), max: gb(maxGb) })}
-    >
-      <span class={`lm-room-bar${pct > 85 ? " tight" : ""}`} aria-hidden="true">
-        <span style={{ width: `${pct}%` }} />
+    <span class="lm-room" data-label={t("lmRoom")} role="img" aria-label={words}>
+      <span class="lm-room-bar" aria-hidden="true">
+        {tiers.map((tier) => {
+          const used = parts.find((p) => p.kind === tier.kind)?.gb ?? 0;
+          return (
+            <span
+              key={tier.kind}
+              class={`lm-tier tier-${tier.kind}`}
+              style={{ flexGrow: shown(tier) / Math.max(total, 0.1) }}
+            >
+              <span
+                style={{ width: `${Math.min(100, (used / Math.max(shown(tier), 0.1)) * 100)}%` }}
+              />
+            </span>
+          );
+        })}
       </span>
-      <span class="lm-meter-note">{t("lmRoomOf", { size: gb(sizeGb), max: gb(maxGb) })}</span>
+      <span class="lm-meter-note">{words}</span>
     </span>
   );
 }
@@ -400,11 +454,18 @@ function FileActions({
               </button>
             )
           )}
-          {!active && eng?.state !== "running" && (
+          {eng?.state !== "running" && (
             <button
               type="button"
               class="link"
-              onClick={() => act(() => getApi().removeModel(name, variant))}
+              onClick={() => {
+                // The model in use goes too (2026-11-04): the engine stops first.
+                if (active && !confirm(t("lmDeleteActiveConfirm"))) return;
+                act(async () => {
+                  if (active) await getApi().setupEngine(null);
+                  await getApi().removeModel(name, variant);
+                });
+              }}
             >
               <IconTrash size={13} /> {t("lmDelete")}
             </button>
@@ -525,7 +586,12 @@ function HfSearch({
 }
 
 export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }) {
-  const [data, setData] = useState<{ models: LocalModelChoice[]; files: LocalFile[] }>();
+  const [data, setData] = useState<{
+    models: LocalModelChoice[];
+    files: LocalFile[];
+    budgetGb?: number;
+    diskFreeGb?: number;
+  }>();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [variant, setVariant] = useState<EngineVariant>(
     s.config.engine?.variant ?? s.hardware.suggestion.engine,
@@ -571,6 +637,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
   };
   const active = s.config.engine?.model;
   const best = data && recommended(data.models, s.hardware);
+  const tiers = roomTiers(s.hardware, stream && canStream.ok ? data?.diskFreeGb : undefined);
   const files = data?.files ?? [];
   const known = new Set(data?.models.flatMap((m) => (m.file ? [target(m.file.file)] : [])) ?? []);
   const others = files.filter((f) => !known.has(f.file) && !f.partial);
@@ -630,6 +697,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
                 </span>
                 <span class="ui-help">{tOptional(`lm_${m.id}`) ?? ""}</span>
                 {m.file && <span class="lm-meta">{t(`lmQuality_${m.file.quality}`)}</span>}
+                {m.beyondMemory && <span class="lm-meta warn">{t("lmBeyondMemory")}</span>}
               </span>
               <Meter label={t("lmScore_smart")} value={m.scores.smart} />
               <Meter label={t("lmScore_code")} value={m.scores.code} />
@@ -644,11 +712,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
               ) : (
                 <span />
               )}
-              {m.file ? (
-                <RoomBar sizeGb={m.file.sizeGb} maxGb={s.hardware.suggestion.maxModelGb} />
-              ) : (
-                <span />
-              )}
+              {m.file ? <RoomBar sizeGb={m.file.sizeGb} tiers={tiers} /> : <span />}
               <span class="lm-actions">
                 {m.file ? (
                   <FileActions
@@ -668,7 +732,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
                       ? t("lmUnavailable")
                       : t("lmTooBig", {
                           need: m.smallestGb ? gb(m.smallestGb) : "?",
-                          max: gb(s.hardware.suggestion.maxModelGb),
+                          max: gb(data?.budgetGb ?? s.hardware.suggestion.maxModelGb),
                         })}
                   </span>
                 )}
