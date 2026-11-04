@@ -144,6 +144,7 @@ sealed class Launcher : ApplicationContext
             finally { Ui(() => StartEngine()); }
         };
         Moves.Watch();
+        Memory.Watch();
         StartEngine();
         // The first start of the day looks for a newer RedGiant (Updates.cs); its questions are
         // asked on the splash's thread, whose handle exists even when the splash stays hidden.
@@ -504,6 +505,21 @@ static class WinEngine
     {
         foreach (var d in new[] { "models", "kv", "bin" }) Directory.CreateDirectory(Path.Combine(Dir, d));
         timer = new System.Threading.Timer(_ => Check(), null, 1000, 1000);
+    }
+
+    /** The memory the engine's process holds now (Memory.cs), 0 when it is not running. */
+    public static long EngineBytes()
+    {
+        lock (gate)
+        {
+            try
+            {
+                if (server == null || server.HasExited) return 0;
+                server.Refresh();
+                return server.WorkingSet64;
+            }
+            catch (Exception) { return 0; }
+        }
     }
 
     /** Stops the engine now (its models are being moved); a new request starts it again. */

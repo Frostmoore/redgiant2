@@ -1,7 +1,7 @@
 // What the model is doing right now (2026-11-03, the person's request): reading the context
 // (prefill) with how much is done, how fast and how much came from the cache, or writing,
 // reasoning or the answer, with its speed. Local engines report the reading as it goes; for
-// the others the wait is timed until the first word arrives.
+// the others the wait is timed until the first token arrives.
 import { useEffect, useState } from "preact/hooks";
 import { kTokens } from "../format.js";
 import { t } from "../i18n.js";

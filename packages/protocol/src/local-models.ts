@@ -13,7 +13,7 @@ export interface LocalModel {
   id: string;
   name: string;
   repo: string;
-  /** Billions of parameters in all, and those working on each word (mixture of experts). */
+  /** Billions of parameters in all, and those working on each token (mixture of experts). */
   totalB: number;
   activeB: number;
   scores: { smart: number; code: number; tools: number; languages: number };
@@ -146,7 +146,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
 export interface SpeedHardware {
   kind: "gpu" | "gpu-unknown" | "igpu" | "cpu";
   vramGb: number;
-  /** For SSD stream: what does not fit in RAM is read from the SSD. */
+  /** For SSD stream: the RAM free now (not the total); what does not fit is read from the SSD. */
   ramGb?: number;
 }
 
@@ -154,26 +154,27 @@ export interface SpeedHardware {
 const SSD_GB_S = 3;
 
 /**
- * About how many words a second a model writes here, and that as 1 to 5. Writing one word
+ * About how many tokens a second a model writes here, and that as 1 to 5. Writing one token
  * reads the working part of the model from memory once, so the speed is the memory's bandwidth
  * divided by that part's size: a model inside the graphics card's memory reads at hundreds of
- * GB/s, one in the computer's memory at tens. A rough estimate, said as such in the UI.
+ * GB/s, one in the computer's memory at tens. A rough estimate, said as such in the UI. Tokens,
+ * not words (2026-11-04): the engine measures tokens, and the estimate must compare with it.
  */
 export function estimatedSpeed(
   m: Pick<LocalModel, "totalB" | "activeB">,
   fileGb: number,
   hw: SpeedHardware,
   opts: { stream?: boolean } = {},
-): { wordsPerSec: number; stars: number } {
+): { tokensPerSec: number; stars: number } {
   // SSD stream and a model bigger than the card: the working part comes from RAM, and what
-  // does not fit in RAM either from the SSD at each word (2026-11-03).
+  // does not fit in RAM either from the SSD at each token (2026-11-03).
   if (opts.stream && !(hw.kind === "gpu" && fileGb <= hw.vramGb * 0.9)) {
-    const perWord = Math.max(0.2, (fileGb * m.activeB) / m.totalB);
-    const ram = (hw.ramGb ?? 16) * 0.85 + (hw.kind === "gpu" ? hw.vramGb : 0);
+    const perToken = Math.max(0.2, (fileGb * m.activeB) / m.totalB);
+    const ram = (hw.ramGb ?? 16) * 0.9 + (hw.kind === "gpu" ? hw.vramGb : 0);
     const fromSsd = Math.max(0, (fileGb - ram) / fileGb);
-    const seconds = (perWord * (1 - fromSsd)) / 45 + (perWord * fromSsd) / SSD_GB_S;
-    const wordsPerSec = Math.max(0, Math.round((0.5 * 0.75) / seconds));
-    return { wordsPerSec, stars: starsFor(wordsPerSec) };
+    const seconds = (perToken * (1 - fromSsd)) / 45 + (perToken * fromSsd) / SSD_GB_S;
+    const tokensPerSec = Math.max(0, Math.round(0.5 / seconds));
+    return { tokensPerSec, stars: starsFor(tokensPerSec) };
   }
   const inCard = hw.kind === "gpu" && fileGb <= hw.vramGb * 0.9;
   const bandwidth =
@@ -186,10 +187,10 @@ export function estimatedSpeed(
         : hw.kind === "igpu"
           ? 70
           : 45;
-  const readPerWord = Math.max(0.2, (fileGb * m.activeB) / m.totalB);
-  // Real engines reach about half of the bandwidth; a token is about three quarters of a word.
-  const wordsPerSec = Math.round((bandwidth / readPerWord) * 0.5 * 0.75);
-  return { wordsPerSec, stars: starsFor(wordsPerSec) };
+  const readPerToken = Math.max(0.2, (fileGb * m.activeB) / m.totalB);
+  // Real engines reach about half of the bandwidth.
+  const tokensPerSec = Math.round((bandwidth / readPerToken) * 0.5);
+  return { tokensPerSec, stars: starsFor(tokensPerSec) };
 }
 
-const starsFor = (w: number) => (w >= 60 ? 5 : w >= 30 ? 4 : w >= 15 ? 3 : w >= 7 ? 2 : 1);
+const starsFor = (n: number) => (n >= 80 ? 5 : n >= 40 ? 4 : n >= 20 ? 3 : n >= 10 ? 2 : 1);

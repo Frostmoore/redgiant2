@@ -186,7 +186,9 @@ function StreamSwitch({
 }: {
   on: boolean;
   available: Availability;
-  plan: { ctx: number; moeCacheMib: number; source: string; ssdGbPerWord: number } | undefined;
+  plan:
+    | { ctx: number; moeCacheMib: number; source: string; ssdGbPerWord: number; ramGb?: number }
+    | undefined;
   onChange: (on: boolean) => void;
 }) {
   return (
@@ -209,6 +211,7 @@ function StreamSwitch({
                 : plan.source === "ram"
                   ? t("lmStreamFromRam")
                   : t("lmStreamFromCard"),
+            ram: plan.ramGb !== undefined ? gb(plan.ramGb) : "?",
           })}
         </p>
       )}
@@ -606,7 +609,12 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
         </div>
         {data?.models.map((m) => {
           const speed = m.file
-            ? estimatedSpeed(m, m.file.sizeGb, s.hardware.suggestion)
+            ? estimatedSpeed(
+                m,
+                m.file.sizeGb,
+                { ...s.hardware.suggestion, ramGb: s.hardware.freeRamGb ?? s.hardware.ramGb },
+                { stream: stream && canStream.ok },
+              )
             : undefined;
           const inUse = !!m.file && active === target(m.file.file);
           return (
@@ -631,7 +639,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
                 <Meter
                   label={t("lmScore_speed")}
                   value={speed.stars}
-                  note={t("lmWordsShort", { n: String(speed.wordsPerSec) })}
+                  note={t("lmTokensShort", { n: String(speed.tokensPerSec) })}
                 />
               ) : (
                 <span />

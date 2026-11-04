@@ -78,6 +78,8 @@ export interface SetupState {
         moeCacheMib: number;
         source: "card" | "ram" | "ssd";
         ssdGbPerWord: number;
+        /** The free RAM the plan counted on (2026-11-04). */
+        ramGb?: number;
       };
     };
     retentionDays?: number;
@@ -116,6 +118,8 @@ export interface SetupState {
     cpu: string;
     cores: number;
     ramGb: number;
+    /** The RAM a model may use now (free, not total; 2026-11-04). */
+    freeRamGb?: number;
     diskFreeGb: number | null;
     /** The computer's disks and the one each engine keeps its models on (2026-11-03). */
     disks?: { name: string; ssd: boolean | null; bus: string; freeGb: number; totalGb: number }[];

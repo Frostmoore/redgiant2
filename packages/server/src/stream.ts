@@ -4,7 +4,7 @@
 // experts leave the card (--cpu-moe) and a cache in the card keeps the ones used lately
 // (--moe-cache-mib); the card's room goes to the context instead, its keys and values at 8 bits.
 // For a dense model llama.cpp fits as many layers as it can in the card (--fit) and the rest
-// comes from RAM or the SSD at each word. This file decides the numbers; the engine does the rest.
+// comes from RAM or the SSD at each token. This file decides the numbers; the engine does the rest.
 import type { GgufMeta } from "@redgiant/engine-local";
 
 const GB = 1024 ** 3;
@@ -13,6 +13,7 @@ const GB = 1024 ** 3;
 export interface StreamHardware {
   kind: "gpu" | "gpu-unknown" | "igpu" | "cpu";
   vramGb: number;
+  /** The RAM the model may use now: what is free, not the total (2026-11-04). */
   ramGb: number;
 }
 
@@ -25,17 +26,20 @@ export interface EnginePlan {
   fit: boolean;
   /** The card's cache of experts (MoE only), MiB. */
   moeCacheMib: number;
-  /** Where the weights mostly come from at each word. */
+  /** Where the weights mostly come from at each token. */
   source: "card" | "ram" | "ssd";
-  /** About how many GB are read from the SSD for each word (0 when the model fits in RAM). */
+  /** About how many GB are read from the SSD for each token (0 when the model fits in RAM). */
   ssdGbPerWord: number;
+  /** The free RAM the plan counted on. */
+  ramGb: number;
 }
 
 /** Keys and values at 8 bits (q8_0): about 53 % of the 16-bit size. */
 const Q8 = 8.5 / 16;
 /** Not the model: compute buffers, the system, the other programs. */
 const CARD_RESERVE_GB = 1;
-const RAM_FOR_CACHE = 0.6;
+/** Of the free RAM, what the model's pages may keep (the rest for the engine and the system). */
+const RAM_FOR_CACHE = 0.9;
 
 const steps = (n: number) => Math.floor(n / 4096) * 4096;
 
@@ -71,7 +75,7 @@ export function streamPlan(
   }
   const trained = meta.contextLength || NORMAL_CTX;
   const ctx = Math.max(16384, Math.min(steps(trained), steps((kvBudgetGb * GB) / kvPerToken)));
-  // How much of the weights is read at each word, and how much of it is not in RAM.
+  // How much of the weights is read at each token, and how much of it is not in RAM.
   const perWord = moe ? fileGb * (meta.expertsUsed / meta.experts) + shared : fileGb;
   const inRam = Math.max(0, hw.ramGb * RAM_FOR_CACHE);
   const inCard = moe
@@ -95,5 +99,6 @@ export function streamPlan(
     moeCacheMib,
     source,
     ssdGbPerWord,
+    ramGb: hw.ramGb,
   };
 }

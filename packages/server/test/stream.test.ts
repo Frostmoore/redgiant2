@@ -29,11 +29,11 @@ describe("SSD stream plan (2026-11-03)", () => {
     expect(p.ctx).toBeLessThanOrEqual(262144);
     expect(p.ctx % 4096).toBe(0);
     // 17 GB in 32 GB of RAM: nothing read from the SSD at each word.
-    expect(p).toMatchObject({ source: "ram", ssdGbPerWord: 0, fit: true });
+    expect(p).toMatchObject({ source: "ram", ssdGbPerWord: 0, fit: true, ramGb: 32 });
   });
 
-  it("the same model on a computer with 16 GB of RAM reads part of it from the SSD", () => {
-    const p = streamPlan(qwenCoder, 17.3, { kind: "gpu", vramGb: 12, ramGb: 16 });
+  it("the same model with 12 GB of RAM free reads part of it from the SSD", () => {
+    const p = streamPlan(qwenCoder, 17.3, { kind: "gpu", vramGb: 12, ramGb: 12 });
     expect(p.source).toBe("ssd");
     expect(p.ssdGbPerWord).toBeGreaterThan(0);
     expect(p.ssdGbPerWord).toBeLessThan(2);

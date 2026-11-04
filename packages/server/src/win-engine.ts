@@ -58,6 +58,11 @@ export interface WinEngineOptions {
 export class WinEngine {
   constructor(private readonly o: WinEngineOptions) {}
 
+  /** The shared folder, where the launcher also says how much memory Windows has free. */
+  get dir(): string {
+    return this.o.dir;
+  }
+
   get modelsDir(): string {
     return join(this.o.dir, "models");
   }

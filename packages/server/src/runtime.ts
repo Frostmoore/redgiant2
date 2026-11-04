@@ -20,6 +20,7 @@ import { engineError } from "./engine-errors.js";
 import { detectHardware, type GpuAccess } from "./hardware.js";
 import { splitPart } from "./hf.js";
 import { JobFailure, type JobHandle, type Jobs } from "./jobs.js";
+import { readLinuxMemory, readWindowsMemory, usableRamGb } from "./memory.js";
 import { startRemote, stopRemote } from "./remote.js";
 import type { EngineConfig, SetupHooks } from "./setup.js";
 import { type EnginePlan, NORMAL_CTX, streamPlan } from "./stream.js";
@@ -132,10 +133,21 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       })(),
       detectHardware({ dataDir: o.dataDir ?? "." }),
     ]);
+    // The RAM free now, not the total (2026-11-04): other programs may hold half of it.
+    const [linux, windows] = await Promise.all([
+      cfg.variant === "windows" ? undefined : readLinuxMemory(),
+      readWindowsMemory(o.engine?.windows?.dir),
+    ]);
+    const ram = usableRamGb({
+      windowsEngine: cfg.variant === "windows",
+      totalGb: hw.ramGb,
+      linux,
+      windows,
+    });
     return streamPlan(
       meta,
       size,
-      { kind: hw.suggestion.kind, vramGb: hw.suggestion.vramGb, ramGb: hw.ramGb },
+      { kind: hw.suggestion.kind, vramGb: hw.suggestion.vramGb, ramGb: ram.gb },
       cfg.tuning ?? {},
     );
   };

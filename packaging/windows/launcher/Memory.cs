@@ -1,0 +1,49 @@
+// The memory Windows has free right now (2026-11-04, for SSD stream). Inside WSL RedGiant sees
+// only the distribution's memory; the other programs on Windows (the person's services) are
+// invisible there. Every few seconds this writes memory.json in the engine's folder:
+//   { "totalGb": 63.7, "availableGb": 31.2, "engineGb": 0.0 }
+// availableGb is what Windows can hand out now (free plus its file cache), engineGb what the
+// Windows engine holds (it goes when the engine starts another model).
+using System;
+using System.Globalization;
+using System.IO;
+using System.Runtime.InteropServices;
+
+static class Memory
+{
+    [StructLayout(LayoutKind.Sequential)]
+    class MemoryStatusEx
+    {
+        public uint dwLength = (uint)Marshal.SizeOf(typeof(MemoryStatusEx));
+        public uint dwMemoryLoad;
+        public ulong ullTotalPhys;
+        public ulong ullAvailPhys;
+        public ulong ullTotalPageFile;
+        public ulong ullAvailPageFile;
+        public ulong ullTotalVirtual;
+        public ulong ullAvailVirtual;
+        public ulong ullAvailExtendedVirtual;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GlobalMemoryStatusEx([In, Out] MemoryStatusEx buffer);
+
+    static System.Threading.Timer timer;
+
+    public static void Watch()
+    {
+        timer = new System.Threading.Timer(_ => Write(), null, 0, 5000);
+    }
+
+    static void Write()
+    {
+        var m = new MemoryStatusEx();
+        if (!GlobalMemoryStatusEx(m)) return;
+        const double GB = 1024.0 * 1024 * 1024;
+        string json = string.Format(CultureInfo.InvariantCulture,
+            "{{\"totalGb\":{0:0.0},\"availableGb\":{1:0.0},\"engineGb\":{2:0.0}}}",
+            m.ullTotalPhys / GB, m.ullAvailPhys / GB, WinEngine.EngineBytes() / GB);
+        string file = Path.Combine(WinEngine.Dir, "memory.json");
+        try { File.WriteAllText(file + ".tmp", json); File.Copy(file + ".tmp", file, true); } catch (Exception) { }
+    }
+}

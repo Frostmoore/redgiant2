@@ -12,8 +12,8 @@ describe("local models compared (2026-11-03)", () => {
     const moe = { totalB: 30, activeB: 3 };
     const gpu = { kind: "gpu", vramGb: 24 } as const;
     const cpu = { kind: "cpu", vramGb: 0 } as const;
-    expect(estimatedSpeed(dense, 16, gpu).wordsPerSec).toBeGreaterThan(
-      estimatedSpeed(dense, 16, cpu).wordsPerSec * 4,
+    expect(estimatedSpeed(dense, 16, gpu).tokensPerSec).toBeGreaterThan(
+      estimatedSpeed(dense, 16, cpu).tokensPerSec * 4,
     );
     expect(estimatedSpeed(moe, 17, cpu).stars).toBeGreaterThan(
       estimatedSpeed(dense, 16, cpu).stars,
@@ -29,8 +29,8 @@ describe("speed with SSD stream (2026-11-03)", () => {
     const hw = { kind: "gpu" as const, vramGb: 12, ramGb: 32 };
     const inRam = estimatedSpeed(moe, 17, hw, { stream: true });
     const onSsd = estimatedSpeed(moe, 17, { ...hw, ramGb: 4 }, { stream: true });
-    expect(inRam.wordsPerSec).toBeGreaterThan(onSsd.wordsPerSec);
-    expect(onSsd.wordsPerSec).toBeGreaterThan(0);
+    expect(inRam.tokensPerSec).toBeGreaterThan(onSsd.tokensPerSec);
+    expect(onSsd.tokensPerSec).toBeGreaterThan(0);
     // Without streaming nothing changes.
     expect(estimatedSpeed(moe, 10, hw)).toEqual(estimatedSpeed(moe, 10, hw, { stream: false }));
   });

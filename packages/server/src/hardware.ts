@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { statfs } from "node:fs/promises";
-import { cpus, freemem, platform, totalmem } from "node:os";
+import { cpus, platform, totalmem } from "node:os";
+import { readLinuxMemory, readWindowsMemory, usableRamGb } from "./memory.js";
 
 export interface Gpu {
   name: string;
@@ -63,6 +64,7 @@ export interface Hardware {
   cpu: string;
   cores: number;
   ramGb: number;
+  /** The RAM a model may use now on the suggested engine: free, not total (2026-11-04). */
   freeRamGb: number;
   diskFreeGb: number | null;
   /** The computer's disks, and the one each kind of engine keeps its models on. */
@@ -161,6 +163,8 @@ export async function detectHardware(o: {
   gpuAccess?: string | undefined;
   /** The engine can run on Windows itself (RedGiant's Windows install). */
   windowsEngine?: boolean | undefined;
+  /** The Windows engine's folder, where the launcher says how much memory Windows has free. */
+  winEngineDir?: string | undefined;
 }): Promise<Hardware> {
   const list = cpus();
   const disk = await statfs(o.dataDir)
@@ -232,12 +236,24 @@ export async function detectHardware(o: {
       vramGb: 0,
     };
   }
+  const [linux, windows] = await Promise.all([
+    readLinuxMemory(),
+    o.windowsEngine
+      ? readWindowsMemory(o.winEngineDir ?? process.env.REDGIANT_WIN_ENGINE_DIR ?? "/winengine")
+      : undefined,
+  ]);
+  const freeRam = usableRamGb({
+    windowsEngine: suggestion.engine === "windows",
+    totalGb: ramGb,
+    linux,
+    windows,
+  });
   return {
     os: platform(),
     cpu: list[0]?.model.trim() ?? "unknown",
     cores: list.length,
     ramGb,
-    freeRamGb: round(freemem() / GB),
+    freeRamGb: freeRam.gb,
     diskFreeGb: disk,
     disks,
     modelDisk,
