@@ -62,6 +62,18 @@ describe("the guardian (2026-11-04)", () => {
     ).toEqual([]);
   });
 
+  it("Windows paths: either slash, any case, the drive letter counts (CI on Windows)", () => {
+    const win = { roots: ["C:\\Users\\Me\\AppData\\Local\\Temp\\rg-1\\ws"], home: "C:\\Users\\Me" };
+    const w = (path: string) =>
+      outsideWrites({ callId: "1", name: "write_file", input: { path } }, win);
+    expect(w("notes.md")).toEqual([]);
+    expect(w("src/a.ts")).toEqual([]);
+    expect(w("c:/users/me/appdata/local/temp/rg-1/ws/b.md")).toEqual([]);
+    expect(w("C:\\Windows\\x.dll")).toEqual(["C:\\Windows\\x.dll"]);
+    expect(w("../other/x")).toEqual(["C:\\Users\\Me\\AppData\\Local\\Temp\\rg-1\\other\\x"]);
+    expect(bashOutsideWrites("echo hi > out.txt && git.exe status", win)).toEqual([]);
+  });
+
   it("an agent with no folder of its own is not checked", () => {
     expect(
       outsideWrites({ callId: "1", name: "bash", input: { command: "rm -rf /x" } }, { roots: [] }),

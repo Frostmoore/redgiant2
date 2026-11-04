@@ -101,17 +101,40 @@ const AGENT_ENV = [
   "https_proxy",
   "no_proxy",
   "COREPACK_HOME",
-  "SystemRoot",
-  "windir",
+  // Windows: what a program needs to start at all (its names are matched in any case there).
+  "SYSTEMROOT",
+  "WINDIR",
   "COMSPEC",
   "PATHEXT",
+  "TEMP",
+  "TMP",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "PROGRAMDATA",
+  "PROGRAMFILES",
+  "PROGRAMFILES(X86)",
+  "PROGRAMW6432",
+  "COMMONPROGRAMFILES",
+  "SYSTEMDRIVE",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "USERNAME",
+  "NUMBER_OF_PROCESSORS",
+  "PROCESSOR_ARCHITECTURE",
+  "OS",
 ];
 
 /** The environment of an agent's commands: the safe part of `from` (the server's own). */
 export function agentEnv(from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(from)) {
-    if (v !== undefined && (AGENT_ENV.includes(k) || k.startsWith("LC_") || k.startsWith("XDG_")))
+    // Windows spells PATH as "Path": environment names there ignore case.
+    const name = process.platform === "win32" ? k.toUpperCase() : k;
+    if (
+      v !== undefined &&
+      (AGENT_ENV.includes(name) || k.startsWith("LC_") || k.startsWith("XDG_"))
+    )
       out[k] = v;
   }
   return out;

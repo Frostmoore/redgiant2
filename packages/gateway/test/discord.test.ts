@@ -153,8 +153,11 @@ describe("DiscordTransport", () => {
 
   it("sends heartbeats with the last sequence", async () => {
     await start();
-    await waitFor(() => fake.frames.filter((f) => f.op === 1).length >= 2);
-    expect(typeof fake.frames.find((f) => f.op === 1)?.d).toBe("number");
+    // A heartbeat sent before READY carries null (as Discord expects); later ones the sequence.
+    await waitFor(() => fake.frames.some((f) => f.op === 1 && typeof f.d === "number"));
+    expect(
+      fake.frames.filter((f) => f.op === 1).every((f) => f.d === null || typeof f.d === "number"),
+    ).toBe(true);
   });
 
   it("turns a DM into an Incoming, with a voice note as audio and other files as files", async () => {

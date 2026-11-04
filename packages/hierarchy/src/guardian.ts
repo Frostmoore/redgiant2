@@ -8,7 +8,7 @@
 // chown, truncate, dd of=, sed -i, perl -i, tar -C/-x, unzip -d, git -C) checked against the
 // folders. It errs on the side of asking: an unknown variable in a path counts as outside.
 
-import { posix } from "node:path";
+import { posix, win32 } from "node:path";
 import type { ToolCallInfo } from "@redgiant/agent";
 
 /** Where writing never needs asking: scratch space and the null device. */
@@ -38,7 +38,23 @@ export interface GuardianContext {
   home?: string;
 }
 
+/** Windows paths (C:\…, \\server\…) are compared as Windows does: either slash, any case. */
+const isWindowsPath = (p: string) => /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
+const flavor = (ctx: GuardianContext) => (ctx.roots.some(isWindowsPath) ? win32 : posix);
+
 function inside(path: string, roots: string[]): boolean {
+  if (roots.some(isWindowsPath)) {
+    const key = (x: string) =>
+      win32
+        .normalize(x)
+        .replace(/[\\/]+$/, "")
+        .toLowerCase();
+    const p = key(path);
+    return roots.some((r) => {
+      const root = key(r);
+      return p === root || p.startsWith(`${root}\\`);
+    });
+  }
   const p = posix.normalize(path);
   return [...roots, ...ALWAYS_OK].some((r) => {
     const root = posix.normalize(r).replace(/\/+$/, "") || "/";
@@ -54,7 +70,7 @@ function resolvePath(token: string, cwd: string, ctx: GuardianContext): string |
   t = t.replace(/^\$\{?PWD\}?/, cwd).replace(/^\$\{?HOME\}?/, ctx.home ?? "/root");
   // Another variable: where it points cannot be known here.
   if (t.includes("$")) return "$unknown";
-  return posix.resolve(cwd, t);
+  return flavor(ctx).resolve(cwd, t);
 }
 
 /** Splits a command line into words, keeping quoted parts together (roughly, as a shell). */
@@ -127,7 +143,7 @@ export function bashOutsideWrites(command: string, ctx: GuardianContext, start?:
     ) {
       [name = "", ...args] = args;
     }
-    const base = posix.basename(name);
+    const base = posix.basename(name.replace(/\\/g, "/")).replace(/\.exe$/i, "");
     const paths = args.filter((a) => !a.startsWith("-"));
     if (base === "cd") {
       const p = resolvePath(paths[0] ?? ctx.home ?? "/root", cwd, ctx);

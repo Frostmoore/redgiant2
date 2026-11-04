@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -460,7 +460,8 @@ export class RedGiantCore implements OrchestrationHost {
         const base = o.policyFor?.(agent) ?? this.policies.settingsFor(agent, o.metal === true);
         // The guardian's folders: where this agent works (2026-11-04).
         const roots = this.agentRoots.get(a.id);
-        return roots ? { ...base, roots, home: homedir() } : base;
+        // The system's scratch folder is free too (on Windows it is not /tmp).
+        return roots ? { ...base, roots: [...roots, tmpdir()], home: homedir() } : base;
       },
       // An inspector only reads, whatever its settings and its sandbox (RD30).
       modeFor: (a) =>
