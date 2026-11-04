@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // RedGiant server. Configured by environment variables until the setup wizard (G17) exists.
 import { readFile } from "node:fs/promises";
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KvStore, LocalEngineProvider } from "@redgiant/engine-local";
@@ -19,6 +19,7 @@ import { Browsers, DockerBrowserLauncher, findBrowser, LocalBrowserLauncher } fr
 import { ChatHub, Outlets } from "./chats.js";
 import { RedGiantCore } from "./core.js";
 import { debugLog } from "./debug-log.js";
+import { startEmbeddedDatabase } from "./embedded-db.js";
 import { GitHosts } from "./git-hosts.js";
 import { HuggingFace } from "./hf.js";
 import { backgroundPuller, runtimeHooks } from "./runtime.js";
@@ -133,10 +134,15 @@ const source = env.REDGIANT_SOURCE_DIR
     }
   : undefined;
 
+// `embedded` (G30.1, RedGiant 3.0 on Windows): a real Postgres started here, in the data folder.
+const embedded =
+  databaseUrl === "embedded"
+    ? await startEmbeddedDatabase(dataDir, (line) => console.error(line))
+    : undefined;
 const db =
   databaseUrl === "memory:"
     ? await memoryDb()
-    : pgPoolClient(new pg.Pool({ connectionString: databaseUrl }));
+    : pgPoolClient(new pg.Pool({ connectionString: embedded?.url ?? databaseUrl }));
 const core = await RedGiantCore.create({
   db,
   providers,
@@ -180,11 +186,18 @@ const docker = sandbox.kind === "docker" || env.REDGIANT_ENGINE_NETWORK ? new Do
 // The folder alone is enough for what goes through files (updates from Settings, Windows' free
 // RAM, moving models, the launcher's debug log): an empty address (2026-11-04: the distribution
 // had no `ip` command) turned all of it off. The address is needed only to run the engine there.
+// RedGiant 3.0 (G30.1): on Windows the server itself runs there, next to RedGiant.exe and its
+// engine folder; the engine answers on this computer.
+const nativeWindows = process.platform === "win32";
 const winEngine =
-  env.REDGIANT_WIN_HOST || env.REDGIANT_HOST_ENGINE_DIR
+  env.REDGIANT_WIN_HOST || env.REDGIANT_HOST_ENGINE_DIR || nativeWindows
     ? new WinEngine({
-        dir: env.REDGIANT_WIN_ENGINE_DIR ?? "/winengine",
-        host: env.REDGIANT_WIN_HOST ?? "",
+        dir:
+          env.REDGIANT_WIN_ENGINE_DIR ??
+          (nativeWindows
+            ? join(env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "RedGiant", "engine")
+            : "/winengine"),
+        host: env.REDGIANT_WIN_HOST ?? (nativeWindows ? "127.0.0.1" : ""),
       })
     : undefined;
 // Debug mode (2026-11-04): before the engine and the setup start, so their start is logged too.
@@ -207,29 +220,29 @@ const hooks = runtimeHooks({
   outlets,
   chats,
   // The wizard can start a local engine container next to RedGiant (Docker installs).
-  ...(docker &&
-    env.REDGIANT_ENGINE_NETWORK && {
-      engine: {
-        docker,
-        image: {
-          cpu: env.REDGIANT_ENGINE_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:cpu",
-          cuda: env.REDGIANT_ENGINE_CUDA_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:cuda",
-          vulkan: env.REDGIANT_ENGINE_VULKAN_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:vulkan",
-        },
-        gpuAccess: env.REDGIANT_ENGINE_GPU === "dri" ? "dri" : "",
-        ...(winEngine && { windows: winEngine }),
-        gitea: {
-          ...(env.REDGIANT_GITEA_IMAGE && { image: env.REDGIANT_GITEA_IMAGE }),
-          port: Number(env.REDGIANT_GITEA_PORT ?? 3000),
-          bind: env.REDGIANT_GITEA_BIND ?? "127.0.0.1",
-        },
-        network: env.REDGIANT_ENGINE_NETWORK,
-        modelsDir: env.REDGIANT_MODELS_DIR ?? "/models",
-        modelsVolume: env.REDGIANT_MODELS_VOLUME ?? "redgiant-models",
-        kvVolume: env.REDGIANT_KV_VOLUME ?? "redgiant-kv",
-        kvDir: env.REDGIANT_KV_DIR ?? "/kv",
+  // On Windows' native install (G30.1) only the engine there: no Docker, no network.
+  ...(((docker && env.REDGIANT_ENGINE_NETWORK) || winEngine) && {
+    engine: {
+      ...(docker && env.REDGIANT_ENGINE_NETWORK && { docker }),
+      image: {
+        cpu: env.REDGIANT_ENGINE_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:cpu",
+        cuda: env.REDGIANT_ENGINE_CUDA_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:cuda",
+        vulkan: env.REDGIANT_ENGINE_VULKAN_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:vulkan",
       },
-    }),
+      gpuAccess: env.REDGIANT_ENGINE_GPU === "dri" ? "dri" : "",
+      ...(winEngine && { windows: winEngine }),
+      gitea: {
+        ...(env.REDGIANT_GITEA_IMAGE && { image: env.REDGIANT_GITEA_IMAGE }),
+        port: Number(env.REDGIANT_GITEA_PORT ?? 3000),
+        bind: env.REDGIANT_GITEA_BIND ?? "127.0.0.1",
+      },
+      network: env.REDGIANT_ENGINE_NETWORK ?? "",
+      modelsDir: env.REDGIANT_MODELS_DIR ?? "/models",
+      modelsVolume: env.REDGIANT_MODELS_VOLUME ?? "redgiant-models",
+      kvVolume: env.REDGIANT_KV_VOLUME ?? "redgiant-kv",
+      kvDir: env.REDGIANT_KV_DIR ?? "/kv",
+    },
+  }),
 });
 if (docker) puller = backgroundPuller(docker, core.jobs, () => owner);
 // The personal agents' browser (G24.14b). RedGiant 2.0 (G29.8): the Chrome, Chromium or Edge of
@@ -327,6 +340,8 @@ core.code?.watch();
 const shutdown = async () => {
   for (const h of shutdownHooks) await h().catch(() => {});
   await running.close();
+  // The database last: everything above may still write to it.
+  await embedded?.stop().catch(() => {});
 };
 restart = () => void shutdown().finally(() => process.exit(RESTART_EXIT_CODE));
 for (const sig of ["SIGINT", "SIGTERM"] as const) {

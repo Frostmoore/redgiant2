@@ -46,7 +46,8 @@ export interface RuntimeOptions {
   dataDir?: string;
   /** The local engine, when the wizard starts it (Docker installs). */
   engine?: {
-    docker: Docker;
+    /** Absent on Windows' native install (G30.1): the engine there needs no Docker. */
+    docker?: Docker | undefined;
     image: { cpu: string; cuda: string; vulkan: string };
     /** How the engine reaches a GPU that is not NVIDIA's (Vulkan): Linux's /dev/dri. */
     gpuAccess?: GpuAccess;
@@ -149,7 +150,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
     detectHardware({
       dataDir: o.dataDir ?? ".",
       dockerRuntimes: async () => {
-        if (!o.engine) return [];
+        if (!o.engine?.docker) return [];
         const info = (await o.engine.docker.info()) as { Runtimes?: Record<string, unknown> };
         return Object.keys(info.Runtimes ?? {});
       },
@@ -337,9 +338,9 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
 
     async engine(cfg, h) {
       const e = o.engine;
-      if (!e) throw new Error("The local engine needs RedGiant's Docker installation");
+      if (!e) throw new Error("The local engine is not available in this installation");
       await e.docker
-        .getContainer(ENGINE)
+        ?.getContainer(ENGINE)
         .remove({ force: true })
         .catch(() => {});
       if (!cfg || cfg.variant !== "windows") await e.windows?.stop().catch(() => {});
@@ -398,8 +399,11 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         void started().catch((err) => console.warn(`engine (Windows): ${(err as Error).message}`));
         return plan;
       }
+      // The engine in a container (Linux, Mac): Docker is needed from here on.
+      const docker = e.docker;
+      if (!docker) throw new JobFailure("start", "The local engine needs Docker on this computer");
       const image = e.image[cfg.variant];
-      const present = await e.docker
+      const present = await docker
         .getImage(image)
         .inspect()
         .then(() => true)
@@ -407,7 +411,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       if (present) h?.skip("image");
       else {
         h?.step("image");
-        await pullWithProgress(e.docker, image, h);
+        await pullWithProgress(docker, image, h);
       }
       // The model read once into the system's cache, so the first message does not wait for
       // the disk (2026-11-04). At startup nobody waits: it reads while the engine loads.
@@ -436,7 +440,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       const gpu = cfg.variant !== "cpu";
       let container: Docker.Container;
       try {
-        container = await e.docker.createContainer({
+        container = await docker.createContainer({
           name: ENGINE,
           Image: image,
           Cmd: [
@@ -623,9 +627,10 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
 
     async searxng(on, h) {
       const e = o.engine;
-      if (!e) throw new Error("The search engine needs RedGiant's Docker installation");
+      const docker = e?.docker;
+      if (!e || !docker) throw new Error("The search engine needs Docker on this computer");
       const name = SEARXNG;
-      const old = e.docker.getContainer(name);
+      const old = docker.getContainer(name);
       if (!on) {
         await old.remove({ force: true }).catch(() => {});
         return null;
@@ -637,7 +642,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         .catch(() => false);
       if (!running) {
         await old.remove({ force: true }).catch(() => {});
-        const present = await e.docker
+        const present = await docker
           .getImage(SEARXNG_IMAGE)
           .inspect()
           .then(() => true)
@@ -645,10 +650,10 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         if (present) h?.skip("searxng_image");
         else {
           h?.step("searxng_image");
-          await pullWithProgress(e.docker, SEARXNG_IMAGE, h);
+          await pullWithProgress(docker, SEARXNG_IMAGE, h);
         }
         h?.step("searxng_start");
-        const c = await e.docker.createContainer({
+        const c = await docker.createContainer({
           name,
           Image: SEARXNG_IMAGE,
           Labels: { "io.redgiant.searxng": "1" },
@@ -696,15 +701,16 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
 
     async pihole(cfg, h) {
       const e = o.engine;
-      if (!e) throw new Error("Pi-hole needs RedGiant's Docker installation");
+      const docker = e?.docker;
+      if (!e || !docker) throw new Error("Pi-hole needs Docker on this computer");
       const p = e.pihole ?? {};
       const name = p.name ?? PIHOLE;
-      const old = e.docker.getContainer(name);
+      const old = docker.getContainer(name);
       // Settings may have changed: it is always started anew (its data stay in the volume).
       await old.remove({ force: true }).catch(() => {});
       if (!cfg) return null;
       const image = p.image ?? "pihole/pihole:2026.10.1";
-      const present = await e.docker
+      const present = await docker
         .getImage(image)
         .inspect()
         .then(() => true)
@@ -712,12 +718,12 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       if (present) h?.skip("pihole_image");
       else {
         h?.step("pihole_image");
-        await pullWithProgress(e.docker, image, h);
+        await pullWithProgress(docker, image, h);
       }
       h?.step("pihole_start");
       const webPort = p.webPort ?? 80;
       const publish = p.bind !== "";
-      const c = await e.docker.createContainer({
+      const c = await docker.createContainer({
         name,
         Image: image,
         Labels: { "io.redgiant.pihole": "1" },
@@ -787,10 +793,11 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
 
     async gitea(cfg, h) {
       const e = o.engine;
-      if (!e) throw new Error("Gitea needs RedGiant's Docker installation");
+      const docker = e?.docker;
+      if (!e || !docker) throw new Error("Gitea needs Docker on this computer");
       const name = e.gitea?.name ?? GITEA;
       const volumes = e.gitea?.volumePrefix ?? "redgiant-gitea";
-      const old = e.docker.getContainer(name);
+      const old = docker.getContainer(name);
       if (!cfg) {
         // Off: the container goes, the repositories stay in their volume.
         await old.remove({ force: true }).catch(() => {});
@@ -807,7 +814,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         h?.skip("gitea_start");
       } else {
         await old.remove({ force: true }).catch(() => {});
-        const present = await e.docker
+        const present = await docker
           .getImage(image)
           .inspect()
           .then(() => true)
@@ -815,10 +822,10 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         if (present) h?.skip("gitea_image");
         else {
           h?.step("gitea_image");
-          await pullWithProgress(e.docker, image, h);
+          await pullWithProgress(docker, image, h);
         }
         h?.step("gitea_start");
-        const c = await e.docker.createContainer({
+        const c = await docker.createContainer({
           name,
           Image: image,
           Labels: { "io.redgiant.gitea": "1" },
@@ -861,7 +868,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         if (i > 90) throw new JobFailure("start", "Gitea did not start within 3 minutes");
         await new Promise((r) => setTimeout(r, 2000));
       }
-      const c = e.docker.getContainer(name);
+      const c = docker.getContainer(name);
       const made = await dockerExec(c, [
         "gitea",
         "admin",
@@ -900,11 +907,12 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
 
     async remote(req, h) {
       const e = o.engine;
-      if (!e) throw new Error("Access from outside needs RedGiant's Docker installation");
+      const docker = e?.docker;
+      if (!e || !docker) throw new Error("Access from outside needs Docker on this computer");
       const ro = {
-        docker: e.docker,
+        docker: docker,
         network: e.network,
-        pull: (image: string, jh?: JobHandle) => pullWithProgress(e.docker, image, jh),
+        pull: (image: string, jh?: JobHandle) => pullWithProgress(docker, image, jh),
         exec: dockerExec,
         hide: (name: string, value: string) => o.redactor.addSecret(name, value),
       };
@@ -916,7 +924,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
     },
 
     async dockerRuntimes() {
-      if (!o.engine) return [];
+      if (!o.engine?.docker) return [];
       const info = (await o.engine.docker.info()) as { Runtimes?: Record<string, unknown> };
       return Object.keys(info.Runtimes ?? {});
     },

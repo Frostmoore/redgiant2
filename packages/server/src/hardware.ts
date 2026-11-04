@@ -184,7 +184,12 @@ export async function detectHardware(o: {
   const dockerGpu = runtimes.includes("nvidia");
   const access = o.gpuAccess ?? process.env.REDGIANT_ENGINE_GPU ?? "";
   const gpuAccess: GpuAccess = access === "dri" ? "dri" : "";
-  o = { ...o, windowsEngine: o.windowsEngine ?? Boolean(process.env.REDGIANT_WIN_HOST) };
+  // Natively on Windows (RedGiant 3.0) the engine there is the only one.
+  o = {
+    ...o,
+    windowsEngine:
+      o.windowsEngine ?? (Boolean(process.env.REDGIANT_WIN_HOST) || process.platform === "win32"),
+  };
   const onWindows =
     o.windowsEngine === true || Boolean(o.winEngineDir ?? process.env.REDGIANT_HOST_ENGINE_DIR);
   const ramGb = round(totalmem() / GB);

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
   glob as fsGlob,
   lstat,
@@ -140,6 +141,28 @@ export function agentEnv(from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessE
   return out;
 }
 
+/**
+ * The shell agents' commands run in. On Windows (RedGiant 3.0, natively there): Git's bash when
+ * installed, since models write bash; PowerShell otherwise. REDGIANT_SHELL chooses another.
+ */
+export function defaultShell(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  exists: (p: string) => boolean = existsSync,
+): string {
+  if (env.REDGIANT_SHELL) return env.REDGIANT_SHELL;
+  if (platform !== "win32") return "/bin/bash";
+  const roots = [
+    env.ProgramFiles ?? env.PROGRAMFILES,
+    env.LOCALAPPDATA && `${env.LOCALAPPDATA}\\Programs`,
+  ];
+  for (const r of roots.filter(Boolean)) {
+    const bash = `${r}\\Git\\bin\\bash.exe`;
+    if (exists(bash)) return bash;
+  }
+  return "powershell.exe";
+}
+
 /** Directories never walked by glob/grep. */
 export const IGNORED_DIRS = [
   ".git",
@@ -162,7 +185,7 @@ export class LocalWorkspace implements Workspace {
      * Shell for `exec`. Node runs it the right way for each OS (on Windows it passes the
      * command to cmd.exe verbatim; escaping it ourselves breaks commands with quotes).
      */
-    private readonly shell: string = process.platform === "win32" ? "cmd.exe" : "/bin/bash",
+    private readonly shell: string = defaultShell(),
   ) {
     this.root = resolve(root);
   }
