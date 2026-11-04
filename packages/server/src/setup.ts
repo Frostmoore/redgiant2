@@ -26,6 +26,7 @@ import {
 import { searchProvider } from "@redgiant/tools";
 import { stringify } from "yaml";
 import type { RedGiantCore } from "./core.js";
+import { debugLog } from "./debug-log.js";
 import { GitHostError, type GitHosts, type GitHostsConfig } from "./git-hosts.js";
 import { detectHardware, type EngineVariant, type Hardware } from "./hardware.js";
 import { IMAGE_MODEL } from "./images.js";
@@ -944,15 +945,22 @@ export class SetupService {
 
   /**
    * The local model loaded when RedGiant opens, followed like an activation: reading it, starting
-   * the engine, loading it on the card. No tuning and no warm-up: it was chosen already.
+   * the engine, loading it on the card, and the warm-up (2026-11-04, the person's question: the
+   * first message paid for it otherwise, bringing the experts from the SSD). No tuning: it was
+   * done at the activation.
    */
   loadEngine(e: EngineConfig): Job {
     return this.o.core.jobs.start(
       this.o.ownerId,
       "engine_load",
-      ["image", "preload", "start", "load"],
+      ["image", "preload", "start", "load", "try"],
       async (h) => {
         await this.o.hooks.engine(e, h);
+        h.step("try");
+        // A warm-up that fails does not undo the load: the model is there, it answers later.
+        await this.warmLocal(e.model, h).catch((err: unknown) =>
+          debugLog.write("engine", "warm-up after loading failed", { error: String(err) }),
+        );
       },
       { model: e.model },
     );
