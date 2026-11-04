@@ -89,6 +89,7 @@ describe("Demi-God on Telegram", () => {
 
   it("takes a second message while it still answers the first, and says so (G24.14f)", async () => {
     // God's first answer streams slowly: the second message arrives meanwhile.
+    let firstStarted = false;
     await setup(
       (req) => {
         if (req.system.startsWith("You are Demi-God")) {
@@ -98,6 +99,7 @@ describe("Demi-God on Telegram", () => {
             : { text: `Demi-God: ${r.split(" ").slice(0, 2).join(" ")}` };
         }
         const said = lastText(req).split("\n").pop() ?? "";
+        if (said === "first") firstStarted = true;
         return { text: `God: ${said}${said === "first" ? " word".repeat(60) : ""}` };
       },
       undefined,
@@ -105,7 +107,8 @@ describe("Demi-God on Telegram", () => {
     );
     await pair();
     await s?.gateway?.handleUpdate(tg?.text(USER, "first") as never);
-    await new Promise((r) => setTimeout(r, 50));
+    // The second message only once God is answering the first (a fixed wait was flaky in CI).
+    for (let i = 0; i < 400 && !firstStarted; i++) await new Promise((r) => setTimeout(r, 10));
     await s?.gateway?.handleUpdate(tg?.text(USER, "second") as never);
     await s?.gateway?.idle();
     const texts = tg?.sent(USER).map((m) => String(m.text)) ?? [];

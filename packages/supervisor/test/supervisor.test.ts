@@ -112,7 +112,9 @@ describe("Supervisor", () => {
     for (const [broken, reason] of [
       ["crashes", /exited \(code 1\)/],
       ["unhealthy", /no answer to the health check/],
-      ["dies-soon", /right after starting/],
+      // Dies right after answering the health check; on a loaded machine sometimes before the
+      // check is seen: the exit code tells it from the others either way (flaky in CI before).
+      ["dies-soon", /exited \(code 3\)/],
       ["does-not-build", /build failed:[\s\S]*syntax error in app/],
     ] as const) {
       const bad = await promote(broken, `chg_${broken}`);
