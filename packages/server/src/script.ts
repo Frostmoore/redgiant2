@@ -165,7 +165,9 @@ export function scriptTool(
             ? `import sys\nsys.path.insert(0, ${JSON.stringify(dir)})\n${i.code}`
             : i.code.replaceAll("./rg.mjs", join(dir, "rg.mjs")),
         );
-        const r = await ws.execFile(py ? "python3" : "node", [file], {
+        // Windows installs Python as "python" (python3 is a Store alias, when there at all).
+        const python = process.platform === "win32" ? "python" : "python3";
+        const r = await ws.execFile(py ? python : "node", [file], {
           timeoutMs: i.timeout_ms ?? 300_000,
           ...(ctx.signal && { signal: ctx.signal }),
         });

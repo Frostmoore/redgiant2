@@ -212,7 +212,10 @@ describe("live sessions", () => {
     await c.waitFor("session.synced");
     c.send({ type: "session.send", sessionId: body.sessionId, text: "write outside" });
     const req = await c.waitFor("permission.request");
-    expect(req.request.reasons[0]).toContain(`writes outside the project: ${target}`);
+    // On Windows the same path reads C:\srv\redgiant-guardian-test.txt.
+    expect(req.request.reasons[0]).toMatch(
+      /writes outside the project: .*srv.redgiant-guardian-test\.txt/,
+    );
     c.send({
       type: "permission.resolve",
       requestId: req.request.requestId,
