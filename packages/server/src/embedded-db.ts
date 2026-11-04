@@ -30,6 +30,18 @@ function freePort(): Promise<number> {
   });
 }
 
+/** Creates RedGiant's database when missing (a first start stopped halfway leaves none). */
+async function ensureDatabase(adminUrl: string): Promise<void> {
+  const c = new pgDriver.Client({ connectionString: adminUrl });
+  await c.connect();
+  try {
+    const { rowCount } = await c.query("SELECT 1 FROM pg_database WHERE datname = 'redgiant'");
+    if (!rowCount) await c.query("CREATE DATABASE redgiant");
+  } finally {
+    await c.end();
+  }
+}
+
 /** Starts (creating it the first time) the Postgres kept in `<dataDir>/postgres`. */
 export async function startEmbeddedDatabase(
   dataDir: string,
@@ -99,12 +111,7 @@ export async function startEmbeddedDatabase(
       "120",
       "start",
     );
-    if (fresh) {
-      const c = new pgDriver.Client({ connectionString: url("postgres") });
-      await c.connect();
-      await c.query("CREATE DATABASE redgiant");
-      await c.end();
-    }
+    await ensureDatabase(url("postgres"));
     return {
       url: url("redgiant"),
       stop: async () => {
@@ -113,6 +120,6 @@ export async function startEmbeddedDatabase(
     };
   }
   await pg.start();
-  if (fresh) await pg.createDatabase("redgiant");
+  await ensureDatabase(url("postgres"));
   return { url: url("redgiant"), stop: () => pg.stop() };
 }
