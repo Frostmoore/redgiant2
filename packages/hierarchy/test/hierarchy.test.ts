@@ -12,6 +12,7 @@ import {
   HierarchyError,
   hierarchyGuards,
   migrateHierarchy,
+  OUTSIDE_PROJECT,
   PermissionBroker,
   PersistentBudget,
   type PolicySettings,
@@ -230,6 +231,29 @@ describe("evaluate", () => {
     expect(evaluate("auto", call("bash", { command: "docker ps" }), noDocker).decision).toBe(
       "allow",
     );
+  });
+
+  it("the guardian asks the human before writing outside the project, unless set to auto", () => {
+    const g: PolicySettings = { ...s, roots: ["/data/p1"], home: "/home/me" };
+    const outside = evaluate("auto", call("write_file", { path: "/etc/hosts", content: "" }), g);
+    expect(outside.decision).toBe("ask");
+    expect(outside.danger).toContain(OUTSIDE_PROJECT);
+    // Only the human answers it, whatever the parents' modes.
+    expect(DEFAULT_POLICY.humanOnly).toContain(OUTSIDE_PROJECT);
+    expect(
+      evaluate("auto", call("write_file", { path: "src/a.ts", content: "" }), g).decision,
+    ).toBe("allow");
+    expect(evaluate("auto", call("bash", { command: "cd .. && rm -rf p2" }), g).decision).toBe(
+      "ask",
+    );
+    expect(evaluate("auto", call("bash", { command: "echo hi > /tmp/x" }), g).decision).toBe(
+      "allow",
+    );
+    expect(
+      evaluate("auto", call("bash", { command: "cp a ~/b" }), { ...g, guardian: "auto" }).decision,
+    ).toBe("allow");
+    // Reading anywhere never asks.
+    expect(evaluate("auto", call("read_file", { path: "/etc/hosts" }), g).decision).toBe("allow");
   });
 });
 

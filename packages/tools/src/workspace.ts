@@ -75,6 +75,48 @@ export class ReadOnlyWorkspaceError extends Error {
   }
 }
 
+/**
+ * What a command started by an agent sees of the server's environment (RedGiant 2.0, 2026-11-04:
+ * agents run on the system, not in containers). Only what a shell needs to work: never the
+ * server's token, its database, its keys. Secrets belong to egress routes, as before.
+ */
+const AGENT_ENV = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "LANG",
+  "LANGUAGE",
+  "TERM",
+  "TZ",
+  "TMPDIR",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "NODE_EXTRA_CA_CERTS",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+  "COREPACK_HOME",
+  "SystemRoot",
+  "windir",
+  "COMSPEC",
+  "PATHEXT",
+];
+
+/** The environment of an agent's commands: the safe part of `from` (the server's own). */
+export function agentEnv(from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(from)) {
+    if (v !== undefined && (AGENT_ENV.includes(k) || k.startsWith("LC_") || k.startsWith("XDG_")))
+      out[k] = v;
+  }
+  return out;
+}
+
 /** Directories never walked by glob/grep. */
 export const IGNORED_DIRS = [
   ".git",
@@ -202,7 +244,7 @@ export class LocalWorkspace implements Workspace {
       process.env.SHELL && process.env.SHELL.length > 0 ? process.env.SHELL : "/bin/bash";
     const child = spawn("python3", ["-c", PTY_HELPER, String(cols), String(rows), shell], {
       cwd: this.root,
-      env: { ...process.env, TERM: "xterm-256color" },
+      env: { ...agentEnv(), TERM: "xterm-256color" },
       stdio: ["pipe", "pipe", "pipe", "pipe"],
     });
     const control = child.stdio[3] as import("node:stream").Writable;
@@ -250,7 +292,7 @@ export class LocalWorkspace implements Workspace {
       const child = spawn(file, args, {
         cwd: this.root,
         ...(shell && { shell }),
-        env: process.env,
+        env: agentEnv(),
         detached: group,
       });
       const stop = () => {

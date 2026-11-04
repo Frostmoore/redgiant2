@@ -154,6 +154,8 @@ export interface SetupState {
     humanOnly: string[];
     disabledDanger: string[];
     dangers: { id: string }[];
+    /** The guardian (2026-11-04): ask before writing outside the project, or let it be. */
+    guardian?: "ask" | "auto";
   };
   budgetUsd: number | null;
   canRunSearch: boolean;

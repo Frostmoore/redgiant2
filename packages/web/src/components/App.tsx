@@ -444,11 +444,6 @@ export function App() {
           <IconAlert /> {t("metalWarning")}
         </div>
       )}
-      {!info?.metal && info?.sandbox === "host" && (
-        <div class="banner">
-          <IconAlert /> {t("hostWarning")}
-        </div>
-      )}
       <div class="body">
         {search && <Search close={() => setSearch(false)} />}
         {bell && <Bell close={() => setBell(false)} />}

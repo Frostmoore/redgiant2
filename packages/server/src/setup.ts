@@ -267,6 +267,8 @@ export interface SetupState {
   policy: {
     humanOnly: string[];
     disabledDanger: string[];
+    /** The guardian (2026-11-04): ask before writing outside the project, or let it be. */
+    guardian: "ask" | "auto";
     dangers: { id: string }[];
   };
   budgetUsd: number | null;
@@ -504,6 +506,7 @@ export class SetupService {
         godPrompt: god?.systemPrompt ?? null,
       },
       policy: {
+        guardian: policy.guardian ?? "ask",
         humanOnly: policy.humanOnly ?? DEFAULT_POLICY.humanOnly,
         disabledDanger: policy.disabledDanger,
         dangers: DEFAULT_POLICY.danger.map((d) => ({ id: d.id })),
@@ -1625,15 +1628,17 @@ export class SetupService {
     budgetUsd?: number | null | undefined;
     retentionDays?: number | null | undefined;
     subscriptionAck?: boolean | undefined;
+    guardian?: "ask" | "auto" | undefined;
   }): Promise<void> {
     const owner = this.o.ownerId;
     const core = this.o.core;
-    if (s.humanOnly || s.disabledDanger) {
+    if (s.humanOnly || s.disabledDanger || s.guardian) {
       const p = core.policies.get(owner);
       await core.config.setPolicy(owner, "human", {
         ...p,
         ...(s.humanOnly && { humanOnly: s.humanOnly }),
         ...(s.disabledDanger && { disabledDanger: s.disabledDanger }),
+        ...(s.guardian && { guardian: s.guardian }),
       });
     }
     if (s.budgetUsd !== undefined)

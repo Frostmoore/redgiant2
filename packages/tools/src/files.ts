@@ -1,9 +1,55 @@
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import type { Tool } from "@redgiant/agent";
 import { z } from "zod";
 import { applyEdit } from "./edit.js";
 import { describe, type ModelProfile } from "./profiles.js";
 import { looksBinary } from "./text.js";
 import type { Workspace } from "./workspace.js";
+
+/**
+ * The files a write or edit touches (2026-11-04, RedGiant 2.0): inside the workspace through it
+ * (its checks on links and read-only folders), outside it directly on the computer. Outside is
+ * reached only when the guardian let the call through (it asks the person first, unless they
+ * chose "let it be"); the permission is checked before the tool runs.
+ */
+function reach(ws: Workspace) {
+  const out = (path: string): string | undefined => {
+    const abs = isAbsolute(path) ? path : resolve(ws.root, path);
+    const rel = relative(ws.root, abs);
+    return rel.startsWith("..") || isAbsolute(rel) ? abs : undefined;
+  };
+  return {
+    exists: async (p: string) => {
+      const o = out(p);
+      return o
+        ? stat(o).then(
+            () => true,
+            () => false,
+          )
+        : ws.exists(p);
+    },
+    isFile: async (p: string) => {
+      const o = out(p);
+      return o
+        ? stat(o).then(
+            (x) => x.isFile(),
+            () => false,
+          )
+        : ws.isFile(p);
+    },
+    readText: async (p: string) => {
+      const o = out(p);
+      return o ? readFile(o, "utf8") : ws.readText(p);
+    },
+    writeText: async (p: string, text: string) => {
+      const o = out(p);
+      if (!o) return ws.writeText(p, text);
+      await mkdir(dirname(o), { recursive: true });
+      await writeFile(o, text);
+    },
+  };
+}
 
 const MAX_LINES = 2000;
 const MAX_LINE_CHARS = 2000;
@@ -92,8 +138,9 @@ export function writeFileTool(
     },
     schema: WriteInput,
     async run({ path, content }) {
-      const existed = await ws.exists(path);
-      await ws.writeText(path, content);
+      const f = reach(ws);
+      const existed = await f.exists(path);
+      await f.writeText(path, content);
       const lines = content === "" ? 0 : content.split("\n").length;
       return `${existed ? "Overwrote" : "Created"} ${path} (${lines} lines).`;
     },
@@ -135,20 +182,21 @@ export function editFileTool(
     },
     schema: EditInput,
     async run({ path, old_string, new_string, replace_all }) {
+      const f = reach(ws);
       if (old_string === "") {
-        if (await ws.exists(path)) {
+        if (await f.exists(path)) {
           return {
             content: `${path} already exists; give old_string, or use write_file.`,
             isError: true,
           };
         }
-        await ws.writeText(path, new_string);
+        await f.writeText(path, new_string);
         return `Created ${path}.`;
       }
-      if (!(await ws.isFile(path))) return { content: `No such file: ${path}`, isError: true };
-      const r = applyEdit(await ws.readText(path), old_string, new_string, replace_all ?? false);
+      if (!(await f.isFile(path))) return { content: `No such file: ${path}`, isError: true };
+      const r = applyEdit(await f.readText(path), old_string, new_string, replace_all ?? false);
       if (!r.ok) return { content: r.error, isError: true };
-      await ws.writeText(path, r.content);
+      await f.writeText(path, r.content);
       const how =
         r.strategy === "exact"
           ? ""

@@ -33,6 +33,7 @@ const RETENTION = ["forever", "365", "90", "30"] as const;
 
 export function Safety({ s, next }: { s: SetupState; next: () => void }) {
   const [humanOnly, setHumanOnly] = useState<string[]>(s.policy.humanOnly);
+  const [guardian, setGuardian] = useState<"ask" | "auto">(s.policy.guardian ?? "ask");
   const [budget, setBudget] = useState(s.budgetUsd?.toString() ?? "");
   const [retention, setRetention] = useState<string>(
     s.config.retentionDays ? String(s.config.retentionDays) : "forever",
@@ -45,6 +46,7 @@ export function Safety({ s, next }: { s: SetupState; next: () => void }) {
     setError(undefined);
     try {
       await getApi().setupSafety({
+        guardian,
         humanOnly,
         budgetUsd: paid && budget.trim() ? Number(budget) : null,
         retentionDays: retention === "forever" ? null : Number(retention),
@@ -56,6 +58,23 @@ export function Safety({ s, next }: { s: SetupState; next: () => void }) {
   };
   return (
     <div class="safety">
+      {/* The guardian (2026-11-04, RedGiant 2.0): agents work in their project's folder, no
+          containers; outside it they ask first, or not, as the person chooses. */}
+      <h3>{t("guardianTitle")}</h3>
+      <p class="ui-help">{t("guardianHint")}</p>
+      <Choice<"ask" | "auto">
+        value={[guardian]}
+        onChange={([g]) => g && setGuardian(g)}
+        options={[
+          {
+            id: "ask",
+            title: t("guardianAsk"),
+            description: t("guardianAskText"),
+            badge: t("lmRecommended"),
+          },
+          { id: "auto", title: t("guardianAuto"), description: t("guardianAutoText") },
+        ]}
+      />
       <h3>{t("safetyWho")}</h3>
       <p class="ui-help">{t("safetyWhoHint")}</p>
       <Choice<Preset>

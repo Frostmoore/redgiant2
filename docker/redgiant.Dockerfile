@@ -10,11 +10,13 @@ RUN pnpm install --frozen-lockfile && pnpm build
 FROM node:24-trixie-slim
 ARG REDGIANT_VERSION=dev
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates git python3 tini util-linux \
+ && apt-get install -y --no-install-recommends ca-certificates curl git less procps python3 ripgrep tini util-linux \
  && rm -rf /var/lib/apt/lists/* \
  && corepack enable \
  && git config --system init.defaultBranch live \
  && git config --system safe.directory '*'
+# RedGiant 2.0 (2026-11-04): agents run their commands here, no container of their own: the
+# tools the sandbox image had (curl, less, procps, ripgrep) are here too.
 # uv, for the catalog's MCP servers published on PyPI (uvx), G24.14c.
 COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /uvx /usr/local/bin/
 COPY --from=build /opt/redgiant /opt/redgiant

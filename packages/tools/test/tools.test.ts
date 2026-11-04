@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Tool, ToolContext } from "@redgiant/agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  agentEnv,
   applyEdit,
   baseTools,
   htmlToText,
@@ -236,6 +237,23 @@ describe.skipIf(process.platform === "win32")("bash", () => {
     expect((await run("bash", { command: "exit 3" })).content).toBe("Exit code: 3");
     const slow = await run("bash", { command: "sleep 5", timeout_ms: 1000 });
     expect(slow).toMatchObject({ isError: true, content: /Timed out/ });
+  });
+
+  it("never sees the server's secrets, only what a shell needs (2.0)", async () => {
+    process.env.REDGIANT_TOKEN_PROBE = "secret-value";
+    try {
+      const env = (await run("bash", { command: "env" })).content;
+      expect(env).not.toContain("secret-value");
+      expect(env).toMatch(/^PATH=/m);
+    } finally {
+      delete process.env.REDGIANT_TOKEN_PROBE;
+    }
+    expect(
+      agentEnv({ PATH: "/bin", LC_ALL: "C", DATABASE_URL: "postgres://x", OPENAI_API_KEY: "k" }),
+    ).toEqual({
+      PATH: "/bin",
+      LC_ALL: "C",
+    });
   });
 });
 

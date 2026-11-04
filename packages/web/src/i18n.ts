@@ -887,6 +887,15 @@ const en = {
     "Telegram refused this token. Copy it again from BotFather's message, all of it.",
   safetyPurpose:
     "What the agents may do on their own, how much they may spend, and how long the conversations are kept. You can change everything later.",
+  guardianTitle: "The guardian",
+  guardianHint:
+    "Agents work directly in their project's folder (each in its own copy of the code). The guardian watches where they write: in the project they go ahead, outside it you decide.",
+  guardianAsk: "Ask me before writing outside the project",
+  guardianAskText:
+    "A file in your home, a system folder, another project: the agent stops and asks you, on the web or on Telegram. Reading is always free.",
+  guardianAuto: "Let them do it",
+  guardianAutoText:
+    "Agents write wherever they need without asking. The other dangers you choose below still ask.",
   safetyWho: "Who says yes to risky actions",
   safetyWhoHint:
     "Before something risky (deleting folders, publishing, touching passwords…) an agent asks. Here you choose which of these only you may approve; for the others, the agent in charge (God or a project's lead) may say yes too.",
@@ -1624,7 +1633,6 @@ const en = {
   releases: "Releases",
   metalWarning:
     "Metal mode: God works directly on this system. Every change it makes asks you first.",
-  hostWarning: "No isolation: agents run commands directly on this system (sandbox: host).",
 } as const;
 
 export type Key = keyof typeof en;
@@ -2521,6 +2529,15 @@ const it: Record<Key, string> = {
     "Telegram ha rifiutato questo token. Copialo di nuovo dal messaggio di BotFather, tutto intero.",
   safetyPurpose:
     "Cosa possono fare da soli gli agenti, quanto possono spendere e per quanto si tengono le conversazioni. Puoi cambiare tutto anche dopo.",
+  guardianTitle: "Il guardiano",
+  guardianHint:
+    "Gli agenti lavorano direttamente nella cartella del loro progetto (ognuno nella sua copia del codice). Il guardiano controlla dove scrivono: nel progetto vanno avanti, fuori decidi tu.",
+  guardianAsk: "Chiedimi prima di scrivere fuori dal progetto",
+  guardianAskText:
+    "Un file nella tua home, una cartella di sistema, un altro progetto: l'agente si ferma e te lo chiede, sul web o su Telegram. Leggere è sempre libero.",
+  guardianAuto: "Lascia fare",
+  guardianAutoText:
+    "Gli agenti scrivono dove serve senza chiedere. Gli altri pericoli che scegli qui sotto chiedono comunque.",
   safetyWho: "Chi dice sì alle azioni rischiose",
   safetyWhoHint:
     "Prima di fare qualcosa di rischioso (cancellare cartelle, pubblicare, toccare le password…) un agente chiede. Qui scegli quali di queste cose puoi approvare solo tu; per le altre può dire sì anche l'agente che lo guida (God o il capo di un progetto).",
@@ -3271,8 +3288,6 @@ const it: Record<Key, string> = {
   releases: "Rilasci",
   metalWarning:
     "Modalità metallo: God lavora direttamente su questo sistema. Ogni sua modifica ti chiede prima il permesso.",
-  hostWarning:
-    "Nessun isolamento: gli agenti eseguono comandi direttamente su questo sistema (sandbox: host).",
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, it };

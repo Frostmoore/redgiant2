@@ -6,6 +6,10 @@
 type Words = { name: string; hint: string };
 
 const en: Record<string, Words> = {
+  "outside-project": {
+    name: "Writing outside the project",
+    hint: "The guardian: creating, changing or deleting files outside the project's folder, for example in your home or the system's folders.",
+  },
   "rm-recursive": {
     name: "Deleting whole folders",
     hint: "Removing a folder with everything inside, for example rm -rf.",
@@ -65,6 +69,10 @@ const en: Record<string, Words> = {
 };
 
 const it: Record<string, Words> = {
+  "outside-project": {
+    name: "Scrivere fuori dal progetto",
+    hint: "Il guardiano: creare, cambiare o cancellare file fuori dalla cartella del progetto, per esempio nella tua home o nelle cartelle di sistema.",
+  },
   "rm-recursive": {
     name: "Cancellare cartelle intere",
     hint: "Togliere una cartella con tutto quello che c'è dentro, per esempio rm -rf.",

@@ -1,4 +1,9 @@
 import type { ToolCallInfo } from "@redgiant/agent";
+import { outsideWrites } from "./guardian.js";
+
+/** The guardian's danger: writing outside the agent's folders (only the human approves it). */
+export const OUTSIDE_PROJECT = "outside-project";
+
 import type { AgentKind, PermissionMode } from "@redgiant/protocol";
 
 export type Decision = "allow" | "ask" | "deny";
@@ -143,12 +148,20 @@ export interface PolicySettings {
   approverKinds: AgentKind[];
   /** A request nobody answers is denied after this long; undefined = wait forever. */
   askTimeoutMs?: number;
+  /**
+   * The guardian (2026-11-04, RedGiant 2.0): "ask" (the default) asks the human before an agent
+   * writes outside its folders; "auto" lets it. The folders are the agent's project and worktree.
+   */
+  guardian?: "ask" | "auto";
+  roots?: string[];
+  home?: string;
 }
 
 export const DEFAULT_POLICY: PolicySettings = {
   rules: [],
   danger: DEFAULT_DANGER_RULES,
   humanOnly: [
+    OUTSIDE_PROJECT,
     "git-push",
     "git-history",
     "privilege",
@@ -258,6 +271,16 @@ export function evaluate(mode: PermissionMode, call: ToolCallInfo, s: PolicySett
     if (rules.some((r) => r.decision === d)) return out(d, `rule: ${d} ${call.name}`);
   }
   if (readOnly) return out("allow");
+  // The guardian: writing outside the agent's folders is the human's call (unless "auto").
+  if (s.guardian !== "auto" && s.roots?.length) {
+    const outside = outsideWrites(call, { roots: s.roots, ...(s.home && { home: s.home }) });
+    if (outside.length > 0)
+      return {
+        decision: "ask",
+        reasons: [`writes outside the project: ${outside.slice(0, 3).join(", ")}`],
+        danger: [...danger, OUTSIDE_PROJECT],
+      };
+  }
   if (mode === "manual") return out("ask", "manual mode", ...matched.map((r) => r.label));
   return matched.length > 0 ? out("ask", ...matched.map((r) => r.label)) : out("allow");
 }

@@ -196,6 +196,41 @@ describe("live sessions", () => {
     c.close();
   });
 
+  it("the guardian asks the human, and only the human, before an agent writes outside its project (2.0)", async () => {
+    const target = "/srv/redgiant-guardian-test.txt";
+    s = await startServer([
+      { toolCalls: [{ name: "write_file", input: { path: target, content: "out\n" } }] },
+      { text: "Not written." },
+    ]);
+    // Auto mode: inside the project nothing would ask; outside it the human decides.
+    const t = await tree(s, "auto");
+    const { body } = await s.api<{ sessionId: string }>("POST", "/api/sessions", {
+      agentId: t.agent,
+    });
+    const c = await wsClient(s.url);
+    c.send({ type: "session.follow", sessionId: body.sessionId });
+    await c.waitFor("session.synced");
+    c.send({ type: "session.send", sessionId: body.sessionId, text: "write outside" });
+    const req = await c.waitFor("permission.request");
+    expect(req.request.reasons[0]).toContain(`writes outside the project: ${target}`);
+    c.send({
+      type: "permission.resolve",
+      requestId: req.request.requestId,
+      decision: "deny",
+      remember: false,
+    });
+    await c.waitFor(
+      "event",
+      (m) => m.event.type === "message.assistant" && m.event.payload?.stopReason === "end_turn",
+    );
+    await expect(readFile(target, "utf8")).rejects.toThrow();
+    const asked = c.messages
+      .filter((m) => m.type === "event" && m.event.type === "permission.requested")
+      .map((m) => m.type === "event" && (m.event.payload as { askedTo: string }).askedTo);
+    expect(asked).toEqual(["human"]);
+    c.close();
+  });
+
   it("queues a second message written while busy, and interrupts (G24.14f)", async () => {
     s = await startServer([{ text: "word ".repeat(200) }, { text: "Read it." }], {
       tick: () => new Promise((r) => setTimeout(r, 5)),

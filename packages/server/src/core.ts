@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -450,7 +451,10 @@ export class RedGiantCore implements OrchestrationHost {
       resolve: this.registry.resolve,
       settingsFor: (a) => {
         const agent = this.registry.get(a.id) as AgentRecord;
-        return o.policyFor?.(agent) ?? this.policies.settingsFor(agent, o.metal === true);
+        const base = o.policyFor?.(agent) ?? this.policies.settingsFor(agent, o.metal === true);
+        // The guardian's folders: where this agent works (2026-11-04).
+        const roots = this.agentRoots.get(a.id);
+        return roots ? { ...base, roots, home: homedir() } : base;
       },
       // An inspector only reads, whatever its settings and its sandbox (RD30).
       modeFor: (a) =>
@@ -616,7 +620,21 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /** The workspace an agent works in, and whether it may write there. */
+  /** The folders each agent may write in without the guardian asking (its workspace, its project). */
+  private readonly agentRoots = new Map<string, string[]>();
+
   private async workspaceFor(agent: AgentRecord): Promise<Workspace | undefined> {
+    const ws = await this.workspaceOf(agent);
+    if (ws) {
+      const project = agent.projectId
+        ? await this.projects.get(agent.ownerId, agent.projectId).catch(() => undefined)
+        : undefined;
+      this.agentRoots.set(agent.id, [ws.root, ...(project ? [project.path] : [])]);
+    }
+    return ws;
+  }
+
+  private async workspaceOf(agent: AgentRecord): Promise<Workspace | undefined> {
     if (agent.kind === "demigod") return undefined;
     if (agent.kind === "assistant") return this.assistantsWorkspace(agent.ownerId);
     if (agent.kind === "god") {

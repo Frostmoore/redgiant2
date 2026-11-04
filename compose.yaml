@@ -36,7 +36,9 @@ services:
       # Inside the container; REDGIANT_PORT and REDGIANT_BIND in .env choose the published port.
       REDGIANT_PORT: "7600"
       REDGIANT_HOST: 0.0.0.0
-      REDGIANT_SANDBOX: docker
+      # RedGiant 2.0 (2026-11-04): agents work in their project's folder and the guardian asks
+      # before they write outside it; containers per agent only when asked for (docker).
+      REDGIANT_SANDBOX: ${REDGIANT_SANDBOX:-host}
       # The host's GPUs when the server cannot see them itself ("name:GB;…", written by the installer),
       # and how the engine reaches a GPU that is not NVIDIA's through Vulkan: dri (Linux only).
       REDGIANT_HOST_GPUS: ${REDGIANT_HOST_GPUS:-}

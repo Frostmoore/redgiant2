@@ -7,6 +7,7 @@ import {
   type AgentRegistry,
   DEFAULT_DANGER_RULES,
   DEFAULT_POLICY,
+  OUTSIDE_PROJECT,
   type PermissionRule,
   type PersistentBudget,
   type PolicySettings,
@@ -36,6 +37,8 @@ export const PlatformPolicy = z.object({
   humanOnly: z.array(z.string()).optional(),
   /** Danger rules switched off. */
   disabledDanger: z.array(z.string()).default([]),
+  /** The guardian (2026-11-04): ask before writing outside the project, or let it be. */
+  guardian: z.enum(["ask", "auto"]).default("ask"),
 });
 export type PlatformPolicy = z.infer<typeof PlatformPolicy>;
 
@@ -108,7 +111,7 @@ export class PolicyStore {
   }
 
   get(ownerId: string): PlatformPolicy {
-    return this.cache.get(ownerId) ?? { rules: [], disabledDanger: [] };
+    return this.cache.get(ownerId) ?? { rules: [], disabledDanger: [], guardian: "ask" };
   }
 
   async set(ownerId: string, policy: PlatformPolicy): Promise<void> {
@@ -141,7 +144,9 @@ export class PolicyStore {
       danger: DEFAULT_DANGER_RULES.map((r) =>
         p.disabledDanger.includes(r.id) ? { ...r, enabled: false } : r,
       ),
-      humanOnly: p.humanOnly ?? DEFAULT_POLICY.humanOnly,
+      // The guardian's questions are always the person's, whatever the ready choice (2026-11-04).
+      humanOnly: [...new Set([OUTSIDE_PROJECT, ...(p.humanOnly ?? DEFAULT_POLICY.humanOnly)])],
+      guardian: p.guardian ?? "ask",
     };
   }
 }
