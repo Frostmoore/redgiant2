@@ -1,7 +1,7 @@
 // The suggested local models for this computer (G24.3): for each one, the best file that fits
 // (`suggest`), its quality in words, or why none fits.
 import { LOCAL_MODELS, type LocalModel } from "@redgiant/protocol";
-import { type GgufFile, type HuggingFace, offered, qualityOf, suggest } from "./hf.js";
+import { type GgufFile, HuggingFace, offered, qualityOf, suggest } from "./hf.js";
 
 /** Room left on the models' disk after a download beyond memory. */
 const DISK_MARGIN_GB = 10;
@@ -15,6 +15,8 @@ export interface LocalModelChoice extends LocalModel {
   unavailable?: boolean;
   /** SSD stream: bigger than RAM and card together, part of it read from the SSD at each token. */
   beyondMemory?: boolean;
+  /** Every version worth offering, smallest first: the person may pick another (2026-11-04). */
+  versions?: (GgufFile & { quality: "high" | "good" | "reduced" })[];
 }
 
 export async function localModelChoices(
@@ -22,12 +24,17 @@ export async function localModelChoices(
   budgetGb: number,
   /** SSD stream (2026-11-04): a model bigger than memory may still come, if the disk has room. */
   stream?: { diskFreeGb: number },
+  /** The files already in the models folder: a model downloaded shows the file it has (2026-11-04). */
+  have: ReadonlySet<string> = new Set(),
 ): Promise<LocalModelChoice[]> {
   return Promise.all(
     LOCAL_MODELS.map(async (m) => {
       try {
         const files = await hf.files(m.repo);
-        const best = suggest(files, budgetGb);
+        const mine = files
+          .filter((f) => have.has(HuggingFace.target(f.file)))
+          .sort((a, b) => b.sizeGb - a.sizeGb)[0];
+        const best = mine ?? suggest(files, budgetGb);
         const smallest = files.find(offered);
         // Nothing fits in memory: with SSD stream the smallest good file still runs, reading
         // what does not fit from the SSD (slower, said in the table).
@@ -40,7 +47,8 @@ export async function localModelChoices(
           ...m,
           file: file ? { ...file, quality: qualityOf(file.quant) } : null,
           smallestGb: smallest?.sizeGb ?? null,
-          ...(beyond && { beyondMemory: true }),
+          versions: files.filter(offered).map((f) => ({ ...f, quality: qualityOf(f.quant) })),
+          ...((beyond || (file && file.sizeGb > budgetGb)) && { beyondMemory: true }),
         };
       } catch {
         return { ...m, file: null, smallestGb: null, unavailable: true };

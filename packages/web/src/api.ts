@@ -165,6 +165,8 @@ export interface LocalModelChoice extends LocalModel {
   unavailable?: boolean;
   /** SSD stream: bigger than RAM and card together, part of it read from the SSD at each token. */
   beyondMemory?: boolean;
+  /** Every version worth offering, smallest first. */
+  versions?: (GgufFile & { quality: "high" | "good" | "reduced" })[];
 }
 
 /** A file of the models folder: ready, or a download paused halfway. */

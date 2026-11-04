@@ -6,9 +6,19 @@ import { useEffect, useState } from "preact/hooks";
 import type { EngineVariant, LocalFile, LocalModelChoice, SetupState } from "../api.js";
 import { bytes } from "../format.js";
 import { t, tOptional } from "../i18n.js";
-import { IconCpu, IconDownload, IconPlay, IconTrash } from "../icons.js";
+import {
+  IconBox,
+  IconChevron,
+  IconCpu,
+  IconDownload,
+  IconLayers,
+  IconPlay,
+  IconSearch,
+  IconTrash,
+} from "../icons.js";
 import { attempt, getApi } from "../state.js";
 import { explain } from "./Brain.js";
+import { Gallery, GalleryCard } from "./Gallery.js";
 import { Advanced, Field, JobView, Modal, Pick, Progress, useJob } from "./ui.js";
 
 const gb = (n: number) => `${n.toFixed(1)} GB`;
@@ -585,6 +595,215 @@ function HfSearch({
   );
 }
 
+/** This computer's places for a model, in order, with the bar of the room each one gives. */
+function Machine({
+  s,
+  tiers,
+  diskFreeGb,
+}: {
+  s: SetupState;
+  tiers: Tier[];
+  diskFreeGb: number | undefined;
+}) {
+  const hw = s.hardware;
+  const card = hw.gpus.find((g) => !g.integrated);
+  const free = hw.freeRamGb ?? hw.ramGb * 0.6;
+  const shared = hw.suggestion.kind !== "gpu" && hw.suggestion.kind !== "gpu-unknown";
+  return (
+    <div class="machine">
+      <strong>{t("lmThisPc")}</strong>
+      <div class="machine-parts">
+        {!shared && (
+          <div class="machine-part">
+            <IconCpu size={18} />
+            <span>
+              <b>{t("lmPartCard")}</b> {card?.name ?? ""}
+              <small>
+                {t("lmPartCardSub", {
+                  vram: gb(hw.suggestion.vramGb),
+                  use: gb(hw.suggestion.maxModelGb),
+                })}
+              </small>
+            </span>
+          </div>
+        )}
+        <div class="machine-part">
+          <IconLayers size={18} />
+          <span>
+            <b>{shared ? t("lmPartMemory") : t("lmPartRam")}</b> {gb(hw.ramGb)}
+            <small>{t("lmPartRamSub", { free: gb(free) })}</small>
+          </span>
+        </div>
+        {diskFreeGb !== undefined && (
+          <div class="machine-part">
+            <IconBox size={18} />
+            <span>
+              <b>{t("lmPartSsd")}</b>
+              <small>{t("lmPartSsdSub", { free: gb(diskFreeGb) })}</small>
+            </span>
+          </div>
+        )}
+      </div>
+      <RoomBar sizeGb={0} tiers={tiers} />
+      <div class="tier-legend">
+        {tiers.map((x) => (
+          <span key={x.kind}>
+            <i class={`tier-${x.kind}`} />
+            {t(`lmLegend_${x.kind}`)}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** What a card says at its foot: in use, ready, downloading, to download, too big. */
+function cardState(
+  m: LocalModelChoice,
+  files: LocalFile[],
+  jobs: Job[],
+  active: string | undefined,
+): string {
+  if (!m.file) return m.unavailable ? t("lmUnavailable") : t("lmCardTooBig");
+  const name = target(m.file.file);
+  const dl = latest(jobs, "model_download", name);
+  if (dl?.state === "running") {
+    const p = dl.steps[0]?.progress;
+    return p?.total
+      ? t("lmCardDownloading", { pct: String(Math.round((p.done / p.total) * 100)) })
+      : t("lmStarting");
+  }
+  const local = files.find((f) => f.file === name);
+  if (local?.partial) return t("lmCardPaused");
+  if (local) return active === name ? t("lmInUse") : t("lmCardReady");
+  return t("lmCardGet", { size: gb(m.file.sizeGb) });
+}
+
+/** Everything about one suggested model: what it is good at, where it sits, its versions. */
+function ModelPanel({
+  m,
+  s,
+  tiers,
+  files,
+  jobs,
+  active,
+  variant,
+  stream,
+  onChange,
+}: {
+  m: LocalModelChoice;
+  s: SetupState;
+  tiers: Tier[];
+  files: LocalFile[];
+  jobs: Job[];
+  active: string | undefined;
+  variant: EngineVariant;
+  stream: boolean;
+  onChange: () => void;
+}) {
+  const [pick, setPick] = useState(m.file?.file);
+  useEffect(() => setPick(m.file?.file), [m.id, m.file?.file]);
+  const file = m.versions?.find((v) => v.file === pick) ?? m.file;
+  const hw = { ...s.hardware.suggestion, ramGb: s.hardware.freeRamGb ?? s.hardware.ramGb };
+  const speed = file ? estimatedSpeed(m, file.sizeGb, hw) : undefined;
+  const name = file ? target(file.file) : "";
+  const inUse = !!file && active === name;
+  const plan = inUse && s.config.engine?.stream ? s.config.engine.plan : undefined;
+  const memory = tiers.filter((x) => x.kind !== "ssd").reduce((n, x) => n + x.gb, 0);
+  const room = tiers.reduce((n, x) => n + x.gb, 0);
+  return (
+    <>
+      <p class="ui-help">{tOptional(`lm_${m.id}`) ?? ""}</p>
+      {speed && file && (
+        <div class="row wrap">
+          <span class="gcard-big">
+            {speed.tokensPerSec} <small>{t("lmSpeedEstimate")}</small>
+          </span>
+          {plan && (
+            <span class="gcard-big">
+              {Math.round(plan.ctx / 1024)}k <small>{t("lmContextTokens")}</small>
+            </span>
+          )}
+        </div>
+      )}
+      <div class="gscores">
+        {(["smart", "code", "tools", "languages"] as const).map((k) => (
+          <div key={k} class="gscore">
+            {t(`lmScore_${k}`)}
+            <Meter label={t(`lmScore_${k}`)} value={m.scores[k]} />
+          </div>
+        ))}
+      </div>
+      {file ? (
+        <>
+          <div>
+            <span class="ui-label">{t("lmWhere")}</span>
+            <RoomBar sizeGb={file.sizeGb} tiers={tiers} />
+          </div>
+          {file.sizeGb > memory && <p class="notice warn">{t("lmBeyondMemory")}</p>}
+          {plan && (
+            <dl class="gfacts">
+              {plan.moeCacheMib > 0 && (
+                <>
+                  <dt>{t("lmFactCache")}</dt>
+                  <dd>{gb(plan.moeCacheMib / 1024)}</dd>
+                </>
+              )}
+              <dt>{t("lmFactSsd")}</dt>
+              <dd>
+                {plan.source === "ssd"
+                  ? t("lmFactSsdGb", { gb: plan.ssdGbPerWord.toFixed(2) })
+                  : t("lmFactSsdNone")}
+              </dd>
+              {plan.ramGb !== undefined && (
+                <>
+                  <dt>{t("lmFactRam")}</dt>
+                  <dd>{gb(plan.ramGb)}</dd>
+                </>
+              )}
+            </dl>
+          )}
+          {m.versions && m.versions.length > 1 && (
+            <label class="gversions">
+              <span class="ui-label">{t("lmVersions")}</span>
+              <select value={pick} onChange={(e) => setPick((e.target as HTMLSelectElement).value)}>
+                {m.versions
+                  .filter((v) => v.file === m.file?.file || v.sizeGb <= room)
+                  .map((v) => (
+                    <option key={v.file} value={v.file}>
+                      {v.quant ?? "GGUF"} · {gb(v.sizeGb)} · {t(`lmQuality_${v.quality}`)}
+                      {v.file === m.file?.file ? ` · ${t("lmVersionSuggested")}` : ""}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
+          <FileActions
+            repo={m.repo}
+            file={file.file}
+            sizeGb={file.sizeGb}
+            local={files.find((f) => f.file === name)}
+            jobs={jobs}
+            active={inUse}
+            variant={variant}
+            stream={stream}
+            onChange={onChange}
+          />
+        </>
+      ) : (
+        <p class="notice">
+          {m.unavailable
+            ? t("lmUnavailable")
+            : t("lmTooBig", {
+                need: m.smallestGb ? gb(m.smallestGb) : "?",
+                max: gb(memory),
+              })}
+        </p>
+      )}
+    </>
+  );
+}
+
 export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }) {
   const [data, setData] = useState<{
     models: LocalModelChoice[];
@@ -598,6 +817,8 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
   );
   const [error, setError] = useState<string>();
   const [stream, setStream] = useState(s.config.engine?.stream ?? false);
+  /** The card whose panel is open: a model's id, `file:` and a file, or `hf`. */
+  const [open, setOpen] = useState<string | null>(null);
   const canStream = streamAvailable(s, variant);
   const load = (v: EngineVariant = variant, st: boolean = stream) => {
     void getApi()
@@ -637,136 +858,154 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
   };
   const active = s.config.engine?.model;
   const best = data && recommended(data.models, s.hardware);
-  const tiers = roomTiers(s.hardware, stream && canStream.ok ? data?.diskFreeGb : undefined);
+  const streaming = stream && canStream.ok;
+  const tiers = roomTiers(s.hardware, streaming ? data?.diskFreeGb : undefined);
   const files = data?.files ?? [];
   const known = new Set(data?.models.flatMap((m) => (m.file ? [target(m.file.file)] : [])) ?? []);
   const others = files.filter((f) => !known.has(f.file) && !f.partial);
+  const hw = { ...s.hardware.suggestion, ramGb: s.hardware.freeRamGb ?? s.hardware.ramGb };
+  const openModel = data?.models.find((m) => m.id === open);
+  const openFile = open?.startsWith("file:")
+    ? others.find((f) => `file:${f.file}` === open)
+    : undefined;
+  const panel = openModel
+    ? {
+        title: openModel.name,
+        body: (
+          <ModelPanel
+            m={openModel}
+            s={s}
+            tiers={tiers}
+            files={files}
+            jobs={jobs}
+            active={active}
+            variant={variant}
+            stream={streaming}
+            onChange={changed}
+          />
+        ),
+      }
+    : openFile
+      ? {
+          title: openFile.file,
+          body: (
+            <>
+              <p class="ui-help">{t("lmOtherHelp", { size: bytes(openFile.bytes) })}</p>
+              <FileActions
+                repo={null}
+                file={openFile.file}
+                sizeGb={null}
+                local={openFile}
+                jobs={jobs}
+                active={active === openFile.file}
+                variant={variant}
+                stream={streaming}
+                onChange={changed}
+              />
+            </>
+          ),
+        }
+      : open === "hf"
+        ? {
+            title: t("lmSearch"),
+            body: (
+              <>
+                <p class="ui-help">{t("lmSearchHint")}</p>
+                <HfSearch
+                  jobs={jobs}
+                  files={files}
+                  active={active}
+                  variant={variant}
+                  stream={streaming}
+                  onChange={changed}
+                />
+              </>
+            ),
+          }
+        : null;
   return (
     <div class="lm">
-      <div class="lm-pc">
-        <IconCpu size={18} />
-        <div>
-          <strong>{t("lmThisPc")}</strong>
-          <p class="ui-help">{hardwareText(s.hardware)}</p>
-        </div>
-      </div>
+      <Machine s={s} tiers={tiers} diskFreeGb={streaming ? data?.diskFreeGb : undefined} />
       {s.locked.engine && <p class="notice">{t("wzLocked")}</p>}
       {error && <p class="notice error">{error}</p>}
-      <ModelsDisk s={s} variant={variant} onMoved={changed} />
       <StreamSwitch
-        on={stream && canStream.ok}
+        on={streaming}
         available={canStream}
         plan={s.config.engine?.stream ? s.config.engine.plan : undefined}
         onChange={(v) => setStream(v)}
       />
+      <ModelsDisk s={s} variant={variant} onMoved={changed} />
       <h3>{t("lmSuggested")}</h3>
       <p class="ui-help">{t("lmScoresHint")}</p>
       {!data && <p class="ui-help">{t("lmLoading")}</p>}
-      {/* One row a model, one column a quality: compared at a glance (2026-11-03). */}
-      <div class="lm-table">
-        <div class="lm-row lm-head">
-          <span>{t("lmModel")}</span>
-          <span>{t("lmScore_smart")}</span>
-          <span>{t("lmScore_code")}</span>
-          <span>{t("lmScore_tools")}</span>
-          <span>{t("lmScore_languages")}</span>
-          <span>{t("lmScore_speed")}</span>
-          <span>{t("lmRoom")}</span>
-          <span />
-        </div>
+      <Gallery panel={panel} onClose={() => setOpen(null)}>
         {data?.models.map((m) => {
-          const speed = m.file
-            ? estimatedSpeed(
-                m,
-                m.file.sizeGb,
-                { ...s.hardware.suggestion, ramGb: s.hardware.freeRamGb ?? s.hardware.ramGb },
-                { stream: stream && canStream.ok },
-              )
-            : undefined;
+          const speed = m.file ? estimatedSpeed(m, m.file.sizeGb, hw) : undefined;
           const inUse = !!m.file && active === target(m.file.file);
           return (
-            <div
+            <GalleryCard
               key={m.id}
-              class={`lm-row${m.file ? "" : " too-big"}${m.id === best ? " best" : ""}${inUse ? " in-use" : ""}`}
+              selected={open === m.id}
+              tone={inUse ? "ok" : undefined}
+              onOpen={() => setOpen(m.id)}
             >
-              <span class="lm-name">
-                <span class="row wrap">
-                  <strong>{m.name}</strong>
-                  {m.id === best && <span class="chip ok">{t("lmRecommended")}</span>}
-                  {inUse && <span class="chip ok">{t("lmInUse")}</span>}
-                </span>
-                <span class="ui-help">{tOptional(`lm_${m.id}`) ?? ""}</span>
-                {m.file && <span class="lm-meta">{t(`lmQuality_${m.file.quality}`)}</span>}
-                {m.beyondMemory && <span class="lm-meta warn">{t("lmBeyondMemory")}</span>}
-              </span>
-              <Meter label={t("lmScore_smart")} value={m.scores.smart} />
-              <Meter label={t("lmScore_code")} value={m.scores.code} />
-              <Meter label={t("lmScore_tools")} value={m.scores.tools} />
-              <Meter label={t("lmScore_languages")} value={m.scores.languages} />
-              {speed ? (
-                <Meter
-                  label={t("lmScore_speed")}
-                  value={speed.stars}
-                  note={t("lmTokensShort", { n: String(speed.tokensPerSec) })}
-                />
-              ) : (
-                <span />
-              )}
-              {m.file ? <RoomBar sizeGb={m.file.sizeGb} tiers={tiers} /> : <span />}
-              <span class="lm-actions">
-                {m.file ? (
-                  <FileActions
-                    repo={m.repo}
-                    file={m.file.file}
-                    sizeGb={m.file.sizeGb}
-                    local={files.find((f) => f.file === target(m.file?.file ?? ""))}
-                    jobs={jobs}
-                    active={inUse}
-                    variant={variant}
-                    stream={stream}
-                    onChange={changed}
-                  />
+              <span class="gcard-head">
+                <strong>{m.name}</strong>
+                {inUse ? (
+                  <span class="chip ok">{t("lmInUse")}</span>
                 ) : (
-                  <span class="ui-help">
-                    {m.unavailable
-                      ? t("lmUnavailable")
-                      : t("lmTooBig", {
-                          need: m.smallestGb ? gb(m.smallestGb) : "?",
-                          max: gb(data?.budgetGb ?? s.hardware.suggestion.maxModelGb),
-                        })}
-                  </span>
+                  m.id === best && <span class="chip ok">{t("lmRecommended")}</span>
                 )}
               </span>
-            </div>
+              {speed && m.file ? (
+                <span class="row wrap">
+                  <span class="gcard-big">
+                    {speed.tokensPerSec} <small>{t("lmTokensUnit")}</small>
+                  </span>
+                  <span class="spacer" />
+                  <span class="dim">{gb(m.file.sizeGb)}</span>
+                </span>
+              ) : (
+                <span class="gcard-note">{tOptional(`lm_${m.id}`) ?? ""}</span>
+              )}
+              {m.file && <RoomBar sizeGb={m.file.sizeGb} tiers={tiers} />}
+              <span class="gcard-foot">
+                <span class="gcard-note">{cardState(m, files, jobs, active)}</span>
+                <IconChevron open={false} size={14} />
+              </span>
+            </GalleryCard>
           );
         })}
-      </div>
-      {others.length > 0 && (
-        <>
-          <h3>{t("lmOther")}</h3>
-          <ul class="lm-files">
-            {others.map((f) => (
-              <li key={f.file}>
-                <div class="row">
-                  <code>{f.file}</code>
-                  <span class="dim">{bytes(f.bytes)}</span>
-                </div>
-                <FileActions
-                  repo={null}
-                  file={f.file}
-                  sizeGb={null}
-                  local={f}
-                  jobs={jobs}
-                  active={active === f.file}
-                  variant={variant}
-                  stream={stream}
-                  onChange={changed}
-                />
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+        {others.map((f) => (
+          <GalleryCard
+            key={f.file}
+            selected={open === `file:${f.file}`}
+            tone={active === f.file ? "ok" : undefined}
+            onOpen={() => setOpen(`file:${f.file}`)}
+          >
+            <span class="gcard-head">
+              <strong class="gcard-file">{f.file}</strong>
+              {active === f.file && <span class="chip ok">{t("lmInUse")}</span>}
+            </span>
+            <span class="gcard-note">{t("lmOther")}</span>
+            <span class="gcard-foot">
+              <span class="gcard-note">{bytes(f.bytes)}</span>
+              <IconChevron open={false} size={14} />
+            </span>
+          </GalleryCard>
+        ))}
+        <GalleryCard selected={open === "hf"} onOpen={() => setOpen("hf")}>
+          <span class="gcard-head">
+            <strong>{t("lmSearch")}</strong>
+            <IconSearch size={16} />
+          </span>
+          <span class="gcard-note">{t("lmSearchHint")}</span>
+          <span class="gcard-foot">
+            <span />
+            <IconChevron open={false} size={14} />
+          </span>
+        </GalleryCard>
+      </Gallery>
       <Advanced>
         <Field label={t("lmEngine")} help={t("lmEngineHelp")}>
           <select
@@ -784,18 +1023,6 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
             ))}
           </select>
         </Field>
-        <div class="ui-field">
-          <span class="ui-label">{t("lmSearch")}</span>
-          <span class="ui-help">{t("lmSearchHint")}</span>
-          <HfSearch
-            jobs={jobs}
-            files={files}
-            active={active}
-            variant={variant}
-            stream={stream && canStream.ok}
-            onChange={changed}
-          />
-        </div>
       </Advanced>
     </div>
   );

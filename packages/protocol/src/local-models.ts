@@ -150,46 +150,45 @@ export interface SpeedHardware {
   ramGb?: number;
 }
 
-/** GB a second a good NVMe SSD gives to reads of this kind (spread, not one long file). */
-const SSD_GB_S = 3;
+/**
+ * What each place gives to a model's reads at each token, in GB a second, as llama.cpp really
+ * reaches it (2026-11-04, measured: Qwen3 Next 80B A3B, 39.7 GB, on a 16 GB RTX 4080 Super with
+ * 64 GB of RAM writes 22 tokens a second): the card, the computer's memory, a GPU in the
+ * processor, the processor alone, and an NVMe SSD (spread reads, not one long file).
+ */
+const BANDWIDTH = { card: 500, ram: 30, igpu: 60, cpu: 40, unknown: 120, ssd: 3 } as const;
 
 /**
  * About how many tokens a second a model writes here, and that as 1 to 5. Writing one token
- * reads the working part of the model from memory once, so the speed is the memory's bandwidth
- * divided by that part's size: a model inside the graphics card's memory reads at hundreds of
- * GB/s, one in the computer's memory at tens. A rough estimate, said as such in the UI. Tokens,
- * not words (2026-11-04): the engine measures tokens, and the estimate must compare with it.
+ * reads the working part of the model once (all of it for a dense model, the active experts
+ * and the shared part for a mixture of experts). The model fills the card first, then the RAM,
+ * then (SSD stream) the SSD: each part of the reads goes at its place's speed. The experts used
+ * most stay in RAM, so the SSD serves about half of its share. A rough estimate, said as such.
  */
 export function estimatedSpeed(
   m: Pick<LocalModel, "totalB" | "activeB">,
   fileGb: number,
   hw: SpeedHardware,
-  opts: { stream?: boolean } = {},
 ): { tokensPerSec: number; stars: number } {
-  // SSD stream and a model bigger than the card: the working part comes from RAM, and what
-  // does not fit in RAM either from the SSD at each token (2026-11-03).
-  if (opts.stream && !(hw.kind === "gpu" && fileGb <= hw.vramGb * 0.9)) {
-    const perToken = Math.max(0.2, (fileGb * m.activeB) / m.totalB);
-    const ram = (hw.ramGb ?? 16) * 0.9 + (hw.kind === "gpu" ? hw.vramGb : 0);
-    const fromSsd = Math.max(0, (fileGb - ram) / fileGb);
-    const seconds = (perToken * (1 - fromSsd)) / 45 + (perToken * fromSsd) / SSD_GB_S;
-    const tokensPerSec = Math.max(0, Math.round(0.5 / seconds));
-    return { tokensPerSec, stars: starsFor(tokensPerSec) };
-  }
-  const inCard = hw.kind === "gpu" && fileGb <= hw.vramGb * 0.9;
-  const bandwidth =
+  const perToken = Math.max(0.2, (fileGb * m.activeB) / m.totalB);
+  const size = Math.max(fileGb, 0.1);
+  const card = hw.kind === "gpu" ? hw.vramGb * 0.8 : 0;
+  const memory = (hw.ramGb ?? 16) * 0.9;
+  const inCard = Math.min(size, card);
+  const inRam = Math.min(size - inCard, memory);
+  const onSsd = (size - inCard - inRam) * 0.5;
+  const ramSpeed =
     hw.kind === "gpu"
-      ? inCard
-        ? 350
-        : 60
-      : hw.kind === "gpu-unknown"
-        ? 150
-        : hw.kind === "igpu"
-          ? 70
-          : 45;
-  const readPerToken = Math.max(0.2, (fileGb * m.activeB) / m.totalB);
-  // Real engines reach about half of the bandwidth.
-  const tokensPerSec = Math.round((bandwidth / readPerToken) * 0.5);
+      ? BANDWIDTH.ram
+      : hw.kind === "igpu"
+        ? BANDWIDTH.igpu
+        : hw.kind === "gpu-unknown"
+          ? BANDWIDTH.unknown
+          : BANDWIDTH.cpu;
+  const seconds =
+    (perToken / size) *
+    (inCard / BANDWIDTH.card + (size - inCard - onSsd) / ramSpeed + onSsd / BANDWIDTH.ssd);
+  const tokensPerSec = Math.max(0, Math.round(1 / Math.max(seconds, 0.001)));
   return { tokensPerSec, stars: starsFor(tokensPerSec) };
 }
 

@@ -10,10 +10,19 @@ import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
 import { Choice, Field } from "./ui.js";
 
-export function SearchSettings({ s, onSaved }: { s: SetupState; onSaved: () => void }) {
+export function SearchSettings({
+  s,
+  onSaved,
+  only,
+}: {
+  s: SetupState;
+  onSaved: () => void;
+  /** One service only, in its own panel (2026-11-04): no list to choose from. */
+  only?: SearchProviderId;
+}) {
   const current: SearchProviderId | undefined =
     s.config.searchProvider ?? (s.config.searxngUrl ? "searxng" : undefined);
-  const [pick, setPick] = useState<SearchProviderId>(current ?? "searxng");
+  const [pick, setPick] = useState<SearchProviderId>(only ?? current ?? "searxng");
   const [url, setUrl] = useState(s.config.searxngUrl ?? "");
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState<"try" | "save" | null>(null);
@@ -51,19 +60,21 @@ export function SearchSettings({ s, onSaved }: { s: SetupState; onSaved: () => v
   if (s.locked.search) return <p class="ui-help">{t("wzLocked")}</p>;
   return (
     <div class="search-settings">
-      <p class="ui-help">{t("searchWho")}</p>
-      <Choice<SearchProviderId>
-        value={[pick]}
-        onChange={(v) => {
-          if (v[0]) setPick(v[0]);
-          setResult(undefined);
-        }}
-        options={SEARCH_PROVIDERS.map((p) => ({
-          id: p.id,
-          title: p.id === current ? `${p.name} · ${t("searchInUse")}` : p.name,
-          description: t(`searchCard_${p.id}`),
-        }))}
-      />
+      {!only && <p class="ui-help">{t("searchWho")}</p>}
+      {!only && (
+        <Choice<SearchProviderId>
+          value={[pick]}
+          onChange={(v) => {
+            if (v[0]) setPick(v[0]);
+            setResult(undefined);
+          }}
+          options={SEARCH_PROVIDERS.map((p) => ({
+            id: p.id,
+            title: p.id === current ? `${p.name} · ${t("searchInUse")}` : p.name,
+            description: t(`searchCard_${p.id}`),
+          }))}
+        />
+      )}
       {info && (
         <div class="search-how">
           <strong>{t("searchHowTitle", { name: info.name })}</strong>

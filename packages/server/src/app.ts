@@ -2336,9 +2336,11 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
             .then((d) => (d.bavail * d.bsize) / 1024 ** 3)
             .catch(() => 0)
         : 0;
+      const files = await folder.local();
+      const have = new Set(files.filter((f) => !f.partial).map((f) => f.file));
       return {
-        models: await localModelChoices(folder, budget, stream ? { diskFreeGb } : undefined),
-        files: await folder.local(),
+        models: await localModelChoices(folder, budget, stream ? { diskFreeGb } : undefined, have),
+        files,
         budgetGb: budget,
         ...(stream && { diskFreeGb: Math.round(diskFreeGb * 10) / 10 }),
       };

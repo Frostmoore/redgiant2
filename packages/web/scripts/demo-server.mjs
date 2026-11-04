@@ -573,6 +573,8 @@ const setup = new SetupService({
     },
   }),
   hooks: {
+    // DEMO_NVIDIA=1 (with REDGIANT_HOST_GPUS) shows a computer with an NVIDIA card.
+    dockerRuntimes: async () => (process.env.DEMO_NVIDIA ? ["nvidia"] : []),
     // Keys "work" unless they contain "wrong", to show both answers.
     key: async (id, key) => {
       if (key?.includes("wrong"))

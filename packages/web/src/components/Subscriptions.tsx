@@ -2,11 +2,11 @@ import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
 import { t } from "../i18n.js";
 import { getApi } from "../state.js";
-import { Brain, DefaultModel } from "./Brain.js";
+import { ModelsPage } from "./ModelsPage.js";
 
 /**
- * Models and subscriptions (Settings): the same cards as the wizard's "How should RedGiant
- * think?", so everything is changed where it was chosen.
+ * Models and subscriptions (Settings): a gallery of cards with a panel (2026-11-04), the same
+ * pieces as the wizard's "How should RedGiant think?".
  */
 export function Subscriptions() {
   const [s, setS] = useState<SetupState | null>(null);
@@ -20,8 +20,7 @@ export function Subscriptions() {
     <div class="settings-section brain-settings">
       <h2>{t("subscriptions")}</h2>
       <p class="ui-purpose">{t("brainPurpose")}</p>
-      <Brain s={s} reload={load} />
-      <DefaultModel s={s} onSaved={load} />
+      <ModelsPage s={s} reload={load} />
     </div>
   );
 }

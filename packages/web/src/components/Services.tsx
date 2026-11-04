@@ -12,7 +12,7 @@ import { Field, JobView, useJob } from "./ui.js";
  * RedGiant's own search engine (SearXNG in Docker, 2026-11-03): one button, the steps with
  * their bar, then every agent and the Chat can search the web, local models too.
  */
-function OwnSearch({ s, onChange }: { s: SetupState; onChange: (url: string) => void }) {
+export function OwnSearch({ s, onChange }: { s: SetupState; onChange: (url: string) => void }) {
   const [jobId, setJobId] = useState<string>();
   const [on, setOn] = useState(!!s.config.searxngManaged);
   const job = useJob(jobId);

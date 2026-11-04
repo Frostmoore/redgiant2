@@ -23,15 +23,19 @@ describe("local models compared (2026-11-03)", () => {
   });
 });
 
-describe("speed with SSD stream (2026-11-03)", () => {
-  it("is slower when part of the model must come from the SSD at each word", () => {
-    const moe = { totalB: 30, activeB: 3 };
-    const hw = { kind: "gpu" as const, vramGb: 12, ramGb: 32 };
-    const inRam = estimatedSpeed(moe, 17, hw, { stream: true });
-    const onSsd = estimatedSpeed(moe, 17, { ...hw, ramGb: 4 }, { stream: true });
+describe("speed by where the model sits (2026-11-04)", () => {
+  const hw = { kind: "gpu" as const, vramGb: 16, ramGb: 30 };
+  it("matches what was measured: Qwen3 Next 80B A3B on a 16 GB card", () => {
+    const next = estimatedSpeed({ totalB: 80, activeB: 3 }, 39.7, hw).tokensPerSec;
+    expect(next).toBeGreaterThanOrEqual(18);
+    expect(next).toBeLessThanOrEqual(30);
+  });
+
+  it("is slower when part of the model must come from the SSD at each token", () => {
+    const moe = { totalB: 117, activeB: 5.1 };
+    const inRam = estimatedSpeed(moe, 58, { ...hw, ramGb: 64 });
+    const onSsd = estimatedSpeed(moe, 58, hw);
     expect(inRam.tokensPerSec).toBeGreaterThan(onSsd.tokensPerSec);
     expect(onSsd.tokensPerSec).toBeGreaterThan(0);
-    // Without streaming nothing changes.
-    expect(estimatedSpeed(moe, 10, hw)).toEqual(estimatedSpeed(moe, 10, hw, { stream: false }));
   });
 });

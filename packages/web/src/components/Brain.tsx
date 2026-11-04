@@ -268,18 +268,21 @@ export function ChatgptCard({
 }
 
 /** One provider of the catalog: where the key is made, the key, a test at once. */
-function KeyRow({
+export function KeyRow({
   p,
   connected,
   locked,
   onChange,
+  startOpen = false,
 }: {
   p: KeyProvider;
   connected: boolean;
   locked: boolean;
   onChange: () => void;
+  /** In a panel of its own the form is open at once. */
+  startOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen && !connected);
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string }>();

@@ -5004,3 +5004,280 @@ button.pick-tile.on {
   flex-direction: column;
   gap: 10px;
 }
+
+/* Gallery with a panel (2026-11-04): cards side by side, the details on the right, a window on
+   phones and narrow tabs. */
+.ui-modal-x {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--dim);
+}
+.ui-modal-x:hover {
+  color: var(--text);
+  border-color: var(--line);
+}
+.gallery {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.gallery.with-panel {
+  grid-template-columns: minmax(0, 1fr) 400px;
+}
+.gallery-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.gcard,
+.lm button.gcard {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 96px;
+  padding: 14px;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.gcard:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.gcard.ok {
+  border-color: color-mix(in srgb, var(--ok) 55%, var(--line));
+}
+.gcard.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.gcard-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.gcard-head strong {
+  font-size: 14.5px;
+}
+.gcard-foot {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  color: var(--dim);
+}
+.gcard .dim,
+.gcard-note {
+  color: var(--dim);
+  font-size: 12.5px;
+}
+.gcard-big {
+  font-size: 19px;
+  font-weight: 700;
+}
+.gcard-big small {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dim);
+}
+.gallery-panel {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 140px);
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.gallery-panel header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.gallery-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+}
+.gallery-panel-body > .brain-panel {
+  border: none;
+  padding: 0;
+  background: none;
+}
+.gallery-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.gallery-kinds button {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--dim);
+}
+.gallery-kinds button.on {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+.gscores {
+  display: grid;
+  gap: 4px;
+}
+.gscore {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.gfacts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+.gfacts dt {
+  color: var(--dim);
+}
+.gfacts dd {
+  margin: 0;
+}
+.gversions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.gversions button {
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.gversions button.on {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.machine {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.machine-parts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+.machine-part {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.machine-part small {
+  display: block;
+  color: var(--dim);
+  font-size: 12.5px;
+}
+.machine .lm-room-bar {
+  max-width: none;
+  height: 12px;
+}
+.machine .lm-tier {
+  height: 12px;
+}
+.tier-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.tier-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+.tier-legend .tier-card,
+.tier-legend .tier-memory {
+  background: var(--ok);
+}
+.tier-legend .tier-ram {
+  background: color-mix(in srgb, var(--ok) 50%, var(--warn));
+}
+.tier-legend .tier-ssd {
+  background: var(--warn);
+}
+.gcard .lm-room,
+.gallery-panel .lm-room {
+  width: 100%;
+}
+.gcard .lm-room-bar,
+.gallery-panel .lm-room-bar {
+  max-width: none;
+}
+.models-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.gmark {
+  display: inline-grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--dim);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.gcard-file {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+/* Inside cards and panels the label of a bar is the card's own words, not drawn again. */
+.gcard .lm-room::before,
+.gallery-panel .lm-room::before,
+.ui-modal .lm-room::before,
+.machine .lm-room::before,
+.gscore .lm-meter::before {
+  display: none;
+}
+.gversions select {
+  width: 100%;
+}

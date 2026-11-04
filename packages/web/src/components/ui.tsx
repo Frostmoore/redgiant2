@@ -382,8 +382,9 @@ export function Modal({
       <div class="ui-modal" role="dialog" aria-modal="true" aria-label={title}>
         <header>
           <strong>{title}</strong>
-          <button type="button" class="link" onClick={onClose}>
-            {t("close")}
+          {/* An X to close, as on phones (2026-11-04). */}
+          <button type="button" class="ui-modal-x" aria-label={t("close")} onClick={onClose}>
+            <IconX size={18} />
           </button>
         </header>
         <div class="ui-modal-body">{children}</div>
