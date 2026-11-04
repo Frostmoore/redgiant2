@@ -630,6 +630,7 @@ export type SettingsSection =
   | "automations"
   | "extensions"
   | "telegram"
+  | "chats"
   | "budgets"
   | "subscriptions"
   | "code"

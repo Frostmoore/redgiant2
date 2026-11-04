@@ -5,6 +5,7 @@ import { lang, setLang, t } from "../i18n.js";
 import {
   IconArchive,
   IconCard,
+  IconChat,
   IconClock,
   IconCompass,
   IconDollar,
@@ -28,6 +29,7 @@ import { setTheme, theme } from "../theme.js";
 import { Automations } from "./Automations.js";
 import { Backup } from "./Backup.js";
 import { Budgets } from "./Budgets.js";
+import { ChatPlatforms } from "./ChatPlatforms.js";
 import { CodeSettings } from "./CodeSettings.js";
 import { EmailSettings } from "./EmailSettings.js";
 import { Extensions } from "./Extensions.js";
@@ -47,6 +49,7 @@ const SECTIONS: { id: SettingsSection; label: () => string; icon: ComponentChild
   { id: "automations", label: () => t("automations"), icon: <IconClock size={15} /> },
   { id: "extensions", label: () => t("extensions"), icon: <IconPuzzle size={15} /> },
   { id: "telegram", label: () => t("telegram"), icon: <IconTelegram size={15} /> },
+  { id: "chats", label: () => t("chats"), icon: <IconChat size={15} /> },
   { id: "subscriptions", label: () => t("subscriptions"), icon: <IconCard size={15} /> },
   { id: "code", label: () => t("wzCode"), icon: <IconFolder size={15} /> },
   { id: "remote", label: () => t("wzRemote"), icon: <IconShield size={15} /> },
@@ -227,6 +230,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "automations" && <Automations />}
         {section === "extensions" && <Extensions />}
         {section === "telegram" && <Telegram />}
+        {section === "chats" && <ChatPlatforms />}
         {section === "subscriptions" && <Subscriptions />}
         {section === "code" && <CodeSettings />}
         {section === "remote" && <RemoteSettings />}

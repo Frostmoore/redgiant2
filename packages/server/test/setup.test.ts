@@ -193,6 +193,7 @@ describe("the setup wizard", () => {
     expect(state.secretsSet).toEqual({
       keys: ["anthropic"],
       server: false,
+      chats: [],
       telegram: true,
       transcription: false,
       images: false,

@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SqlClient } from "@redgiant/events";
+import type { Platform } from "@redgiant/gateway";
 import { DEFAULT_POLICY } from "@redgiant/hierarchy";
 import type { Job } from "@redgiant/protocol";
 import {
@@ -46,6 +47,8 @@ export interface SetupHooks {
   server(o: { baseUrl: string; key?: string | undefined } | null): Promise<string[]>;
   /** Starts Demi-God's bot (null stops it); returns the bot's username. */
   telegram(token: string | null): Promise<{ username: string } | null>;
+  /** Starts Demi-God on Discord, Slack, Signal or WhatsApp (null stops it), G29.5. */
+  chat?(platform: Platform, settings: Record<string, string> | null): Promise<void>;
   /** The web search service for models that cannot search by themselves (null: none). */
   search(c: SearchChoice | null): Promise<void>;
   /** Claude on a flat subscription (G21): its token, "" for the login already in its folder, null off. */
@@ -218,6 +221,8 @@ interface Secrets {
   mediaKeys?: Record<string, string>;
   serverKey?: string;
   telegramToken?: string;
+  /** Discord, Slack, Signal, WhatsApp settings with their tokens (G29.5). */
+  chats?: Partial<Record<Platform, Record<string, string>>>;
   transcriptionKey?: string;
   openaiImagesKey?: string;
   claudeSubscriptionToken?: string;
@@ -250,6 +255,8 @@ export interface SetupState {
     keys: string[];
     server: boolean;
     telegram: boolean;
+    /** Chat platforms set up besides Telegram (G29.5). */
+    chats: Platform[];
     transcription: boolean;
     images: boolean;
     /** Media providers with a key (their own, or the chat key they share). */
@@ -467,6 +474,8 @@ export class SetupService {
     if (c.language) this.o.core.setLanguage(c.language);
     if (!this.locked.telegram && s.telegramToken)
       await run("Telegram", h.telegram(s.telegramToken));
+    for (const [p, settings] of Object.entries(s.chats ?? {}))
+      if (settings && h.chat) await run(p, h.chat(p as Platform, settings));
     await run("git routes", this.applyGit());
     this.scheduleTokenReminder();
     this.scheduleRetention();
@@ -487,6 +496,7 @@ export class SetupService {
         keys: Object.keys(this.secrets.keys ?? {}),
         server: Boolean(this.secrets.serverKey),
         telegram: Boolean(this.secrets.telegramToken),
+        chats: Object.keys(this.secrets.chats ?? {}) as Platform[],
         transcription: Boolean(this.secrets.transcriptionKey),
         images: Boolean(this.secrets.openaiImagesKey),
         media: MEDIA_PROVIDERS.filter((p) => this.mediaKey(p.id)).map((p) => p.id),
@@ -1436,6 +1446,27 @@ export class SetupService {
       this.config.language = n.language;
       this.o.core.setLanguage(n.language);
     }
+    await this.save();
+  }
+
+  /** Discord, Slack, Signal, WhatsApp (G29.5): checked by connecting before anything is kept. */
+  async saveChat(platform: Platform, settings: Record<string, string> | null): Promise<void> {
+    if (!this.o.hooks.chat) throw new SetupError("Chat platforms are not available here");
+    try {
+      await this.o.hooks.chat(platform, settings);
+    } catch (err) {
+      const message = (err as Error).message;
+      throw new SetupError(
+        message,
+        /401|403|invalid|unauthorized|not_authed|4004/i.test(message)
+          ? "token_rejected"
+          : "unreachable",
+      );
+    }
+    const chats = { ...(this.secrets.chats ?? {}) };
+    if (settings) chats[platform] = settings;
+    else delete chats[platform];
+    this.secrets.chats = chats;
     await this.save();
   }
 

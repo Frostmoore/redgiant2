@@ -1279,7 +1279,7 @@ export class RedGiantCore implements OrchestrationHost {
   /** Telegram: the owner's Demi-God answers, talking to God only (RD8). */
   async askDemigod(
     ownerId: string,
-    _chatId: number,
+    _chatId: number | string,
     text: string,
     extra: {
       images?: ImagePart[];

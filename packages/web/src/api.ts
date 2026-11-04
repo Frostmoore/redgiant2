@@ -96,6 +96,8 @@ export interface SetupState {
     keys: string[];
     server: boolean;
     telegram: boolean;
+    /** Chat platforms set up besides Telegram (G29.5). */
+    chats?: ChatPlatform[];
     transcription?: boolean;
     images?: boolean;
     /** Media providers with a key (G25.3). */
@@ -190,6 +192,9 @@ export interface LocalFile {
   bytes: number;
   partial: boolean;
 }
+
+/** Chat platforms besides Telegram (G29.5). */
+export type ChatPlatform = "discord" | "slack" | "signal" | "whatsapp";
 
 export interface PlatformInfo {
   sandbox: "host" | "docker";
@@ -794,6 +799,17 @@ export class Api {
       "/api/telegram/links",
     );
   telegramUnlink = (userId: number) => this.call("DELETE", `/api/telegram/links/${userId}`);
+  setupChat = (p: ChatPlatform, settings: Record<string, string> | null) =>
+    this.call("PUT", `/api/setup/chats/${p}`, { settings });
+  chatPair = (p: ChatPlatform) =>
+    this.call<{ code: string; expiresAt: string }>("POST", `/api/chats/${p}/pair`);
+  chatLinks = (p: ChatPlatform) =>
+    this.call<{ userId: string; username: string | null; linkedAt: string }[]>(
+      "GET",
+      `/api/chats/${p}/links`,
+    );
+  chatUnlink = (p: ChatPlatform, userId: string) =>
+    this.call("DELETE", `/api/chats/${p}/links/${encodeURIComponent(userId)}`);
   verify = () =>
     this.call<{ ok: boolean; checked?: number; seq?: number; reason?: string }>(
       "GET",

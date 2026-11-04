@@ -5344,3 +5344,14 @@ button.pick-tile.on {
     transform: translateX(340%);
   }
 }
+
+/* The other chats (G29.5): one card per platform, side by side where there is room. */
+.chat-platforms {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.chat-platforms .chat-platform {
+  margin: 0;
+}

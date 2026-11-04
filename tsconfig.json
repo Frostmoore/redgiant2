@@ -41,6 +41,9 @@
       "path": "packages/telegram"
     },
     {
+      "path": "packages/gateway"
+    },
+    {
       "path": "packages/automations"
     },
     {

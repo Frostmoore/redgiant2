@@ -1,0 +1,25 @@
+{
+  "name": "@redgiant/gateway",
+  "version": "0.1.0",
+  "description": "Demi-God on every chat platform (G29.5): one bridge, a transport per platform.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@redgiant/events": "workspace:*",
+    "@redgiant/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13",
+    "@types/ws": "^8.18.2",
+    "ws": "^8.22.1"
+  }
+}

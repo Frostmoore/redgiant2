@@ -16,6 +16,7 @@ import Docker from "dockerode";
 import pg from "pg";
 import { TokenAuth } from "./auth.js";
 import { Browsers, DockerBrowserLauncher } from "./browser.js";
+import { ChatHub, Outlets } from "./chats.js";
 import { RedGiantCore } from "./core.js";
 import { debugLog } from "./debug-log.js";
 import { GitHosts } from "./git-hosts.js";
@@ -189,6 +190,10 @@ await debugLog.configure({
   winDir: winEngine?.dir,
   forced: env.REDGIANT_DEBUG === "1",
 });
+// Every chat the person reads (Telegram and the others, G29.5) gets the core's messages.
+const outlets = new Outlets(core);
+const chats = new ChatHub(db, core, outlets);
+shutdownHooks.push(() => chats.stop());
 const hooks = runtimeHooks({
   dataDir,
   core,
@@ -196,6 +201,8 @@ const hooks = runtimeHooks({
   db,
   redactor,
   telegram,
+  outlets,
+  chats,
   // The wizard can start a local engine container next to RedGiant (Docker installs).
   ...(docker &&
     env.REDGIANT_ENGINE_NETWORK && {
@@ -284,6 +291,7 @@ const running = await serve(core, new TokenAuth({ [token]: owner }), {
   port: Number(env.REDGIANT_PORT ?? 7600),
   host: env.REDGIANT_HOST ?? "0.0.0.0",
   telegram,
+  chats,
   setup,
   hf: new HuggingFace(modelsDir),
   ...(winEngine && { winHf: new HuggingFace(winEngine.modelsDir) }),

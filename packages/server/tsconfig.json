@@ -40,6 +40,9 @@
       "path": "../telegram"
     },
     {
+      "path": "../gateway"
+    },
+    {
       "path": "../automations"
     },
     {

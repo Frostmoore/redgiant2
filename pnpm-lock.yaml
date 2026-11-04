@@ -333,6 +333,25 @@ importers:
         specifier: ^0.5.13
         version: 0.5.13
 
+  packages/gateway:
+    dependencies:
+      '@redgiant/events':
+        specifier: workspace:*
+        version: link:../events
+      '@redgiant/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+    devDependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.5.13
+        version: 0.5.13
+      '@types/ws':
+        specifier: ^8.18.2
+        version: 8.18.2
+      ws:
+        specifier: ^8.22.1
+        version: 8.22.1
+
   packages/hierarchy:
     dependencies:
       '@redgiant/agent':
@@ -409,6 +428,9 @@ importers:
       '@redgiant/extensions':
         specifier: workspace:*
         version: link:../extensions
+      '@redgiant/gateway':
+        specifier: workspace:*
+        version: link:../gateway
       '@redgiant/hierarchy':
         specifier: workspace:*
         version: link:../hierarchy

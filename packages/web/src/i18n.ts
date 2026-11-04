@@ -1441,6 +1441,31 @@ const en = {
   by: "by",
   scopePlatform: "platform",
   telegram: "Telegram",
+  chats: "Other chats",
+  chatsHint:
+    "Talk to Demi-God from Discord, Slack, Signal or WhatsApp too. It is one conversation: begun on Telegram or here, it goes on wherever you write. Approvals and questions arrive with buttons (on Signal, with numbers to reply).",
+  chatLinked: "Linked: {who}",
+  chatSendCode: "Send this from the chat to link it:",
+  chatChange: "Change the settings",
+  chatTurnOff: "Turn off",
+  chatDiscordToken: "Bot token",
+  chatDiscordHow:
+    "In the Discord Developer Portal create an application, add a bot, turn on Message Content Intent, copy its token, and invite the bot to a server of yours (or write to it directly).",
+  chatSlackBot: "Bot token (xoxb-...)",
+  chatSlackApp: "App-level token (xapp-..., connections:write)",
+  chatSlackHow:
+    "At api.slack.com/apps create an app, turn on Socket Mode (no public address needed), add the scopes chat:write, im:history, app_mentions:read, files:read, files:write, subscribe to message.im and app_mention, install it and copy the two tokens.",
+  chatSignalUrl: "Address of signal-cli-rest-api",
+  chatSignalNumber: "The bot's number (+39...)",
+  chatSignalHow:
+    "Signal needs signal-cli-rest-api running with a number of its own linked (a second SIM or a linked device); write its address and the number here.",
+  chatWaToken: "Access token",
+  chatWaPhoneId: "Phone number ID",
+  chatWaSecret: "App secret",
+  chatWaVerify: "Verify token (choose one)",
+  chatWaHow:
+    "In Meta for Developers create a WhatsApp app, copy the access token, the phone number ID and the app secret, and choose a verify token. WhatsApp sends messages to a public address: RedGiant must be reachable from outside (Settings, Remote access).",
+  chatWaWebhook: "Webhook for Meta: {url} with the verify token you chose; subscribe to messages.",
   pair: "Pair a Telegram account",
   unlink: "Unlink",
   automations: "Automations",
@@ -3101,6 +3126,32 @@ const it: Record<Key, string> = {
   by: "da",
   scopePlatform: "piattaforma",
   telegram: "Telegram",
+  chats: "Altre chat",
+  chatsHint:
+    "Parla con il Demi-God anche da Discord, Slack, Signal o WhatsApp. È una conversazione sola: cominciata su Telegram o qui, continua ovunque scrivi. Approvazioni e domande arrivano con i pulsanti (su Signal, con i numeri da rispondere).",
+  chatLinked: "Collegato: {who}",
+  chatSendCode: "Manda questo dalla chat per collegarla:",
+  chatChange: "Cambia le impostazioni",
+  chatTurnOff: "Spegni",
+  chatDiscordToken: "Token del bot",
+  chatDiscordHow:
+    "Nel Discord Developer Portal crea un'applicazione, aggiungi un bot, accendi Message Content Intent, copia il token e invita il bot in un tuo server (o scrivigli direttamente).",
+  chatSlackBot: "Token del bot (xoxb-...)",
+  chatSlackApp: "Token dell'app (xapp-..., connections:write)",
+  chatSlackHow:
+    "Su api.slack.com/apps crea un'app, accendi Socket Mode (non serve un indirizzo pubblico), aggiungi i permessi chat:write, im:history, app_mentions:read, files:read, files:write, iscriviti a message.im e app_mention, installala e copia i due token.",
+  chatSignalUrl: "Indirizzo di signal-cli-rest-api",
+  chatSignalNumber: "Il numero del bot (+39...)",
+  chatSignalHow:
+    "Signal ha bisogno di signal-cli-rest-api acceso con un numero suo collegato (una seconda SIM o un dispositivo collegato); scrivi qui il suo indirizzo e il numero.",
+  chatWaToken: "Token di accesso",
+  chatWaPhoneId: "ID del numero di telefono",
+  chatWaSecret: "Segreto dell'app",
+  chatWaVerify: "Token di verifica (sceglilo tu)",
+  chatWaHow:
+    "In Meta for Developers crea un'app WhatsApp, copia il token di accesso, l'ID del numero e il segreto dell'app, e scegli un token di verifica. WhatsApp manda i messaggi a un indirizzo pubblico: RedGiant deve essere raggiungibile da fuori (Impostazioni, Accesso da fuori).",
+  chatWaWebhook:
+    "Webhook per Meta: {url} con il token di verifica che hai scelto; iscriviti a messages.",
   pair: "Collega un account Telegram",
   unlink: "Scollega",
   automations: "Automazioni",

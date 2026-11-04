@@ -20,6 +20,7 @@ export function serve(
     host?: string;
     webDir?: string;
     telegram?: AppOptions["telegram"];
+    chats?: AppOptions["chats"];
     setup?: AppOptions["setup"];
     hf?: AppOptions["hf"];
     winHf?: AppOptions["winHf"];
@@ -31,6 +32,7 @@ export function serve(
   const app = createApp(core, full, {
     ...(listen.webDir && { webDir: listen.webDir }),
     ...(listen.telegram && { telegram: listen.telegram }),
+    ...(listen.chats && { chats: listen.chats }),
     ...(listen.setup && { setup: listen.setup }),
     ...(listen.hf && { hf: listen.hf }),
     ...(listen.winHf && { winHf: listen.winHf }),

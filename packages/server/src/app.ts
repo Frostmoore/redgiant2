@@ -30,6 +30,7 @@ import { type AuthProvider, bearer, type Principal } from "./auth.js";
 import { BackupError, exportBackup, importBackup, previewBackup, removeBackup } from "./backup.js";
 import { bridge, PREVIEW_HEADERS, serveFile } from "./canvas.js";
 import { ChatError } from "./chat.js";
+import { type ChatHub, ChatSettings, PLATFORMS } from "./chats.js";
 import { CodeChangeError } from "./code.js";
 import {
   BadRequestError,
@@ -752,6 +753,8 @@ export interface AppOptions {
   webDir?: string;
   /** Mutable: the setup wizard can start the bot while the server runs. */
   telegram?: { gateway?: TelegramGateway; webhookSecret?: string };
+  /** Discord, Slack, Signal, WhatsApp (G29.5). */
+  chats?: ChatHub;
   setup?: SetupService;
   hf?: HuggingFace;
   /** Whose password signs in (one owner per installation; default the local owner). */
@@ -801,6 +804,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       "/api/health",
       "/api/openapi.json",
       "/api/telegram/webhook",
+      // WhatsApp checks its webhook with a token and signs every message (G29.5).
+      "/api/chats/whatsapp/webhook",
       // Signing in with a password (G24.6): the password is the credential.
       "/api/auth/methods",
       "/api/auth/login",
@@ -1507,6 +1512,40 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       .handleUpdate(await c.req.json())
       .catch((err) => console.error("telegram update:", err));
     return c.json({ ok: true }, 200);
+  });
+
+  // The other chat platforms (G29.5): pairing and linked accounts, as for Telegram.
+  const platformOf = (c: Context<Env>) => {
+    const p = c.req.param("platform") as (typeof PLATFORMS)[number];
+    return PLATFORMS.includes(p) ? p : undefined;
+  };
+  app.post("/api/chats/:platform/pair", async (c) => {
+    const p = platformOf(c);
+    const bridge = p && options.chats?.get(p);
+    if (!bridge) return c.json({ error: "This chat platform is not configured" }, 400);
+    return c.json(bridge.pairingCode(owner(c)), 200);
+  });
+  app.get("/api/chats/:platform/links", async (c) => {
+    const p = platformOf(c);
+    const bridge = p && options.chats?.get(p);
+    return c.json(bridge ? await bridge.links(owner(c)) : [], 200);
+  });
+  app.delete("/api/chats/:platform/links/:userId", async (c) => {
+    const p = platformOf(c);
+    const bridge = p && options.chats?.get(p);
+    if (bridge) await bridge.unlink(owner(c), c.req.param("userId"));
+    return c.json({ ok: true }, 200);
+  });
+  // WhatsApp's webhook: Meta checks it once with the verify token, then signs every delivery.
+  app.get("/api/chats/whatsapp/webhook", (c) => {
+    const challenge = options.chats?.whatsapp()?.verify(c.req.query());
+    return challenge ? c.text(challenge, 200) : c.json({ error: "Forbidden" }, 403);
+  });
+  app.post("/api/chats/whatsapp/webhook", async (c) => {
+    const wa = options.chats?.whatsapp();
+    if (!wa) return c.json({ error: "Forbidden" }, 403);
+    const ok = await wa.webhook(await c.req.text(), c.req.header("x-hub-signature-256"));
+    return ok ? c.json({ ok: true }, 200) : c.json({ error: "Forbidden" }, 403);
   });
 
   // The platform (G14): how it runs, its changes, undo, the permission policy.
@@ -2349,6 +2388,17 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         ),
       ),
     ),
+  );
+  app.put("/api/setup/chats/:platform", (c) =>
+    wizard(c, async () => {
+      const p = platformOf(c);
+      if (!p) throw new Error("Unknown chat platform");
+      const { settings } = await parsed(
+        c,
+        z.object({ settings: ChatSettings[p as "discord"].nullable() }),
+      );
+      return (setup as SetupService).saveChat(p, settings);
+    }),
   );
   app.put("/api/setup/telegram", (c) =>
     wizard(c, async () =>

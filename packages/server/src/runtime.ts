@@ -18,6 +18,7 @@ import { migrateTelegram, TelegramGateway } from "@redgiant/telegram";
 import { searchProvider } from "@redgiant/tools";
 import type Docker from "dockerode";
 import type { AppOptions } from "./app.js";
+import type { ChatHub, Outlets } from "./chats.js";
 import type { RedGiantCore } from "./core.js";
 import { debugLog } from "./debug-log.js";
 import { engineError } from "./engine-errors.js";
@@ -37,6 +38,10 @@ export interface RuntimeOptions {
   redactor: Redactor;
   /** Shared with the HTTP app: the bot can start after the server. */
   telegram: NonNullable<AppOptions["telegram"]>;
+  /** Where the core's messages for the person go: every chat platform (G29.5). */
+  outlets?: Outlets;
+  /** Discord, Slack, Signal, WhatsApp (G29.5). */
+  chats?: ChatHub;
   /** Where the subscription engines keep their own state (`$DATA/engines/…`). */
   dataDir?: string;
   /** The local engine, when the wizard starts it (Docker installs). */
@@ -271,14 +276,31 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       const me = await g.init(); // a wrong token fails here, before anything is kept
       o.redactor.addSecret("telegram-bot", token);
       await migrateTelegram(o.db);
-      o.core.notify = (ownerId, text) => g.notify(ownerId, text);
-      o.core.sendPhoto = (ownerId, png, caption) => g.sendPhoto(ownerId, png, caption);
-      o.core.sendFile = (ownerId, data, name, mime, caption) =>
-        g.sendFile(ownerId, data, name, mime, caption);
+      const outlet = {
+        notify: (ownerId: string, text: string) => g.notify(ownerId, text),
+        sendPhoto: (ownerId: string, png: Buffer, caption: string) =>
+          g.sendPhoto(ownerId, png, caption),
+        sendFile: (ownerId: string, data: Buffer, name: string, mime: string, caption?: string) =>
+          g.sendFile(ownerId, data, name, mime, caption ?? ""),
+      };
+      if (o.outlets) o.outlets.set("telegram", outlet);
+      else {
+        o.core.notify = outlet.notify;
+        o.core.sendPhoto = outlet.sendPhoto;
+        o.core.sendFile = outlet.sendFile;
+      }
       if (!o.telegram.webhookSecret) await g.startPolling();
       gateway = g;
       o.telegram.gateway = g;
       return me;
+    },
+
+    async chat(platform, settings) {
+      if (!o.chats) throw new Error("Chat platforms are not available here");
+      // Its tokens are hidden from what agents and logs show (G29.5).
+      for (const [k, v] of Object.entries(settings ?? {}))
+        if (/token|secret/i.test(k)) o.redactor.addSecret(`${platform}-${k}`, v);
+      await o.chats.set(platform, settings as never);
     },
 
     async claudeSubscription(token) {

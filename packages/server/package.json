@@ -26,6 +26,7 @@
     "@redgiant/engine-local": "workspace:*",
     "@redgiant/events": "workspace:*",
     "@redgiant/extensions": "workspace:*",
+    "@redgiant/gateway": "workspace:*",
     "@redgiant/hierarchy": "workspace:*",
     "@redgiant/protocol": "workspace:*",
     "@redgiant/providers": "workspace:*",
