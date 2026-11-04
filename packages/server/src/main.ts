@@ -139,10 +139,13 @@ const embedded =
   databaseUrl === "embedded"
     ? await startEmbeddedDatabase(dataDir, (line) => console.error(line))
     : undefined;
-const db =
+const pool =
   databaseUrl === "memory:"
-    ? await memoryDb()
-    : pgPoolClient(new pg.Pool({ connectionString: embedded?.url ?? databaseUrl }));
+    ? undefined
+    : new pg.Pool({ connectionString: embedded?.url ?? databaseUrl });
+// An idle connection the database closes (a restart, the shutdown) must not take the server down.
+pool?.on("error", (err) => console.warn(`database: ${err.message}`));
+const db = pool ? pgPoolClient(pool) : await memoryDb();
 const core = await RedGiantCore.create({
   db,
   providers,
@@ -341,7 +344,10 @@ const shutdown = async () => {
   for (const h of shutdownHooks) await h().catch(() => {});
   await running.close();
   // The database last: everything above may still write to it.
-  await embedded?.stop().catch(() => {});
+  if (embedded) {
+    await pool?.end().catch(() => {});
+    await embedded.stop().catch((err) => console.warn(`database stop: ${(err as Error).message}`));
+  }
 };
 restart = () => void shutdown().finally(() => process.exit(RESTART_EXIT_CODE));
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
