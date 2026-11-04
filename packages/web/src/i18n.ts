@@ -1441,6 +1441,26 @@ const en = {
   by: "by",
   scopePlatform: "platform",
   telegram: "Telegram",
+  newsTitle: "What is new in RedGiant {version}",
+  newsOk: "Got it",
+  news2Guardian: "A guardian instead of containers",
+  news2GuardianText:
+    "Agents now work directly in their project's folder, with no Docker in between. Before one writes anywhere else, the guardian asks you (or lets it be: Settings, Setup, Safety). Their commands never see RedGiant's keys.",
+  news2Memory: "Every agent remembers",
+  news2MemoryText:
+    "Each agent keeps short notes between conversations: about you (shared by all), its own, and its project's.",
+  news2Skills: "Skills they write themselves",
+  news2SkillsText:
+    "After a hard problem an agent can save the steps as a skill every agent finds next time. You choose whether they wait for you or install once tested.",
+  news2Chats: "Discord, Slack, Signal and WhatsApp",
+  news2ChatsText:
+    "Talk to Demi-God from any of them (Settings, Other chats). One conversation: begun on Telegram, it goes on wherever you write. Automations can deliver to the chats you name.",
+  news2Subagents: "Sub-agents in parallel",
+  news2SubagentsText:
+    "An agent can split work among up to six sub-agents, each in its own copy of the code, and gets their work back merged. Long chains of steps can run as a small script that calls its tools, without filling the conversation.",
+  news2Browser: "The browser on your computer",
+  news2BrowserText:
+    "Where Chrome, Chromium or Edge is installed, agents use it, with a profile of their own, instead of a container.",
   chats: "Other chats",
   chatsHint:
     "Talk to Demi-God from Discord, Slack, Signal or WhatsApp too. It is one conversation: begun on Telegram or here, it goes on wherever you write. Approvals and questions arrive with buttons (on Signal, with numbers to reply).",
@@ -3126,6 +3146,26 @@ const it: Record<Key, string> = {
   by: "da",
   scopePlatform: "piattaforma",
   telegram: "Telegram",
+  newsTitle: "Le novità di RedGiant {version}",
+  newsOk: "Ho capito",
+  news2Guardian: "Un guardiano al posto dei contenitori",
+  news2GuardianText:
+    "Gli agenti ora lavorano direttamente nella cartella del loro progetto, senza Docker in mezzo. Prima che uno scriva altrove, il guardiano te lo chiede (o lascia fare: Impostazioni, Configurazione, Sicurezza). I loro comandi non vedono mai le chiavi di RedGiant.",
+  news2Memory: "Ogni agente ricorda",
+  news2MemoryText:
+    "Ogni agente tiene note brevi fra una conversazione e l'altra: su di te (condivise da tutti), sue, e del suo progetto.",
+  news2Skills: "Skill che scrivono da soli",
+  news2SkillsText:
+    "Dopo un problema difficile un agente può salvare i passi in una skill che la prossima volta trova ogni agente. Scegli tu se aspettano te o si installano quando passano le prove.",
+  news2Chats: "Discord, Slack, Signal e WhatsApp",
+  news2ChatsText:
+    "Parla con il Demi-God da ognuna di queste (Impostazioni, Altre chat). Una conversazione sola: cominciata su Telegram, continua ovunque scrivi. Le automazioni possono consegnare nelle chat che indichi.",
+  news2Subagents: "Sotto-agenti in parallelo",
+  news2SubagentsText:
+    "Un agente può dividere il lavoro fra un massimo di sei sotto-agenti, ognuno nella sua copia del codice, e riaverlo unito. Le catene lunghe di passi possono girare come un piccolo script che chiama i suoi strumenti, senza riempire la conversazione.",
+  news2Browser: "Il browser del tuo computer",
+  news2BrowserText:
+    "Dove c'è Chrome, Chromium o Edge, gli agenti usano quello, con un profilo tutto loro, invece di un contenitore.",
   chats: "Altre chat",
   chatsHint:
     "Parla con il Demi-God anche da Discord, Slack, Signal o WhatsApp. È una conversazione sola: cominciata su Telegram o qui, continua ovunque scrivi. Approvazioni e domande arrivano con i pulsanti (su Signal, con i numeri da rispondere).",

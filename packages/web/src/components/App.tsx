@@ -68,6 +68,7 @@ import { Setup } from "./Setup.js";
 import { SideArea } from "./SideArea.js";
 import { Sidebar } from "./Sidebar.js";
 import { Variants } from "./Variants.js";
+import { WhatsNew } from "./WhatsNew.js";
 
 const level = (pct: number) => (pct >= 90 ? "high" : pct >= 70 ? "medium" : "");
 
@@ -411,6 +412,7 @@ export function App() {
         />
       </header>
       <EngineLoading />
+      <WhatsNew />
       {lastError.value && (
         <div class="banner error">
           <IconAlert /> {lastError.value}

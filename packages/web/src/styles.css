@@ -5355,3 +5355,17 @@ button.pick-tile.on {
 .chat-platforms .chat-platform {
   margin: 0;
 }
+
+/* What a big update brings (WhatsNew.tsx). */
+.whats-new section h3 {
+  margin: 12px 0 4px;
+  font-size: 15px;
+}
+.whats-new section p {
+  margin: 0;
+  color: var(--dim);
+  line-height: 1.5;
+}
+.whats-new .row {
+  margin-top: 16px;
+}
