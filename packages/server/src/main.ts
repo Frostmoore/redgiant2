@@ -347,3 +347,9 @@ restart = () => void shutdown().finally(() => process.exit(RESTART_EXIT_CODE));
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => void shutdown().finally(() => process.exit(0)));
 }
+// RedGiant.exe on Windows (G30.2) has no signals to send: it closes our input to say "stop", so
+// Postgres is stopped too instead of being left running.
+if (env.REDGIANT_STOP_ON_STDIN_END === "1") {
+  process.stdin.on("end", () => void shutdown().finally(() => process.exit(0)));
+  process.stdin.resume();
+}

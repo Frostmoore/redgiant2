@@ -1,11 +1,12 @@
-// RedGiant.exe (G22): what the desktop icon opens on Windows. It starts the "RedGiant" WSL
-// distribution, shows what it is doing the first time, opens the browser already signed in, and
-// stays next to the clock with "Open RedGiant" and "Quit". Built with the C# compiler of .NET
-// Framework 4, which every Windows has: no runtime to install.
+// RedGiant.exe (G22; RedGiant 3.0, G30.2: no WSL): what the desktop icon opens on Windows. It
+// starts RedGiant's server with the Node that came with the installer (the server starts its own
+// Postgres), waits until it answers, opens the browser already signed in, and stays next to the
+// clock with "Open RedGiant" and "Quit". Built with the C# compiler of .NET Framework 4, which
+// every Windows has: no runtime to install.
 //
 //   RedGiant.exe               start (or, if already running, just open the browser)
 //   RedGiant.exe --background  start without opening the browser (start with Windows)
-//   RedGiant.exe --engine-only only the engine on Windows (G24.3b), without WSL
+//   RedGiant.exe --engine-only only the engine on Windows (G24.3b), without the server
 using System;
 using System.Diagnostics;
 using System.Collections.Generic;
@@ -67,7 +68,6 @@ static class Texts
 
 sealed class Launcher : ApplicationContext
 {
-    const string Distro = "RedGiant";
     readonly bool background;
     readonly NotifyIcon tray;
     readonly Form splash;
@@ -119,7 +119,7 @@ sealed class Launcher : ApplicationContext
         tray = new NotifyIcon { Icon = icon, Text = Texts.Title, ContextMenuStrip = menu, Visible = true };
         tray.DoubleClick += (s, e) => OpenBrowser();
 
-        if (!DistroInstalled())
+        if (!File.Exists(NodeExe) || !File.Exists(ServerMain))
         {
             MessageBox.Show(Texts.NotInstalled, Texts.Title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             Quit();
@@ -134,12 +134,6 @@ sealed class Launcher : ApplicationContext
         {
             Ui(() => splash.Show());
             StopEngine();
-            try
-            {
-                var p = Process.Start(new ProcessStartInfo("wsl.exe", "--terminate " + Distro) { UseShellExecute = false, CreateNoWindow = true });
-                p.WaitForExit(30000);
-            }
-            catch (Exception) { }
             try { work(); }
             finally { Ui(() => StartEngine()); }
         };
@@ -153,26 +147,10 @@ sealed class Launcher : ApplicationContext
         Updates.Watch(splash, WinEngine.Dir);
     }
 
-    static bool DistroInstalled()
-    {
-        try
-        {
-            var p = Process.Start(new ProcessStartInfo("wsl.exe", "--list --quiet")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                // wsl.exe writes its own messages in UTF-16.
-                StandardOutputEncoding = Encoding.Unicode,
-            });
-            string list = p.StandardOutput.ReadToEnd();
-            p.WaitForExit();
-            foreach (var line in list.Split('\n'))
-                if (line.Trim().Trim('\0') == Distro) return true;
-        }
-        catch (Exception) { }
-        return false;
-    }
+    /** Where the installer put Node, the server and the web page (next to RedGiant.exe). */
+    static string AppDir { get { return Path.GetDirectoryName(Application.ExecutablePath); } }
+    static string NodeExe { get { return Path.Combine(AppDir, "node", "node.exe"); } }
+    static string ServerMain { get { return Path.Combine(AppDir, "server", "dist", "main.js"); } }
 
     // Windows' display adapters (G24.3): every GPU, NVIDIA or not, with its real memory, as
     // "name:GB;name:GB". The registry keeps the memory as a 64-bit number (WMI stops at 4 GB).
@@ -232,7 +210,38 @@ sealed class Launcher : ApplicationContext
             }
         }
         catch (Exception) { }
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RedGiant", "wsl");
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RedGiant", "data");
+    }
+
+    /** The server's token: made the first time, kept in the data folder (only this user reads it). */
+    static string Token()
+    {
+        string dir = DataDir();
+        Directory.CreateDirectory(dir);
+        string file = Path.Combine(dir, "token.txt");
+        try { string t = File.ReadAllText(file).Trim(); if (t.Length >= 32) return t; } catch (Exception) { }
+        var bytes = new byte[30];
+        using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create()) rng.GetBytes(bytes);
+        string token = BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
+        File.WriteAllText(file, token);
+        return token;
+    }
+
+    /** 7600 when free; otherwise the next free port (an older RedGiant or another program). */
+    static int FreePort()
+    {
+        for (int port = 7600; port < 7700; port++)
+        {
+            try
+            {
+                var l = new System.Net.Sockets.TcpListener(IPAddress.Loopback, port);
+                l.Start();
+                l.Stop();
+                return port;
+            }
+            catch (Exception) { }
+        }
+        return 7600;
     }
 
     static string WindowsGpus()
@@ -271,72 +280,83 @@ sealed class Launcher : ApplicationContext
     void StartEngine()
     {
         url = null;
-        var info = new ProcessStartInfo("wsl.exe", "-d " + Distro + " -u root -- /usr/local/bin/redgiant-wsl run")
+        string token = Token();
+        int port = FreePort();
+        var info = new ProcessStartInfo(NodeExe, "\"" + ServerMain + "\"")
         {
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            // The script inside writes UTF-8.
+            // Closing it is how the server is asked to stop (Postgres with it).
+            RedirectStandardInput = true,
             StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+            WorkingDirectory = AppDir,
         };
-        // The GPUs reach the distribution through WSLENV (only the variables it names cross over).
-        info.EnvironmentVariables["REDGIANT_WIN_GPUS"] = WindowsGpus();
-        info.EnvironmentVariables["REDGIANT_WIN_DISKS"] = WindowsDisks();
-        // Where the distribution's disk is (its models among the data): the installer's choice.
-        info.EnvironmentVariables["REDGIANT_WIN_DATA_DIR"] = DataDir();
-        // The folder of the engine on Windows (/p: WSL sees it as /mnt/c/...).
-        info.EnvironmentVariables["REDGIANT_WIN_ENGINE_DIR"] = WinEngine.Dir;
-        string wslenv = Environment.GetEnvironmentVariable("WSLENV") ?? "";
-        info.EnvironmentVariables["WSLENV"] = (wslenv.Length > 0 ? wslenv + ":" : "")
-            + "REDGIANT_WIN_GPUS/u:REDGIANT_WIN_DISKS/u:REDGIANT_WIN_DATA_DIR/u:REDGIANT_WIN_ENGINE_DIR/up";
+        var env = info.EnvironmentVariables;
+        env["REDGIANT_TOKEN"] = token;
+        env["DATABASE_URL"] = "embedded";
+        env["REDGIANT_DATA_DIR"] = DataDir();
+        env["REDGIANT_PORT"] = port.ToString(CultureInfo.InvariantCulture);
+        env["REDGIANT_HOST"] = "127.0.0.1";
+        env["REDGIANT_WEB_DIR"] = Path.Combine(AppDir, "web");
+        env["REDGIANT_WIN_ENGINE_DIR"] = WinEngine.Dir;
+        env["REDGIANT_HOST_ENGINE_DIR"] = WinEngine.Dir;
+        env["REDGIANT_WIN_HOST"] = "127.0.0.1";
+        env["REDGIANT_HOST_GPUS"] = WindowsGpus();
+        env["REDGIANT_HOST_DISKS"] = WindowsDisks();
+        env["REDGIANT_HOST_DATA_DIR"] = DataDir();
+        env["REDGIANT_STOP_ON_STDIN_END"] = "1";
+        env["NODE_ENV"] = "production";
         engine = new Process { StartInfo = info, EnableRaisingEvents = true };
-        string port = "7600", token = "";
         var startedAt = DateTime.Now;
-        Diag.Log("wsl", "starting RedGiant in WSL (redgiant-wsl run)");
-        engine.OutputDataReceived += (s, e) =>
-        {
-            if (e.Data == null) return;
-            string line = e.Data.Trim();
-            lock (log) log.AppendLine(line);
-            Diag.Log("wsl", line);
-            if (line.StartsWith("STEP "))
-                Ui(() =>
-                {
-                    status.Text = line.Substring(5);
-                    detail.Text = "";
-                    bar.Style = ProgressBarStyle.Marquee;
-                });
-            else if (line.StartsWith("PROGRESS ")) Progress(line);
-            else if (line.StartsWith("PORT=")) port = line.Substring(5);
-            else if (line.StartsWith("TOKEN=")) token = line.Substring(6);
-            else if (line == "READY")
-            {
-                Diag.Log("wsl", "ready after " + (int) (DateTime.Now - startedAt).TotalMilliseconds + " ms");
-                url = "http://localhost:" + port + "/#token=" + token;
-                Ui(() =>
-                {
-                    splash.Hide();
-                    tray.Text = Texts.Running;
-                    if (!background) OpenBrowser();
-                });
-            }
-            else if (line.StartsWith("FAIL ")) Ui(() => ShowFailure(line.Substring(5)));
-        };
-        engine.ErrorDataReceived += (s, e) =>
+        Diag.Log("server", "starting RedGiant's server on port " + port);
+        DataReceivedEventHandler keep = (s, e) =>
         {
             if (e.Data == null) return;
             lock (log) log.AppendLine(e.Data);
-            Diag.Log("wsl-err", e.Data);
+            Diag.Log("server", e.Data);
         };
+        engine.OutputDataReceived += keep;
+        engine.ErrorDataReceived += keep;
+        var self = engine;
         engine.Exited += (s, e) =>
         {
             // It stops only on failure or when we stop it.
-            if (url == null) Ui(() => ShowFailure(""));
+            if (url == null && engine == self) Ui(() => ShowFailure(""));
         };
         engine.Start();
         engine.BeginOutputReadLine();
         engine.BeginErrorReadLine();
+        // Ready when it answers (the first start makes the database: a few seconds more).
+        var t = new Thread(() =>
+        {
+            for (int i = 0; i < 600 && engine == self && !self.HasExited; i++)
+            {
+                try
+                {
+                    var req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + port + "/api/health");
+                    req.Timeout = 2000;
+                    using (var r = (HttpWebResponse)req.GetResponse())
+                        if (r.StatusCode == HttpStatusCode.OK)
+                        {
+                            Diag.Log("server", "ready after " + (int)(DateTime.Now - startedAt).TotalMilliseconds + " ms");
+                            url = "http://localhost:" + port + "/#token=" + token;
+                            Ui(() =>
+                            {
+                                splash.Hide();
+                                tray.Text = Texts.Running;
+                                if (!background) OpenBrowser();
+                            });
+                            return;
+                        }
+                }
+                catch (Exception) { }
+                Thread.Sleep(500);
+            }
+        }) { IsBackground = true };
+        t.Start();
     }
 
     static string Mb(long bytes)
@@ -394,49 +414,28 @@ sealed class Launcher : ApplicationContext
         try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch (Exception) { }
     }
 
+    /** Asks the server to stop (it closes Postgres too); after 30 seconds it is stopped by force. */
     void StopEngine()
     {
-        try { if (engine != null && !engine.HasExited) engine.Kill(); } catch (Exception) { }
+        var p = engine;
         engine = null;
+        url = null;
+        if (p == null) return;
+        try
+        {
+            if (!p.HasExited)
+            {
+                p.StandardInput.Close();
+                if (!p.WaitForExit(30000)) p.Kill();
+            }
+        }
+        catch (Exception) { try { p.Kill(); } catch (Exception) { } }
     }
 
     void Quit()
     {
         WinEngine.Shutdown();
         StopEngine();
-        // The distribution (and everything in it) stops; the data stays.
-        try
-        {
-            var p = Process.Start(new ProcessStartInfo("wsl.exe", "--terminate " + Distro) { UseShellExecute = false, CreateNoWindow = true });
-            p.WaitForExit(15000);
-            // WSL's machine (vmmem) lingers a minute or more after the last distribution stops:
-            // with nothing else of the person's running in it, it is shut now (2026-11-04).
-            var list = new ProcessStartInfo("wsl.exe", "--list --running --quiet")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                StandardOutputEncoding = Encoding.Unicode,
-            };
-            string running;
-            using (var q = Process.Start(list))
-            {
-                running = q.StandardOutput.ReadToEnd();
-                q.WaitForExit(10000);
-            }
-            bool others = false;
-            foreach (var line in running.Split('\n'))
-            {
-                string name = line.Replace("\0", "").Trim();
-                if (name.Length > 0 && !string.Equals(name, Distro, StringComparison.OrdinalIgnoreCase)) others = true;
-            }
-            if (!others)
-            {
-                var down = Process.Start(new ProcessStartInfo("wsl.exe", "--shutdown") { UseShellExecute = false, CreateNoWindow = true });
-                down.WaitForExit(20000);
-            }
-        }
-        catch (Exception) { }
         tray.Visible = false;
         ExitThread();
     }
@@ -679,9 +678,9 @@ static class WinEngine
             string marker = Path.Combine(Bin, "build.txt");
             bool ready = File.Exists(Exe) && File.Exists(marker) && File.ReadAllText(marker).Trim() == build;
             if (!ready) Download(gen, id, build);
-            phase = "firewall";
+            // RedGiant 3.0: the server runs on this computer, so the engine listens on 127.0.0.1
+            // only and needs no firewall rule.
             Status(gen, id, "starting", null);
-            if (!FirewallAllows()) AllowInFirewall();
             Diag.Log("engine", "engine binaries ready after " + (int) (DateTime.Now - t0).TotalMilliseconds + " ms");
             phase = "preload";
             if (preload == "1") { Preload(gen, id, model); Diag.Log("engine", "preload done after " + (int) (DateTime.Now - t0).TotalMilliseconds + " ms"); }
@@ -689,7 +688,7 @@ static class WinEngine
             phase = "start";
             lock (log) log.Clear();
             var info = new ProcessStartInfo(Exe,
-                "-m \"" + Path.Combine(Dir, "models", model) + "\" --host 0.0.0.0 --port " + Port
+                "-m \"" + Path.Combine(Dir, "models", model) + "\" --host 127.0.0.1 --port " + Port
                 + " -c " + ctx + " --parallel " + parallel + " --slot-save-path \"" + Path.Combine(Dir, "kv")
                 + "\" --swa-full --kv-unified --jinja"
                 // SSD stream: llama.cpp fits the layers to the card itself (--fit, its default).
@@ -745,36 +744,6 @@ static class WinEngine
             Diag.Log("engine", "failed in " + phase + ": " + e.Message);
             Status(gen, id, "failed", ",\"error\":\"" + phase + "\",\"log\":\"" + Esc(e.Message + "\n" + Tail()) + "\"");
         }
-    }
-
-    const string RuleName = "RedGiant local engine";
-    /** One rule per build: each is its own program for the firewall. */
-    static string Rule { get { return flavor == "cuda" ? RuleName + " (CUDA)" : RuleName; } }
-
-    static int Netsh(string args, bool elevated)
-    {
-        var info = new ProcessStartInfo("netsh.exe", args)
-        {
-            UseShellExecute = elevated,
-            CreateNoWindow = true,
-            WindowStyle = ProcessWindowStyle.Hidden,
-        };
-        if (elevated) info.Verb = "runas";
-        using (var p = Process.Start(info)) { p.WaitForExit(60000); return p.ExitCode; }
-    }
-
-    static bool FirewallAllows()
-    {
-        try { return Netsh("advfirewall firewall show rule name=\"" + Rule + "\"", false) == 0; }
-        catch (Exception) { return false; }
-    }
-
-    /** RedGiant, inside WSL, reaches the engine through Windows' firewall: one rule, asked once. */
-    static void AllowInFirewall()
-    {
-        int code = Netsh("advfirewall firewall add rule name=\"" + Rule + "\" dir=in action=allow"
-            + " program=\"" + Exe + "\" protocol=TCP localport=" + Port + " remoteip=localsubnet profile=any", true);
-        if (code != 0) throw new Exception("The firewall rule was not added (" + code + ")");
     }
 
     static bool Healthy()

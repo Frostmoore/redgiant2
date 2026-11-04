@@ -50,15 +50,8 @@ static class Memory
         var m = System.Text.RegularExpressions.Regex.Match(json, "\"id\"\\s*:\\s*\"([^\"]+)\"");
         if (!m.Success || m.Groups[1].Value == lastDrop) return;
         lastDrop = m.Groups[1].Value;
-        try
-        {
-            var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("wsl.exe",
-                "-d RedGiant -u root -- sh -c \"sync; echo 1 > /proc/sys/vm/drop_caches\"")
-            { UseShellExecute = false, CreateNoWindow = true });
-            p.WaitForExit(30000);
-            Diag.Log("memory", "cache of files in WSL emptied (model turned off)");
-        }
-        catch (Exception e) { Diag.Log("memory", "could not empty the cache: " + e.Message); }
+        // RedGiant 3.0 runs natively: Windows' own file cache gives memory back by itself.
+        Diag.Log("memory", "model turned off: nothing to empty without WSL");
     }
 
     static void Write()

@@ -4,7 +4,7 @@
 //   models: the Windows engine's models go to the chosen folder (copied with progress, then the
 //           old folder becomes a junction to the new one, so every path keeps working).
 //   distro: the distribution (RedGiant's data with the models of the engines in Docker) moves to
-//           the chosen folder with `wsl --manage --move`; RedGiant stops and starts again.
+//           (RedGiant 3.0: no WSL distribution any more; refused with a message).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -16,7 +16,6 @@ using Microsoft.Win32;
 
 static class Moves
 {
-    const string Distro = "RedGiant";
     static System.Threading.Timer timer;
     static string lastId;
     static int busy;
@@ -165,42 +164,10 @@ static class Moves
         using (var proc = Process.Start(p)) proc.WaitForExit();
     }
 
+    /** RedGiant 3.0 has no WSL distribution to move: its data folder moves with a new install. */
     static void MoveDistro(string id, string to)
     {
-        string from = DataDirNow();
-        string disk = Path.Combine(from, "ext4.vhdx");
-        long total = File.Exists(disk) ? new FileInfo(disk).Length : 0;
-        var drive = new DriveInfo(Path.GetPathRoot(to));
-        if (drive.AvailableFreeSpace < total + 2147483648L)
-            throw new Exception(string.Format(CultureInfo.InvariantCulture, "not enough room on {0}: {1:0.0} GB needed",
-                drive.Name, (total + 2147483648L) / 1073741824.0));
-        Status(id, "moving", 0, total, null);
-        if (WithDistroStopped == null) throw new Exception("RedGiant cannot be stopped from here");
-        Exception failed = null;
-        WithDistroStopped(() =>
-        {
-            try
-            {
-                Directory.CreateDirectory(to);
-                var p = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "wsl.exe"),
-                    "--manage " + Distro + " --move \"" + to + "\"")
-                { UseShellExecute = false, CreateNoWindow = true };
-                using (var proc = Process.Start(p))
-                {
-                    string target = Path.Combine(to, "ext4.vhdx");
-                    while (!proc.WaitForExit(1000))
-                    {
-                        long done = File.Exists(target) ? new FileInfo(target).Length : 0;
-                        if (Say != null && total > 0) Say(Texts.Moving(to, done * 100 / total));
-                    }
-                    if (proc.ExitCode != 0) throw new Exception("wsl --manage --move ended with code " + proc.ExitCode);
-                }
-                using (var k = Registry.CurrentUser.CreateSubKey(@"Software\RedGiant")) k.SetValue("DataDir", to);
-            }
-            catch (Exception e) { failed = e; }
-        });
-        if (failed != null) throw failed;
-        Status(id, "done", total, total, null);
+        throw new Exception("Moving RedGiant's data is not available in this version");
     }
 
     static string DataDirNow()
@@ -210,6 +177,6 @@ static class Moves
             var v = k == null ? null : k.GetValue("DataDir") as string;
             if (!string.IsNullOrEmpty(v)) return v;
         }
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RedGiant", "wsl");
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RedGiant", "data");
     }
 }
