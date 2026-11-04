@@ -15,7 +15,7 @@ import { SearxngSearch } from "@redgiant/tools";
 import Docker from "dockerode";
 import pg from "pg";
 import { TokenAuth } from "./auth.js";
-import { Browsers, DockerBrowserLauncher } from "./browser.js";
+import { Browsers, DockerBrowserLauncher, findBrowser, LocalBrowserLauncher } from "./browser.js";
 import { ChatHub, Outlets } from "./chats.js";
 import { RedGiantCore } from "./core.js";
 import { debugLog } from "./debug-log.js";
@@ -229,8 +229,21 @@ const hooks = runtimeHooks({
     }),
 });
 if (docker) puller = backgroundPuller(docker, core.jobs, () => owner);
-// The personal agents' browser (G24.14b): Chromium in a container next to RedGiant.
-if (docker && env.REDGIANT_ENGINE_NETWORK) {
+// The personal agents' browser (G24.14b). RedGiant 2.0 (G29.8): the Chrome, Chromium or Edge of
+// this computer when there is one, with a profile of its own; the container only when asked
+// (REDGIANT_BROWSER=docker) or when no browser is installed.
+const localBrowser = env.REDGIANT_BROWSER !== "docker" ? findBrowser() : undefined;
+if (localBrowser) {
+  core.browsers = new Browsers(
+    new LocalBrowserLauncher({
+      executable: localBrowser,
+      profilesDir: join(dataDir, "browser"),
+      headless: env.REDGIANT_BROWSER_HEADLESS !== "0",
+    }),
+    { desk: (o) => core.assistantsPath(o) },
+  );
+  shutdownHooks.push(async () => void (await core.browsers?.shutdown()));
+} else if (docker && env.REDGIANT_ENGINE_NETWORK) {
   core.browsers = new Browsers(
     new DockerBrowserLauncher({
       docker,

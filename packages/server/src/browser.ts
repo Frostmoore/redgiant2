@@ -5,9 +5,13 @@
 // fields are never read back. Clicks that send, publish, pay or delete ask first (danger
 // `outgoing-browser`).
 
-import { mkdirSync } from "node:fs";
+import { type ChildProcess, spawn } from "node:child_process";
+import { existsSync, mkdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
+import { createServer as createNetServer } from "node:net";
+import { join } from "node:path";
 import type { Tool } from "@redgiant/agent";
+import { agentEnv } from "@redgiant/tools";
 import type Docker from "dockerode";
 import { type Browser, type CDPSession, chromium, type Page } from "playwright-core";
 import { z } from "zod";
@@ -151,6 +155,133 @@ export class DockerBrowserLauncher implements BrowserLauncher {
       .remove({ force: true })
       .catch(() => {});
   }
+}
+
+/** Where Chrome, Chromium or Edge usually are, by system (G29.8). */
+export function browserCandidates(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string[] {
+  const home = env.HOME ?? env.USERPROFILE ?? "";
+  if (platform === "win32") {
+    const roots = [env.PROGRAMFILES, env["PROGRAMFILES(X86)"], env.LOCALAPPDATA].filter(Boolean);
+    return roots.flatMap((r) => [
+      `${r}\\Google\\Chrome\\Application\\chrome.exe`,
+      `${r}\\Microsoft\\Edge\\Application\\msedge.exe`,
+      `${r}\\Chromium\\Application\\chrome.exe`,
+    ]);
+  }
+  if (platform === "darwin")
+    return [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+      `${home}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`,
+    ];
+  return [
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/microsoft-edge",
+    "/snap/bin/chromium",
+  ];
+}
+
+/** The first browser present: REDGIANT_BROWSER_PATH, then the usual places. */
+export function findBrowser(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  exists: (p: string) => boolean = existsSync,
+): string | undefined {
+  if (env.REDGIANT_BROWSER_PATH) return env.REDGIANT_BROWSER_PATH;
+  return browserCandidates(platform, env).find((p) => exists(p));
+}
+
+/**
+ * The browser on this computer (G29.8, RedGiant 2.0: no container needed): Chrome, Chromium or
+ * Edge with a profile of its own in RedGiant's data, so sign-ins stay and the person's own
+ * profile is never touched. Headless unless asked to show its window (the person can watch
+ * it work on their screen).
+ */
+export class LocalBrowserLauncher implements BrowserLauncher {
+  private readonly running = new Map<string, { child: ChildProcess; url: string }>();
+
+  constructor(
+    private readonly o: {
+      executable: string;
+      /** Profiles live here, one folder per person. */
+      profilesDir: string;
+      headless?: boolean;
+      /** Extra arguments (tests). */
+      args?: string[];
+    },
+  ) {}
+
+  async endpoint(ownerId: string): Promise<string> {
+    const live = this.running.get(ownerId);
+    if (live && live.child.exitCode === null) return live.url;
+    const profile = join(this.o.profilesDir, slug(ownerId) || "owner");
+    mkdirSync(profile, { recursive: true });
+    const port = await freePort();
+    const child = spawn(
+      this.o.executable,
+      [
+        `--remote-debugging-port=${port}`,
+        "--remote-debugging-address=127.0.0.1",
+        `--user-data-dir=${profile}`,
+        "--no-first-run",
+        "--no-default-browser-check",
+        ...(this.o.headless !== false ? ["--headless=new"] : []),
+        ...(this.o.args ?? []),
+        "about:blank",
+      ],
+      {
+        stdio: "ignore",
+        // Never the server's secrets; the screen's variables only to show its window.
+        env: {
+          ...agentEnv(),
+          ...(this.o.headless === false &&
+            Object.fromEntries(
+              ["DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY"].flatMap((k) =>
+                process.env[k] ? [[k, process.env[k]]] : [],
+              ),
+            )),
+        },
+      },
+    );
+    const url = `http://127.0.0.1:${port}`;
+    this.running.set(ownerId, { child, url });
+    for (let i = 0; i < 60; i++) {
+      if (child.exitCode !== null) break;
+      if (
+        await fetch(`${url}/json/version`).then(
+          (r) => r.ok,
+          () => false,
+        )
+      )
+        return url;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    child.kill();
+    this.running.delete(ownerId);
+    throw new Error(`The agents' browser did not start (${this.o.executable})`);
+  }
+
+  async stop(ownerId: string): Promise<void> {
+    const live = this.running.get(ownerId);
+    this.running.delete(ownerId);
+    // The profile stays: sign-ins survive.
+    live?.child.kill();
+  }
+}
+
+function freePort(): Promise<number> {
+  return new Promise((ok, ko) => {
+    const srv = createNetServer();
+    srv.once("error", ko);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address() as { port: number };
+      srv.close(() => ok(port));
+    });
+  });
 }
 
 /** A page as the agents' tools see it (Playwright in the server, a fake in tests). */
