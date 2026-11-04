@@ -4776,7 +4776,9 @@ button.pick-tile.on {
 .lm-meter-note {
   color: var(--dim);
   font-size: 12px;
-  white-space: nowrap;
+  /* Long notes wrap inside their card (2026-11-05: "12.8 GB nella scheda · …" ran out of it). */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /* The room in tiers (2026-11-04): card, then RAM, then SSD, each filled by its part of the model. */
 .lm-room-bar {
@@ -5051,6 +5053,8 @@ button.pick-tile.on {
   border: 1px solid var(--line);
   border-radius: 12px;
   cursor: pointer;
+  /* A grid item never grows past its column, whatever text it holds. */
+  min-width: 0;
 }
 .gcard:hover {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
