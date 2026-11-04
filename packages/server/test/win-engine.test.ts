@@ -70,6 +70,27 @@ describe("the engine on Windows itself", () => {
     expect(engine.modelsDir).toBe(join(dir, "models"));
   });
 
+  it("asks for the model to be read once first, and follows that reading (2026-11-04)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rg-win-"));
+    const l = launcher(dir, [
+      { state: "starting" },
+      { state: "preloading", done: 5, total: 10 },
+      { state: "loading" },
+      { state: "ready", port: 8091 },
+    ]);
+    const engine = new WinEngine({ dir, host: "h", pollMs: 10 });
+    const jobs = new Jobs();
+    const job = jobs.start("me", "engine", ["image", "preload", "start", "load"], async (h) => {
+      h.skip("image");
+      await engine.start("m.gguf", h, undefined, true);
+    });
+    const end = await jobs.settled(job.id);
+    l.close();
+    expect(end?.state).toBe("done");
+    expect(end?.steps.find((s) => s.id === "preload")?.state).toBe("done");
+    expect(l.seen[0]).toMatchObject({ preload: "1" });
+  });
+
   it("says why it failed, from the launcher's code or the engine's log", async () => {
     const dir = await mkdtemp(join(tmpdir(), "rg-win-"));
     const failing = async (status: Omit<WinEngineStatus, "id">) => {

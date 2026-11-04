@@ -343,6 +343,30 @@ function TuneTrials({ json }: { json: string }) {
   );
 }
 
+/**
+ * What the activation measured (2026-11-04): how fast the model was read once from the disk,
+ * and how fast the warm-up's context was read, the same reading as a first message.
+ */
+function ActivationSpeeds({ vars }: { vars: Record<string, string> }) {
+  if (!vars.preloadGbs && !vars.warmTps) return null;
+  return (
+    <dl class="gfacts">
+      {vars.preloadGbs && (
+        <>
+          <dt>{t("lmPreloadSpeed")}</dt>
+          <dd>{t("lmGbPerSec", { n: vars.preloadGbs })}</dd>
+        </>
+      )}
+      {vars.warmTps && (
+        <>
+          <dt>{t("lmWarmSpeed")}</dt>
+          <dd>{t("lmTokensPerSec", { n: vars.warmTps })}</dd>
+        </>
+      )}
+    </dl>
+  );
+}
+
 /** What can be done with one model file: download, pause, go on, start, use, delete. */
 function FileActions({
   repo,
@@ -424,6 +448,7 @@ function FileActions({
               <p class="ui-help">{t("lmWarmHelp")}</p>
             )}
             {eng.vars.trials && <TuneTrials json={eng.vars.trials} />}
+            <ActivationSpeeds vars={eng.vars} />
           </Modal>
         )}
         {eng?.state === "running" && hidden && (
@@ -432,6 +457,7 @@ function FileActions({
           </button>
         )}
         {eng?.state === "done" && eng.vars.trials && <TuneTrials json={eng.vars.trials} />}
+        {eng?.state === "done" && <ActivationSpeeds vars={eng.vars} />}
         <div class="row wrap">
           {active && eng?.state !== "running" ? (
             <>

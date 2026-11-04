@@ -18,9 +18,9 @@ import type { AppOptions } from "./app.js";
 import type { RedGiantCore } from "./core.js";
 import { engineError } from "./engine-errors.js";
 import { detectHardware, type GpuAccess } from "./hardware.js";
-import { splitPart } from "./hf.js";
 import { JobFailure, type JobHandle, type Jobs } from "./jobs.js";
 import { readLinuxMemory, readWindowsMemory, usableRamGb } from "./memory.js";
+import { modelGb, modelParts, preloadFiles } from "./preload.js";
 import { startRemote, stopRemote } from "./remote.js";
 import type { EngineConfig, SetupHooks } from "./setup.js";
 import { type EnginePlan, NORMAL_CTX, streamPlan } from "./stream.js";
@@ -109,6 +109,24 @@ const GITEA = "redgiant-gitea";
 
 /** How the wizard's choices take effect while the server runs (G17). */
 export function runtimeHooks(o: RuntimeOptions): SetupHooks {
+  /** The RAM a model may use now on this engine: free, not total (2026-11-04). */
+  const ramNow = async (cfg: EngineConfig, totalGb: number) => {
+    const [linux, windows] = await Promise.all([
+      cfg.variant === "windows" ? undefined : readLinuxMemory(),
+      readWindowsMemory(o.engine?.windows?.dir),
+    ]);
+    return usableRamGb({ windowsEngine: cfg.variant === "windows", totalGb, linux, windows });
+  };
+  /**
+   * Whether the whole model is read once before the engine starts (2026-11-04): only when it
+   * fits in the free RAM, or the reading would push out its own first part.
+   */
+  const preloadable = async (cfg: EngineConfig) => {
+    const dir = cfg.variant === "windows" ? o.engine?.windows?.modelsDir : o.engine?.modelsDir;
+    const gb = await modelGb(dir ?? "/models", cfg.model).catch(() => Number.POSITIVE_INFINITY);
+    const ram = await ramNow(cfg, (await detectHardware({ dataDir: o.dataDir ?? "." })).ramGb);
+    return { dir: dir ?? "/models", fits: gb <= ram.gb };
+  };
   /** The streaming plan for a model file, from its header and this computer's memory. */
   const planFor = async (cfg: EngineConfig): Promise<EnginePlan> => {
     const dir = cfg.variant === "windows" ? o.engine?.windows?.modelsDir : o.engine?.modelsDir;
@@ -116,34 +134,11 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
     const [meta, size, hw] = await Promise.all([
       readLocalGgufMeta(path),
       // A model in parts: its size is all the parts together.
-      (async () => {
-        const sp = splitPart(cfg.model);
-        if (!sp) return (await stat(path)).size / 1024 ** 3;
-        let bytes = 0;
-        for (let i = 1; i <= sp.of; i++)
-          bytes += (
-            await stat(
-              join(
-                dir ?? "/models",
-                `${sp.base}-${String(i).padStart(5, "0")}-of-${String(sp.of).padStart(5, "0")}.gguf`,
-              ),
-            )
-          ).size;
-        return bytes / 1024 ** 3;
-      })(),
+      modelGb(dir ?? "/models", cfg.model),
       detectHardware({ dataDir: o.dataDir ?? "." }),
     ]);
     // The RAM free now, not the total (2026-11-04): other programs may hold half of it.
-    const [linux, windows] = await Promise.all([
-      cfg.variant === "windows" ? undefined : readLinuxMemory(),
-      readWindowsMemory(o.engine?.windows?.dir),
-    ]);
-    const ram = usableRamGb({
-      windowsEngine: cfg.variant === "windows",
-      totalGb: hw.ramGb,
-      linux,
-      windows,
-    });
+    const ram = await ramNow(cfg, hw.ramGb);
     return streamPlan(
       meta,
       size,
@@ -275,8 +270,9 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
             "start",
             "The Windows engine exists only in RedGiant's Windows install",
           );
+        const pre = await preloadable(cfg);
         const started = async () => {
-          const baseURL = await win.start(cfg.model, h, plan);
+          const baseURL = await win.start(cfg.model, h, plan, pre.fits);
           const provider = new LocalEngineProvider({
             id: "local",
             baseURL,
@@ -304,6 +300,14 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         h?.step("image");
         await pullWithProgress(e.docker, image, h);
       }
+      // The model read once into the system's cache, so the first message does not wait for
+      // the disk (2026-11-04). At startup nobody waits: it reads while the engine loads.
+      const pre = await preloadable(cfg);
+      if (!pre.fits) h?.skip("preload");
+      else if (h) {
+        h.step("preload");
+        h.info({ preloadGbs: String(await preloadFiles(modelParts(pre.dir, cfg.model), h)) });
+      } else void preloadFiles(modelParts(pre.dir, cfg.model)).catch(() => {});
       h?.step("start");
       const gpu = cfg.variant !== "cpu";
       let container: Docker.Container;

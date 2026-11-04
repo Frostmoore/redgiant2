@@ -3,6 +3,18 @@
 import { LOCAL_MODELS, type LocalModel } from "@redgiant/protocol";
 import { type GgufFile, HuggingFace, offered, qualityOf, suggest } from "./hf.js";
 
+/**
+ * A file's quality among its repository's (2026-11-04): by its name, unless it is about as big as
+ * the largest one. gpt-oss ships its experts already at about 4 bits, so its "Q2_K" weighs almost
+ * as much as the original and loses almost nothing: "reduced" would be wrong.
+ */
+export function qualityAmong(f: GgufFile, files: GgufFile[]): "high" | "good" | "reduced" {
+  const sizes = files.filter(offered).map((x) => x.sizeGb);
+  const largest = Math.max(0, ...sizes);
+  // One file alone says nothing about the others: its name decides.
+  return sizes.length > 1 && f.sizeGb >= largest * 0.9 ? "high" : qualityOf(f.quant);
+}
+
 /** Room left on the models' disk after a download beyond memory. */
 const DISK_MARGIN_GB = 10;
 
@@ -45,9 +57,9 @@ export async function localModelChoices(
         const file = best ?? beyond;
         return {
           ...m,
-          file: file ? { ...file, quality: qualityOf(file.quant) } : null,
+          file: file ? { ...file, quality: qualityAmong(file, files) } : null,
           smallestGb: smallest?.sizeGb ?? null,
-          versions: files.filter(offered).map((f) => ({ ...f, quality: qualityOf(f.quant) })),
+          versions: files.filter(offered).map((f) => ({ ...f, quality: qualityAmong(f, files) })),
           ...((beyond || (file && file.sizeGb > budgetGb)) && { beyondMemory: true }),
         };
       } catch {

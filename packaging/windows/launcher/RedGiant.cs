@@ -552,7 +552,7 @@ static class WinEngine
         lock (gate) gen = ++generation;
         var t = new Thread(() => Handle(gen, id, Field(json, "model"), Field(json, "build"),
             Field(json, "ctx") ?? "65536", Field(json, "parallel") ?? "4", Field(json, "args"),
-            Field(json, "fit"))) { IsBackground = true };
+            Field(json, "fit"), Field(json, "preload"))) { IsBackground = true };
         t.Start();
     }
 
@@ -598,7 +598,51 @@ static class WinEngine
         return Regex.IsMatch(args, "^[A-Za-z0-9 _.=-]*$") ? " " + args.Trim() : "";
     }
 
-    static void Handle(int gen, string id, string model, string build, string ctx, string parallel, string args, string fit)
+    /** Every file of a model: one, or all the parts of a split one ("x-00001-of-00003.gguf"). */
+    static string[] ModelParts(string model)
+    {
+        string dir = Path.Combine(Dir, "models");
+        var m = Regex.Match(model, @"^(.*)-\d{5}-of-(\d{5})\.gguf$");
+        if (!m.Success) return new[] { Path.Combine(dir, model) };
+        int of = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+        var parts = new string[of];
+        for (int i = 0; i < of; i++)
+            parts[i] = Path.Combine(dir, string.Format(CultureInfo.InvariantCulture, "{0}-{1:00000}-of-{2:00000}.gguf", m.Groups[1].Value, i + 1, of));
+        return parts;
+    }
+
+    /**
+     * The model read once from start to end before the engine starts (2026-11-04): it stays in
+     * Windows' cache, and the first message does not wait for the disk. Progress in bytes.
+     */
+    static void Preload(int gen, string id, string model)
+    {
+        var parts = ModelParts(model);
+        long total = 0;
+        foreach (var f in parts) total += new FileInfo(f).Length;
+        long done = 0;
+        var buffer = new byte[16 << 20];
+        var last = DateTime.MinValue;
+        foreach (var f in parts)
+        {
+            using (var src = new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20, FileOptions.SequentialScan))
+            {
+                int n;
+                while ((n = src.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    done += n;
+                    if ((DateTime.Now - last).TotalMilliseconds > 500)
+                    {
+                        lock (gate) if (gen != generation) return;
+                        Status(gen, id, "preloading", string.Format(CultureInfo.InvariantCulture, ",\"done\":{0},\"total\":{1}", done, total));
+                        last = DateTime.Now;
+                    }
+                }
+            }
+        }
+    }
+
+    static void Handle(int gen, string id, string model, string build, string ctx, string parallel, string args, string fit, string preload)
     {
         lock (gate) { if (gen != generation) return; Kill(); }
         if (model == null) { Status(gen, id, "stopped", null); return; }
@@ -611,6 +655,9 @@ static class WinEngine
             phase = "firewall";
             Status(gen, id, "starting", null);
             if (!FirewallAllows()) AllowInFirewall();
+            phase = "preload";
+            if (preload == "1") Preload(gen, id, model);
+            lock (gate) if (gen != generation) return;
             phase = "start";
             lock (log) log.Clear();
             var info = new ProcessStartInfo(Exe,

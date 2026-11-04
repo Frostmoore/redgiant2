@@ -612,7 +612,7 @@ export class SetupService {
     return this.o.core.jobs.start(
       this.o.ownerId,
       "engine",
-      ["image", "start", "load", "tune", "try"],
+      ["image", "preload", "start", "load", "tune", "try"],
       async (h) => {
         const { plan: _old, ...asked } = e;
         // Already running as asked: nothing to do again (2026-11-04, «non ha senso»).
@@ -628,7 +628,7 @@ export class SetupService {
             .then(() => true)
             .catch(() => false))
         ) {
-          for (const step of ["image", "start", "load", "tune", "try"]) h.skip(step);
+          for (const step of ["image", "preload", "start", "load", "tune", "try"]) h.skip(step);
           return;
         }
         let wanted: EngineConfig = asked;
@@ -718,6 +718,8 @@ export class SetupService {
     const p = this.o.core.providers.get("local");
     const text = "RedGiant warms up the model before the first conversation. ".repeat(260);
     let written = 0;
+    const started = Date.now();
+    let read = 0;
     for await (const ev of p.stream({
       model,
       system: "",
@@ -728,9 +730,18 @@ export class SetupService {
       maxTokens: 32,
     })) {
       if (h.signal.aborted) throw new Error("cancelled");
-      if (ev.type === "prefill_progress") h.progress(ev.processed, ev.total);
-      if (ev.type === "text_delta" || ev.type === "thinking_delta")
+      if (ev.type === "prefill_progress") {
+        h.progress(ev.processed, ev.total);
+        read = ev.processed;
+      }
+      if (ev.type === "text_delta" || ev.type === "thinking_delta") {
+        // How fast the context was read, for the page (2026-11-04): the measure of the first message.
+        if (written === 0 && read > 0)
+          h.info({
+            warmTps: String(Math.round(read / Math.max((Date.now() - started) / 1000, 0.001))),
+          });
         h.info({ written: String(++written) });
+      }
     }
   }
 

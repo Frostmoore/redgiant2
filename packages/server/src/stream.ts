@@ -38,6 +38,13 @@ export interface EnginePlan {
 const Q8 = 8.5 / 16;
 /** Not the model: compute buffers, the system, the other programs. */
 const CARD_RESERVE_GB = 1;
+/**
+ * Tokens read in one pass (2026-11-04). With the experts outside the card, llama.cpp sends the
+ * experts' weights to the card once for every pass of a long read: passes of 2048 tokens
+ * instead of 512 send them a quarter as often. The larger buffers take about half a GB more.
+ */
+const MOE_BATCH = 2048;
+const MOE_BATCH_GB = 0.5;
 /** Of the free RAM, what the model's pages may keep (the rest for the engine and the system). */
 const RAM_FOR_CACHE = 0.9;
 
@@ -59,7 +66,7 @@ export function streamPlan(
   // embeddings, routers); fine-grained models (64 experts or more) keep about 7 % of the file
   // outside the experts.
   const shared = moe ? fileGb * (meta.experts >= 64 ? 0.07 : 0.12) : 0;
-  const free = Math.max(0, card - CARD_RESERVE_GB - shared);
+  const free = Math.max(0, card - CARD_RESERVE_GB - (moe && card > 0 ? MOE_BATCH_GB : 0) - shared);
   let kvBudgetGb: number;
   let moeCacheMib = 0;
   if (card > 0 && moe) {
@@ -90,6 +97,7 @@ export function streamPlan(
     args: [
       ...(moe ? ["--cpu-moe"] : []),
       ...(moeCacheMib > 0 ? ["--moe-cache-mib", String(moeCacheMib)] : []),
+      ...(moe && card > 0 ? ["-b", String(MOE_BATCH), "-ub", String(MOE_BATCH)] : []),
       "-ctk",
       "q8_0",
       "-ctv",

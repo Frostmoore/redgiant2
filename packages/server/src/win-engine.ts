@@ -27,12 +27,14 @@ export interface WinEngineRequest {
   /** Extra flags for llama-server (SSD stream), and whether llama.cpp fits the layers itself. */
   args?: string;
   fit?: "1";
+  /** Read the whole model once before starting, into Windows' cache (2026-11-04). */
+  preload?: "1";
 }
 
 export interface WinEngineStatus {
   id: string;
-  state: "downloading" | "starting" | "loading" | "ready" | "failed" | "stopped";
-  /** Bytes of the engine's download, while downloading. */
+  state: "downloading" | "starting" | "preloading" | "loading" | "ready" | "failed" | "stopped";
+  /** Bytes of the engine's download, or of the model read once (`preloading`). */
   done?: number;
   total?: number;
   /** Where the engine listens on Windows, once ready. */
@@ -74,6 +76,7 @@ export class WinEngine {
   private async request(
     model: string | null,
     plan?: { ctx: number; args: string[]; fit: boolean },
+    preload = false,
   ): Promise<string> {
     const r: WinEngineRequest = {
       id: randomUUID(),
@@ -86,6 +89,7 @@ export class WinEngine {
       args: [...(plan?.args ?? []), "--kv-unified-per-slot", String(plan?.ctx ?? 65536)].join(" "),
       // Always fitted by llama.cpp to the card's free memory (no --n-gpu-layers 999).
       fit: "1" as const,
+      ...(preload && { preload: "1" as const }),
     };
     await mkdir(this.o.dir, { recursive: true });
     const file = join(this.o.dir, "engine.json");
@@ -175,8 +179,9 @@ export class WinEngine {
     model: string,
     h?: JobHandle,
     plan?: { ctx: number; args: string[]; fit: boolean },
+    preload = false,
   ): Promise<string> {
-    const id = await this.request(model, plan);
+    const id = await this.request(model, plan, preload);
     const poll = this.o.pollMs ?? 1000;
     const asked = Date.now();
     let seen = false;
@@ -190,6 +195,9 @@ export class WinEngine {
         seen = true;
         if (s.state === "downloading") {
           h?.step("image");
+          if (s.done !== undefined) h?.progress(s.done, s.total ?? null);
+        } else if (s.state === "preloading") {
+          h?.step("preload");
           if (s.done !== undefined) h?.progress(s.done, s.total ?? null);
         } else if (s.state === "starting") h?.step("start");
         else if (s.state === "loading") h?.step("load");

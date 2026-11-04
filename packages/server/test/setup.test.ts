@@ -160,7 +160,14 @@ describe("the setup wizard", () => {
     const job = await api<Job>("PUT", "/api/setup/engine", {
       engine: { variant: "cuda", model: "gemma.gguf" },
     });
-    expect(job.body.steps.map((x) => x.id)).toEqual(["image", "start", "load", "tune", "try"]);
+    expect(job.body.steps.map((x) => x.id)).toEqual([
+      "image",
+      "preload",
+      "start",
+      "load",
+      "tune",
+      "try",
+    ]);
     expect((await s?.core.jobs.settled(job.body.id))?.state).toBe("done");
     expect(
       (await api("PUT", "/api/setup/engine", { engine: { variant: "cpu", model: "../x.gguf" } }))
