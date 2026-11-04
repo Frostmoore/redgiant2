@@ -11,7 +11,7 @@ import {
   IconTrash,
   IconUsers,
 } from "../icons.js";
-import { renderMarkdown } from "../markdown.js";
+import { renderMarkdown, renderStreamingMarkdown } from "../markdown.js";
 import {
   attempt,
   closeTab,
@@ -415,7 +415,10 @@ export function DailyChat({
                 </div>
               )}
               {live.text ? (
-                <div class="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(live.text) }} />
+                <div
+                  class="md"
+                  dangerouslySetInnerHTML={{ __html: renderStreamingMarkdown(live.text) }}
+                />
               ) : (
                 <div class="dim">…</div>
               )}

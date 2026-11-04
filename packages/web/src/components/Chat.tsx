@@ -16,7 +16,7 @@ import {
   IconSpinner,
   IconUsers,
 } from "../icons.js";
-import { renderMarkdown } from "../markdown.js";
+import { renderMarkdown, renderStreamingMarkdown } from "../markdown.js";
 import {
   agents,
   approvals,
@@ -467,7 +467,10 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
             <div class="bubble assistant streaming">
               {v.thinking && !v.text && <div class="dim">{t("thinking")}…</div>}
               {v.text && (
-                <div class="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(v.text) }} />
+                <div
+                  class="md"
+                  dangerouslySetInnerHTML={{ __html: renderStreamingMarkdown(v.text) }}
+                />
               )}
             </div>
           )}

@@ -72,3 +72,52 @@ if (typeof document !== "undefined")
 export function renderMarkdown(md: string): string {
   return DOMPurify.sanitize(marked.parse(md, { async: false }));
 }
+
+/** A character models do not write (Unicode private use): where the cursor goes. */
+const CURSOR_MARK = "\uE000";
+const CURSOR_MARK_URL = encodeURI(CURSOR_MARK);
+
+/**
+ * Markdown being written, with the cursor after the last word (2026-11-04). Drawn after the
+ * last block, it fell below a list, a table or a quote while the text grew inside them; marked
+ * in the text itself it lands in the last item, cell or line, wherever that is.
+ */
+export function renderStreamingMarkdown(md: string): string {
+  const html = renderMarkdown(`${md.replace(/\s+$/, "")}${CURSOR_MARK}`);
+  if (typeof document === "undefined") return html.split(CURSOR_MARK).join("");
+  // Only where the mark is visible text: in a link's address it is just taken away.
+  const box = document.createElement("template");
+  box.innerHTML = html;
+  let placed = false;
+  const walker = document.createTreeWalker(box.content, NodeFilter.SHOW_TEXT);
+  const marked: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode())
+    if ((n as Text).data.includes(CURSOR_MARK)) marked.push(n as Text);
+  for (const text of marked) {
+    const [before = "", ...rest] = text.data.split(CURSOR_MARK);
+    text.data = before;
+    const after = rest.join("") ? [document.createTextNode(rest.join(""))] : [];
+    if (!placed) {
+      const cursor = document.createElement("span");
+      cursor.className = "stream-cursor";
+      cursor.setAttribute("aria-hidden", "true");
+      text.after(cursor, ...after);
+      placed = true;
+    } else text.after(...after);
+  }
+  // In an attribute (a link's address) the mark goes, as it is or as marked encodes it.
+  for (const el of box.content.querySelectorAll("*"))
+    for (const attr of [...el.attributes])
+      if (attr.value.includes(CURSOR_MARK) || attr.value.includes(CURSOR_MARK_URL))
+        el.setAttribute(
+          attr.name,
+          attr.value.split(CURSOR_MARK).join("").split(CURSOR_MARK_URL).join(""),
+        );
+  if (!placed) {
+    const cursor = document.createElement("span");
+    cursor.className = "stream-cursor";
+    cursor.setAttribute("aria-hidden", "true");
+    box.content.append(cursor);
+  }
+  return box.innerHTML;
+}

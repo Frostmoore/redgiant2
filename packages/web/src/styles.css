@@ -712,8 +712,7 @@ button.bar-settings {
   padding-left: 0;
   max-width: 100%;
 }
-.bubble.streaming .md > :last-child::after {
-  content: "";
+.stream-cursor {
   display: inline-block;
   width: 0.45em;
   height: 1em;
