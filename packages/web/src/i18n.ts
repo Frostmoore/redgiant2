@@ -947,6 +947,26 @@ const en = {
   lmFactSsdNone: "nothing: it fits in RAM",
   lmFactRam: "Free RAM counted",
   lmVersions: "Version of the file",
+  lmSpeedTest: "Measure the gain",
+  lmSpeedTestTitle: "How much faster here",
+  lmSpeedTestIntro:
+    "RedGiant starts this model once for each way of writing (alone, with the small model, with the n-grams), has it write a short new text and rewrite a piece of code, and shows the tokens a second of each. In the end the engine goes back to how it was.",
+  lmSpeedTestCost:
+    "It takes a good while and a lot of compute: the model is loaded several times, minutes for a large one. Meanwhile the local model does not answer the agents.",
+  lmSpeedTestStart: "Start the test",
+  lmSpeedTestMode: "Way",
+  lmSpeedTestProse: "New text (tokens/s)",
+  lmSpeedTestCode: "Code rewritten (tokens/s)",
+  lmSpeedMode_none: "Model alone",
+  lmSpeedMode_draft: "With the small model",
+  lmSpeedMode_ngram: "N-grams",
+  lmSpeedTestDone:
+    "The engine is back as it was. Choose the way above and start the model again to use it.",
+  job_speed_test: "Measuring {model}",
+  job_step_none: "The model alone",
+  job_step_draft: "With the small model",
+  job_step_ngram: "With the n-grams",
+  job_step_restore: "Putting the engine back as it was",
   lmSpecTitle: "Speculative decoding (for experts)",
   lmSpecHelp:
     "Writes faster without changing the answers: something cheap proposes the next tokens and the model checks them all in one pass, reading its weights once for several tokens. It helps most where the text is predictable (code being rewritten, long dense models outside the card); on new prose it gains little. Measured on an RTX 4080 Super: Llama 3.3 70B (mostly in RAM) from 1.1 to 2.6 tokens/s on new prose and to 7.4 on code rewritten; Qwen3 14B (in the card) from 59 to 155 on code, about even on prose. The speed is shown under each answer.",
@@ -2538,6 +2558,26 @@ const it: Record<Key, string> = {
   lmFactSsdNone: "niente: sta in RAM",
   lmFactRam: "RAM libera contata",
   lmVersions: "Versione del file",
+  lmSpeedTest: "Misura il guadagno",
+  lmSpeedTestTitle: "Quanto va più veloce qui",
+  lmSpeedTestIntro:
+    "RedGiant avvia questo modello una volta per ogni modo di scrivere (da solo, con il modello piccolo, con gli n-gram), gli fa scrivere un breve testo nuovo e riscrivere un pezzo di codice, e mostra i token al secondo di ciascuno. Alla fine il motore torna com'era.",
+  lmSpeedTestCost:
+    "Richiede un bel po' di tempo e di calcolo: il modello viene caricato più volte, minuti per uno grande. Nel frattempo il modello locale non risponde agli agenti.",
+  lmSpeedTestStart: "Avvia il test",
+  lmSpeedTestMode: "Modo",
+  lmSpeedTestProse: "Testo nuovo (token/s)",
+  lmSpeedTestCode: "Codice riscritto (token/s)",
+  lmSpeedMode_none: "Modello da solo",
+  lmSpeedMode_draft: "Con il modello piccolo",
+  lmSpeedMode_ngram: "N-gram",
+  lmSpeedTestDone:
+    "Il motore è tornato com'era. Scegli il modo qui sopra e riavvia il modello per usarlo.",
+  job_speed_test: "Misuro {model}",
+  job_step_none: "Il modello da solo",
+  job_step_draft: "Con il modello piccolo",
+  job_step_ngram: "Con gli n-gram",
+  job_step_restore: "Rimetto il motore com'era",
   lmSpecTitle: "Decodifica speculativa (per esperti)",
   lmSpecHelp:
     "Scrive più in fretta senza cambiare le risposte: qualcosa di economico propone i token successivi e il modello li controlla tutti in un passaggio, leggendo i suoi pesi una volta per più token. Aiuta soprattutto dove il testo è prevedibile (codice da riscrivere, grandi modelli densi fuori dalla scheda); su testo nuovo guadagna poco. Misurato su una RTX 4080 Super: Llama 3.3 70B (quasi tutto in RAM) da 1,1 a 2,6 token/s su testo nuovo e a 7,4 sul codice riscritto; Qwen3 14B (nella scheda) da 59 a 155 sul codice, quasi pari sul testo. La velocità è sotto ogni risposta.",

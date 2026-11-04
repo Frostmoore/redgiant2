@@ -716,6 +716,8 @@ function cardState(
  */
 function Speculation({
   m,
+  model,
+  stream,
   mode,
   setMode,
   files,
@@ -724,6 +726,9 @@ function Speculation({
   onChange,
 }: {
   m: LocalModelChoice;
+  /** The big model's file in the folder (downloaded), for the speed test. */
+  model: string | undefined;
+  stream: boolean;
   mode: "none" | "draft" | "ngram";
   setMode: (v: "none" | "draft" | "ngram") => void;
   files: LocalFile[];
@@ -732,6 +737,7 @@ function Speculation({
   onChange: () => void;
 }) {
   const [error, setError] = useState<string>();
+  const [testing, setTesting] = useState(false);
   const draft = m.draftFile;
   const name = draft ? target(draft.file) : "";
   const local = files.find((f) => f.file === name);
@@ -779,8 +785,135 @@ function Speculation({
         </>
       )}
       {mode === "ngram" && <p class="ui-help">{t("lmSpecNgramHelp")}</p>}
+      {model && (
+        <button type="button" onClick={() => setTesting(true)}>
+          {t("lmSpeedTest")}
+        </button>
+      )}
+      {testing && model && (
+        <SpeedTest
+          variant={variant}
+          model={model}
+          stream={stream}
+          draftModel={local && !local.partial ? name : undefined}
+          onClose={() => {
+            setTesting(false);
+            onChange();
+          }}
+        />
+      )}
       {error && <p class="notice error">{error}</p>}
     </div>
+  );
+}
+
+/**
+ * The speed test of speculative decoding in a window (2026-11-04): first what it will do and
+ * what it costs, then each mode as it runs, and the gain over the model alone.
+ */
+function SpeedTest({
+  variant,
+  model,
+  stream,
+  draftModel,
+  onClose,
+}: {
+  variant: EngineVariant;
+  model: string;
+  stream: boolean;
+  draftModel: string | undefined;
+  onClose: () => void;
+}) {
+  const [jobId, setJobId] = useState<string>();
+  const [error, setError] = useState<string>();
+  const job = useJob(jobId);
+  const modes: ("none" | "draft" | "ngram")[] = draftModel
+    ? ["none", "draft", "ngram"]
+    : ["none", "ngram"];
+  let trials: {
+    mode: string;
+    state: string;
+    proseTps?: number;
+    codeTps?: number;
+    error?: string;
+  }[] = [];
+  try {
+    trials = job?.vars.trials ? JSON.parse(job.vars.trials) : [];
+  } catch {
+    trials = [];
+  }
+  const base = trials.find((x) => x.mode === "none");
+  const gain = (v: number | undefined, b: number | undefined) =>
+    v && b ? ` (×${(v / b).toFixed(1)})` : "";
+  return (
+    <Modal title={t("lmSpeedTestTitle")} onClose={onClose}>
+      {!jobId ? (
+        <>
+          <p>{t("lmSpeedTestIntro")}</p>
+          <p class="notice warn">{t("lmSpeedTestCost")}</p>
+          <div class="row">
+            <button
+              type="button"
+              class="primary"
+              onClick={() => {
+                setError(undefined);
+                void getApi()
+                  .speedTest({ variant, model, stream, ...(draftModel && { draftModel }) }, modes)
+                  .then(
+                    (j) => setJobId(j.id),
+                    (e: unknown) => setError(explain(e)),
+                  );
+              }}
+            >
+              {t("lmSpeedTestStart")}
+            </button>
+            <button type="button" class="link" onClick={onClose}>
+              {t("cancel")}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          {job && <JobView job={job} countSteps={modes} cancellable />}
+          {trials.length > 0 && (
+            <table class="lm-trials-table">
+              <thead>
+                <tr>
+                  <th>{t("lmSpeedTestMode")}</th>
+                  <th>{t("lmSpeedTestProse")}</th>
+                  <th>{t("lmSpeedTestCode")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trials.map((x) => (
+                  <tr key={x.mode}>
+                    <td>{tOptional(`lmSpeedMode_${x.mode}`) ?? x.mode}</td>
+                    <td>
+                      {x.proseTps !== undefined
+                        ? `${x.proseTps}${x.mode === "none" ? "" : gain(x.proseTps, base?.proseTps)}`
+                        : x.state === "running"
+                          ? t("lmTuneRunning")
+                          : x.state === "skipped"
+                            ? t("uiNotNeeded")
+                            : x.state === "failed"
+                              ? t("lmTuneFailed")
+                              : "–"}
+                    </td>
+                    <td>
+                      {x.codeTps !== undefined
+                        ? `${x.codeTps}${x.mode === "none" ? "" : gain(x.codeTps, base?.codeTps)}`
+                        : "–"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {job?.state === "done" && <p class="ui-help">{t("lmSpeedTestDone")}</p>}
+        </>
+      )}
+      {error && <p class="notice error">{error}</p>}
+    </Modal>
   );
 }
 
@@ -897,6 +1030,8 @@ function ModelPanel({
           )}
           <Speculation
             m={m}
+            model={files.some((f) => f.file === name && !f.partial) ? name : undefined}
+            stream={stream}
             mode={spec}
             setMode={setSpec}
             files={files}

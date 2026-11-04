@@ -708,6 +708,16 @@ export class Api {
     this.call("DELETE", `/api/setup/local-models/${encodeURIComponent(file)}?variant=${variant}`);
   jobs = () => this.call<Job[]>("GET", "/api/jobs");
   job = (id: string) => this.call<Job>("GET", `/api/jobs/${encodeURIComponent(id)}`);
+  /** Measures what speculative decoding gains here (2026-11-04): a job; the engine is put back. */
+  speedTest = (
+    engine: {
+      variant: EngineVariant;
+      model: string;
+      stream?: boolean;
+      draftModel?: string;
+    },
+    modes: ("none" | "draft" | "ngram")[],
+  ) => this.call<Job>("POST", "/api/setup/engine/speed-test", { engine, modes });
   cancelJob = (id: string) => this.call("POST", `/api/jobs/${encodeURIComponent(id)}/cancel`);
   platform = () => this.call<PlatformInfo>("GET", "/api/platform");
   platformChanges = () => this.call<PlatformChange[]>("GET", "/api/platform/changes");

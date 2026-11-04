@@ -103,6 +103,34 @@ interface Trial {
   error?: string;
 }
 
+/** One configuration tried by a speed test (2026-11-04): how fast it wrote each kind of text. */
+export interface SpeedTrial {
+  /** `none`, `draft`, `ngram` (speculative decoding); later the sparsity presets. */
+  mode: string;
+  state: "waiting" | "running" | "done" | "failed" | "skipped";
+  /** Tokens a second writing new prose, and rewriting a piece of code. */
+  proseTps?: number;
+  codeTps?: number;
+  error?: string;
+}
+
+/** The two texts of a speed test: new prose, and code rewritten (where proposals hit most). */
+const SPEED_PROSE = "Explain how a refrigerator works to a curious teenager, in about 120 words.";
+const SPEED_CODE = `Rewrite this Python function exactly, renaming 'items' to 'products' everywhere and changing nothing else.
+
+def total_price(items, tax_rate):
+    subtotal = 0
+    for item in items:
+        if item.get('quantity', 0) <= 0:
+            continue
+        price = item['price'] * item['quantity']
+        if item.get('discount'):
+            price = price * (1 - item['discount'])
+        subtotal += price
+    tax = subtotal * tax_rate
+    shipping = 0 if subtotal > 50 else 5.99
+    return {'items': len(items), 'subtotal': round(subtotal, 2), 'tax': round(tax, 2), 'total': round(subtotal + tax + shipping, 2)}`;
+
 /** A web search service with what it needs (2026-11-03). */
 export interface SearchChoice {
   provider: SearchProviderId;
@@ -752,6 +780,83 @@ export class SetupService {
         h.info({ written: String(++written) });
       }
     }
+  }
+
+  /**
+   * Measures what speculative decoding gains on this computer (2026-11-04, the person's
+   * request: an option with a test, "more time and compute"). The model is started once per
+   * mode, each one writes a short new text and rewrites a piece of code, and in the end the
+   * engine goes back to how it was. As fast as it can: 128 tokens per text, one warm-up.
+   */
+  testSpeed(e: EngineConfig, modes: string[]): Job {
+    this.checkEngine(e);
+    const before = this.config.engine;
+    const steps = [...modes, "restore"];
+    return this.o.core.jobs.start(
+      this.o.ownerId,
+      "speed_test",
+      steps,
+      async (h) => {
+        const trials: SpeedTrial[] = modes.map((mode) => ({ mode, state: "waiting" }));
+        const show = () => h.info({ trials: JSON.stringify(trials) });
+        show();
+        try {
+          for (const [i, mode] of modes.entries()) {
+            const trial = trials[i] as SpeedTrial;
+            if (h.signal.aborted) throw new Error("cancelled");
+            h.step(mode);
+            const cfg: EngineConfig = {
+              ...e,
+              speculative: mode === "draft" ? "draft" : mode === "ngram" ? "ngram" : undefined,
+              draftModel: mode === "draft" ? e.draftModel : undefined,
+            };
+            if (mode === "draft" && !e.draftModel) {
+              trial.state = "skipped";
+              show();
+              continue;
+            }
+            trial.state = "running";
+            show();
+            try {
+              await this.o.hooks.engine(cfg);
+              await this.waitLocal(h);
+              // One short answer first: the first one after a start pays for the warm-up.
+              await this.speedOf(e.model, "Name three rivers in Europe.", 16);
+              trial.proseTps = await this.speedOf(e.model, SPEED_PROSE, 128);
+              h.progress(i * 2 + 1, modes.length * 2);
+              trial.codeTps = await this.speedOf(e.model, SPEED_CODE, 128);
+              h.progress(i * 2 + 2, modes.length * 2);
+              trial.state = "done";
+            } catch (err) {
+              trial.state = "failed";
+              trial.error = (err as Error).message.slice(0, 200);
+            }
+            show();
+          }
+        } finally {
+          // The engine as it was, whatever happened.
+          h.step("restore");
+          await this.o.hooks.engine(before ?? null).catch(() => {});
+          if (before) await this.waitLocal(h).catch(() => {});
+        }
+      },
+      { model: e.model },
+    );
+  }
+
+  /** Tokens a second the local engine writes for one request (the engine's own count). */
+  private async speedOf(model: string, text: string, maxTokens: number): Promise<number> {
+    const p = this.o.core.providers.get("local");
+    const c = await complete(
+      p.stream({
+        model,
+        system: "",
+        tools: [],
+        messages: [{ role: "user", parts: [{ type: "text", text }] }],
+        maxTokens,
+      }),
+    );
+    return Math.round((c.metrics.tokPerSec ?? 0) * 10) / 10;
   }
 
   /** How fast the local engine reads a context of about 2,000 tokens and writes 64. */

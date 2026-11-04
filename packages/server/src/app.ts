@@ -2218,6 +2218,23 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   );
   app.delete("/api/setup/remote", (c) => wizard(c, () => (setup as SetupService).stopRemote()));
   // Starting the local engine is a job (image, start, load, a first answer); null stops it.
+  // What speculative decoding gains here (2026-11-04): a job that tries each mode and puts the
+  // engine back as it was.
+  app.post("/api/setup/engine/speed-test", (c) =>
+    wizard(c, async () => {
+      const b = await parsed(
+        c,
+        z.object({
+          engine: Engine,
+          modes: z
+            .array(z.enum(["none", "draft", "ngram"]))
+            .min(1)
+            .max(3),
+        }),
+      );
+      return (setup as SetupService).testSpeed(b.engine, b.modes);
+    }),
+  );
   app.put("/api/setup/engine", (c) =>
     wizard(c, async () => {
       const e = (await parsed(c, z.object({ engine: Engine.nullable() }))).engine;
