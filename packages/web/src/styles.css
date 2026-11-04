@@ -5303,3 +5303,44 @@ button.pick-tile.on {
   padding: 6px 8px;
   border-bottom: 1px solid var(--line);
 }
+/* The local model loading (2026-11-04): a bar under the top bar, from any page. */
+.banner.engine-loading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+.engine-loading-text {
+  flex: none;
+  font-weight: 600;
+}
+.banner.engine-loading .ui-progress {
+  flex: 1;
+  min-width: 0;
+}
+.engine-loading-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.engine-loading-bar > span {
+  display: block;
+  width: 30%;
+  height: 100%;
+  background: var(--accent);
+  animation: engine-loading 1.4s ease-in-out infinite;
+}
+@keyframes engine-loading {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(340%);
+  }
+}

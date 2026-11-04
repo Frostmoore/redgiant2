@@ -380,6 +380,7 @@ function FileActions({
   variant,
   stream,
   speculative,
+  off,
   onChange,
 }: {
   repo: string | null;
@@ -393,6 +394,8 @@ function FileActions({
   stream?: boolean;
   /** Start it with speculative decoding (2026-11-04). */
   speculative?: { speculative: "draft" | "ngram"; draftModel?: string } | undefined;
+  /** The model in use, turned off by the person (2026-11-04). */
+  off?: boolean | undefined;
   onChange: () => void;
 }) {
   const name = target(file);
@@ -466,7 +469,11 @@ function FileActions({
         <div class="row wrap">
           {active && eng?.state !== "running" ? (
             <>
-              <span class="chip ok">{t("lmInUse")}</span>
+              {/* On or off without deleting it (2026-11-04): off frees its memory and it does
+                  not load when RedGiant opens. */}
+              <Pick small on={!off} onChange={(v) => act(() => getApi().setEnginePower(v))}>
+                {off ? t("lmOff") : t("lmOn")}
+              </Pick>
               <button
                 type="button"
                 class="primary"
@@ -696,6 +703,7 @@ function cardState(
   files: LocalFile[],
   jobs: Job[],
   active: string | undefined,
+  off = false,
 ): string {
   if (!m.file) return m.unavailable ? t("lmUnavailable") : t("lmCardTooBig");
   const name = target(m.file.file);
@@ -708,7 +716,7 @@ function cardState(
   }
   const local = files.find((f) => f.file === name);
   if (local?.partial) return t("lmCardPaused");
-  if (local) return active === name ? t("lmInUse") : t("lmCardReady");
+  if (local) return active === name ? (off ? t("lmCardOff") : t("lmInUse")) : t("lmCardReady");
   return t("lmCardGet", { size: gb(m.file.sizeGb) });
 }
 
@@ -1051,6 +1059,7 @@ function ModelPanel({
             variant={variant}
             stream={stream}
             speculative={chosenSpec}
+            off={inUse && s.config.engine?.off === true}
             onChange={onChange}
           />
         </>
@@ -1217,7 +1226,9 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
               <span class="gcard-head">
                 <strong>{m.name}</strong>
                 {inUse ? (
-                  <span class="chip ok">{t("lmInUse")}</span>
+                  <span class={s.config.engine?.off ? "chip" : "chip ok"}>
+                    {s.config.engine?.off ? t("lmOff") : t("lmInUse")}
+                  </span>
                 ) : (
                   m.id === best && <span class="chip ok">{t("lmRecommended")}</span>
                 )}
@@ -1235,7 +1246,9 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
               )}
               {m.file && <RoomBar sizeGb={m.file.sizeGb} tiers={tiers} />}
               <span class="gcard-foot">
-                <span class="gcard-note">{cardState(m, files, jobs, active)}</span>
+                <span class="gcard-note">
+                  {cardState(m, files, jobs, active, s.config.engine?.off === true)}
+                </span>
                 <IconChevron open={false} size={14} />
               </span>
             </GalleryCard>

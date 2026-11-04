@@ -25,7 +25,8 @@ describe("SSD stream plan (2026-11-03)", () => {
     expect(p.args).toContain("q8_0");
     expect(p.moeCacheMib).toBeGreaterThan(2000);
     // Far beyond 65536: the experts left the card to the context.
-    expect(p.ctx).toBeGreaterThanOrEqual(131072);
+    // (a GB of the card goes to the long reading passes, 2026-11-04)
+    expect(p.ctx).toBeGreaterThanOrEqual(98304);
     expect(p.ctx).toBeLessThanOrEqual(262144);
     expect(p.ctx % 4096).toBe(0);
     // 17 GB in 32 GB of RAM: nothing read from the SSD at each word.

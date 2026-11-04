@@ -91,6 +91,7 @@ import { type Browsers, browserTools } from "./browser.js";
 import { contentType, inside, lastChange, Previews, type PreviewTarget } from "./canvas.js";
 import { CHAT_AGENT_PROMPT, ChatError, DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
+import { debugLog } from "./debug-log.js";
 import { type EmailAccount, EmailWatcher, type Mailbox } from "./email.js";
 import type { GitHosts } from "./git-hosts.js";
 import { IMAGE_MODEL, imageFileName } from "./images.js";
@@ -470,6 +471,14 @@ export class RedGiantCore implements OrchestrationHost {
     });
     // Persisted events reach the followers of their session.
     this.store.subscribe((e: Event) => {
+      // Debug mode (2026-11-04): every answer's numbers, to see where the time went (how much
+      // of the context came from the cache, the saved contexts restored, reading and writing).
+      if (e.type === "message.assistant" && e.payload && debugLog.enabled)
+        debugLog.write("turn", `${e.payload.provider}/${e.payload.model}`, {
+          session: e.sessionId,
+          stop: e.payload.stopReason,
+          metrics: e.payload.metrics,
+        });
       const l = e.sessionId ? this.live.get(e.sessionId) : undefined;
       if (l) for (const f of l.listeners) f({ type: "event", sessionId: l.id, event: e });
       if (e.type === "extension.proposed" && e.payload?.status === "pending" && e.ownerId)

@@ -57,6 +57,7 @@ import { Chat } from "./Chat.js";
 import { Chats } from "./Chats.js";
 import { DailyChat } from "./DailyChat.js";
 import { Downloads } from "./Downloads.js";
+import { EngineLoading } from "./EngineLoading.js";
 import { Explorer } from "./Explorer.js";
 import { ProjectAgents } from "./Hierarchy.js";
 import { Login } from "./Login.js";
@@ -409,6 +410,7 @@ export function App() {
           )}
         />
       </header>
+      <EngineLoading />
       {lastError.value && (
         <div class="banner error">
           <IconAlert /> {lastError.value}

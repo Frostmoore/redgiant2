@@ -72,6 +72,8 @@ export interface SetupState {
       model: string;
       stream?: boolean;
       tuning?: { moeCacheShare?: number; opOffload?: boolean };
+      /** Turned off by the person: kept, not loaded (2026-11-04). */
+      off?: boolean;
       /** Speculative decoding (2026-11-04). */
       speculative?: "draft" | "ngram";
       draftModel?: string;
@@ -710,6 +712,8 @@ export class Api {
     this.call("DELETE", `/api/setup/local-models/${encodeURIComponent(file)}?variant=${variant}`);
   jobs = () => this.call<Job[]>("GET", "/api/jobs");
   job = (id: string) => this.call<Job>("GET", `/api/jobs/${encodeURIComponent(id)}`);
+  /** The local model turned on (a job that loads it) or off (2026-11-04). */
+  setEnginePower = (on: boolean) => this.call<Job | null>("PUT", "/api/setup/engine/power", { on });
   /** Measures what speculative decoding gains here (2026-11-04): a job; the engine is put back. */
   speedTest = (
     engine: {

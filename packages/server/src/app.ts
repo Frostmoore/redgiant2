@@ -2239,6 +2239,14 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   );
   app.delete("/api/setup/remote", (c) => wizard(c, () => (setup as SetupService).stopRemote()));
   // Starting the local engine is a job (image, start, load, a first answer); null stops it.
+  // The local model turned on or off (2026-11-04); on is a job that loads it again.
+  app.put("/api/setup/engine/power", (c) =>
+    wizard(c, async () => {
+      const b = await parsed(c, z.object({ on: z.boolean() }));
+      return (setup as SetupService).setEnginePower(b.on);
+    }),
+  );
+
   // Debug mode (2026-11-04): its switch, the logs as one archive, and deleting them.
   app.get("/api/debug", async (c) => c.json(await debugLog.state()));
   app.put("/api/debug", async (c) => {

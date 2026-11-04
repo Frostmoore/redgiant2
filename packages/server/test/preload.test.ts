@@ -26,7 +26,7 @@ describe("the model read once before the engine starts (2026-11-04)", () => {
     expect(gbs).toBeGreaterThanOrEqual(0);
   });
 
-  it("a mixture of experts streamed reads its context in passes of 2048 tokens", () => {
+  it("a mixture of experts streamed reads its context in passes of 4096 tokens", () => {
     const meta = {
       architecture: "gpt-oss",
       layers: 36,
@@ -36,7 +36,7 @@ describe("the model read once before the engine starts (2026-11-04)", () => {
       kvBytesPerToken: 73728,
     };
     const p = streamPlan(meta, 58, { kind: "gpu", vramGb: 16, ramGb: 30 });
-    expect(p.args.join(" ")).toContain("-b 2048 -ub 2048");
+    expect(p.args.join(" ")).toContain("-b 4096 -ub 4096");
     const cpu = streamPlan(meta, 58, { kind: "cpu", vramGb: 0, ramGb: 64 });
     expect(cpu.args).not.toContain("-ub");
   });

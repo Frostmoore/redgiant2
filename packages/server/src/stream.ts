@@ -39,12 +39,13 @@ const Q8 = 8.5 / 16;
 /** Not the model: compute buffers, the system, the other programs. */
 const CARD_RESERVE_GB = 1;
 /**
- * Tokens read in one pass (2026-11-04). With the experts outside the card, llama.cpp sends the
- * experts' weights to the card once for every pass of a long read: passes of 2048 tokens
- * instead of 512 send them a quarter as often. The larger buffers take about half a GB more.
+ * Tokens read in one pass (2026-11-04). With the experts outside the card, every pass of a long
+ * read goes through all of them (sent to the card, or read from RAM and the SSD): measured on
+ * gpt-oss 120B with 64 GB of RAM, 22 s a pass of 512 tokens, 22 tokens a second. Passes of 4096
+ * make it eight times fewer. The larger buffers take about a GB more of the card.
  */
-const MOE_BATCH = 2048;
-const MOE_BATCH_GB = 0.5;
+const MOE_BATCH = 4096;
+const MOE_BATCH_GB = 1;
 /** Of the free RAM, what the model's pages may keep (the rest for the engine and the system). */
 const RAM_FOR_CACHE = 0.9;
 

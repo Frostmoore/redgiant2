@@ -351,6 +351,53 @@ describe("the setup wizard", () => {
     expect((await api<SetupState>("GET", "/api/setup")).body.secretsSet.search).toEqual(["tavily"]);
   });
 
+  it("turns the local model off and on, and loads it as a job when RedGiant opens (2026-11-04)", async () => {
+    const { calls, hooks, dataDir } = await setup();
+    const api = (s as Server).api;
+    s?.core.providers.register(new FakeProvider(() => ({ text: "OK" }), { id: "local" }));
+    const started = await api<Job>("PUT", "/api/setup/engine", {
+      engine: { variant: "cuda", model: "big.gguf" },
+    });
+    await s?.core.jobs.settled(started.body.id);
+    // Off: the engine stops, the choice stays.
+    calls.length = 0;
+    expect((await api("PUT", "/api/setup/engine/power", { on: false })).status).toBe(200);
+    expect(calls).toEqual(["engine:off"]);
+    let state = (await api<SetupState>("GET", "/api/setup")).body;
+    expect(state.config.engine).toMatchObject({ model: "big.gguf", off: true });
+    // Opening RedGiant again: an engine turned off is not started.
+    const again = new SetupService({
+      db: (s as Server).core.db,
+      core: (s as Server).core,
+      dataDir,
+      ownerId: "me",
+      hooks,
+    });
+    calls.length = 0;
+    await again.applyAtStartup();
+    expect(calls.filter((c) => c.startsWith("engine"))).toEqual([]);
+    again.stop();
+    // On: a job loads it again, the one the page shows at the top.
+    const on = await api<Job>("PUT", "/api/setup/engine/power", { on: true });
+    expect(on.body.kind).toBe("engine_load");
+    expect((await s?.core.jobs.settled(on.body.id))?.state).toBe("done");
+    expect(calls).toContain("engine:cuda:big.gguf");
+    state = (await api<SetupState>("GET", "/api/setup")).body;
+    expect(state.config.engine?.off).toBeUndefined();
+    // Opening RedGiant with it on: loaded as a job.
+    const third = new SetupService({
+      db: (s as Server).core.db,
+      core: (s as Server).core,
+      dataDir,
+      ownerId: "me",
+      hooks,
+    });
+    await third.applyAtStartup();
+    const load = (s as Server).core.jobs.list("me").filter((j) => j.kind === "engine_load");
+    expect(load.length).toBeGreaterThanOrEqual(2);
+    third.stop();
+  });
+
   it("measures what speculative decoding gains, and puts the engine back (2026-11-04)", async () => {
     const { calls, hooks } = await setup();
     const api = (s as Server).api;
@@ -370,18 +417,20 @@ describe("the setup wizard", () => {
       engine: { variant: "cuda", model: "big.gguf" },
       modes: ["none", "draft", "ngram"],
     });
-    expect(job.body.steps.map((x) => x.id)).toEqual(["none", "draft", "ngram", "restore"]);
+    // The engine runs alone now: that way goes last, and nothing is loaded again at the end.
+    expect(job.body.steps.map((x) => x.id)).toEqual(["draft", "ngram", "none", "restore"]);
     const done = await s?.core.jobs.settled(job.body.id);
     expect(done?.state).toBe("done");
     const trials = JSON.parse(done?.vars.trials ?? "[]") as { mode: string; state: string }[];
     // No small model downloaded: that way is skipped, the others measured.
     expect(trials.map((x) => [x.mode, x.state])).toEqual([
-      ["none", "done"],
       ["draft", "skipped"],
       ["ngram", "done"],
+      ["none", "done"],
     ]);
-    // The model alone, the n-grams, then the engine as it was before the test.
-    expect(seen).toEqual(["none", "ngram", "none"]);
+    // The n-grams, then the model alone, which is how it ran: no restart to put it back.
+    expect(seen).toEqual(["ngram", "none"]);
+    expect(done?.steps.find((x) => x.id === "restore")?.state).toBe("skipped");
     expect(calls.at(-1)).toBe("engine:cuda:big.gguf");
   });
 

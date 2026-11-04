@@ -157,6 +157,11 @@ export interface EngineConfig {
    */
   speculative?: "draft" | "ngram" | undefined;
   draftModel?: string | undefined;
+  /**
+   * Turned off by the person (2026-11-04): kept with its tuning, but not started when RedGiant
+   * opens and using no memory until it is turned on again.
+   */
+  off?: boolean | undefined;
 }
 
 export interface SetupConfig {
@@ -433,7 +438,9 @@ export class SetupService {
     // No search set at all: RedGiant's own starts, so every model can search (2026-11-03).
     else if (!this.locked.search && c.completed && this.canRunSearch && !c.searxngDeclined)
       this.startSearch();
-    if (!this.locked.engine && c.engine) await run("engine", h.engine(c.engine));
+    // The local model as a job the page shows (2026-11-04: it loaded unseen, the RAM filling up
+    // with nothing on screen); not at all when the person turned it off.
+    if (!this.locked.engine && c.engine && !c.engine.off) this.loadEngine(c.engine);
     if (!this.locked.voice && c.transcription) this.applyTranscription();
     if (!this.locked.images && s.openaiImagesKey) this.applyImages();
     this.applyMedia();
@@ -813,9 +820,20 @@ export class SetupService {
    * mode, each one writes a short new text and rewrites a piece of code, and in the end the
    * engine goes back to how it was. As fast as it can: 128 tokens per text, one warm-up.
    */
-  testSpeed(e: EngineConfig, modes: string[]): Job {
+  testSpeed(e: EngineConfig, asked: string[]): Job {
     this.checkEngine(e);
     const before = this.config.engine;
+    // The way the engine runs now goes last (2026-11-04): when it is one of those tried, the
+    // test ends with the engine as it was, and no model is loaded once more to put it back.
+    const runningMode =
+      before && !before.off && before.model === e.model && before.variant === e.variant
+        ? (before.speculative ?? "none")
+        : undefined;
+    const modes =
+      runningMode && asked.includes(runningMode)
+        ? [...asked.filter((m) => m !== runningMode), runningMode]
+        : asked;
+    const endsAsBefore = runningMode !== undefined && modes.at(-1) === runningMode;
     const steps = [...modes, "restore"];
     return this.o.core.jobs.start(
       this.o.ownerId,
@@ -830,8 +848,10 @@ export class SetupService {
             const trial = trials[i] as SpeedTrial;
             if (h.signal.aborted) throw new Error("cancelled");
             h.step(mode);
+            // The running engine's own settings (its tuning, its plan) when it is the same model.
+            const { plan: _plan, off: _off, ...base } = runningMode && before ? before : e;
             const cfg: EngineConfig = {
-              ...e,
+              ...base,
               speculative: mode === "draft" ? "draft" : mode === "ngram" ? "ngram" : undefined,
               draftModel: mode === "draft" ? e.draftModel : undefined,
             };
@@ -859,10 +879,14 @@ export class SetupService {
             show();
           }
         } finally {
-          // The engine as it was, whatever happened.
-          h.step("restore");
-          await this.o.hooks.engine(before ?? null).catch(() => {});
-          if (before) await this.waitLocal(h).catch(() => {});
+          // The engine as it was, whatever happened (nothing to do when the last try was it).
+          const last = trials.at(-1);
+          if (endsAsBefore && last?.state === "done" && !h.signal.aborted) h.skip("restore");
+          else {
+            h.step("restore");
+            await this.o.hooks.engine(before && !before.off ? before : null).catch(() => {});
+            if (before && !before.off) await this.waitLocal(h).catch(() => {});
+          }
         }
       },
       { model: e.model },
@@ -916,6 +940,42 @@ export class SetupService {
     if (e && !file(e.model)) throw new SetupError("The model is a .gguf file in the models folder");
     if (e?.speculative === "draft" && !(e.draftModel && file(e.draftModel)))
       throw new SetupError("The small model is a .gguf file in the models folder");
+  }
+
+  /**
+   * The local model loaded when RedGiant opens, followed like an activation: reading it, starting
+   * the engine, loading it on the card. No tuning and no warm-up: it was chosen already.
+   */
+  loadEngine(e: EngineConfig): Job {
+    return this.o.core.jobs.start(
+      this.o.ownerId,
+      "engine_load",
+      ["image", "preload", "start", "load"],
+      async (h) => {
+        await this.o.hooks.engine(e, h);
+      },
+      { model: e.model },
+    );
+  }
+
+  /**
+   * The local model turned on or off (2026-11-04): off stops the engine and frees its memory,
+   * keeping the choice and its tuning; on starts it again as it was.
+   */
+  async setEnginePower(on: boolean): Promise<Job | null> {
+    const e = this.config.engine;
+    if (!e) throw new SetupError("No local model chosen");
+    if (this.locked.engine) throw new SetupError("The local engine is set by the environment");
+    if (!on) {
+      await this.o.hooks.engine(null);
+      this.config.engine = { ...e, off: true };
+      await this.save();
+      return null;
+    }
+    const { off: _off, ...rest } = e;
+    this.config.engine = rest;
+    await this.save();
+    return this.loadEngine(rest);
   }
 
   async saveEngine(e: EngineConfig | null): Promise<void> {

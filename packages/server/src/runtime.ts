@@ -133,6 +133,20 @@ function followEngineLogs(container: Docker.Container): void {
 
 /** How the wizard's choices take effect while the server runs (G17). */
 export function runtimeHooks(o: RuntimeOptions): SetupHooks {
+  /**
+   * This computer as the engine sees it, Docker's NVIDIA runtime included (2026-11-04: without
+   * it the plan thought there was no card at all when Windows' address was missing, and the
+   * streamed experts got no cache on the card, no long reading passes and no tuning).
+   */
+  const hardware = () =>
+    detectHardware({
+      dataDir: o.dataDir ?? ".",
+      dockerRuntimes: async () => {
+        if (!o.engine) return [];
+        const info = (await o.engine.docker.info()) as { Runtimes?: Record<string, unknown> };
+        return Object.keys(info.Runtimes ?? {});
+      },
+    });
   /** The RAM a model may use now on this engine: free, not total (2026-11-04). */
   const ramNow = async (cfg: EngineConfig, totalGb: number) => {
     const [linux, windows] = await Promise.all([
@@ -148,7 +162,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
   const preloadable = async (cfg: EngineConfig) => {
     const dir = cfg.variant === "windows" ? o.engine?.windows?.modelsDir : o.engine?.modelsDir;
     const gb = await modelGb(dir ?? "/models", cfg.model).catch(() => Number.POSITIVE_INFINITY);
-    const ram = await ramNow(cfg, (await detectHardware({ dataDir: o.dataDir ?? "." })).ramGb);
+    const ram = await ramNow(cfg, (await hardware()).ramGb);
     debugLog.write("engine", "preload decision", {
       model: cfg.model,
       modelGb: Math.round(gb * 10) / 10,
@@ -166,7 +180,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       readLocalGgufMeta(path),
       // A model in parts: its size is all the parts together.
       modelGb(dir ?? "/models", cfg.model),
-      detectHardware({ dataDir: o.dataDir ?? "." }),
+      hardware(),
     ]);
     // The RAM free now, not the total (2026-11-04): other programs may hold half of it.
     const ram = await ramNow(cfg, hw.ramGb);
@@ -174,10 +188,23 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       cfg.speculative === "draft" && cfg.draftModel
         ? await modelGb(dir ?? "/models", cfg.draftModel).catch(() => 0)
         : 0;
+    // An engine for a card was chosen: there is a card, even when it could not be seen here.
+    const kind =
+      cfg.variant !== "cpu" && (hw.suggestion.kind === "cpu" || hw.suggestion.kind === "igpu")
+        ? "gpu-unknown"
+        : hw.suggestion.kind;
+    debugLog.write("engine", "plan inputs", {
+      kind,
+      vramGb: hw.suggestion.vramGb,
+      freeRamGb: ram.gb,
+      modelGb: Math.round(size * 10) / 10,
+      dockerGpu: hw.dockerGpu,
+      gpus: hw.gpus.map((g) => `${g.name} ${g.vramGb} GB`),
+    });
     return streamPlan(
       meta,
       size,
-      { kind: hw.suggestion.kind, vramGb: hw.suggestion.vramGb, ramGb: ram.gb },
+      { kind, vramGb: hw.suggestion.vramGb, ramGb: ram.gb },
       { ...(cfg.tuning ?? {}), draftGb },
     );
   };
