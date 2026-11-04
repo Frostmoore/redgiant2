@@ -755,6 +755,12 @@ const en = {
     "Among the strongest open models for code and tools; needs SSD stream on most computers.",
   "lm_gpt-oss-120b":
     "OpenAI's large open model: reasons and uses tools very well; with SSD stream on 32 GB of RAM or more.",
+  "lm_llama-3.3-70b":
+    "Meta's large dense model, steady in every language. Dense: each token reads all of it, so beyond the card it is slow; for computers with a lot of RAM, with speculative decoding.",
+  "lm_qwen2.5-72b":
+    "Alibaba's large dense model, good at code and reasoning. Dense: for computers with a lot of RAM, with speculative decoding.",
+  "lm_mistral-large-2411":
+    "Mistral's largest open model, excellent in European languages. Dense and very big: for workstations with 128 GB of RAM or more.",
   updTitle: "Updates",
   updHelp:
     "RedGiant looks for a new version by itself at the first start of each day. Here you can look now.",
@@ -941,6 +947,18 @@ const en = {
   lmFactSsdNone: "nothing: it fits in RAM",
   lmFactRam: "Free RAM counted",
   lmVersions: "Version of the file",
+  lmSpecTitle: "Speculative decoding (for experts)",
+  lmSpecHelp:
+    "Writes faster without changing the answers: something cheap proposes the next tokens and the model checks them all in one pass, reading its weights once for several tokens. It helps most with large dense models outside the card; on a model that fits in the card it gains little. Measure it: the speed is shown under each answer.",
+  lmSpecNone: "Off",
+  lmSpecDraft: "With a small model of the family",
+  lmSpecNgram: "From the text already written",
+  lmSpecDraftHelp:
+    "{name} ({size}) proposes up to 8 tokens; it stays all in the card with its own context, so the big model gets a little less room there. It only works with a model of the same family (same vocabulary): RedGiant picks it.",
+  lmSpecDraftReady: "small model ready",
+  lmSpecDraftGet: "Download the small model · {size}",
+  lmSpecNgramHelp:
+    "The proposals come from pieces of the conversation that repeat (code being edited, documents quoted back): no second model, no memory used. On new prose it rarely helps.",
   lmPreloadSpeed: "Model read from the disk",
   lmWarmSpeed: "Context read (as a first message)",
   lmGbPerSec: "{n} GB/s",
@@ -2326,6 +2344,12 @@ const it: Record<Key, string> = {
     "Tra i modelli aperti più forti per codice e strumenti; sulla maggior parte dei computer serve lo SSD stream.",
   "lm_gpt-oss-120b":
     "Il grande modello aperto di OpenAI: ragiona e usa gli strumenti molto bene; con lo SSD stream da 32 GB di RAM in su.",
+  "lm_llama-3.3-70b":
+    "Il grande modello denso di Meta, solido in tutte le lingue. Denso: ogni token lo legge tutto, quindi fuori dalla scheda è lento; per computer con tanta RAM, con la decodifica speculativa.",
+  "lm_qwen2.5-72b":
+    "Il grande modello denso di Alibaba, bravo con codice e ragionamento. Denso: per computer con tanta RAM, con la decodifica speculativa.",
+  "lm_mistral-large-2411":
+    "Il più grande modello aperto di Mistral, ottimo nelle lingue europee. Denso e molto grande: per workstation con 128 GB di RAM o più.",
   updTitle: "Aggiornamenti",
   updHelp:
     "RedGiant cerca da solo una versione nuova al primo avvio di ogni giorno. Qui puoi cercarla adesso.",
@@ -2514,6 +2538,18 @@ const it: Record<Key, string> = {
   lmFactSsdNone: "niente: sta in RAM",
   lmFactRam: "RAM libera contata",
   lmVersions: "Versione del file",
+  lmSpecTitle: "Decodifica speculativa (per esperti)",
+  lmSpecHelp:
+    "Scrive più in fretta senza cambiare le risposte: qualcosa di economico propone i token successivi e il modello li controlla tutti in un passaggio, leggendo i suoi pesi una volta per più token. Aiuta soprattutto i grandi modelli densi fuori dalla scheda; su un modello che sta nella scheda guadagna poco. Misuralo: la velocità è sotto ogni risposta.",
+  lmSpecNone: "Spenta",
+  lmSpecDraft: "Con un modello piccolo della famiglia",
+  lmSpecNgram: "Dal testo già scritto",
+  lmSpecDraftHelp:
+    "{name} ({size}) propone fino a 8 token; sta tutto nella scheda con il suo contesto, quindi al modello grande resta un po' meno posto lì. Funziona solo con un modello della stessa famiglia (stesso vocabolario): lo sceglie RedGiant.",
+  lmSpecDraftReady: "modello piccolo pronto",
+  lmSpecDraftGet: "Scarica il modello piccolo · {size}",
+  lmSpecNgramHelp:
+    "Le proposte vengono da pezzi della conversazione che si ripetono (codice che si modifica, documenti citati): nessun secondo modello, nessuna memoria in più. Su testo nuovo aiuta di rado.",
   lmPreloadSpeed: "Modello letto dal disco",
   lmWarmSpeed: "Contesto letto (come un primo messaggio)",
   lmGbPerSec: "{n} GB/s",

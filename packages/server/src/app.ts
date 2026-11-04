@@ -1723,6 +1723,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     /** SSD stream (2026-11-03), and the share of the card given to the experts' cache. */
     stream: z.boolean().optional(),
     tuning: z.object({ moeCacheShare: z.number().min(0).max(0.8).optional() }).optional(),
+    /** Speculative decoding (2026-11-04): a small model of the family, or the text written. */
+    speculative: z.enum(["draft", "ngram"]).optional(),
+    draftModel: z.string().min(1).optional(),
   });
   app.get("/api/setup", (c) => wizard(c, () => (setup as SetupService).state()));
   app.put("/api/setup/models", (c) =>

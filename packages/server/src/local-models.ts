@@ -29,6 +29,8 @@ export interface LocalModelChoice extends LocalModel {
   beyondMemory?: boolean;
   /** Every version worth offering, smallest first: the person may pick another (2026-11-04). */
   versions?: (GgufFile & { quality: "high" | "good" | "reduced" })[];
+  /** The small model's file for speculative decoding, when the family has one. */
+  draftFile?: GgufFile;
 }
 
 export async function localModelChoices(
@@ -42,7 +44,11 @@ export async function localModelChoices(
   return Promise.all(
     LOCAL_MODELS.map(async (m) => {
       try {
-        const files = await hf.files(m.repo);
+        const [files, draftFiles] = await Promise.all([
+          hf.files(m.repo),
+          m.draft ? hf.files(m.draft.repo).catch(() => []) : Promise.resolve([]),
+        ]);
+        const draftFile = draftFiles.find((f) => f.quant === m.draft?.quant);
         const mine = files
           .filter((f) => have.has(HuggingFace.target(f.file)))
           .sort((a, b) => b.sizeGb - a.sizeGb)[0];
@@ -60,6 +66,7 @@ export async function localModelChoices(
           file: file ? { ...file, quality: qualityAmong(file, files) } : null,
           smallestGb: smallest?.sizeGb ?? null,
           versions: files.filter(offered).map((f) => ({ ...f, quality: qualityAmong(f, files) })),
+          ...(draftFile && { draftFile }),
           ...((beyond || (file && file.sizeGb > budgetGb)) && { beyondMemory: true }),
         };
       } catch {

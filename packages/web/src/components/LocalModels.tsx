@@ -377,6 +377,7 @@ function FileActions({
   active,
   variant,
   stream,
+  speculative,
   onChange,
 }: {
   repo: string | null;
@@ -388,6 +389,8 @@ function FileActions({
   variant: EngineVariant;
   /** Start it with SSD stream (2026-11-03). */
   stream?: boolean;
+  /** Start it with speculative decoding (2026-11-04). */
+  speculative?: { speculative: "draft" | "ngram"; draftModel?: string } | undefined;
   onChange: () => void;
 }) {
   const name = target(file);
@@ -484,7 +487,9 @@ function FileActions({
               <button
                 type="button"
                 class="primary"
-                onClick={() => act(() => getApi().setupEngine({ variant, model: name, stream }))}
+                onClick={() =>
+                  act(() => getApi().setupEngine({ variant, model: name, stream, ...speculative }))
+                }
               >
                 <IconPlay /> {t("lmStart")}
               </button>
@@ -705,6 +710,80 @@ function cardState(
   return t("lmCardGet", { size: gb(m.file.sizeGb) });
 }
 
+/**
+ * Speculative decoding, an option for those who want it (2026-11-04): what it does, when it
+ * helps, and the small model to download when the family has one.
+ */
+function Speculation({
+  m,
+  mode,
+  setMode,
+  files,
+  jobs,
+  variant,
+  onChange,
+}: {
+  m: LocalModelChoice;
+  mode: "none" | "draft" | "ngram";
+  setMode: (v: "none" | "draft" | "ngram") => void;
+  files: LocalFile[];
+  jobs: Job[];
+  variant: EngineVariant;
+  onChange: () => void;
+}) {
+  const [error, setError] = useState<string>();
+  const draft = m.draftFile;
+  const name = draft ? target(draft.file) : "";
+  const local = files.find((f) => f.file === name);
+  const dl = draft ? latest(jobs, "model_download", name) : undefined;
+  const p = dl?.state === "running" ? dl.steps[0]?.progress : undefined;
+  return (
+    <div class="gspec">
+      <span class="ui-label">{t("lmSpecTitle")}</span>
+      <p class="ui-help">{t("lmSpecHelp")}</p>
+      <div class="gspec-options">
+        <Pick small on={mode === "none"} onChange={() => setMode("none")}>
+          {t("lmSpecNone")}
+        </Pick>
+        {draft && (
+          <Pick small on={mode === "draft"} onChange={() => setMode("draft")}>
+            {t("lmSpecDraft")}
+          </Pick>
+        )}
+        <Pick small on={mode === "ngram"} onChange={() => setMode("ngram")}>
+          {t("lmSpecNgram")}
+        </Pick>
+      </div>
+      {mode === "draft" && draft && (
+        <>
+          <p class="ui-help">{t("lmSpecDraftHelp", { name: name, size: gb(draft.sizeGb) })}</p>
+          {local && !local.partial ? (
+            <span class="chip ok">{t("lmSpecDraftReady")}</span>
+          ) : p ? (
+            <Progress progress={p} />
+          ) : (
+            m.draft && (
+              <button
+                type="button"
+                onClick={() => {
+                  setError(undefined);
+                  void getApi()
+                    .downloadModel(m.draft?.repo ?? "", draft.file, variant)
+                    .then(onChange, (e: unknown) => setError(explain(e)));
+                }}
+              >
+                <IconDownload /> {t("lmSpecDraftGet", { size: gb(draft.sizeGb) })}
+              </button>
+            )
+          )}
+        </>
+      )}
+      {mode === "ngram" && <p class="ui-help">{t("lmSpecNgramHelp")}</p>}
+      {error && <p class="notice error">{error}</p>}
+    </div>
+  );
+}
+
 /** Everything about one suggested model: what it is good at, where it sits, its versions. */
 function ModelPanel({
   m,
@@ -735,6 +814,18 @@ function ModelPanel({
   const name = file ? target(file.file) : "";
   const inUse = !!file && active === name;
   const plan = inUse && s.config.engine?.stream ? s.config.engine.plan : undefined;
+  // Speculative decoding (2026-11-04): what runs now for this model, and what the person picks.
+  const running = inUse ? (s.config.engine?.speculative ?? "none") : "none";
+  const [spec, setSpec] = useState<"none" | "draft" | "ngram">(running);
+  const draftName = m.draftFile ? target(m.draftFile.file) : undefined;
+  const draftReady = !!draftName && files.some((f) => f.file === draftName && !f.partial);
+  const chosenSpec =
+    spec === "ngram"
+      ? { speculative: "ngram" as const }
+      : spec === "draft" && draftReady && draftName
+        ? { speculative: "draft" as const, draftModel: draftName }
+        : undefined;
+  const sameSpec = (chosenSpec?.speculative ?? "none") === running;
   const memory = tiers.filter((x) => x.kind !== "ssd").reduce((n, x) => n + x.gb, 0);
   const room = tiers.reduce((n, x) => n + x.gb, 0);
   return (
@@ -804,15 +895,25 @@ function ModelPanel({
               </select>
             </label>
           )}
+          <Speculation
+            m={m}
+            mode={spec}
+            setMode={setSpec}
+            files={files}
+            jobs={jobs}
+            variant={variant}
+            onChange={onChange}
+          />
           <FileActions
             repo={m.repo}
             file={file.file}
             sizeGb={file.sizeGb}
             local={files.find((f) => f.file === name)}
             jobs={jobs}
-            active={inUse}
+            active={inUse && sameSpec}
             variant={variant}
             stream={stream}
+            speculative={chosenSpec}
             onChange={onChange}
           />
         </>
@@ -899,6 +1000,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
         title: openModel.name,
         body: (
           <ModelPanel
+            key={openModel.id}
             m={openModel}
             s={s}
             tiers={tiers}

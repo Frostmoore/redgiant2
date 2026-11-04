@@ -552,7 +552,7 @@ static class WinEngine
         lock (gate) gen = ++generation;
         var t = new Thread(() => Handle(gen, id, Field(json, "model"), Field(json, "build"),
             Field(json, "ctx") ?? "65536", Field(json, "parallel") ?? "4", Field(json, "args"),
-            Field(json, "fit"), Field(json, "preload"))) { IsBackground = true };
+            Field(json, "fit"), Field(json, "preload"), Field(json, "draft"))) { IsBackground = true };
         t.Start();
     }
 
@@ -642,7 +642,17 @@ static class WinEngine
         }
     }
 
-    static void Handle(int gen, string id, string model, string build, string ctx, string parallel, string args, string fit, string preload)
+    /**
+     * The small model of speculative decoding (2026-11-04): a file name in models\ only, all of
+     * it in the card, up to 8 tokens proposed at a time.
+     */
+    static string DraftArgs(string draft)
+    {
+        if (string.IsNullOrEmpty(draft) || !Regex.IsMatch(draft, @"^[A-Za-z0-9_.-]+\.gguf$")) return "";
+        return " --spec-type draft-simple -md \"" + Path.Combine(Dir, "models", draft) + "\" -ngld 99 --spec-draft-n-max 8";
+    }
+
+    static void Handle(int gen, string id, string model, string build, string ctx, string parallel, string args, string fit, string preload, string draft)
     {
         lock (gate) { if (gen != generation) return; Kill(); }
         if (model == null) { Status(gen, id, "stopped", null); return; }
@@ -665,7 +675,7 @@ static class WinEngine
                 + " -c " + ctx + " --parallel " + parallel + " --slot-save-path \"" + Path.Combine(Dir, "kv")
                 + "\" --swa-full --kv-unified --jinja"
                 // SSD stream: llama.cpp fits the layers to the card itself (--fit, its default).
-                + (fit == "1" ? "" : " --n-gpu-layers 999") + SafeArgs(args))
+                + (fit == "1" ? "" : " --n-gpu-layers 999") + SafeArgs(args) + DraftArgs(draft))
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,

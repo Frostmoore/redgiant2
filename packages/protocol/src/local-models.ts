@@ -17,6 +17,12 @@ export interface LocalModel {
   totalB: number;
   activeB: number;
   scores: { smart: number; code: number; tools: number; languages: number };
+  /**
+   * A small model of the same family (same vocabulary) for speculative decoding (2026-11-04):
+   * it proposes a few tokens, the big one checks them all in one pass. Its file is the one with
+   * this quantisation in the repository.
+   */
+  draft?: { repo: string; quant: string };
 }
 
 export const LOCAL_MODELS: readonly LocalModel[] = [
@@ -59,6 +65,7 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     totalB: 14.8,
     activeB: 14.8,
     scores: { smart: 3, code: 3, tools: 3, languages: 3 },
+    draft: { repo: "unsloth/Qwen3-0.6B-GGUF", quant: "Q8_0" },
   },
   {
     id: "gpt-oss-20b",
@@ -139,6 +146,34 @@ export const LOCAL_MODELS: readonly LocalModel[] = [
     totalB: 117,
     activeB: 5.1,
     scores: { smart: 5, code: 4, tools: 5, languages: 2 },
+  },
+  // Large dense models (2026-11-04): every token reads all their weights, so they need a lot of
+  // memory and are slow beyond the card; for those who have it, with speculative decoding.
+  {
+    id: "llama-3.3-70b",
+    name: "Llama 3.3 70B",
+    repo: "unsloth/Llama-3.3-70B-Instruct-GGUF",
+    totalB: 70,
+    activeB: 70,
+    scores: { smart: 4, code: 4, tools: 4, languages: 4 },
+    draft: { repo: "unsloth/Llama-3.2-1B-Instruct-GGUF", quant: "Q8_0" },
+  },
+  {
+    id: "qwen2.5-72b",
+    name: "Qwen2.5 72B",
+    repo: "bartowski/Qwen2.5-72B-Instruct-GGUF",
+    totalB: 72,
+    activeB: 72,
+    scores: { smart: 4, code: 4, tools: 4, languages: 4 },
+    draft: { repo: "Qwen/Qwen2.5-0.5B-Instruct-GGUF", quant: "Q8_0" },
+  },
+  {
+    id: "mistral-large-2411",
+    name: "Mistral Large 2411 123B",
+    repo: "bartowski/Mistral-Large-Instruct-2411-GGUF",
+    totalB: 123,
+    activeB: 123,
+    scores: { smart: 5, code: 4, tools: 4, languages: 5 },
   },
 ];
 

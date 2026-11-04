@@ -57,10 +57,13 @@ export function streamPlan(
   meta: GgufMeta,
   fileGb: number,
   hw: StreamHardware,
-  tuning: { moeCacheShare?: number | undefined } = {},
+  tuning: { moeCacheShare?: number | undefined; draftGb?: number | undefined } = {},
 ): EnginePlan {
   const moe = meta.experts > 0;
-  const card = hw.kind === "gpu" ? hw.vramGb : hw.kind === "gpu-unknown" ? 8 : 0;
+  // A small model for speculative decoding sits in the card too, with its own context.
+  const draft = (tuning.draftGb ?? 0) * 1.3;
+  const full = hw.kind === "gpu" ? hw.vramGb : hw.kind === "gpu-unknown" ? 8 : 0;
+  const card = Math.max(0, full - draft);
   const kvPerToken = Math.max(1, meta.kvBytesPerToken * Q8);
   // What always stays in the card for a mixture of experts: the shared part (attention,
   // embeddings, routers); fine-grained models (64 experts or more) keep about 7 % of the file
@@ -109,4 +112,28 @@ export function streamPlan(
     ssdGbPerWord,
     ramGb: hw.ramGb,
   };
+}
+
+/**
+ * Speculative decoding's flags (2026-11-04, checked in llama.cpp b12034's arguments): a small
+ * model of the same family, all in the card, proposes up to 8 tokens; or the proposals come
+ * from the text already written (n-grams), with no second model.
+ */
+export function speculativeArgs(
+  speculative: "draft" | "ngram" | undefined,
+  draftPath: string | undefined,
+): string[] {
+  if (speculative === "draft" && draftPath)
+    return [
+      "--spec-type",
+      "draft-simple",
+      "-md",
+      draftPath,
+      "-ngld",
+      "99",
+      "--spec-draft-n-max",
+      "8",
+    ];
+  if (speculative === "ngram") return ["--spec-type", "ngram-mod"];
+  return [];
 }

@@ -57,3 +57,37 @@ describe("a file's quality among its repository's (2026-11-04)", () => {
     expect(qualityAmong(usual[0] as (typeof usual)[0], usual)).toBe("reduced");
   });
 });
+
+describe("speculative decoding (2026-11-04)", () => {
+  it("gives llama.cpp the small model or the n-grams, and nothing when off", async () => {
+    const { speculativeArgs } = await import("../src/stream.js");
+    expect(speculativeArgs("draft", "/models/small.gguf")).toEqual([
+      "--spec-type",
+      "draft-simple",
+      "-md",
+      "/models/small.gguf",
+      "-ngld",
+      "99",
+      "--spec-draft-n-max",
+      "8",
+    ]);
+    expect(speculativeArgs("draft", undefined)).toEqual([]);
+    expect(speculativeArgs("ngram", undefined)).toEqual(["--spec-type", "ngram-mod"]);
+    expect(speculativeArgs(undefined, "/models/x.gguf")).toEqual([]);
+  });
+
+  it("leaves the small model its room in the card", () => {
+    const dense = {
+      architecture: "llama",
+      layers: 80,
+      contextLength: 131072,
+      experts: 0,
+      expertsUsed: 0,
+      kvBytesPerToken: 327680,
+    };
+    const hw = { kind: "gpu", vramGb: 16, ramGb: 30 } as const;
+    const plain = streamPlan(dense, 42, hw);
+    const withDraft = streamPlan(dense, 42, hw, { draftGb: 1.3 });
+    expect(withDraft.ctx).toBeLessThanOrEqual(plain.ctx);
+  });
+});

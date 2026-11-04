@@ -13,6 +13,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { engineError } from "./engine-errors.js";
 import { JobFailure, type JobHandle } from "./jobs.js";
+import { speculativeArgs } from "./stream.js";
 
 /** llama.cpp's release the launcher downloads (`llama-<build>-bin-win-vulkan-x64.zip`). */
 export const WIN_ENGINE_BUILD = "b12034";
@@ -29,6 +30,8 @@ export interface WinEngineRequest {
   fit?: "1";
   /** Read the whole model once before starting, into Windows' cache (2026-11-04). */
   preload?: "1";
+  /** The small model of speculative decoding: a file name in `models/` (2026-11-04). */
+  draft?: string;
 }
 
 export interface WinEngineStatus {
@@ -77,6 +80,7 @@ export class WinEngine {
     model: string | null,
     plan?: { ctx: number; args: string[]; fit: boolean },
     preload = false,
+    spec: { speculative?: "draft" | "ngram" | undefined; draft?: string | undefined } = {},
   ): Promise<string> {
     const r: WinEngineRequest = {
       id: randomUUID(),
@@ -86,10 +90,17 @@ export class WinEngine {
       ctx: plan?.ctx ?? 65536,
       parallel: 4,
       // Each conversation may use the whole pool (llama.cpp gives a slot a quarter otherwise).
-      args: [...(plan?.args ?? []), "--kv-unified-per-slot", String(plan?.ctx ?? 65536)].join(" "),
+      // The draft model's path is the launcher's to write (it accepts only plain words here).
+      args: [
+        ...(plan?.args ?? []),
+        "--kv-unified-per-slot",
+        String(plan?.ctx ?? 65536),
+        ...(spec.speculative === "ngram" ? speculativeArgs("ngram", undefined) : []),
+      ].join(" "),
       // Always fitted by llama.cpp to the card's free memory (no --n-gpu-layers 999).
       fit: "1" as const,
       ...(preload && { preload: "1" as const }),
+      ...(spec.speculative === "draft" && spec.draft && { draft: spec.draft }),
     };
     await mkdir(this.o.dir, { recursive: true });
     const file = join(this.o.dir, "engine.json");
@@ -180,8 +191,9 @@ export class WinEngine {
     h?: JobHandle,
     plan?: { ctx: number; args: string[]; fit: boolean },
     preload = false,
+    spec: { speculative?: "draft" | "ngram" | undefined; draft?: string | undefined } = {},
   ): Promise<string> {
-    const id = await this.request(model, plan, preload);
+    const id = await this.request(model, plan, preload, spec);
     const poll = this.o.pollMs ?? 1000;
     const asked = Date.now();
     let seen = false;

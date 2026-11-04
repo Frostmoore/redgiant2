@@ -23,7 +23,7 @@ import { readLinuxMemory, readWindowsMemory, usableRamGb } from "./memory.js";
 import { modelGb, modelParts, preloadFiles } from "./preload.js";
 import { startRemote, stopRemote } from "./remote.js";
 import type { EngineConfig, SetupHooks } from "./setup.js";
-import { type EnginePlan, NORMAL_CTX, streamPlan } from "./stream.js";
+import { type EnginePlan, NORMAL_CTX, speculativeArgs, streamPlan } from "./stream.js";
 import type { WinEngine } from "./win-engine.js";
 
 export interface RuntimeOptions {
@@ -139,11 +139,15 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
     ]);
     // The RAM free now, not the total (2026-11-04): other programs may hold half of it.
     const ram = await ramNow(cfg, hw.ramGb);
+    const draftGb =
+      cfg.speculative === "draft" && cfg.draftModel
+        ? await modelGb(dir ?? "/models", cfg.draftModel).catch(() => 0)
+        : 0;
     return streamPlan(
       meta,
       size,
       { kind: hw.suggestion.kind, vramGb: hw.suggestion.vramGb, ramGb: ram.gb },
-      cfg.tuning ?? {},
+      { ...(cfg.tuning ?? {}), draftGb },
     );
   };
   let gateway: TelegramGateway | undefined;
@@ -272,7 +276,10 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
           );
         const pre = await preloadable(cfg);
         const started = async () => {
-          const baseURL = await win.start(cfg.model, h, plan, pre.fits);
+          const baseURL = await win.start(cfg.model, h, plan, pre.fits, {
+            speculative: cfg.speculative,
+            draft: cfg.draftModel,
+          });
           const provider = new LocalEngineProvider({
             id: "local",
             baseURL,
@@ -322,6 +329,8 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
             // forcing them all in (--n-gpu-layers 999) let a 12 GB model on a 16 GB card spill
             // into shared memory at the first long read, minutes instead of seconds (2026-11-04).
             ...(plan ? ["-c", String(plan.ctx), ...plan.args] : []),
+            // Speculative decoding, when the person turned it on (2026-11-04).
+            ...speculativeArgs(cfg.speculative, cfg.draftModel && `/models/${cfg.draftModel}`),
             // One pool shared by the slots, and each conversation may use all of it: without
             // this llama.cpp gives each slot a quarter (16k of 65k, seen 2026-11-04).
             "--kv-unified-per-slot",

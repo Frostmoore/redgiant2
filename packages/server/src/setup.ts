@@ -120,6 +120,13 @@ export interface EngineConfig {
   stream?: boolean | undefined;
   tuning?: { moeCacheShare?: number | undefined } | undefined;
   plan?: EnginePlan | undefined;
+  /**
+   * Speculative decoding (2026-11-04, an option for power users): `draft` a small model of the
+   * same family (`draftModel`, a file in the models folder) proposes tokens the big one checks
+   * in one pass; `ngram` the proposals come from the text already written.
+   */
+  speculative?: "draft" | "ngram" | undefined;
+  draftModel?: string | undefined;
 }
 
 export interface SetupConfig {
@@ -622,6 +629,8 @@ export class SetupService {
           now.variant === e.variant &&
           now.model === e.model &&
           Boolean(now.stream) === Boolean(e.stream) &&
+          now.speculative === e.speculative &&
+          now.draftModel === e.draftModel &&
           this.o.core.providers.has("local") &&
           (await this.o.core
             .trialModel(this.o.ownerId, { provider: "local", model: e.model })
@@ -772,8 +781,11 @@ export class SetupService {
 
   private checkEngine(e: EngineConfig | null): void {
     if (this.locked.engine) throw new SetupError("The local engine is set by the environment");
-    if (e && (e.model.includes("/") || e.model.includes("..") || !e.model.endsWith(".gguf")))
-      throw new SetupError("The model is a .gguf file in the models folder");
+    const file = (x: string) =>
+      !x.includes("/") && !x.includes("\\") && !x.includes("..") && x.endsWith(".gguf");
+    if (e && !file(e.model)) throw new SetupError("The model is a .gguf file in the models folder");
+    if (e?.speculative === "draft" && !(e.draftModel && file(e.draftModel)))
+      throw new SetupError("The small model is a .gguf file in the models folder");
   }
 
   async saveEngine(e: EngineConfig | null): Promise<void> {

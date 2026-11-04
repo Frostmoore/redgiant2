@@ -5281,3 +5281,15 @@ button.pick-tile.on {
 .gversions select {
   width: 100%;
 }
+.gspec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.gspec-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

@@ -72,6 +72,9 @@ export interface SetupState {
       model: string;
       stream?: boolean;
       tuning?: { moeCacheShare?: number };
+      /** Speculative decoding (2026-11-04). */
+      speculative?: "draft" | "ngram";
+      draftModel?: string;
       /** What the last start decided (SSD stream). */
       plan?: {
         ctx: number;
@@ -167,6 +170,8 @@ export interface LocalModelChoice extends LocalModel {
   beyondMemory?: boolean;
   /** Every version worth offering, smallest first. */
   versions?: (GgufFile & { quality: "high" | "good" | "reduced" })[];
+  /** The small model's file for speculative decoding, when the family has one. */
+  draftFile?: GgufFile;
 }
 
 /** A file of the models folder: ready, or a download paused halfway. */
@@ -600,8 +605,15 @@ export class Api {
   setup = () => this.call<SetupState>("GET", "/api/setup");
   setupModels = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/models", b);
   /** Starts the local engine: a job to follow (null stops it). */
-  setupEngine = (engine: { variant: EngineVariant; model: string; stream?: boolean } | null) =>
-    this.call<Job>("PUT", "/api/setup/engine", { engine });
+  setupEngine = (
+    engine: {
+      variant: EngineVariant;
+      model: string;
+      stream?: boolean;
+      speculative?: "draft" | "ngram";
+      draftModel?: string;
+    } | null,
+  ) => this.call<Job>("PUT", "/api/setup/engine", { engine });
   setupNames = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/names", b);
   setupTelegram = (token: string | null) =>
     this.call<{ username: string } | null>("PUT", "/api/setup/telegram", { token });
