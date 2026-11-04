@@ -425,6 +425,78 @@ describe("orchestration", () => {
     expect(creates).toBe(1);
   });
 
+  it("runs sub-agents in parallel, each in its own worktree, and merges their work (G29.7)", async () => {
+    s = await startServer((req) => {
+      const { n, results } = step(req);
+      if (role(req) === "agent") {
+        if (n === 0) return call("write_file", { path: "base.md", content: "base\n" });
+        if (n === 1)
+          return call("run_subagents", {
+            tasks: [
+              { title: "a", task: "write a.md" },
+              { title: "b", task: "write b.md" },
+            ],
+          });
+        return { text: results.at(-1) ?? "" };
+      }
+      const all = req.messages.map(textOf).join("\n");
+      const file = all.includes("write a.md") ? "a.md" : "b.md";
+      if (n === 0) return call("read_file", { path: "base.md" });
+      if (n === 1) return call("write_file", { path: file, content: `${file}\n` });
+      if (n === 2) return call("complete_task", { verify_command: exists(file) });
+      return { text: `Wrote ${file}.` };
+    });
+    const { core } = s;
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    await s.api("POST", "/api/projects", { name: "Para" });
+    const orch = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "orchestrator",
+      parentId: god.body.id,
+      projectId: "para",
+      name: "O",
+    });
+    const coder = core.registry.get(
+      (
+        await s.api<{ id: string }>("POST", "/api/agents", {
+          kind: "agent",
+          parentId: orch.body.id,
+          name: "Coder",
+        })
+      ).body.id,
+    );
+    if (!coder) throw new Error("no agent");
+    const sid = await core.workSession(coder);
+    await (await core.send("me", sid, "Split the work")).done;
+    // Both sub-agents' conversations started before either finished: they ran together.
+    const subs = core.registry.list({ ownerId: "me" }).filter((x) => x.kind === "subagent");
+    expect(subs).toHaveLength(2);
+    const spans = await Promise.all(
+      subs.map(async (sub) => {
+        const [own] = await core.listSessions("me", sub.id);
+        const events = await core.store.list({ sessionId: own?.id ?? "" });
+        return [Date.parse(events[0]?.ts ?? ""), Date.parse(events.at(-1)?.ts ?? "")] as const;
+      }),
+    );
+    const [a1, b1] = spans;
+    expect(a1 && b1 && a1[0] < b1[1] && b1[0] < a1[1]).toBe(true);
+    const results = (await core.store.list({ sessionId: sid }))
+      .filter((e) => e.type === "tool.result")
+      .map((e) => (e.payload as { output: string }).output);
+    const merged = results.at(-1) ?? "";
+    expect(merged).toMatch(/Coder › a: merged/);
+    expect(merged).toMatch(/Coder › b: merged/);
+    // Each started from the parent's work (base.md was there), and both came back.
+    expect(merged).not.toMatch(/not found|ENOENT/i);
+    const tree = join(s.dir, "workspaces", "me", "para", ".worktrees", coder.id.toLowerCase());
+    expect(await readFile(join(tree, "a.md"), "utf8")).toBe("a.md\n");
+    expect(await readFile(join(tree, "b.md"), "utf8")).toBe("b.md\n");
+    expect(await readFile(join(tree, "base.md"), "utf8")).toBe("base\n");
+  });
+
   it("lets three agents coordinate only through the board and the tree", async () => {
     let builderSaw = "";
     const ids = { builder: "" };

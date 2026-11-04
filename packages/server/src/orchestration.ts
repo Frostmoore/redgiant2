@@ -14,7 +14,7 @@ import {
 } from "@redgiant/hierarchy";
 import type { Event, ImagePart, ModelSpec } from "@redgiant/protocol";
 import { complete, costUsd, type ProviderRegistry, streamWithFallback } from "@redgiant/providers";
-import { commitAll, mergeWorktree, worktreeBranch } from "@redgiant/sandbox";
+import { commitAll, mergeWorktree, removeWorktree, worktreeBranch } from "@redgiant/sandbox";
 import type { Workspace } from "@redgiant/tools";
 import { z } from "zod";
 import type { ProjectStore } from "./projects.js";
@@ -52,6 +52,11 @@ export interface OrchestrationHost {
   rooms?: Rooms;
   /** A project's inspector as an agent, made on first use. */
   inspectorAgent?(ownerId: string, projectId: string): Promise<AgentRecord>;
+  /**
+   * G29.7: this sub-agent gets a worktree of its own, branched from its parent's, instead of
+   * working in the parent's (parallel sub-agents must not edit the same files at once).
+   */
+  isolate?(subagentId: string): void;
 }
 
 type Outcome = "verified" | "not_testable" | "abandoned";
@@ -729,6 +734,99 @@ export function orchestrationTools(
         }
       },
     } as Tool);
+
+    // G29.7: several sub-agents at once, each with its own conversation and worktree; their
+    // work comes back into this agent's worktree one by one, conflicts reported, not forced.
+    if (host.isolate) {
+      const Many = z.object({
+        tasks: z
+          .array(z.object({ title: z.string().min(1), task: z.string().min(1) }))
+          .min(1)
+          .max(6),
+      });
+      tools.push({
+        def: {
+          name: "run_subagents",
+          description:
+            "Run up to 6 sub-agents in parallel, each on one independent task, with a fresh context and its own copy of your worktree (they cannot step on each other). When all are done their changes are merged into your worktree one by one; conflicts are reported and left on the sub-agent's branch. Returns every report.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              tasks: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: { title: { type: "string" }, task: { type: "string" } },
+                  required: ["title", "task"],
+                },
+              },
+            },
+            required: ["tasks"],
+          },
+        },
+        schema: Many,
+        async run({ tasks: list }: z.infer<typeof Many>) {
+          const { root, worktree } = await host.projectWorkspaces(self);
+          const mine = await worktree(self.id);
+          // What this agent has so far is where every sub-agent starts from.
+          await commitAll(
+            mine,
+            "Work in progress, before sub-agents",
+            `${self.name} <${self.id}@redgiant>`,
+          );
+          const subs: AgentRecord[] = [];
+          try {
+            for (const t of list) {
+              const sub = await host.registry.create(me, {
+                kind: "subagent",
+                parentId: self.id,
+                name: `${self.name} › ${t.title}`.slice(0, 80),
+              });
+              host.isolate?.(sub.id);
+              subs.push(sub);
+            }
+            const reports = await Promise.all(
+              subs.map(async (sub, i) => {
+                const t = list[i] as { title: string; task: string };
+                try {
+                  return await delegate(
+                    sub,
+                    t.title,
+                    t.task,
+                    await host.startSession(self.ownerId, sub.id),
+                  );
+                } catch (err) {
+                  return `${sub.name} failed: ${(err as Error).message}`;
+                }
+              }),
+            );
+            const merges: string[] = [];
+            for (const sub of subs) {
+              try {
+                const ws = await worktree(sub.id);
+                await commitAll(ws, `${sub.name}`, `${sub.name} <${sub.id}@redgiant>`);
+                const r = await mergeWorktree(mine, sub.id);
+                if (r.ok) {
+                  await removeWorktree(root, sub.id, true).catch(() => {});
+                  merges.push(`${sub.name}: ${r.merged ? "merged" : "no changes"}`);
+                } else
+                  merges.push(
+                    `${sub.name}: conflicts in ${r.conflicts.join(", ")}; its work is on branch ${worktreeBranch(sub.id)}`,
+                  );
+              } catch (err) {
+                merges.push(`${sub.name}: not merged (${(err as Error).message})`);
+              }
+            }
+            return [...reports, `Merged into your worktree:\n${merges.join("\n")}`].join(
+              "\n\n---\n\n",
+            );
+          } finally {
+            for (const sub of subs)
+              await host.registry.stop(me, sub.id, "sub-agent task finished").catch(() => {});
+          }
+        },
+      } as Tool);
+    }
   }
 
   return tools;

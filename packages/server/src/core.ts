@@ -74,6 +74,7 @@ import {
   type Sandbox,
   type SandboxProvider,
   type SandboxSpec,
+  worktreeBranch,
 } from "@redgiant/sandbox";
 import { readRelease } from "@redgiant/supervisor";
 import {
@@ -118,6 +119,7 @@ import {
 import { migrateProjects, ProjectStore, type Subproject, slug } from "./projects.js";
 import { HumanQuestions, questionTools } from "./questions.js";
 import { migrateRooms, Rooms } from "./rooms.js";
+import { scriptTool } from "./script.js";
 import { type TranscriptionConfig, transcribe } from "./voice.js";
 
 export interface CoreOptions {
@@ -593,6 +595,12 @@ export class RedGiantCore implements OrchestrationHost {
     return { root, worktree: async (agentId) => sb.workspace(await createWorktree(root, agentId)) };
   }
 
+  /** Sub-agents with a worktree of their own (G29.7). */
+  private readonly isolated = new Set<string>();
+  isolate(subagentId: string): void {
+    this.isolated.add(subagentId);
+  }
+
   /** Whose notes a memory tool changes: the owner's, the agent's, its project's. */
   private noteOwner(agent: AgentRecord, assignedTo?: string): NoteOwner {
     return {
@@ -661,7 +669,12 @@ export class RedGiantCore implements OrchestrationHost {
       agent.kind === "agent"
         ? sb.workspace(await createWorktree(root, agent.id))
         : agent.kind === "subagent" && agent.parentId
-          ? sb.workspace(await createWorktree(root, agent.parentId))
+          ? sb.workspace(
+              // Parallel sub-agents (G29.7) branch from their parent's work, in their own folder.
+              this.isolated.has(agent.id)
+                ? await createWorktree(root, agent.id, worktreeBranch(agent.parentId))
+                : await createWorktree(root, agent.parentId),
+            )
           : root;
     // A subproject's agents write in its folder and do not see the other subprojects (G24.13).
     if (!agent.subprojectId) return own;
@@ -819,6 +832,8 @@ export class RedGiantCore implements OrchestrationHost {
           this.showTool(agent, ws),
           this.sendFileTool(agent, ws),
           this.variantsTool(agent, ws),
+          // Chains of tool calls that do not fill the context (G29.7).
+          scriptTool(agent, ws, this.broker, () => tools, this.sandbox.kind === "host"),
         );
       tools.push(
         ...customTools(await loadCustomTools(roots), ws),
