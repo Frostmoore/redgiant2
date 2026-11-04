@@ -1,0 +1,65 @@
+--- a/src/llama-graph.cpp
++++ b/src/llama-graph.cpp
+@@ -1562,10 +1562,29 @@
+     return x;
+ }
+ 
++// RedGiant research (G26.6, 2026-11-04): TEAL-style activation sparsity, for measuring only.
++// With LLAMA_TEAL_C=c, the inputs of every layer's matrix product whose magnitude is below
++// c times the token's mean magnitude are set to zero (no speed gain: the weights are still read).
++static float redgiant_teal_c() {
++    static const float c = [] {
++        const char * e = getenv("LLAMA_TEAL_C");
++        return e ? (float) atof(e) : 0.0f;
++    }();
++    return c;
++}
++
+ ggml_tensor * llm_graph_context::build_lora_mm(
+           ggml_tensor * w,
+           ggml_tensor * cur,
+           ggml_tensor * w_s) const {
++    if (redgiant_teal_c() > 0.0f && strncmp(w->name, "blk.", 4) == 0) {
++        ggml_tensor * x    = ggml_is_contiguous(cur) ? cur : ggml_cont(ctx0, cur);
++        ggml_tensor * mag  = ggml_abs(ctx0, x);
++        ggml_tensor * cut  = ggml_scale(ctx0, ggml_mean(ctx0, mag), redgiant_teal_c());
++        ggml_tensor * mask = ggml_step(ctx0, ggml_sub(ctx0, mag, cut));
++        ggml_set_name(mask, "teal_mask");
++        cur = ggml_mul(ctx0, x, mask);
++    }
+     // a Hadamard-folded weight reads the transformed input; a LoRA delta lives in the primal basis and reads `cur`
+     ggml_tensor * cur_mm = build_hadamard_input(w, cur);
+     ggml_tensor * res = ggml_mul_mat(ctx0, w, cur_mm);
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -1,5 +1,7 @@
+ #include "llama-context.h"
+ 
++#include <cstdlib>
++
+ #include "ggml.h"
+ #include "llama-arch.h"
+ #include "llama-graph.h"
+@@ -2527,6 +2529,12 @@
+ //
+ 
+ uint32_t llama_context::graph_max_nodes(uint32_t n_tokens) const {
++    // RedGiant research (G26.6): the TEAL mask adds about 7 nodes to every layer's matrix product.
++    const uint32_t teal = getenv("LLAMA_TEAL_C") ? 8u * model.n_tensors() : 0u;
++    return graph_max_nodes_base(n_tokens) + teal;
++}
++
++uint32_t llama_context::graph_max_nodes_base(uint32_t n_tokens) const {
+     uint32_t res;
+     if (model.arch == LLM_ARCH_KIMI_K3 || model.arch == LLM_ARCH_GLM5_NEXT) {
+         // the n_tokens*40 budget below is exhausted at ubatch 3840
+--- a/src/llama-context.h
++++ b/src/llama-context.h
+@@ -249,6 +249,7 @@
+ 
+ public:
+     uint32_t graph_max_nodes(uint32_t n_tokens) const;
++    uint32_t graph_max_nodes_base(uint32_t n_tokens) const;
+ 
+     // can reuse the llm_graph_result instance of the context (for example to update a memory module)
+     llm_graph_result * get_gf_res_reserve() const;
