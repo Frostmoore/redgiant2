@@ -26,6 +26,8 @@ export interface EnginePlan {
   fit: boolean;
   /** The card's cache of experts (MoE only), MiB. */
   moeCacheMib: number;
+  /** A mixture of experts with its experts outside the card: the tuning applies. */
+  moe: boolean;
   /** Where the weights mostly come from at each token. */
   source: "card" | "ram" | "ssd";
   /** About how many GB are read from the SSD for each token (0 when the model fits in RAM). */
@@ -80,7 +82,10 @@ export function streamPlan(
   let moeCacheMib = 0;
   if (card > 0 && moe) {
     // The card's room: part to the context, part to the cache of experts.
-    const share = Math.min(0.8, Math.max(0, tuning.moeCacheShare ?? 0.3));
+    // No cache of experts on the card unless the tuning measured it faster (2026-11-04: on
+    // Windows, through WSL, copying the missing experts to the card at every token wrote at
+    // 4-5 tokens a second where the processor alone wrote 13-14).
+    const share = Math.min(0.8, Math.max(0, tuning.moeCacheShare ?? 0));
     moeCacheMib = Math.floor((free * share * 1024) / 64) * 64;
     kvBudgetGb = free * (1 - share);
   } else if (card > 0) {
@@ -114,6 +119,7 @@ export function streamPlan(
       "q8_0",
     ],
     fit: true,
+    moe: moe && card > 0,
     moeCacheMib,
     source,
     ssdGbPerWord,

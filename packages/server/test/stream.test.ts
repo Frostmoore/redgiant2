@@ -19,11 +19,22 @@ const gemma12 = {
 };
 
 describe("SSD stream plan (2026-11-03)", () => {
-  it("a mixture of experts on a 12 GB card: experts out, a cache for them, a long context", () => {
+  it("a mixture of experts on a 12 GB card: experts out, a cache only if tuned, a long context", () => {
+    // No cache of experts by default (2026-11-04: slower through WSL); the tuning may choose one.
     const p = streamPlan(qwenCoder, 17.3, { kind: "gpu", vramGb: 12, ramGb: 32 });
-    expect(p.args.slice(0, 2)).toEqual(["--cpu-moe", "--moe-cache-mib"]);
+    expect(p.args[0]).toBe("--cpu-moe");
+    expect(p.args).not.toContain("--moe-cache-mib");
+    expect(p.moe).toBe(true);
     expect(p.args).toContain("q8_0");
-    expect(p.moeCacheMib).toBeGreaterThan(2000);
+    expect(p.moeCacheMib).toBe(0);
+    const cached = streamPlan(
+      qwenCoder,
+      17.3,
+      { kind: "gpu", vramGb: 12, ramGb: 32 },
+      { moeCacheShare: 0.3 },
+    );
+    expect(cached.args.slice(0, 2)).toEqual(["--cpu-moe", "--moe-cache-mib"]);
+    expect(cached.moeCacheMib).toBeGreaterThan(2000);
     // Far beyond 65536: the experts left the card to the context.
     // (a GB of the card goes to the long reading passes, 2026-11-04)
     expect(p.ctx).toBeGreaterThanOrEqual(98304);

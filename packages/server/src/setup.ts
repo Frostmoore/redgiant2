@@ -60,6 +60,8 @@ export interface SetupHooks {
    */
   engine(o: EngineConfig | null, h?: JobHandle): Promise<void | EnginePlan>;
   dockerRuntimes?(): Promise<string[]>;
+  /** After the local model stops: gives its memory back to the system (Windows: WSL's cache). */
+  releaseMemory?(): Promise<void>;
   /**
    * Gitea, the code server of one's own (G24.5): started (or found running) with an admin of
    * this name and password; returns a token for RedGiant. null stops it (the repositories stay).
@@ -670,7 +672,11 @@ export class SetupService {
           now.speculative === e.speculative &&
           now.draftModel === e.draftModel &&
           // Tuned before the try without the copy to the card (2026-11-04): that try is still due.
-          !(now.plan && now.plan.moeCacheMib > 0 && now.tuning?.opOffload === undefined) &&
+          !(
+            now.plan &&
+            (now.plan.moe ?? now.plan.moeCacheMib > 0) &&
+            now.tuning?.opOffload === undefined
+          ) &&
           this.o.core.providers.has("local") &&
           (await this.o.core
             .trialModel(this.o.ownerId, { provider: "local", model: e.model })
@@ -689,7 +695,7 @@ export class SetupService {
         // for gpt-oss 120B, the processor does it faster); a model tuned before gets that try only.
         const tuned =
           this.config.engine?.model === e.model ? this.config.engine?.tuning : undefined;
-        const moe = !!plan && plan.moeCacheMib > 0 && !e.tuning;
+        const moe = !!plan && (plan.moe ?? plan.moeCacheMib > 0) && !e.tuning;
         if (moe && (!tuned || tuned.opOffload === undefined)) {
           h.step("tune");
           const trials: Trial[] = [];
@@ -717,8 +723,9 @@ export class SetupService {
             show();
             return trial;
           };
+          // No cache of experts on the card first: it was the fastest through WSL (2026-11-04).
           const shares =
-            tuned?.moeCacheShare !== undefined ? [tuned.moeCacheShare] : [0.15, 0.3, 0.5];
+            tuned?.moeCacheShare !== undefined ? [tuned.moeCacheShare] : [0, 0.15, 0.3];
           const steps = shares.length + 1;
           for (const [i, share] of shares.entries()) {
             h.progress(i, steps);
@@ -728,7 +735,7 @@ export class SetupService {
             trials
               .filter((x) => x.state === "done")
               .sort((x, y) => (y.genTps ?? 0) - (x.genTps ?? 0))[0] ?? trials[0];
-          const share = best?.share ?? 0.3;
+          const share = best?.share ?? 0;
           h.progress(shares.length, steps);
           const local = await tryOne({ moeCacheShare: share, opOffload: false });
           h.progress(steps, steps);
@@ -976,6 +983,7 @@ export class SetupService {
     if (this.locked.engine) throw new SetupError("The local engine is set by the environment");
     if (!on) {
       await this.o.hooks.engine(null);
+      await this.o.hooks.releaseMemory?.().catch(() => {});
       this.config.engine = { ...e, off: true };
       await this.save();
       return null;
@@ -983,6 +991,11 @@ export class SetupService {
     const { off: _off, ...rest } = e;
     this.config.engine = rest;
     await this.save();
+    // Never tuned (a mixture of experts streamed): the whole activation, tuning included.
+    if (rest.stream && !rest.tuning) {
+      const { plan: _plan, ...asked } = rest;
+      return this.startEngine(asked);
+    }
     return this.loadEngine(rest);
   }
 

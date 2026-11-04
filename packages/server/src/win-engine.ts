@@ -170,6 +170,18 @@ export class WinEngine {
    * «Look for updates» (2026-11-04): RedGiant.exe looks now and, with a newer version, asks
    * the person on the desktop as every morning. Its answer, or null when it did not pick it up.
    */
+  /**
+   * Asks the launcher to empty WSL's cache of files (2026-11-04): after the local model is
+   * turned off its file stayed there and Windows did not get the memory back.
+   */
+  async releaseMemory(): Promise<void> {
+    await mkdir(this.o.dir, { recursive: true });
+    const file = join(this.o.dir, "dropcache.json");
+    await writeFile(`${file}.tmp`, JSON.stringify({ id: randomUUID() }));
+    await rename(`${file}.tmp`, file);
+    debugLog.write("engine", "asked Windows to empty WSL's cache of files");
+  }
+
   async checkUpdate(): Promise<{ state: string; version: string } | null> {
     const id = randomUUID();
     await mkdir(this.o.dir, { recursive: true });

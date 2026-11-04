@@ -508,6 +508,10 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       return plan;
     },
 
+    async releaseMemory() {
+      await o.engine?.windows?.releaseMemory();
+    },
+
     async checkUpdate() {
       return (await o.engine?.windows?.checkUpdate()) ?? null;
     },

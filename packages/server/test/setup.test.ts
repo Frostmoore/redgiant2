@@ -66,7 +66,8 @@ function fakeHooks() {
           ctx: 131072,
           args: ["--cpu-moe"],
           fit: true,
-          moeCacheMib: Math.round((share ?? 0.3) * 8192),
+          moe: true,
+          moeCacheMib: Math.round((share ?? 0) * 8192),
           source: "ram" as const,
           ssdGbPerWord: 0,
         };
@@ -456,16 +457,16 @@ describe("the setup wizard", () => {
       opOffload?: boolean;
     }[];
     // The three splits, then reading without sending the experts to the card (2026-11-04).
-    expect(trials.map((x) => x.share).slice(0, 3)).toEqual([0.15, 0.3, 0.5]);
+    expect(trials.map((x) => x.share).slice(0, 3)).toEqual([0, 0.15, 0.3]);
     expect(trials).toHaveLength(4);
     expect(trials[3]).toMatchObject({ opOffload: false });
     expect(trials.every((x) => x.ctx === 131072)).toBe(true);
     expect(trials.filter((x) => x.chosen)).toHaveLength(1);
-    const tries = calls.filter((c) => c.startsWith("engine:cuda:qwen.gguf:stream0."));
+    const tries = calls.filter((c) => /^engine:cuda:qwen\.gguf:stream0/.test(c));
     expect(tries.slice(0, 3)).toEqual([
+      "engine:cuda:qwen.gguf:stream0",
       "engine:cuda:qwen.gguf:stream0.15",
       "engine:cuda:qwen.gguf:stream0.3",
-      "engine:cuda:qwen.gguf:stream0.5",
     ]);
     const state = (await api<SetupState>("GET", "/api/setup")).body;
     expect(state.config.engine?.stream).toBe(true);

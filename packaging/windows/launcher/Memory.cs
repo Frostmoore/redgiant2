@@ -29,10 +29,36 @@ static class Memory
     static extern bool GlobalMemoryStatusEx([In, Out] MemoryStatusEx buffer);
 
     static System.Threading.Timer timer;
+    static System.Threading.Timer dropTimer;
+    static string lastDrop;
 
     public static void Watch()
     {
         timer = new System.Threading.Timer(_ => Write(), null, 0, 5000);
+        dropTimer = new System.Threading.Timer(_ => DropCaches(), null, 2000, 2000);
+    }
+
+    /**
+     * The local model turned off (2026-11-04): its file stayed in the distribution's cache and
+     * Windows did not get the memory back. RedGiant asks through dropcache.json; the cache of
+     * files inside WSL is emptied and Windows takes the free memory back.
+     */
+    static void DropCaches()
+    {
+        string json;
+        try { json = File.ReadAllText(Path.Combine(WinEngine.Dir, "dropcache.json")); } catch (Exception) { return; }
+        var m = System.Text.RegularExpressions.Regex.Match(json, "\"id\"\\s*:\\s*\"([^\"]+)\"");
+        if (!m.Success || m.Groups[1].Value == lastDrop) return;
+        lastDrop = m.Groups[1].Value;
+        try
+        {
+            var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("wsl.exe",
+                "-d RedGiant -u root -- sh -c \"sync; echo 1 > /proc/sys/vm/drop_caches\"")
+            { UseShellExecute = false, CreateNoWindow = true });
+            p.WaitForExit(30000);
+            Diag.Log("memory", "cache of files in WSL emptied (model turned off)");
+        }
+        catch (Exception e) { Diag.Log("memory", "could not empty the cache: " + e.Message); }
     }
 
     static void Write()
