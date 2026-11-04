@@ -156,6 +156,8 @@ export interface SetupState {
     dangers: { id: string }[];
     /** The guardian (2026-11-04): ask before writing outside the project, or let it be. */
     guardian?: "ask" | "auto";
+    /** Skills written by agents (G29.4): wait for the human, or install once tested. */
+    skills?: "ask" | "auto";
   };
   budgetUsd: number | null;
   canRunSearch: boolean;

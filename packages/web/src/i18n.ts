@@ -887,6 +887,13 @@ const en = {
     "Telegram refused this token. Copy it again from BotFather's message, all of it.",
   safetyPurpose:
     "What the agents may do on their own, how much they may spend, and how long the conversations are kept. You can change everything later.",
+  skillsTitle: "Skills the agents write",
+  skillsHint:
+    "After a hard problem an agent can save how it solved it as a skill (a SKILL.md), so every agent finds it next time. Skills are instructions; tools that run code always wait for you.",
+  skillsAsk: "Show them to me first",
+  skillsAskText: "A tested skill waits in Settings › Extensions until you approve it.",
+  skillsAuto: "Install them once tested",
+  skillsAutoText: "A skill whose tests pass is ready at once; you can remove it from Extensions.",
   guardianTitle: "The guardian",
   guardianHint:
     "Agents work directly in their project's folder (each in its own copy of the code). The guardian watches where they write: in the project they go ahead, outside it you decide.",
@@ -2529,6 +2536,13 @@ const it: Record<Key, string> = {
     "Telegram ha rifiutato questo token. Copialo di nuovo dal messaggio di BotFather, tutto intero.",
   safetyPurpose:
     "Cosa possono fare da soli gli agenti, quanto possono spendere e per quanto si tengono le conversazioni. Puoi cambiare tutto anche dopo.",
+  skillsTitle: "Le skill che scrivono gli agenti",
+  skillsHint:
+    "Dopo un problema difficile un agente può salvare come l'ha risolto in una skill (un SKILL.md), così la prossima volta la trova ogni agente. Le skill sono istruzioni; gli strumenti che eseguono codice aspettano sempre te.",
+  skillsAsk: "Fammele vedere prima",
+  skillsAskText: "Una skill provata aspetta in Impostazioni › Estensioni finché non la approvi.",
+  skillsAuto: "Installale quando passano le prove",
+  skillsAutoText: "Una skill che passa le sue prove è subito pronta; puoi toglierla da Estensioni.",
   guardianTitle: "Il guardiano",
   guardianHint:
     "Gli agenti lavorano direttamente nella cartella del loro progetto (ognuno nella sua copia del codice). Il guardiano controlla dove scrivono: nel progetto vanno avanti, fuori decidi tu.",

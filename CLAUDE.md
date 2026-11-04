@@ -37,7 +37,9 @@
 - Local engines: llama.cpp must run with `--slot-save-path` (shared with the server) and `--swa-full` for
   sliding-window models (Gemma…), or prefixes beyond the window are recomputed every turn.
 - Extensions never install themselves: an agent's proposal is tested in a throwaway sandbox and waits for the
-  user (`ExtensionBuilder.decide`); only the user's own extensions install directly once their tests pass.
+  user (`ExtensionBuilder.decide`); only the user's own extensions install directly once their tests pass. The one
+  exception is the user's choice (G29.4, policy `skills: "auto"`): an agent's _skill_ (instructions) installs once
+  tested; tools that run code always wait.
 - Automations (`@redgiant/automations`): recipes choose an agent, never its tools; a run never overlaps the previous
   one; webhook bodies reach the agent as data, never as instructions. Test schedules with the service's fake clock
   (`now`, `tick`), never by waiting for real time.

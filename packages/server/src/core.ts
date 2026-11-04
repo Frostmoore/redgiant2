@@ -828,7 +828,11 @@ export class RedGiantCore implements OrchestrationHost {
           // An assistant uses only the services it was given (G24.11).
           agent.kind === "assistant" ? (agent.connections ?? []) : undefined,
         )),
-        proposeTool(agent, this.extensions),
+        proposeTool(
+          agent,
+          this.extensions,
+          () => this.policies.get(agent.ownerId).skills === "auto",
+        ),
         memoryTool(this.notes, this.noteOwner(agent, assignedTo)),
       );
     }

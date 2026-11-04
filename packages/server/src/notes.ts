@@ -52,7 +52,9 @@ export class Notes {
       "## Memory",
       "Notes kept between conversations with the `memory` tool. Save what will matter next time " +
         "(the user's preferences, how this environment works, decisions, lessons from a hard " +
-        "problem), not what happened in this conversation. Changes show in the next conversation.",
+        "problem), not what happened in this conversation. Changes show in the next conversation. " +
+        "When you solved a hard problem with steps worth repeating, save the steps as a skill " +
+        "instead (propose_extension, kind skill), so every agent can follow them.",
       `About the user (scope "user", every agent reads them):\n${user || "(empty)"}`,
       `Your own (scope "self"):\n${self || "(empty)"}`,
     ];

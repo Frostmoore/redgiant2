@@ -34,6 +34,7 @@ const RETENTION = ["forever", "365", "90", "30"] as const;
 export function Safety({ s, next }: { s: SetupState; next: () => void }) {
   const [humanOnly, setHumanOnly] = useState<string[]>(s.policy.humanOnly);
   const [guardian, setGuardian] = useState<"ask" | "auto">(s.policy.guardian ?? "ask");
+  const [skills, setSkills] = useState<"ask" | "auto">(s.policy.skills ?? "ask");
   const [budget, setBudget] = useState(s.budgetUsd?.toString() ?? "");
   const [retention, setRetention] = useState<string>(
     s.config.retentionDays ? String(s.config.retentionDays) : "forever",
@@ -47,6 +48,7 @@ export function Safety({ s, next }: { s: SetupState; next: () => void }) {
     try {
       await getApi().setupSafety({
         guardian,
+        skills,
         humanOnly,
         budgetUsd: paid && budget.trim() ? Number(budget) : null,
         retentionDays: retention === "forever" ? null : Number(retention),
@@ -73,6 +75,22 @@ export function Safety({ s, next }: { s: SetupState; next: () => void }) {
             badge: t("lmRecommended"),
           },
           { id: "auto", title: t("guardianAuto"), description: t("guardianAutoText") },
+        ]}
+      />
+      {/* Skills the agents write after a hard problem (G29.4): the person chooses. */}
+      <h3>{t("skillsTitle")}</h3>
+      <p class="ui-help">{t("skillsHint")}</p>
+      <Choice<"ask" | "auto">
+        value={[skills]}
+        onChange={([v]) => v && setSkills(v)}
+        options={[
+          {
+            id: "ask",
+            title: t("skillsAsk"),
+            description: t("skillsAskText"),
+            badge: t("lmRecommended"),
+          },
+          { id: "auto", title: t("skillsAuto"), description: t("skillsAutoText") },
         ]}
       />
       <h3>{t("safetyWho")}</h3>

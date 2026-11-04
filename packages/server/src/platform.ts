@@ -39,6 +39,8 @@ export const PlatformPolicy = z.object({
   disabledDanger: z.array(z.string()).default([]),
   /** The guardian (2026-11-04): ask before writing outside the project, or let it be. */
   guardian: z.enum(["ask", "auto"]).default("ask"),
+  /** Skills an agent writes (G29.4): wait for the human, or install once their tests pass. */
+  skills: z.enum(["ask", "auto"]).default("ask"),
 });
 export type PlatformPolicy = z.infer<typeof PlatformPolicy>;
 
@@ -111,7 +113,9 @@ export class PolicyStore {
   }
 
   get(ownerId: string): PlatformPolicy {
-    return this.cache.get(ownerId) ?? { rules: [], disabledDanger: [], guardian: "ask" };
+    return (
+      this.cache.get(ownerId) ?? { rules: [], disabledDanger: [], guardian: "ask", skills: "ask" }
+    );
   }
 
   async set(ownerId: string, policy: PlatformPolicy): Promise<void> {

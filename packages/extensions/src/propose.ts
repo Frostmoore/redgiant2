@@ -9,6 +9,8 @@ import type { ExtensionBuilder } from "./builder.js";
 export function proposeTool(
   self: { id: string; ownerId: string; projectId: string | null },
   builder: ExtensionBuilder,
+  /** G29.4: the person chose to have tested skills installed at once (tools always wait). */
+  autoSkills: () => boolean = () => false,
 ): Tool {
   const Input = z.object({
     kind: z.enum(["tool", "skill"]),
@@ -76,6 +78,7 @@ export function proposeTool(
           projectId: self.projectId,
           author: self.id,
           input: input as never,
+          autoInstall: input.kind === "skill" && autoSkills(),
         });
       } catch (err) {
         const issues = (err as { issues?: { path: (string | number)[]; message: string }[] })
@@ -93,6 +96,8 @@ export function proposeTool(
           content: `Proposal ${p.id} failed its tests:\n${lines.join("\n")}\nFix it and propose again.`,
           isError: true,
         };
+      if (p.status === "installed")
+        return `Skill "${i.name}" passed its tests and is installed: every agent finds it from its next conversation.\n${lines.join("\n")}`;
       return `Proposal ${p.id} passed its tests and waits for the user's approval:\n${lines.join("\n")}`;
     },
   } as Tool;

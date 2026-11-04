@@ -242,6 +242,44 @@ describe("extension builder", () => {
     expect(bad).toMatchObject({ isError: true, content: expect.stringMatching(/^Not accepted/) });
   });
 
+  it("installs a tested skill at once when the person chose so, never a tool (G29.4)", async () => {
+    const { builder, installRoot } = await setup();
+    const tool = proposeTool(
+      { id: "agent_bbbbbbbb", ownerId: "me", projectId: "p" },
+      builder,
+      () => true,
+    );
+    const r = text(
+      await tool.run(
+        {
+          kind: "skill",
+          name: "flaky-ci",
+          description: "What to do when CI fails only on Windows",
+          body: "Rerun once, then read the runner's log before touching the test.",
+          untestable_reason: "Instructions only, nothing to run.",
+        },
+        ctx,
+      ),
+    );
+    expect(r).toMatch(/is installed/);
+    expect((await loadSkills([{ dir: installRoot, scope: "project" }])).map((x) => x.name)).toEqual(
+      ["flaky-ci"],
+    );
+    const t = text(
+      await tool.run(
+        {
+          kind: "tool",
+          name: "say-hi",
+          description: "Prints hi for the given name",
+          command: "echo hi",
+          tests: [{ input: {}, expectExitCode: 0 }],
+        },
+        ctx,
+      ),
+    );
+    expect(t).toMatch(/waits for the user's approval/);
+  });
+
   it("writes SKILL.md on approval", async () => {
     const { builder, installRoot } = await setup();
     const p = await builder.propose({

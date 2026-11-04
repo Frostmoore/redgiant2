@@ -2379,6 +2379,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
             retentionDays: z.number().int().min(1).max(3650).nullable().optional(),
             subscriptionAck: z.boolean().optional(),
             guardian: z.enum(["ask", "auto"]).optional(),
+            skills: z.enum(["ask", "auto"]).optional(),
           }),
         ),
       ),
