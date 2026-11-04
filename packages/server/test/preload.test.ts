@@ -70,6 +70,8 @@ describe("speculative decoding (2026-11-04)", () => {
       "99",
       "--spec-draft-n-max",
       "8",
+      "--spec-draft-p-min",
+      "0.75",
     ]);
     expect(speculativeArgs("draft", undefined)).toEqual([]);
     expect(speculativeArgs("ngram", undefined)).toEqual(["--spec-type", "ngram-mod"]);

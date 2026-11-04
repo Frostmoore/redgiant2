@@ -949,7 +949,7 @@ const en = {
   lmVersions: "Version of the file",
   lmSpecTitle: "Speculative decoding (for experts)",
   lmSpecHelp:
-    "Writes faster without changing the answers: something cheap proposes the next tokens and the model checks them all in one pass, reading its weights once for several tokens. It helps most with large dense models outside the card; on a model that fits in the card it gains little. Measure it: the speed is shown under each answer.",
+    "Writes faster without changing the answers: something cheap proposes the next tokens and the model checks them all in one pass, reading its weights once for several tokens. It helps most where the text is predictable (code being rewritten, long dense models outside the card); on new prose it gains little. Measured on an RTX 4080 Super: Llama 3.3 70B (mostly in RAM) from 1.1 to 2.6 tokens/s on new prose and to 7.4 on code rewritten; Qwen3 14B (in the card) from 59 to 155 on code, about even on prose. The speed is shown under each answer.",
   lmSpecNone: "Off",
   lmSpecDraft: "With a small model of the family",
   lmSpecNgram: "From the text already written",
@@ -958,7 +958,7 @@ const en = {
   lmSpecDraftReady: "small model ready",
   lmSpecDraftGet: "Download the small model · {size}",
   lmSpecNgramHelp:
-    "The proposals come from pieces of the conversation that repeat (code being edited, documents quoted back): no second model, no memory used. On new prose it rarely helps.",
+    "The proposals come from pieces of the conversation that repeat (code being edited, documents quoted back): no second model, no memory used. It helps only there: on new prose nothing, and on a large dense model little even on code (measured: Llama 3.3 70B 1.1 -> 1.3). Prefer the small model when the family has one.",
   lmPreloadSpeed: "Model read from the disk",
   lmWarmSpeed: "Context read (as a first message)",
   lmGbPerSec: "{n} GB/s",
@@ -2540,7 +2540,7 @@ const it: Record<Key, string> = {
   lmVersions: "Versione del file",
   lmSpecTitle: "Decodifica speculativa (per esperti)",
   lmSpecHelp:
-    "Scrive più in fretta senza cambiare le risposte: qualcosa di economico propone i token successivi e il modello li controlla tutti in un passaggio, leggendo i suoi pesi una volta per più token. Aiuta soprattutto i grandi modelli densi fuori dalla scheda; su un modello che sta nella scheda guadagna poco. Misuralo: la velocità è sotto ogni risposta.",
+    "Scrive più in fretta senza cambiare le risposte: qualcosa di economico propone i token successivi e il modello li controlla tutti in un passaggio, leggendo i suoi pesi una volta per più token. Aiuta soprattutto dove il testo è prevedibile (codice da riscrivere, grandi modelli densi fuori dalla scheda); su testo nuovo guadagna poco. Misurato su una RTX 4080 Super: Llama 3.3 70B (quasi tutto in RAM) da 1,1 a 2,6 token/s su testo nuovo e a 7,4 sul codice riscritto; Qwen3 14B (nella scheda) da 59 a 155 sul codice, quasi pari sul testo. La velocità è sotto ogni risposta.",
   lmSpecNone: "Spenta",
   lmSpecDraft: "Con un modello piccolo della famiglia",
   lmSpecNgram: "Dal testo già scritto",
@@ -2549,7 +2549,7 @@ const it: Record<Key, string> = {
   lmSpecDraftReady: "modello piccolo pronto",
   lmSpecDraftGet: "Scarica il modello piccolo · {size}",
   lmSpecNgramHelp:
-    "Le proposte vengono da pezzi della conversazione che si ripetono (codice che si modifica, documenti citati): nessun secondo modello, nessuna memoria in più. Su testo nuovo aiuta di rado.",
+    "Le proposte vengono da pezzi della conversazione che si ripetono (codice che si modifica, documenti citati): nessun secondo modello, nessuna memoria in più. Aiuta solo lì: su testo nuovo niente, e su un grande modello denso poco anche sul codice (misurato: Llama 3.3 70B da 1,1 a 1,3). Se la famiglia ha un modello piccolo, meglio quello.",
   lmPreloadSpeed: "Modello letto dal disco",
   lmWarmSpeed: "Contesto letto (come un primo messaggio)",
   lmGbPerSec: "{n} GB/s",

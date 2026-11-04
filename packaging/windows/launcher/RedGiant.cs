@@ -649,7 +649,7 @@ static class WinEngine
     static string DraftArgs(string draft)
     {
         if (string.IsNullOrEmpty(draft) || !Regex.IsMatch(draft, @"^[A-Za-z0-9_.-]+\.gguf$")) return "";
-        return " --spec-type draft-simple -md \"" + Path.Combine(Dir, "models", draft) + "\" -ngld 99 --spec-draft-n-max 8";
+        return " --spec-type draft-simple -md \"" + Path.Combine(Dir, "models", draft) + "\" -ngld 99 --spec-draft-n-max 8 --spec-draft-p-min 0.75";
     }
 
     static void Handle(int gen, string id, string model, string build, string ctx, string parallel, string args, string fit, string preload, string draft)
