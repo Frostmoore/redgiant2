@@ -33,6 +33,8 @@ export interface WinEngineRequest {
   preload?: "1";
   /** The small model of speculative decoding: a file name in `models/` (2026-11-04). */
   draft?: string;
+  /** Which llama.cpp build: CUDA for NVIDIA cards, Vulkan for the others (2026-11-04). */
+  flavor?: "cuda" | "vulkan";
 }
 
 export interface WinEngineStatus {
@@ -82,8 +84,10 @@ export class WinEngine {
     plan?: { ctx: number; args: string[]; fit: boolean },
     preload = false,
     spec: { speculative?: "draft" | "ngram" | undefined; draft?: string | undefined } = {},
+    flavor: "cuda" | "vulkan" = "vulkan",
   ): Promise<string> {
     const r: WinEngineRequest = {
+      flavor,
       id: randomUUID(),
       model,
       build: WIN_ENGINE_BUILD,
@@ -205,13 +209,14 @@ export class WinEngine {
     plan?: { ctx: number; args: string[]; fit: boolean },
     preload = false,
     spec: { speculative?: "draft" | "ngram" | undefined; draft?: string | undefined } = {},
+    flavor: "cuda" | "vulkan" = "vulkan",
   ): Promise<string> {
     if (!this.o.host)
       throw new JobFailure(
         "launcher_missing",
         "RedGiant does not know Windows' address on WSL's network: start RedGiant again from its icon",
       );
-    const id = await this.request(model, plan, preload, spec);
+    const id = await this.request(model, plan, preload, spec, flavor);
     const poll = this.o.pollMs ?? 1000;
     const asked = Date.now();
     let seen = false;

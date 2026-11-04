@@ -501,7 +501,12 @@ static class WinEngine
     public static readonly string Dir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RedGiant", "engine");
     const int Port = 8091;
-    static string Bin { get { return Path.Combine(Dir, "bin", "current"); } }
+    /**
+     * Which llama.cpp build runs (2026-11-04): "cuda" for NVIDIA cards, natively on Windows
+     * (in WSL the card sits behind a virtualisation layer), "vulkan" for the others.
+     */
+    static string flavor = "vulkan";
+    static string Bin { get { return Path.Combine(Dir, "bin", flavor == "cuda" ? "current-cuda" : "current"); } }
     static string Exe { get { return Path.Combine(Bin, "llama-server.exe"); } }
     static readonly object gate = new object();
     static System.Threading.Timer timer;
@@ -559,9 +564,10 @@ static class WinEngine
         lastId = id;
         int gen;
         lock (gate) gen = ++generation;
+        string wanted = Field(json, "flavor") == "cuda" ? "cuda" : "vulkan";
         var t = new Thread(() => Handle(gen, id, Field(json, "model"), Field(json, "build"),
             Field(json, "ctx") ?? "65536", Field(json, "parallel") ?? "4", Field(json, "args"),
-            Field(json, "fit"), Field(json, "preload"), Field(json, "draft"))) { IsBackground = true };
+            Field(json, "fit"), Field(json, "preload"), Field(json, "draft"), wanted)) { IsBackground = true };
         t.Start();
     }
 
@@ -661,12 +667,12 @@ static class WinEngine
         return " --spec-type draft-simple -md \"" + Path.Combine(Dir, "models", draft) + "\" -ngld 99 --spec-draft-n-max 8 --spec-draft-p-min 0.75";
     }
 
-    static void Handle(int gen, string id, string model, string build, string ctx, string parallel, string args, string fit, string preload, string draft)
+    static void Handle(int gen, string id, string model, string build, string ctx, string parallel, string args, string fit, string preload, string draft, string wanted)
     {
-        lock (gate) { if (gen != generation) return; Kill(); }
+        lock (gate) { if (gen != generation) return; Kill(); flavor = wanted; }
         if (model == null) { Status(gen, id, "stopped", null); Diag.Log("engine", "stop asked"); return; }
         var t0 = DateTime.Now;
-        Diag.Log("engine", "asked: model=" + model + " build=" + build + " ctx=" + ctx + " args=" + (args ?? "") + " preload=" + (preload ?? "") + " draft=" + (draft ?? ""));
+        Diag.Log("engine", "asked: model=" + model + " flavor=" + wanted + " build=" + build + " ctx=" + ctx + " args=" + (args ?? "") + " preload=" + (preload ?? "") + " draft=" + (draft ?? ""));
         string phase = "download";
         try
         {
@@ -741,7 +747,9 @@ static class WinEngine
         }
     }
 
-    const string Rule = "RedGiant local engine";
+    const string RuleName = "RedGiant local engine";
+    /** One rule per build: each is its own program for the firewall. */
+    static string Rule { get { return flavor == "cuda" ? RuleName + " (CUDA)" : RuleName; } }
 
     static int Netsh(string args, bool elevated)
     {
@@ -780,13 +788,9 @@ static class WinEngine
         catch (Exception) { return false; }
     }
 
-    /** llama.cpp's Vulkan build for Windows, from its GitHub release, into bin\current. */
-    static void Download(int gen, string id, string build)
+    /** One file of a release, with its progress on the status. */
+    static void Fetch(int gen, string id, string url, string zip)
     {
-        ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; // TLS 1.2
-        string url = "https://github.com/ggml-org/llama.cpp/releases/download/" + build
-            + "/llama-" + build + "-bin-win-vulkan-x64.zip";
-        string zip = Path.Combine(Dir, "bin", build + ".zip");
         var req = (HttpWebRequest)WebRequest.Create(url);
         req.UserAgent = "RedGiant";
         using (var res = (HttpWebResponse)req.GetResponse())
@@ -809,15 +813,41 @@ static class WinEngine
                 lock (gate) if (gen != generation) return;
             }
         }
-        string fresh = Path.Combine(Dir, "bin", build);
+    }
+
+    /**
+     * llama.cpp for Windows from its GitHub release, into bin\current (Vulkan) or
+     * bin\current-cuda (CUDA 12.4 with its runtime libraries, 2026-11-04).
+     */
+    static void Download(int gen, string id, string build)
+    {
+        ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; // TLS 1.2
+        string base_ = "https://github.com/ggml-org/llama.cpp/releases/download/" + build + "/";
+        string url = base_ + "llama-" + build + (flavor == "cuda" ? "-bin-win-cuda-12.4-x64.zip" : "-bin-win-vulkan-x64.zip");
+        string fresh = Path.Combine(Dir, "bin", build + "-" + flavor);
         if (Directory.Exists(fresh)) Directory.Delete(fresh, true);
-        ZipFile.ExtractToDirectory(zip, fresh);
+        string zip = Path.Combine(Dir, "bin", build + "-" + flavor + ".zip");
+        Fetch(gen, id, url, zip);
+        lock (gate) if (gen != generation) return;
+        ZipFile.ExtractToDirectory(zip, Path.Combine(fresh, "llama"));
         File.Delete(zip);
-        // The program may sit in a folder of the archive: its folder becomes bin\current.
-        string[] found = Directory.GetFiles(fresh, "llama-server.exe", SearchOption.AllDirectories);
+        if (flavor == "cuda")
+        {
+            // CUDA's own libraries are a second archive of the same release.
+            string rt = Path.Combine(Dir, "bin", build + "-cudart.zip");
+            Fetch(gen, id, base_ + "cudart-llama-bin-win-cuda-12.4-x64.zip", rt);
+            lock (gate) if (gen != generation) return;
+            ZipFile.ExtractToDirectory(rt, Path.Combine(fresh, "cudart"));
+            File.Delete(rt);
+        }
+        // The program may sit in a folder of the archive: its folder becomes the engine's.
+        string[] found = Directory.GetFiles(Path.Combine(fresh, "llama"), "llama-server.exe", SearchOption.AllDirectories);
         if (found.Length == 0) throw new Exception("llama-server.exe is not in " + url);
         if (Directory.Exists(Bin)) Directory.Delete(Bin, true);
         Directory.Move(Path.GetDirectoryName(found[0]), Bin);
+        if (flavor == "cuda")
+            foreach (var dll in Directory.GetFiles(Path.Combine(fresh, "cudart"), "*.dll", SearchOption.AllDirectories))
+                File.Copy(dll, Path.Combine(Bin, Path.GetFileName(dll)), true);
         if (Directory.Exists(fresh)) Directory.Delete(fresh, true);
         File.WriteAllText(Path.Combine(Bin, "build.txt"), build);
     }

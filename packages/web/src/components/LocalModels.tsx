@@ -635,6 +635,55 @@ function HfSearch({
   );
 }
 
+/**
+ * Models still inside WSL on Windows (2026-11-04, the person's decision: the engine runs
+ * natively, no virtualisation where it is not needed): how many, and one button to move them.
+ */
+function OutOfWsl({ s, onDone }: { s: SetupState; onDone: () => void }) {
+  const [jobId, setJobId] = useState<string>();
+  const [open, setOpen] = useState(false);
+  const job = useJob(jobId);
+  useEffect(() => {
+    if (job?.state === "done") onDone();
+  }, [job?.state]);
+  const files = s.wslModels ?? [];
+  if (!s.hardware.windowsEngine || (files.length === 0 && !jobId)) return null;
+  const total = files.reduce((n, f) => n + f.bytes, 0);
+  return (
+    <div class="notice warn out-of-wsl">
+      <p>{t("lmOutOfWsl", { n: String(files.length), size: bytes(total) })}</p>
+      <div class="row wrap">
+        <button
+          type="button"
+          class="primary"
+          disabled={job?.state === "running"}
+          onClick={() =>
+            void attempt(() => getApi().modelsToWindows()).then((j) => {
+              if (j) {
+                setJobId(j.id);
+                setOpen(true);
+              }
+            })
+          }
+        >
+          {t("lmOutOfWslMove")}
+        </button>
+        {jobId && !open && (
+          <button type="button" class="link" onClick={() => setOpen(true)}>
+            {t("lmShowActivation")}
+          </button>
+        )}
+      </div>
+      {open && job && (
+        <Modal title={t("lmOutOfWslTitle")} onClose={() => setOpen(false)}>
+          <p class="ui-help">{t("lmOutOfWslHelp")}</p>
+          <JobView job={job} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 /** This computer's places for a model, in order, with the bar of the room each one gives. */
 function Machine({
   s,
@@ -1199,6 +1248,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
         : null;
   return (
     <div class="lm">
+      <OutOfWsl s={s} onDone={changed} />
       <Machine s={s} tiers={tiers} diskFreeGb={streaming ? data?.diskFreeGb : undefined} />
       {s.locked.engine && <p class="notice">{t("wzLocked")}</p>}
       {error && <p class="notice error">{error}</p>}
@@ -1291,7 +1341,8 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
             onChange={(e) => setVariant((e.target as HTMLSelectElement).value as EngineVariant)}
           >
             {(s.hardware.windowsEngine
-              ? (["windows", "cuda", "cpu"] as const)
+              ? // On Windows only the engine that runs natively (2026-11-04).
+                (["windows"] as const)
               : (["cpu", "cuda", "vulkan"] as const)
             ).map((v) => (
               <option key={v} value={v}>

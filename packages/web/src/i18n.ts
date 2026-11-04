@@ -956,6 +956,15 @@ const en = {
   lmFactSsdNone: "nothing: it fits in RAM",
   lmFactRam: "Free RAM counted",
   lmVersions: "Version of the file",
+  lmOutOfWsl:
+    "{n} models ({size}) are still inside WSL, Windows' Linux layer. On Windows the local engine now runs natively: faster with the card, all the free RAM, memory given back when it stops. Move them once to use them.",
+  lmOutOfWslMove: "Move the models to Windows",
+  lmOutOfWslTitle: "Models out of WSL",
+  lmOutOfWslHelp:
+    "Each model is copied to the folder of the engine on Windows, then removed from WSL. A large model takes some minutes. At the end the model you use starts on the engine on Windows and is tuned again.",
+  job_models_to_windows: "Moving the models to Windows",
+  job_step_copy: "Copying the models",
+  job_step_switch: "Starting the model on Windows",
   lmOn: "On",
   lmOff: "Off",
   lmCardOff: "chosen, turned off",
@@ -2581,6 +2590,15 @@ const it: Record<Key, string> = {
   lmFactSsdNone: "niente: sta in RAM",
   lmFactRam: "RAM libera contata",
   lmVersions: "Versione del file",
+  lmOutOfWsl:
+    "{n} modelli ({size}) sono ancora dentro WSL, lo strato Linux di Windows. Su Windows il motore locale ora gira nativo: più veloce con la scheda, tutta la RAM libera, memoria restituita quando si spegne. Spostali una volta per usarli.",
+  lmOutOfWslMove: "Sposta i modelli su Windows",
+  lmOutOfWslTitle: "Modelli fuori da WSL",
+  lmOutOfWslHelp:
+    "Ogni modello viene copiato nella cartella del motore di Windows, poi tolto da WSL. Un modello grande richiede qualche minuto. Alla fine il modello che usi parte sul motore di Windows e viene regolato di nuovo.",
+  job_models_to_windows: "Sposto i modelli su Windows",
+  job_step_copy: "Copio i modelli",
+  job_step_switch: "Avvio il modello su Windows",
   lmOn: "Acceso",
   lmOff: "Spento",
   lmCardOff: "scelto, spento",

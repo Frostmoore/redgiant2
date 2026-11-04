@@ -194,14 +194,15 @@ describe("the engine on Windows itself", () => {
       engine: "windows",
       kind: "igpu",
     });
-    // NVIDIA with Docker's runtime stays on CUDA.
-    const cuda = await detectHardware({
+    // NVIDIA too, natively with CUDA, even with Docker's runtime (2026-11-04: no
+    // virtualisation where it is not needed).
+    const nvidia = await detectHardware({
       dataDir: "/tmp",
       gpus: async () => [],
       hostGpus: "NVIDIA GeForce RTX 4080 SUPER:16",
       windowsEngine: true,
       dockerRuntimes: async () => ["nvidia"],
     });
-    expect(cuda.suggestion.engine).toBe("cuda");
+    expect(nvidia.suggestion).toMatchObject({ engine: "windows", kind: "gpu", vramGb: 16 });
   });
 });

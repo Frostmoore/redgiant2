@@ -206,7 +206,12 @@ export async function detectHardware(o: {
   const best = (list: Gpu[]) => Math.max(0, ...list.map((g) => g.vramGb));
   // The model must leave room for the KV cache and the system: about 80 % of VRAM, 50 % of RAM.
   let suggestion: Hardware["suggestion"];
-  if (dockerGpu && (nvidia.length > 0 || gpus.length === 0)) {
+  if (o.windowsEngine && (others.length > 0 || nvidia.length > 0)) {
+    // On Windows every card runs natively, NVIDIA too (2026-11-04, the person's decision: no
+    // virtualisation where it is not needed; through WSL copies to the card were slow).
+    const vram = best([...others, ...nvidia]);
+    suggestion = { engine: "windows", maxModelGb: round(vram * 0.8), kind: "gpu", vramGb: vram };
+  } else if (dockerGpu && (nvidia.length > 0 || gpus.length === 0)) {
     const vram = best(nvidia);
     suggestion = {
       engine: "cuda",
@@ -214,10 +219,6 @@ export async function detectHardware(o: {
       kind: vram > 0 ? "gpu" : "gpu-unknown",
       vramGb: vram,
     };
-  } else if (o.windowsEngine && (others.length > 0 || nvidia.length > 0)) {
-    // On Windows every GPU works through the Windows engine (Vulkan with Windows' drivers).
-    const vram = best([...others, ...nvidia]);
-    suggestion = { engine: "windows", maxModelGb: round(vram * 0.8), kind: "gpu", vramGb: vram };
   } else if (o.windowsEngine && igpu) {
     suggestion = {
       engine: "windows",

@@ -45,6 +45,8 @@ export interface ClaudeAccount {
 }
 
 export interface SetupState {
+  /** Model files inside WSL that the engine on Windows could run instead (2026-11-04). */
+  wslModels?: { file: string; bytes: number }[];
   config: {
     completed: boolean;
     language?: "it" | "en";
@@ -712,6 +714,8 @@ export class Api {
     this.call("DELETE", `/api/setup/local-models/${encodeURIComponent(file)}?variant=${variant}`);
   jobs = () => this.call<Job[]>("GET", "/api/jobs");
   job = (id: string) => this.call<Job>("GET", `/api/jobs/${encodeURIComponent(id)}`);
+  /** The models out of WSL to the engine on Windows (2026-11-04): a job with a bar. */
+  modelsToWindows = () => this.call<Job>("POST", "/api/setup/models-to-windows");
   /** The local model turned on (a job that loads it) or off (2026-11-04). */
   setEnginePower = (on: boolean) => this.call<Job | null>("PUT", "/api/setup/engine/power", { on });
   /** Measures what speculative decoding gains here (2026-11-04): a job; the engine is put back. */
