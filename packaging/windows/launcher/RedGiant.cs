@@ -7,6 +7,7 @@
 //   RedGiant.exe               start (or, if already running, just open the browser)
 //   RedGiant.exe --background  start without opening the browser (start with Windows)
 //   RedGiant.exe --engine-only only the engine on Windows (G24.3b), without the server
+//   RedGiant.exe --quit        asks the running RedGiant to stop (server and database), and waits
 using System;
 using System.Diagnostics;
 using System.Collections.Generic;
@@ -456,6 +457,19 @@ sealed class Launcher : ApplicationContext
             new ManualResetEvent(false).WaitOne();
             return;
         }
+        // The installer and the uninstaller stop RedGiant this way: killing it would leave the
+        // server and Postgres running, holding the files they must replace.
+        if (Array.IndexOf(args, "--quit") >= 0)
+        {
+            try { using (var e = EventWaitHandle.OpenExisting("RedGiant.Launcher.Quit")) e.Set(); }
+            catch (Exception) { return; }
+            using (var m = new Mutex(false, "RedGiant.Launcher"))
+            {
+                try { if (m.WaitOne(60000)) m.ReleaseMutex(); }
+                catch (AbandonedMutexException) { }
+            }
+            return;
+        }
         bool background = Array.IndexOf(args, "--background") >= 0;
         bool first;
         using (var single = new Mutex(true, "RedGiant.Launcher", out first))
@@ -488,6 +502,9 @@ sealed class Launcher : ApplicationContext
             while (true) { e.WaitOne(); l.Ui(() => l.OpenBrowser()); }
         }) { IsBackground = true };
         t.Start();
+        var quit = new EventWaitHandle(false, EventResetMode.AutoReset, "RedGiant.Launcher.Quit");
+        var q = new Thread(() => { quit.WaitOne(); l.Ui(() => l.Quit()); }) { IsBackground = true };
+        q.Start();
     }
 }
 

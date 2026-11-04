@@ -73,5 +73,43 @@ jobs:
           if (-not (Test-Path "$dir\bin\current\llama-server.exe")) { "llama-server.exe was not installed"; exit 1 }
           if ($status.id -ne "ci-1" -or $status.state -ne "failed" -or $status.error -notin @("no_gpu", $null)) { "unexpected status"; exit 1 }
           if ("$($status.log)" -notmatch "llama|ggml|model") { "no engine log in the status"; exit 1 }
-      - if: runner.os == 'Linux'
-        run: shellcheck packaging/windows/rootfs/redgiant-wsl
+      # RedGiant 3.0 (G30.2): the whole installer, installed silently, started, answering, and
+      # stopped the proper way, with no Node or Postgres left behind.
+      - if: runner.os == 'Windows'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          pnpm --filter @redgiant/server deploy --prod --legacy packaging/windows/server
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Copy-Item -Recurse packages/web/dist packaging/windows/web
+          New-Item -ItemType Directory -Force packaging/windows/node | Out-Null
+          Copy-Item (Get-Command node).Source packaging/windows/node/node.exe
+          choco install innosetup -y --no-progress
+          Push-Location packaging/windows
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=0.0.0-ci" RedGiant.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Item dist\RedGiant-Setup.exe | Format-List Name, Length
+          Start-Process dist\RedGiant-Setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LANG=en", '/TASKS=""' -Wait
+          Pop-Location
+          $app = "$env:LOCALAPPDATA\RedGiant"
+          if (-not (Test-Path "$app\server\dist\main.js")) { "the server was not installed"; exit 1 }
+          Start-Process "$app\RedGiant.exe" -ArgumentList "--background"
+          $up = $false
+          for ($i = 0; $i -lt 120; $i++) {
+            Start-Sleep 2
+            try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:7600/api/health -TimeoutSec 3 | Out-Null; $up = $true; break } catch {}
+          }
+          Get-Content "$app\engine\launcher-*.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
+          if (-not $up) { "RedGiant did not answer"; exit 1 }
+          "answered after about $($i * 2) s"
+          & "$app\RedGiant.exe" --quit | Out-Null
+          Start-Sleep 5
+          $left = @(Get-Process node, postgres -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$app*" })
+          if ($left.Count -gt 0) { $left | Format-Table Id, ProcessName, Path; "processes left after --quit"; exit 1 }

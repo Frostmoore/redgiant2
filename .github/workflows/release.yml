@@ -82,35 +82,37 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.suffix }}
 
-  # RedGiant-Setup.exe (G22): the WSL distribution, the launcher and the installer, attached to the
-  # tag's GitHub Release.
-  windows-rootfs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build and export the WSL distribution
-        run: |
-          docker build -f packaging/windows/rootfs.Dockerfile --build-arg REDGIANT_REF=${{ github.ref_name }} -t redgiant-rootfs .
-          cid=$(docker create redgiant-rootfs)
-          docker export "$cid" | gzip -6 > redgiant-rootfs.tar.gz
-          ls -la redgiant-rootfs.tar.gz
-      - uses: actions/upload-artifact@v4
-        with:
-          name: redgiant-rootfs
-          path: redgiant-rootfs.tar.gz
-          compression-level: 0
-
+  # RedGiant-Setup.exe (G22; 3.0, G30.2): the launcher, Node, the server built for Windows and the
+  # web page, attached to the tag's GitHub Release. No WSL: everything runs on Windows itself.
   windows-installer:
-    needs: windows-rootfs
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          name: redgiant-rootfs
-          path: packaging/windows
+          node-version: 24
+      - run: corepack enable
+      - name: Build the server and the web page
+        shell: pwsh
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Stage what the installer carries (server with its production modules, page, Node)
+        shell: pwsh
+        run: |
+          # Built here, on Windows: the native parts (Postgres' binaries) are Windows' own.
+          pnpm --filter @redgiant/server deploy --prod --legacy packaging/windows/server
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Copy-Item -Recurse packages/web/dist packaging/windows/web
+          $v = node -p "process.version"
+          New-Item -ItemType Directory -Force packaging/windows/node | Out-Null
+          Invoke-WebRequest "https://nodejs.org/dist/$v/node-$v-win-x64.zip" -OutFile node.zip
+          Expand-Archive node.zip -DestinationPath node-x
+          Copy-Item "node-x/node-$v-win-x64/node.exe" packaging/windows/node/node.exe
+          "{0:N0} MB staged" -f ((Get-ChildItem -Recurse packaging/windows/server, packaging/windows/web, packaging/windows/node | Measure-Object Length -Sum).Sum / 1MB)
       - name: Build the launcher (C# of .NET Framework, on every Windows)
         shell: pwsh
         working-directory: packaging/windows
