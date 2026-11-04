@@ -4,6 +4,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { Job, JobError, JobProgress } from "@redgiant/protocol";
+import { debugLog } from "./debug-log.js";
 
 /** An error with a code the UI explains in plain words. */
 export class JobFailure extends Error {
@@ -34,6 +35,9 @@ interface Entry {
   controller: AbortController;
   /** Recent progress samples (time in ms, units done): the rate is their average. */
   samples: [number, number][];
+  /** For the debug log: when the running step started, when progress was last written. */
+  stepAt?: number;
+  loggedAt?: number;
 }
 
 /** The rate is the average of this many seconds: it does not jump at every chunk. */
@@ -68,6 +72,7 @@ export class Jobs {
       },
     };
     this.entries.set(entry.job.id, entry);
+    debugLog.write("job", `${kind} started`, { id: entry.job.id, steps, vars });
     const h = this.handle(entry);
     void run(h).then(
       (result) => this.finish(entry, "done", undefined, result),
@@ -122,13 +127,24 @@ export class Jobs {
         }
         target.state = "running";
         e.samples = [];
+        // How long the previous step took: the point of the debug log (2026-11-04).
+        const t = this.now();
+        debugLog.write("job", `${e.job.kind} step ${id}`, {
+          id: e.job.id,
+          ...(current && current !== target && { after: current.id, afterMs: t - (e.stepAt ?? t) }),
+        });
+        e.stepAt = t;
       },
       skip: (id) => {
         const target = e.job.steps.find((s) => s.id === id);
-        if (target && target.state === "waiting") target.state = "skipped";
+        if (target && target.state === "waiting") {
+          target.state = "skipped";
+          debugLog.write("job", `${e.job.kind} skip ${id}`, { id: e.job.id });
+        }
       },
       info: (vars) => {
         e.job.vars = { ...e.job.vars, ...vars };
+        debugLog.write("job", `${e.job.kind} info`, { id: e.job.id, vars });
       },
       progress: (done, total) => {
         const current = running();
@@ -138,6 +154,16 @@ export class Jobs {
         while (e.samples.length > 1 && t - (e.samples[0]?.[0] ?? t) > RATE_WINDOW_MS)
           e.samples.shift();
         current.progress = rated(e.samples, done, total);
+        // Progress every 5 seconds at most: the rate tells whether something crawls.
+        if (t - (e.loggedAt ?? 0) >= 5000) {
+          e.loggedAt = t;
+          debugLog.write("job", `${e.job.kind} progress ${current.id}`, {
+            id: e.job.id,
+            done,
+            total,
+            perSecond: current.progress.rate ?? null,
+          });
+        }
       },
     };
   }
@@ -149,6 +175,11 @@ export class Jobs {
     }
     e.job.state = state;
     e.job.endedAt = new Date(this.now()).toISOString();
+    debugLog.write("job", `${e.job.kind} ${state}`, {
+      id: e.job.id,
+      ms: this.now() - Date.parse(e.job.startedAt),
+      ...(error && { error }),
+    });
     if (error) e.job.error = error;
     if (result !== undefined) e.job.result = result;
   }

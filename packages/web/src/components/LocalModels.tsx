@@ -290,6 +290,7 @@ function StreamSwitch({
 function TuneTrials({ json }: { json: string }) {
   let trials: {
     share: number;
+    opOffload?: boolean;
     ctx: number;
     cacheMib: number;
     state: "running" | "done" | "failed";
@@ -318,9 +319,10 @@ function TuneTrials({ json }: { json: string }) {
         </thead>
         <tbody>
           {trials.map((x) => (
-            <tr key={x.share} class={x.chosen ? "chosen" : ""}>
+            <tr key={`${x.share}-${x.opOffload ?? true}`} class={x.chosen ? "chosen" : ""}>
               <td>
                 {gb(x.cacheMib / 1024)} ({Math.round(x.share * 100)}%)
+                {x.opOffload === false && ` · ${t("lmTuneNoCopy")}`}
               </td>
               <td>{x.ctx ? `${Math.round(x.ctx / 1024)}k` : "–"}</td>
               <td>{x.prefillTps ? `${x.prefillTps} tok/s` : "–"}</td>

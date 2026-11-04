@@ -197,8 +197,8 @@ const BANDWIDTH = { card: 500, ram: 30, igpu: 60, cpu: 40, unknown: 120, ssd: 3 
  * About how many tokens a second a model writes here, and that as 1 to 5. Writing one token
  * reads the working part of the model once (all of it for a dense model, the active experts
  * and the shared part for a mixture of experts). The model fills the card first, then the RAM,
- * then (SSD stream) the SSD: each part of the reads goes at its place's speed. The experts used
- * most stay in RAM, so the SSD serves about half of its share. A rough estimate, said as such.
+ * then (SSD stream) the SSD: each part of the reads goes at its place's speed. A rough
+ * estimate, said as such.
  */
 export function estimatedSpeed(
   m: Pick<LocalModel, "totalB" | "activeB">,
@@ -211,7 +211,12 @@ export function estimatedSpeed(
   const memory = (hw.ramGb ?? 16) * 0.9;
   const inCard = Math.min(size, card);
   const inRam = Math.min(size - inCard, memory);
-  const onSsd = (size - inCard - inRam) * 0.5;
+  // A mixture of experts reads few of its experts at each token and the ones used most stay in
+  // the system's cache: a tenth of its SSD share is really read (measured 2026-11-04: gpt-oss
+  // 120B, 58 GB, 13-15 tokens/s on a 16 GB card with about 27 GB of RAM free). A dense model
+  // reads all of it at every token.
+  const moe = m.activeB < m.totalB * 0.5;
+  const onSsd = (size - inCard - inRam) * (moe ? 0.1 : 1);
   const ramSpeed =
     hw.kind === "gpu"
       ? BANDWIDTH.ram

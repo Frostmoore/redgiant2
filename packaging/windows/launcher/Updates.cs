@@ -83,6 +83,7 @@ static class Updates
             long size = 0;
             var asset = Regex.Match(json, "\"size\"\\s*:\\s*(\\d+)[^{}]*RedGiant-Setup\\.exe|RedGiant-Setup\\.exe\"[^{}]*\"size\"\\s*:\\s*(\\d+)");
             if (asset.Success) long.TryParse(asset.Groups[1].Success ? asset.Groups[1].Value : asset.Groups[2].Value, out size);
+            Diag.Log("update", "latest release on GitHub: " + tag.Groups[1].Value + " (" + size + " bytes)");
             return new Release { Version = tag.Groups[1].Value, Url = url.Groups[1].Value, Size = size };
         }
     }
@@ -197,6 +198,8 @@ static class Updates
         var samples = new Queue<KeyValuePair<DateTime, long>>();
         var w = new WebClient();
         w.Headers[HttpRequestHeader.UserAgent] = "RedGiant-Updates";
+        var downloadStarted = DateTime.Now;
+        Diag.Log("update", "downloading " + r.Version + " from " + r.Url);
         w.DownloadProgressChanged += (s, e) =>
         {
             long total = e.TotalBytesToReceive > 0 ? e.TotalBytesToReceive : r.Size;
@@ -219,11 +222,13 @@ static class Updates
         {
             if (e.Error != null || e.Cancelled)
             {
+                Diag.Log("update", "download failed: " + (e.Error != null ? e.Error.Message : "cancelled"));
                 f.Close();
                 MessageBox.Show((It ? "Non sono riuscito a scaricare l'aggiornamento. Riprovo la prossima volta.\n\n" : "The update could not be downloaded. It is tried again next time.\n\n") + (e.Error != null ? e.Error.Message : ""), "RedGiant", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 Set("UpdatePending", r.Version);
                 return;
             }
+            Diag.Log("update", "downloaded in " + (int) (DateTime.Now - downloadStarted).TotalSeconds + " s, starting the installer");
             detail.Text = It ? "Apro l'installazione…" : "Opening the installer…";
             // The installer closes this RedGiant, updates without questions and opens it again.
             Process.Start(new ProcessStartInfo(file, "/SILENT /SUPPRESSMSGBOXES /NORESTART") { UseShellExecute = true });

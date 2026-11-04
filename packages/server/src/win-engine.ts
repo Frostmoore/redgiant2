@@ -11,6 +11,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { debugLog } from "./debug-log.js";
 import { engineError } from "./engine-errors.js";
 import { JobFailure, type JobHandle } from "./jobs.js";
 import { speculativeArgs } from "./stream.js";
@@ -197,6 +198,8 @@ export class WinEngine {
     const poll = this.o.pollMs ?? 1000;
     const asked = Date.now();
     let seen = false;
+    let lastState = "";
+    debugLog.write("engine", "Windows engine asked", { model, plan: plan ?? null, preload, spec });
     for (;;) {
       if (h?.signal.aborted) {
         await this.stop();
@@ -205,6 +208,12 @@ export class WinEngine {
       const s = await this.status();
       if (s?.id === id) {
         seen = true;
+        if (s.state !== lastState) {
+          debugLog.write("engine", `Windows engine ${s.state}`, {
+            msSinceAsked: Date.now() - asked,
+          });
+          lastState = s.state;
+        }
         if (s.state === "downloading") {
           h?.step("image");
           if (s.done !== undefined) h?.progress(s.done, s.total ?? null);

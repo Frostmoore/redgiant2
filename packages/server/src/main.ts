@@ -17,6 +17,7 @@ import pg from "pg";
 import { TokenAuth } from "./auth.js";
 import { Browsers, DockerBrowserLauncher } from "./browser.js";
 import { RedGiantCore } from "./core.js";
+import { debugLog } from "./debug-log.js";
 import { GitHosts } from "./git-hosts.js";
 import { HuggingFace } from "./hf.js";
 import { backgroundPuller, runtimeHooks } from "./runtime.js";
@@ -175,6 +176,12 @@ const docker = sandbox.kind === "docker" ? new Docker() : undefined;
 const winEngine = env.REDGIANT_WIN_HOST
   ? new WinEngine({ dir: env.REDGIANT_WIN_ENGINE_DIR ?? "/winengine", host: env.REDGIANT_WIN_HOST })
   : undefined;
+// Debug mode (2026-11-04): before the engine and the setup start, so their start is logged too.
+await debugLog.configure({
+  dir: join(dataDir, "logs"),
+  winDir: winEngine?.dir,
+  forced: env.REDGIANT_DEBUG === "1",
+});
 const hooks = runtimeHooks({
   dataDir,
   core,

@@ -94,6 +94,8 @@ export interface SetupHooks {
 /** One try of the SSD stream's tuning, as the engine page shows it. */
 interface Trial {
   share: number;
+  /** false: the try without sending the experts to the card to read a context. */
+  opOffload?: boolean;
   ctx: number;
   cacheMib: number;
   state: "running" | "done" | "failed";
@@ -146,7 +148,7 @@ export interface EngineConfig {
   variant: EngineVariant;
   model: string;
   stream?: boolean | undefined;
-  tuning?: { moeCacheShare?: number | undefined } | undefined;
+  tuning?: { moeCacheShare?: number | undefined; opOffload?: boolean | undefined } | undefined;
   plan?: EnginePlan | undefined;
   /**
    * Speculative decoding (2026-11-04, an option for power users): `draft` a small model of the
@@ -659,6 +661,8 @@ export class SetupService {
           Boolean(now.stream) === Boolean(e.stream) &&
           now.speculative === e.speculative &&
           now.draftModel === e.draftModel &&
+          // Tuned before the try without the copy to the card (2026-11-04): that try is still due.
+          !(now.plan && now.plan.moeCacheMib > 0 && now.tuning?.opOffload === undefined) &&
           this.o.core.providers.has("local") &&
           (await this.o.core
             .trialModel(this.o.ownerId, { provider: "local", model: e.model })
@@ -672,26 +676,27 @@ export class SetupService {
         let plan = await this.o.hooks.engine(wanted, h);
         // SSD stream of a mixture of experts, not tuned yet for this model: the card's room is
         // split three ways between the experts' cache and the context, each one measured, and
-        // the fastest kept (2026-11-03).
-        const tuned = this.config.engine?.model === e.model && this.config.engine?.tuning;
-        if (plan && plan.moeCacheMib > 0 && !e.tuning && !tuned) {
+        // the fastest kept (2026-11-03). Then reading a context with and without sending the
+        // experts to the card at every pass (2026-11-04: in WSL that copy took 30 s a message
+        // for gpt-oss 120B, the processor does it faster); a model tuned before gets that try only.
+        const tuned =
+          this.config.engine?.model === e.model ? this.config.engine?.tuning : undefined;
+        const moe = !!plan && plan.moeCacheMib > 0 && !e.tuning;
+        if (moe && (!tuned || tuned.opOffload === undefined)) {
           h.step("tune");
-          const shares = [0.15, 0.3, 0.5];
-          // Each try as the page shows it (2026-11-03): the split, what it gave, how fast it went.
           const trials: Trial[] = [];
           const show = () => h.info({ trials: JSON.stringify(trials) });
-          for (const [i, share] of shares.entries()) {
-            h.progress(i, shares.length);
-            const cfg = { ...asked, tuning: { moeCacheShare: share } };
-            const tried = await this.o.hooks.engine(cfg);
-            trials.push({
-              share,
+          const tryOne = async (tuning: { moeCacheShare: number; opOffload?: boolean }) => {
+            const tried = await this.o.hooks.engine({ ...asked, tuning });
+            const trial: Trial = {
+              share: tuning.moeCacheShare,
               ctx: tried ? tried.ctx : 0,
               cacheMib: tried ? tried.moeCacheMib : 0,
               state: "running",
-            });
+              ...(tuning.opOffload === false && { opOffload: false }),
+            };
+            trials.push(trial);
             show();
-            const trial = trials[trials.length - 1] as Trial;
             try {
               await this.waitLocal(h);
               Object.assign(trial, await this.benchLocal(e.model), { state: "done" });
@@ -702,14 +707,32 @@ export class SetupService {
               });
             }
             show();
+            return trial;
+          };
+          const shares =
+            tuned?.moeCacheShare !== undefined ? [tuned.moeCacheShare] : [0.15, 0.3, 0.5];
+          const steps = shares.length + 1;
+          for (const [i, share] of shares.entries()) {
+            h.progress(i, steps);
+            await tryOne({ moeCacheShare: share });
           }
-          h.progress(shares.length, shares.length);
-          const best = trials
-            .filter((x) => x.state === "done")
-            .sort((x, y) => (y.genTps ?? 0) - (x.genTps ?? 0))[0];
-          for (const x of trials) x.chosen = x === best;
+          const best =
+            trials
+              .filter((x) => x.state === "done")
+              .sort((x, y) => (y.genTps ?? 0) - (x.genTps ?? 0))[0] ?? trials[0];
+          const share = best?.share ?? 0.3;
+          h.progress(shares.length, steps);
+          const local = await tryOne({ moeCacheShare: share, opOffload: false });
+          h.progress(steps, steps);
+          // Without the copy when it reads clearly faster and writes about as fast.
+          const noCopy =
+            local.state === "done" &&
+            (local.prefillTps ?? 0) > (best?.prefillTps ?? 0) * 1.1 &&
+            (local.genTps ?? 0) >= (best?.genTps ?? 0) * 0.9;
+          const chosen = noCopy ? local : best;
+          for (const x of trials) x.chosen = x === chosen;
           show();
-          wanted = { ...asked, tuning: { moeCacheShare: best?.share ?? 0.3 } };
+          wanted = { ...asked, tuning: { moeCacheShare: share, opOffload: !noCopy } };
           plan = await this.o.hooks.engine(wanted, h);
         } else {
           h.skip("tune");
@@ -753,7 +776,9 @@ export class SetupService {
    */
   private async warmLocal(model: string, h: JobHandle): Promise<void> {
     const p = this.o.core.providers.get("local");
-    const text = "RedGiant warms up the model before the first conversation. ".repeat(260);
+    // A new first line every time: the same text would come back from the saved contexts and
+    // measure nothing (it showed 3,487 tokens/s, the first real message read at 21).
+    const text = `Warm-up ${randomBytes(6).toString("hex")}.\n${"RedGiant warms up the model before the first conversation. ".repeat(260)}`;
     let written = 0;
     const started = Date.now();
     let read = 0;
@@ -862,7 +887,7 @@ export class SetupService {
   /** How fast the local engine reads a context of about 2,000 tokens and writes 64. */
   private async benchLocal(model: string): Promise<{ genTps: number; prefillTps: number }> {
     const p = this.o.core.providers.get("local");
-    const text = "RedGiant measures how fast this computer runs the model. ".repeat(180);
+    const text = `Measure ${randomBytes(6).toString("hex")}.\n${"RedGiant measures how fast this computer runs the model. ".repeat(180)}`;
     const c = await complete(
       p.stream({
         model,

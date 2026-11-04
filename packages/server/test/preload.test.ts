@@ -93,3 +93,21 @@ describe("speculative decoding (2026-11-04)", () => {
     expect(withDraft.ctx).toBeLessThanOrEqual(plain.ctx);
   });
 });
+
+describe("reading a context without the copy to the card (2026-11-04)", () => {
+  it("adds --no-op-offload only when the tuning chose it", async () => {
+    const { streamPlan: plan } = await import("../src/stream.js");
+    const meta = {
+      architecture: "gpt-oss",
+      layers: 36,
+      contextLength: 131072,
+      experts: 128,
+      expertsUsed: 4,
+      kvBytesPerToken: 73728,
+    };
+    const hw = { kind: "gpu", vramGb: 16, ramGb: 30 } as const;
+    expect(plan(meta, 58, hw, { opOffload: false }).args).toContain("--no-op-offload");
+    expect(plan(meta, 58, hw, { opOffload: true }).args).not.toContain("--no-op-offload");
+    expect(plan(meta, 58, hw).args).not.toContain("--no-op-offload");
+  });
+});

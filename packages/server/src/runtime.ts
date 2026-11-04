@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { Resolver } from "node:dns/promises";
 import { mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { Writable } from "node:stream";
 import { KvStore, LocalEngineProvider, readLocalGgufMeta } from "@redgiant/engine-local";
 import type { Redactor, SqlClient } from "@redgiant/events";
 import { keyProvider, OWN_SERVER_ID } from "@redgiant/protocol";
@@ -16,6 +17,7 @@ import { searchProvider } from "@redgiant/tools";
 import type Docker from "dockerode";
 import type { AppOptions } from "./app.js";
 import type { RedGiantCore } from "./core.js";
+import { debugLog } from "./debug-log.js";
 import { engineError } from "./engine-errors.js";
 import { detectHardware, type GpuAccess } from "./hardware.js";
 import { JobFailure, type JobHandle, type Jobs } from "./jobs.js";
@@ -107,6 +109,28 @@ export function tarFile(name: string, content: string): Buffer {
 }
 const GITEA = "redgiant-gitea";
 
+/**
+ * Debug mode (2026-11-04): the engine's own log, line by line, while it runs (what it puts on
+ * the card, how long each part takes). Only while debug mode is on.
+ */
+function followEngineLogs(container: Docker.Container): void {
+  if (!debugLog.enabled) return;
+  void container
+    .logs({ follow: true, stdout: true, stderr: true })
+    .then((stream) => {
+      const sink = new Writable({
+        write(chunk: Buffer, _enc, done) {
+          debugLog.raw("engine", chunk.toString("utf8"));
+          done();
+        },
+      });
+      container.modem.demuxStream(stream, sink, sink);
+    })
+    .catch((err: unknown) =>
+      debugLog.write("engine", "engine log not followed", { error: String(err) }),
+    );
+}
+
 /** How the wizard's choices take effect while the server runs (G17). */
 export function runtimeHooks(o: RuntimeOptions): SetupHooks {
   /** The RAM a model may use now on this engine: free, not total (2026-11-04). */
@@ -125,6 +149,13 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
     const dir = cfg.variant === "windows" ? o.engine?.windows?.modelsDir : o.engine?.modelsDir;
     const gb = await modelGb(dir ?? "/models", cfg.model).catch(() => Number.POSITIVE_INFINITY);
     const ram = await ramNow(cfg, (await detectHardware({ dataDir: o.dataDir ?? "." })).ramGb);
+    debugLog.write("engine", "preload decision", {
+      model: cfg.model,
+      modelGb: Math.round(gb * 10) / 10,
+      freeRamGb: ram.gb,
+      measured: ram.measured,
+      fits: gb <= ram.gb,
+    });
     return { dir: dir ?? "/models", fits: gb <= ram.gb };
   };
   /** The streaming plan for a model file, from its header and this computer's memory. */
@@ -267,6 +298,16 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       }
       // SSD stream (2026-11-03): the numbers come from the model's file and this computer.
       const plan = cfg.stream ? await planFor(cfg) : undefined;
+      debugLog.write("engine", "start asked", {
+        variant: cfg.variant,
+        model: cfg.model,
+        stream: cfg.stream ?? false,
+        speculative: cfg.speculative ?? null,
+        draftModel: cfg.draftModel ?? null,
+        tuning: cfg.tuning ?? null,
+        plan: plan ?? null,
+        followed: Boolean(h),
+      });
       if (cfg.variant === "windows") {
         const win = e.windows;
         if (!win)
@@ -313,8 +354,23 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       if (!pre.fits) h?.skip("preload");
       else if (h) {
         h.step("preload");
-        h.info({ preloadGbs: String(await preloadFiles(modelParts(pre.dir, cfg.model), h)) });
-      } else void preloadFiles(modelParts(pre.dir, cfg.model)).catch(() => {});
+        const t0 = Date.now();
+        const gbs = await preloadFiles(modelParts(pre.dir, cfg.model), h);
+        h.info({ preloadGbs: String(gbs) });
+        debugLog.write("engine", "preload done", { gbPerSecond: gbs, ms: Date.now() - t0 });
+      } else {
+        const t0 = Date.now();
+        debugLog.write("engine", "preload in the background (startup)", { model: cfg.model });
+        void preloadFiles(modelParts(pre.dir, cfg.model)).then(
+          (gbs) =>
+            debugLog.write("engine", "background preload done", {
+              gbPerSecond: gbs,
+              ms: Date.now() - t0,
+            }),
+          (err: unknown) =>
+            debugLog.write("engine", "background preload failed", { error: String(err) }),
+        );
+      }
       h?.step("start");
       const gpu = cfg.variant !== "cpu";
       let container: Docker.Container;
@@ -358,6 +414,11 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
           },
         });
         await container.start();
+        debugLog.write("engine", "container started", {
+          image,
+          cmd: (await container.inspect().catch(() => undefined))?.Config?.Cmd ?? null,
+        });
+        followEngineLogs(container);
       } catch (err) {
         throw new JobFailure(
           engineError(String((err as Error).message)) ?? "start",
@@ -378,16 +439,22 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       if (!h) {
         // At startup nobody waits: connect in the background.
         void (async () => {
+          const t0 = Date.now();
           for (let i = 0; i < 120; i++) {
-            if (await connect()) return;
+            if (await connect()) {
+              debugLog.write("engine", "engine answers (startup)", { loadMs: Date.now() - t0 });
+              return;
+            }
             await new Promise((r) => setTimeout(r, 5000));
           }
+          debugLog.write("engine", "engine did not answer within 10 minutes (startup)");
           console.warn("engine: the local engine did not answer within 10 minutes");
         })();
         return plan;
       }
       // Loading a model takes from seconds to minutes; a container that stops tells why.
       h.step("load");
+      const loadStarted = Date.now();
       const deadline = Date.now() + 15 * 60_000;
       while (!(await connect())) {
         if (h.signal.aborted) throw new Error("cancelled");
@@ -404,6 +471,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         }
         await new Promise((r) => setTimeout(r, 2000));
       }
+      debugLog.write("engine", "engine answers", { loadMs: Date.now() - loadStarted });
       // llama.cpp falls back to the CPU when it finds no GPU, saying so only in its log.
       if (gpu && /no usable GPU found/i.test(await engineLogs(container))) {
         o.providers.remove("local");

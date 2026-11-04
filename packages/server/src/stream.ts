@@ -57,7 +57,12 @@ export function streamPlan(
   meta: GgufMeta,
   fileGb: number,
   hw: StreamHardware,
-  tuning: { moeCacheShare?: number | undefined; draftGb?: number | undefined } = {},
+  tuning: {
+    moeCacheShare?: number | undefined;
+    draftGb?: number | undefined;
+    /** false: the experts' products of a long read on the processor, not sent to the card. */
+    opOffload?: boolean | undefined;
+  } = {},
 ): EnginePlan {
   const moe = meta.experts > 0;
   // A small model for speculative decoding sits in the card too, with its own context.
@@ -101,6 +106,7 @@ export function streamPlan(
       ...(moe ? ["--cpu-moe"] : []),
       ...(moeCacheMib > 0 ? ["--moe-cache-mib", String(moeCacheMib)] : []),
       ...(moe && card > 0 ? ["-b", String(MOE_BATCH), "-ub", String(MOE_BATCH)] : []),
+      ...(tuning.opOffload === false ? ["--no-op-offload"] : []),
       "-ctk",
       "q8_0",
       "-ctv",

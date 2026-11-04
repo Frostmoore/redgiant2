@@ -7,6 +7,7 @@ export * from "./browser.js";
 export * from "./chat.js";
 export * from "./code.js";
 export * from "./core.js";
+export { debugLog } from "./debug-log.js";
 export * from "./email.js";
 export * from "./engine-errors.js";
 export * from "./export.js";

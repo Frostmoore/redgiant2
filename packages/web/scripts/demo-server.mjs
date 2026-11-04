@@ -9,6 +9,7 @@ import { FakeProvider, ProviderError, ProviderRegistry } from "@redgiant/provide
 import {
   Browsers,
   DockerBrowserLauncher,
+  debugLog,
   GitHosts,
   HuggingFace,
   JobFailure,
@@ -653,6 +654,7 @@ await mkdir(join(dir, "claude"), { recursive: true });
 await mkdir(join(dir, "models"), { recursive: true });
 await writeFile(join(dir, "models", "my-model-Q4_K_M.gguf"), "demo");
 await writeFile(join(dir, "models", "huge-model-Q8_0.gguf"), "demo");
+await debugLog.configure({ dir: join(dir, "logs") });
 await setup.applyAtStartup();
 await setup.complete();
 const running = await serve(core, new TokenAuth({ [token]: "local" }), {

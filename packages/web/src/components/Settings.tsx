@@ -1,5 +1,6 @@
 import type { ComponentChildren } from "preact";
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
+import { bytes } from "../format.js";
 import { lang, setLang, t } from "../i18n.js";
 import {
   IconArchive,
@@ -7,6 +8,7 @@ import {
   IconClock,
   IconCompass,
   IconDollar,
+  IconDownload,
   IconFolder,
   IconLayers,
   IconLogout,
@@ -18,6 +20,7 @@ import {
   IconShield,
   IconSun,
   IconTelegram,
+  IconTrash,
   IconTree,
 } from "../icons.js";
 import { attempt, getApi, openTab, type SettingsSection, signOut } from "../state.js";
@@ -35,6 +38,7 @@ import { Services } from "./Services.js";
 import { Setup } from "./Setup.js";
 import { Subscriptions } from "./Subscriptions.js";
 import { Telegram } from "./Telegram.js";
+import { Pick } from "./ui.js";
 
 const SECTIONS: { id: SettingsSection; label: () => string; icon: ComponentChildren }[] = [
   { id: "general", label: () => t("general"), icon: <IconSettings size={15} /> },
@@ -96,10 +100,70 @@ function General() {
       <Services />
       <EmailSettings />
       <Updates />
+      <Diagnostics />
       <h2 style={{ marginTop: "24px" }}>{t("account")}</h2>
       <button type="button" onClick={signOut} class="row">
         <IconLogout /> {t("logout")}
       </button>
+    </div>
+  );
+}
+
+/**
+ * Debug mode (2026-11-04, the person's request): everything RedGiant does left in a log, to
+ * download as one archive and send, or to delete.
+ */
+function Diagnostics() {
+  const [st, setSt] = useState<{
+    enabled: boolean;
+    forced: boolean;
+    bytes: number;
+    files: number;
+  }>();
+  useEffect(() => {
+    void attempt(() => getApi().debugState()).then((x) => x && setSt(x));
+  }, []);
+  if (!st) return null;
+  const save = async () => {
+    const r = await attempt(() => getApi().debugLogs());
+    if (!r) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(r.blob);
+    a.download = r.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+  };
+  return (
+    <div class="diagnostics">
+      <h2 style={{ marginTop: "24px" }}>{t("dbgTitle")}</h2>
+      <p class="ui-help">{t("dbgHelp")}</p>
+      <Pick
+        on={st.enabled}
+        onChange={(v) => {
+          if (st.forced) return;
+          void attempt(() => getApi().setDebug(v)).then((x) => x && setSt(x));
+        }}
+      >
+        <strong>{t("dbgSwitch")}</strong>
+      </Pick>
+      {st.forced && <p class="ui-help">{t("dbgForced")}</p>}
+      <p class="ui-help">{t("dbgSize", { size: bytes(st.bytes), files: String(st.files) })}</p>
+      <div class="row wrap">
+        <button type="button" class="row" disabled={st.files === 0} onClick={() => void save()}>
+          <IconDownload size={14} /> {t("dbgDownload")}
+        </button>
+        <button
+          type="button"
+          class="link row"
+          disabled={st.files === 0}
+          onClick={() => {
+            if (!confirm(t("dbgClearConfirm"))) return;
+            void attempt(() => getApi().clearDebugLogs()).then((x) => x && setSt(x));
+          }}
+        >
+          <IconTrash size={13} /> {t("dbgClear")}
+        </button>
+      </div>
     </div>
   );
 }

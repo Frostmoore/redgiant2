@@ -38,6 +38,7 @@ import {
   type RedGiantCore,
   SessionBusyError,
 } from "./core.js";
+import { debugLog } from "./debug-log.js";
 import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
 import { HuggingFace } from "./hf.js";
@@ -778,6 +779,21 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.openAPIRegistry.registerComponent("securitySchemes", "bearer", {
     type: "http",
     scheme: "bearer",
+  });
+
+  // Debug mode (2026-11-04): every request with its answer and its time, but not the ones the
+  // page repeats every second to follow progress.
+  app.use("/api/*", async (c, next) => {
+    if (!debugLog.enabled) return next();
+    const started = Date.now();
+    await next();
+    const quiet =
+      c.req.method === "GET" && /^\/api\/(jobs|health|limits|activity)/.test(c.req.path);
+    if (!quiet || c.res.status >= 400)
+      debugLog.write("http", `${c.req.method} ${c.req.path}`, {
+        status: c.res.status,
+        ms: Date.now() - started,
+      });
   });
 
   app.use("/api/*", async (c, next) => {
@@ -1722,7 +1738,12 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     model: z.string().min(1),
     /** SSD stream (2026-11-03), and the share of the card given to the experts' cache. */
     stream: z.boolean().optional(),
-    tuning: z.object({ moeCacheShare: z.number().min(0).max(0.8).optional() }).optional(),
+    tuning: z
+      .object({
+        moeCacheShare: z.number().min(0).max(0.8).optional(),
+        opOffload: z.boolean().optional(),
+      })
+      .optional(),
     /** Speculative decoding (2026-11-04): a small model of the family, or the text written. */
     speculative: z.enum(["draft", "ngram"]).optional(),
     draftModel: z.string().min(1).optional(),
@@ -2218,6 +2239,28 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   );
   app.delete("/api/setup/remote", (c) => wizard(c, () => (setup as SetupService).stopRemote()));
   // Starting the local engine is a job (image, start, load, a first answer); null stops it.
+  // Debug mode (2026-11-04): its switch, the logs as one archive, and deleting them.
+  app.get("/api/debug", async (c) => c.json(await debugLog.state()));
+  app.put("/api/debug", async (c) => {
+    const b = await parsed(c, z.object({ enabled: z.boolean() }));
+    await debugLog.setEnabled(b.enabled);
+    return c.json(await debugLog.state());
+  });
+  app.get("/api/debug/logs", async (c) => {
+    const body = await debugLog.archive();
+    const name = `redgiant-logs-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.tar.gz`;
+    return new Response(new Uint8Array(body), {
+      headers: {
+        "content-type": "application/gzip",
+        "content-disposition": `attachment; filename="${name}"`,
+      },
+    });
+  });
+  app.delete("/api/debug/logs", async (c) => {
+    await debugLog.clear();
+    return c.json(await debugLog.state());
+  });
+
   // What speculative decoding gains here (2026-11-04): a job that tries each mode and puts the
   // engine back as it was.
   app.post("/api/setup/engine/speed-test", (c) =>

@@ -404,8 +404,12 @@ describe("the setup wizard", () => {
       share: number;
       ctx: number;
       chosen?: boolean;
+      opOffload?: boolean;
     }[];
-    expect(trials.map((x) => x.share)).toEqual([0.15, 0.3, 0.5]);
+    // The three splits, then reading without sending the experts to the card (2026-11-04).
+    expect(trials.map((x) => x.share).slice(0, 3)).toEqual([0.15, 0.3, 0.5]);
+    expect(trials).toHaveLength(4);
+    expect(trials[3]).toMatchObject({ opOffload: false });
     expect(trials.every((x) => x.ctx === 131072)).toBe(true);
     expect(trials.filter((x) => x.chosen)).toHaveLength(1);
     const tries = calls.filter((c) => c.startsWith("engine:cuda:qwen.gguf:stream0."));
@@ -417,6 +421,7 @@ describe("the setup wizard", () => {
     const state = (await api<SetupState>("GET", "/api/setup")).body;
     expect(state.config.engine?.stream).toBe(true);
     expect(state.config.engine?.tuning?.moeCacheShare).toBeDefined();
+    expect(typeof state.config.engine?.tuning?.opOffload).toBe("boolean");
     expect(state.config.engine?.plan?.ctx).toBe(131072);
     // Asked again while it runs as asked: nothing is done again (2026-11-04).
     const before = calls.length;

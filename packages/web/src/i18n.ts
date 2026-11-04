@@ -761,6 +761,15 @@ const en = {
     "Alibaba's large dense model, good at code and reasoning. Dense: for computers with a lot of RAM, with speculative decoding.",
   "lm_mistral-large-2411":
     "Mistral's largest open model, excellent in European languages. Dense and very big: for workstations with 128 GB of RAM or more.",
+  dbgTitle: "Diagnostics",
+  dbgHelp:
+    "Debug mode keeps a detailed log of everything RedGiant does: each step of starting a model with its times, the local engine's own messages, the requests, what the Windows program does. Turn it on when something is slow or goes wrong, repeat it, then download the logs and send them. It writes a lot (at most 300 MB, the oldest go first) and never writes passwords or keys.",
+  dbgSwitch: "Debug mode",
+  dbgForced: "Turned on by the server's settings (REDGIANT_DEBUG=1).",
+  dbgSize: "Logs kept: {size} in {files} files.",
+  dbgDownload: "Download the logs",
+  dbgClear: "Delete the logs",
+  dbgClearConfirm: "Delete every log kept?",
   updTitle: "Updates",
   updHelp:
     "RedGiant looks for a new version by itself at the first start of each day. Here you can look now.",
@@ -947,6 +956,7 @@ const en = {
   lmFactSsdNone: "nothing: it fits in RAM",
   lmFactRam: "Free RAM counted",
   lmVersions: "Version of the file",
+  lmTuneNoCopy: "experts computed on the processor when reading",
   lmSpeedTest: "Measure the gain",
   lmSpeedTestTitle: "How much faster here",
   lmSpeedTestIntro:
@@ -2370,6 +2380,15 @@ const it: Record<Key, string> = {
     "Il grande modello denso di Alibaba, bravo con codice e ragionamento. Denso: per computer con tanta RAM, con la decodifica speculativa.",
   "lm_mistral-large-2411":
     "Il più grande modello aperto di Mistral, ottimo nelle lingue europee. Denso e molto grande: per workstation con 128 GB di RAM o più.",
+  dbgTitle: "Diagnostica",
+  dbgHelp:
+    "La modalità di debug tiene un registro dettagliato di tutto quello che fa RedGiant: ogni passo dell'avvio di un modello con i suoi tempi, i messaggi del motore locale, le richieste, quello che fa il programma di Windows. Accendila quando qualcosa è lento o va storto, ripeti l'operazione, poi scarica i registri e mandali. Scrive tanto (al massimo 300 MB, i più vecchi se ne vanno) e non scrive mai password né chiavi.",
+  dbgSwitch: "Modalità di debug",
+  dbgForced: "Accesa dalle impostazioni del server (REDGIANT_DEBUG=1).",
+  dbgSize: "Registri tenuti: {size} in {files} file.",
+  dbgDownload: "Scarica i registri",
+  dbgClear: "Cancella i registri",
+  dbgClearConfirm: "Cancellare tutti i registri tenuti?",
   updTitle: "Aggiornamenti",
   updHelp:
     "RedGiant cerca da solo una versione nuova al primo avvio di ogni giorno. Qui puoi cercarla adesso.",
@@ -2558,6 +2577,7 @@ const it: Record<Key, string> = {
   lmFactSsdNone: "niente: sta in RAM",
   lmFactRam: "RAM libera contata",
   lmVersions: "Versione del file",
+  lmTuneNoCopy: "esperti calcolati sul processore nella lettura",
   lmSpeedTest: "Misura il guadagno",
   lmSpeedTestTitle: "Quanto va più veloce qui",
   lmSpeedTestIntro:

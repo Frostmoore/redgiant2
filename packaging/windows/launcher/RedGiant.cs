@@ -292,11 +292,14 @@ sealed class Launcher : ApplicationContext
             + "REDGIANT_WIN_GPUS/u:REDGIANT_WIN_DISKS/u:REDGIANT_WIN_DATA_DIR/u:REDGIANT_WIN_ENGINE_DIR/up";
         engine = new Process { StartInfo = info, EnableRaisingEvents = true };
         string port = "7600", token = "";
+        var startedAt = DateTime.Now;
+        Diag.Log("wsl", "starting RedGiant in WSL (redgiant-wsl run)");
         engine.OutputDataReceived += (s, e) =>
         {
             if (e.Data == null) return;
             string line = e.Data.Trim();
             lock (log) log.AppendLine(line);
+            Diag.Log("wsl", line);
             if (line.StartsWith("STEP "))
                 Ui(() =>
                 {
@@ -309,6 +312,7 @@ sealed class Launcher : ApplicationContext
             else if (line.StartsWith("TOKEN=")) token = line.Substring(6);
             else if (line == "READY")
             {
+                Diag.Log("wsl", "ready after " + (int) (DateTime.Now - startedAt).TotalMilliseconds + " ms");
                 url = "http://localhost:" + port + "/#token=" + token;
                 Ui(() =>
                 {
@@ -319,7 +323,12 @@ sealed class Launcher : ApplicationContext
             }
             else if (line.StartsWith("FAIL ")) Ui(() => ShowFailure(line.Substring(5)));
         };
-        engine.ErrorDataReceived += (s, e) => { if (e.Data != null) lock (log) log.AppendLine(e.Data); };
+        engine.ErrorDataReceived += (s, e) =>
+        {
+            if (e.Data == null) return;
+            lock (log) log.AppendLine(e.Data);
+            Diag.Log("wsl-err", e.Data);
+        };
         engine.Exited += (s, e) =>
         {
             // It stops only on failure or when we stop it.
@@ -655,7 +664,9 @@ static class WinEngine
     static void Handle(int gen, string id, string model, string build, string ctx, string parallel, string args, string fit, string preload, string draft)
     {
         lock (gate) { if (gen != generation) return; Kill(); }
-        if (model == null) { Status(gen, id, "stopped", null); return; }
+        if (model == null) { Status(gen, id, "stopped", null); Diag.Log("engine", "stop asked"); return; }
+        var t0 = DateTime.Now;
+        Diag.Log("engine", "asked: model=" + model + " build=" + build + " ctx=" + ctx + " args=" + (args ?? "") + " preload=" + (preload ?? "") + " draft=" + (draft ?? ""));
         string phase = "download";
         try
         {
@@ -665,8 +676,9 @@ static class WinEngine
             phase = "firewall";
             Status(gen, id, "starting", null);
             if (!FirewallAllows()) AllowInFirewall();
+            Diag.Log("engine", "engine binaries ready after " + (int) (DateTime.Now - t0).TotalMilliseconds + " ms");
             phase = "preload";
-            if (preload == "1") Preload(gen, id, model);
+            if (preload == "1") { Preload(gen, id, model); Diag.Log("engine", "preload done after " + (int) (DateTime.Now - t0).TotalMilliseconds + " ms"); }
             lock (gate) if (gen != generation) return;
             phase = "start";
             lock (log) log.Clear();
@@ -687,6 +699,7 @@ static class WinEngine
             DataReceivedEventHandler keep = (s, e) =>
             {
                 if (e.Data == null) return;
+                Diag.Engine(e.Data);
                 lock (log) { log.Enqueue(e.Data); while (log.Count > 60) log.Dequeue(); }
             };
             p.OutputDataReceived += keep;
@@ -695,6 +708,7 @@ static class WinEngine
             p.BeginOutputReadLine();
             p.BeginErrorReadLine();
             Status(gen, id, "loading", null);
+            Diag.Log("engine", "llama-server started after " + (int) (DateTime.Now - t0).TotalMilliseconds + " ms: " + info.Arguments);
             for (;;)
             {
                 Thread.Sleep(1000);
@@ -714,6 +728,7 @@ static class WinEngine
                 }
                 if (Healthy())
                 {
+                    Diag.Log("engine", "ready after " + (int) (DateTime.Now - t0).TotalMilliseconds + " ms");
                     Status(gen, id, "ready", ",\"port\":" + Port);
                     return;
                 }
@@ -721,6 +736,7 @@ static class WinEngine
         }
         catch (Exception e)
         {
+            Diag.Log("engine", "failed in " + phase + ": " + e.Message);
             Status(gen, id, "failed", ",\"error\":\"" + phase + "\",\"log\":\"" + Esc(e.Message + "\n" + Tail()) + "\"");
         }
     }

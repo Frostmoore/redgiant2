@@ -71,7 +71,7 @@ export interface SetupState {
       variant: EngineVariant;
       model: string;
       stream?: boolean;
-      tuning?: { moeCacheShare?: number };
+      tuning?: { moeCacheShare?: number; opOffload?: boolean };
       /** Speculative decoding (2026-11-04). */
       speculative?: "draft" | "ngram";
       draftModel?: string;
@@ -823,6 +823,35 @@ export class Api {
       | { op: "mkdir" | "delete"; scope: string; path: string }
       | { op: "rename"; scope: string; path: string; to: string },
   ) => this.call("POST", "/api/files/op", op);
+  /** Debug mode (2026-11-04): its state, the switch, deleting the logs. */
+  debugState = () =>
+    this.call<{ enabled: boolean; forced: boolean; bytes: number; files: number }>(
+      "GET",
+      "/api/debug",
+    );
+  setDebug = (enabled: boolean) =>
+    this.call<{ enabled: boolean; forced: boolean; bytes: number; files: number }>(
+      "PUT",
+      "/api/debug",
+      {
+        enabled,
+      },
+    );
+  clearDebugLogs = () =>
+    this.call<{ enabled: boolean; forced: boolean; bytes: number; files: number }>(
+      "DELETE",
+      "/api/debug/logs",
+    );
+  /** Every log as one archive, to send to whoever helps. */
+  async debugLogs(): Promise<{ blob: Blob; name: string }> {
+    const r = await fetch("/api/debug/logs", {
+      headers: { authorization: `Bearer ${this.token}` },
+    });
+    if (!r.ok) throw new ApiError(r.status, `HTTP ${r.status}`);
+    const header = r.headers.get("content-disposition") ?? "";
+    const name = header.match(/filename="([^"]+)"/)?.[1] ?? "redgiant-logs.tar.gz";
+    return { blob: await r.blob(), name };
+  }
   /** A conversation as a Markdown file. */
   async exportSession(id: string): Promise<{ blob: Blob; name: string }> {
     const r = await fetch(`/api/sessions/${id}/export`, {
