@@ -16,7 +16,7 @@ export interface AutomationHost {
   /** Gives the instructions to the recipe's agent and waits for the end of its turn. */
   run(ownerId: string, recipe: Recipe, ctx: RunContext): Promise<RunOutcome>;
   /** Tells the user (Telegram…); failures are ignored. */
-  notify?(ownerId: string, text: string): Promise<void>;
+  notify?(ownerId: string, text: string, to?: string[]): Promise<void>;
 }
 
 export interface RunContext {
@@ -475,7 +475,7 @@ export class AutomationService {
           : summary
             ? `${head}\n\n${summary}`
             : head;
-      await this.o.host.notify?.(row.owner_id, text).catch(() => {});
+      await this.o.host.notify?.(row.owner_id, text, recipe.notify.to).catch(() => {});
     }
   }
 

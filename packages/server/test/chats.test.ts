@@ -55,13 +55,17 @@ describe("chat platforms (G29.5)", () => {
     await core.notify?.("me", "Backup done");
     expect(told).toEqual(["Backup done"]);
     expect(discord.sent.at(-1)).toEqual({ chatId: "c1", text: "Backup done" });
+    // An automation that names its chats reaches only those (G29.6).
+    await core.notify?.("me", "Only Discord", ["discord"]);
+    expect(told).toEqual(["Backup done"]);
+    expect(discord.sent.at(-1)?.text).toBe("Only Discord");
 
     // Switched off: the platform stops and gets nothing more; Telegram still does.
     await hub.set("discord", null);
     expect(discord.stopped).toBe(true);
     await core.notify?.("me", "Again");
     expect(told).toEqual(["Backup done", "Again"]);
-    expect(discord.sent.at(-1)?.text).toBe("Backup done");
+    expect(discord.sent.at(-1)?.text).toBe("Only Discord");
     outlets.set("telegram", undefined);
     expect(core.notify).toBeUndefined();
   });

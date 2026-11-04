@@ -322,7 +322,7 @@ export class RedGiantCore implements OrchestrationHost {
     return { db: this.o.db, store: this.store, workspacesDir: this.o.workspacesDir };
   }
   /** How the owner is told about finished automations (set by the Telegram gateway). */
-  notify: ((ownerId: string, text: string) => Promise<void>) | undefined;
+  notify: ((ownerId: string, text: string, to?: string[]) => Promise<void>) | undefined;
   /** Connected MCP servers, by owner and name. */
   private readonly mcp = new Map<string, McpConnection>();
   /** Sign-ins and keys of MCP servers (G24.9): private files, never the database. */
@@ -394,7 +394,7 @@ export class RedGiantCore implements OrchestrationHost {
         o.providers.get(model.provider);
       },
       run: (ownerId, recipe, ctx) => this.runAutomation(ownerId, recipe, ctx),
-      notify: async (ownerId, text) => this.tell(ownerId, text),
+      notify: async (ownerId, text, to) => this.tell(ownerId, text, to),
     };
     this.automations = new AutomationService({ db: o.db, store: this.store, host });
     this.policies = new PolicyStore(o.db);
@@ -1465,8 +1465,9 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /** Tells the owner something on Telegram (when linked). */
-  async tell(ownerId: string, text: string): Promise<void> {
-    await this.notify?.(ownerId, text);
+  /** Tells the person on their chats; `to` picks some of them (telegram, discord…). */
+  async tell(ownerId: string, text: string, to?: string[]): Promise<void> {
+    await this.notify?.(ownerId, text, to);
   }
 
   get images(): { key: string; model?: string; baseUrl?: string } | undefined {

@@ -62,7 +62,14 @@ export const Recipe = z
     /** What to do with a run missed while the server was down. */
     missed: z.enum(["skip", "run"]).default("skip"),
     notify: z
-      .object({ when: z.enum(["always", "failure", "never"]).default("always") })
+      .object({
+        when: z.enum(["always", "failure", "never"]).default("always"),
+        /** Where (G29.6): some of the person's chats; every linked one when not set. */
+        to: z
+          .array(z.enum(["telegram", "discord", "slack", "signal", "whatsapp"]))
+          .min(1)
+          .optional(),
+      })
       .default({ when: "always" }),
   })
   .strict()

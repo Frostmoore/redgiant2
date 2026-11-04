@@ -81,8 +81,9 @@ export class Outlets {
       return;
     }
     // One platform failing does not keep the message from the others.
-    this.core.notify = async (owner, text) => {
-      await Promise.allSettled(list().map((o) => o.notify(owner, text)));
+    this.core.notify = async (owner, text, to) => {
+      const chosen = [...this.all].filter(([name]) => !to || to.includes(name));
+      await Promise.allSettled(chosen.map(([, o]) => o.notify(owner, text)));
     };
     this.core.sendPhoto = async (owner, png, caption) => {
       await Promise.allSettled(

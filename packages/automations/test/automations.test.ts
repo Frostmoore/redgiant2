@@ -122,8 +122,8 @@ function fakeHost() {
         summary: `${recipe.name} via ${ctx.trigger}${ctx.payload ? ` ${JSON.stringify(ctx.payload)}` : ""}`,
       };
     },
-    async notify(_owner, text) {
-      notes.push(text);
+    async notify(_owner, text, to) {
+      notes.push(to ? `[${to.join(",")}] ${text}` : text);
     },
   };
   return {
@@ -270,6 +270,13 @@ describe("AutomationService", () => {
     );
     await (await svc.runNow(OWNER, loud.automation.id)).done;
     expect(fake.notes).toEqual(["Automation loud: failed\n\nIt did not work."]);
+    // Delivered where the recipe says (G29.6).
+    const morning = await svc.create(
+      OWNER,
+      "name: morning\non: {webhook: true}\nreminder: Good morning\nnotify: {to: [whatsapp, slack]}\n",
+    );
+    await (await svc.runNow(OWNER, morning.automation.id)).done;
+    expect(fake.notes.at(-1)).toBe("[whatsapp,slack] Good morning");
     // Editing a recipe forgets its session (the agent or the model may have changed).
     await svc.update(OWNER, quiet.automation.id, `${quiet.automation.yaml}description: edited\n`);
     await (await svc.runNow(OWNER, quiet.automation.id)).done;
