@@ -136,6 +136,8 @@ export interface SetupState {
     dockerGpu: boolean;
     gpuAccess: "dri" | "";
     windowsEngine: boolean;
+    /** RedGiant's Windows installation (the launcher's folder is shared). */
+    onWindows?: boolean;
     suggestion: {
       engine: EngineVariant;
       maxModelGb: number;

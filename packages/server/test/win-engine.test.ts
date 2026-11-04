@@ -118,6 +118,14 @@ describe("the engine on Windows itself", () => {
     );
   });
 
+  it("without Windows' address the engine cannot start, but the folder still works (2026-11-04)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rg-win-"));
+    const engine = new WinEngine({ dir, host: "", pollMs: 10 });
+    const err = await engine.start("m.gguf").catch((e: unknown) => e as { code?: string });
+    expect((err as { code?: string }).code).toBe("launcher_missing");
+    expect(engine.modelsDir).toBe(join(dir, "models"));
+  });
+
   it("notices when RedGiant.exe is not there to run it", async () => {
     const dir = await mkdtemp(join(tmpdir(), "rg-win-"));
     const err = await new WinEngine({ dir, host: "h", pollMs: 10, noticeMs: 100 })

@@ -77,6 +77,12 @@ export interface Hardware {
   gpuAccess: GpuAccess;
   /** The engine can run on Windows itself (RedGiant's Windows install, G24.3b). */
   windowsEngine: boolean;
+  /**
+   * RedGiant's Windows installation: the launcher's folder is shared (2026-11-04). Enough for
+   * what goes through files (free RAM, moving models); the Windows engine also needs Windows'
+   * address (`windowsEngine`).
+   */
+  onWindows: boolean;
   suggestion: {
     engine: EngineVariant;
     /** Largest model file that fits comfortably, in GB. */
@@ -179,6 +185,8 @@ export async function detectHardware(o: {
   const access = o.gpuAccess ?? process.env.REDGIANT_ENGINE_GPU ?? "";
   const gpuAccess: GpuAccess = access === "dri" ? "dri" : "";
   o = { ...o, windowsEngine: o.windowsEngine ?? Boolean(process.env.REDGIANT_WIN_HOST) };
+  const onWindows =
+    o.windowsEngine === true || Boolean(o.winEngineDir ?? process.env.REDGIANT_HOST_ENGINE_DIR);
   const ramGb = round(totalmem() / GB);
   const disks = parseDisks(o.hostDisks ?? process.env.REDGIANT_HOST_DISKS);
   // On Windows the engines in Docker read from the distribution's disk, the Windows engine from
@@ -238,7 +246,7 @@ export async function detectHardware(o: {
   }
   const [linux, windows] = await Promise.all([
     readLinuxMemory(),
-    o.windowsEngine
+    onWindows
       ? readWindowsMemory(o.winEngineDir ?? process.env.REDGIANT_WIN_ENGINE_DIR ?? "/winengine")
       : undefined,
   ]);
@@ -261,6 +269,7 @@ export async function detectHardware(o: {
     dockerGpu,
     gpuAccess,
     windowsEngine: o.windowsEngine === true,
+    onWindows,
     suggestion,
   };
 }

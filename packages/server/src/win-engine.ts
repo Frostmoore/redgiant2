@@ -194,6 +194,11 @@ export class WinEngine {
     preload = false,
     spec: { speculative?: "draft" | "ngram" | undefined; draft?: string | undefined } = {},
   ): Promise<string> {
+    if (!this.o.host)
+      throw new JobFailure(
+        "launcher_missing",
+        "RedGiant does not know Windows' address on WSL's network: start RedGiant again from its icon",
+      );
     const id = await this.request(model, plan, preload, spec);
     const poll = this.o.pollMs ?? 1000;
     const asked = Date.now();

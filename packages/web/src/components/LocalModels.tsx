@@ -189,7 +189,7 @@ function ModelsDisk({
     if (job?.state === "done") onMoved();
   }, [job?.state]);
   const hw = s.hardware;
-  if (!hw.windowsEngine || !hw.disks?.length) return null;
+  if (!(hw.onWindows ?? hw.windowsEngine) || !hw.disks?.length) return null;
   const kind = variant === "windows" ? "models" : "distro";
   const here = variant === "windows" ? hw.modelDisk?.windows : hw.modelDisk?.docker;
   const current = hw.disks.find((d) => d.name === here);

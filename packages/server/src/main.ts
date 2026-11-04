@@ -173,9 +173,16 @@ const telegram: { gateway?: TelegramGateway; webhookSecret?: string } = {
 const owner = env.REDGIANT_OWNER ?? "local";
 const docker = sandbox.kind === "docker" ? new Docker() : undefined;
 // The engine on Windows itself (G24.3b): RedGiant.exe runs it; the folder is shared through WSL.
-const winEngine = env.REDGIANT_WIN_HOST
-  ? new WinEngine({ dir: env.REDGIANT_WIN_ENGINE_DIR ?? "/winengine", host: env.REDGIANT_WIN_HOST })
-  : undefined;
+// The folder alone is enough for what goes through files (updates from Settings, Windows' free
+// RAM, moving models, the launcher's debug log): an empty address (2026-11-04: the distribution
+// had no `ip` command) turned all of it off. The address is needed only to run the engine there.
+const winEngine =
+  env.REDGIANT_WIN_HOST || env.REDGIANT_HOST_ENGINE_DIR
+    ? new WinEngine({
+        dir: env.REDGIANT_WIN_ENGINE_DIR ?? "/winengine",
+        host: env.REDGIANT_WIN_HOST ?? "",
+      })
+    : undefined;
 // Debug mode (2026-11-04): before the engine and the setup start, so their start is logged too.
 await debugLog.configure({
   dir: join(dataDir, "logs"),

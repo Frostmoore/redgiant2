@@ -69,12 +69,27 @@ gpu_list() {
   fi
 }
 
+# Windows' address on WSL's network: the default gateway. Read from /proc/net/route (2026-11-04):
+# the distribution has no `ip` command, and RedGiant got an empty address, which turned off
+# everything that talks to Windows (updates from Settings, free RAM, moving models).
+default_gateway() {
+  if command -v ip >/dev/null 2>&1; then
+    ip route show default 2>/dev/null | awk '{ print $3; exit }'
+    return
+  fi
+  g=$(awk '$2 == "00000000" && $3 != "00000000" { print $3; exit }' /proc/net/route 2>/dev/null)
+  [ -n "$g" ] || return 0
+  # Little-endian hex: 01D015AC is 172.21.208.1.
+  printf "%d.%d.%d.%d" "0x$(echo "$g" | cut -c7-8)" "0x$(echo "$g" | cut -c5-6)" \
+    "0x$(echo "$g" | cut -c3-4)" "0x$(echo "$g" | cut -c1-2)"
+}
+
 # The engine on Windows itself (G24.3b): its folder (passed by the launcher, as /mnt/c/...) and
-# Windows' address on WSL's network (the default gateway), for RedGiant to reach it.
+# Windows' address on WSL's network, for RedGiant to reach it.
 win_engine_settings() {
   if [ -n "${REDGIANT_WIN_ENGINE_DIR:-}" ] && [ -d "$REDGIANT_WIN_ENGINE_DIR" ]; then
     set_setting REDGIANT_WIN_ENGINE_DIR "$REDGIANT_WIN_ENGINE_DIR"
-    set_setting REDGIANT_WIN_HOST "$(ip route show default 2>/dev/null | awk '{ print $3; exit }')"
+    set_setting REDGIANT_WIN_HOST "$(default_gateway)"
   fi
 }
 
