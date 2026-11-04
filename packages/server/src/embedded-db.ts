@@ -4,7 +4,7 @@
 // same database as everywhere else, only started by us; it listens on 127.0.0.1 only, on a free
 // port, with a password made the first time and kept next to it.
 
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -12,10 +12,7 @@ import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 import pgDriver from "pg";
-
-const run = promisify(execFile);
 
 export interface EmbeddedDatabase {
   url: string;
@@ -74,7 +71,16 @@ export async function startEmbeddedDatabase(
     const { pg_ctl } = (await import(
       pathToFileURL(req.resolve("@embedded-postgres/windows-x64")).href
     )) as { pg_ctl: string };
-    const ctl = (...args: string[]) => run(pg_ctl, ["-D", dir, ...args], { windowsHide: true });
+    // Output not attached: the server pg_ctl leaves running would hold it open, and waiting on it
+    // would never end. Its log goes to postgres.log.
+    const ctl = (...args: string[]) =>
+      new Promise<void>((ok, ko) => {
+        const child = spawn(pg_ctl, ["-D", dir, ...args], { stdio: "ignore", windowsHide: true });
+        child.once("error", ko);
+        child.once("exit", (code) =>
+          code === 0 ? ok() : ko(new Error(`pg_ctl ${args.at(-1)} exited with ${code}`)),
+        );
+      });
     // A server left running by a previous start (its port is chosen anew each time).
     if (
       await ctl("status").then(
