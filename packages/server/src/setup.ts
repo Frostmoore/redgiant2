@@ -57,6 +57,13 @@ export interface SetupHooks {
   claudeAuth?(): ClaudeLoginOptions;
   /** ChatGPT on a flat subscription (G21): its login lives in Codex's own folder. */
   chatgptSubscription?(on: boolean): Promise<void>;
+  /** Finds or downloads a subscription's program (2026-11-05), with its bar. */
+  prepareTool?(name: "codex" | "claude"): Promise<void>;
+  /** Whether that program is here, and whether the person's own sign-in is used. */
+  toolStatus?(name: "codex" | "claude"): {
+    program: "bundled" | "downloaded" | "system" | null;
+    sharedLogin: boolean;
+  };
   /**
    * Starts the local engine container with this model file (null stops it); with a job, it
    * reports its steps (`image`, `start`, `load`) and throws `JobFailure`s the UI explains.
@@ -1537,11 +1544,27 @@ export class SetupService {
     return auth;
   }
 
-  /** Claude's subscription: on or off, and who is signed in. */
-  async claudeStatus(): Promise<{ on: boolean; account: ClaudeAccount | null }> {
+  /** Claude's subscription: on or off, who is signed in, and where its program comes from. */
+  async claudeStatus(): Promise<{
+    on: boolean;
+    account: ClaudeAccount | null;
+    program: "bundled" | "downloaded" | "system" | null;
+    sharedLogin: boolean;
+  }> {
     const on = this.config.subscriptions?.claude === true;
+    const tool = this.toolStatus("claude");
     const auth = this.o.hooks.claudeAuth?.();
-    return { on, account: auth ? await claudeAccount(auth).catch(() => null) : null };
+    // Asking `claude` who is signed in needs the program: not before it is here.
+    const account = auth && tool.program ? await claudeAccount(auth).catch(() => null) : null;
+    return { on, account, ...tool };
+  }
+
+  /** Whether a subscription's program is here, and whether the person's own sign-in is used. */
+  toolStatus(name: "codex" | "claude"): {
+    program: "bundled" | "downloaded" | "system" | null;
+    sharedLogin: boolean;
+  } {
+    return this.o.hooks.toolStatus?.(name) ?? { program: "bundled", sharedLogin: false };
   }
 
   /**
@@ -1551,6 +1574,8 @@ export class SetupService {
   async claudeLoginStart(ack: boolean): Promise<{ url: string }> {
     if (!ack && !this.config.subscriptionAck)
       throw new SetupError("Read and accept the warning on the providers' terms first", "terms");
+    // Claude Code's program first (downloaded with its bar when missing, 2026-11-05).
+    await this.o.hooks.prepareTool?.("claude");
     const auth = this.claudeAuth();
     this.claudeLogin?.cancel();
     if (ack && !this.config.subscriptionAck) {

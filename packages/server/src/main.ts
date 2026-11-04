@@ -222,6 +222,7 @@ const hooks = runtimeHooks({
   telegram,
   outlets,
   chats,
+  owner: () => owner,
   // The wizard can start a local engine container next to RedGiant (Docker installs).
   // On Windows' native install (G30.1) only the engine there: no Docker, no network.
   ...(((docker && env.REDGIANT_ENGINE_NETWORK) || winEngine) && {

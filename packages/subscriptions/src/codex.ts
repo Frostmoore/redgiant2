@@ -9,6 +9,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { delimiter } from "node:path";
 import { createInterface } from "node:readline";
 import type { Engine, EngineTurn } from "@redgiant/agent";
 import type { AssistantPart, MessageMetrics } from "@redgiant/protocol";
@@ -18,6 +19,7 @@ import {
   ProviderError,
   type SubscriptionWindow,
 } from "@redgiant/providers";
+import { windowsBasics } from "./tools.js";
 
 export const CHATGPT_SUBSCRIPTION = "chatgpt-subscription";
 
@@ -28,6 +30,8 @@ export interface ChatgptSubscriptionOptions {
   cwd: string;
   /** The program to run; default the bundled `codex app-server`. Tests pass a fake. */
   command?: { file: string; args: string[] };
+  /** Folders first on the program's PATH (the downloaded build's ripgrep, 2026-11-05). */
+  pathPrefix?: string[];
   now?: () => number;
   /** Codex's own live web search (2026-11-03) instead of RedGiant's `web_search`. Default on. */
   nativeWebSearch?: boolean;
@@ -61,8 +65,12 @@ class CodexConnection {
       const { file, args } = this.command();
       const proc = spawn(file, args, {
         env: {
-          ...(process.env.PATH && { PATH: process.env.PATH }),
+          ...windowsBasics(),
+          PATH: [...(this.o.pathPrefix ?? []), process.env.PATH ?? process.env.Path ?? ""]
+            .filter(Boolean)
+            .join(delimiter),
           HOME: this.o.home,
+          USERPROFILE: this.o.home,
           CODEX_HOME: this.o.home,
         },
         cwd: this.o.cwd,

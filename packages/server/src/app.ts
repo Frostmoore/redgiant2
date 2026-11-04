@@ -1076,8 +1076,10 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   };
   app.get("/api/subscriptions/chatgpt", async (c) => {
     const p = chatgpt();
-    if (!p) return c.json({ on: false, account: null }, 200);
-    return c.json({ on: true, account: await p.account().catch(() => null) }, 200);
+    // Where Codex comes from, and whether the person's own sign-in is used (2026-11-05).
+    const tool = setup?.toolStatus("codex") ?? { program: null, sharedLogin: false };
+    if (!p) return c.json({ on: false, account: null, ...tool }, 200);
+    return c.json({ on: true, account: await p.account().catch(() => null), ...tool }, 200);
   });
   app.post("/api/subscriptions/chatgpt/login", async (c) => {
     const p = chatgpt();

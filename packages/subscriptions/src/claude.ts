@@ -15,6 +15,7 @@ import {
   type SubscriptionWindow,
 } from "@redgiant/providers";
 import { z } from "zod";
+import { windowsBasics } from "./tools.js";
 
 export const CLAUDE_SUBSCRIPTION = "claude-subscription";
 const SERVER = "redgiant";
@@ -51,6 +52,8 @@ export interface ClaudeSubscriptionOptions {
   /** A directory the engine may call home (it touches no files: its tools are off). */
   cwd: string;
   sdk?: ClaudeSdk;
+  /** Claude Code's program (found or downloaded, 2026-11-05); default the SDK's own. */
+  executable?: string;
   now?: () => number;
   /**
    * The engine's own web search (2026-11-03) instead of RedGiant's `web_search`: Claude
@@ -114,8 +117,11 @@ export class ClaudeEngine implements Engine {
 
   private env(): Record<string, string> {
     return {
+      ...windowsBasics(),
       ...(process.env.PATH && { PATH: process.env.PATH }),
+      ...(process.env.Path && !process.env.PATH && { PATH: process.env.Path }),
       HOME: this.o.configDir,
+      USERPROFILE: this.o.configDir,
       CLAUDE_CONFIG_DIR: this.o.configDir,
       // Without a token the engine uses the login already in its folder (`claude login`).
       ...(this.o.token && { CLAUDE_CODE_OAUTH_TOKEN: this.o.token }),
@@ -140,6 +146,7 @@ export class ClaudeEngine implements Engine {
       settingSources: [],
       cwd: this.o.cwd,
       env: this.env(),
+      ...(this.o.executable && { pathToClaudeCodeExecutable: this.o.executable }),
       ...extra,
     };
   }

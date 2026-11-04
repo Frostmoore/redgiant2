@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Resolver } from "node:dns/promises";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream, existsSync } from "node:fs";
 import { mkdir, readdir, rename, rm, stat, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { Transform, Writable } from "node:stream";
@@ -13,7 +13,16 @@ import {
   OpenAICompatProvider,
   type ProviderRegistry,
 } from "@redgiant/providers";
-import { ChatgptSubscriptionProvider, ClaudeSubscriptionProvider } from "@redgiant/subscriptions";
+import {
+  ChatgptSubscriptionProvider,
+  ClaudeSubscriptionProvider,
+  downloadTool,
+  existingLogin,
+  locateTool,
+  pruneTools,
+  type ToolLocation,
+  type ToolName,
+} from "@redgiant/subscriptions";
 import { migrateTelegram, TelegramGateway } from "@redgiant/telegram";
 import { searchProvider } from "@redgiant/tools";
 import type Docker from "dockerode";
@@ -42,6 +51,8 @@ export interface RuntimeOptions {
   outlets?: Outlets;
   /** Discord, Slack, Signal, WhatsApp (G29.5). */
   chats?: ChatHub;
+  /** Whose jobs RedGiant's own downloads are (the installation's owner). */
+  owner?: () => string;
   /** Where the subscription engines keep their own state (`$DATA/engines/…`). */
   dataDir?: string;
   /** The local engine, when the wizard starts it (Docker installs). */
@@ -141,6 +152,44 @@ function followEngineLogs(container: Docker.Container): void {
 
 /** How the wizard's choices take effect while the server runs (G17). */
 export function runtimeHooks(o: RuntimeOptions): SetupHooks {
+  // The subscriptions' programs (2026-11-05): found here or downloaded when first needed.
+  const toolsDir = join(o.dataDir ?? ".", "tools");
+  const getting = new Map<ToolName, Promise<ToolLocation>>();
+  const ensureTool = (name: ToolName): Promise<ToolLocation> => {
+    const found = locateTool(name, toolsDir);
+    if (found) return Promise.resolve(found);
+    let p = getting.get(name);
+    if (!p) {
+      p = (async () => {
+        const job = o.core.jobs.start(
+          o.owner?.() ?? "local",
+          `download_${name}`,
+          ["tool_download"],
+          async (h) => {
+            h.step("tool_download");
+            await downloadTool(name, toolsDir, (d, t) => h.progress(d, t), h.signal);
+            await pruneTools(name, toolsDir).catch(() => {});
+          },
+        );
+        const end = await o.core.jobs.settled(job.id, 500);
+        if (end?.state !== "done")
+          throw new Error(
+            end?.error?.message ?? `Cannot download ${name === "codex" ? "Codex" : "Claude Code"}`,
+          );
+        const got = locateTool(name, toolsDir);
+        if (!got) throw new Error(`${name} was downloaded but cannot be found`);
+        return got;
+      })().finally(() => getting.delete(name));
+      getting.set(name, p);
+    }
+    return p;
+  };
+  /**
+   * Where a subscription keeps its sign-in: RedGiant's own folder when it has one, otherwise the
+   * person's own Codex or Claude Code login, used as it is (no second sign-in).
+   */
+  const signInDir = (name: ToolName, own: string, file: string) =>
+    existsSync(join(own, file)) ? own : (existingLogin(name) ?? own);
   /**
    * This computer as the engine sees it, Docker's NVIDIA runtime included (2026-11-04: without
    * it the plan thought there was no card at all when Windows' address was missing, and the
@@ -308,16 +357,40 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       o.providers.remove("claude-subscription");
       if (token === null) return;
       if (token) o.redactor.addSecret("claude-subscription", token);
-      const dir = join(o.dataDir ?? ".", "engines", "claude");
-      await mkdir(join(dir, "work"), { recursive: true });
+      const own = join(o.dataDir ?? ".", "engines", "claude");
+      await mkdir(join(own, "work"), { recursive: true });
+      const tool = await ensureTool("claude");
       o.providers.register(
-        new ClaudeSubscriptionProvider({ token, configDir: dir, cwd: join(dir, "work") }),
+        new ClaudeSubscriptionProvider({
+          token,
+          configDir: token ? own : signInDir("claude", own, ".credentials.json"),
+          cwd: join(own, "work"),
+          ...(tool.source !== "bundled" && { executable: tool.file }),
+        }),
       );
       o.core.clearKeyProblem("claude-subscription");
     },
 
     claudeAuth() {
-      return { configDir: join(o.dataDir ?? ".", "engines", "claude") };
+      const own = join(o.dataDir ?? ".", "engines", "claude");
+      const tool = locateTool("claude", toolsDir);
+      return {
+        configDir: signInDir("claude", own, ".credentials.json"),
+        ...(tool && tool.source !== "bundled" && { command: [tool.file, ...tool.args] }),
+      };
+    },
+
+    async prepareTool(name) {
+      await ensureTool(name);
+    },
+
+    toolStatus(name) {
+      const own = join(o.dataDir ?? ".", "engines", name);
+      const file = name === "codex" ? "auth.json" : ".credentials.json";
+      return {
+        program: locateTool(name, toolsDir)?.source ?? null,
+        sharedLogin: !existsSync(join(own, file)) && existingLogin(name) !== undefined,
+      };
     },
 
     async chatgptSubscription(on) {
@@ -327,8 +400,18 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       old?.stop();
       o.providers.remove("chatgpt-subscription");
       if (!on) return;
-      const home = join(o.dataDir ?? ".", "engines", "codex");
-      o.providers.register(new ChatgptSubscriptionProvider({ home, cwd: join(home, "work") }));
+      const own = join(o.dataDir ?? ".", "engines", "codex");
+      const tool = await ensureTool("codex");
+      o.providers.register(
+        new ChatgptSubscriptionProvider({
+          home: signInDir("codex", own, "auth.json"),
+          cwd: join(own, "work"),
+          ...(tool.source !== "bundled" && {
+            command: { file: tool.file, args: [...tool.args, "app-server"] },
+          }),
+          ...(tool.path && { pathPrefix: tool.path }),
+        }),
+      );
       o.core.clearKeyProblem("chatgpt-subscription");
     },
 

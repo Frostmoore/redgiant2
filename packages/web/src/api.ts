@@ -193,6 +193,15 @@ export interface LocalFile {
   partial: boolean;
 }
 
+/**
+ * A subscription's program (2026-11-05): carried, downloaded before, the person's own, or not
+ * here yet (downloaded when switched on); and whether the person's own sign-in is used.
+ */
+export interface SubscriptionProgram {
+  program?: "bundled" | "downloaded" | "system" | null;
+  sharedLogin?: boolean;
+}
+
 /** Chat platforms besides Telegram (G29.5). */
 export type ChatPlatform = "discord" | "slack" | "signal" | "whatsapp";
 
@@ -636,10 +645,12 @@ export class Api {
   setupSubscriptions = (b: Record<string, unknown>) =>
     this.call("PUT", "/api/setup/subscriptions", b);
   chatgptStatus = () =>
-    this.call<{ on: boolean; account: { email: string | null; plan: string | null } | null }>(
-      "GET",
-      "/api/subscriptions/chatgpt",
-    );
+    this.call<
+      {
+        on: boolean;
+        account: { email: string | null; plan: string | null } | null;
+      } & SubscriptionProgram
+    >("GET", "/api/subscriptions/chatgpt");
   chatgptLogin = () =>
     this.call<{ url: string; code: string }>("POST", "/api/subscriptions/chatgpt/login");
   chatgptLogout = () => this.call("POST", "/api/subscriptions/chatgpt/logout");
@@ -693,7 +704,10 @@ export class Api {
       "/api/setup/git/sync",
     );
   claudeStatus = () =>
-    this.call<{ on: boolean; account: ClaudeAccount | null }>("GET", "/api/subscriptions/claude");
+    this.call<{ on: boolean; account: ClaudeAccount | null } & SubscriptionProgram>(
+      "GET",
+      "/api/subscriptions/claude",
+    );
   claudeLogin = (ack: boolean) =>
     this.call<{ url: string }>("POST", "/api/subscriptions/claude/login", { ack });
   claudeCode = (code: string) =>

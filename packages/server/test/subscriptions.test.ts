@@ -124,12 +124,17 @@ describe("flat subscriptions", () => {
     expect((await api("GET", "/api/subscriptions/claude")).body).toEqual({
       on: true,
       account: { loggedIn: true, email: "me@example.com", plan: "max" },
+      // Without the runtime's hook the program counts as carried (2026-11-05).
+      program: "bundled",
+      sharedLogin: false,
     });
     await api("POST", "/api/subscriptions/claude/logout");
     expect(calls).toEqual(["claude:folder", "claude:off"]);
     expect((await api("GET", "/api/subscriptions/claude")).body).toEqual({
       on: false,
       account: { loggedIn: false, email: null, plan: null },
+      program: "bundled",
+      sharedLogin: false,
     });
   });
 });

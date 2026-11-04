@@ -3,7 +3,7 @@
 // The same cards are in Settings, so everything is changed where it was chosen.
 import { KEY_PROVIDERS, type KeyProvider, OWN_SERVER_ID } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
-import { ApiError, type ClaudeAccount, type SetupState } from "../api.js";
+import { ApiError, type ClaudeAccount, type SetupState, type SubscriptionProgram } from "../api.js";
 import { t, tOptional } from "../i18n.js";
 import { IconCard, IconCheck, IconCpu, IconLayers, IconMonitor } from "../icons.js";
 import { getApi, refreshLimits } from "../state.js";
@@ -43,6 +43,15 @@ function Terms({ ack, setAck }: { ack: boolean; setAck: (v: boolean) => void }) 
 }
 
 /** A connected account: who, and a way out. */
+/** Where a subscription's program comes from, said before it is switched on (2026-11-05). */
+function ProgramNote({ name, s }: { name: string; s: SubscriptionProgram | undefined }) {
+  if (!s) return null;
+  if (s.sharedLogin) return <p class="notice ok">{t("subsSharedLogin", { name })}</p>;
+  if (s.program === "system") return <p class="ui-help">{t("subsProgramSystem", { name })}</p>;
+  if (s.program === null) return <p class="ui-help">{t("subsProgramDownload", { name })}</p>;
+  return null;
+}
+
 function Linked({ who, onOut }: { who: string; onOut: () => void }) {
   return (
     <div class="row brain-linked">
@@ -67,7 +76,9 @@ export function ClaudeCard({
   /** Signed in or out: the model to use may change. */
   onChange?: () => void;
 }) {
-  const [status, setStatus] = useState<{ on: boolean; account: ClaudeAccount | null }>();
+  const [status, setStatus] = useState<
+    { on: boolean; account: ClaudeAccount | null } & SubscriptionProgram
+  >();
   const [page, setPage] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -111,6 +122,7 @@ export function ClaudeCard({
     <div class="brain-panel">
       <h3>{t("brainClaude")}</h3>
       <p class="ui-help">{t("brainClaudeHint")}</p>
+      {!account && <ProgramNote name="Claude Code" s={status} />}
       {account ? (
         <Linked
           who={t("subsLoggedAs", { who: account.email ?? "Claude", plan: account.plan ?? "" })}
@@ -129,6 +141,32 @@ export function ClaudeCard({
       ) : (
         <>
           <Terms ack={ack} setAck={setAck} />
+          {status?.sharedLogin && (
+            <p>
+              <button
+                type="button"
+                class="primary"
+                disabled={!ack || busy}
+                onClick={() =>
+                  void (async () => {
+                    setBusy(true);
+                    setError(undefined);
+                    try {
+                      await getApi().setupSubscriptions({ ack, claude: {} });
+                      load();
+                      onChange?.();
+                      void refreshLimits();
+                    } catch (e) {
+                      setError(explain(e));
+                    }
+                    setBusy(false);
+                  })()
+                }
+              >
+                {t("subsUseShared")}
+              </button>
+            </p>
+          )}
           <ol class="brain-steps">
             <li>
               <button type="button" class="primary" disabled={!ack} onClick={() => void open()}>
@@ -177,10 +215,12 @@ export function ChatgptCard({
   setAck: (v: boolean) => void;
   onChange?: () => void;
 }) {
-  const [status, setStatus] = useState<{
-    on: boolean;
-    account: { email: string | null; plan: string | null } | null;
-  }>();
+  const [status, setStatus] = useState<
+    {
+      on: boolean;
+      account: { email: string | null; plan: string | null } | null;
+    } & SubscriptionProgram
+  >();
   const [login, setLogin] = useState<{ url: string; code: string } | null>(null);
   const [error, setError] = useState<string>();
   const load = () =>
@@ -212,6 +252,14 @@ export function ChatgptCard({
     setError(undefined);
     try {
       if (!status?.on) await getApi().setupSubscriptions({ ack, chatgpt: true });
+      // Already signed in with the person's own Codex (2026-11-05): nothing more to do.
+      const now = await getApi().chatgptStatus();
+      setStatus(now);
+      if (now.account) {
+        onChange?.();
+        void refreshLimits();
+        return;
+      }
       setLogin(await getApi().chatgptLogin());
       load();
     } catch (e) {
@@ -233,6 +281,7 @@ export function ChatgptCard({
     <div class="brain-panel">
       <h3>{t("brainChatgpt")}</h3>
       <p class="ui-help">{t("brainChatgptHint")}</p>
+      {!account && <ProgramNote name="Codex" s={status} />}
       {account ? (
         <Linked
           who={t("subsLoggedAs", { who: account.email ?? "ChatGPT", plan: account.plan ?? "" })}

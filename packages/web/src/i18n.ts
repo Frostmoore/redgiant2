@@ -449,6 +449,9 @@ const en = {
   piholeStop: "Turn off Pi-hole",
   job_download_sandbox: "Downloading the agents' computer (only once)",
   job_download_browser: "Downloading the agents' browser (only once)",
+  job_download_codex: "Downloading Codex for the ChatGPT subscription (only once)",
+  job_download_claude: "Downloading Claude Code for the Claude subscription (only once)",
+  job_step_tool_download: "Downloading",
   job_step_image_download: "Downloading",
   err_no_model:
     'No model is chosen yet: open Settings, Models and subscriptions, connect one (a subscription, a key or a local model) and choose it in "The model agents use".',
@@ -1461,6 +1464,12 @@ const en = {
   news2Browser: "The browser on your computer",
   news2BrowserText:
     "Where Chrome, Chromium or Edge is installed, agents use it, with a profile of their own, instead of a container.",
+  subsSharedLogin:
+    "{name} is already signed in on this computer: RedGiant uses that sign-in as it is, no need to sign in again.",
+  subsProgramSystem: "{name} is already installed on this computer: RedGiant uses it.",
+  subsProgramDownload:
+    "{name} is downloaded when you switch this on (once, a few hundred MB, with its bar in the corner).",
+  subsUseShared: "Use the sign-in already here",
   chats: "Other chats",
   chatsHint:
     "Talk to Demi-God from Discord, Slack, Signal or WhatsApp too. It is one conversation: begun on Telegram or here, it goes on wherever you write. Approvals and questions arrive with buttons (on Signal, with numbers to reply).",
@@ -2137,6 +2146,9 @@ const it: Record<Key, string> = {
   piholeStop: "Spegni Pi-hole",
   job_download_sandbox: "Scarico il computer degli agenti (una volta sola)",
   job_download_browser: "Scarico il browser degli agenti (una volta sola)",
+  job_download_codex: "Scarico Codex per l'abbonamento ChatGPT (una volta sola)",
+  job_download_claude: "Scarico Claude Code per l'abbonamento Claude (una volta sola)",
+  job_step_tool_download: "Scarico",
   job_step_image_download: "Download",
   err_no_model:
     'Non hai ancora scelto un modello: apri Impostazioni, Modelli e abbonamenti, collegane uno (un abbonamento, una chiave o un modello locale) e sceglilo in "Il modello che usano gli agenti".',
@@ -3166,6 +3178,12 @@ const it: Record<Key, string> = {
   news2Browser: "Il browser del tuo computer",
   news2BrowserText:
     "Dove c'è Chrome, Chromium o Edge, gli agenti usano quello, con un profilo tutto loro, invece di un contenitore.",
+  subsSharedLogin:
+    "{name} è già collegato su questo computer: RedGiant usa quell'accesso così com'è, senza rifarlo.",
+  subsProgramSystem: "{name} è già installato su questo computer: RedGiant usa quello.",
+  subsProgramDownload:
+    "{name} viene scaricato quando lo attivi (una volta sola, qualche centinaio di MB, con la barra nell'angolo).",
+  subsUseShared: "Usa l'accesso già presente",
   chats: "Altre chat",
   chatsHint:
     "Parla con il Demi-God anche da Discord, Slack, Signal o WhatsApp. È una conversazione sola: cominciata su Telegram o qui, continua ovunque scrivi. Approvazioni e domande arrivano con i pulsanti (su Signal, con i numeri da rispondere).",

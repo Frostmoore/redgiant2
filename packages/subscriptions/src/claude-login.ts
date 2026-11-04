@@ -45,6 +45,7 @@ export class ClaudeLoginError extends Error {
 
 const env = (o: ClaudeLoginOptions) => ({
   ...process.env,
+  USERPROFILE: o.configDir,
   HOME: o.configDir,
   CLAUDE_CONFIG_DIR: o.configDir,
   // Nothing to open on a server: the page is shown in RedGiant instead.

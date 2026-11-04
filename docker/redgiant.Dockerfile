@@ -6,6 +6,9 @@ WORKDIR /opt/redgiant
 RUN corepack enable
 COPY . .
 RUN pnpm install --frozen-lockfile && pnpm build
+# Codex and Claude Code (hundreds of MB) come down only when a subscription is switched on
+# (2026-11-05), into the data volume.
+RUN rm -rf node_modules/.pnpm/@openai+codex@*-linux-* node_modules/.pnpm/@anthropic-ai+claude-agent-sdk-linux-*
 
 FROM node:24-trixie-slim
 ARG REDGIANT_VERSION=dev
