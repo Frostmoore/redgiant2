@@ -100,6 +100,7 @@ import { Inspector } from "./inspector.js";
 import { Jobs } from "./jobs.js";
 import { LoginStore, migrateLogin } from "./login.js";
 import { type MediaRequest, type MediaResult, makeMedia } from "./media.js";
+import { memoryTool, type NoteOwner, Notes } from "./notes.js";
 import {
   completeTaskTool,
   modelApprover,
@@ -291,6 +292,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly logins: LoginStore;
   readonly tasks: TaskTracker;
   readonly board: Board;
+  /** Persistent memory of every agent (G29.3). */
+  readonly notes: Notes;
   readonly extensions: ExtensionBuilder;
   readonly automations: AutomationService;
   readonly policies: PolicyStore;
@@ -351,6 +354,7 @@ export class RedGiantCore implements OrchestrationHost {
     this.sandbox = o.sandbox ?? new HostSandboxProvider();
     this.tasks = new TaskTracker(this.store);
     this.board = new Board(o.db, this.store);
+    this.notes = new Notes((ownerId) => join(this.assistantsPath(ownerId), "memory"));
     this.board.followTasks();
     this.extensions = new ExtensionBuilder({
       db: o.db,
@@ -589,6 +593,15 @@ export class RedGiantCore implements OrchestrationHost {
     return { root, worktree: async (agentId) => sb.workspace(await createWorktree(root, agentId)) };
   }
 
+  /** Whose notes a memory tool changes: the owner's, the agent's, its project's. */
+  private noteOwner(agent: AgentRecord, assignedTo?: string): NoteOwner {
+    return {
+      ownerId: agent.ownerId,
+      agentId: agent.id,
+      projectId: assignedTo ?? agent.projectId ?? undefined,
+    };
+  }
+
   private async assistantsWorkspace(ownerId: string): Promise<Workspace> {
     const dir = this.assistantsPath(ownerId);
     await mkdir(join(dir, "memory"), { recursive: true });
@@ -600,26 +613,6 @@ export class RedGiantCore implements OrchestrationHost {
     return sb.workspace();
   }
 
-  /**
-   * What an assistant knows when a conversation starts (G24.11): the notes shared by every
-   * assistant and its own. Read once, so the instructions stay the same for the whole session.
-   */
-  private async assistantMemory(agent: AgentRecord): Promise<string> {
-    const dir = join(this.assistantsPath(agent.ownerId), "memory");
-    const read = (f: string) =>
-      readFile(join(dir, f), "utf8")
-        .then((t) => t.trim().slice(0, 8000))
-        .catch(() => "");
-    const shared = await read("shared.md");
-    const own = await read(`${agent.id}.md`);
-    return [
-      "## Memory",
-      `Shared notes about the user (memory/shared.md, every assistant reads them):\n${shared || "(empty)"}`,
-      `Your own notes (memory/${agent.id}.md: keep there what you must remember next time, short):\n${own || "(empty)"}`,
-    ].join("\n\n");
-  }
-
-  /** The workspace an agent works in, and whether it may write there. */
   /** The folders each agent may write in without the guardian asking (its workspace, its project). */
   private readonly agentRoots = new Map<string, string[]>();
 
@@ -836,6 +829,7 @@ export class RedGiantCore implements OrchestrationHost {
           agent.kind === "assistant" ? (agent.connections ?? []) : undefined,
         )),
         proposeTool(agent, this.extensions),
+        memoryTool(this.notes, this.noteOwner(agent, assignedTo)),
       );
     }
     if (agent.kind === "assistant") tools.push(this.requestConnectionTool(agent));
@@ -875,7 +869,10 @@ export class RedGiantCore implements OrchestrationHost {
       ...(engine && { engine }),
       system: [
         this.systemFor(agent),
-        agent.kind === "assistant" ? await this.assistantMemory(agent) : "",
+        // Every agent that works remembers (G29.3); read once, the prefix stays the same.
+        agent.kind !== "demigod" && agent.kind !== "inspector"
+          ? await this.notes.prompt(this.noteOwner(agent, assignedTo))
+          : "",
         await this.subprojectNote(agent),
         assignedTo
           ? `## Assigned to a project\nIn this conversation you work for the project "${(await this.projects.get(ownerId, assignedTo))?.name ?? assignedTo}", on tasks its orchestrator gives you. Your files here are your own worktree of that project; close each task with complete_task.`

@@ -20,6 +20,7 @@ export * from "./inspector.js";
 export * from "./jobs.js";
 export * from "./local-models.js";
 export * from "./login.js";
+export * from "./notes.js";
 export * from "./orchestration.js";
 export * from "./platform.js";
 export * from "./projects.js";

@@ -200,6 +200,8 @@ export const READ_ONLY_TOOLS = new Set([
   // Asking the human changes nothing; approving a plan is the human's own decision.
   "ask_user",
   "propose_plan",
+  // The agent's own notes (G29.3): no workspace, no project file.
+  "memory",
 ]);
 
 const toolMatches = (pattern: string, tool: string) =>
