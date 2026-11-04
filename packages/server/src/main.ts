@@ -172,7 +172,10 @@ const telegram: { gateway?: TelegramGateway; webhookSecret?: string } = {
   }),
 };
 const owner = env.REDGIANT_OWNER ?? "local";
-const docker = sandbox.kind === "docker" ? new Docker() : undefined;
+// Docker for what RedGiant runs next to itself (engine, search, Pi-hole, Gitea, remote access):
+// a Docker installation says so with its engine network, whatever runs the agents' commands
+// (2.0.1: tying it to the sandbox left the engine without Docker once agents moved to host).
+const docker = sandbox.kind === "docker" || env.REDGIANT_ENGINE_NETWORK ? new Docker() : undefined;
 // The engine on Windows itself (G24.3b): RedGiant.exe runs it; the folder is shared through WSL.
 // The folder alone is enough for what goes through files (updates from Settings, Windows' free
 // RAM, moving models, the launcher's debug log): an empty address (2026-11-04: the distribution
