@@ -4,11 +4,18 @@
 // same database as everywhere else, only started by us; it listens on 127.0.0.1 only, on a free
 // port, with a password made the first time and kept next to it.
 
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { promisify } from "node:util";
+import pgDriver from "pg";
+
+const run = promisify(execFile);
 
 export interface EmbeddedDatabase {
   url: string;
@@ -58,10 +65,48 @@ export async function startEmbeddedDatabase(
     onError: (e) => log(`postgres: ${e instanceof Error ? e.message : String(e)}`),
   });
   if (fresh) await pg.initialise();
+  const url = (db: string) =>
+    `postgres://redgiant:${encodeURIComponent(password)}@127.0.0.1:${port}/${db}`;
+  if (process.platform === "win32") {
+    // Postgres refuses to run with an administrator's rights; pg_ctl drops them on Windows
+    // (2026-11-05: started elevated, `postgres` itself just quit), so it starts the server.
+    const req = createRequire(fileURLToPath(import.meta.resolve("embedded-postgres")));
+    const { pg_ctl } = (await import(
+      pathToFileURL(req.resolve("@embedded-postgres/windows-x64")).href
+    )) as { pg_ctl: string };
+    const ctl = (...args: string[]) => run(pg_ctl, ["-D", dir, ...args], { windowsHide: true });
+    // A server left running by a previous start (its port is chosen anew each time).
+    if (
+      await ctl("status").then(
+        () => true,
+        () => false,
+      )
+    )
+      await ctl("-m", "fast", "-w", "stop").catch(() => {});
+    await ctl(
+      "-l",
+      join(dataDir, "postgres.log"),
+      "-o",
+      `-p ${port} -c listen_addresses=127.0.0.1`,
+      "-w",
+      "-t",
+      "120",
+      "start",
+    );
+    if (fresh) {
+      const c = new pgDriver.Client({ connectionString: url("postgres") });
+      await c.connect();
+      await c.query("CREATE DATABASE redgiant");
+      await c.end();
+    }
+    return {
+      url: url("redgiant"),
+      stop: async () => {
+        await ctl("-m", "fast", "-w", "stop");
+      },
+    };
+  }
   await pg.start();
   if (fresh) await pg.createDatabase("redgiant");
-  return {
-    url: `postgres://redgiant:${encodeURIComponent(password)}@127.0.0.1:${port}/redgiant`,
-    stop: () => pg.stop(),
-  };
+  return { url: url("redgiant"), stop: () => pg.stop() };
 }
