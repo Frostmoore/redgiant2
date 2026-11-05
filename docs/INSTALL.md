@@ -23,9 +23,16 @@ Hugging Face, names, Telegram, safety and costs).
 
 ## macOS
 
-On Apple silicon RedGiant runs best directly on the Mac, without Docker: the local engine then
-uses the GPU through Metal (llama.cpp's macOS build, downloaded the first time), and voice messages
-are transcribed on the Mac (whisper with Metal). With Node.js 22+ and git:
+Download `RedGiant-mac-arm64.dmg` from the [latest release](https://github.com/Frostmoore/redgiant2/releases/latest)
+(Apple silicon, macOS 13 or newer), open it and drag RedGiant into Applications. It is signed and
+notarized by Apple: it opens without warnings. RedGiant lives in the menu bar (next to the clock):
+it starts its server, opens the browser already signed in, and offers "Open RedGiant", "Start at
+login", "Uninstall RedGiant…" (keeping or deleting the data) and "Quit". Everything it keeps is in
+`~/Library/Application Support/RedGiant`, its logs in `~/Library/Logs/RedGiant`. The local engine
+uses the GPU through Metal (llama.cpp's macOS build, downloaded the first time) and voice messages
+are transcribed on the Mac (whisper with Metal).
+
+From source instead, with Node.js 22+ and git:
 
 ```sh
 git clone https://github.com/Frostmoore/redgiant2.git && cd redgiant2
