@@ -6,13 +6,16 @@
 
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { chmod, mkdir, rm } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { Jobs } from "./jobs.js";
 
-const RELEASES = "https://api.github.com/repos/git-for-windows/git/releases/latest";
+/** Git for Windows' latest release (a mirror, or a fake one in tests: REDGIANT_GIT_RELEASES). */
+const releases = () =>
+  process.env.REDGIANT_GIT_RELEASES ??
+  "https://api.github.com/repos/git-for-windows/git/releases/latest";
 
 /** Where the portable Git lives. */
 export const portableGitDir = (dataDir: string) => join(dataDir, "tools", "git");
@@ -32,13 +35,13 @@ export function usePortableGit(dir: string): void {
 }
 
 /** Downloads PortableGit for this computer and unpacks it (a self-extracting 7-Zip archive). */
-async function download(
+export async function downloadPortableGit(
   dir: string,
   progress: (done: number, total: number | null) => void,
   signal: AbortSignal,
 ): Promise<void> {
   const release = (await (
-    await fetch(RELEASES, { headers: { accept: "application/vnd.github+json" }, signal })
+    await fetch(releases(), { headers: { accept: "application/vnd.github+json" }, signal })
   ).json()) as { assets?: { name: string; browser_download_url: string }[] };
   const arch = process.arch === "arm64" ? "arm64" : "64-bit";
   const asset = release.assets?.find(
@@ -59,6 +62,8 @@ async function download(
   });
   const exe = join(part, asset.name);
   await pipeline(body, createWriteStream(exe));
+  // Runnable (Windows does not mind; a fake one in tests is a script).
+  await chmod(exe, 0o755);
   // The archive unpacks itself: -y answers yes, -o<folder> (no space) is where.
   await new Promise<void>((ok, ko) => {
     const p = spawn(exe, ["-y", `-o${dir}`], { stdio: "ignore", windowsHide: true });
@@ -86,7 +91,7 @@ export async function ensureGit(jobs: Jobs, owner: string, dataDir: string): Pro
   if (gitOnPath()) return;
   const job = jobs.start(owner, "download_git", ["tool_download"], async (h) => {
     h.step("tool_download");
-    await download(dir, (d, t) => h.progress(d, t), h.signal);
+    await downloadPortableGit(dir, (d, t) => h.progress(d, t), h.signal);
   });
   const end = await jobs.settled(job.id, 500);
   if (end?.state === "done") usePortableGit(dir);
