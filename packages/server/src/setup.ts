@@ -28,10 +28,12 @@ import { searchProvider } from "@redgiant/tools";
 import { stringify } from "yaml";
 import type { RedGiantCore } from "./core.js";
 import { debugLog } from "./debug-log.js";
+import { freePort } from "./embedded-db.js";
 import { GitHostError, type GitHosts, type GitHostsConfig } from "./git-hosts.js";
 import { detectHardware, type EngineVariant, type Hardware } from "./hardware.js";
 import { IMAGE_MODEL } from "./images.js";
 import { JobFailure, type JobHandle } from "./jobs.js";
+import { LocalWhisper } from "./local-voice.js";
 import { elevenVoices } from "./media.js";
 import { REMOTE_STEPS, type RemoteRequest } from "./remote.js";
 import type { EnginePlan } from "./stream.js";
@@ -202,7 +204,7 @@ export interface SetupConfig {
   /** The person switched RedGiant's search engine off: it is not started by itself again. */
   searxngDeclined?: boolean;
   /** Speech to text for voice messages; its key, if any, is in the secrets. */
-  transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
+  transcription?: { api: "whisper-asr" | "openai" | "local"; url: string; model?: string };
   /** Flat subscriptions switched on (their tokens are in the secrets). */
   subscriptions?: { claude?: boolean; chatgpt?: boolean };
   /** Image generation: the model, when not the default (the OpenAI key is in the secrets). */
@@ -616,7 +618,7 @@ export class SetupService {
     images?: { key?: string | undefined; model?: string | undefined } | null | undefined;
     transcription?:
       | {
-          api: "whisper-asr" | "openai";
+          api: "whisper-asr" | "openai" | "local";
           url: string;
           model?: string | undefined;
           key?: string | undefined;
@@ -678,8 +680,28 @@ export class SetupService {
 
   private applyTranscription(): void {
     const t = this.config.transcription;
+    if (t?.api === "local") {
+      this.startLocalVoice();
+      return;
+    }
+    this.localVoice?.stop();
     this.o.core.setTranscription(
       t && { ...t, ...(this.secrets.transcriptionKey && { key: this.secrets.transcriptionKey }) },
+    );
+  }
+
+  /** whisper.cpp on this computer (RedGiant 3.0): downloaded once, then started here. */
+  private localVoice: LocalWhisper | undefined;
+  private startLocalVoice(): void {
+    this.localVoice ??= new LocalWhisper(this.o.dataDir);
+    const voice = this.localVoice;
+    void (async () => {
+      await voice.ensure(this.o.core.jobs, this.o.ownerId);
+      const url = await voice.start(await freePort());
+      if (this.config.transcription?.api === "local")
+        this.o.core.setTranscription({ api: "local", url });
+    })().catch((err) =>
+      debugLog.write("voice", "whisper.cpp did not start", { error: String(err) }),
     );
   }
 
@@ -1766,6 +1788,7 @@ export class SetupService {
   }
 
   stop(): void {
+    this.localVoice?.stop();
     clearInterval(this.reminder);
     clearInterval(this.retention);
   }

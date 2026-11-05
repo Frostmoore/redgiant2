@@ -62,7 +62,7 @@ export interface SetupState {
     searxngUrl?: string;
     searxngManaged?: boolean;
     searchProvider?: SearchProviderId;
-    transcription?: { api: "whisper-asr" | "openai"; url: string; model?: string };
+    transcription?: { api: "whisper-asr" | "openai" | "local"; url: string; model?: string };
     imagesModel?: string;
     media?: Partial<
       Record<

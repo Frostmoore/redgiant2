@@ -19,7 +19,7 @@ export interface EmbeddedDatabase {
   stop(): Promise<void>;
 }
 
-function freePort(): Promise<number> {
+export function freePort(): Promise<number> {
   return new Promise((ok, ko) => {
     const srv = createServer();
     srv.once("error", ko);

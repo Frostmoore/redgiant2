@@ -93,14 +93,17 @@ function ServicesForm({ s }: { s: SetupState }) {
             },
           }),
         ...(!s.locked.voice && {
-          transcription: voiceUrl.trim()
-            ? {
-                api: voiceApi,
-                url: voiceUrl.trim(),
-                ...(voiceModel.trim() && { model: voiceModel.trim() }),
-                ...(voiceKey && { key: voiceKey }),
-              }
-            : null,
+          transcription:
+            voiceApi === "local"
+              ? { api: "local", url: "" }
+              : voiceUrl.trim()
+                ? {
+                    api: voiceApi,
+                    url: voiceUrl.trim(),
+                    ...(voiceModel.trim() && { model: voiceModel.trim() }),
+                    ...(voiceKey && { key: voiceKey }),
+                  }
+                : null,
         }),
       });
       setResult({ ok: true, text: t("saved") });
@@ -127,23 +130,29 @@ function ServicesForm({ s }: { s: SetupState }) {
               disabled={s.locked.voice}
               value={voiceApi}
               onChange={(e) =>
-                setVoiceApi((e.target as HTMLSelectElement).value as "whisper-asr" | "openai")
+                setVoiceApi(
+                  (e.target as HTMLSelectElement).value as "whisper-asr" | "openai" | "local",
+                )
               }
             >
+              <option value="local">{t("voiceLocal")}</option>
               <option value="whisper-asr">whisper-asr-webservice</option>
               <option value="openai">{t("wzVoiceOpenai")}</option>
             </select>
           </Field>
-          <Field label={t("servicesVoiceUrl")} help={s.locked.voice ? t("wzLocked") : undefined}>
-            <input
-              placeholder={
-                voiceApi === "openai" ? "https://api.openai.com/v1" : "http://whisper-asr:9000"
-              }
-              disabled={s.locked.voice}
-              value={voiceUrl}
-              onInput={(e) => setVoiceUrl((e.target as HTMLInputElement).value)}
-            />
-          </Field>
+          {voiceApi === "local" && <p class="ui-help">{t("voiceLocalHint")}</p>}
+          {voiceApi !== "local" && (
+            <Field label={t("servicesVoiceUrl")} help={s.locked.voice ? t("wzLocked") : undefined}>
+              <input
+                placeholder={
+                  voiceApi === "openai" ? "https://api.openai.com/v1" : "http://whisper-asr:9000"
+                }
+                disabled={s.locked.voice}
+                value={voiceUrl}
+                onInput={(e) => setVoiceUrl((e.target as HTMLInputElement).value)}
+              />
+            </Field>
+          )}
           {voiceApi === "openai" && (
             <>
               <Field label={t("wzVoiceModel")}>

@@ -3,8 +3,11 @@
 // own ffmpeg) and any OpenAI-compatible `/audio/transcriptions` endpoint (OpenAI, Groq,
 // whisper.cpp's server, speaches…).
 
+import { oggOpusToWav } from "./local-voice.js";
+
 export interface TranscriptionConfig {
-  api: "whisper-asr" | "openai";
+  /** "local": whisper.cpp on this computer (RedGiant 3.0), started by RedGiant itself. */
+  api: "whisper-asr" | "openai" | "local";
   /** whisper-asr: its base URL; openai: the API base, e.g. https://api.openai.com/v1. */
   url: string;
   /** For "openai": the model (whisper-1 by default). */
@@ -39,7 +42,14 @@ export async function transcribe(
 ): Promise<string> {
   if (audio.length === 0) throw new TranscriptionError("The recording is empty");
   if (audio.length > MAX_AUDIO_BYTES) throw new TranscriptionError("The recording is too long");
-  const type = mime.split(";")[0]?.trim().toLowerCase() || "application/octet-stream";
+  let type = mime.split(";")[0]?.trim().toLowerCase() || "application/octet-stream";
+  // whisper.cpp reads WAV, not Opus: voice notes from the chats are decoded here first.
+  if (cfg.api === "local" && (type === "audio/ogg" || type === "audio/opus")) {
+    audio = await oggOpusToWav(audio).catch(() => {
+      throw new TranscriptionError("This voice note could not be decoded");
+    });
+    type = "audio/wav";
+  }
   const file = new Blob([new Uint8Array(audio)], { type });
   const name = `voice.${EXTENSIONS[type] ?? "bin"}`;
   const base = cfg.url.replace(/\/+$/, "");

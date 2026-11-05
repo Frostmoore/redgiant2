@@ -1811,8 +1811,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
               .optional(),
             transcription: z
               .object({
-                api: z.enum(["whisper-asr", "openai"]),
-                url: z.url(),
+                // "local": whisper.cpp on this computer, no address (RedGiant 3.0).
+                api: z.enum(["whisper-asr", "openai", "local"]),
+                url: z.union([z.url(), z.literal("")]),
                 model: z.string().min(1).optional(),
                 key: z.string().optional(),
               })

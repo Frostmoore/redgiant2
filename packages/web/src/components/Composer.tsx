@@ -138,6 +138,42 @@ function speechRecognition(): (new () => Recognition) | undefined {
  * The composer, as in Officina: everything in one box — attachments (picked or dropped),
  * the text with the microphone, then a bar with the chips (mode, model) and stop or send.
  */
+/** A recording as 16 kHz mono WAV, decoded by the browser itself (no Opus where it is read). */
+async function toWav(blob: Blob): Promise<Blob> {
+  const ctx = new AudioContext();
+  try {
+    const audio = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const rate = 16000;
+    const off = new OfflineAudioContext(1, Math.ceil(audio.duration * rate), rate);
+    const src = off.createBufferSource();
+    src.buffer = audio;
+    src.connect(off.destination);
+    src.start();
+    const pcm = (await off.startRendering()).getChannelData(0);
+    const out = new DataView(new ArrayBuffer(44 + pcm.length * 2));
+    const text = (at: number, s: string) => {
+      for (let i = 0; i < s.length; i++) out.setUint8(at + i, s.charCodeAt(i));
+    };
+    text(0, "RIFF");
+    out.setUint32(4, 36 + pcm.length * 2, true);
+    text(8, "WAVEfmt ");
+    out.setUint32(16, 16, true);
+    out.setUint16(20, 1, true);
+    out.setUint16(22, 1, true);
+    out.setUint32(24, rate, true);
+    out.setUint32(28, rate * 2, true);
+    out.setUint16(32, 2, true);
+    out.setUint16(34, 16, true);
+    text(36, "data");
+    out.setUint32(40, pcm.length * 2, true);
+    for (let i = 0; i < pcm.length; i++)
+      out.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i] ?? 0)) * 32767, true);
+    return new Blob([out.buffer], { type: "audio/wav" });
+  } finally {
+    void ctx.close();
+  }
+}
+
 export function Composer({
   placeholder,
   running,
@@ -232,7 +268,8 @@ export function Composer({
         if (blob.size === 0) return;
         setTranscribing(true);
         try {
-          append(await getApi().transcribe(blob, lang));
+          // As WAV: every service reads it, whisper.cpp on this computer included (2026-11-05).
+          append(await getApi().transcribe(await toWav(blob).catch(() => blob), lang));
           area.current?.focus();
         } catch (err) {
           setProblem(t("transcriptionFailed", { error: (err as Error).message }));
