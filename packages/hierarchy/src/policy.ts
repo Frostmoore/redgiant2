@@ -202,6 +202,8 @@ export const READ_ONLY_TOOLS = new Set([
   "propose_plan",
   // The agent's own notes (G29.3): no workspace, no project file.
   "memory",
+  // The agent's list of steps (2026-11-05): shown to the person, changes nothing.
+  "update_todos",
 ]);
 
 const toolMatches = (pattern: string, tool: string) =>

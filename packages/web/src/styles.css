@@ -5416,3 +5416,57 @@ textarea.instructions {
   max-height: 320px;
   overflow: auto;
 }
+
+/* The agent's list of steps, above the composer (2026-11-05). */
+.todos {
+  margin: 0 auto 6px;
+  width: min(100%, 900px);
+  box-sizing: border-box;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  font-size: 13px;
+}
+.todos-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 0;
+  color: var(--dim);
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+.todos ol {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  max-height: 160px;
+  overflow: auto;
+}
+.todos li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
+}
+.todos li.completed {
+  color: var(--dim);
+  text-decoration: line-through;
+}
+.todos li.in_progress {
+  font-weight: 600;
+}
+.todo-mark {
+  width: 14px;
+  flex: none;
+}
+.todo-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--dim);
+  border-radius: 50%;
+}

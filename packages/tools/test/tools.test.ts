@@ -54,6 +54,7 @@ describe("baseTools", () => {
       "glob",
       "grep",
       "read_file",
+      "update_todos",
       "web_search",
       "write_file",
     ]);
@@ -276,6 +277,26 @@ describe.runIf(process.platform === "win32")("the terminal on Windows (RedGiant 
     expect(out).toContain("terminal-42");
     await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
     term.kill();
+  });
+});
+
+describe("the agent's list of steps (2026-11-05)", () => {
+  it("takes the whole list, one step in progress at most, and says what is next", async () => {
+    const r = await run("update_todos", {
+      todos: [
+        { content: "read the code", status: "completed" },
+        { content: "fix the bug", status: "in_progress" },
+        { content: "run the tests", status: "pending" },
+      ],
+    });
+    expect(r).toEqual({ content: "1 of 3 done. Now: fix the bug", isError: false });
+    const two = await run("update_todos", {
+      todos: [
+        { content: "a", status: "in_progress" },
+        { content: "b", status: "in_progress" },
+      ],
+    });
+    expect(two.isError).toBe(true);
   });
 });
 

@@ -13,6 +13,7 @@ export * from "./scoped.js";
 export * from "./search.js";
 export * from "./shell.js";
 export * from "./text.js";
+export * from "./todos.js";
 export * from "./web.js";
 export * from "./workspace.js";
 
@@ -24,6 +25,8 @@ export interface BaseToolsOptions {
 }
 
 /** The base tools every agent has (RD29), in canonical order. */
+import { todosTool } from "./todos.js";
+
 export function baseTools(o: BaseToolsOptions): Tool[] {
   const p = o.profile ?? "full";
   return canonicalTools([
@@ -35,5 +38,6 @@ export function baseTools(o: BaseToolsOptions): Tool[] {
     bashTool(o.workspace, p),
     fetchTool(p, o.fetch),
     webSearchTool(o.search, p),
+    todosTool(),
   ] as Tool[]);
 }

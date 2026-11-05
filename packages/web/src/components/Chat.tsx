@@ -8,6 +8,7 @@ import {
   IconArrowDown,
   IconCanvas,
   IconCheck,
+  IconChevron,
   IconClose,
   IconFile,
   IconInfo,
@@ -72,6 +73,54 @@ const scopeOf = (agentId: string) => {
   const projectId = agents.value.find((a) => a.id === agentId)?.projectId;
   return projectId ? `project:${projectId}` : "platform";
 };
+
+/**
+ * The agent's list of steps (update_todos, 2026-11-05), pinned above the composer: the latest
+ * list of the conversation, until every step is done and the agent has stopped.
+ */
+function Todos({ items, running }: { items: ChatItem[]; running: boolean }) {
+  const [folded, setFolded] = useState(false);
+  const last = [...items]
+    .reverse()
+    .find((i) => i.kind === "tool" && i.tool === "update_todos" && i.result?.ok);
+  const todos =
+    last?.kind === "tool"
+      ? ((last.input as { todos?: { content: string; status: string }[] }).todos ?? [])
+      : [];
+  const done = todos.filter((x) => x.status === "completed").length;
+  if (todos.length === 0 || (done === todos.length && !running)) return null;
+  return (
+    <div class="todos">
+      <button
+        type="button"
+        class="todos-head"
+        onClick={() => setFolded(!folded)}
+        aria-expanded={!folded}
+      >
+        <IconChevron size={12} open={!folded} />
+        {t("todosTitle", { done: String(done), all: String(todos.length) })}
+      </button>
+      {!folded && (
+        <ol>
+          {todos.map((x, i) => (
+            <li key={i} class={x.status}>
+              <span class="todo-mark">
+                {x.status === "completed" ? (
+                  <IconCheck size={12} />
+                ) : x.status === "in_progress" ? (
+                  <IconSpinner size={12} />
+                ) : (
+                  <i class="todo-dot" />
+                )}
+              </span>
+              {x.content}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
 
 function ToolLine({
   item,
@@ -530,6 +579,7 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
           </button>
         )}
       </div>
+      <Todos items={items.value} running={v.state === "running"} />
       <Composer
         lang={lang.value}
         placeholder={
