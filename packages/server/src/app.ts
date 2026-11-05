@@ -2281,10 +2281,6 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   );
   app.delete("/api/setup/remote", (c) => wizard(c, () => (setup as SetupService).stopRemote()));
   // Starting the local engine is a job (image, start, load, a first answer); null stops it.
-  // The models out of WSL to the engine on Windows (2026-11-04): a job with a bar.
-  app.post("/api/setup/models-to-windows", (c) =>
-    wizard(c, async () => (setup as SetupService).modelsToWindows()),
-  );
   // The local model turned on or off (2026-11-04); on is a job that loads it again.
   app.put("/api/setup/engine/power", (c) =>
     wizard(c, async () => {

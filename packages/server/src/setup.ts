@@ -73,9 +73,7 @@ export interface SetupHooks {
   engine(o: EngineConfig | null, h?: JobHandle): Promise<void | EnginePlan>;
   dockerRuntimes?(): Promise<string[]>;
   /** Model files inside WSL that the engine on Windows could run instead (2026-11-04). */
-  wslModels?(): Promise<{ file: string; bytes: number }[]>;
   /** Moves them to the engine on Windows' folder (a job's progress in bytes). */
-  modelsToWindows?(h: JobHandle): Promise<void>;
   /** After the local model stops: gives its memory back to the system (Windows: WSL's cache). */
   releaseMemory?(): Promise<void>;
   /**
@@ -260,7 +258,6 @@ export interface Locked {
 export interface SetupState {
   config: SetupConfig;
   /** Model files inside WSL that the engine on Windows could run instead (2026-11-04). */
-  wslModels: { file: string; bytes: number }[];
   secretsSet: {
     /** Providers with a saved key. */
     keys: string[];
@@ -519,7 +516,6 @@ export class SetupService {
       },
       locked: this.locked,
       providers: this.o.core.providerIds(),
-      wslModels: (await this.o.hooks.wslModels?.().catch(() => [])) ?? [],
       hardware: await detectHardware({
         dataDir: this.o.dataDir,
         ...(this.o.hooks.dockerRuntimes && { dockerRuntimes: this.o.hooks.dockerRuntimes }),
@@ -1041,34 +1037,6 @@ export class SetupService {
         this.prefillConversations();
       },
       { model: e.model },
-    );
-  }
-
-  /**
-   * The models out of WSL (2026-11-04, the person's decision: no virtualisation where it is not
-   * needed). Copied to the Windows engine's folder; then the local model, if it ran in Docker,
-   * runs on the engine on Windows, tuned again (its tuning was measured inside WSL).
-   */
-  modelsToWindows(): Job {
-    const move = this.o.hooks.modelsToWindows;
-    if (!move) throw new SetupError("The engine on Windows is not here");
-    return this.o.core.jobs.start(
-      this.o.ownerId,
-      "models_to_windows",
-      ["copy", "switch"],
-      async (h) => {
-        h.step("copy");
-        await move(h);
-        h.step("switch");
-        const e = this.config.engine;
-        if (e && e.variant !== "windows") {
-          const { plan: _plan, tuning: _tuning, off, ...rest } = e;
-          const moved: EngineConfig = { ...rest, variant: "windows", ...(off && { off }) };
-          this.config.engine = moved;
-          await this.save();
-          if (!off) this.startEngine(moved);
-        }
-      },
     );
   }
 

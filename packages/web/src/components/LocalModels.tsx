@@ -183,24 +183,22 @@ function ModelsDisk({
   onMoved: () => void;
 }) {
   const [jobId, setJobId] = useState<string>();
-  const [restarting, setRestarting] = useState(false);
   const job = useJob(jobId);
   useEffect(() => {
     if (job?.state === "done") onMoved();
   }, [job?.state]);
   const hw = s.hardware;
   if (!(hw.onWindows ?? hw.windowsEngine) || !hw.disks?.length) return null;
-  const kind = variant === "windows" ? "models" : "distro";
+  // RedGiant 3.0: only the models move to another disk (there is no WSL distribution).
+  const kind = "models" as const;
   const here = variant === "windows" ? hw.modelDisk?.windows : hw.modelDisk?.docker;
   const current = hw.disks.find((d) => d.name === here);
   const kindOf = (d: { ssd: boolean | null; bus: string }) =>
     `${d.ssd === true ? "SSD" : d.ssd === false ? t("lmDiskHdd") : t("lmDiskUnknown")}${d.bus !== "other" ? ` ${d.bus.toUpperCase()}` : ""}`;
   const move = (drive: string) => {
-    if (kind === "distro" && !confirm(t("lmMoveDistroConfirm", { disk: `${drive}:` }))) return;
     void attempt(() => getApi().moveModels(drive, kind)).then((j) => {
       if (!j) return;
-      if (kind === "distro") setRestarting(true);
-      else setJobId(j.id);
+      setJobId(j.id);
     });
   };
   return (
@@ -225,7 +223,7 @@ function ModelsDisk({
               </span>
               <button
                 type="button"
-                disabled={d.ssd === false || job?.state === "running" || restarting}
+                disabled={d.ssd === false || job?.state === "running"}
                 title={d.ssd === false ? t("lmStreamHdd", { disk: `${d.name}:` }) : undefined}
                 onClick={() => move(d.name)}
               >
@@ -234,9 +232,8 @@ function ModelsDisk({
             </li>
           ))}
       </ul>
-      <p class="ui-help">{kind === "models" ? t("lmMoveModelsHelp") : t("lmMoveDistroHelp")}</p>
+      <p class="ui-help">{t("lmMoveModelsHelp")}</p>
       {job && <JobView job={job} />}
-      {restarting && <p class="notice">{t("lmMoveDistroRunning")}</p>}
     </div>
   );
 }
@@ -631,55 +628,6 @@ function HfSearch({
         </ul>
       )}
       {error && <p class="notice error">{error}</p>}
-    </div>
-  );
-}
-
-/**
- * Models still inside WSL on Windows (2026-11-04, the person's decision: the engine runs
- * natively, no virtualisation where it is not needed): how many, and one button to move them.
- */
-function OutOfWsl({ s, onDone }: { s: SetupState; onDone: () => void }) {
-  const [jobId, setJobId] = useState<string>();
-  const [open, setOpen] = useState(false);
-  const job = useJob(jobId);
-  useEffect(() => {
-    if (job?.state === "done") onDone();
-  }, [job?.state]);
-  const files = s.wslModels ?? [];
-  if (!s.hardware.windowsEngine || (files.length === 0 && !jobId)) return null;
-  const total = files.reduce((n, f) => n + f.bytes, 0);
-  return (
-    <div class="notice warn out-of-wsl">
-      <p>{t("lmOutOfWsl", { n: String(files.length), size: bytes(total) })}</p>
-      <div class="row wrap">
-        <button
-          type="button"
-          class="primary"
-          disabled={job?.state === "running"}
-          onClick={() =>
-            void attempt(() => getApi().modelsToWindows()).then((j) => {
-              if (j) {
-                setJobId(j.id);
-                setOpen(true);
-              }
-            })
-          }
-        >
-          {t("lmOutOfWslMove")}
-        </button>
-        {jobId && !open && (
-          <button type="button" class="link" onClick={() => setOpen(true)}>
-            {t("lmShowActivation")}
-          </button>
-        )}
-      </div>
-      {open && job && (
-        <Modal title={t("lmOutOfWslTitle")} onClose={() => setOpen(false)}>
-          <p class="ui-help">{t("lmOutOfWslHelp")}</p>
-          <JobView job={job} />
-        </Modal>
-      )}
     </div>
   );
 }
@@ -1257,7 +1205,6 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
         : null;
   return (
     <div class="lm">
-      <OutOfWsl s={s} onDone={changed} />
       <Machine
         s={s}
         tiers={tiers}

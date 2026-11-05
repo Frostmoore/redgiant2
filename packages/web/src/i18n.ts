@@ -735,12 +735,6 @@ const en = {
   lmDiskMove: "Move here",
   lmMoveModelsHelp:
     "The Windows engine's models are copied with a bar, then the old folder points to the new one. The engine stops while they move and starts again after.",
-  lmMoveDistroHelp:
-    "The engines in Docker read their models from RedGiant's own disk: moving them moves RedGiant's data too (projects and conversations), and RedGiant starts again. The window next to the clock shows how far it is.",
-  lmMoveDistroConfirm:
-    "Move all of RedGiant's data (projects, conversations and models) to {disk}? RedGiant stops while it moves and starts again by itself.",
-  lmMoveDistroRunning:
-    "RedGiant is moving and will start again by itself: the window next to the clock shows how far it is. This page comes back when it is done.",
   job_models_move: "Moving the models",
   job_step_move: "Copying to the new disk",
   job_error_move_failed: "The models could not be moved.",
@@ -976,12 +970,6 @@ const en = {
   lmFactSsdNone: "nothing: it fits in RAM",
   lmFactRam: "Free RAM counted",
   lmVersions: "Version of the file",
-  lmOutOfWsl:
-    "{n} models ({size}) are still inside WSL, Windows' Linux layer. On Windows the local engine now runs natively: faster with the card, all the free RAM, memory given back when it stops. Move them once to use them.",
-  lmOutOfWslMove: "Move the models to Windows",
-  lmOutOfWslTitle: "Models out of WSL",
-  lmOutOfWslHelp:
-    "Each model is copied to the folder of the engine on Windows, then removed from WSL. A large model takes some minutes. At the end the model you use starts on the engine on Windows and is tuned again.",
   job_models_to_windows: "Moving the models to Windows",
   job_step_copy: "Copying the models",
   job_step_switch: "Starting the model on Windows",
@@ -2448,12 +2436,6 @@ const it: Record<Key, string> = {
   lmDiskMove: "Sposta qui",
   lmMoveModelsHelp:
     "I modelli del motore Windows vengono copiati con la barra, poi la vecchia cartella rimanda alla nuova. Il motore si ferma durante lo spostamento e riparte dopo.",
-  lmMoveDistroHelp:
-    "I motori in Docker leggono i modelli dal disco di RedGiant: spostarli sposta anche i dati di RedGiant (progetti e conversazioni), e RedGiant si riavvia. La finestra vicino all'orologio mostra a che punto è.",
-  lmMoveDistroConfirm:
-    "Spostare tutti i dati di RedGiant (progetti, conversazioni e modelli) su {disk}? RedGiant si ferma durante lo spostamento e riparte da solo.",
-  lmMoveDistroRunning:
-    "RedGiant si sta spostando e ripartirà da solo: la finestra vicino all'orologio mostra a che punto è. Questa pagina torna quando ha finito.",
   job_models_move: "Sposto i modelli",
   job_step_move: "Copio sul nuovo disco",
   job_error_move_failed: "Non sono riuscito a spostare i modelli.",
@@ -2693,12 +2675,6 @@ const it: Record<Key, string> = {
   lmFactSsdNone: "niente: sta in RAM",
   lmFactRam: "RAM libera contata",
   lmVersions: "Versione del file",
-  lmOutOfWsl:
-    "{n} modelli ({size}) sono ancora dentro WSL, lo strato Linux di Windows. Su Windows il motore locale ora gira nativo: più veloce con la scheda, tutta la RAM libera, memoria restituita quando si spegne. Spostali una volta per usarli.",
-  lmOutOfWslMove: "Sposta i modelli su Windows",
-  lmOutOfWslTitle: "Modelli fuori da WSL",
-  lmOutOfWslHelp:
-    "Ogni modello viene copiato nella cartella del motore di Windows, poi tolto da WSL. Un modello grande richiede qualche minuto. Alla fine il modello che usi parte sul motore di Windows e viene regolato di nuovo.",
   job_models_to_windows: "Sposto i modelli su Windows",
   job_step_copy: "Copio i modelli",
   job_step_switch: "Avvio il modello su Windows",
