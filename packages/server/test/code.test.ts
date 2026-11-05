@@ -143,7 +143,8 @@ describe("God's changes to RedGiant's own code", () => {
     core.code?.unwatch();
     expect((await core.changes.get("me", change?.id ?? ""))?.stage).toBe("promoted");
     // God picks up the turn the restart cut, and its answer reaches the owner too.
-    for (let i = 0; i < 100 && notes.length < 2; i++) await new Promise((r) => setTimeout(r, 30));
+    // Up to 15 s: a slow Windows runner once needed more than 3 (2026-11-05).
+    for (let i = 0; i < 500 && notes.length < 2; i++) await new Promise((r) => setTimeout(r, 30));
     expect(notes[0]).toBe(`Platform change live: Version v2 (${req?.commit.slice(0, 8)})`);
     expect(notes.slice(1)).toHaveLength(1);
     const godSession = (await core.history("me", (await core.listSessions("me"))[0]?.id ?? ""))
