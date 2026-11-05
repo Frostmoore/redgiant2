@@ -270,15 +270,16 @@ describe.runIf(process.platform === "win32")("the terminal on Windows (RedGiant 
       out += d;
     });
     const exited = new Promise<number | null>((r) => term.onExit(r));
-    await new Promise((r) => setTimeout(r, 2500));
-    term.write("echo terminal-$((40+2))\r");
-    for (let i = 0; i < 40 && !out.includes("terminal-42"); i++)
+    // A slow machine may start the shell after the first line was typed: typed again until seen.
+    for (let i = 0; i < 120 && !out.includes("terminal-42"); i++) {
+      if (i % 12 === 0) term.write("echo terminal-$((40+2))\r");
       await new Promise((r) => setTimeout(r, 250));
+    }
     term.write("exit\r");
     expect(out).toContain("terminal-42");
     await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
     term.kill();
-  });
+  }, 60_000);
 });
 
 describe("the agent's list of steps (2026-11-05)", () => {

@@ -90,9 +90,10 @@ describe("the backup model for tasks (2026-11-05)", () => {
       e.type === "task.closed" ? [(e.payload as { outcome: string }).outcome] : [],
     );
     expect(closed).toEqual(["abandoned", "verified"]);
-    expect((opened[1]?.payload as { escalatedFrom?: string }).escalatedFrom).toBe(
-      (opened[0]?.payload as { taskId: string }).taskId,
+    const [first, second] = opened.map(
+      (e) => e.payload as { taskId: string; escalatedFrom?: string },
     );
+    expect(second?.escalatedFrom).toBe(first?.taskId);
     // A new conversation, with the backup model: the first one's cache was never touched.
     expect(opened[1]?.sessionId).not.toBe(opened[0]?.sessionId);
   }, 60_000);
