@@ -497,3 +497,97 @@ describe("AgentSession", () => {
     expect((await replayStore.verify()).ok).toBe(true);
   });
 });
+
+describe("the loop's hard edges (2026-11-05, compared with the Claude Agent SDK)", () => {
+  it("runs reads together and everything else one at a time, in the model's order", async () => {
+    const log: string[] = [];
+    const tool = (name: string): Tool => ({
+      def: { name, description: name, inputSchema: { type: "object" } },
+      async run(input) {
+        const id = (input as { id: string }).id;
+        log.push(`start ${id}`);
+        await new Promise((r) => setTimeout(r, 30));
+        log.push(`end ${id}`);
+        return "ok";
+      },
+    });
+    const { options } = setup(
+      [
+        {
+          toolCalls: [
+            { name: "read", input: { id: "r1" } },
+            { name: "read", input: { id: "r2" } },
+            { name: "write", input: { id: "w1" } },
+            { name: "write", input: { id: "w2" } },
+          ],
+        },
+        { text: "done" },
+      ],
+      { tools: [tool("read"), tool("write")], readOnlyTools: new Set(["read"]) },
+    );
+    const s = await AgentSession.start(options);
+    await s.send("go");
+    expect(log).toEqual([
+      "start r1",
+      "start r2",
+      "end r1",
+      "end r2",
+      "start w1",
+      "end w1",
+      "start w2",
+      "end w2",
+    ]);
+  });
+
+  it("answers a call cut by the output limit with an error, and lets the model try again", async () => {
+    const seen: CompletionRequest[] = [];
+    const { options } = setup((req, i) => {
+      seen.push(req);
+      if (i === 0)
+        return { toolCalls: [{ name: "echo", input: { text: "half" } }], stopReason: "max_tokens" };
+      return { text: "smaller steps then" };
+    });
+    const s = await AgentSession.start(options);
+    const r = await s.send("write a long file");
+    expect(r.stopReason).toBe("end_turn");
+    expect(ran).not.toContain("echo:half");
+    const results = seen[1]?.messages.at(-1)?.parts ?? [];
+    expect(results).toMatchObject([{ type: "tool_result", isError: true }]);
+    // The log says the same when the conversation is read again.
+    const rebuilt = rebuildHistory(await store.list({ sessionId: "s1" }));
+    expect(rebuilt.map((h) => h.message.role)).toEqual(["user", "assistant", "user", "assistant"]);
+  });
+
+  it("gives a call left without a result (a stop in the middle of tools) an 'interrupted' one", () => {
+    const at = new Date().toISOString();
+    const ev = (seq: number, type: string, payload: unknown) =>
+      ({
+        seq,
+        type,
+        payload,
+        ts: at,
+        sessionId: "s1",
+        ownerId: "o",
+        projectId: null,
+        agentId: null,
+      }) as unknown as Event;
+    const history = rebuildHistory([
+      ev(1, "message.user", { text: "go" }),
+      ev(2, "message.assistant", {
+        parts: [
+          { type: "tool_call", callId: "a", name: "echo", input: {} },
+          { type: "tool_call", callId: "b", name: "echo", input: {} },
+        ],
+        stopReason: "tool_use",
+      }),
+      ev(3, "tool.call", { callId: "a", tool: "echo", input: {} }),
+      ev(4, "tool.result", { callId: "a", ok: true, output: "A" }),
+      ev(5, "message.user", { text: "are you there?" }),
+    ]);
+    expect(history.map((h) => h.message.role)).toEqual(["user", "assistant", "user", "user"]);
+    expect(history[2]?.message.parts).toMatchObject([
+      { type: "tool_result", callId: "a", content: "A" },
+      { type: "tool_result", callId: "b", isError: true },
+    ]);
+  });
+});

@@ -31,18 +31,22 @@ export class ProviderRegistry {
 /**
  * Streams `request` on `spec`, moving down the `fallback` chain when a model fails with a
  * retriable error or refuses **before producing any output**. Once output has been streamed
- * the result is final, whatever it is.
+ * the result is final, whatever it is. A retriable error (429, 503, a model still loading) is
+ * first tried again on the same model after a pause (2026-11-05: the OpenAI-compatible servers
+ * had no retry of their own), `retryDelaysMs` apart.
  */
 export async function* streamWithFallback(
   registry: ProviderRegistry,
   spec: ModelSpec,
   request: Omit<CompletionRequest, "model">,
   signal?: AbortSignal,
+  retryDelaysMs: readonly number[] = [1000, 4000],
 ): AsyncIterable<StreamEvent> {
   let current: ModelSpec | undefined = spec;
   let lastError: unknown;
   // A fallback without its own effort inherits the one of the model it replaces.
   let effort = request.effort;
+  let retries = 0;
   while (current) {
     effort = current.effort ?? effort;
     const attempt: CompletionRequest = { ...request, model: current.model, effort };
@@ -64,7 +68,14 @@ export async function* streamWithFallback(
     } catch (err) {
       if (emitted || !(err instanceof ProviderError) || !err.retriable) throw err;
       lastError = err;
+      const pause = retryDelaysMs[retries];
+      if (pause !== undefined && !signal?.aborted) {
+        retries++;
+        await new Promise((r) => setTimeout(r, pause));
+        continue;
+      }
     }
+    retries = 0;
     current = current.fallback;
   }
   throw lastError instanceof Error ? lastError : new ProviderError("All models refused", false);

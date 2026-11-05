@@ -98,7 +98,9 @@ describe("streamWithFallback", () => {
   };
 
   it("moves to the fallback on a retriable error before any output", async () => {
-    const primary = new FakeProvider([{ error: new ProviderError("529", true) }], { id: "cloud" });
+    // Tried again twice on the same model, then the fallback.
+    const busy = { error: new ProviderError("529", true) };
+    const primary = new FakeProvider([busy, busy, busy], { id: "cloud" });
     const backup = new FakeProvider([{ text: "from backup" }], { id: "local" });
     const reg = new ProviderRegistry().register(primary).register(backup);
     const c = await complete(
@@ -111,8 +113,11 @@ describe("streamWithFallback", () => {
           fallback: { provider: "local", model: "small" },
         },
         req,
+        undefined,
+        [0, 0],
       ),
     );
+    expect(primary.requests).toHaveLength(3);
     expect(c.provider).toBe("local");
     expect(backup.requests[0]).toMatchObject({ model: "small", effort: "high" });
   });
@@ -129,6 +134,21 @@ describe("streamWithFallback", () => {
       ),
     );
     expect(c.provider).toBe("b");
+  });
+
+  it("tries the same model again after a pause when it is only busy", async () => {
+    const p = new FakeProvider(
+      [{ error: new ProviderError("503 loading", true) }, { text: "ok" }],
+      {
+        id: "local",
+      },
+    );
+    const reg = new ProviderRegistry().register(p);
+    const c = await complete(
+      streamWithFallback(reg, { provider: "local", model: "m" }, req, undefined, [0, 0]),
+    );
+    expect(c.message.parts).toMatchObject([{ type: "text", text: "ok" }]);
+    expect(p.requests).toHaveLength(2);
   });
 
   it("does not fall back on a non-retriable error", async () => {

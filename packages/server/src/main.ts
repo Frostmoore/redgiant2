@@ -336,7 +336,9 @@ console.log(`RedGiant listening on ${running.url} (sandbox: ${sandbox.kind})`);
 if (metal)
   console.warn("WARNING: metal mode: God works directly on this system (every change asks you).");
 if (sandbox.kind === "host")
-  console.warn("WARNING: host sandbox: agents run commands directly on this system, unisolated.");
+  console.log(
+    "Agents work in their projects' folders on this system; the guardian asks before they write elsewhere (Settings, Safety).",
+  );
 await core.automations.start();
 // Windows without Git (RedGiant 3.0): the portable one comes down once, with its bar.
 void ensureGit(core.jobs, owner, dataDir).catch((err) =>

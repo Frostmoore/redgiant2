@@ -47,6 +47,7 @@ import {
   PermissionBroker,
   PersistentBudget,
   type PolicySettings,
+  READ_ONLY_TOOLS,
 } from "@redgiant/hierarchy";
 import {
   type Event,
@@ -929,6 +930,7 @@ export class RedGiantCore implements OrchestrationHost {
       agentId,
       // What the person writes while the agent works joins its turn (as in Officina); what other
       // agents send waits for a turn of its own.
+      readOnlyTools: READ_ONLY_TOOLS,
       interject: () => {
         const l = this.live.get(sessionId);
         if (!l?.queue?.length) return [];

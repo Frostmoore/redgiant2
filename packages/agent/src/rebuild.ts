@@ -33,6 +33,23 @@ export function rebuildHistory(events: Iterable<Event>, o: RebuildOptions = {}):
   );
   let history: HistoryEntry[] = [];
   let pendingResults: { parts: UserPart[]; images: UserPart[]; firstSeq: number } | undefined;
+  // Calls of the last assistant message still without a result (2026-11-05: RedGiant stopped in
+  // the middle of tools). They get one, or the API would refuse the conversation.
+  let open: { callId: string; seq: number }[] = [];
+  const closeOpen = () => {
+    for (const c of open) {
+      const part: UserPart = {
+        type: "tool_result",
+        callId: c.callId,
+        content:
+          "Interrupted: RedGiant stopped before this call finished. Check its effect before doing it again.",
+        isError: true,
+      };
+      if (pendingResults) pendingResults.parts.push(part);
+      else pendingResults = { parts: [part], images: [], firstSeq: c.seq };
+    }
+    open = [];
+  };
 
   const flushResults = () => {
     if (pendingResults) {
@@ -50,13 +67,14 @@ export function rebuildHistory(events: Iterable<Event>, o: RebuildOptions = {}):
     switch (e.type) {
       case "message.user":
         // Written while the agent worked: it rides with the tool results it followed.
-        if (e.payload.steer && pendingResults) {
+        if (e.payload.steer && pendingResults && open.length === 0) {
           pendingResults.images.push(
             { type: "text", text: e.payload.text },
             ...(e.payload.images ?? []),
           );
           break;
         }
+        closeOpen();
         flushResults();
         history.push({
           message: {
@@ -67,7 +85,11 @@ export function rebuildHistory(events: Iterable<Event>, o: RebuildOptions = {}):
         });
         break;
       case "message.assistant":
+        closeOpen();
         flushResults();
+        open = e.payload.parts.flatMap((p) =>
+          p.type === "tool_call" ? [{ callId: p.callId, seq: e.seq }] : [],
+        );
         history.push({
           message: {
             role: "assistant",
@@ -88,6 +110,7 @@ export function rebuildHistory(events: Iterable<Event>, o: RebuildOptions = {}):
           ...(!e.payload.ok && { isError: true }),
         };
         const images = e.payload.images ?? [];
+        open = open.filter((c) => c.callId !== e.payload.callId);
         if (pendingResults) {
           pendingResults.parts.push(part);
           pendingResults.images.push(...images);
@@ -109,6 +132,7 @@ export function rebuildHistory(events: Iterable<Event>, o: RebuildOptions = {}):
       }
     }
   }
+  closeOpen();
   flushResults();
   return history;
 }

@@ -43,6 +43,11 @@ export interface AgentSessionOptions {
    * tools and given to the model with the results, as Claude Code does.
    */
   interject?: () => { text: string; images?: ImagePart[] }[];
+  /**
+   * Tools that only read (2026-11-05, as the Claude Agent SDK does): consecutive calls of these
+   * run together; every other call runs alone, in the order the model gave.
+   */
+  readOnlyTools?: ReadonlySet<string>;
   store: EventStore;
   providers: ProviderRegistry;
   model: ModelSpec;
@@ -311,6 +316,8 @@ export class AgentSession {
     if (this.o.engine) return this.sendToEngine(this.o.engine, text, images, ctx);
 
     let last: Completion | undefined;
+    // Calls cut by the output limit, answered with an error and retried (at most twice).
+    let cutCalls = 0;
     for (let turn = 1; turn <= (this.o.maxTurns ?? 50); turn++) {
       const gate = await this.o.beforeModelCall?.();
       if (gate && !gate.allow) {
@@ -378,8 +385,21 @@ export class AgentSession {
           });
           continue;
         }
-        default:
+        default: {
+          // Cut by the output limit in the middle of a tool call (a long write_file): the call
+          // gets an error result, so the conversation stays valid, and the model tries again in
+          // smaller steps. Twice at most in a row.
+          const cut = completion.message.parts.some((p) => p.type === "tool_call");
+          if (completion.stopReason === "max_tokens" && cut && cutCalls < 2) {
+            cutCalls++;
+            await this.failCalls(
+              completion,
+              "Your output reached its length limit before this call was complete, so it did not run. Make a smaller step: for example write the file in parts, or edit it instead of rewriting it.",
+            );
+            continue;
+          }
           return { stopReason: completion.stopReason, turns: turn, lastCompletion: completion };
+        }
       }
     }
     return {
@@ -523,6 +543,37 @@ export class AgentSession {
     return undefined;
   }
 
+  /** Every call of a message answered with the same error, without running anything. */
+  private async failCalls(completion: Completion, why: string): Promise<void> {
+    const calls = completion.message.parts.flatMap((p) => (p.type === "tool_call" ? [p] : []));
+    let firstSeq: number | undefined;
+    for (const c of calls) {
+      await this.record({
+        type: "tool.call",
+        payload: { callId: c.callId, tool: c.name, input: c.input },
+      });
+    }
+    for (const c of calls) {
+      const e = await this.record({
+        type: "tool.result",
+        payload: { callId: c.callId, ok: false, output: why },
+      });
+      firstSeq ??= e.seq;
+    }
+    this.history.push({
+      message: {
+        role: "user",
+        parts: calls.map((c) => ({
+          type: "tool_result" as const,
+          callId: c.callId,
+          content: why,
+          isError: true,
+        })),
+      },
+      firstSeq: firstSeq ?? 0,
+    });
+  }
+
   private async runTools(completion: Completion, ctx: ToolContext): Promise<void> {
     const calls = completion.message.parts.flatMap((p) => (p.type === "tool_call" ? [p] : []));
     // Calls are recorded in order, run in parallel, and their results recorded in order:
@@ -533,11 +584,29 @@ export class AgentSession {
         payload: { callId: c.callId, tool: c.name, input: c.input },
       });
     }
-    const results = await Promise.all(
-      calls.map((c) =>
-        this.runOne({ callId: c.callId, name: c.name, input: c.input }, c.rawInput, ctx),
-      ),
-    );
+    // Reads run together; writes, commands and everything else one at a time (two edits of one
+    // file, or two commands, must not race). After a stop, what has not started is not run.
+    const results: Awaited<ReturnType<AgentSession["runOne"]>>[] = [];
+    const readOnly = (name: string) => this.o.readOnlyTools?.has(name) === true;
+    for (let i = 0; i < calls.length; ) {
+      let j = i + 1;
+      if (readOnly(calls[i]?.name ?? ""))
+        while (j < calls.length && readOnly(calls[j]?.name ?? "")) j++;
+      const batch = calls.slice(i, j);
+      results.push(
+        ...(await Promise.all(
+          batch.map((c) =>
+            ctx.signal?.aborted
+              ? Promise.resolve({
+                  content: "Cancelled: the person stopped the turn.",
+                  isError: true,
+                })
+              : this.runOne({ callId: c.callId, name: c.name, input: c.input }, c.rawInput, ctx),
+          ),
+        )),
+      );
+      i = j;
+    }
     let firstSeq: number | undefined;
     for (const [i, r] of results.entries()) {
       const callId = calls[i]?.callId ?? "";
