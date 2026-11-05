@@ -37,15 +37,17 @@ at it).
 ## Windows
 
 Download `RedGiant-Setup.exe` from the [latest release](https://github.com/Frostmoore/redgiant2/releases/latest)
-and run it. It switches WSL on if needed (the only step that asks for administrator rights; if Windows
-needs a restart, setup continues by itself afterwards), imports RedGiant's own WSL distribution with
-Docker inside (no Docker Desktop), and adds a RedGiant icon to the desktop and the Start menu, optionally
-starting with Windows. The icon starts RedGiant, opens the browser signed in and stays next to the clock
+and run it. Since 3.0 everything runs directly on Windows: no WSL, no virtualization, no Docker. The
+installer brings its own Node and database (data in `%LOCALAPPDATA%\RedGiant\data`), and adds a RedGiant
+icon to the desktop and the Start menu, optionally starting with Windows. The local engine (llama.cpp,
+CUDA or Vulkan) runs on Windows too, reachable only from this computer; Codex, Claude Code, Git (when it
+is missing) and local voice transcription are downloaded the first time they are needed. A version
+before 3.0 (the one with WSL) must be uninstalled first. The icon starts RedGiant, opens the browser signed in and stays next to the clock
 ("Open RedGiant", "Quit"). Running the setup again updates RedGiant and keeps its data; uninstalling asks
 whether to keep conversations, projects and settings. The installer is not code-signed yet: if SmartScreen
 says "Windows protected your PC", click "More info", then "Run anyway". Windows 10 2004 or newer, x64.
 
-Alternatively, with Docker Desktop, in PowerShell:
+Alternatively, in containers with Docker Desktop (which needs WSL 2), in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/Frostmoore/redgiant2/main/install.ps1 | iex
@@ -82,11 +84,7 @@ there. The main settings:
   `docker compose --profile engine up -d` (or `--profile engine-cuda` with an NVIDIA GPU and the
   NVIDIA Container Toolkit, or `--profile engine-vulkan` for AMD, Intel and built-in GPUs through
   `/dev/dri`). The setup wizard does all of this by itself: the installer writes the GPUs it found
-  (`REDGIANT_HOST_GPUS`) and how containers reach them (`REDGIANT_ENGINE_GPU=dri`). On Windows, AMD,
-  Intel and built-in GPUs cannot be reached from WSL: there `RedGiant.exe` runs llama.cpp's official
-  Vulkan build on Windows itself (models in `%LOCALAPPDATA%\RedGiant\engine`, one firewall rule asked
-  the first time), and RedGiant drives it through that folder (`REDGIANT_WIN_HOST`, `/winengine`).
-  NVIDIA cards keep the CUDA engine in Docker.
+  (`REDGIANT_HOST_GPUS`) and how containers reach them (`REDGIANT_ENGINE_GPU=dri`).
 - **Web search**: `docker compose --profile search up -d` and `REDGIANT_SEARXNG_URL=http://searxng:8080`.
 - **Phones and other computers**: Settings > Access from outside home sets a password (with an optional
   second check from an authenticator app) and opens a way in: Tailscale, a Cloudflare Tunnel or your own

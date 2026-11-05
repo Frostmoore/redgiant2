@@ -93,7 +93,7 @@ export interface SetupHooks {
    * Moves the models to another disk (Windows, 2026-11-03): the Windows engine's folder, or
    * the whole distribution for the engines in Docker. Only where RedGiant.exe can do it.
    */
-  moveModels?(kind: "models" | "distro", to: string, h?: JobHandle): Promise<void>;
+  moveModels?(kind: "models", to: string, h?: JobHandle): Promise<void>;
   /** Asks RedGiant.exe to look for a newer version now (Windows); null where it cannot. */
   checkUpdate?(): Promise<{ state: string; version: string } | null>;
   /** A way to reach RedGiant from outside home (G24.6); null switches every way off. */
@@ -1214,10 +1214,9 @@ export class SetupService {
 
   /**
    * Moves the models to an SSD the person chose (2026-11-03): the Windows engine's folder to
-   * `<drive>:\\RedGiant\\models`, or the distribution to `<drive>:\\RedGiant\\data` (RedGiant
-   * restarts). The engine in use starts again afterwards.
+   * `<drive>:\\RedGiant\\models`. The engine in use starts again afterwards.
    */
-  async startModelsMove(drive: string, kind: "models" | "distro"): Promise<Job> {
+  async startModelsMove(drive: string, kind: "models" = "models"): Promise<Job> {
     const hook = this.o.hooks.moveModels;
     if (!hook) throw new SetupError("Models can be moved only in RedGiant's Windows installation");
     const hw = await detectHardware({
@@ -1228,15 +1227,15 @@ export class SetupService {
     if (!disk) throw new SetupError(`No disk ${drive}: on this computer`);
     if (disk.ssd === false)
       throw new SetupError(`${disk.name}: is a spinning disk, too slow for streaming`);
-    const to = `${disk.name}:\\RedGiant\\${kind === "models" ? "models" : "data"}`;
+    const to = `${disk.name}:\\RedGiant\\models`;
     return this.o.core.jobs.start(
       this.o.ownerId,
-      kind === "models" ? "models_move" : "distro_move",
+      "models_move",
       ["move"],
       async (h) => {
         h.step("move");
         await hook(kind, to, h);
-        if (kind === "models" && this.config.engine?.variant === "windows")
+        if (this.config.engine?.variant === "windows")
           await this.o.hooks.engine(this.config.engine).catch(() => {});
       },
       { to },

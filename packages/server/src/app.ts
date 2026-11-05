@@ -1926,7 +1926,10 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     wizard(c, async () => {
       const b = await parsed(
         c,
-        z.object({ drive: z.string().regex(/^[A-Za-z]$/), kind: z.enum(["models", "distro"]) }),
+        z.object({
+          drive: z.string().regex(/^[A-Za-z]$/),
+          kind: z.literal("models").default("models"),
+        }),
       );
       return (setup as SetupService).startModelsMove(b.drive, b.kind);
     }),

@@ -3,8 +3,6 @@
 // disk, and writes its progress in move-status.json.
 //   models: the Windows engine's models go to the chosen folder (copied with progress, then the
 //           old folder becomes a junction to the new one, so every path keeps working).
-//   distro: the distribution (RedGiant's data with the models of the engines in Docker) moves to
-//           (RedGiant 3.0: no WSL distribution any more; refused with a message).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -19,8 +17,6 @@ static class Moves
     static System.Threading.Timer timer;
     static string lastId;
     static int busy;
-    /** Stops RedGiant inside WSL, runs the action, starts it again (set by the launcher). */
-    public static Action<Action> WithDistroStopped;
     /** Says on the splash what is happening (set by the launcher). */
     public static Action<string> Say;
 
@@ -52,7 +48,6 @@ static class Moves
             {
                 if (to == null || !Regex.IsMatch(to, @"^[A-Za-z]:\\[^""<>|?*]*$")) throw new Exception("bad target folder");
                 if (kind == "models") MoveModels(id, to);
-                else if (kind == "distro") MoveDistro(id, to);
                 else throw new Exception("unknown move");
             }
             catch (Exception e) { Status(id, "failed", 0, 0, e.Message); }
@@ -162,21 +157,5 @@ static class Moves
     {
         var p = new ProcessStartInfo("cmd.exe", "/c " + args) { UseShellExecute = false, CreateNoWindow = true };
         using (var proc = Process.Start(p)) proc.WaitForExit();
-    }
-
-    /** RedGiant 3.0 has no WSL distribution to move: its data folder moves with a new install. */
-    static void MoveDistro(string id, string to)
-    {
-        throw new Exception("Moving RedGiant's data is not available in this version");
-    }
-
-    static string DataDirNow()
-    {
-        using (var k = Registry.CurrentUser.OpenSubKey(@"Software\RedGiant"))
-        {
-            var v = k == null ? null : k.GetValue("DataDir") as string;
-            if (!string.IsNullOrEmpty(v)) return v;
-        }
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RedGiant", "data");
     }
 }

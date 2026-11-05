@@ -209,9 +209,11 @@ export class Supervisor {
       failures = 0;
       if (head !== this.state.lastGood) {
         const first = this.state.lastGood === null;
+        // The new good version shows only once its request is filed and gone: a change God
+        // promotes right after must not have its request deleted with this one (seen in CI).
+        if (!first) await this.record(head, "promoted", req);
         this.state.lastGood = head;
-        if (first) await this.save();
-        else await this.record(head, "promoted", req);
+        await this.save();
         this.log(`${head.slice(0, 8)} is the last good version`);
       }
 

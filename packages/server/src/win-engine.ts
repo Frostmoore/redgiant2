@@ -135,17 +135,15 @@ export class WinEngine {
    * start (`start`) and the model loading (`load`). Returns the engine's address.
    */
   /**
-   * Moves the models (2026-11-03): `models` the Windows engine's folder to `to`, `distro` the
-   * whole distribution (RedGiant stops and starts again: nobody follows that here). The launcher
-   * does it and reports in move-status.json.
+   * Moves the models (2026-11-03): the Windows engine's folder to `to`. The launcher does it
+   * and reports in move-status.json.
    */
-  async move(kind: "models" | "distro", to: string, h?: JobHandle): Promise<void> {
+  async move(kind: "models", to: string, h?: JobHandle): Promise<void> {
     const id = randomUUID();
     await mkdir(this.o.dir, { recursive: true });
     const file = join(this.o.dir, "move.json");
     await writeFile(`${file}.tmp`, JSON.stringify({ id, kind, to }));
     await rename(`${file}.tmp`, file);
-    if (kind === "distro") return;
     const asked = Date.now();
     for (;;) {
       if (h?.signal.aborted) throw new Error("cancelled");

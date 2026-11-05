@@ -128,16 +128,8 @@ sealed class Launcher : ApplicationContext
         }
         if (!background) splash.Show();
         WinEngine.Watch();
-        // Models moved to another SSD (Moves.cs): the distribution moves with RedGiant stopped,
-        // the splash saying how far it is.
+        // Models moved to another SSD (Moves.cs), the splash saying how far it is.
         Moves.Say = (text) => Ui(() => { status.Text = text; bar.Style = ProgressBarStyle.Marquee; splash.Show(); });
-        Moves.WithDistroStopped = (work) =>
-        {
-            Ui(() => splash.Show());
-            StopEngine();
-            try { work(); }
-            finally { Ui(() => StartEngine()); }
-        };
         Moves.Watch();
         Memory.Watch();
         StartEngine();
