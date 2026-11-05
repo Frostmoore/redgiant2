@@ -38,6 +38,7 @@ jobs:
         run: bash packaging/mac/build.sh "0.0.0-$(git rev-parse --short HEAD)"
       - name: What Gatekeeper says
         run: |
+          xcrun stapler validate packaging/mac/dist/RedGiant-mac-*.dmg || true
           spctl -a -vvv -t install packaging/mac/dist/RedGiant-mac-*.dmg || true
           hdiutil attach packaging/mac/dist/RedGiant-mac-*.dmg -mountpoint /tmp/rg-dmg -nobrowse -quiet
           spctl -a -vvv /tmp/rg-dmg/RedGiant.app || true
