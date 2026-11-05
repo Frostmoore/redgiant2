@@ -22,6 +22,7 @@ import { debugLog } from "./debug-log.js";
 import { startEmbeddedDatabase } from "./embedded-db.js";
 import { GitHosts } from "./git-hosts.js";
 import { HuggingFace } from "./hf.js";
+import { ensureGit } from "./portable-git.js";
 import { backgroundPuller, runtimeHooks } from "./runtime.js";
 import { serve } from "./serve.js";
 import { SetupService } from "./setup.js";
@@ -337,6 +338,10 @@ if (metal)
 if (sandbox.kind === "host")
   console.warn("WARNING: host sandbox: agents run commands directly on this system, unisolated.");
 await core.automations.start();
+// Windows without Git (RedGiant 3.0): the portable one comes down once, with its bar.
+void ensureGit(core.jobs, owner, dataDir).catch((err) =>
+  console.warn(`git: ${(err as Error).message}`),
+);
 core.inspector.start();
 core.email.start();
 // What the supervisor does (promotions, rollbacks) goes into the log and reaches the owner.

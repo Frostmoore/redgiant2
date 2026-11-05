@@ -257,6 +257,25 @@ describe.skipIf(process.platform === "win32")("bash", () => {
   });
 });
 
+describe.runIf(process.platform === "win32")("the terminal on Windows (RedGiant 3.0)", () => {
+  it("opens the agents' shell in a real console and runs what is typed", async () => {
+    const term = await ws.openTerminal({ cols: 100, rows: 30 });
+    let out = "";
+    term.onData((d) => {
+      out += d;
+    });
+    const exited = new Promise<number | null>((r) => term.onExit(r));
+    await new Promise((r) => setTimeout(r, 2500));
+    term.write("echo terminal-$((40+2))\r");
+    for (let i = 0; i < 40 && !out.includes("terminal-42"); i++)
+      await new Promise((r) => setTimeout(r, 250));
+    term.write("exit\r");
+    expect(out).toContain("terminal-42");
+    await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
+    term.kill();
+  });
+});
+
 describe("web tools", () => {
   it("fetches pages as text", async () => {
     const fake = (async () =>
