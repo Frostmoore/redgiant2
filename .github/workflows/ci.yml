@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - if: runner.os == 'Linux'
-        run: shellcheck install.sh docker/entrypoint.sh
+        run: shellcheck install.sh docker/entrypoint.sh packaging/mac/build.sh
       - if: runner.os == 'Linux'
         run: REDGIANT_TOKEN=x POSTGRES_PASSWORD=y docker compose config -q
       - if: runner.os == 'Windows'
@@ -143,3 +143,45 @@ jobs:
           if (Test-Path "$app\server\dist\main.js") { "the uninstaller left the server"; exit 1 }
           if (-not (Test-Path "$app\data\postgres")) { "the uninstaller removed the data"; exit 1 }
           "uninstalled, data kept"
+
+  # RedGiant for macOS (2026-11-05): the app built (signed ad-hoc here), started from its disk
+  # image, answering, stopped the proper way with nothing left running, its data where it belongs.
+  mac-app:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile && pnpm build
+      - run: bash packaging/mac/build.sh 0.0.0-ci
+      - name: Install from the disk image, start, stop
+        run: |
+          set -euo pipefail
+          hdiutil attach packaging/mac/dist/RedGiant-mac-*.dmg -mountpoint /tmp/rg-dmg -nobrowse -quiet
+          cp -R /tmp/rg-dmg/RedGiant.app /tmp/RedGiant.app
+          hdiutil detach /tmp/rg-dmg -quiet
+          codesign --verify --deep --strict /tmp/RedGiant.app
+          /tmp/RedGiant.app/Contents/MacOS/RedGiant --background &
+          up=0
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:7600/api/health >/dev/null; then up=1; echo "answered after about $((i * 2)) s"; break; fi
+            sleep 2
+          done
+          tail -40 ~/Library/Logs/RedGiant/server.log || true
+          [ "$up" = 1 ] || { echo "RedGiant did not answer"; exit 1; }
+          token=$(cat ~/Library/Application\ Support/RedGiant/data/token.txt)
+          curl -sf -H "Authorization: Bearer $token" http://127.0.0.1:7600/api/setup >/dev/null
+          curl -sf http://127.0.0.1:7600/ | grep -q "<html"
+          /tmp/RedGiant.app/Contents/MacOS/RedGiant --quit
+          sleep 3
+          if pgrep -fl "RedGiant.app/Contents/Resources" ; then echo "processes left after --quit"; exit 1; fi
+          [ -d ~/Library/Application\ Support/RedGiant/data/postgres ] || { echo "no database in the data folder"; ls -R ~/Library/Application\ Support/RedGiant | head -30; exit 1; }
+          echo "started, answered, stopped; data kept"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RedGiant-mac
+          path: packaging/mac/dist/RedGiant-mac-*.dmg
+          retention-days: 3
