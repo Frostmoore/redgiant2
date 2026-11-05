@@ -14,6 +14,7 @@
     "dist"
   ],
   "dependencies": {
+    "@lydell/node-pty": "1.2.0-beta.18",
     "@redgiant/agent": "workspace:*",
     "zod": "^4.6.7"
   },

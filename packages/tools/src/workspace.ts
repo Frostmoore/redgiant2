@@ -288,12 +288,41 @@ export class LocalWorkspace implements Workspace {
    * A real pseudo-terminal without native modules: a tiny Python helper forks the shell on a
    * pty and takes resize requests on fd 3. Linux and macOS (python3 required).
    */
-  async openTerminal({ cols, rows }: TerminalOptions): Promise<Terminal> {
-    if (process.platform === "win32") {
-      throw new TerminalUnavailableError(
-        "The host terminal needs Linux or macOS; use the Docker sandbox on Windows.",
-      );
+  /**
+   * Windows' own console (ConPTY), through node-pty's prebuilt module (RedGiant 3.0 runs there
+   * natively): the agents' shell, Git's bash or PowerShell, in a real terminal.
+   */
+  private async windowsTerminal(cols: number, rows: number): Promise<Terminal> {
+    let pty: typeof import("@lydell/node-pty");
+    try {
+      pty = await import("@lydell/node-pty");
+    } catch {
+      throw new TerminalUnavailableError("The terminal's module for Windows is missing");
     }
+    const shell = this.shell;
+    const kind = shellKind(shell);
+    const p = pty.spawn(
+      shell,
+      kind === "posix" ? ["--login", "-i"] : kind === "powershell" ? ["-NoLogo"] : [],
+      {
+        name: "xterm-256color",
+        cols,
+        rows,
+        cwd: this.root,
+        env: { ...agentEnv(), TERM: "xterm-256color" } as Record<string, string>,
+      },
+    );
+    return {
+      write: (d) => p.write(d),
+      resize: (c, r) => p.resize(c, r),
+      onData: (l) => void p.onData(l),
+      onExit: (l) => void p.onExit((e) => l(e.exitCode)),
+      kill: () => p.kill(),
+    };
+  }
+
+  async openTerminal({ cols, rows }: TerminalOptions): Promise<Terminal> {
+    if (process.platform === "win32") return this.windowsTerminal(cols, rows);
     const shell =
       process.env.SHELL && process.env.SHELL.length > 0 ? process.env.SHELL : "/bin/bash";
     const child = spawn("python3", ["-c", PTY_HELPER, String(cols), String(rows), shell], {
