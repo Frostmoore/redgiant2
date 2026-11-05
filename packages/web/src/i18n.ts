@@ -2155,7 +2155,8 @@ const it: Record<Key, string> = {
   job_download_sandbox: "Scarico il computer degli agenti (una volta sola)",
   job_download_browser: "Scarico il browser degli agenti (una volta sola)",
   job_download_codex: "Scarico Codex per l'abbonamento ChatGPT (una volta sola)",
-  job_download_git: "Scarico Git per Windows, per i progetti e la shell degli agenti (una volta sola)",
+  job_download_git:
+    "Scarico Git per Windows, per i progetti e la shell degli agenti (una volta sola)",
   job_download_claude: "Scarico Claude Code per l'abbonamento Claude (una volta sola)",
   job_step_tool_download: "Scarico",
   job_step_image_download: "Download",
