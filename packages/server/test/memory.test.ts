@@ -13,6 +13,7 @@ describe("the RAM a model can use now (2026-11-04)", () => {
   it("reads the launcher's file, and nothing from a broken one", () => {
     expect(parseWindowsMemory('{"totalGb":63.7,"availableGb":31.2,"engineGb":4.5}')).toEqual({
       availableGb: 31.2,
+      totalGb: 63.7,
       engineGb: 4.5,
     });
     expect(parseWindowsMemory("{")).toBeUndefined();

@@ -28,6 +28,7 @@ import { attempt, getApi, openTab, type SettingsSection, signOut } from "../stat
 import { setTheme, theme } from "../theme.js";
 import { Automations } from "./Automations.js";
 import { Backup } from "./Backup.js";
+import { explain } from "./Brain.js";
 import { Budgets } from "./Budgets.js";
 import { ChatPlatforms } from "./ChatPlatforms.js";
 import { CodeSettings } from "./CodeSettings.js";
@@ -57,6 +58,69 @@ const SECTIONS: { id: SettingsSection; label: () => string; icon: ComponentChild
   { id: "backup", label: () => t("backup"), icon: <IconArchive size={15} /> },
   { id: "platform", label: () => t("platformView"), icon: <IconLayers size={15} /> },
 ];
+
+/**
+ * Instructions for every agent (2026-11-05): the person's general system prompt, added to each
+ * agent's own. Each agent's own instructions stay in its card under Agents.
+ */
+function Instructions() {
+  const [text, setText] = useState<string>();
+  const [saved, setSaved] = useState("");
+  const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    void getApi()
+      .setup()
+      .then(
+        (s) => {
+          setText(s.config.instructions ?? "");
+          setSaved(s.config.instructions ?? "");
+        },
+        () => setText(""),
+      );
+  }, []);
+  if (text === undefined) return null;
+  const save = async () => {
+    setState("saving");
+    setError(undefined);
+    try {
+      await getApi().setupInstructions(text);
+      setSaved(text.trim());
+      setState("saved");
+    } catch (e) {
+      setError(explain(e));
+      setState("idle");
+    }
+  };
+  return (
+    <>
+      <h2 style={{ marginTop: "24px" }}>{t("instructionsTitle")}</h2>
+      <p class="ui-help">{t("instructionsHint")}</p>
+      <textarea
+        class="instructions"
+        rows={8}
+        value={text}
+        placeholder={t("instructionsPlaceholder")}
+        onInput={(e) => {
+          setText((e.target as HTMLTextAreaElement).value);
+          setState("idle");
+        }}
+      />
+      <div class="row">
+        <button
+          type="button"
+          class="primary"
+          disabled={state === "saving" || text.trim() === saved}
+          onClick={() => void save()}
+        >
+          {t("save")}
+        </button>
+        {state === "saved" && <span class="ui-help">{t("instructionsSaved")}</span>}
+      </div>
+      {error && <p class="notice error">{error}</p>}
+    </>
+  );
+}
 
 function General() {
   return (
@@ -100,6 +164,7 @@ function General() {
           </span>
         </div>
       </div>
+      <Instructions />
       <Services />
       <EmailSettings />
       <Updates />

@@ -2338,6 +2338,13 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       return (setup as SetupService).startEngine(e);
     }),
   );
+  app.put("/api/setup/instructions", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).saveInstructions(
+        (await parsed(c, z.object({ text: z.string().max(20_000) }))).text,
+      ),
+    ),
+  );
   app.put("/api/setup/names", (c) =>
     wizard(c, async () =>
       (setup as SetupService).saveNames(

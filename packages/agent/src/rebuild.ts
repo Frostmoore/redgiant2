@@ -49,6 +49,14 @@ export function rebuildHistory(events: Iterable<Event>, o: RebuildOptions = {}):
     if (e.payload === null) continue;
     switch (e.type) {
       case "message.user":
+        // Written while the agent worked: it rides with the tool results it followed.
+        if (e.payload.steer && pendingResults) {
+          pendingResults.images.push(
+            { type: "text", text: e.payload.text },
+            ...(e.payload.images ?? []),
+          );
+          break;
+        }
         flushResults();
         history.push({
           message: {

@@ -266,7 +266,8 @@ export async function detectHardware(o: {
     os: platform(),
     cpu: list[0]?.model.trim() ?? "unknown",
     cores: list.length,
-    ramGb,
+    // The computer's RAM: Windows' own when it says (inside WSL totalmem() is the VM's share).
+    ramGb: windows?.totalGb !== undefined ? round(windows.totalGb) : ramGb,
     freeRamGb: freeRam.gb,
     diskFreeGb: disk,
     disks,

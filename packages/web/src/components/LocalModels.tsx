@@ -689,10 +689,13 @@ function Machine({
   s,
   tiers,
   diskFreeGb,
+  activeGb = 0,
 }: {
   s: SetupState;
   tiers: Tier[];
   diskFreeGb: number | undefined;
+  /** The model in use, in GB: shown where it sits (2026-11-05). */
+  activeGb?: number;
 }) {
   const hw = s.hardware;
   const card = hw.gpus.find((g) => !g.integrated);
@@ -733,7 +736,7 @@ function Machine({
           </div>
         )}
       </div>
-      <RoomBar sizeGb={0} tiers={tiers} />
+      <RoomBar sizeGb={activeGb} tiers={tiers} />
       <div class="tier-legend">
         {tiers.map((x) => (
           <span key={x.kind}>
@@ -1183,6 +1186,12 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
   const streaming = stream && canStream.ok;
   const tiers = roomTiers(s.hardware, streaming ? data?.diskFreeGb : undefined);
   const files = data?.files ?? [];
+  // The model in use, drawn on the computer's bar: what is in the card, in RAM, on the SSD.
+  const activeModel = data?.models.find((m) => m.file && target(m.file.file) === active);
+  const activeGb =
+    active && !s.config.engine?.off
+      ? (activeModel?.file?.sizeGb ?? (files.find((f) => f.file === active)?.bytes ?? 0) / 1e9)
+      : 0;
   const known = new Set(data?.models.flatMap((m) => (m.file ? [target(m.file.file)] : [])) ?? []);
   const others = files.filter((f) => !known.has(f.file) && !f.partial);
   const hw = { ...s.hardware.suggestion, ramGb: s.hardware.freeRamGb ?? s.hardware.ramGb };
@@ -1249,7 +1258,12 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
   return (
     <div class="lm">
       <OutOfWsl s={s} onDone={changed} />
-      <Machine s={s} tiers={tiers} diskFreeGb={streaming ? data?.diskFreeGb : undefined} />
+      <Machine
+        s={s}
+        tiers={tiers}
+        diskFreeGb={streaming ? data?.diskFreeGb : undefined}
+        activeGb={activeGb}
+      />
       {s.locked.engine && <p class="notice">{t("wzLocked")}</p>}
       {error && <p class="notice error">{error}</p>}
       <StreamSwitch

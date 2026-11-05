@@ -7,6 +7,7 @@ import {
   type MessageMetrics,
   type ModelSpec,
   type StopReason,
+  type UserPart,
 } from "@redgiant/protocol";
 import {
   type Completion,
@@ -37,6 +38,11 @@ export interface PermissionDecision {
 }
 
 export interface AgentSessionOptions {
+  /**
+   * Messages the person sent while the agent worked (2026-11-05): taken after each round of
+   * tools and given to the model with the results, as Claude Code does.
+   */
+  interject?: () => { text: string; images?: ImagePart[] }[];
   store: EventStore;
   providers: ProviderRegistry;
   model: ModelSpec;
@@ -555,10 +561,24 @@ export class AgentSession {
             ...(r.isError && { isError: true }),
           })),
           ...pictures,
+          ...(await this.interjections()),
         ],
       },
       firstSeq: firstSeq ?? 0,
     });
+  }
+
+  /** What the person wrote meanwhile, recorded and returned as parts of the results' message. */
+  private async interjections(): Promise<UserPart[]> {
+    const parts: UserPart[] = [];
+    for (const m of this.o.interject?.() ?? []) {
+      await this.record({
+        type: "message.user",
+        payload: { text: m.text, ...(m.images?.length && { images: m.images }), steer: true },
+      });
+      parts.push({ type: "text", text: m.text }, ...(m.images ?? []));
+    }
+    return parts;
   }
 
   private async runOne(call: ToolCallInfo, rawInput: string, ctx: ToolContext) {

@@ -5373,3 +5373,16 @@ button.pick-tile.on {
 .whats-new .row {
   margin-top: 16px;
 }
+
+/* Instructions for every agent (Settings, General). */
+textarea.instructions {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  margin-bottom: 8px;
+}
+
+/* A message sent while the agent works (2026-11-05): already in the conversation, a bit faded. */
+.bubble.user.pending {
+  opacity: 0.7;
+}

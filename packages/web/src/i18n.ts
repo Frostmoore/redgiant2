@@ -1470,6 +1470,13 @@ const en = {
   subsProgramDownload:
     "{name} is downloaded when you switch this on (once, a few hundred MB, with its bar in the corner).",
   subsUseShared: "Use the sign-in already here",
+  instructionsTitle: "Instructions for every agent",
+  instructionsHint:
+    "What every agent should know or do, whoever it is: how you like answers, your conventions, things to avoid. They are added to each agent's own instructions (those are in each agent's card under Agents).",
+  instructionsPlaceholder:
+    "For example: answer in Italian; code and comments in English; never push without asking.",
+  instructionsSaved: "Saved: conversations started from now on follow them.",
+  sentWhileWorking: "Sent while the agent works: it reads it as soon as it can",
   chats: "Other chats",
   chatsHint:
     "Talk to Demi-God from Discord, Slack, Signal or WhatsApp too. It is one conversation: begun on Telegram or here, it goes on wherever you write. Approvals and questions arrive with buttons (on Signal, with numbers to reply).",
@@ -3184,6 +3191,13 @@ const it: Record<Key, string> = {
   subsProgramDownload:
     "{name} viene scaricato quando lo attivi (una volta sola, qualche centinaio di MB, con la barra nell'angolo).",
   subsUseShared: "Usa l'accesso già presente",
+  instructionsTitle: "Istruzioni per tutti gli agenti",
+  instructionsHint:
+    "Quello che ogni agente deve sapere o fare, chiunque sia: come vuoi le risposte, le tue convenzioni, cosa evitare. Si aggiungono alle istruzioni proprie di ciascun agente (quelle sono nella sua scheda, in Agenti).",
+  instructionsPlaceholder:
+    "Per esempio: rispondi in italiano; codice e commenti in inglese; mai fare push senza chiedere.",
+  instructionsSaved: "Salvate: le seguono le conversazioni che cominciano da adesso.",
+  sentWhileWorking: "Mandato mentre l'agente lavora: lo legge appena può",
   chats: "Altre chat",
   chatsHint:
     "Parla con il Demi-God anche da Discord, Slack, Signal o WhatsApp. È una conversazione sola: cominciata su Telegram o qui, continua ovunque scrivi. Approvazioni e domande arrivano con i pulsanti (su Signal, con i numeri da rispondere).",

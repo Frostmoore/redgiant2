@@ -190,10 +190,12 @@ interface Live {
   /** Messages waiting for the turn now running to end (G24.14f). */
   queue?: {
     text: string;
-    extra: { images?: ImagePart[]; from?: string; watch?: boolean };
+    extra: { images?: ImagePart[]; from?: string; watch?: boolean; steer?: boolean };
     resolve: (r: SendResult) => void;
     reject: (e: unknown) => void;
   }[];
+  /** Messages taken into the turn now running (2026-11-05): answered when it ends. */
+  folded?: { resolve: (r: SendResult) => void; reject: (e: unknown) => void }[];
   /** When it last worked or was followed: idle sessions leave memory (their log stays). */
   usedAt: number;
 }
@@ -904,6 +906,9 @@ export class RedGiantCore implements OrchestrationHost {
       system: [
         this.systemFor(agent),
         whereYouRun(model),
+        this.instructions
+          ? `## The person's instructions for every agent\n${this.instructions}`
+          : "",
         // Every agent that works remembers (G29.3); read once, the prefix stays the same.
         agent.kind !== "demigod" && agent.kind !== "inspector"
           ? await this.notes.prompt(this.noteOwner(agent, assignedTo))
@@ -922,6 +927,19 @@ export class RedGiantCore implements OrchestrationHost {
       ownerId,
       projectId: assignedTo ?? agent.projectId,
       agentId,
+      // What the person writes while the agent works joins its turn (as in Officina); what other
+      // agents send waits for a turn of its own.
+      interject: () => {
+        const l = this.live.get(sessionId);
+        if (!l?.queue?.length) return [];
+        const mine = l.queue.filter((q) => q.extra.steer === true);
+        l.queue = l.queue.filter((q) => q.extra.steer !== true);
+        l.folded = [...(l.folded ?? []), ...mine];
+        return mine.map((q) => ({
+          text: q.text,
+          ...(q.extra.images?.length && { images: q.extra.images }),
+        }));
+      },
       priority: PRIORITY[agent.kind],
       ...this.compactionOptions(model, agent),
       // Demi-God only relays (RD8): its one tool is ask_god.
@@ -1482,6 +1500,12 @@ export class RedGiantCore implements OrchestrationHost {
   }
   setLanguage(language: "it" | "en"): void {
     this.uiLanguage = language;
+  }
+
+  /** The person's instructions for every agent (2026-11-05); read when a conversation starts. */
+  private instructions: string | undefined;
+  setInstructions(text: string | undefined): void {
+    this.instructions = text?.trim() || undefined;
   }
 
   private say(ownerId: string, key: AlertText, vars?: Record<string, string | number>) {
@@ -2796,6 +2820,11 @@ export class RedGiantCore implements OrchestrationHost {
       watch?: boolean;
       /** Busy: wait in line, taken right after the turn now running (G24.14f). */
       queue?: boolean;
+      /**
+       * Busy and written in RedGiant's page (2026-11-05): it joins the turn now running after its
+       * tools, as in Officina. Other chats (Telegram) wait for a turn and an answer of their own.
+       */
+      steer?: boolean;
     } = {},
   ): Promise<{ done: Promise<SendResult>; queued?: boolean }> {
     const l = await this.open(ownerId, sessionId);
@@ -2833,7 +2862,7 @@ export class RedGiantCore implements OrchestrationHost {
     sessionId: string,
     l: Live,
     text: string,
-    extra: { images?: ImagePart[]; from?: string; watch?: boolean },
+    extra: { images?: ImagePart[]; from?: string; watch?: boolean; steer?: boolean },
   ): Promise<{ done: Promise<SendResult> }> {
     // The first message names the conversation in the list; every message moves it up.
     await this.o.db.query(
@@ -2871,7 +2900,8 @@ export class RedGiantCore implements OrchestrationHost {
     }
     // Wrapped: an async function returning a bare promise would wait for the whole turn.
     const started = Date.now();
-    const { watch, ...message } = extra;
+    // `steer` only says how a busy session takes it; it is not part of the message.
+    const { watch, steer: _steer, ...message } = extra;
     const done = l.session.send(text, controller.signal, message).finally(() => {
       l.running = null;
       notify("idle");
@@ -2884,6 +2914,8 @@ export class RedGiantCore implements OrchestrationHost {
         (err: unknown) => ({ r: undefined, err }),
       )
       .then(async ({ r, err }) => {
+        // Messages taken into this turn end with it.
+        for (const f of l.folded?.splice(0) ?? []) r ? f.resolve(r) : f.reject(err);
         await this.afterTurn(ownerId, sessionId, started, watch === true, r, err).catch(() => {});
         await this.reportTasks(sessionId, r, err).catch(() => {});
       })

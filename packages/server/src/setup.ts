@@ -184,6 +184,8 @@ export interface EngineConfig {
 export interface SetupConfig {
   completed: boolean;
   language?: "it" | "en";
+  /** The person's instructions for every agent (2026-11-05), part of each one's system prompt. */
+  instructions?: string;
   defaultModel?: ModelSpec;
   /** Providers connected with a key (the keys are in the secrets). */
   keyProviders?: string[];
@@ -479,6 +481,7 @@ export class SetupService {
       await run("Claude subscription", h.claudeSubscription(s.claudeSubscriptionToken ?? ""));
     if (!this.locked.defaultModel && c.defaultModel) this.o.core.setDefaultModel(c.defaultModel);
     if (c.language) this.o.core.setLanguage(c.language);
+    if (c.instructions) this.o.core.setInstructions(c.instructions);
     if (!this.locked.telegram && s.telegramToken)
       await run("Telegram", h.telegram(s.telegramToken));
     for (const [p, settings] of Object.entries(s.chats ?? {}))
@@ -1453,6 +1456,15 @@ export class SetupService {
       this.config.language = n.language;
       this.o.core.setLanguage(n.language);
     }
+    await this.save();
+  }
+
+  /** Instructions for every agent (2026-11-05): new conversations start with them. */
+  async saveInstructions(text: string): Promise<void> {
+    const t = text.trim();
+    if (t) this.config.instructions = t;
+    else delete this.config.instructions;
+    this.o.core.setInstructions(t || undefined);
     await this.save();
   }
 

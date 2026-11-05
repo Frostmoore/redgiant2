@@ -4,6 +4,7 @@ import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { CompletionRequest } from "@redgiant/providers";
+import { shellKind } from "@redgiant/tools";
 import { afterEach, describe, expect, it } from "vitest";
 import { startServer } from "./helpers.js";
 
@@ -124,7 +125,8 @@ describe("subprojects (G24.13)", () => {
       name: "bash",
       input: {
         command:
-          process.platform === "win32"
+          // cmd only when that is the agents' shell (RedGiant 3.0 on Windows: Git's bash first).
+          process.platform === "win32" && shellKind() === "cmd"
             ? "echo hack> ..\\..\\shared\\hack.txt && cd"
             : "echo hack > ../../shared/hack.txt && pwd",
       },

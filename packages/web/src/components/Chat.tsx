@@ -406,6 +406,17 @@ const formatBytes = (n: number) =>
 export function Chat({ sessionId, agentId }: { sessionId: string; agentId: string }) {
   const view = sessionView(sessionId);
   const items = useComputed(() => buildItems(view.value.events));
+  // Sent while the agent works (2026-11-05, as in Officina): shown at once, until the log has it.
+  const [pending, setPending] = useState<{ key: string; text: string }[]>([]);
+  useEffect(() => setPending([]), [sessionId]);
+  useEffect(() => {
+    if (pending.length === 0) return;
+    const said = new Set(
+      items.value.flatMap((i) => (i.kind === "user" ? [i.text.trim()] : [])).slice(-20),
+    );
+    const left = pending.filter((p) => !said.has(p.text.trim()));
+    if (left.length !== pending.length) setPending(left);
+  }, [items.value]);
   const scroller = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   const agent = agents.value.find((a) => a.id === agentId);
@@ -474,6 +485,11 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
               )}
             </div>
           )}
+          {pending.map((p) => (
+            <div key={p.key} class="bubble user pending" title={t("sentWhileWorking")}>
+              {p.text}
+            </div>
+          ))}
           {waiting.map((r) => (
             <PermissionCard key={r.requestId} r={r} />
           ))}
@@ -513,6 +529,8 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
             text: msg.text,
             ...(msg.images.length ? { images: msg.images } : {}),
           });
+          if (v.state === "running")
+            setPending((p) => [...p, { key: `p${Date.now()}`, text: msg.text }]);
         }}
         onStop={() => getLive().send({ type: "session.interrupt", sessionId })}
         chips={

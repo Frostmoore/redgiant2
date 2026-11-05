@@ -138,8 +138,9 @@ export function attachWebSocket(
             const { done } = await core.send(owner, msg.sessionId, msg.text, {
               ...(msg.images?.length ? { images: msg.images } : {}),
               watch: true,
-              // Written while it works: read right after (G24.14f).
+              // Written while it works: it joins the turn after its tools (2026-11-05), or right after.
               queue: true,
+              steer: true,
             });
             done.catch((err) => fail(codeOf(err) ?? "session_failed", String(err)));
             return;

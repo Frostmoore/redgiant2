@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { LocalWorkspace, SubprojectWorkspace } from "../src/index.js";
+import { LocalWorkspace, SubprojectWorkspace, shellKind } from "../src/index.js";
 
 async function project() {
   const root = await mkdtemp(join(tmpdir(), "rg-sub-"));
@@ -35,7 +35,13 @@ describe("a subproject's view of its project (G24.13)", () => {
 
   it("runs commands in its folder", async () => {
     const ws = await project();
-    const r = await ws.exec(process.platform === "win32" ? "dir /b" : "ls", { timeoutMs: 5000 });
+    const cmd =
+      process.platform === "win32" && shellKind() === "cmd"
+        ? "dir /b"
+        : shellKind() === "powershell"
+          ? "Get-ChildItem -Name"
+          : "ls";
+    const r = await ws.exec(cmd, { timeoutMs: 5000 });
     expect(r.stdout.trim().split(/\r?\n/)).toContain("cart.ts");
   });
 

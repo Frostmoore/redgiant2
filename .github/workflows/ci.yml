@@ -106,6 +106,9 @@ jobs:
           Pop-Location
           $app = "$env:LOCALAPPDATA\RedGiant"
           if (-not (Test-Path "$app\server\dist\main.js")) { "the server was not installed"; exit 1 }
+          # Debug mode on: RedGiant.exe writes its own log and the server's output there.
+          New-Item -ItemType Directory -Force "$app\engine" | Out-Null
+          New-Item -ItemType File -Force "$app\engine\debug.on" | Out-Null
           Start-Process "$app\RedGiant.exe" -ArgumentList "--background"
           $up = $false
           for ($i = 0; $i -lt 120; $i++) {
@@ -113,7 +116,18 @@ jobs:
             try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:7600/api/health -TimeoutSec 3 | Out-Null; $up = $true; break } catch {}
           }
           Get-Content "$app\engine\launcher-*.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
-          if (-not $up) { "RedGiant did not answer"; exit 1 }
+          if (-not $up) {
+            "RedGiant did not answer. The server started by hand, for its error:"
+            & "$app\RedGiant.exe" --quit | Out-Null
+            $env:REDGIANT_TOKEN = "ci-token-0123456789abcdef0123456789"; $env:DATABASE_URL = "embedded"
+            $env:REDGIANT_DATA_DIR = "$env:RUNNER_TEMP\rg-data"; $env:REDGIANT_PORT = "7699"
+            $env:REDGIANT_WEB_DIR = "$app\web"
+            $p = Start-Process "$app\node\node.exe" -ArgumentList "`"$app\server\dist\main.js`"" -RedirectStandardOutput out.txt -RedirectStandardError err.txt -PassThru
+            Start-Sleep 60
+            Get-Content out.txt, err.txt -ErrorAction SilentlyContinue | Select-Object -Last 60
+            if (-not $p.HasExited) { $p.Kill() }
+            exit 1
+          }
           "answered after about $($i * 2) s"
           & "$app\RedGiant.exe" --quit | Out-Null
           Start-Sleep 5

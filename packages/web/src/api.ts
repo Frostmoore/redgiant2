@@ -50,6 +50,8 @@ export interface SetupState {
   config: {
     completed: boolean;
     language?: "it" | "en";
+    /** The person's instructions for every agent (2026-11-05). */
+    instructions?: string;
     defaultModel?: { provider: string; model: string; effort?: string };
     keyProviders?: string[];
     mode?: "standard" | "advanced";
@@ -642,6 +644,7 @@ export class Api {
   setupTelegram = (token: string | null) =>
     this.call<{ username: string } | null>("PUT", "/api/setup/telegram", { token });
   setupSafety = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/safety", b);
+  setupInstructions = (text: string) => this.call("PUT", "/api/setup/instructions", { text });
   setupSubscriptions = (b: Record<string, unknown>) =>
     this.call("PUT", "/api/setup/subscriptions", b);
   chatgptStatus = () =>

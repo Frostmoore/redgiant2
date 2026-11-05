@@ -16,6 +16,8 @@ export interface LinuxMemory {
 
 export interface WindowsMemory {
   availableGb: number;
+  /** Windows' whole RAM (2026-11-05: the page showed WSL's half next to Windows' free). */
+  totalGb?: number;
   /** What the Windows engine holds now; it goes when the engine loads another model. */
   engineGb: number;
 }
@@ -35,10 +37,11 @@ export function parseMeminfo(text: string): LinuxMemory | undefined {
 
 export function parseWindowsMemory(text: string): WindowsMemory | undefined {
   try {
-    const j = JSON.parse(text) as { availableGb?: unknown; engineGb?: unknown };
+    const j = JSON.parse(text) as { availableGb?: unknown; engineGb?: unknown; totalGb?: unknown };
     if (typeof j.availableGb !== "number" || !Number.isFinite(j.availableGb)) return undefined;
     const engineGb = typeof j.engineGb === "number" && j.engineGb > 0 ? j.engineGb : 0;
-    return { availableGb: j.availableGb, engineGb };
+    const totalGb = typeof j.totalGb === "number" && j.totalGb > 0 ? j.totalGb : undefined;
+    return { availableGb: j.availableGb, engineGb, ...(totalGb && { totalGb }) };
   } catch {
     return undefined;
   }

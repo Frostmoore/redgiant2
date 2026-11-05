@@ -39,6 +39,11 @@ export const EventBody = z.discriminatedUnion("type", [
       images: z.array(ImagePart).optional(),
       /** Who wrote it when not the user: an agent's id, "automation:<name>", "telegram"… */
       from: z.string().optional(),
+      /**
+       * Sent while the agent worked (2026-11-05, as in Officina and Claude Code): it joins the
+       * turn after the tool results, in the same message the model reads next.
+       */
+      steer: z.boolean().optional(),
     }),
   }),
   z.object({ type: z.literal("message.assistant.delta"), payload: text }),
