@@ -13,6 +13,8 @@ export interface TranscriptionConfig {
   /** For "openai": the model (whisper-1 by default). */
   model?: string;
   key?: string;
+  /** "local" on a Mac: the whisper binding reads WAV only. */
+  wavOnly?: boolean;
 }
 
 export class TranscriptionError extends Error {}
@@ -74,7 +76,7 @@ export async function transcribe(
     ({ audio, type } = await forWhisperCpp(
       audio,
       type,
-      opts.ffmpeg ? { ffmpeg: opts.ffmpeg } : {},
+      { ...(opts.ffmpeg && { ffmpeg: opts.ffmpeg }), ...(cfg.wavOnly && { wavOnly: true }) },
     ).catch((err) => {
       throw new TranscriptionError((err as Error).message);
     }));

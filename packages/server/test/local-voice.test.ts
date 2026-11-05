@@ -38,7 +38,7 @@ describe("voice messages on this computer (RedGiant 3.0)", () => {
   it("knows whisper.cpp's ready programs", () => {
     expect(whisperAsset("win32", "x64")).toBe("whisper-bin-x64.zip");
     expect(whisperAsset("linux", "x64")).toBe("whisper-bin-ubuntu-x64.tar.gz");
-    expect(whisperAsset("darwin", "arm64")).toBeUndefined();
+    expect(whisperAsset("win32", "ia32")).toBeUndefined();
   });
 
   it("turns decoded audio into the 16 kHz mono WAV whisper.cpp reads", () => {

@@ -705,7 +705,11 @@ export class SetupService {
       );
       const url = await voice.start(await freePort());
       if (this.config.transcription?.api === "local")
-        this.o.core.setTranscription({ api: "local", url });
+        this.o.core.setTranscription({
+          api: "local",
+          url,
+          ...(voice.wavOnly && { wavOnly: true }),
+        });
     })().catch((err) =>
       debugLog.write("voice", "whisper.cpp did not start", { error: String(err) }),
     );

@@ -13,10 +13,16 @@ import { cpus, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { fileURLToPath } from "node:url";
 import type { JobHandle, Jobs } from "./jobs.js";
 
 /** whisper.cpp's release with prebuilt programs (later tags often have none). */
 export const WHISPER_BUILD = "b5130";
+/**
+ * On a Mac (2026-11-05) whisper.cpp publishes no program: the prebuilt Node binding
+ * `@fugood/node-whisper-darwin-<arch>` (MIT, Metal) runs in `whisper-node-worker.js` instead.
+ */
+export const WHISPER_NODE_VERSION = "1.1.3";
 /** Multilingual and fast enough on a CPU: Whisper large-v3-turbo, quantised (547 MB). */
 export const WHISPER_MODEL = "ggml-large-v3-turbo-q5_0.bin";
 
@@ -26,7 +32,22 @@ const exe = process.platform === "win32" ? ".exe" : "";
 export function whisperAsset(platform = process.platform, arch = process.arch): string | undefined {
   if (platform === "win32" && arch === "x64") return "whisper-bin-x64.zip";
   if (platform === "linux" && arch === "x64") return "whisper-bin-ubuntu-x64.tar.gz";
+  if (platform === "linux" && arch === "arm64") return "whisper-bin-ubuntu-arm64.tar.gz";
+  if (platform === "darwin" && (arch === "arm64" || arch === "x64"))
+    return `node-whisper-darwin-${arch}-${WHISPER_NODE_VERSION}.tgz`;
   return undefined;
+}
+
+/** Where a system's whisper program comes from: whisper.cpp's release, or npm on a Mac. */
+export function whisperUrl(asset: string, platform = process.platform): string {
+  if (platform !== "darwin")
+    return `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_BUILD}/${asset}`;
+  const registry = (process.env.REDGIANT_NPM_REGISTRY ?? "https://registry.npmjs.org").replace(
+    /\/+$/,
+    "",
+  );
+  const name = asset.replace(`-${WHISPER_NODE_VERSION}.tgz`, "");
+  return `${registry}/@fugood/${name}/-/${asset}`;
 }
 
 async function download(url: string, file: string, h: JobHandle): Promise<void> {
@@ -41,6 +62,12 @@ async function download(url: string, file: string, h: JobHandle): Promise<void> 
   });
   await pipeline(body, createWriteStream(`${file}.part`));
   await rename(`${file}.part`, file);
+}
+
+/** The worker that runs the Mac's whisper binding: built next to this file (sources in tests). */
+export function whisperWorker(): string {
+  const built = fileURLToPath(new URL("./whisper-node-worker.js", import.meta.url));
+  return existsSync(built) ? built : built.replace(/\.js$/, ".ts");
 }
 
 /** Finds a file anywhere under a folder (the archives nest their programs differently). */
@@ -60,14 +87,34 @@ export class LocalWhisper {
   private proc: ChildProcess | undefined;
   private url: string | undefined;
 
-  constructor(private readonly dataDir: string) {}
+  constructor(
+    private readonly dataDir: string,
+    private readonly platform: NodeJS.Platform = process.platform,
+    private readonly arch: NodeJS.Architecture = process.arch,
+  ) {}
+
+  /** On a Mac the Node binding runs in a worker of its own (`whisper-node-worker.js`). */
+  get binding(): boolean {
+    return this.platform === "darwin";
+  }
+
+  /** The binding reads WAV only: everything else is converted first. */
+  get wavOnly(): boolean {
+    return this.binding;
+  }
 
   get dir(): string {
-    return join(this.dataDir, "tools", "whisper", WHISPER_BUILD);
+    return join(
+      this.dataDir,
+      "tools",
+      "whisper",
+      this.binding ? `node-${WHISPER_NODE_VERSION}` : WHISPER_BUILD,
+    );
   }
 
   private async program(): Promise<string | undefined> {
-    return existsSync(this.dir) ? find(this.dir, `whisper-server${exe}`) : undefined;
+    if (!existsSync(this.dir)) return undefined;
+    return find(this.dir, this.binding ? "index.node" : `whisper-server${exe}`);
   }
 
   private get model(): string {
@@ -82,7 +129,7 @@ export class LocalWhisper {
   /** Downloads what is missing, as a job with its bar (`download_whisper`). */
   async ensure(jobs: Jobs, owner: string): Promise<void> {
     if (await this.ready()) return;
-    const asset = whisperAsset();
+    const asset = whisperAsset(this.platform, this.arch);
     if (!asset) throw new Error("whisper.cpp has no ready program for this computer");
     const job = jobs.start(
       owner,
@@ -95,11 +142,7 @@ export class LocalWhisper {
           await rm(part, { recursive: true, force: true });
           await mkdir(part, { recursive: true });
           const archive = join(part, asset);
-          await download(
-            `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_BUILD}/${asset}`,
-            archive,
-            h,
-          );
+          await download(whisperUrl(asset, this.platform), archive, h);
           // The system's tar unpacks both (Windows 10 and later read zip with it too).
           await new Promise<void>((ok, ko) => {
             const t = spawn("tar", ["-xf", asset], {
@@ -133,23 +176,28 @@ export class LocalWhisper {
     if (this.url && this.proc?.exitCode === null) return this.url;
     const program = await this.program();
     if (!program || !existsSync(this.model)) throw new Error("whisper.cpp is not downloaded yet");
-    this.proc = spawn(
-      program,
-      [
-        "-m",
-        this.model,
-        "--host",
-        "127.0.0.1",
-        "--port",
-        String(port),
-        // The path OpenAI-compatible clients call.
-        "--inference-path",
-        "/v1/audio/transcriptions",
-        "-t",
-        String(Math.max(1, Math.min(8, cpus().length - 1))),
-      ],
-      { stdio: "ignore", windowsHide: true },
-    );
+    this.proc = this.binding
+      ? // Node runs the binding in a process of its own; it ends when stdin closes (this server).
+        spawn(process.execPath, [whisperWorker(), program, this.model, String(port)], {
+          stdio: ["pipe", "ignore", "ignore"],
+        })
+      : spawn(
+          program,
+          [
+            "-m",
+            this.model,
+            "--host",
+            "127.0.0.1",
+            "--port",
+            String(port),
+            // The path OpenAI-compatible clients call.
+            "--inference-path",
+            "/v1/audio/transcriptions",
+            "-t",
+            String(Math.max(1, Math.min(8, cpus().length - 1))),
+          ],
+          { stdio: "ignore", windowsHide: true },
+        );
     const base = `http://127.0.0.1:${port}`;
     for (let i = 0; i < 120; i++) {
       if (this.proc.exitCode !== null) throw new Error("whisper.cpp's server stopped at start");
@@ -382,16 +430,23 @@ export async function forWhisperCpp(
   data: Uint8Array,
   mime: string,
   /** The ffmpeg program, or how to get it (downloaded the first time it is needed). */
-  opts: { ffmpeg?: string | (() => Promise<string | undefined>) } = {},
+  opts: {
+    ffmpeg?: string | (() => Promise<string | undefined>);
+    /** Only WAV passes as it is (the Mac's whisper binding). */
+    wavOnly?: boolean;
+  } = {},
 ): Promise<{ audio: Uint8Array; type: string }> {
   const kind = sniffAudio(data);
-  const passes = {
-    wav: "audio/wav",
-    mp3: "audio/mpeg",
-    flac: "audio/flac",
-    "ogg-vorbis": "audio/ogg",
-  };
-  if (kind in passes) return { audio: data, type: passes[kind as keyof typeof passes] };
+  const passes: Partial<Record<AudioKind, string>> = opts.wavOnly
+    ? { wav: "audio/wav" }
+    : {
+        wav: "audio/wav",
+        mp3: "audio/mpeg",
+        flac: "audio/flac",
+        "ogg-vorbis": "audio/ogg",
+      };
+  const pass = passes[kind];
+  if (pass) return { audio: data, type: pass };
   const wav = (audio: Uint8Array) => ({ audio, type: "audio/wav" });
   let failure: Error | undefined;
   if (kind === "ogg-opus" || kind === "webm") {
