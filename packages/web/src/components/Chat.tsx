@@ -95,6 +95,10 @@ function ToolLine({
       : "";
   const state = !item.result ? "running" : item.result.ok ? "done" : "failed";
   const picture = item.result?.output.match(/^Saved (images\/\S+\.png)/)?.[1];
+  // What a file tool changed (2026-11-05): its diff, shown at once, and how many lines.
+  const diff = item.result?.output.match(/```diff\n([\s\S]*?)```/)?.[1];
+  const added = diff?.split("\n").filter((l) => l.startsWith("+")).length ?? 0;
+  const removed = diff?.split("\n").filter((l) => l.startsWith("-")).length ?? 0;
   return (
     <div class={`tool ${state}${item.viaScript ? " via-script" : ""}`}>
       <button type="button" class="tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -104,7 +108,18 @@ function ToolLine({
         <span class="tname">{item.tool}</span>
         {item.viaScript && <span class="tvia">{t("viaScript")}</span>}
         <span class="tsum">{summary.replace(/\s+/g, " ").slice(0, 140)}</span>
+        {diff && (
+          <span class="tdiff">
+            <span class="plus">+{added}</span> <span class="minus">-{removed}</span>
+          </span>
+        )}
       </button>
+      {diff && (
+        <div
+          class="md tool-diff"
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(`\`\`\`diff\n${diff}\`\`\``) }}
+        />
+      )}
       {open && (
         <>
           <pre>{JSON.stringify(item.input, null, 2)}</pre>
@@ -477,7 +492,13 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
           {v.state === "running" && v.call && !v.compacting && <TurnProgress call={v.call} />}
           {(v.thinking || v.text) && (
             <div class="bubble assistant streaming">
-              {v.thinking && !v.text && <div class="dim">{t("thinking")}…</div>}
+              {/* The reasoning as it comes (2026-11-05), folded away once the answer starts. */}
+              {v.thinking && !v.text && (
+                <details class="thinking live" open>
+                  <summary>{t("thinking")}…</summary>
+                  <div class="dim">{v.thinking.slice(-4000)}</div>
+                </details>
+              )}
               {v.text && (
                 <div
                   class="md"

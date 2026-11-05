@@ -150,7 +150,10 @@ describe("file tools", () => {
           new_string: "return 'hello';",
         })
       ).content,
-    ).toBe("Edited src/a.ts: 1 replacement.");
+    ).toBe(
+      // What changed, as a short diff (2026-11-05).
+      "Edited src/a.ts: 1 replacement.\n\n```diff\n@@ line 3 @@\n export const a = 1;\n export function hello() {\n-  return 'hi';\n+  return 'hello';\n }\n \n```",
+    );
     // The model lost the indentation: still a unique match, and the new code is re-indented.
     const r = await run("edit_file", {
       path: "src/a.ts",

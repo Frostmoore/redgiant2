@@ -5398,3 +5398,21 @@ textarea.instructions {
   border-radius: 6px;
   padding: 0 5px;
 }
+
+/* A file tool's change in the chat (2026-11-05). */
+.tool .tdiff {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.tool .tdiff .plus {
+  color: var(--ok);
+}
+.tool .tdiff .minus {
+  color: var(--err);
+}
+.tool .tool-diff pre {
+  margin: 4px 0 0;
+  max-height: 320px;
+  overflow: auto;
+}

@@ -59,6 +59,28 @@ const SECTIONS: { id: SettingsSection; label: () => string; icon: ComponentChild
   { id: "platform", label: () => t("platformView"), icon: <IconLayers size={15} /> },
 ];
 
+/** The browser's notifications (2026-11-05): when the page is not in view and an agent needs you. */
+function BrowserNotifications() {
+  const supported = typeof Notification !== "undefined";
+  const [state, setState] = useState(supported ? Notification.permission : "denied");
+  if (!supported) return null;
+  return (
+    <div class="field">
+      {t("notifyTitle")}
+      <span class="ui-help">{t("notifyHint")}</span>
+      {state === "granted" ? (
+        <span class="notice ok">{t("notifyOn")}</span>
+      ) : state === "denied" ? (
+        <span class="ui-help">{t("notifyBlocked")}</span>
+      ) : (
+        <button type="button" onClick={() => void Notification.requestPermission().then(setState)}>
+          {t("notifyEnable")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /**
  * Instructions for every agent (2026-11-05): the person's general system prompt, added to each
  * agent's own. Each agent's own instructions stay in its card under Agents.
@@ -164,6 +186,7 @@ function General() {
           </span>
         </div>
       </div>
+      <BrowserNotifications />
       <Instructions />
       <Services />
       <EmailSettings />

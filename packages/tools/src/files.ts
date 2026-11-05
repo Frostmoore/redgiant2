@@ -140,11 +140,39 @@ export function writeFileTool(
     async run({ path, content }) {
       const f = reach(ws);
       const existed = await f.exists(path);
+      const before = existed ? await f.readText(path).catch(() => "") : "";
       await f.writeText(path, content);
       const lines = content === "" ? 0 : content.split("\n").length;
-      return `${existed ? "Overwrote" : "Created"} ${path} (${lines} lines).`;
+      return `${existed ? "Overwrote" : "Created"} ${path} (${lines} lines).${existed ? lineDiff(before, content) : ""}`;
     },
   };
+}
+
+/**
+ * What changed in a file, as a short unified diff (2026-11-05: the chat said "1 replacement" and
+ * nobody could see the change). The lines that differ between the common start and the common
+ * end, two lines of context around them, at most `max` lines. Empty when nothing changed.
+ */
+export function lineDiff(before: string, after: string, max = 40): string {
+  if (before === after) return "";
+  const a = before.split("\n");
+  const b = after.split("\n");
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const from = Math.max(0, start - 2);
+  const out = [`@@ line ${start + 1} @@`];
+  for (let i = from; i < start; i++) out.push(` ${a[i]}`);
+  for (let i = start; i < endA; i++) out.push(`-${a[i]}`);
+  for (let i = start; i < endB; i++) out.push(`+${b[i]}`);
+  for (let i = endA; i < Math.min(a.length, endA + 2); i++) out.push(` ${a[i]}`);
+  const cut = out.length > max ? [...out.slice(0, max), `… ${out.length - max} more lines`] : out;
+  return `\n\n\`\`\`diff\n${cut.join("\n")}\n\`\`\``;
 }
 
 const EditInput = z.object({
@@ -194,14 +222,15 @@ export function editFileTool(
         return `Created ${path}.`;
       }
       if (!(await f.isFile(path))) return { content: `No such file: ${path}`, isError: true };
-      const r = applyEdit(await f.readText(path), old_string, new_string, replace_all ?? false);
+      const before = await f.readText(path);
+      const r = applyEdit(before, old_string, new_string, replace_all ?? false);
       if (!r.ok) return { content: r.error, isError: true };
       await f.writeText(path, r.content);
       const how =
         r.strategy === "exact"
           ? ""
           : ` (matched ignoring ${r.strategy === "indentation" ? "indentation" : "trailing whitespace"})`;
-      return `Edited ${path}: ${r.replacements} replacement${r.replacements === 1 ? "" : "s"}${how}.`;
+      return `Edited ${path}: ${r.replacements} replacement${r.replacements === 1 ? "" : "s"}${how}.${lineDiff(before, r.content)}`;
     },
   };
 }

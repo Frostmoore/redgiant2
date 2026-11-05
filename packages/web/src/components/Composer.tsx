@@ -397,6 +397,11 @@ export function Composer({
                 e.preventDefault();
                 void send();
               }
+              // Esc stops the agent, as in Claude Code and Zed (2026-11-05).
+              if (e.key === "Escape" && running && onStop) {
+                e.preventDefault();
+                onStop();
+              }
             }}
           />
           {(serverVoice || Speech) && (

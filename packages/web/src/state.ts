@@ -21,7 +21,7 @@ import {
   type Room,
   type Subproject,
 } from "./api.js";
-import { tOptional } from "./i18n.js";
+import { t, tOptional } from "./i18n.js";
 
 /** What the canvas shows (G25.1): a file or folder of a workspace, or a port of an agent. */
 export type CanvasTarget =
@@ -102,6 +102,22 @@ export type ChatItem =
 const QUESTION_TOOLS = new Set(["ask_user", "propose_plan"]);
 
 /** Turns a session's events into what the chat shows. Pure: tested without a browser. */
+/**
+ * A note from the browser when the page is not in view (2026-11-05, as Zed and Claude Desktop
+ * do): an agent finished, or waits for an approval or an answer. Only once allowed in Settings.
+ */
+function notifyHidden(body: string, tag?: string): void {
+  if (typeof document === "undefined" || !document.hidden) return;
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  try {
+    const n = new Notification("RedGiant", { body, ...(tag && { tag }) });
+    n.onclick = () => {
+      window.focus();
+      n.close();
+    };
+  } catch {}
+}
+
 export function buildItems(events: Event[]): ChatItem[] {
   const items: ChatItem[] = [];
   const tools = new Map<string, Extract<ChatItem, { kind: "tool" }>>();
@@ -439,6 +455,8 @@ export function applyMessage(m: ServerMessage): void {
       return;
     }
     case "session.state":
+      if (m.state === "idle" && sessionView(m.sessionId).value.state === "running")
+        notifyHidden(t("notifyDone"), m.sessionId);
       sessionView(m.sessionId).value = {
         ...sessionView(m.sessionId).value,
         state: m.state,
@@ -457,15 +475,19 @@ export function applyMessage(m: ServerMessage): void {
       sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, synced: true };
       return;
     case "permission.request":
-      if (!approvals.value.some((r) => r.requestId === m.request.requestId))
+      if (!approvals.value.some((r) => r.requestId === m.request.requestId)) {
         approvals.value = [...approvals.value, m.request];
+        notifyHidden(t("notifyApproval", { name: m.request.agentName }));
+      }
       return;
     case "permission.closed":
       approvals.value = approvals.value.filter((r) => r.requestId !== m.requestId);
       return;
     case "question.request":
-      if (!questions.value.some((q) => q.requestId === m.request.requestId))
+      if (!questions.value.some((q) => q.requestId === m.request.requestId)) {
         questions.value = [...questions.value, m.request];
+        notifyHidden(t("notifyQuestion", { name: m.request.agentName }));
+      }
       return;
     case "question.closed":
       questions.value = questions.value.filter((q) => q.requestId !== m.requestId);
