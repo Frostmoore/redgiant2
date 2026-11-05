@@ -75,6 +75,11 @@ export function scriptTool(
   broker: PermissionBroker,
   tools: () => Tool[],
   onHost: boolean,
+  /** Writes each call to the log (`script.call`): the log stays the source of truth. */
+  log: (
+    ctx: ToolContext,
+    call: { name: string; input: unknown; ok: boolean; output: string },
+  ) => Promise<void> = async () => {},
 ): Tool {
   const Input = z.object({
     language: z.enum(["python", "javascript"]),
@@ -137,6 +142,13 @@ export function scriptTool(
               isError: true,
             });
           const out = await tool.run(parsed.data, ctx);
+          const text = typeof out === "string" ? out : out.content;
+          await log(ctx, {
+            name,
+            input: parsed.data,
+            ok: typeof out === "string" || out.isError !== true,
+            output: text.length > 2000 ? `${text.slice(0, 2000)}…` : text,
+          }).catch(() => {});
           return reply(
             200,
             typeof out === "string"

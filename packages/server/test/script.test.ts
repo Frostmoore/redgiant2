@@ -72,5 +72,13 @@ describe("run_script (G29.7)", () => {
       coder.body.id.toLowerCase(),
     );
     expect(await readFile(join(tree, "notes", "2.md"), "utf8")).toBe("note 2 TODO\n");
+    // Every call the program made is in the log, apart from the model's history.
+    const calls = (await s?.core.history("me", sid))?.filter((e) => e.type === "script.call") ?? [];
+    expect(calls.map((e) => (e.payload as { name: string }).name)).toEqual([
+      "write_file",
+      "write_file",
+      "write_file",
+      "grep",
+    ]);
   });
 });

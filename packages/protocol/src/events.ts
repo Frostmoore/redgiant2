@@ -186,6 +186,19 @@ export const EventBody = z.discriminatedUnion("type", [
       comment: z.string().optional(),
     }),
   }),
+  /**
+   * A tool called by a program the agent ran (run_script, 2026-11-05): in the log and the page,
+   * never in the model's history (the program's output is what the model read).
+   */
+  z.object({
+    type: z.literal("script.call"),
+    payload: z.object({
+      name: z.string(),
+      input: z.unknown(),
+      ok: z.boolean(),
+      output: z.string(),
+    }),
+  }),
   /** A file an agent sent to the person (G25.2): shown in the chat, and on Telegram there. */
   z.object({
     type: z.literal("file.sent"),

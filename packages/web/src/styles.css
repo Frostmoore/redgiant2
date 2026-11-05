@@ -5386,3 +5386,15 @@ textarea.instructions {
 .bubble.user.pending {
   opacity: 0.7;
 }
+
+/* A tool called by the agent's program (run_script): indented, with a small label. */
+.tool.via-script {
+  margin-left: 18px;
+}
+.tool .tvia {
+  font-size: 11px;
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 5px;
+}

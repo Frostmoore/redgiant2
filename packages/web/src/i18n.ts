@@ -1471,6 +1471,7 @@ const en = {
     "No account and nothing leaves this computer. RedGiant downloads whisper.cpp and a multilingual model once (about 560 MB, with its bar in the corner) and runs them itself.",
   job_download_whisper: "Downloading whisper.cpp for voice messages (only once)",
   job_step_model_download: "The model",
+  viaScript: "from a script",
   chats: "Other chats",
   chatsHint:
     "Talk to Demi-God from Discord, Slack, Signal or WhatsApp too. It is one conversation: begun on Telegram or here, it goes on wherever you write. Approvals and questions arrive with buttons (on Signal, with numbers to reply).",
@@ -3187,6 +3188,7 @@ const it: Record<Key, string> = {
     "Nessun account e niente esce da questo computer. RedGiant scarica una volta whisper.cpp e un modello multilingue (circa 560 MB, con la barra nell'angolo) e li fa girare lui.",
   job_download_whisper: "Scarico whisper.cpp per i vocali (una volta sola)",
   job_step_model_download: "Il modello",
+  viaScript: "da uno script",
   chats: "Altre chat",
   chatsHint:
     "Parla con il Demi-God anche da Discord, Slack, Signal o WhatsApp. È una conversazione sola: cominciata su Telegram o qui, continua ovunque scrivi. Approvazioni e domande arrivano con i pulsanti (su Signal, con i numeri da rispondere).",

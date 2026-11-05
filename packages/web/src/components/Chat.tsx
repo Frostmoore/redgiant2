@@ -96,12 +96,13 @@ function ToolLine({
   const state = !item.result ? "running" : item.result.ok ? "done" : "failed";
   const picture = item.result?.output.match(/^Saved (images\/\S+\.png)/)?.[1];
   return (
-    <div class={`tool ${state}`}>
+    <div class={`tool ${state}${item.viaScript ? " via-script" : ""}`}>
       <button type="button" class="tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span class="mark">
           {state === "running" ? <IconSpinner /> : state === "done" ? <IconCheck /> : <IconClose />}
         </span>
         <span class="tname">{item.tool}</span>
+        {item.viaScript && <span class="tvia">{t("viaScript")}</span>}
         <span class="tsum">{summary.replace(/\s+/g, " ").slice(0, 140)}</span>
       </button>
       {open && (

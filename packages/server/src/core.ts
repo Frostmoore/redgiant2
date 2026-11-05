@@ -851,7 +851,23 @@ export class RedGiantCore implements OrchestrationHost {
           this.sendFileTool(agent, ws),
           this.variantsTool(agent, ws),
           // Chains of tool calls that do not fill the context (G29.7).
-          scriptTool(agent, ws, this.broker, () => tools, this.sandbox.kind === "host"),
+          scriptTool(
+            agent,
+            ws,
+            this.broker,
+            () => tools,
+            this.sandbox.kind === "host",
+            (ctx, call) =>
+              this.store
+                .append({
+                  ownerId: ctx.ownerId,
+                  projectId: ctx.projectId,
+                  agentId: ctx.agentId,
+                  sessionId: ctx.sessionId,
+                  body: { type: "script.call", payload: call },
+                })
+                .then(() => {}),
+          ),
         );
       tools.push(
         ...customTools(await loadCustomTools(roots), ws),

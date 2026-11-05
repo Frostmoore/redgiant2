@@ -48,6 +48,8 @@ export type ChatItem =
       tool: string;
       input: unknown;
       result?: { ok: boolean; output: string };
+      /** Called by the agent's program (run_script), not by the model directly. */
+      viaScript?: boolean;
     }
   | {
       kind: "question";
@@ -150,6 +152,18 @@ export function buildItems(events: Event[]): ChatItem[] {
         if (call) call.result = { ok: e.payload.ok, output: e.payload.output };
         break;
       }
+      // A call made by the agent's program (run_script): shown like any other, marked so.
+      case "script.call":
+        items.push({
+          kind: "tool",
+          key,
+          callId: key,
+          tool: e.payload.name,
+          input: e.payload.input,
+          result: { ok: e.payload.ok, output: e.payload.output },
+          viaScript: true,
+        });
+        break;
       case "question.asked": {
         const item = {
           kind: "question" as const,
