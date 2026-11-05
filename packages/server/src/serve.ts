@@ -50,7 +50,12 @@ export function serve(
             await core.close();
             for (const c of wss.clients) c.terminate();
             wss.close();
-            await new Promise<void>((done) => server.close(() => done()));
+            // Every connection cut at once (2026-11-05): an open page kept one, the stop waited for
+            // it past RedGiant.exe's 30 s, the server was killed and Postgres was left running.
+            const http = server as unknown as Server;
+            const closed = new Promise<void>((done) => http.close(() => done()));
+            http.closeAllConnections();
+            await closed;
           },
         });
       },

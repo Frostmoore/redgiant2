@@ -365,9 +365,19 @@ core.inspector.start();
 core.email.start();
 // What the supervisor does (promotions, rollbacks) goes into the log and reaches the owner.
 core.code?.watch();
+/** At most `ms` waiting for `p`; then the stop goes on without it. */
+const within = (p: Promise<unknown>, ms: number) =>
+  Promise.race([p, new Promise<void>((done) => setTimeout(done, ms).unref())]);
 const shutdown = async () => {
-  for (const h of shutdownHooks) await h().catch(() => {});
-  await running.close();
+  // Everything but the database gets 15 s (2026-11-05): RedGiant.exe kills the server after 30 s,
+  // and a stop that hung past them left Postgres running. The database is always stopped.
+  await within(
+    (async () => {
+      for (const h of shutdownHooks) await h().catch(() => {});
+      await running.close();
+    })(),
+    15_000,
+  );
   // The database last: everything above may still write to it.
   if (embedded) {
     await pool?.end().catch(() => {});
