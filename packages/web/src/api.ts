@@ -81,6 +81,8 @@ export interface SetupState {
       /** Speculative decoding (2026-11-04). */
       speculative?: "draft" | "ngram";
       draftModel?: string;
+      /** The tuning's tries (2026-11-05): the kept one's speed is the model's measured speed. */
+      trials?: { genTps?: number; chosen?: boolean }[];
       /** What the last start decided (SSD stream). */
       plan?: {
         ctx: number;

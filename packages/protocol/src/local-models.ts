@@ -232,7 +232,7 @@ export function estimatedSpeed(
   m: Pick<LocalModel, "totalB" | "activeB">,
   fileGb: number,
   hw: SpeedHardware,
-): { tokensPerSec: number; stars: number } {
+): { tokensPerSec: number; stars: number; range?: [number, number] } {
   const perToken = Math.max(0.2, (fileGb * m.activeB) / m.totalB);
   const size = Math.max(fileGb, 0.1);
   const card = hw.kind === "gpu" ? hw.vramGb * 0.8 : 0;
@@ -244,7 +244,8 @@ export function estimatedSpeed(
   // 120B, 58 GB, 13-15 tokens/s on a 16 GB card with about 27 GB of RAM free). A dense model
   // reads all of it at every token.
   const moe = m.activeB < m.totalB * 0.5;
-  const onSsd = (size - inCard - inRam) * (moe ? 0.1 : 1);
+  const beyond = size - inCard - inRam;
+  const onSsd = beyond * (moe ? 0.1 : 1);
   const ramSpeed =
     hw.kind === "gpu"
       ? BANDWIDTH.ram
@@ -253,11 +254,20 @@ export function estimatedSpeed(
         : hw.kind === "gpu-unknown"
           ? BANDWIDTH.unknown
           : BANDWIDTH.cpu;
-  const seconds =
-    (perToken / size) *
-    (inCard / BANDWIDTH.card + (size - inCard - onSsd) / ramSpeed + onSsd / BANDWIDTH.ssd);
-  const tokensPerSec = Math.max(0, Math.round(1 / Math.max(seconds, 0.001)));
-  return { tokensPerSec, stars: starsFor(tokensPerSec) };
+  const speedWith = (ssd: number) => {
+    const seconds =
+      (perToken / size) *
+      (inCard / BANDWIDTH.card + (size - inCard - ssd) / ramSpeed + ssd / BANDWIDTH.ssd);
+    return Math.max(0, Math.round(1 / Math.max(seconds, 0.001)));
+  };
+  const tokensPerSec = speedWith(onSsd);
+  // How much really comes from the SSD depends on the model (2026-11-05): gpt-oss 120B reuses
+  // its experts and wrote 13-15 tokens/s, GLM-4.5 Air spreads them and wrote 1.3-3.2 where one
+  // number said 4. A mixture of experts beyond memory is said as a range: all of it cached to
+  // all of it read; the measured speed replaces it once the model ran.
+  const range: [number, number] | undefined =
+    moe && beyond > 0 ? [speedWith(beyond), speedWith(0)] : undefined;
+  return { tokensPerSec, stars: starsFor(tokensPerSec), ...(range && { range }) };
 }
 
 const starsFor = (n: number) => (n >= 80 ? 5 : n >= 40 ? 4 : n >= 20 ? 3 : n >= 10 ? 2 : 1);

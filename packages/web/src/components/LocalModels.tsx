@@ -145,6 +145,40 @@ function RoomBar({ sizeGb, tiers }: { sizeGb: number; tiers: Tier[] }) {
   );
 }
 
+/** The speed measured here for a file, when it ran and was tuned (2026-11-05). */
+function measuredTps(s: SetupState, file: string): number | undefined {
+  const e = s.config.engine;
+  if (!e || e.model !== file) return undefined;
+  return e.trials?.find((x) => x.chosen)?.genTps;
+}
+
+/** A speed for a card: measured when known, else the estimate (a range when it is uncertain). */
+function SpeedText({
+  speed,
+  measured,
+  unit,
+}: {
+  speed: { tokensPerSec: number; range?: [number, number] };
+  measured: number | undefined;
+  unit: string;
+}) {
+  if (measured !== undefined)
+    return (
+      <>
+        {measured} <small>{t("lmSpeedMeasured")}</small>
+      </>
+    );
+  const [low, high] = speed.range ?? [];
+  return (
+    <>
+      {low !== undefined && high !== undefined && low !== high
+        ? `${low}–${high}`
+        : speed.tokensPerSec}{" "}
+      <small>{unit}</small>
+    </>
+  );
+}
+
 const latest = (jobs: Job[], kind: string, model: string) =>
   jobs.filter((j) => j.kind === kind && j.vars.model === model).at(-1);
 
@@ -330,13 +364,13 @@ function TuneTrials({
           {trials.map((x) => (
             <tr key={`${x.share}-${x.opOffload ?? true}`} class={x.chosen ? "chosen" : ""}>
               <td>
-                {gb(x.cacheMib / 1024)} ({Math.round(x.share * 100)}%)
-                {x.opOffload === false && ` · ${t("lmTuneNoCopy")}`}
+                {gb(x.cacheMib / 1024)} · {Math.round(x.share * 100)}%
+                {x.opOffload === false && <span class="sub">{t("lmTuneNoCopy")}</span>}
               </td>
               <td>{x.ctx ? `${Math.round(x.ctx / 1024)}k` : "–"}</td>
-              <td>{x.prefillTps ? `${x.prefillTps} tok/s` : "–"}</td>
-              <td>{x.genTps ? `${x.genTps} tok/s` : "–"}</td>
-              <td>{x.turnS ? `${x.turnS} s` : "–"}</td>
+              <td>{x.prefillTps ?? "–"}</td>
+              <td>{x.genTps ?? "–"}</td>
+              <td>{x.turnS ?? "–"}</td>
               <td>
                 {x.state === "running" ? (
                   t("lmTuneRunning")
@@ -1105,7 +1139,7 @@ function ModelPanel({
       {speed && file && (
         <div class="row wrap">
           <span class="gcard-big">
-            {speed.tokensPerSec} <small>{t("lmSpeedEstimate")}</small>
+            <SpeedText speed={speed} measured={measuredTps(s, name)} unit={t("lmSpeedEstimate")} />
           </span>
           {plan && (
             <span class="gcard-big">
@@ -1394,7 +1428,11 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
               {speed && m.file ? (
                 <span class="row wrap">
                   <span class="gcard-big">
-                    {speed.tokensPerSec} <small>{t("lmTokensUnit")}</small>
+                    <SpeedText
+                      speed={speed}
+                      measured={measuredTps(s, target(m.file.file))}
+                      unit={t("lmTokensUnit")}
+                    />
                   </span>
                   <span class="spacer" />
                   <span class="dim">{gb(m.file.sizeGb)}</span>

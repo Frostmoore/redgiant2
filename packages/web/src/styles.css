@@ -4929,8 +4929,23 @@ button.pick-tile.on {
 .lm-trials th,
 .lm-trials td {
   text-align: left;
-  padding: 4px 8px;
+  padding: 4px 6px;
   border-bottom: 1px solid var(--line);
+}
+/* Narrow windows (2026-11-05): short cells, the note on a line of its own, the button whole. */
+.lm-trials td {
+  white-space: nowrap;
+}
+.lm-trials td .sub {
+  display: block;
+  white-space: normal;
+  max-width: 190px;
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 400;
+}
+.lm-trials td button {
+  white-space: nowrap;
 }
 .lm-trials th {
   color: var(--dim);
