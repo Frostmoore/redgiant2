@@ -134,7 +134,7 @@ begin
   Result := True;
   Old := InstalledVersion();
   if (Old <> '') and OldWslInstall() then begin
-    MsgBox(FmtMessage(CustomMessage('OldWsl'), [Old]), mbInformation, MB_OK);
+    SuppressibleMsgBox(FmtMessage(CustomMessage('OldWsl'), [Old]), mbInformation, MB_OK, IDOK);
     Result := False;
     Exit;
   end;
@@ -297,10 +297,12 @@ var
 begin
   if CurUninstallStep <> usUninstall then Exit;
   StopRedGiant();
-  if MsgBox(CustomMessage('KeepData'), mbConfirmation, MB_YESNO or MB_DEFBUTTON1) = IDYES then begin
+  { Silent (2026-11-05: a plain MsgBox waited forever for an answer nobody could give): the
+    data and the models stay. }
+  if SuppressibleMsgBox(CustomMessage('KeepData'), mbConfirmation, MB_YESNO or MB_DEFBUTTON1, IDYES) = IDYES then begin
     { The projects stay; the models (often the biggest part) are asked about on their own. }
-    if MsgBox(FmtMessage(CustomMessage('DeleteModels'), [GbText(ModelsBytes())]), mbConfirmation,
-      MB_YESNO or MB_DEFBUTTON1) = IDYES then
+    if SuppressibleMsgBox(FmtMessage(CustomMessage('DeleteModels'), [GbText(ModelsBytes())]), mbConfirmation,
+      MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
       DeleteModels();
     Exit;
   end;

@@ -134,3 +134,11 @@ jobs:
           Start-Sleep 5
           $left = @(Get-Process node, postgres -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$app*" })
           if ($left.Count -gt 0) { $left | Format-Table Id, ProcessName, Path; "processes left after --quit"; exit 1 }
+          # Uninstalled silently: it must end by itself (a plain MsgBox waited forever, 2026-11-05),
+          # remove the program and keep the data.
+          $un = Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -PassThru
+          if (-not $un.WaitForExit(180000)) { "the uninstaller did not finish"; exit 1 }
+          Start-Sleep 5
+          if (Test-Path "$app\server\dist\main.js") { "the uninstaller left the server"; exit 1 }
+          if (-not (Test-Path "$app\data\postgres")) { "the uninstaller removed the data"; exit 1 }
+          "uninstalled, data kept"
