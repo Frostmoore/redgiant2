@@ -31,12 +31,14 @@ import { installTemplate, templateFor } from "./chat-templates.js";
 import type { ChatHub, Outlets } from "./chats.js";
 import type { RedGiantCore } from "./core.js";
 import { debugLog } from "./debug-log.js";
+import { freePort } from "./embedded-db.js";
 import { engineError } from "./engine-errors.js";
 import { detectHardware, type GpuAccess } from "./hardware.js";
 import { JobFailure, type JobHandle, type Jobs } from "./jobs.js";
 import { readLinuxMemory, readWindowsMemory, usableRamGb } from "./memory.js";
 import { modelGb, modelParts, preloadFiles } from "./preload.js";
 import { startRemote, stopRemote } from "./remote.js";
+import { LocalSearxng } from "./searxng-local.js";
 import type { EngineConfig, SetupHooks } from "./setup.js";
 import { type EnginePlan, NORMAL_CTX, speculativeArgs, streamPlan } from "./stream.js";
 import type { WinEngine } from "./win-engine.js";
@@ -153,6 +155,8 @@ function followEngineLogs(container: Docker.Container): void {
 
 /** How the wizard's choices take effect while the server runs (G17). */
 export function runtimeHooks(o: RuntimeOptions): SetupHooks {
+  /** SearXNG on this computer, when there is no Docker (2026-11-05). */
+  let localSearch: LocalSearxng | undefined;
   // The subscriptions' programs (2026-11-05): found here or downloaded when first needed.
   const toolsDir = join(o.dataDir ?? ".", "tools");
   const getting = new Map<ToolName, Promise<ToolLocation>>();
@@ -656,6 +660,20 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
     async searxng(on, h) {
       const e = o.engine;
       const docker = e?.docker;
+      // Without Docker, on Windows and on a Mac (2026-11-05): SearXNG run on this computer.
+      if (!docker && (process.platform === "win32" || process.platform === "darwin")) {
+        localSearch ??= new LocalSearxng(o.dataDir ?? ".");
+        if (!on) {
+          localSearch.stop();
+          return null;
+        }
+        if (localSearch.ready()) h?.skip("searxng_image");
+        else {
+          h?.step("searxng_image");
+          await localSearch.install(h);
+        }
+        return { url: await localSearch.start(await freePort(), h) };
+      }
       if (!e || !docker) throw new Error("The search engine needs Docker on this computer");
       const name = SEARXNG;
       const old = docker.getContainer(name);

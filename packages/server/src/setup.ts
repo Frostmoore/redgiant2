@@ -487,7 +487,20 @@ export class SetupService {
         h.server({ baseUrl: c.server.baseUrl, ...(s.serverKey && { key: s.serverKey }) }),
       );
     // RedGiant's own search engine is started again (a restart of the computer stops it).
-    if (!this.locked.search && c.searxngManaged && h.searxng) await run("searxng", h.searxng(true));
+    // Run on this computer (no Docker, 2026-11-05) it answers on a new port each time: kept.
+    if (!this.locked.search && c.searxngManaged && h.searxng) {
+      const searxng = h.searxng;
+      await run(
+        "searxng",
+        searxng(true).then(async (r) => {
+          if (r && r.url !== c.searxngUrl) {
+            c.searxngUrl = r.url;
+            await this.save();
+          }
+          return r;
+        }),
+      );
+    }
     const search = this.searchChoice();
     if (!this.locked.search && search) await run("search", h.search(search));
     // No search set at all: RedGiant's own starts, so every model can search (2026-11-03).

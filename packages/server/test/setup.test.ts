@@ -539,6 +539,29 @@ describe("the setup wizard", () => {
     expect(now?.trials?.find((x) => x.chosen)?.share).toBe(0.15);
   });
 
+  it("starts the search engine run on this computer again after a restart, on its new address", async () => {
+    const { hooks, dataDir } = await setup();
+    // SearXNG without Docker (2026-11-05): a new port at every start.
+    let port = 9000;
+    hooks.searxng = async (on) => (on ? { url: `http://127.0.0.1:${++port}` } : null);
+    const api = (s as Server).api;
+    const job = await api<Job>("POST", "/api/setup/searxng");
+    expect((await s?.core.jobs.settled(job.body.id))?.state).toBe("done");
+    expect((await api<SetupState>("GET", "/api/setup")).body.config.searxngUrl).toBe(
+      "http://127.0.0.1:9001",
+    );
+    // RedGiant starts again: the engine too, and the address it answers on now is the one used.
+    const again = new SetupService({
+      db: (s as Server).core.db,
+      core: (s as Server).core,
+      dataDir,
+      ownerId: "me",
+      hooks,
+    });
+    await again.applyAtStartup();
+    expect((await again.state()).config.searxngUrl).toBe("http://127.0.0.1:9002");
+  });
+
   it("runs Pi-hole by choice, keeps its password and stops it", async () => {
     const { calls, dataDir } = await setup();
     const api = (s as Server).api;
