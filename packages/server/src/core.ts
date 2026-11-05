@@ -191,7 +191,13 @@ interface Live {
   /** Messages waiting for the turn now running to end (G24.14f). */
   queue?: {
     text: string;
-    extra: { images?: ImagePart[]; from?: string; watch?: boolean; steer?: boolean };
+    extra: {
+      images?: ImagePart[];
+      from?: string;
+      watch?: boolean;
+      steer?: boolean;
+      clientId?: string;
+    };
     resolve: (r: SendResult) => void;
     reject: (e: unknown) => void;
   }[];
@@ -2863,6 +2869,8 @@ export class RedGiantCore implements OrchestrationHost {
        * tools, as in Officina. Other chats (Telegram) wait for a turn and an answer of their own.
        */
       steer?: boolean;
+      /** The page's id for a message, to take it back while it still waits. */
+      clientId?: string;
     } = {},
   ): Promise<{ done: Promise<SendResult>; queued?: boolean }> {
     const l = await this.open(ownerId, sessionId);
@@ -2880,6 +2888,19 @@ export class RedGiantCore implements OrchestrationHost {
       return { done, queued: true };
     }
     return this.sendNow(ownerId, sessionId, l, text, rest);
+  }
+
+  /**
+   * Takes back a message still waiting (2026-11-05, as Zed and Cursor allow): it never reaches
+   * the agent. False when it was already taken (into the running turn or a turn of its own).
+   */
+  async unqueue(ownerId: string, sessionId: string, clientId: string): Promise<boolean> {
+    const l = await this.open(ownerId, sessionId);
+    const i = l.queue?.findIndex((q) => q.extra.clientId === clientId) ?? -1;
+    if (i < 0) return false;
+    const [q] = l.queue?.splice(i, 1) ?? [];
+    q?.resolve({ stopReason: "aborted", turns: 0 });
+    return true;
   }
 
   /** The next message waiting for this conversation, if any, now that it is free. */
@@ -2900,7 +2921,13 @@ export class RedGiantCore implements OrchestrationHost {
     sessionId: string,
     l: Live,
     text: string,
-    extra: { images?: ImagePart[]; from?: string; watch?: boolean; steer?: boolean },
+    extra: {
+      images?: ImagePart[];
+      from?: string;
+      watch?: boolean;
+      steer?: boolean;
+      clientId?: string;
+    },
   ): Promise<{ done: Promise<SendResult> }> {
     // The first message names the conversation in the list; every message moves it up.
     await this.o.db.query(
@@ -2939,7 +2966,7 @@ export class RedGiantCore implements OrchestrationHost {
     // Wrapped: an async function returning a bare promise would wait for the whole turn.
     const started = Date.now();
     // `steer` only says how a busy session takes it; it is not part of the message.
-    const { watch, steer: _steer, ...message } = extra;
+    const { watch, steer: _steer, clientId: _clientId, ...message } = extra;
     const done = l.session.send(text, controller.signal, message).finally(() => {
       l.running = null;
       notify("idle");

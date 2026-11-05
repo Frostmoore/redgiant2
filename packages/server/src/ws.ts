@@ -141,10 +141,14 @@ export function attachWebSocket(
               // Written while it works: it joins the turn after its tools (2026-11-05), or right after.
               queue: true,
               steer: true,
+              ...(msg.clientId && { clientId: msg.clientId }),
             });
             done.catch((err) => fail(codeOf(err) ?? "session_failed", String(err)));
             return;
           }
+          case "session.unqueue":
+            await core.unqueue(owner, msg.sessionId, msg.clientId);
+            return;
           case "question.answer":
             if (!core.questions.answer(owner, msg.requestId, msg.answers))
               return fail("not_found", "No such open question");

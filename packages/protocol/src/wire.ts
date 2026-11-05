@@ -29,8 +29,12 @@ export const ClientMessage = z.discriminatedUnion("type", [
     sessionId: z.string(),
     text: z.string(),
     images: z.array(ImagePart).max(10).optional(),
+    /** The page's own id for it: a message still waiting can be taken back (2026-11-05). */
+    clientId: z.string().max(80).optional(),
   }),
   z.object({ type: z.literal("session.interrupt"), sessionId: z.string() }),
+  /** Takes back a message still waiting for the agent (sent while it worked). */
+  z.object({ type: z.literal("session.unqueue"), sessionId: z.string(), clientId: z.string() }),
   z.object({ type: z.literal("question.answer"), requestId: z.string(), answers: Answers }),
   z.object({
     type: z.literal("permission.resolve"),

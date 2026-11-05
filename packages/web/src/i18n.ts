@@ -1481,6 +1481,7 @@ const en = {
   notifyBlocked: "Blocked in the browser's settings for this site.",
   notifyEnable: "Turn on",
   todosTitle: "Steps: {done} of {all} done",
+  unqueue: "Take it back (if the agent has not read it yet)",
   chats: "Other chats",
   chatsHint:
     "Talk to Demi-God from Discord, Slack, Signal or WhatsApp too. It is one conversation: begun on Telegram or here, it goes on wherever you write. Approvals and questions arrive with buttons (on Signal, with numbers to reply).",
@@ -3207,6 +3208,7 @@ const it: Record<Key, string> = {
   notifyBlocked: "Bloccate nelle impostazioni del browser per questo sito.",
   notifyEnable: "Attiva",
   todosTitle: "Passi: {done} su {all} fatti",
+  unqueue: "Ritira (se l'agente non l'ha ancora letto)",
   chats: "Altre chat",
   chatsHint:
     "Parla con il Demi-God anche da Discord, Slack, Signal o WhatsApp. È una conversazione sola: cominciata su Telegram o qui, continua ovunque scrivi. Approvazioni e domande arrivano con i pulsanti (su Signal, con i numeri da rispondere).",

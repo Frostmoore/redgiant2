@@ -5470,3 +5470,18 @@ textarea.instructions {
   border: 1px solid var(--dim);
   border-radius: 50%;
 }
+
+.bubble.user.pending {
+  position: relative;
+  padding-right: 30px;
+}
+.bubble.user.pending .pending-x {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}

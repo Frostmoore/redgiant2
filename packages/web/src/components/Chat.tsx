@@ -559,6 +559,19 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
           {pending.map((p) => (
             <div key={p.key} class="bubble user pending" title={t("sentWhileWorking")}>
               {p.text}
+              {/* Taken back while it still waits (2026-11-05, as in Zed and Cursor). */}
+              <button
+                type="button"
+                class="pending-x"
+                title={t("unqueue")}
+                aria-label={t("unqueue")}
+                onClick={() => {
+                  getLive().send({ type: "session.unqueue", sessionId, clientId: p.key });
+                  setPending((list) => list.filter((x) => x.key !== p.key));
+                }}
+              >
+                <IconClose size={12} />
+              </button>
             </div>
           ))}
           {waiting.map((r) => (
@@ -595,14 +608,15 @@ export function Chat({ sessionId, agentId }: { sessionId: string; agentId: strin
           const msg = await packMessage(text, files, (path, data) =>
             getApi().write(scope, path, data, "base64"),
           );
+          const clientId = `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
           getLive().send({
             type: "session.send",
             sessionId,
             text: msg.text,
             ...(msg.images.length ? { images: msg.images } : {}),
+            clientId,
           });
-          if (v.state === "running")
-            setPending((p) => [...p, { key: `p${Date.now()}`, text: msg.text }]);
+          if (v.state === "running") setPending((p) => [...p, { key: clientId, text: msg.text }]);
         }}
         onStop={() => getLive().send({ type: "session.interrupt", sessionId })}
         chips={

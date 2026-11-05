@@ -47,4 +47,34 @@ describe("a message written while the agent works (2026-11-05, as in Officina)",
     const withResults = rebuilt.find((h) => h.message.parts.some((p) => p.type === "tool_result"));
     expect(withResults?.message.parts.map((p) => p.type)).toEqual(["tool_result", "text"]);
   });
+
+  it("takes back a message still waiting: the model never sees it", async () => {
+    const seen: CompletionRequest[] = [];
+    s = await startServer((req) => {
+      seen.push(req);
+      const last = req.messages.at(-1);
+      if (last?.parts.some((p) => p.type === "tool_result")) return { text: "Done." };
+      return { toolCalls: [{ name: "bash", input: { command: "sleep 1; echo slow" } }] };
+    });
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const sid = (
+      await s.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: god.body.id })
+    ).body.sessionId;
+    const first = await s.core.send("me", sid, "run the slow thing");
+    await new Promise((r) => setTimeout(r, 300));
+    const second = await s.core.send("me", sid, "never mind this", {
+      queue: true,
+      steer: true,
+      clientId: "c1",
+    });
+    expect(await s.core.unqueue("me", sid, "c1")).toBe(true);
+    expect((await second.done).stopReason).toBe("aborted");
+    await first.done;
+    expect(JSON.stringify(seen)).not.toContain("never mind this");
+    expect(await s.core.unqueue("me", sid, "c1")).toBe(false);
+  });
 });
