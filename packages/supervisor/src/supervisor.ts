@@ -111,7 +111,10 @@ export class Supervisor {
     // Keep the file small: the event log has the full story.
     this.state.history = this.state.history.slice(-50);
     await this.save();
-    await rm(requestFile(this.o.stateDir), { force: true });
+    // Only this commit's request: the next one may already be written (seen in CI).
+    const current = await readRequest(this.o.stateDir);
+    if (!current || current.commit === commit)
+      await rm(requestFile(this.o.stateDir), { force: true });
   }
 
   private async rollback(commit: string, reason: string, req: ReleaseRequest | undefined) {

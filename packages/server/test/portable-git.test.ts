@@ -45,19 +45,21 @@ describe.skipIf(process.platform === "win32")(
         '#!/bin/sh\nd="${2#-o}"\nmkdir -p "$d/cmd" && touch "$d/cmd/git.exe"\n',
       );
       let base = "";
+      const arm = process.arch === "arm64";
       const server = createServer((req, res) => {
         if (req.url === "/releases/latest") {
           res.setHeader("content-type", "application/json");
           res.end(
             JSON.stringify({
+              // Only the build for this computer's processor is the right one (CI has arm64 Macs).
               assets: [
                 {
                   name: "PortableGit-2.56.0.4-arm64.7z.exe",
-                  browser_download_url: `${base}/wrong`,
+                  browser_download_url: `${base}/${arm ? "git.exe" : "wrong"}`,
                 },
                 {
                   name: "PortableGit-2.56.0.4-64-bit.7z.exe",
-                  browser_download_url: `${base}/git.exe`,
+                  browser_download_url: `${base}/${arm ? "wrong" : "git.exe"}`,
                 },
                 { name: "MinGit-2.56.0.4-64-bit.zip", browser_download_url: `${base}/wrong` },
               ],
