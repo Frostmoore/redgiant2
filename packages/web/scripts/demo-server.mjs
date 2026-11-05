@@ -97,7 +97,18 @@ const brain = (req) => {
       thinking:
         "The user wants a quick tour. I will look at the project files first, then explain.",
       text: "Let me look at the project first.",
-      toolCalls: [{ name: "glob", input: { pattern: "**/*" } }],
+      toolCalls: [
+        { name: "glob", input: { pattern: "**/*" } },
+        // A change to a file: the chat shows its diff (2026-11-05).
+        {
+          name: "edit_file",
+          input: {
+            path: "src/app.py",
+            old_string: '    print("Hello RedGiant")',
+            new_string: '    name = "RedGiant"\n    print(f"Hello {name}")',
+          },
+        },
+      ],
       usage: {
         inputTokens: 4200 + turn * 300,
         cachedReadTokens: 3900 + turn * 250,
