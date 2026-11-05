@@ -138,7 +138,8 @@ jobs:
           # remove the program and keep the data.
           $un = Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -PassThru
           if (-not $un.WaitForExit(180000)) { "the uninstaller did not finish"; exit 1 }
-          Start-Sleep 5
+          # It runs again from a temporary copy: wait for the program to be gone, with a limit.
+          for ($i = 0; $i -lt 90 -and (Test-Path "$app\server\dist\main.js"); $i++) { Start-Sleep 2 }
           if (Test-Path "$app\server\dist\main.js") { "the uninstaller left the server"; exit 1 }
           if (-not (Test-Path "$app\data\postgres")) { "the uninstaller removed the data"; exit 1 }
           "uninstalled, data kept"
