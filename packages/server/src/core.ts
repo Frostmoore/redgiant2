@@ -1585,6 +1585,8 @@ export class RedGiantCore implements OrchestrationHost {
    * middle of a conversation: that would throw its cache away.
    */
   private backupModel: ModelSpec | undefined;
+  /** How voice notes get ffmpeg (set with local transcription: found here, or downloaded). */
+  ffmpeg: (() => Promise<string | undefined>) | undefined;
   setBackupModel(model: ModelSpec | undefined): void {
     this.backupModel = model;
   }
@@ -2404,7 +2406,10 @@ export class RedGiantCore implements OrchestrationHost {
   async transcribe(audio: Uint8Array, mime: string, language?: string): Promise<string> {
     if (!this.o.transcription)
       throw new BadRequestError("No transcription service: set one in the configuration");
-    return transcribe(audio, mime, this.o.transcription, language ? { language } : {});
+    return transcribe(audio, mime, this.o.transcription, {
+      ...(language && { language }),
+      ...(this.ffmpeg && { ffmpeg: this.ffmpeg }),
+    });
   }
 
   setSearch(search: WebSearchProvider | undefined): void {

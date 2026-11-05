@@ -116,7 +116,7 @@ describe("voice messages on this computer (RedGiant 3.0)", () => {
     const none = { ffmpeg: "/nonexistent/ffmpeg" };
     const m4a = Buffer.concat([Buffer.from([0, 0, 0, 0x20]), Buffer.from("ftypM4A ")]);
     await expect(forWhisperCpp(m4a, "audio/mp4", none)).rejects.toThrow(
-      /M4A\/MP4 need ffmpeg on this computer/,
+      /M4A\/MP4 need ffmpeg, and there is none/,
     );
     await expect(forWhisperCpp(Buffer.from([0xff, 0xf1, 0x50]), "audio/aac", none)).rejects.toThrow(
       /AAC need ffmpeg/,

@@ -58,7 +58,13 @@ export async function transcribe(
   audio: Uint8Array,
   mime: string,
   cfg: TranscriptionConfig,
-  opts: { language?: string; fetch?: typeof fetch; timeoutMs?: number; ffmpeg?: string } = {},
+  opts: {
+    language?: string;
+    fetch?: typeof fetch;
+    timeoutMs?: number;
+    /** The ffmpeg program, or how to get it (downloaded the first time it is needed). */
+    ffmpeg?: string | (() => Promise<string | undefined>);
+  } = {},
 ): Promise<string> {
   if (audio.length === 0) throw new TranscriptionError("The recording is empty");
   if (audio.length > MAX_AUDIO_BYTES) throw new TranscriptionError("The recording is too long");

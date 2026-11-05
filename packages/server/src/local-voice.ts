@@ -381,7 +381,8 @@ const KIND_NAMES: Partial<Record<AudioKind, string>> = {
 export async function forWhisperCpp(
   data: Uint8Array,
   mime: string,
-  opts: { ffmpeg?: string } = {},
+  /** The ffmpeg program, or how to get it (downloaded the first time it is needed). */
+  opts: { ffmpeg?: string | (() => Promise<string | undefined>) } = {},
 ): Promise<{ audio: Uint8Array; type: string }> {
   const kind = sniffAudio(data);
   const passes = {
@@ -402,7 +403,12 @@ export async function forWhisperCpp(
   }
   let converted: Uint8Array | undefined;
   try {
-    converted = await ffmpegToWav(data, opts.ffmpeg);
+    let program = opts.ffmpeg;
+    if (typeof program === "function")
+      program = await program().catch((err) => {
+        throw new Error(`ffmpeg could not be downloaded (${(err as Error).message})`);
+      });
+    converted = await ffmpegToWav(data, program);
   } catch (err) {
     throw new Error(`This voice note could not be decoded: ${(err as Error).message}`);
   }
@@ -410,6 +416,6 @@ export async function forWhisperCpp(
   if (failure) throw new Error(`This voice note could not be decoded: ${failure.message}`);
   const name = KIND_NAMES[kind] ?? (mime || "this format");
   throw new Error(
-    `Voice notes in ${name} need ffmpeg on this computer for local transcription: install ffmpeg (or set REDGIANT_FFMPEG), or use an online transcription service`,
+    `Voice notes in ${name} need ffmpeg, and there is none for this computer: install ffmpeg (or set REDGIANT_FFMPEG), or use an online transcription service`,
   );
 }

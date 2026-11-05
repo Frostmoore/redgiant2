@@ -88,7 +88,7 @@ describe("transcribe", () => {
       (e: unknown) => e,
     );
     expect(err).toBeInstanceOf(TranscriptionError);
-    expect((err as Error).message).toMatch(/need ffmpeg on this computer/);
+    expect((err as Error).message).toMatch(/need ffmpeg, and there is none/);
     expect(seen).toHaveLength(1);
   });
 

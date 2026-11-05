@@ -29,6 +29,7 @@ import { stringify } from "yaml";
 import type { RedGiantCore } from "./core.js";
 import { debugLog } from "./debug-log.js";
 import { freePort } from "./embedded-db.js";
+import { ensureFfmpeg } from "./ffmpeg.js";
 import { GitHostError, type GitHosts, type GitHostsConfig } from "./git-hosts.js";
 import { detectHardware, type EngineVariant, type Hardware } from "./hardware.js";
 import { IMAGE_MODEL } from "./images.js";
@@ -694,8 +695,14 @@ export class SetupService {
   private startLocalVoice(): void {
     this.localVoice ??= new LocalWhisper(this.o.dataDir);
     const voice = this.localVoice;
+    const ffmpeg = () => ensureFfmpeg(this.o.core.jobs, this.o.ownerId, this.o.dataDir);
+    this.o.core.ffmpeg = ffmpeg;
     void (async () => {
       await voice.ensure(this.o.core.jobs, this.o.ownerId);
+      // ffmpeg too, so the first M4A voice note does not wait for it.
+      void ffmpeg().catch((err) =>
+        debugLog.write("voice", "ffmpeg did not download", { error: String(err) }),
+      );
       const url = await voice.start(await freePort());
       if (this.config.transcription?.api === "local")
         this.o.core.setTranscription({ api: "local", url });
