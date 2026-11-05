@@ -132,6 +132,8 @@ export const Automation = z.object({
   /** Next scheduled run (null without cron or when disabled). */
   nextRunAt: z.string().nullable(),
   lastRun: AutomationRun.nullable(),
+  /** Why the stored recipe no longer reads (then `recipe` only carries the name): edit it. */
+  error: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

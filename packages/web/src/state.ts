@@ -130,6 +130,8 @@ export function buildItems(events: Event[]): ChatItem[] {
     }
     switch (e.type) {
       case "message.user":
+        // RedGiant's own note to the model (the step limit): the answer is what the person reads.
+        if (e.payload.from === "redgiant") break;
         items.push({
           kind: "user",
           key,

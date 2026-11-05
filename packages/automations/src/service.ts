@@ -198,12 +198,22 @@ export class AutomationService {
       "SELECT * FROM rg_automation_runs WHERE automation_id = $1 ORDER BY started_at DESC, id DESC LIMIT 1",
       [r.id],
     );
+    // A recipe that no longer reads still lists, so the person can fix or delete it.
+    let recipe: Recipe;
+    let error: string | undefined;
+    try {
+      recipe = parseRecipe(r.yaml);
+    } catch (err) {
+      error = message(err);
+      recipe = { name: r.name, description: "", on: { webhook: false } } as Recipe;
+    }
     return {
       id: r.id,
       ownerId: r.owner_id,
       name: r.name,
       yaml: r.yaml,
-      recipe: parseRecipe(r.yaml),
+      recipe,
+      ...(error !== undefined && { error }),
       enabled: r.enabled,
       hasWebhookSecret: r.webhook_secret_hash !== null,
       nextRunAt: r.next_run_at ? iso(r.next_run_at) : null,

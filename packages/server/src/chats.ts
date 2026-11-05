@@ -127,12 +127,15 @@ export class ChatHub {
     settings: z.infer<(typeof ChatSettings)[P]> | null,
   ): Promise<void> {
     const old = this.bridges.get(platform);
-    if (old) {
-      this.bridges.delete(platform);
-      this.outlets.set(platform, undefined);
-      await old.stop().catch(() => {});
+    if (!settings) {
+      if (old) {
+        this.bridges.delete(platform);
+        this.outlets.set(platform, undefined);
+        await old.stop().catch(() => {});
+      }
+      return;
     }
-    if (!settings) return;
+    // The new connection starts first: a wrong token fails here and the working one stays.
     const bridge = new ChatBridge({
       db: this.db,
       host: this.host,
@@ -144,6 +147,7 @@ export class ChatHub {
       notify: (o, t) => bridge.notify(o, t),
       sendFile: (o, d, n, m, c) => bridge.sendFile(o, d, n, m, c),
     });
+    await old?.stop().catch(() => {});
   }
 
   get(platform: Platform): ChatBridge | undefined {

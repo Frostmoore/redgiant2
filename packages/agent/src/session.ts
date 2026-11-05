@@ -182,6 +182,9 @@ function historyTool(store: EventStore, sessionId: string): Tool {
  * One agent conversation. Every step is appended to the event log first; the in-memory
  * history is only a cache of what the log says, and `resume` rebuilds it from the log.
  */
+/** After this many identical calls with identical results in a row, the result says so. */
+const REPEAT_NOTE_AFTER = 3;
+
 export class AgentSession {
   private history: HistoryEntry[] = [];
   /** Metrics of the latest model call since the last compaction; drives auto-compaction. */
@@ -407,11 +410,63 @@ export class AgentSession {
         }
       }
     }
+    // Out of steps in the middle of the work: one more call, same request, to say where it is.
+    if (last?.stopReason === "tool_use" && !signal?.aborted) {
+      const gate = await this.o.beforeModelCall?.();
+      if (!gate || gate.allow) last = (await this.closingSummary(signal)) ?? last;
+    }
     return {
       stopReason: "max_turns",
       turns: this.o.maxTurns ?? 50,
       ...(last && { lastCompletion: last }),
     };
+  }
+
+  /**
+   * The step limit is reached: the model writes what is done and what is left, so the person
+   * can say "go on". Same tools and system (the cache holds); a call it still makes is answered
+   * with an error, not run.
+   */
+  private async closingSummary(signal: AbortSignal | undefined): Promise<Completion | undefined> {
+    const text =
+      "[RedGiant: you reached the limit of steps for one message. Do not call any more tools. In a few lines, tell the person what you did, what is left, and what you would do next: they can tell you to go on.]";
+    // It joins the last results' message, as the person's own words in the middle of work do.
+    const results = this.history.at(-1)?.message;
+    if (results?.role !== "user") return undefined;
+    await this.record({ type: "message.user", payload: { text, steer: true, from: "redgiant" } });
+    results.parts.push({ type: "text", text });
+    try {
+      const completion = await this.callModel(signal);
+      this.lastMetrics = completion.metrics;
+      const event = await this.record({
+        type: "message.assistant",
+        payload: {
+          parts: completion.message.parts,
+          ...(completion.message.native !== undefined && { native: completion.message.native }),
+          stopReason: completion.stopReason,
+          provider: completion.provider,
+          model: completion.model,
+          metrics: completion.metrics,
+          costUsd: await this.priced(completion),
+        },
+      });
+      this.history.push({
+        message: {
+          role: "assistant",
+          parts: completion.message.parts,
+          native: completion.message.native,
+        },
+        firstSeq: event.seq,
+      });
+      if (completion.message.parts.some((p) => p.type === "tool_call"))
+        await this.failCalls(
+          completion,
+          "Not run: the limit of steps for this message is reached.",
+        );
+      return completion;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -579,6 +634,9 @@ export class AgentSession {
     });
   }
 
+  /** The last tool call and its result, and how many times in a row they came back the same. */
+  private repeats = { key: "", count: 0 };
+
   private async runTools(completion: Completion, ctx: ToolContext): Promise<void> {
     const calls = completion.message.parts.flatMap((p) => (p.type === "tool_call" ? [p] : []));
     // Calls are recorded in order, run in parallel, and their results recorded in order:
@@ -615,6 +673,12 @@ export class AgentSession {
     let firstSeq: number | undefined;
     for (const [i, r] of results.entries()) {
       const callId = calls[i]?.callId ?? "";
+      // The same call with the same answer again and again: the model is stuck, say so.
+      const key = `${calls[i]?.name}\u0000${JSON.stringify(calls[i]?.input ?? null)}\u0000${r.content}`;
+      this.repeats =
+        key === this.repeats.key ? { key, count: this.repeats.count + 1 } : { key, count: 1 };
+      if (this.repeats.count >= REPEAT_NOTE_AFTER)
+        r.content = `${r.content}\n\n[RedGiant: this is the ${this.repeats.count}th time in a row you make exactly this call and get exactly this result. Repeating it will not change anything: try a different approach, or stop and tell the person what blocks you.]`;
       const images = "images" in r ? r.images : undefined;
       const e = await this.record({
         type: "tool.result",

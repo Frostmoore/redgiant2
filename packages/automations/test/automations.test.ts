@@ -446,6 +446,11 @@ describe("AutomationService", () => {
     expect(fake.calls.map((c) => c.ctx.trigger)).toEqual(["missed", "cron"]);
     expect((await again.get(OWNER, good.automation.id)).lastRun).toMatchObject({ status: "ok" });
     expect((await again.runs(OWNER, "auto_broken"))[0]).toMatchObject({ trigger: "cron" });
+    // The page still lists it, with why it no longer reads, so the person can fix it.
+    const listed = await again.list(OWNER);
+    expect(listed.map((x) => x.name).sort()).toEqual(["broken", "digest"]);
+    expect(listed.find((x) => x.name === "broken")?.error).toMatch(/tools/);
+    expect(listed.find((x) => x.name === "digest")?.error).toBeUndefined();
   });
 
   it("records whether the message reached the person, and sends it to the web when asked", async () => {

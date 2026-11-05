@@ -455,6 +455,44 @@ describe("AgentSession", () => {
     expect(await s2.send("go")).toMatchObject({ stopReason: "max_turns", turns: 3 });
   });
 
+  it("says when a call keeps repeating, and closes the step limit with a summary", async () => {
+    const seen: CompletionRequest[] = [];
+    const { options } = setup(
+      (req) => {
+        seen.push(req);
+        const last = req.messages.at(-1);
+        const asked = last?.parts.some(
+          (p) => p.type === "text" && p.text.includes("limit of steps"),
+        );
+        return asked
+          ? { text: "Done: three echoes. Left: nothing." }
+          : { toolCalls: [{ name: "echo", input: { text: "again" } }] };
+      },
+      { maxTurns: 4 },
+    );
+    const s = await AgentSession.start(options);
+    const r = await s.send("go");
+    expect(r).toMatchObject({ stopReason: "max_turns", turns: 4 });
+    expect(r.lastCompletion?.message.parts).toEqual([
+      { type: "text", text: "Done: three echoes. Left: nothing." },
+    ]);
+    // Same tools and system for the closing call: the cached prefix holds.
+    expect(seen.at(-1)?.tools).toEqual(seen[0]?.tools);
+    expect(seen.at(-1)?.system).toEqual(seen[0]?.system);
+    const events = await store.list({ sessionId: "s1" });
+    const outputs = events.flatMap((e) =>
+      e.type === "tool.result" ? [String(e.payload.output)] : [],
+    );
+    expect(outputs.slice(0, 2).every((o) => o === "AGAIN")).toBe(true);
+    expect(outputs[2]).toMatch(/3th time in a row/);
+    expect(outputs[3]).toMatch(/4th time in a row/);
+    // The note joins the last results' message, and a rebuild sees exactly what the model saw.
+    const note = events.find((e) => e.type === "message.user" && e.payload.from === "redgiant");
+    expect(note).toBeDefined();
+    const rebuilt = rebuildHistory(events).map((h) => h.message);
+    expect(rebuilt.at(-2)).toEqual(seen.at(-1)?.messages.at(-1));
+  });
+
   it("replays a recorded session into an identical log", async () => {
     const recordings: Recording[] = [];
     const script: FakeScript = [

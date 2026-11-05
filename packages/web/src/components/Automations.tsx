@@ -669,7 +669,13 @@ export function Automations() {
                 )}
               </span>
               <strong>{a.recipe.description || a.name}</strong>
-              <span class="dim">{recipeWhen(a)}</span>
+              {a.error ? (
+                <span class="status-chip blocked" title={a.error}>
+                  {t("recipeBroken")}
+                </span>
+              ) : (
+                <span class="dim">{recipeWhen(a)}</span>
+              )}
               {a.nextRunAt && (
                 <span class="dim">
                   {t("nextRun")} {when(a.nextRunAt)}

@@ -60,12 +60,26 @@ describe("chat platforms (G29.5)", () => {
     expect(told).toEqual(["Backup done"]);
     expect(discord.sent.at(-1)?.text).toBe("Only Discord");
 
+    // A new token that fails keeps the working connection; one that works replaces it.
+    await expect(hub.set("discord", { token: "short" } as never)).rejects.toThrow();
+    expect(discord.stopped).toBe(false);
+    expect(hub.get("discord")).toBe(bridge);
+    await hub.set("discord", { token: "y".repeat(30) });
+    expect(discord.stopped).toBe(true);
+    const fresh = made.get("discord") as FakeTransport;
+    expect(fresh).not.toBe(discord);
+    // Each linked chat says whether the message arrived.
+    expect(await core.notify?.("me", "Report")).toEqual({
+      delivered: ["telegram", "discord"],
+      failed: [],
+    });
+
     // Switched off: the platform stops and gets nothing more; Telegram still does.
     await hub.set("discord", null);
-    expect(discord.stopped).toBe(true);
+    expect(fresh.stopped).toBe(true);
     await core.notify?.("me", "Again");
-    expect(told).toEqual(["Backup done", "Again"]);
-    expect(discord.sent.at(-1)?.text).toBe("Only Discord");
+    expect(told).toEqual(["Backup done", "Report", "Again"]);
+    expect(fresh.sent.map((m) => m.text)).toEqual(["Report"]);
     outlets.set("telegram", undefined);
     expect(core.notify).toBeUndefined();
   });
