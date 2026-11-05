@@ -673,6 +673,8 @@ export class Api {
       stream?: boolean;
       speculative?: "draft" | "ngram";
       draftModel?: string;
+      /** A row of the tuning table picked by the person (2026-11-05). */
+      tuning?: { moeCacheShare: number; opOffload: boolean };
     } | null,
   ) => this.call<Job>("PUT", "/api/setup/engine", { engine });
   setupNames = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/names", b);

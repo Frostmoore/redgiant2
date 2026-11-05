@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChatMessage } from "@redgiant/protocol";
@@ -210,12 +210,47 @@ describe("KvStore", () => {
     expect((await store.list()).map((e) => e.file).sort()).toEqual(["hot.bin", "recent.bin"]);
   });
 
-  it("hashes prefixes at message boundaries", () => {
+  it("hashes prefixes at message boundaries, the start alone first", () => {
     const a = prefixHashes({ system: "s", tools: [], messages: [user("1"), user("2")] });
     const b = prefixHashes({ system: "s", tools: [], messages: [user("1"), user("3")] });
     const c = prefixHashes({ system: "other", tools: [], messages: [user("1")] });
-    expect(a[0]).toBe(b[0]);
-    expect(a[1]).not.toBe(b[1]);
+    const d = prefixHashes({ system: "s", tools: [], messages: [user("new")] });
+    expect(a).toHaveLength(3);
+    expect(a[1]).toBe(b[1]);
+    expect(a[2]).not.toBe(b[2]);
     expect(c[0]).not.toBe(a[0]);
+    // A new conversation of the same agent shares the start (system and tools) with the others.
+    expect(d[0]).toBe(a[0]);
+    expect(d[1]).not.toBe(a[1]);
+  });
+
+  it("finds another conversation's cache for a new one of the same agent, and the old files too", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rg-kv-start-"));
+    const store = new KvStore(dir);
+    const saved = prefixHashes({ system: "s", tools: [], messages: [user("1"), user("2")] });
+    const base = { scope: "p", model: "m.gguf", ctx: 8192, tokens: 3000, reason: "turn" as const };
+    await writeFile(join(dir, "a.bin"), "x");
+    await store.put({ ...base, file: "a.bin", sessionId: "a", prefixHashes: saved, v: 2 });
+    const fresh = prefixHashes({ system: "s", tools: [], messages: [user("Ciao di nuovo")] });
+    expect(
+      await store.find({ scope: "p", model: "m.gguf", ctx: 8192, hashes: fresh }),
+    ).toMatchObject({ entry: { file: "a.bin" }, messages: 1 });
+    // Another agent's start: nothing.
+    const other = prefixHashes({ system: "other", tools: [], messages: [user("x")] });
+    expect(
+      await store.find({ scope: "p", model: "m.gguf", ctx: 8192, hashes: other }),
+    ).toBeUndefined();
+    // A file saved before version 2 (no hash of the start alone) still serves its conversation.
+    await rm(join(dir, "a.bin.json"));
+    await writeFile(join(dir, "old.bin"), "x");
+    await store.put({ ...base, file: "old.bin", sessionId: "old", prefixHashes: saved.slice(1) });
+    const next = prefixHashes({
+      system: "s",
+      tools: [],
+      messages: [user("1"), user("2"), user("3")],
+    });
+    expect(
+      await store.find({ scope: "p", model: "m.gguf", ctx: 8192, hashes: next }),
+    ).toMatchObject({ entry: { file: "old.bin" }, messages: 3 });
   });
 });

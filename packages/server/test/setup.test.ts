@@ -7,6 +7,7 @@ import {
   describeGpu,
   detectHardware,
   engineError,
+  fastestTrial,
   firstDefault,
   type GgufFile,
   HuggingFace,
@@ -21,6 +22,7 @@ import {
   SetupService,
   type SetupState,
   suggest,
+  typicalTurn,
 } from "../src/index.js";
 import { startServer } from "./helpers.js";
 
@@ -483,6 +485,58 @@ describe("the setup wizard", () => {
     expect(second?.steps.find((x) => x.id === "tune")?.state).toBe("skipped");
     expect(calls.length - before).toBe(0);
     expect(second?.steps.every((x) => x.state === "skipped")).toBe(true);
+  });
+
+  it("chooses the tuning by a typical agent's turn, and stops trying shares once slower (2026-11-05)", () => {
+    // Rig, gpt-oss 120B Q2_K: the rows the page showed.
+    const rows = [
+      { share: 0, prefillTps: 169, genTps: 7.8, state: "done" },
+      { share: 0.15, prefillTps: 84, genTps: 4.7, state: "done" },
+      { share: 0.3, prefillTps: 92, genTps: 5.6, state: "done" },
+      { share: 0, opOffload: false, prefillTps: 71, genTps: 13.4, state: "done" },
+    ].map((r) => ({ ...r, turnS: typicalTurn(r) }));
+    expect(rows.map((r) => r.turnS)).toEqual([47.3, 81.7, 69.9, 43.5]);
+    // The one that writes almost twice as fast wins, though it reads slower.
+    expect(fastestTrial(rows)).toBe(rows[3]);
+    expect(fastestTrial(rows.slice(0, 3))).toBe(rows[0]);
+    expect(typicalTurn({ prefillTps: 0, genTps: 5 })).toBeUndefined();
+    // Nothing finished: the first one, as before.
+    const failed = [{ share: 0, state: "failed" }];
+    expect(fastestTrial(failed)).toBe(failed[0]);
+  });
+
+  it("starts the engine again with another try picked from the table, without measuring again", async () => {
+    const { calls } = await setup();
+    const api = (s as Server).api;
+    s?.core.providers.register(
+      new FakeProvider(() => ({ text: "OK" }), { id: "local", now: () => 0 }),
+    );
+    const first = await api<Job>("PUT", "/api/setup/engine", {
+      engine: { variant: "cuda", model: "qwen.gguf", stream: true },
+    });
+    await s?.core.jobs.settled(first.body.id);
+    const tuned = (await api<SetupState>("GET", "/api/setup")).body.config.engine;
+    expect(tuned?.trials?.length).toBeGreaterThan(1);
+    const before = calls.length;
+    const pick = await api<Job>("PUT", "/api/setup/engine", {
+      engine: {
+        variant: "cuda",
+        model: "qwen.gguf",
+        stream: true,
+        tuning: { moeCacheShare: 0.15, opOffload: true },
+      },
+    });
+    const done = await s?.core.jobs.settled(pick.body.id);
+    expect(done?.state).toBe("done");
+    // Started again with that share, no new tries.
+    expect(done?.steps.find((x) => x.id === "tune")?.state).toBe("skipped");
+    expect(calls.slice(before)).toEqual(["engine:cuda:qwen.gguf:stream0.15"]);
+    // The table again, with the picked row chosen.
+    const shown = JSON.parse(done?.vars.trials ?? "[]") as { share: number; chosen?: boolean }[];
+    expect(shown.filter((x) => x.chosen).map((x) => x.share)).toEqual([0.15]);
+    const now = (await api<SetupState>("GET", "/api/setup")).body.config.engine;
+    expect(now?.tuning).toEqual({ moeCacheShare: 0.15, opOffload: true });
+    expect(now?.trials?.find((x) => x.chosen)?.share).toBe(0.15);
   });
 
   it("runs Pi-hole by choice, keeps its password and stops it", async () => {

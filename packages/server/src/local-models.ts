@@ -1,7 +1,7 @@
 // The suggested local models for this computer (G24.3): for each one, the best file that fits
 // (`suggest`), its quality in words, or why none fits.
 import { LOCAL_MODELS, type LocalModel } from "@redgiant/protocol";
-import { type GgufFile, HuggingFace, offered, qualityOf, suggest } from "./hf.js";
+import { betterNearby, type GgufFile, HuggingFace, offered, qualityOf, suggest } from "./hf.js";
 
 /**
  * A file's quality among its repository's (2026-11-04): by its name, unless it is about as big as
@@ -60,7 +60,9 @@ export async function localModelChoices(
           !best && stream && smallest && smallest.sizeGb <= stream.diskFreeGb - DISK_MARGIN_GB
             ? smallest
             : undefined;
-        const file = best ?? beyond;
+        // A file the person has is shown as it is; otherwise the best one for about the same room.
+        const found = best ?? beyond;
+        const file = found && !mine ? betterNearby(files, found) : found;
         return {
           ...m,
           file: file ? { ...file, quality: qualityAmong(file, files) } : null,

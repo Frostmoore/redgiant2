@@ -284,18 +284,29 @@ function StreamSwitch({
  * The SSD stream's tuning as it happens (2026-11-03): each split of the card tried, the context
  * and the experts' cache it gave, how fast it read and wrote, and the one kept.
  */
-function TuneTrials({ json }: { json: string }) {
-  let trials: {
-    share: number;
-    opOffload?: boolean;
-    ctx: number;
-    cacheMib: number;
-    state: "running" | "done" | "failed";
-    genTps?: number;
-    prefillTps?: number;
-    chosen?: boolean;
-    error?: string;
-  }[] = [];
+type TuneTrial = {
+  share: number;
+  opOffload?: boolean;
+  ctx: number;
+  cacheMib: number;
+  state: "running" | "done" | "failed";
+  genTps?: number;
+  prefillTps?: number;
+  /** Seconds of a typical agent's turn: what decides (2026-11-05). */
+  turnS?: number;
+  chosen?: boolean;
+  error?: string;
+};
+
+function TuneTrials({
+  json,
+  onPick,
+}: {
+  json: string;
+  /** Once the tuning is over, another row can be picked: the engine starts again with it. */
+  onPick?: (trial: TuneTrial) => void;
+}) {
+  let trials: TuneTrial[] = [];
   try {
     trials = JSON.parse(json);
   } catch {
@@ -311,6 +322,7 @@ function TuneTrials({ json }: { json: string }) {
             <th>{t("lmTuneCtx")}</th>
             <th>{t("lmTuneRead")}</th>
             <th>{t("lmTuneWrite")}</th>
+            <th>{t("lmTuneTurn")}</th>
             <th />
           </tr>
         </thead>
@@ -324,14 +336,21 @@ function TuneTrials({ json }: { json: string }) {
               <td>{x.ctx ? `${Math.round(x.ctx / 1024)}k` : "–"}</td>
               <td>{x.prefillTps ? `${x.prefillTps} tok/s` : "–"}</td>
               <td>{x.genTps ? `${x.genTps} tok/s` : "–"}</td>
+              <td>{x.turnS ? `${x.turnS} s` : "–"}</td>
               <td>
-                {x.state === "running"
-                  ? t("lmTuneRunning")
-                  : x.state === "failed"
-                    ? t("lmTuneFailed")
-                    : x.chosen
-                      ? t("lmTuneChosen")
-                      : ""}
+                {x.state === "running" ? (
+                  t("lmTuneRunning")
+                ) : x.state === "failed" ? (
+                  t("lmTuneFailed")
+                ) : x.chosen ? (
+                  t("lmTuneChosen")
+                ) : onPick ? (
+                  <button type="button" class="tiny" onClick={() => onPick(x)}>
+                    {t("lmTuneUse")}
+                  </button>
+                ) : (
+                  ""
+                )}
               </td>
             </tr>
           ))}
@@ -461,7 +480,22 @@ function FileActions({
             {t("lmShowActivation")}
           </button>
         )}
-        {eng?.state === "done" && eng.vars.trials && <TuneTrials json={eng.vars.trials} />}
+        {eng?.state === "done" && eng.vars.trials && (
+          <TuneTrials
+            json={eng.vars.trials}
+            onPick={(x) =>
+              act(() =>
+                getApi().setupEngine({
+                  variant,
+                  model: name,
+                  stream,
+                  ...speculative,
+                  tuning: { moeCacheShare: x.share, opOffload: x.opOffload !== false },
+                }),
+              )
+            }
+          />
+        )}
         {eng?.state === "done" && <ActivationSpeeds vars={eng.vars} />}
         <div class="row wrap">
           {active && eng?.state !== "running" ? (

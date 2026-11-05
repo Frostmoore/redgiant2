@@ -723,8 +723,10 @@ const en = {
   lmTuneRunning: "measuring…",
   lmTuneFailed: "did not start",
   lmTuneChosen: "kept",
+  lmTuneTurn: "Typical turn",
+  lmTuneUse: "Use this",
   lmTuneHelp:
-    "Each row is a real try: the model reads a context of about 2,000 tokens and writes 64. The one that writes fastest is kept for this model.",
+    "Each row is a real try: the model reads a context of about 2,000 tokens and writes 64. A typical turn is an agent reading 1,500 tokens of tool results and writing 300: the fastest one is kept for this model, and you can pick another.",
   lmDiskTitle: "Where the models are",
   lmDiskNow: "Now on {disk} ({kind}, {free} free).",
   lmDiskNowUnknown:
@@ -2472,8 +2474,10 @@ const it: Record<Key, string> = {
   lmTuneRunning: "misuro…",
   lmTuneFailed: "non è partito",
   lmTuneChosen: "scelta",
+  lmTuneTurn: "Turno tipico",
+  lmTuneUse: "Usa questa",
   lmTuneHelp:
-    "Ogni riga è una prova vera: il modello legge un contesto di circa 2.000 token e ne scrive 64. Resta quella che scrive più veloce, per questo modello.",
+    "Ogni riga è una prova vera: il modello legge un contesto di circa 2.000 token e ne scrive 64. Il turno tipico è un agente che legge 1.500 token di risultati e ne scrive 300: resta la riga più veloce, per questo modello, e puoi sceglierne un'altra.",
   lmDiskTitle: "Dove stanno i modelli",
   lmDiskNow: "Ora su {disk} ({kind}, {free} liberi).",
   lmDiskNowUnknown: "RedGiant non sa ancora su che disco stanno (lo saprà al prossimo avvio).",

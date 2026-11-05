@@ -110,7 +110,7 @@ export interface SetupHooks {
 }
 
 /** One try of the SSD stream's tuning, as the engine page shows it. */
-interface Trial {
+export interface Trial {
   share: number;
   /** false: the try without sending the experts to the card to read a context. */
   opOffload?: boolean;
@@ -119,8 +119,30 @@ interface Trial {
   state: "running" | "done" | "failed";
   genTps?: number;
   prefillTps?: number;
+  /** Seconds of a typical agent's turn with this setting (`typicalTurn`). */
+  turnS?: number;
   chosen?: boolean;
   error?: string;
+}
+
+/**
+ * How long a typical agent's turn takes (2026-11-05): reading what the tools gave back (about
+ * 1,500 tokens) and writing the answer (about 300). One column alone chose wrong: on Rig the try
+ * that read slower wrote almost twice as fast (gpt-oss 120B, 13.4 against 7.8 tokens a second).
+ */
+export const TURN_READ = 1500;
+export const TURN_WRITE = 300;
+export function typicalTurn(t: { prefillTps?: number; genTps?: number }): number | undefined {
+  if (!t.prefillTps || !t.genTps) return undefined;
+  return Math.round((TURN_READ / t.prefillTps + TURN_WRITE / t.genTps) * 10) / 10;
+}
+
+/** The fastest try for a typical turn; the first one when none finished. */
+export function fastestTrial<T extends { state: string; turnS?: number }>(
+  trials: T[],
+): T | undefined {
+  const done = trials.filter((x) => x.state === "done" && x.turnS !== undefined);
+  return done.sort((a, b) => (a.turnS ?? 0) - (b.turnS ?? 0))[0] ?? trials[0];
 }
 
 /** One configuration tried by a speed test (2026-11-04): how fast it wrote each kind of text. */
@@ -167,6 +189,8 @@ export interface EngineConfig {
   model: string;
   stream?: boolean | undefined;
   tuning?: { moeCacheShare?: number | undefined; opOffload?: boolean | undefined } | undefined;
+  /** The tries that chose `tuning` (2026-11-05): shown again, and another can be picked. */
+  trials?: Trial[] | undefined;
   plan?: EnginePlan | undefined;
   /**
    * Speculative decoding (2026-11-04, an option for power users): `draft` a small model of the
@@ -736,6 +760,10 @@ export class SetupService {
           Boolean(now.stream) === Boolean(e.stream) &&
           now.speculative === e.speculative &&
           now.draftModel === e.draftModel &&
+          // Another tuning picked from the table (2026-11-05) is a new start.
+          (!e.tuning ||
+            ((e.tuning.moeCacheShare ?? 0) === (now.tuning?.moeCacheShare ?? 0) &&
+              (e.tuning.opOffload === false) === (now.tuning?.opOffload === false))) &&
           // Tuned before the try without the copy to the card (2026-11-04): that try is still due.
           !(
             now.plan &&
@@ -779,6 +807,8 @@ export class SetupService {
             try {
               await this.waitLocal(h);
               Object.assign(trial, await this.benchLocal(e.model), { state: "done" });
+              const turn = typicalTurn(trial);
+              if (turn !== undefined) trial.turnS = turn;
             } catch (err) {
               Object.assign(trial, {
                 state: "failed",
@@ -794,29 +824,48 @@ export class SetupService {
           const steps = shares.length + 1;
           for (const [i, share] of shares.entries()) {
             h.progress(i, steps);
-            await tryOne({ moeCacheShare: share });
+            const now = await tryOne({ moeCacheShare: share });
+            // More of the card for the experts made it slower: more would too (2026-11-05,
+            // Rig: 0 % then 15 % then 30 %, each worse). The rest of the shares are not tried.
+            const before = trials.at(-2);
+            if (before?.turnS !== undefined && now.turnS !== undefined && now.turnS > before.turnS)
+              break;
           }
-          const best =
-            trials
-              .filter((x) => x.state === "done")
-              .sort((x, y) => (y.genTps ?? 0) - (x.genTps ?? 0))[0] ?? trials[0];
+          const best = fastestTrial(trials);
           const share = best?.share ?? 0;
           h.progress(shares.length, steps);
           const local = await tryOne({ moeCacheShare: share, opOffload: false });
           h.progress(steps, steps);
-          // Without the copy when it reads clearly faster and writes about as fast.
-          const noCopy =
-            local.state === "done" &&
-            (local.prefillTps ?? 0) > (best?.prefillTps ?? 0) * 1.1 &&
-            (local.genTps ?? 0) >= (best?.genTps ?? 0) * 0.9;
-          const chosen = noCopy ? local : best;
+          // The fastest for a typical turn, reading and writing together (2026-11-05).
+          const chosen = fastestTrial(trials);
+          const noCopy = chosen === local;
           for (const x of trials) x.chosen = x === chosen;
           show();
-          wanted = { ...asked, tuning: { moeCacheShare: share, opOffload: !noCopy } };
+          wanted = {
+            ...asked,
+            tuning: { moeCacheShare: chosen?.share ?? share, opOffload: !noCopy },
+            trials,
+          };
           plan = await this.o.hooks.engine(wanted, h);
         } else {
           h.skip("tune");
-          if (tuned) wanted = { ...asked, tuning: tuned };
+          // The tuning measured before, unless the person picked one (2026-11-05).
+          if (tuned && !e.tuning) wanted = { ...asked, tuning: tuned };
+          // The person picked another try (2026-11-05): the table again, with that one chosen.
+          const before =
+            this.config.engine?.model === e.model ? this.config.engine?.trials : undefined;
+          if (before && wanted.tuning) {
+            const pick = wanted.tuning;
+            const trials = before.map((x) => ({
+              ...x,
+              chosen:
+                x.state === "done" &&
+                x.share === (pick.moeCacheShare ?? 0) &&
+                (x.opOffload === false) === (pick.opOffload === false),
+            }));
+            wanted = { ...wanted, trials };
+            h.info({ trials: JSON.stringify(trials) });
+          }
         }
         h.step("try");
         try {

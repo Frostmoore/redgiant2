@@ -95,6 +95,7 @@ export class LocalEngineProvider implements Provider {
       model: props.modelPath,
       ctx: props.ctxPerSlot,
       prefixHashes: state.hashes,
+      v: 2,
       tokens: saved.tokens,
       reason,
     });

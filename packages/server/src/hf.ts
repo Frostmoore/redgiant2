@@ -85,6 +85,21 @@ export function offered(f: GgufFile): boolean {
   return f.quant === null || QUALITY.includes(f.quant);
 }
 
+/**
+ * A better file for about the same room (2026-11-05): among those at most 5 % bigger than `f`,
+ * the best quantisation. gpt-oss 120B's are all 58-61 GB (its experts stay at 4 bits in every
+ * one), so its Q2_K was suggested where Q8_0 costs 0.7 GB more.
+ */
+export function betterNearby(files: GgufFile[], f: GgufFile, margin = 0.05): GgufFile {
+  const rank = (x: GgufFile) => {
+    const i = x.quant ? QUALITY.indexOf(x.quant) : -1;
+    return i < 0 ? QUALITY.length : i;
+  };
+  return files
+    .filter((x) => offered(x) && x.sizeGb <= f.sizeGb * (1 + margin))
+    .reduce((best, x) => (rank(x) < rank(best) ? x : best), f);
+}
+
 export function suggest(files: GgufFile[], budgetGb: number): GgufFile | undefined {
   const fitting = files.filter((f) => f.sizeGb <= budgetGb);
   for (const q of QUALITY) {

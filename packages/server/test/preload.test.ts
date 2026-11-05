@@ -58,6 +58,31 @@ describe("a file's quality among its repository's (2026-11-04)", () => {
   });
 });
 
+describe("the best file for about the same room (2026-11-05)", () => {
+  it("suggests gpt-oss's Q8_0 over its Q2_K, which weighs almost the same", async () => {
+    const { betterNearby } = await import("../src/hf.js");
+    // unsloth/gpt-oss-120b-GGUF: every quantisation is 58-61 GB.
+    const files = [
+      { file: "Q2_K/gpt-oss-120b-Q2_K-00001-of-00002.gguf", sizeGb: 58.3, quant: "Q2_K" },
+      { file: "Q4_K_M/gpt-oss-120b-Q4_K_M-00001-of-00002.gguf", sizeGb: 58.4, quant: "Q4_K_M" },
+      { file: "Q8_0/gpt-oss-120b-Q8_0-00001-of-00002.gguf", sizeGb: 59.0, quant: "Q8_0" },
+      {
+        file: "UD-Q8_K_XL/gpt-oss-120b-UD-Q8_K_XL-00001-of-00002.gguf",
+        sizeGb: 60.0,
+        quant: "UD-Q8_K_XL",
+      },
+    ];
+    expect(betterNearby(files, files[0] as (typeof files)[0]).quant).toBe("Q8_0");
+    // The usual model: the better files are much bigger, the choice stays.
+    const usual = [
+      { file: "m-Q4_K_M.gguf", sizeGb: 18, quant: "Q4_K_M" },
+      { file: "m-Q6_K.gguf", sizeGb: 24, quant: "Q6_K" },
+      { file: "m-Q8_0.gguf", sizeGb: 31, quant: "Q8_0" },
+    ];
+    expect(betterNearby(usual, usual[0] as (typeof usual)[0]).quant).toBe("Q4_K_M");
+  });
+});
+
 describe("speculative decoding (2026-11-04)", () => {
   it("gives llama.cpp the small model or the n-grams, and nothing when off", async () => {
     const { speculativeArgs } = await import("../src/stream.js");

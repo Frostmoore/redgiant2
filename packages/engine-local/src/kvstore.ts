@@ -15,8 +15,13 @@ export interface KvEntry {
   /** Compatibility: a file is only restored into the same model and context size. */
   model: string;
   ctx: number;
-  /** Hash of the conversation at each message boundary (index k ⇒ first k+1 messages). */
+  /**
+   * Hash of the conversation at each boundary. Version 2 (2026-11-05): index 0 is the start
+   * alone (system and tools), index k ⇒ the start and the first k messages. Without `v`: the
+   * older form, index k ⇒ the first k+1 messages (no hash of the start alone).
+   */
   prefixHashes: string[];
+  v?: 2;
   tokens: number;
   bytes: number;
   reason: "turn" | "evict" | "shutdown";
@@ -36,10 +41,15 @@ export function prefixHashes(
   request: Pick<CompletionRequest, "system" | "tools" | "messages">,
 ): string[] {
   let h = sha(JSON.stringify({ system: request.system, tools: request.tools }));
-  return request.messages.map((m) => {
-    h = sha(h + JSON.stringify({ role: m.role, parts: m.parts }));
-    return h;
-  });
+  // The start alone first (2026-11-05): a new conversation of the same agent shares it with
+  // the saved ones (3,200 tokens of system and tools for gpt-oss: 50 s on Rig, read again).
+  return [
+    h,
+    ...request.messages.map((m) => {
+      h = sha(h + JSON.stringify({ role: m.role, parts: m.parts }));
+      return h;
+    }),
+  ];
 }
 
 /** Files llama.cpp accepts: letters, digits, dot, dash, underscore. */
@@ -100,9 +110,11 @@ export class KvStore {
     let best: { entry: KvEntry; messages: number } | undefined;
     for (const e of await this.list()) {
       if (e.scope !== o.scope || e.model !== o.model || e.ctx !== o.ctx) continue;
+      // Files saved before the start had a hash of its own are compared the old way.
+      const mine = e.v === 2 ? o.hashes : o.hashes.slice(1);
       let k = 0;
-      while (k < e.prefixHashes.length && k < o.hashes.length && e.prefixHashes[k] === o.hashes[k])
-        k++;
+      while (k < e.prefixHashes.length && k < mine.length && e.prefixHashes[k] === mine[k]) k++;
+      if (e.v !== 2 && k > 0) k++;
       if (
         k > 0 &&
         (!best ||
