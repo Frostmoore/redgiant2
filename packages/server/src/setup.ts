@@ -1327,8 +1327,10 @@ export class SetupService {
     version?: string;
   }> {
     const win = await this.o.hooks.checkUpdate?.();
-    if (win)
-      return { state: win.state as "available" | "latest" | "unreachable", version: win.version };
+    // RedGiant.exe could not reach GitHub (2026-11-05, Rig): the server tries on its own before
+    // saying so; what it finds is shown as a version to download.
+    if (win && win.state !== "unreachable")
+      return { state: win.state as "available" | "latest", version: win.version };
     try {
       const r = await fetch("https://api.github.com/repos/Frostmoore/redgiant2/releases/latest", {
         headers: { "user-agent": "RedGiant", accept: "application/vnd.github+json" },

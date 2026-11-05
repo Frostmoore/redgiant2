@@ -562,6 +562,33 @@ describe("the setup wizard", () => {
     expect((await again.state()).config.searxngUrl).toBe("http://127.0.0.1:9002");
   });
 
+  it("looks for updates on its own when RedGiant.exe could not reach GitHub (2026-11-05)", async () => {
+    const { hooks, service } = await setup();
+    const real = globalThis.fetch;
+    const asked: string[] = [];
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      asked.push(String(url));
+      return new Response(JSON.stringify({ tag_name: "v9.9.9" }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      hooks.checkUpdate = async () => ({ state: "unreachable", version: "" });
+      expect(await service.checkUpdates()).toEqual({ state: "manual", version: "9.9.9" });
+      expect(asked).toEqual(["https://api.github.com/repos/Frostmoore/redgiant2/releases/latest"]);
+      // RedGiant.exe answered: its answer, nothing asked again.
+      hooks.checkUpdate = async () => ({ state: "latest", version: "3.0.1" });
+      expect(await service.checkUpdates()).toEqual({ state: "latest", version: "3.0.1" });
+      expect(asked).toHaveLength(1);
+      // Neither reaches it: said so.
+      hooks.checkUpdate = async () => ({ state: "unreachable", version: "" });
+      globalThis.fetch = (async () => {
+        throw new Error("offline");
+      }) as typeof fetch;
+      expect(await service.checkUpdates()).toEqual({ state: "unreachable" });
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+
   it("runs Pi-hole by choice, keeps its password and stops it", async () => {
     const { calls, dataDir } = await setup();
     const api = (s as Server).api;

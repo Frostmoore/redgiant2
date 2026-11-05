@@ -130,6 +130,27 @@ jobs:
             exit 1
           }
           "answered after about $($i * 2) s"
+          # RedGiant closed badly with Postgres left running (3.0.0 on Rig, 2026-11-05): setup run
+          # again must still replace every file ("Accesso negato" before) and stop that Postgres.
+          Stop-Process -Name RedGiant -Force
+          Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$app*" } | Stop-Process -Force
+          Start-Sleep 2
+          $orphans = @(Get-Process postgres -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$app*" } | ForEach-Object { $_.Id })
+          "Postgres left running on purpose: $($orphans.Count) processes"
+          if ($orphans.Count -eq 0) { "the test needs a Postgres left running"; exit 1 }
+          $again = Start-Process packaging\windows\dist\RedGiant-Setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LANG=en", '/TASKS=""' -PassThru
+          if (-not $again.WaitForExit(600000)) { "setup over a running Postgres did not finish"; exit 1 }
+          if ($again.ExitCode -ne 0) { "setup over a running Postgres failed: $($again.ExitCode)"; exit 1 }
+          $still = @(Get-Process postgres -ErrorAction SilentlyContinue | Where-Object { $orphans -contains $_.Id })
+          if ($still.Count -gt 0) { "the old Postgres is still running after setup"; exit 1 }
+          "setup replaced the files and stopped the old Postgres"
+          # An update opens RedGiant again by itself: it answers once more.
+          $up = $false
+          for ($i = 0; $i -lt 120; $i++) {
+            Start-Sleep 2
+            try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:7600/api/health -TimeoutSec 3 | Out-Null; $up = $true; break } catch {}
+          }
+          if (-not $up) { "RedGiant did not come back after the update"; exit 1 }
           & "$app\RedGiant.exe" --quit | Out-Null
           Start-Sleep 5
           $left = @(Get-Process node, postgres -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$app*" })

@@ -124,7 +124,12 @@ static class Updates
                     version = Get("Version") ?? "";
                 }
             }
-            catch (Exception) { state = "unreachable"; }
+            catch (Exception e)
+            {
+                // Why, for whoever helps (2026-11-05: «GitHub non ha risposto» with no trace).
+                state = "unreachable";
+                Diag.Log("update", "check failed: " + e.GetType().Name + ": " + e.Message);
+            }
             string answer = "{\"id\":\"" + id + "\",\"state\":\"" + state + "\",\"version\":\"" + version + "\"}";
             string file = Path.Combine(folder, "update-status.json");
             try { File.WriteAllText(file + ".tmp", answer); File.Copy(file + ".tmp", file, true); } catch (Exception) { }

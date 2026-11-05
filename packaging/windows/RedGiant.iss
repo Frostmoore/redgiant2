@@ -175,6 +175,24 @@ begin
   Result := Updating and (PageID <> wpInstalling);
 end;
 
+{ What RedGiant left running (2026-11-05: 3.0.0 could leave Postgres on after closing, and setup
+  could not replace its files, "Accesso negato"): Postgres stopped the proper way with its own
+  pg_ctl, then whatever still runs from the program's or the engine's folder is stopped. }
+procedure StopLeftovers();
+var
+  Code: Integer;
+  Data, PgCtl, Cmd: String;
+begin
+  PgCtl := ExpandConstant('{app}\server\node_modules\@embedded-postgres\windows-x64\native\bin\pg_ctl.exe');
+  if RegQueryStringValue(HKCU, 'Software\RedGiant', 'DataDir', Data) and FileExists(PgCtl)
+    and DirExists(Data + '\postgres') then
+    Exec(PgCtl, 'stop -D "' + Data + '\postgres" -m fast -w -t 30', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Cmd := '-NoProfile -NonInteractive -Command "Get-Process | Where-Object { $_.Path -like ''' +
+    ExpandConstant('{app}') + '\*'' -or $_.Path -like ''' + ExpandConstant('{localappdata}') +
+    '\RedGiant\engine\*'' } | Stop-Process -Force"';
+  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, Code);
+end;
+
 { RedGiant asked to stop the proper way (server and Postgres with it); what is left after a
   minute is stopped by force, so its files can be replaced. }
 procedure StopRedGiant();
@@ -184,6 +202,7 @@ begin
   if FileExists(ExpandConstant('{app}\RedGiant.exe')) then
     Exec(ExpandConstant('{app}\RedGiant.exe'), '--quit', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM RedGiant.exe /F', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  StopLeftovers();
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
