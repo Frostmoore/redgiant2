@@ -73,7 +73,9 @@ describe("conversations computed ahead after the engine starts (G24.14)", () => 
     const started = (await s.core.store.list({ sessionId: sid })).find(
       (e) => e.type === "session.started",
     );
-    expect(req.system).toBe((started?.payload as { system: string }).system);
+    const system = started?.type === "session.started" ? started.payload?.system : undefined;
+    expect(system).toBeDefined();
+    expect(req.system).toBe(system);
     // Nothing of the preview in the list or in the log.
     expect((await s.core.listSessions("me")).map((r) => r.id)).toEqual([sid]);
     expect(await s.core.store.list({ sessionId: `start_${god.body.id}` })).toEqual([]);
