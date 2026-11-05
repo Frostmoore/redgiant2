@@ -40,6 +40,7 @@ export function attachWebSocket(
     let principal: Principal | null = null;
     let offBoard: (() => void) | undefined;
     let offAutomations: (() => void) | undefined;
+    let offNotices: (() => void) | undefined;
     let offPlatform: (() => void) | undefined;
     let offRooms: (() => void) | undefined;
     let offScreen: (() => void) | undefined;
@@ -113,6 +114,11 @@ export function attachWebSocket(
           core.questions.on("closed", onQuestionClosed);
           offBoard = core.board.onChange(onBoard);
           offAutomations = core.automations.onChange(onAutomation);
+          offNotices = core.onNotice((ownerId, text, info) => {
+            if (principal?.ownerId !== ownerId || ws.readyState !== ws.OPEN) return false;
+            send({ type: "automation.notice", ...info, text });
+            return true;
+          });
           offPlatform = core.changes.onChange(onPlatform);
           offRooms = core.rooms.onChange(onRoom);
           send({ type: "welcome", protocolVersion: PROTOCOL_VERSION, ownerId: principal.ownerId });
@@ -238,6 +244,7 @@ export function attachWebSocket(
       core.questions.off("closed", onQuestionClosed);
       offBoard?.();
       offAutomations?.();
+      offNotices?.();
       offPlatform?.();
       offRooms?.();
       offScreen?.();

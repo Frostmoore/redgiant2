@@ -62,6 +62,27 @@ export class Notes {
     return parts.join("\n\n");
   }
 
+  /** Replaces a whole file (the person editing their notes in the page), same queue and limit. */
+  set(who: NoteOwner, scope: NoteScope, text: string): Promise<void> {
+    const p = this.path(who, scope);
+    if (!p) return Promise.reject(new NoteError("No project for these notes."));
+    const next = text.trim() ? `${text.trim()}\n` : "";
+    if (next.length > NOTE_LIMIT)
+      return Promise.reject(new NoteError(`Notes are limited to ${NOTE_LIMIT} characters.`));
+    const run = async () => {
+      await mkdir(dirname(p), { recursive: true });
+      await writeFile(`${p}.tmp`, next);
+      await rename(`${p}.tmp`, p);
+    };
+    const prev = this.queues.get(p) ?? Promise.resolve();
+    const out = prev.then(run, run);
+    this.queues.set(
+      p,
+      out.catch(() => {}),
+    );
+    return out;
+  }
+
   /** Adds, replaces or removes one entry; returns what to tell the agent. */
   change(
     who: NoteOwner,

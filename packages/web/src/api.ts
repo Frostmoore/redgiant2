@@ -509,6 +509,41 @@ export class Api {
   decideExtension = (id: string, decision: "approve" | "reject") =>
     this.call<Proposal>("POST", `/api/extensions/proposals/${id}/decision`, { decision });
   installed = () => this.call<Installed[]>("GET", "/api/extensions/installed");
+  /** A skill's folder as a .zip, to share it (scope as in `installed`). */
+  async exportSkill(name: string, scope: string): Promise<{ blob: Blob; name: string }> {
+    const r = await fetch(
+      `/api/extensions/skills/${encodeURIComponent(name)}/export?scope=${encodeURIComponent(scope)}`,
+      { headers: { authorization: `Bearer ${this.token}` } },
+    );
+    if (!r.ok) {
+      const data = (await r.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
+    }
+    return { blob: await r.blob(), name: `${name}.zip` };
+  }
+  /** Installs a shared skill (.zip); a 409 means one of that name exists (ask, then `replace`). */
+  async importSkill(
+    file: Blob,
+    scope: string,
+    replace = false,
+  ): Promise<{ name: string; description: string; replaced: boolean }> {
+    const r = await fetch(
+      `/api/extensions/skills/import?scope=${encodeURIComponent(scope)}${replace ? "&replace=1" : ""}`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${this.token}`, "content-type": "application/zip" },
+        body: file,
+      },
+    );
+    const data = (await r.json().catch(() => ({}))) as {
+      error?: string;
+      name: string;
+      description: string;
+      replaced: boolean;
+    };
+    if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
+    return data;
+  }
   mcpServers = () => this.call<McpEntry[]>("GET", "/api/extensions/mcp");
   setMcp = (m: {
     name: string;
@@ -644,6 +679,17 @@ export class Api {
     this.call<{ username: string } | null>("PUT", "/api/setup/telegram", { token });
   setupSafety = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/safety", b);
   setupInstructions = (text: string) => this.call("PUT", "/api/setup/instructions", { text });
+  /** The conversation an agent works in for the chats (the same on every platform). */
+  workSession = (agentId: string) =>
+    this.call<{ sessionId: string }>("POST", `/api/agents/${agentId}/work-session`);
+  /** An agent's or a project's notes (memory), or the shared notes about the person. */
+  notes = (q: { scope: string; agentId?: string; projectId?: string }) =>
+    this.call<{ text: string }>("GET", `/api/notes?${new URLSearchParams(q)}`);
+  setNotes = (q: { scope: string; agentId?: string; projectId?: string }, text: string) =>
+    this.call("PUT", `/api/notes?${new URLSearchParams(q)}`, { text });
+  /** A copy of a conversation up to (not including) one event, to send an edited message. */
+  forkSession = (sessionId: string, beforeSeq: number) =>
+    this.call<{ sessionId: string }>("POST", `/api/sessions/${sessionId}/fork`, { beforeSeq });
   setupSubscriptions = (b: Record<string, unknown>) =>
     this.call("PUT", "/api/setup/subscriptions", b);
   chatgptStatus = () =>

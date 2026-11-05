@@ -8,8 +8,8 @@ import {
   type McpCatalogEntry,
   type McpCategory,
 } from "@redgiant/protocol";
-import { useEffect, useState } from "preact/hooks";
-import type { Installed, McpEntry, McpStatus, Proposal } from "../api.js";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { ApiError, type Installed, type McpEntry, type McpStatus, type Proposal } from "../api.js";
 import { lang, t } from "../i18n.js";
 import {
   IconBoard,
@@ -18,6 +18,7 @@ import {
   IconCompass,
   IconCopy,
   IconCpu,
+  IconDownload,
   IconFile,
   IconLayers,
   IconMonitor,
@@ -25,6 +26,7 @@ import {
   IconSearch,
   IconSend,
   IconTerminal,
+  IconUpload,
 } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
 import { agents, attempt, getApi, getLive, openTab, projects } from "../state.js";
@@ -715,6 +717,73 @@ function McpForm({ onDone }: { onDone: () => void }) {
   );
 }
 
+async function downloadSkill(x: Installed) {
+  const r = await attempt(() => getApi().exportSkill(x.name, x.scope));
+  if (!r) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(r.blob);
+  a.download = r.name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+}
+
+/** A shared skill (.zip) into the platform or a project; asks before replacing one. */
+function ImportSkill({ onDone }: { onDone: () => void }) {
+  const picker = useRef<HTMLInputElement>(null);
+  const [scope, setScope] = useState("platform");
+  const [done, setDone] = useState<string>();
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    setDone(undefined);
+    const api = getApi();
+    const r = await attempt(async () => {
+      try {
+        return await api.importSkill(file, scope);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.status === 409)) throw err;
+        if (!confirm(t("skillReplaceConfirm"))) return undefined;
+        return api.importSkill(file, scope, true);
+      }
+    });
+    if (!r) return;
+    setDone(r.name);
+    onDone();
+  };
+  return (
+    <>
+      <h3>{t("skillImport")}</h3>
+      <p class="ui-help">{t("skillImportHelp")}</p>
+      <div class="row">
+        <Field label={t("skillImportWhere")}>
+          <select value={scope} onChange={(e) => setScope((e.target as HTMLSelectElement).value)}>
+            <option value="platform">{t("scopePlatform")}</option>
+            {projects.value.map((p) => (
+              <option key={p.id} value={`project:${p.id}`}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <button type="button" class="primary row" onClick={() => picker.current?.click()}>
+          <IconUpload size={14} /> {t("skillImportFile")}
+        </button>
+        <input
+          ref={picker}
+          type="file"
+          accept=".zip,application/zip"
+          hidden
+          onChange={(e) => {
+            const input = e.target as HTMLInputElement;
+            void pick(input.files?.[0]);
+            input.value = "";
+          }}
+        />
+      </div>
+      {done && <p class="notice ok">{t("skillImported", { name: done })}</p>}
+    </>
+  );
+}
+
 /** Abilities for the agents: ask God, the catalog, what is connected, the hand-made ones. */
 export function Extensions() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
@@ -798,10 +867,21 @@ export function Extensions() {
               <span class="chip">
                 {x.scope === "platform" ? t("scopePlatform") : x.scope.slice(8)}
               </span>
+              {x.kind === "skill" && (
+                <button
+                  type="button"
+                  class="row"
+                  title={t("skillDownloadHelp")}
+                  onClick={() => void downloadSkill(x)}
+                >
+                  <IconDownload size={13} /> {t("skillDownload")}
+                </button>
+              )}
             </div>
           ))}
         </>
       )}
+      <ImportSkill onDone={reload} />
 
       <Advanced>
         {failed.length > 0 && (

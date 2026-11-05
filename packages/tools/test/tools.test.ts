@@ -55,6 +55,7 @@ describe("baseTools", () => {
       "grep",
       "read_file",
       "update_todos",
+      "view_image",
       "web_search",
       "write_file",
     ]);
@@ -309,7 +310,8 @@ describe("web tools", () => {
           headers: { "content-type": "text/html" },
         },
       )) as unknown as typeof fetch;
-    const r = await run("fetch", { url: "https://example.com" }, tools({ fetch: fake }));
+    const lookup = async () => [{ address: "93.184.215.14", family: 4 }];
+    const r = await run("fetch", { url: "https://example.com" }, tools({ fetch: fake, lookup }));
     expect(r.content).toBe("URL: https://example.com\nStatus: 200\n\nHi & bye\nOne\nTwo");
   });
 

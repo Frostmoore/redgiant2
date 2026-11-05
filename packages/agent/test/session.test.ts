@@ -591,3 +591,18 @@ describe("the loop's hard edges (2026-11-05, compared with the Claude Agent SDK)
     ]);
   });
 });
+
+describe("a resumed conversation keeps its system prompt (2026-11-05)", () => {
+  it("uses the prompt it started with, not one rebuilt since", async () => {
+    const seen: CompletionRequest[] = [];
+    const { options } = setup((req) => {
+      seen.push(req);
+      return { text: "ok" };
+    });
+    const first = await AgentSession.start({ ...options, system: "Notes: likes tea." });
+    await first.send("hi");
+    const again = await AgentSession.resume({ ...options, system: "Notes: likes coffee." });
+    await again.send("hi again");
+    expect(seen.map((r) => r.system)).toEqual(["Notes: likes tea.", "Notes: likes tea."]);
+  });
+});

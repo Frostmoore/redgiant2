@@ -1,13 +1,15 @@
 import { canonicalTools, type Tool } from "@redgiant/agent";
 import { editFileTool, readFileTool, writeFileTool } from "./files.js";
+import { viewImageTool } from "./image.js";
 import type { ModelProfile } from "./profiles.js";
 import { globTool, grepTool } from "./search.js";
 import { bashTool } from "./shell.js";
-import { fetchTool, type WebSearchProvider, webSearchTool } from "./web.js";
+import { fetchTool, type ResolveHost, type WebSearchProvider, webSearchTool } from "./web.js";
 import type { Workspace } from "./workspace.js";
 
 export * from "./edit.js";
 export * from "./files.js";
+export * from "./image.js";
 export * from "./profiles.js";
 export * from "./scoped.js";
 export * from "./search.js";
@@ -22,6 +24,8 @@ export interface BaseToolsOptions {
   profile?: ModelProfile;
   search?: WebSearchProvider;
   fetch?: typeof fetch;
+  /** Name resolution for fetch (tests): every address is checked before connecting. */
+  lookup?: ResolveHost;
 }
 
 /** The base tools every agent has (RD29), in canonical order. */
@@ -36,8 +40,9 @@ export function baseTools(o: BaseToolsOptions): Tool[] {
     globTool(o.workspace, p),
     grepTool(o.workspace, p),
     bashTool(o.workspace, p),
-    fetchTool(p, o.fetch),
+    fetchTool(p, o.fetch, o.lookup ? { lookup: o.lookup } : {}),
     webSearchTool(o.search, p),
     todosTool(),
+    viewImageTool(o.workspace, p),
   ] as Tool[]);
 }

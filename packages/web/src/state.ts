@@ -502,6 +502,15 @@ export function applyMessage(m: ServerMessage): void {
     case "automations.changed":
       automationsVersion.value++;
       return;
+    case "automation.notice":
+      if (!notices.value.some((n) => n.runId === m.runId)) {
+        notices.value = [
+          { runId: m.runId, name: m.name, status: m.status, sessionId: m.sessionId, text: m.text },
+          ...notices.value,
+        ].slice(0, 50);
+        notifyHidden(`${m.name}: ${m.text.slice(0, 200)}`, m.runId);
+      }
+      return;
     case "platform.changed":
       platformVersion.value++;
       return;
@@ -515,6 +524,10 @@ export const status = signal<"online" | "offline" | "connecting">("offline");
 export const projects = signal<Project[]>([]);
 export const agents = signal<Agent[]>([]);
 export const approvals = signal<PermissionRequestInfo[]>([]);
+/** Automation messages sent to the web page, newest first, until the person dismisses them. */
+export const notices = signal<
+  { runId: string; name: string; status: string; sessionId: string | null; text: string }[]
+>([]);
 /** Questions and plans waiting for the human (G20.3). */
 export const questions = signal<QuestionRequestInfo[]>([]);
 export const budgets = signal<Budget[]>([]);
@@ -879,8 +892,12 @@ export async function newSession(agent: Agent): Promise<void> {
 /** Opens the latest conversation with an agent, or starts one. */
 export async function openAgent(agent: Agent, fresh = false): Promise<void> {
   const a = getApi();
-  const existing = fresh ? [] : await a.sessions(agent.id);
-  const sessionId = existing.at(-1)?.id ?? (await a.startSession(agent.id)).sessionId;
+  // Demi-God and God: the conversation the chats use, so it goes on wherever the person writes.
+  const shared = !fresh && (agent.kind === "demigod" || agent.kind === "god");
+  const existing = fresh || shared ? [] : await a.sessions(agent.id);
+  const sessionId = shared
+    ? (await a.workSession(agent.id)).sessionId
+    : (existing.at(-1)?.id ?? (await a.startSession(agent.id)).sessionId);
   openTab({
     id: `chat:${sessionId}`,
     type: "chat",

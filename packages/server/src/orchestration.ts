@@ -14,7 +14,13 @@ import {
 } from "@redgiant/hierarchy";
 import type { Event, ImagePart, ModelSpec } from "@redgiant/protocol";
 import { complete, costUsd, type ProviderRegistry, streamWithFallback } from "@redgiant/providers";
-import { commitAll, mergeWorktree, removeWorktree, worktreeBranch } from "@redgiant/sandbox";
+import {
+  commitAll,
+  mergeWorktree,
+  removeWorktree,
+  worktreeBranch,
+  worktreeDir,
+} from "@redgiant/sandbox";
 import type { Workspace } from "@redgiant/tools";
 import { z } from "zod";
 import type { ProjectStore } from "./projects.js";
@@ -803,6 +809,12 @@ export function orchestrationTools(
             const merges: string[] = [];
             for (const sub of subs) {
               try {
+                // A sub-agent that never got its worktree did no work: making one now would
+                // branch from the main line and merge it into this agent's work unasked.
+                if (!(await root.exists(`${worktreeDir(sub.id)}/.git`))) {
+                  merges.push(`${sub.name}: no work to merge`);
+                  continue;
+                }
                 const ws = await worktree(sub.id);
                 await commitAll(ws, `${sub.name}`, `${sub.name} <${sub.id}@redgiant>`);
                 const r = await mergeWorktree(mine, sub.id);

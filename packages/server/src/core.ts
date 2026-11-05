@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -16,6 +17,7 @@ import {
   type AutomationHost,
   AutomationService,
   migrateAutomations,
+  type NoticeInfo,
   type RunContext,
   type RunOutcome,
 } from "@redgiant/automations";
@@ -56,6 +58,7 @@ import {
   type MediaChoice,
   type MediaKind,
   type ModelSpec,
+  type NotifyReport,
   type Recipe,
   type ServerMessage,
 } from "@redgiant/protocol";
@@ -347,7 +350,17 @@ export class RedGiantCore implements OrchestrationHost {
     return { db: this.o.db, store: this.store, workspacesDir: this.o.workspacesDir };
   }
   /** How the owner is told about finished automations (set by the Telegram gateway). */
-  notify: ((ownerId: string, text: string, to?: string[]) => Promise<void>) | undefined;
+  notify:
+    | ((ownerId: string, text: string, to?: string[]) => Promise<NotifyReport | undefined | void>)
+    | undefined;
+  private readonly noticeListeners = new Set<
+    (ownerId: string, text: string, info: NoticeInfo) => boolean
+  >();
+  /** Automation messages meant for the web page (`notify.to: [web]`); true when shown. */
+  onNotice(listener: (ownerId: string, text: string, info: NoticeInfo) => boolean): () => void {
+    this.noticeListeners.add(listener);
+    return () => this.noticeListeners.delete(listener);
+  }
   /** Connected MCP servers, by owner and name. */
   private readonly mcp = new Map<string, McpConnection>();
   /** Sign-ins and keys of MCP servers (G24.9): private files, never the database. */
@@ -379,7 +392,9 @@ export class RedGiantCore implements OrchestrationHost {
     this.sandbox = o.sandbox ?? new HostSandboxProvider();
     this.tasks = new TaskTracker(this.store);
     this.board = new Board(o.db, this.store);
-    this.notes = new Notes((ownerId) => join(this.assistantsPath(ownerId), "memory"));
+    // Apart from every workspace (2026-11-05: in the assistants' folder an assistant could read and
+    // rewrite any agent's or project's notes with its file tools).
+    this.notes = new Notes((ownerId) => this.notesPath(ownerId));
     this.board.followTasks();
     this.extensions = new ExtensionBuilder({
       db: o.db,
@@ -419,7 +434,14 @@ export class RedGiantCore implements OrchestrationHost {
         o.providers.get(model.provider);
       },
       run: (ownerId, recipe, ctx) => this.runAutomation(ownerId, recipe, ctx),
-      notify: async (ownerId, text, to) => this.tell(ownerId, text, to),
+      // No chat linked at all: an empty report, so the run says "no chat linked".
+      notify: async (ownerId, text, to) =>
+        this.notify ? this.notify(ownerId, text, to) : { delivered: [], failed: [] },
+      notice: (ownerId, text, info) => {
+        let shown = false;
+        for (const l of this.noticeListeners) shown = l(ownerId, text, info) || shown;
+        if (!shown) throw new Error("no web page open");
+      },
     };
     this.automations = new AutomationService({ db: o.db, store: this.store, host });
     this.policies = new PolicyStore(o.db);
@@ -457,7 +479,9 @@ export class RedGiantCore implements OrchestrationHost {
           o.source,
           this.changes,
           (ownerId) => this.platformPath(ownerId),
-          async (ownerId, text) => this.tell(ownerId, text),
+          async (ownerId, text) => {
+            await this.tell(ownerId, text);
+          },
           // God finishes the turn the restart cut, and its answer reaches the owner.
           async (ownerId, sessionId, text) => {
             const { done } = await this.send(ownerId, sessionId, text);
@@ -569,6 +593,19 @@ export class RedGiantCore implements OrchestrationHost {
    * The personal assistants' workspace (G24.11): one per owner, shared by all of them like a
    * desk (files, notes, memory), apart from God's and from every project.
    */
+  /** Every agent's notes (memory), apart from the workspaces; moved from the old place once. */
+  notesPath(ownerId: string): string {
+    const dir = join(this.o.platformDir, `${slug(ownerId) || "owner"}-memory`);
+    const old = join(this.assistantsPath(ownerId), "memory");
+    if (!existsSync(dir) && existsSync(old)) {
+      try {
+        mkdirSync(dirname(dir), { recursive: true });
+        renameSync(old, dir);
+      } catch {}
+    }
+    return dir;
+  }
+
   assistantsPath(ownerId: string): string {
     return join(this.o.platformDir, `${slug(ownerId) || "owner"}-assistants`);
   }
@@ -629,14 +666,15 @@ export class RedGiantCore implements OrchestrationHost {
   private noteOwner(agent: AgentRecord, assignedTo?: string): NoteOwner {
     return {
       ownerId: agent.ownerId,
-      agentId: agent.id,
+      // A sub-agent lives one task: its own notes are its parent's, not a file nobody reads again.
+      agentId: agent.kind === "subagent" && agent.parentId ? agent.parentId : agent.id,
       projectId: assignedTo ?? agent.projectId ?? undefined,
     };
   }
 
   private async assistantsWorkspace(ownerId: string): Promise<Workspace> {
     const dir = this.assistantsPath(ownerId);
-    await mkdir(join(dir, "memory"), { recursive: true });
+    await mkdir(dir, { recursive: true });
     const sb = await this.sandboxFor({
       id: `${ownerId}-assistants`,
       localPath: dir,
@@ -719,7 +757,13 @@ export class RedGiantCore implements OrchestrationHost {
         agent.kind === "agent"
           ? box.workspace(await createWorktree(box.workspace(), agent.id))
           : agent.kind === "subagent" && agent.parentId
-            ? box.workspace(await createWorktree(box.workspace(), agent.parentId))
+            ? box.workspace(
+                // Parallel sub-agents (G29.7) are isolated here too (2026-11-05: in a subproject
+                // with its own image they all shared the parent's worktree).
+                this.isolated.has(agent.id)
+                  ? await createWorktree(box.workspace(), agent.id, worktreeBranch(agent.parentId))
+                  : await createWorktree(box.workspace(), agent.parentId),
+              )
             : box.workspace();
     }
     return new SubprojectWorkspace(
@@ -898,8 +942,8 @@ export class RedGiantCore implements OrchestrationHost {
       this.repoActions
     )
       tools.push(...this.repoTools(agent.projectId));
-    // The browser shared by the personal agents (G24.14b, D11).
-    if (agent.kind === "assistant" && this.browsers)
+    // The owner's browser (G24.14b, D11): every agent that does work, not God.
+    if (this.browsers && ["assistant", "orchestrator", "agent", "subagent"].includes(agent.kind))
       tools.push(
         ...browserTools(this.browsers.get(ownerId), {
           vision: (() => {
@@ -1545,8 +1589,12 @@ export class RedGiantCore implements OrchestrationHost {
 
   /** Tells the owner something on Telegram (when linked). */
   /** Tells the person on their chats; `to` picks some of them (telegram, discord…). */
-  async tell(ownerId: string, text: string, to?: string[]): Promise<void> {
-    await this.notify?.(ownerId, text, to);
+  async tell(
+    ownerId: string,
+    text: string,
+    to?: string[],
+  ): Promise<NotifyReport | undefined | void> {
+    return this.notify?.(ownerId, text, to);
   }
 
   get images(): { key: string; model?: string; baseUrl?: string } | undefined {
@@ -2577,6 +2625,57 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /** Starts a new conversation with an agent. */
+  /**
+   * A new conversation that starts as this one did up to (not including) `beforeSeq`
+   * (2026-11-05: edit a message and send it again, as LibreChat, Zed and Claude Code's /branch
+   * do). The original stays as it is; the copy goes on from there with the same agent and model.
+   */
+  async forkSession(ownerId: string, sessionId: string, beforeSeq: number): Promise<string> {
+    const [row] = await this.o.db.query<{
+      agent_id: string;
+      project_id: string | null;
+      model: ModelSpec | string | null;
+      title: string | null;
+    }>(
+      "SELECT agent_id, project_id, model, title FROM rg_sessions WHERE id = $1 AND owner_id = $2",
+      [sessionId, ownerId],
+    );
+    if (!row) throw new NotFoundError(`Session "${sessionId}" not found`);
+    const model =
+      typeof row.model === "string"
+        ? (JSON.parse(row.model) as ModelSpec)
+        : (row.model ?? undefined);
+    const id = `sess_${randomUUID().slice(0, 12)}`;
+    await this.o.db.query(
+      "INSERT INTO rg_sessions (id, owner_id, agent_id, project_id, model, title) VALUES ($1, $2, $3, $4, $5, $6)",
+      [
+        id,
+        ownerId,
+        row.agent_id,
+        row.project_id,
+        model ? JSON.stringify(model) : null,
+        row.title ? `${row.title.slice(0, 70)} (2)` : null,
+      ],
+    );
+    // The log is append-only: the copy gets its own events, the same bodies in the same order.
+    for (const e of await this.store.list({ sessionId })) {
+      if (e.seq >= beforeSeq) break;
+      if (e.payload === null) continue;
+      await this.store.append({
+        ownerId,
+        projectId: e.projectId,
+        agentId: e.agentId,
+        sessionId: id,
+        body: { type: e.type, payload: e.payload } as never,
+      });
+    }
+    this.live.set(
+      id,
+      await this.build(ownerId, row.agent_id, id, true, model, row.project_id ?? undefined),
+    );
+    return id;
+  }
+
   async startSession(
     ownerId: string,
     agentId: string,

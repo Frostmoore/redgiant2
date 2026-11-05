@@ -77,4 +77,36 @@ describe("a message written while the agent works (2026-11-05, as in Officina)",
     expect(JSON.stringify(seen)).not.toContain("never mind this");
     expect(await s.core.unqueue("me", sid, "c1")).toBe(false);
   });
+
+  it("forks a conversation before a message, to send it edited (the original stays)", async () => {
+    let n = 0;
+    s = await startServer(() => ({ text: `answer ${++n}` }));
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const sid = (
+      await s.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: god.body.id })
+    ).body.sessionId;
+    await (await s.core.send("me", sid, "first")).done;
+    await (await s.core.send("me", sid, "second, badly put")).done;
+    const events = await s.core.history("me", sid);
+    const second = events.find(
+      (e) => e.type === "message.user" && (e.payload as { text: string }).text.startsWith("second"),
+    );
+    const fork = await s.api<{ sessionId: string }>("POST", `/api/sessions/${sid}/fork`, {
+      beforeSeq: second?.seq,
+    });
+    expect(fork.status).toBe(201);
+    const copy = fork.body.sessionId;
+    const texts = async (id: string) =>
+      (await s?.core.history("me", id))
+        ?.filter((e) => e.type === "message.user")
+        .map((e) => (e.payload as { text: string }).text);
+    expect(await texts(copy)).toEqual(["first"]);
+    await (await s.core.send("me", copy, "second, put better")).done;
+    expect(await texts(copy)).toEqual(["first", "second, put better"]);
+    expect(await texts(sid)).toEqual(["first", "second, badly put"]);
+  });
 });

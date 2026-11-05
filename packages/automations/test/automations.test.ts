@@ -362,6 +362,164 @@ describe("AutomationService", () => {
     expect(await svc.list("someone-else")).toEqual([]);
   });
 
+  it("keeps the schedule going when a run cannot start", async () => {
+    const { db, store, clock, fake } = await setup();
+    // The database refuses the next run's row once, then works again.
+    let failNext = false;
+    const flaky = {
+      ...db,
+      query: <T>(text: string, params?: unknown[]) => {
+        if (failNext && text.startsWith("INSERT INTO rg_automation_runs")) {
+          failNext = false;
+          return Promise.reject(new Error("connection reset"));
+        }
+        return db.query<T>(text, params);
+      },
+    };
+    const errors: string[] = [];
+    const svc = new AutomationService({
+      db: flaky,
+      store,
+      host: fake.host,
+      now: () => clock.now,
+      logError: (m) => errors.push(m),
+    });
+    services.push(svc);
+    await svc.start();
+    const { automation } = await svc.create(OWNER, DIGEST);
+    const other = await svc.create(OWNER, DIGEST.replace("digest", "other"));
+
+    failNext = true;
+    clock.now = new Date("2026-10-31T07:00:00Z");
+    await expect(svc.tick()).resolves.toBeUndefined();
+    await svc.idle();
+    // Only the first one failed; the other ran, and the failure is on the first one's history.
+    expect(fake.calls.map((c) => c.recipe.name)).toEqual([
+      expect.stringMatching(/^(digest|other)$/),
+    ]);
+    const failedId = fake.calls[0]?.recipe.name === "digest" ? other.automation.id : automation.id;
+    expect((await svc.runs(OWNER, failedId))[0]).toMatchObject({
+      status: "failed",
+      trigger: "cron",
+      summary: "This run could not happen: connection reset",
+    });
+    expect(errors).toHaveLength(1);
+    // The timer is armed again and the next day both run.
+    expect((svc as unknown as { timer?: unknown }).timer).toBeDefined();
+    clock.now = new Date("2026-11-01T07:00:00Z");
+    await svc.tick();
+    await svc.idle();
+    expect(fake.calls).toHaveLength(3);
+    expect((await svc.get(OWNER, failedId)).lastRun).toMatchObject({ status: "ok" });
+  });
+
+  it("isolates a broken recipe, at start and on schedule", async () => {
+    const { svc, make, db, clock, fake } = await setup();
+    const good = await svc.create(OWNER, `${DIGEST}missed: run\n`);
+    // A recipe that no longer parses (written by another version), due and missed.
+    await db.query(
+      `INSERT INTO rg_automations (id, owner_id, name, yaml, next_run_at)
+       VALUES ('auto_broken', $1, 'broken', 'name: broken\non: {cron: "0 8 * * *"}\ninstructions: x\ntools: [bash]', $2)`,
+      [OWNER, new Date("2026-10-31T06:30:00Z")],
+    );
+    await svc.stop();
+    clock.now = new Date("2026-10-31T12:00:00Z");
+    const again = make();
+    (again as unknown as { o: { logError: () => void } }).o.logError = () => {};
+    await again.start();
+    await again.idle();
+    expect(fake.calls.map((c) => [c.recipe.name, c.ctx.trigger])).toEqual([["digest", "missed"]]);
+    const [broken] = await again.runs(OWNER, "auto_broken");
+    expect(broken).toMatchObject({ status: "failed", trigger: "missed" });
+    expect(broken?.summary).toMatch(/^This run could not happen: .*tools/);
+    // Its schedule is cleared until the person edits it: no retry storm, the others go on.
+    const [row] = await db.query<{ next_run_at: unknown }>(
+      "SELECT next_run_at FROM rg_automations WHERE id = 'auto_broken'",
+    );
+    expect(row?.next_run_at).toBeNull();
+    await db.query("UPDATE rg_automations SET next_run_at = $1 WHERE id = 'auto_broken'", [
+      new Date("2026-11-01T06:30:00Z"),
+    ]);
+    clock.now = new Date("2026-11-01T07:00:00Z");
+    await again.tick();
+    await again.idle();
+    expect(fake.calls.map((c) => c.ctx.trigger)).toEqual(["missed", "cron"]);
+    expect((await again.get(OWNER, good.automation.id)).lastRun).toMatchObject({ status: "ok" });
+    expect((await again.runs(OWNER, "auto_broken"))[0]).toMatchObject({ trigger: "cron" });
+  });
+
+  it("records whether the message reached the person, and sends it to the web when asked", async () => {
+    const { db, store, clock, fake } = await setup();
+    const notices: string[] = [];
+    let report: { delivered: string[]; failed: { to: string; reason: string }[] } | "throw" =
+      "throw";
+    const host: AutomationHost = {
+      ...fake.host,
+      async notify(_o, text, to) {
+        if (report === "throw") throw new Error("Telegram is down");
+        fake.notes.push(to ? `[${to.join(",")}] ${text}` : text);
+        return report;
+      },
+      notice(_o, text, info) {
+        notices.push(`${info.name}/${info.status}: ${text}`);
+      },
+    };
+    const svc = new AutomationService({ db, store, host, now: () => clock.now });
+    services.push(svc);
+    const run = async (yaml: string) => {
+      const { automation } = await svc.create(OWNER, yaml);
+      await (await svc.runNow(OWNER, automation.id)).done;
+      return (await svc.get(OWNER, automation.id)).lastRun?.delivery;
+    };
+    expect(await run("name: a\non: {webhook: true}\nreminder: Hi")).toEqual({
+      status: "failed",
+      to: [],
+      reason: "Telegram is down",
+    });
+    report = { delivered: [], failed: [] };
+    expect(await run("name: b\non: {webhook: true}\nreminder: Hi")).toEqual({
+      status: "no-chat",
+      to: [],
+      reason: "no chat linked",
+    });
+    report = { delivered: ["telegram"], failed: [{ to: "slack", reason: "token revoked" }] };
+    expect(
+      await run("name: c\non: {webhook: true}\nreminder: Hi\nnotify: {to: [web, telegram, slack]}"),
+    ).toEqual({ status: "delivered", to: ["web", "telegram"], reason: "slack: token revoked" });
+    expect(fake.notes.at(-1)).toBe("[telegram,slack] Hi");
+    expect(notices).toEqual(["c/ok: Hi"]);
+    // Only the web: no chat is asked.
+    const before = fake.notes.length;
+    expect(await run("name: d\non: {webhook: true}\nreminder: Yo\nnotify: {to: [web]}")).toEqual({
+      status: "delivered",
+      to: ["web"],
+    });
+    expect(fake.notes).toHaveLength(before);
+    // No message due: nothing recorded.
+    expect(
+      await run("name: e\non: {webhook: true}\nreminder: Hi\nnotify: {when: never}"),
+    ).toBeNull();
+
+    // A host without notify (no chat linked) and without notice.
+    const bare = new AutomationService({
+      db,
+      store,
+      host: { validate: fake.host.validate, run: fake.host.run },
+      now: () => clock.now,
+    });
+    services.push(bare);
+    const { automation } = await bare.create(
+      OWNER,
+      "name: f\non: {webhook: true}\nreminder: Hi\nnotify: {to: [web, telegram]}",
+    );
+    await (await bare.runNow(OWNER, automation.id)).done;
+    expect((await bare.get(OWNER, automation.id)).lastRun?.delivery).toEqual({
+      status: "failed",
+      to: [],
+      reason: "web: not available; no chat linked",
+    });
+  });
+
   it("wakes itself up with a real timer", async () => {
     const { svc, fake } = await setup();
     const real = new AutomationService({

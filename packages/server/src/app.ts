@@ -6,7 +6,16 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { AutomationNotFoundError, RecipeError, WebhookForbiddenError } from "@redgiant/automations";
-import { loadCustomTools, loadSkills } from "@redgiant/extensions";
+import {
+  exportSkill,
+  importSkill,
+  loadCustomTools,
+  loadSkills,
+  SKILL_ARCHIVE_LIMITS,
+  NAME_RE as SKILL_NAME_RE,
+  SkillArchiveError,
+  SkillExistsError,
+} from "@redgiant/extensions";
 import { HierarchyError } from "@redgiant/hierarchy";
 import {
   AgentKind,
@@ -2019,6 +2028,58 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     return c.body(f.body as never, f.status as 200, { ...PREVIEW_HEADERS, "Content-Type": f.type });
   });
   // Undo a summary asked by hand (G24.14): the whole history comes back from the log.
+  // The conversation an agent works in for the chats (Telegram, Discord…): the web and the CLI
+  // open the same one, so a talk begun on a phone goes on here (2026-11-05).
+  app.post("/api/agents/:id/work-session", async (c) => {
+    const agent = core.registry.get(c.req.param("id"));
+    if (!agent || agent.ownerId !== owner(c)) return c.json({ error: "Agent not found" }, 404);
+    return c.json({ sessionId: await core.workSession(agent) }, 200);
+  });
+  // Every agent's notes (2026-11-05), read and written by the person through the same queue and
+  // limit as the agents' memory tool.
+  const NotesQuery = z.object({
+    scope: z.enum(["user", "self", "project"]),
+    agentId: z.string().optional(),
+    projectId: z.string().optional(),
+  });
+  const notesWho = (c: Context<Env>) => {
+    const q = NotesQuery.safeParse(c.req.query());
+    if (!q.success) return undefined;
+    return {
+      scope: q.data.scope,
+      who: { ownerId: owner(c), agentId: q.data.agentId ?? "-", projectId: q.data.projectId },
+    };
+  };
+  app.get("/api/notes", async (c) => {
+    const n = notesWho(c);
+    if (!n) return c.json({ error: "scope is user, self or project" }, 400);
+    return c.json({ text: await core.notes.read(n.who, n.scope) }, 200);
+  });
+  app.put("/api/notes", async (c) => {
+    const n = notesWho(c);
+    if (!n) return c.json({ error: "scope is user, self or project" }, 400);
+    const b = await c.req
+      .json()
+      .then((x) => z.object({ text: z.string() }).parse(x))
+      .catch(() => undefined);
+    if (!b) return c.json({ error: "text is required" }, 400);
+    try {
+      await core.notes.set(n.who, n.scope, b.text);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+    return c.json({ ok: true }, 200);
+  });
+  // Edit a message and send it again (2026-11-05): a copy of the conversation up to it.
+  app.post("/api/sessions/:id/fork", async (c) => {
+    const body = await c.req
+      .json()
+      .then((b) => z.object({ beforeSeq: z.number().int().positive() }).parse(b))
+      .catch(() => undefined);
+    if (!body) return c.json({ error: "beforeSeq is required" }, 400);
+    const sessionId = await core.forkSession(owner(c), c.req.param("id"), body.beforeSeq);
+    return c.json({ sessionId }, 201);
+  });
   app.post("/api/sessions/:id/compaction/undo", async (c) => {
     try {
       const ok = await core.undoCompaction(owner(c), c.req.param("id"));
@@ -2154,6 +2215,54 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       return c.json({ ok: true }, 202);
     } catch (err) {
       if (err instanceof RoomError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
+  // Sharing skills: a skill's folder as a .zip (the agentskills.io layout), and back. The
+  // scope is the one /api/extensions/installed lists: "platform" or "project:<id>".
+  const skillRoot = async (c: Context<Env>, scope: string | undefined) => {
+    if (!scope || scope === "platform") return core.platformPath(owner(c));
+    const id = scope.startsWith("project:") ? scope.slice("project:".length) : scope;
+    const p = await core.projects.get(owner(c), id);
+    return p ? join(p.path, ".redgiant") : undefined;
+  };
+  app.get("/api/extensions/skills/:name/export", async (c) => {
+    const name = c.req.param("name");
+    const root = await skillRoot(c, c.req.query("scope"));
+    if (!root) return c.json({ error: "Project not found" }, 404);
+    if (!SKILL_NAME_RE.test(name)) return c.json({ error: "Invalid skill name" }, 400);
+    const dir = join(root, "skills", name);
+    if (!(await stat(join(dir, "SKILL.md")).catch(() => undefined)))
+      return c.json({ error: `No skill "${name}"` }, 404);
+    try {
+      const zip = await exportSkill(dir);
+      return new Response(new Uint8Array(zip), {
+        headers: {
+          "content-type": "application/zip",
+          "content-length": String(zip.length),
+          "content-disposition": `attachment; filename="${name}.zip"`,
+        },
+      });
+    } catch (err) {
+      if (err instanceof SkillArchiveError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
+  /** The archive is the raw body; `?scope=` as above, `?replace=1` to overwrite a skill. */
+  app.post("/api/extensions/skills/import", async (c) => {
+    const root = await skillRoot(c, c.req.query("scope"));
+    if (!root) return c.json({ error: "Project not found" }, 404);
+    const tooLarge = { error: "The archive is too large" };
+    if (Number(c.req.header("content-length") ?? 0) > SKILL_ARCHIVE_LIMITS.archiveBytes)
+      return c.json(tooLarge, 413);
+    const body = new Uint8Array(await c.req.arrayBuffer());
+    if (body.length > SKILL_ARCHIVE_LIMITS.archiveBytes) return c.json(tooLarge, 413);
+    try {
+      const r = await importSkill(body, root, { replace: c.req.query("replace") === "1" });
+      return c.json({ name: r.name, description: r.description, replaced: r.replaced }, 201);
+    } catch (err) {
+      if (err instanceof SkillExistsError) return c.json({ error: err.message }, 409);
+      if (err instanceof SkillArchiveError) return c.json({ error: err.message }, 400);
       throw err;
     }
   });

@@ -34,6 +34,7 @@ import {
   firstRun,
   lastError,
   limits,
+  notices,
   openBoard,
   openTab,
   platformInfo,
@@ -336,7 +337,7 @@ export function App() {
     return () => clearInterval(timer);
   }, [token.value]);
 
-  const waiting = approvals.value.length + questions.value.length;
+  const waiting = approvals.value.length + questions.value.length + notices.value.length;
   useEffect(() => {
     document.title = waiting ? `(${waiting}) RedGiant` : "RedGiant";
   }, [waiting]);

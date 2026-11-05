@@ -14,6 +14,7 @@ import { LimitEditor } from "./Budgets.js";
 import { CompactionSettings } from "./CompactionSettings.js";
 import { modelName } from "./ModelMenu.js";
 import { ModelSelect, useModels } from "./ModelSelect.js";
+import { NotesEditor } from "./NotesEditor.js";
 
 const CHILDREN: Record<Agent["kind"], Agent["kind"][]> = {
   god: ["demigod", "orchestrator", "inspector", "assistant"],
@@ -386,6 +387,24 @@ function AgentPanel({
           {tab === "behaviour" && <BehaviourTab agent={agent} />}
           {tab === "memory" && (
             <div class="form stack">
+              {/* What the agent remembers between conversations (2026-11-05), editable here. */}
+              {agent.kind !== "demigod" && agent.kind !== "inspector" && (
+                <NotesEditor
+                  scope="self"
+                  agentId={agent.id}
+                  label={t("notesOwn", { name: agent.name })}
+                  help={t("notesOwnHelp")}
+                />
+              )}
+              {agent.projectId && (
+                <NotesEditor
+                  scope="project"
+                  agentId={agent.id}
+                  projectId={agent.projectId}
+                  label={t("notesProject")}
+                  help={t("notesProjectHelp")}
+                />
+              )}
               <p class="ui-help">{t("compactExplain")}</p>
               <CompactionSettings agent={agent} />
             </div>

@@ -226,8 +226,13 @@ export class AgentSession {
 
   /** Reopens an existing session from the event log. */
   static async resume(options: AgentSessionOptions): Promise<AgentSession> {
-    const s = new AgentSession(options);
     const events = await options.store.list({ sessionId: options.sessionId });
+    // The system prompt the conversation started with, never the one rebuilt now (2026-11-05:
+    // notes or skills changed meanwhile altered the cached prefix when a session was reloaded).
+    const started = events.find((e) => e.type === "session.started" && e.payload);
+    const system =
+      started?.type === "session.started" && started.payload ? started.payload.system : undefined;
+    const s = new AgentSession(system !== undefined ? { ...options, system } : options);
     s.history = rebuildHistory(events, { maxResultChars: s.maxResultChars });
     for (const e of events) {
       if (e.type === "compaction" || e.type === "compaction.undone") s.lastMetrics = undefined;

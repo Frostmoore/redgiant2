@@ -10,7 +10,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import { join } from "node:path";
-import type { Tool } from "@redgiant/agent";
+import type { Tool, ToolContext } from "@redgiant/agent";
+import { classify, DEFAULT_DANGER_RULES } from "@redgiant/hierarchy";
 import { agentEnv } from "@redgiant/tools";
 import type Docker from "dockerode";
 import { type Browser, type CDPSession, chromium, type Page } from "playwright-core";
@@ -300,7 +301,65 @@ export interface PageLike {
   back(): Promise<void>;
   /** The visible page as a JPEG, base64 (for models that see). */
   screenshot(): Promise<string>;
+  /** A screen up or down, or until an element with this text is in view. */
+  scroll(to: { direction: "up" | "down" } | { text: string }): Promise<void>;
+  /** One key (a name from BROWSER_KEYS) on whatever has the focus. */
+  press(key: string): Promise<void>;
+  /** What has the focus, and what a form's Enter would press (the agents' Enter is checked). */
+  focused(): Promise<Focused>;
+  /** Chooses an option of a list (`<select>`) by its label. */
+  select(field: string, option: string): Promise<void>;
+  /** Whether the text shows up on the page within `timeoutMs`. */
+  waitForText(text: string, timeoutMs: number): Promise<boolean>;
 }
+
+/** The element with the focus, in words. */
+export interface Focused {
+  kind: "none" | "field" | "password" | "button" | "link" | "other";
+  /** Its name (never a field's value). */
+  name: string;
+  /** In a form: the name of the button Enter would press. */
+  submit?: string | undefined;
+}
+
+/** The keys an agent may press: named keys only, so nothing can be typed with them. */
+export const BROWSER_KEYS = [
+  "Enter",
+  "Escape",
+  "Tab",
+  "Shift+Tab",
+  "Space",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  "Backspace",
+  "Delete",
+] as const;
+
+/** The focused element (runs in the page): a password field gives its kind and nothing more. */
+const FOCUSED = `(() => {
+  const words = (n) => n ? (n.getAttribute("aria-label") || (n.labels && n.labels[0] && n.labels[0].innerText) ||
+    n.innerText || (n.tagName === "INPUT" && ["submit", "button", "reset"].includes(n.type) ? n.value : "") ||
+    n.getAttribute("title") || n.getAttribute("placeholder") || n.getAttribute("name") || "").trim().replace(/\\s+/g, " ").slice(0, 120) : "";
+  const el = document.activeElement;
+  if (!el || el === document.body || el === document.documentElement) return { kind: "none", name: "" };
+  const form = el.form || el.closest("form");
+  const button = form && form.querySelector("button[type=submit],input[type=submit],input[type=image],button:not([type])");
+  const submit = form ? (button ? words(button) || "(unnamed submit button)" : "(the form)") : undefined;
+  const tag = el.tagName, type = (el.getAttribute("type") || "").toLowerCase(), role = el.getAttribute("role");
+  if (tag === "INPUT" && type === "password") return { kind: "password", name: "", submit };
+  if (tag === "BUTTON" || role === "button" || tag === "SUMMARY" || (tag === "INPUT" && ["submit", "button", "reset", "image"].includes(type)))
+    return { kind: "button", name: words(el) };
+  if ((tag === "A" && el.hasAttribute("href")) || role === "link") return { kind: "link", name: words(el) };
+  if (tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable || (tag === "INPUT" && !["checkbox", "radio", "range", "color", "file"].includes(type)))
+    return { kind: "field", name: words(el), submit: tag === "TEXTAREA" ? undefined : submit };
+  return { kind: "other", name: words(el) };
+})()`;
 
 /** Blanks out every password typed in the page from a text read back to a model. */
 export function withoutSecrets(text: string, secrets: string[]): string {
@@ -368,6 +427,41 @@ export class PlaywrightPage implements PageLike {
     const png = await this.page.screenshot({ type: "jpeg", quality: 70, timeout: 15_000 });
     return png.toString("base64");
   }
+  async scroll(to: { direction: "up" | "down" } | { text: string }) {
+    if ("text" in to) {
+      await this.page.getByText(to.text).first().scrollIntoViewIfNeeded({ timeout: 10_000 });
+      return;
+    }
+    const size = this.page.viewportSize() ?? { width: 1280, height: 800 };
+    // The wheel scrolls what is under the pointer: the middle of the page.
+    await this.page.mouse.move(size.width / 2, size.height / 2);
+    await this.page.mouse.wheel(0, (to.direction === "down" ? 0.8 : -0.8) * size.height);
+    await this.page.waitForTimeout(300);
+  }
+  async press(key: string) {
+    await this.page.keyboard.press(key);
+  }
+  focused(): Promise<Focused> {
+    return this.page.evaluate(FOCUSED) as Promise<Focused>;
+  }
+  async select(field: string, option: string) {
+    await this.page
+      .getByLabel(field)
+      .or(this.page.getByRole("combobox", { name: field }))
+      .or(this.page.getByRole("listbox", { name: field }))
+      .first()
+      .selectOption({ label: option }, { timeout: 10_000 });
+  }
+  waitForText(text: string, timeoutMs: number) {
+    return this.page
+      .getByText(text)
+      .first()
+      .waitFor({ state: "visible", timeout: timeoutMs })
+      .then(
+        () => true,
+        () => false,
+      );
+  }
 }
 
 export interface ScreenFrame {
@@ -417,6 +511,27 @@ export class AgentBrowser {
   private lastUse = Date.now();
   private size = { width: 1280, height: 800 };
   control: "agents" | "person" = "agents";
+  /** The last action queued: agents sharing the browser take turns, one action at a time. */
+  private lock: Promise<void> = Promise.resolve();
+
+  /**
+   * Runs one agent's action alone: another agent's waits for it (two agents must never drive
+   * the same tab at once). A stopped turn stops waiting, and its place goes to the next.
+   */
+  async exclusive<T>(f: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const before = this.lock;
+    let release = () => {};
+    const mine = new Promise<void>((r) => {
+      release = r;
+    });
+    this.lock = before.then(() => mine);
+    try {
+      await untilAborted(before, signal);
+      return await f();
+    } finally {
+      release();
+    }
+  }
 
   /** Files downloaded, newest last, as paths in the agents' desk. */
   readonly downloads: string[] = [];
@@ -747,9 +862,64 @@ export class Browsers {
   }
 }
 
+const stopped = (signal: AbortSignal) =>
+  signal.reason instanceof Error ? signal.reason : new Error("Stopped");
+
+/** `p`, unless the signal stops the wait first. */
+function untilAborted<T>(p: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return p;
+  if (signal.aborted) return Promise.reject(stopped(signal));
+  return new Promise<T>((ok, ko) => {
+    const stop = () => ko(stopped(signal));
+    signal.addEventListener("abort", stop, { once: true });
+    p.then(ok, ko).finally(() => signal.removeEventListener("abort", stop));
+  });
+}
+
+function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  return untilAborted(
+    new Promise<void>((r) => {
+      timer = setTimeout(r, ms);
+    }),
+    signal,
+  ).finally(() => clearTimeout(timer));
+}
+
+/**
+ * An address for the agents' browser: a bare name becomes https; only web pages (http, https)
+ * and the empty page. Undefined for anything else (file:, javascript:, data:, chrome:…).
+ */
+export function browserAddress(url: string): string | undefined {
+  const u = url.trim();
+  const schemed =
+    /^[a-z][a-z0-9+.-]*:\/\//i.test(u) ||
+    /^(about|javascript|data|file|blob|chrome|edge|view-source|vbscript|mailto|filesystem|ws|wss|ftp|devtools|intent):/i.test(
+      u,
+    );
+  let parsed: URL;
+  try {
+    parsed = new URL(schemed ? u : `https://${u}`);
+  } catch {
+    return undefined;
+  }
+  if (parsed.href === "about:blank") return "about:blank";
+  return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : undefined;
+}
+
+const NOT_WEB = "Only web addresses (http or https) can be opened in the browser.";
+
+/** A button's name that sends, pays, publishes or deletes: clicked only through browser_click. */
+const outgoing = (name: string) =>
+  classify(
+    { callId: "", name: "browser_click", input: { name } },
+    DEFAULT_DANGER_RULES.filter((r) => r.id === "outgoing-browser"),
+  ).length > 0;
+
 /**
  * The browser tools of a personal agent. While the person has control they wait (up to ten
- * minutes), then say so; passwords are never typed by an agent nor read back.
+ * minutes), then say so; passwords are never typed by an agent nor read back. Each action runs
+ * alone: agents sharing the browser take turns.
  */
 export function browserTools(
   b: AgentBrowser,
@@ -758,29 +928,51 @@ export function browserTools(
     vision?: boolean;
   } = {},
 ): Tool[] {
-  const ready = async (): Promise<PageLike | string> => {
+  const ready = async (signal: AbortSignal | undefined): Promise<PageLike | string> => {
     const until = Date.now() + (o.waitMs ?? 10 * 60_000);
     while (b.control === "person") {
       if (Date.now() > until)
         return "The person has control of the browser right now. Try again later, or ask them.";
-      await new Promise((r) => setTimeout(r, 1000));
+      await sleep(Math.min(1000, Math.max(10, until - Date.now())), signal);
     }
     return b.pageLike();
   };
-  const page = async <T>(f: (p: PageLike) => Promise<T>) => {
-    const p = await ready();
-    if (typeof p === "string") return { content: p, isError: true };
-    return f(p);
-  };
+  const page = <T>(ctx: ToolContext | undefined, f: (p: PageLike) => Promise<T>) =>
+    b.exclusive(async () => {
+      const p = await ready(ctx?.signal);
+      if (typeof p === "string") return { content: p, isError: true };
+      return f(p);
+    }, ctx?.signal);
   const where = async (p: PageLike) => `${await p.title().catch(() => "")} — ${p.url()}`;
-  const tool = (def: Tool["def"], schema: z.ZodType, run: (i: never) => Promise<unknown>): Tool =>
-    ({ def, schema, run }) as unknown as Tool;
+  const tool = (
+    def: Tool["def"],
+    schema: z.ZodType,
+    run: (i: never, ctx: ToolContext) => Promise<unknown>,
+  ): Tool => ({ def, schema, run }) as unknown as Tool;
+  /**
+   * Enter or Space on what has the focus: refused when it would press a button that sends,
+   * pays or deletes (that click asks the user, through browser_click), or when unknown.
+   */
+  const activates = async (p: PageLike, key: string): Promise<string | undefined> => {
+    if (key !== "Enter" && key !== "Space") return undefined;
+    const f = await p.focused().catch(() => undefined);
+    if (!f) return "Could not tell what has the focus: use browser_click on the button instead.";
+    const pressed =
+      f.kind === "button" || f.kind === "link"
+        ? f.name
+        : key === "Enter" && (f.kind === "field" || f.kind === "password")
+          ? f.submit
+          : undefined;
+    if (pressed && outgoing(pressed))
+      return `That would press "${pressed}", which needs the user's approval: use browser_click with that name instead.`;
+    return undefined;
+  };
   return [
     tool(
       {
         name: "browser_open",
         description:
-          "Open a web address in the browser you share with the user's other personal agents (sign-ins are kept). Then read it with browser_read.",
+          "Open a web address (http or https) in the browser you share with the user's other personal agents (sign-ins are kept). Then read it with browser_read.",
         inputSchema: {
           type: "object",
           properties: { url: { type: "string" } },
@@ -788,26 +980,44 @@ export function browserTools(
         },
       },
       z.object({ url: z.string().min(1) }),
-      ({ url }: { url: string }) =>
-        page(async (p) => {
-          await p.goto(/^[a-z]+:/i.test(url) ? url : `https://${url}`);
+      ({ url }: { url: string }, ctx) => {
+        const target = browserAddress(url);
+        if (!target) return Promise.resolve({ content: NOT_WEB, isError: true });
+        return page(ctx, async (p) => {
+          await p.goto(target);
           return `Opened ${await where(p)}.`;
-        }),
+        });
+      },
     ),
     tool(
       {
         name: "browser_read",
-        description:
-          "Read the open page as text: its headings, links, buttons and fields with their names. Use those names with browser_click and browser_type.",
-        inputSchema: { type: "object", properties: {} },
+        description: `Read the open page as text: its headings, links, buttons and fields with their names. Use those names with browser_click and browser_type. Long pages come in parts of ${READ_LIMIT} characters: read the next one with from.`,
+        inputSchema: {
+          type: "object",
+          properties: {
+            from: {
+              type: "integer",
+              minimum: 0,
+              description: "Character to start from (given at the end of the previous part)",
+            },
+          },
+        },
       },
-      z.object({}),
-      () =>
-        page(async (p) => {
+      z.object({ from: z.number().int().min(0).optional() }),
+      ({ from = 0 }: { from?: number }, ctx) =>
+        page(ctx, async (p) => {
           const text = withoutSecrets(await p.snapshot(), await p.secrets().catch(() => []));
-          const cut =
-            text.length > READ_LIMIT ? `${text.slice(0, READ_LIMIT)}\n[… the page goes on]` : text;
-          return `${await where(p)}\n\n${cut}`;
+          if (from > 0 && from >= text.length)
+            return `${await where(p)}\n\nThe page has ${text.length} characters: from ${from} is past the end.`;
+          const end = Math.min(text.length, from + READ_LIMIT);
+          const part = text.slice(from, end);
+          const head = from > 0 ? `[characters ${from}-${end} of ${text.length}]\n` : "";
+          const more =
+            end < text.length
+              ? `\n[… the page goes on: read the rest with browser_read from ${end}]`
+              : "";
+          return `${await where(p)}\n\n${head}${part}${more}`;
         }),
     ),
     tool(
@@ -822,8 +1032,8 @@ export function browserTools(
         },
       },
       z.object({ name: z.string().min(1), role: z.string().optional() }),
-      ({ name, role }: { name: string; role?: string }) =>
-        page(async (p) => {
+      ({ name, role }: { name: string; role?: string }, ctx) =>
+        page(ctx, async (p) => {
           const before = b.downloads.length;
           await p.click({ role, name });
           // A click may start a download: give it a moment to land in the desk.
@@ -848,16 +1058,110 @@ export function browserTools(
         },
       },
       z.object({ field: z.string().min(1), text: z.string(), submit: z.boolean().optional() }),
-      ({ field, text, submit }: { field: string; text: string; submit?: boolean }) =>
-        page(async (p) => {
+      ({ field, text, submit }: { field: string; text: string; submit?: boolean }, ctx) =>
+        page(ctx, async (p) => {
           if (await p.isPassword(field))
             return {
               content:
                 "That is a password field: passwords are typed by the user. Ask them to take control of the browser (its screen in RedGiant) and sign in.",
               isError: true,
             };
-          await p.fill(field, text, submit === true);
+          await p.fill(field, text, false);
+          if (submit) {
+            // Enter presses the form's button: one that pays or sends asks, through browser_click.
+            const refused = await activates(p, "Enter");
+            if (refused)
+              return { content: `Typed into "${field}", not submitted. ${refused}`, isError: true };
+            await p.press("Enter");
+          }
           return `Typed into "${field}"${submit ? " and submitted" : ""}. Now at ${await where(p)}.`;
+        }),
+    ),
+    tool(
+      {
+        name: "browser_press",
+        description: `Press one key on what has the focus: ${BROWSER_KEYS.join(", ")}. Not for typing text (use browser_type). Enter or Space on a button that sends, pays or deletes is refused: click it with browser_click.`,
+        inputSchema: {
+          type: "object",
+          properties: { key: { type: "string", enum: [...BROWSER_KEYS] } },
+          required: ["key"],
+        },
+      },
+      z.object({ key: z.enum(BROWSER_KEYS) }),
+      ({ key }: { key: string }, ctx) =>
+        page(ctx, async (p) => {
+          const refused = await activates(p, key);
+          if (refused) return { content: refused, isError: true };
+          await p.press(key);
+          return `Pressed ${key}. Now at ${await where(p)}.`;
+        }),
+    ),
+    tool(
+      {
+        name: "browser_scroll",
+        description:
+          "Scroll the page a screen up or down, or until an element with the given text is in view.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            direction: { type: "string", enum: ["up", "down"] },
+            to: { type: "string", description: "Text of the element to bring into view" },
+          },
+        },
+      },
+      z
+        .object({ direction: z.enum(["up", "down"]).optional(), to: z.string().min(1).optional() })
+        .refine((x) => (x.direction === undefined) !== (x.to === undefined), {
+          message: "Give either direction or to",
+        }),
+      ({ direction, to }: { direction?: "up" | "down"; to?: string }, ctx) =>
+        page(ctx, async (p) => {
+          await p.scroll(to !== undefined ? { text: to } : { direction: direction ?? "down" });
+          return `Scrolled ${to !== undefined ? `to "${to}"` : direction}. Read the page again with browser_read.`;
+        }),
+    ),
+    tool(
+      {
+        name: "browser_select",
+        description:
+          "Choose an option of a drop-down list (a select) by the list's label and the option's visible text.",
+        inputSchema: {
+          type: "object",
+          properties: { field: { type: "string" }, option: { type: "string" } },
+          required: ["field", "option"],
+        },
+      },
+      z.object({ field: z.string().min(1), option: z.string().min(1) }),
+      ({ field, option }: { field: string; option: string }, ctx) =>
+        page(ctx, async (p) => {
+          await p.select(field, option);
+          return `Chose "${option}" in "${field}". Now at ${await where(p)}.`;
+        }),
+    ),
+    tool(
+      {
+        name: "browser_wait",
+        description:
+          "Wait until a text shows up on the page (a result, a confirmation), up to timeout seconds (default 10, at most 60).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            text: { type: "string" },
+            timeout: { type: "integer", minimum: 1, maximum: 60 },
+          },
+          required: ["text"],
+        },
+      },
+      z.object({ text: z.string().min(1), timeout: z.number().int().min(1).max(60).optional() }),
+      ({ text, timeout = 10 }: { text: string; timeout?: number }, ctx) =>
+        page(ctx, async (p) => {
+          const seen = await untilAborted(p.waitForText(text, timeout * 1000), ctx?.signal);
+          return seen
+            ? `"${text}" is on the page. At ${await where(p)}.`
+            : {
+                content: `"${text}" did not show up within ${timeout} s. At ${await where(p)}.`,
+                isError: true,
+              };
         }),
     ),
     tool(
@@ -880,23 +1184,28 @@ export function browserTools(
         index: z.number().int().min(0).optional(),
         url: z.string().optional(),
       }),
-      ({
-        action,
-        index,
-        url,
-      }: {
-        action: "list" | "open" | "switch" | "close";
-        index?: number;
-        url?: string;
-      }) =>
-        page(async () => {
-          if (action !== "list")
-            await b.useTab(action, index, url && (/^[a-z]+:/i.test(url) ? url : `https://${url}`));
+      (
+        {
+          action,
+          index,
+          url,
+        }: {
+          action: "list" | "open" | "switch" | "close";
+          index?: number;
+          url?: string;
+        },
+        ctx,
+      ) => {
+        const target = url ? browserAddress(url) : undefined;
+        if (url && !target) return Promise.resolve({ content: NOT_WEB, isError: true });
+        return page(ctx, async () => {
+          if (action !== "list") await b.useTab(action, index, target);
           const tabs = await b.tabs();
           return tabs
             .map((t, i) => `${i}${t.current ? " (current)" : ""}: ${t.title} — ${t.url}`)
             .join("\n");
-        }),
+        });
+      },
     ),
     ...(o.vision
       ? [
@@ -908,8 +1217,8 @@ export function browserTools(
               inputSchema: { type: "object", properties: {} },
             },
             z.object({}),
-            () =>
-              page(async (p) => ({
+            (_: never, ctx) =>
+              page(ctx, async (p) => ({
                 content: `Screenshot of ${await where(p)}.`,
                 images: [
                   {
@@ -929,8 +1238,8 @@ export function browserTools(
         inputSchema: { type: "object", properties: {} },
       },
       z.object({}),
-      () =>
-        page(async (p) => {
+      (_: never, ctx) =>
+        page(ctx, async (p) => {
           await p.back();
           return `Back at ${await where(p)}.`;
         }),

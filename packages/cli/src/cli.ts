@@ -22,6 +22,7 @@ const USAGE = `Usage: redgiant <command> [options]
                 [--model provider/model] [--effort low|medium|high|max] [--mode auto|manual|plan|readonly]
   sessions [--agent <id>]           list sessions
   chat <agentId> [--session <id>]   talk to an agent (live)
+       [--continue]                 continue the agent's work session (the one the web shows)
   send <sessionId> <text>           send one message, print the answer, exit when the agent is done
   approvals                         list pending permission requests
   approve <requestId> | deny <requestId>
@@ -60,6 +61,7 @@ export async function runCli(
       mode: { type: "string" },
       agent: { type: "string" },
       session: { type: "string" },
+      continue: { type: "boolean" },
     },
   });
 
@@ -147,10 +149,14 @@ export async function runCli(
       case "chat": {
         const sessionId =
           values.session ??
-          (
-            await client.api<{ sessionId: string }>("POST", "/api/sessions", {
-              agentId: positionals[0],
-            })
+          (values.continue
+            ? await client.api<{ sessionId: string }>(
+                "POST",
+                `/api/agents/${encodeURIComponent(positionals[0] ?? "")}/work-session`,
+              )
+            : await client.api<{ sessionId: string }>("POST", "/api/sessions", {
+                agentId: positionals[0],
+              })
           ).sessionId;
         say(`Session ${sessionId}. Empty line or Ctrl-D to leave; the agent keeps its history.`);
         return await converse(client, io, sessionId, undefined);

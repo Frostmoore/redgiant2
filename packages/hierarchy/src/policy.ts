@@ -184,6 +184,7 @@ export const READ_ONLY_TOOLS = new Set([
   "grep",
   "web_search",
   "fetch",
+  "view_image",
   "list_agents",
   "read_agent",
   "board_list",

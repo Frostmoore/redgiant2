@@ -3,4 +3,5 @@ export * from "./customtools.js";
 export * from "./mcp.js";
 export * from "./oauth.js";
 export * from "./propose.js";
+export * from "./share.js";
 export * from "./skills.js";

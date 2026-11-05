@@ -26,6 +26,7 @@ import {
 import { Editor, recipeWhen } from "./Automations.js";
 import { explain, providerName } from "./Brain.js";
 import { CompactionSettings } from "./CompactionSettings.js";
+import { NotesEditor } from "./NotesEditor.js";
 import { Advanced, Choice, Field, Toggle } from "./ui.js";
 
 /** Ready jobs; the job text is the user's, in their language, so they can read and change it. */
@@ -284,49 +285,6 @@ function SkillSwitches({ agent }: { agent: Agent }) {
 }
 
 /** A note file on the assistants' shared desk: read it, change it, save it. */
-function NoteEditor({ path, label, help }: { path: string; label: string; help: string }) {
-  const [text, setText] = useState<string>();
-  const [saved, setSaved] = useState(false);
-  useEffect(() => {
-    void getApi()
-      .read("assistants", path)
-      .then(
-        (r) => setText(r.content),
-        () => setText(""),
-      );
-  }, [path]);
-  if (text === undefined) return null;
-  return (
-    <Field label={label} help={help}>
-      <textarea
-        rows={5}
-        value={text}
-        onInput={(e) => {
-          setSaved(false);
-          setText((e.target as HTMLTextAreaElement).value);
-        }}
-      />
-      <div class="row">
-        <button
-          type="button"
-          class="tiny"
-          onClick={() =>
-            void attempt(() => getApi().write("assistants", path, text)).then(
-              (r) => r && setSaved(true),
-            )
-          }
-        >
-          {t("save")}
-        </button>
-        {saved && (
-          <span class="chip ok">
-            <IconCheck size={12} /> {t("saved")}
-          </span>
-        )}
-      </div>
-    </Field>
-  );
-}
 
 /** One assistant: talk to it, its job, its services, its notes, its routines. */
 export function AssistantPage({ agentId }: { agentId: string | null }) {
@@ -473,12 +431,13 @@ export function AssistantPage({ agentId }: { agentId: string | null }) {
       )}
 
       <h3>{t("asstMemory")}</h3>
-      <NoteEditor
-        path={`memory/${a.id}.md`}
+      <NotesEditor
+        scope="self"
+        agentId={a.id}
         label={t("asstOwnNotes", { name: a.name })}
         help={t("asstOwnNotesHelp")}
       />
-      <NoteEditor path="memory/shared.md" label={t("asstShared")} help={t("asstSharedHelp")} />
+      <NotesEditor scope="user" label={t("asstShared")} help={t("asstSharedHelp")} />
 
       <h3>{t("asstSkills")}</h3>
       <p class="ui-help">{t("asstSkillsHelp")}</p>

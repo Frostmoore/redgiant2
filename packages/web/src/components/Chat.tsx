@@ -29,6 +29,7 @@ import {
   inheritedModel,
   openBoard,
   openCanvas,
+  openSession,
   openTab,
   questions,
   refresh,
@@ -119,6 +120,85 @@ function Todos({ items, running }: { items: ChatItem[]; running: boolean }) {
         </ol>
       )}
     </div>
+  );
+}
+
+/**
+ * A message of the person's, with "Edit": the edited text goes to a copy of the conversation up
+ * to that point (2026-11-05, as LibreChat, Zed and Claude Code's /branch); the original stays.
+ */
+function UserItem({
+  item,
+  agentId,
+  sessionId,
+}: {
+  item: Extract<ChatItem, { kind: "user" }>;
+  agentId: string;
+  sessionId: string;
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const seq = Number(item.key.replace(/^e/, ""));
+  const fork = async (text: string) => {
+    const r = await attempt(() => getApi().forkSession(sessionId, seq));
+    if (!r) return;
+    openSession({ id: r.sessionId, agentId, title: null });
+    getLive().send({ type: "session.send", sessionId: r.sessionId, text });
+    setEditing(null);
+  };
+  if (editing !== null)
+    return (
+      <form
+        class="bubble user editing"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (editing.trim()) void fork(editing.trim());
+        }}
+      >
+        <textarea
+          value={editing}
+          rows={3}
+          onInput={(e) => setEditing((e.target as HTMLTextAreaElement).value)}
+        />
+        <div class="row">
+          <span class="ui-help">{t("editForks")}</span>
+          <div class="spacer" />
+          <button type="button" class="link" onClick={() => setEditing(null)}>
+            {t("cancel")}
+          </button>
+          <button type="submit" class="primary" disabled={!editing.trim()}>
+            {t("editSend")}
+          </button>
+        </div>
+      </form>
+    );
+  return (
+    <>
+      {item.from && <div class="from">{item.from}</div>}
+      <div class="bubble user">
+        <Images images={item.images} />
+        {splitAttachments(item.text).text}
+        {splitAttachments(item.text).names.length > 0 && (
+          <div class="attachments">
+            {splitAttachments(item.text).names.map((n) => (
+              <span key={n} class="attachment">
+                <IconFile size={13} />
+                <span>{n}</span>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div class="time">{time(item.ts)}</div>
+      {!item.from && Number.isFinite(seq) && (
+        <button
+          type="button"
+          class="link edit-message"
+          onClick={() => setEditing(splitAttachments(item.text).text)}
+        >
+          {t("editMessage")}
+        </button>
+      )}
+    </>
   );
 }
 
@@ -327,26 +407,7 @@ function Item({
 }) {
   switch (item.kind) {
     case "user":
-      return (
-        <>
-          {item.from && <div class="from">{item.from}</div>}
-          <div class="bubble user">
-            <Images images={item.images} />
-            {splitAttachments(item.text).text}
-            {splitAttachments(item.text).names.length > 0 && (
-              <div class="attachments">
-                {splitAttachments(item.text).names.map((n) => (
-                  <span key={n} class="attachment">
-                    <IconFile size={13} />
-                    <span>{n}</span>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-          <div class="time">{time(item.ts)}</div>
-        </>
-      );
+      return <UserItem item={item} agentId={agentId} sessionId={sessionId} />;
     case "assistant":
       return (
         <div class="bubble assistant">

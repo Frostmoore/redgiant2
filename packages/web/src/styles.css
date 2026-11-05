@@ -5493,3 +5493,26 @@ textarea.instructions {
 .permission-why input {
   flex: 1;
 }
+
+/* Edit a message: a copy of the conversation from there (2026-11-05). */
+.edit-message {
+  align-self: flex-end;
+  font-size: 12px;
+  opacity: 0;
+}
+.bubble.user:hover + .time + .edit-message,
+.edit-message:hover,
+.edit-message:focus {
+  opacity: 1;
+}
+.bubble.user.editing {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(100%, 640px);
+}
+.bubble.user.editing textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+}

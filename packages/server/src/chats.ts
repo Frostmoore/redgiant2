@@ -83,7 +83,16 @@ export class Outlets {
     // One platform failing does not keep the message from the others.
     this.core.notify = async (owner, text, to) => {
       const chosen = [...this.all].filter(([name]) => !to || to.includes(name));
-      await Promise.allSettled(chosen.map(([, o]) => o.notify(owner, text)));
+      const results = await Promise.allSettled(chosen.map(([, o]) => o.notify(owner, text)));
+      return {
+        delivered: chosen.filter((_, i) => results[i]?.status === "fulfilled").map(([n]) => n),
+        failed: chosen.flatMap(([n], i) => {
+          const r = results[i];
+          return r?.status === "rejected"
+            ? [{ to: n, reason: r.reason instanceof Error ? r.reason.message : String(r.reason) }]
+            : [];
+        }),
+      };
     };
     this.core.sendPhoto = async (owner, png, caption) => {
       await Promise.allSettled(

@@ -1,9 +1,9 @@
-// Voice messages (G20.2): audio from the browser or Telegram becomes text before it reaches an
+// Voice messages (G20.2): audio from the browser or the chats becomes text before it reaches an
 // agent. Two kinds of service: whisper-asr-webservice (self-hosted, converts any format with its
 // own ffmpeg) and any OpenAI-compatible `/audio/transcriptions` endpoint (OpenAI, Groq,
 // whisper.cpp's server, speaches…).
 
-import { oggOpusToWav } from "./local-voice.js";
+import { forWhisperCpp, sniffAudio } from "./local-voice.js";
 
 export interface TranscriptionConfig {
   /** "local": whisper.cpp on this computer (RedGiant 3.0), started by RedGiant itself. */
@@ -23,14 +23,34 @@ const EXTENSIONS: Record<string, string> = {
   "audio/ogg": "ogg",
   "audio/opus": "ogg",
   "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
   "audio/mp4": "m4a",
+  "audio/m4a": "m4a",
   "audio/x-m4a": "m4a",
-  "audio/aac": "aac",
+  // OpenAI refuses ".aac"; ffmpeg behind it reads the content whatever the name.
+  "audio/aac": "m4a",
+  "audio/x-aac": "m4a",
+  "video/mp4": "mp4",
   "audio/webm": "webm",
   "video/webm": "webm",
   "audio/wav": "wav",
   "audio/x-wav": "wav",
+  "audio/wave": "wav",
   "audio/flac": "flac",
+  "audio/x-flac": "flac",
+};
+
+/** The type and file name to send, from the content when it is recognisable. */
+const BY_CONTENT: Record<string, [string, string]> = {
+  wav: ["audio/wav", "wav"],
+  mp3: ["audio/mpeg", "mp3"],
+  flac: ["audio/flac", "flac"],
+  "ogg-opus": ["audio/ogg", "ogg"],
+  "ogg-vorbis": ["audio/ogg", "ogg"],
+  ogg: ["audio/ogg", "ogg"],
+  webm: ["audio/webm", "webm"],
+  mp4: ["audio/mp4", "m4a"],
+  aac: ["audio/mp4", "m4a"],
 };
 
 /** Turns an audio clip into text. Throws `TranscriptionError` with a readable message. */
@@ -38,20 +58,25 @@ export async function transcribe(
   audio: Uint8Array,
   mime: string,
   cfg: TranscriptionConfig,
-  opts: { language?: string; fetch?: typeof fetch; timeoutMs?: number } = {},
+  opts: { language?: string; fetch?: typeof fetch; timeoutMs?: number; ffmpeg?: string } = {},
 ): Promise<string> {
   if (audio.length === 0) throw new TranscriptionError("The recording is empty");
   if (audio.length > MAX_AUDIO_BYTES) throw new TranscriptionError("The recording is too long");
   let type = mime.split(";")[0]?.trim().toLowerCase() || "application/octet-stream";
-  // whisper.cpp reads WAV, not Opus: voice notes from the chats are decoded here first.
-  if (cfg.api === "local" && (type === "audio/ogg" || type === "audio/opus")) {
-    audio = await oggOpusToWav(audio).catch(() => {
-      throw new TranscriptionError("This voice note could not be decoded");
-    });
-    type = "audio/wav";
+  // whisper.cpp reads WAV, MP3, FLAC and Ogg/Vorbis only: the rest is converted here first.
+  if (cfg.api === "local") {
+    ({ audio, type } = await forWhisperCpp(
+      audio,
+      type,
+      opts.ffmpeg ? { ffmpeg: opts.ffmpeg } : {},
+    ).catch((err) => {
+      throw new TranscriptionError((err as Error).message);
+    }));
   }
+  const known = BY_CONTENT[sniffAudio(audio)];
+  if (known) type = known[0];
   const file = new Blob([new Uint8Array(audio)], { type });
-  const name = `voice.${EXTENSIONS[type] ?? "bin"}`;
+  const name = `voice.${known?.[1] ?? EXTENSIONS[type] ?? "bin"}`;
   const base = cfg.url.replace(/\/+$/, "");
   const body = new FormData();
   let url: string;

@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { lstat, mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { EventStore, SqlClient } from "@redgiant/events";
 import { LocalWorkspace, type Workspace } from "@redgiant/tools";
 import { z } from "zod";
 import { CustomToolSpec, RESERVED, runCustomTool, ToolTest } from "./customtools.js";
-import { NAME_RE, renderSkillMd } from "./skills.js";
+import { COMPATIBILITY_MAX, DESCRIPTION_MAX, NAME_RE, renderSkillMd } from "./skills.js";
 
 export const ProposalInput = z.discriminatedUnion("kind", [
   z.object({
@@ -16,9 +16,16 @@ export const ProposalInput = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("skill"),
-    name: z.string().regex(NAME_RE),
-    description: z.string().min(10),
+    name: z
+      .string()
+      .regex(NAME_RE, "1-64 lowercase letters, digits and single hyphens, no hyphen at either end"),
+    description: z.string().min(10).max(DESCRIPTION_MAX),
     body: z.string().min(20),
+    /** Optional agentskills.io fields, written to SKILL.md when present. */
+    license: z.string().min(1).max(200).optional(),
+    compatibility: z.string().min(1).max(COMPATIBILITY_MAX).optional(),
+    metadata: z.record(z.string(), z.string()).optional(),
+    allowedTools: z.string().min(1).max(1000).optional(),
     files: z.record(z.string(), z.string()).default({}),
     /** Commands that must exit 0 in a folder holding the skill's files. */
     tests: z.array(z.object({ command: z.string().min(1) })).default([]),
@@ -138,7 +145,25 @@ export class ExtensionBuilder {
     const id = `prop_${randomUUID().slice(0, 8)}`;
     const report = await this.test(id, input);
     const passed = report.every((r) => r.passed);
-    const status: ProposalStatus = !passed ? "failed" : o.autoInstall ? "installed" : "pending";
+    let status: ProposalStatus = !passed ? "failed" : o.autoInstall ? "installed" : "pending";
+    // An agent's skill installed by itself (G29.4) never replaces one that exists: that waits.
+    if (status === "installed" && o.author !== "human" && (await this.exists(o, input))) {
+      status = "pending";
+      report.push({
+        name: "existing skill",
+        passed: true,
+        detail: `A skill named "${name}" is already installed: replacing it waits for the user's approval.`,
+      });
+    }
+    // "installed" is recorded only once the files are in place.
+    if (status === "installed") {
+      try {
+        await this.install(o.ownerId, o.projectId, input);
+      } catch (err) {
+        status = "failed";
+        report.push({ name: "install", passed: false, detail: (err as Error).message });
+      }
+    }
     await this.o.db.query(
       "INSERT INTO rg_proposals (id, owner_id, project_id, kind, name, author, input, status, report) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
       [
@@ -168,7 +193,6 @@ export class ExtensionBuilder {
         },
       },
     });
-    if (status === "installed") await this.install(o.ownerId, o.projectId, input);
     return (await this.get(o.ownerId, id)) as Proposal;
   }
 
@@ -215,6 +239,18 @@ export class ExtensionBuilder {
     }
   }
 
+  private async exists(
+    o: { ownerId: string; projectId: string | null },
+    input: z.output<typeof ProposalInput>,
+  ): Promise<boolean> {
+    const root = await this.o.installRoot(o.ownerId, o.projectId);
+    const name = input.kind === "tool" ? input.spec.name : input.name;
+    return lstat(join(root, input.kind === "tool" ? "tools" : "skills", name)).then(
+      () => true,
+      () => false,
+    );
+  }
+
   private async install(
     ownerId: string,
     projectId: string | null,
@@ -229,7 +265,6 @@ export class ExtensionBuilder {
     if (input.kind === "tool")
       await writeFile(join(dir, "tool.json"), JSON.stringify(input.spec, null, 2));
     else await writeFile(join(dir, "SKILL.md"), renderSkillMd(input));
-    void dirname;
   }
 
   async get(ownerId: string, id: string): Promise<Proposal | undefined> {

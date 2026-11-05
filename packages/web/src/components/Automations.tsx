@@ -17,6 +17,16 @@ const chipClass = (s: AutomationRun["status"]) =>
   s === "ok" ? "resolved" : s === "running" || s === "skipped" ? "" : "blocked";
 const when = (iso: string) => new Date(iso).toLocaleString();
 
+/** Whether a run's message reached the person (Telegram, the web…), in words. */
+function deliveryText(d: NonNullable<AutomationRun["delivery"]>): string {
+  if (d.status === "delivered") {
+    const to = d.to.filter((x) => x !== "chats").join(", ");
+    return to ? t("deliveryDeliveredTo", { to }) : t("deliveryDelivered");
+  }
+  if (d.status === "no-chat") return t("deliveryNoChat");
+  return t("deliveryFailed", { reason: d.reason ?? "" });
+}
+
 /** The agent a recipe talks to, as the server resolves it (for opening its sessions). */
 function agentOf(a: Automation): string {
   const r = a.recipe;
@@ -51,6 +61,14 @@ function Runs({ a }: { a: Automation }) {
               {r.finishedAt &&
                 ` · ${Math.max(1, Math.round((Date.parse(r.finishedAt) - Date.parse(r.startedAt)) / 1000))} s`}
             </span>
+            {r.delivery && (
+              <span
+                class={r.delivery.status === "delivered" ? "dim" : "status-chip blocked"}
+                title={r.delivery.reason}
+              >
+                {deliveryText(r.delivery)}
+              </span>
+            )}
             <div class="spacer" />
             {r.sessionId && (
               <button

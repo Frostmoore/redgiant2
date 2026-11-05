@@ -7,6 +7,7 @@ import {
   approvals,
   attempt,
   getApi,
+  notices,
   openSession,
   openTab,
   questions,
@@ -34,6 +35,45 @@ export function Bell({ close }: { close: () => void }) {
           <IconClose size={18} />
         </button>
       </div>
+      {notices.value.length > 0 && (
+        <>
+          <h3>
+            {t("automationNotices")} ({notices.value.length})
+          </h3>
+          {notices.value.map((n) => (
+            <div key={n.runId} class="card">
+              <div class="card-head">
+                <strong>{n.name}</strong>
+                {n.status !== "ok" && <span class="chip danger">{n.status}</span>}
+                {n.sessionId && (
+                  <button
+                    type="button"
+                    class="link"
+                    onClick={() => {
+                      const row = sessionRows.value.find((r) => r.id === n.sessionId);
+                      if (row) openSession(row);
+                      close();
+                    }}
+                  >
+                    {t("open")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  class="icon-button"
+                  title={t("dismiss")}
+                  onClick={() => {
+                    notices.value = notices.value.filter((x) => x.runId !== n.runId);
+                  }}
+                >
+                  <IconClose size={14} />
+                </button>
+              </div>
+              <div class="notice-text">{n.text}</div>
+            </div>
+          ))}
+        </>
+      )}
       <h3>
         {t("permissions")} ({approvals.value.length})
       </h3>

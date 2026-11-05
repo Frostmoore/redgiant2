@@ -57,6 +57,41 @@ describe("transcribe", () => {
     ]);
   });
 
+  it("names AAC so that OpenAI takes it (it refuses .aac)", async () => {
+    const { f, seen } = recorder(() => new Response("ok"));
+    await transcribe(audio, "audio/aac", { api: "openai", url: "http://x" }, { fetch: f });
+    const adts = new Uint8Array([0xff, 0xf1, 0x50, 0x80]);
+    await transcribe(
+      adts,
+      "application/octet-stream",
+      { api: "openai", url: "http://x" },
+      { fetch: f },
+    );
+    const names = seen.map((s) => ((s.init.body as FormData).get("file") as File).name);
+    expect(names).toEqual(["voice.m4a", "voice.m4a"]);
+  });
+
+  it("gives whisper.cpp a WAV for an Opus voice note, and says when ffmpeg is needed", async () => {
+    const { f, seen } = recorder(() => new Response("ciao"));
+    const opus = await readFile(new URL("./fixtures/tone.opus", import.meta.url));
+    const local = { api: "local", url: "http://127.0.0.1:1/v1" } as const;
+    expect(await transcribe(opus, "audio/ogg", local, { fetch: f })).toBe("ciao");
+    const file = (seen[0]?.init.body as FormData | undefined)?.get("file") as File;
+    expect([file.name, file.type]).toEqual(["voice.wav", "audio/wav"]);
+    expect(file.size).toBe(44 + 16000 * 2);
+    const m4a = new Uint8Array([0, 0, 0, 0x20, ...Buffer.from("ftypM4A ")]);
+    const err = await transcribe(m4a, "audio/mp4", local, {
+      fetch: f,
+      ffmpeg: "/nonexistent/ffmpeg",
+    }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(TranscriptionError);
+    expect((err as Error).message).toMatch(/need ffmpeg on this computer/);
+    expect(seen).toHaveLength(1);
+  });
+
   it("explains failures in words", async () => {
     const refused = recorder(() => new Response("no", { status: 401 }));
     await expect(

@@ -1486,6 +1486,14 @@ const en = {
   thisChatHint: "Allow {tool} without asking again, in this conversation only",
   denyWhy: "Deny and say why",
   denyWhyPlaceholder: "What to do instead (the agent reads it)",
+  editMessage: "Edit",
+  editForks:
+    "The edited message starts a copy of this conversation from here; this one stays as it is.",
+  editSend: "Send",
+  notesOwn: "What {name} remembers",
+  notesOwnHelp: "Its own notes, kept between conversations; new conversations read them.",
+  notesProject: "What the project's agents remember",
+  notesProjectHelp: "Notes shared by every agent working on this project.",
   chats: "Other chats",
   chatsHint:
     "Talk to Demi-God from Discord, Slack, Signal or WhatsApp too. It is one conversation: begun on Telegram or here, it goes on wherever you write. Approvals and questions arrive with buttons (on Signal, with numbers to reply).",
@@ -1603,6 +1611,8 @@ const en = {
   mode_readonly: "Read only",
   modelHint: "The model of this conversation (agents' models: Settings, Agents)",
   waitingForYou: "Waiting for you",
+  automationNotices: "Automation messages",
+  dismiss: "Dismiss",
   permissions: "Permissions",
   workingNow: "Working now",
   nothingRunning: "Nothing is running.",
@@ -1710,6 +1720,19 @@ const en = {
   releases: "Releases",
   metalWarning:
     "Metal mode: God works directly on this system. Every change it makes asks you first.",
+  deliveryDelivered: "delivered",
+  deliveryDeliveredTo: "delivered: {to}",
+  deliveryFailed: "not delivered: {reason}",
+  deliveryNoChat: "not delivered: no chat linked",
+  skillDownload: "Download",
+  skillDownloadHelp: "Download this skill as a .zip, to share it",
+  skillImport: "Import a skill",
+  skillImportHelp:
+    "A skill's folder as a .zip (the agentskills.io format), from another RedGiant or another tool.",
+  skillImportWhere: "Install in",
+  skillImportFile: "Choose a .zip file",
+  skillImported: 'Skill "{name}" imported.',
+  skillReplaceConfirm: "A skill with this name already exists there. Replace it?",
 } as const;
 
 export type Key = keyof typeof en;
@@ -3217,6 +3240,15 @@ const it: Record<Key, string> = {
   thisChatHint: "Consenti {tool} senza chiederlo più, solo in questa conversazione",
   denyWhy: "Nega e spiega perché",
   denyWhyPlaceholder: "Cosa fare invece (l'agente lo legge)",
+  editMessage: "Modifica",
+  editForks:
+    "Il messaggio modificato apre una copia di questa conversazione da qui; questa resta com'è.",
+  editSend: "Invia",
+  notesOwn: "Cosa ricorda {name}",
+  notesOwnHelp:
+    "Le sue note, tenute fra una conversazione e l'altra; le leggono le conversazioni nuove.",
+  notesProject: "Cosa ricordano gli agenti del progetto",
+  notesProjectHelp: "Note condivise da tutti gli agenti che lavorano a questo progetto.",
   chats: "Altre chat",
   chatsHint:
     "Parla con il Demi-God anche da Discord, Slack, Signal o WhatsApp. È una conversazione sola: cominciata su Telegram o qui, continua ovunque scrivi. Approvazioni e domande arrivano con i pulsanti (su Signal, con i numeri da rispondere).",
@@ -3336,6 +3368,8 @@ const it: Record<Key, string> = {
   mode_readonly: "Sola lettura",
   modelHint: "Il modello di questa conversazione (modelli degli agenti: Impostazioni, Agenti)",
   waitingForYou: "Da approvare",
+  automationNotices: "Messaggi delle automazioni",
+  dismiss: "Chiudi",
   permissions: "Permessi",
   workingNow: "Al lavoro adesso",
   nothingRunning: "Niente in corso.",
@@ -3444,6 +3478,19 @@ const it: Record<Key, string> = {
   releases: "Rilasci",
   metalWarning:
     "Modalità metallo: God lavora direttamente su questo sistema. Ogni sua modifica ti chiede prima il permesso.",
+  deliveryDelivered: "consegnata",
+  deliveryDeliveredTo: "consegnata: {to}",
+  deliveryFailed: "non consegnata: {reason}",
+  deliveryNoChat: "non consegnata: nessuna chat collegata",
+  skillDownload: "Scarica",
+  skillDownloadHelp: "Scarica questa skill come .zip, per condividerla",
+  skillImport: "Importa una skill",
+  skillImportHelp:
+    "La cartella di una skill come .zip (il formato agentskills.io), da un altro RedGiant o da un altro strumento.",
+  skillImportWhere: "Installa in",
+  skillImportFile: "Scegli un file .zip",
+  skillImported: "Skill «{name}» importata.",
+  skillReplaceConfirm: "Lì c'è già una skill con questo nome. La sostituisco?",
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, it };

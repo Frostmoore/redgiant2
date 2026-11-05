@@ -2,9 +2,11 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import type { EventStore, SqlClient } from "@redgiant/events";
 import type {
   Automation,
+  AutomationDelivery,
   AutomationRun,
   AutomationRunStatus,
   AutomationTrigger,
+  NotifyReport,
   Recipe,
 } from "@redgiant/protocol";
 import { nextRun, parseRecipe, RecipeError } from "./recipe.js";
@@ -15,8 +17,24 @@ export interface AutomationHost {
   validate(ownerId: string, recipe: Recipe): Promise<void>;
   /** Gives the instructions to the recipe's agent and waits for the end of its turn. */
   run(ownerId: string, recipe: Recipe, ctx: RunContext): Promise<RunOutcome>;
-  /** Tells the user (Telegram…); failures are ignored. */
-  notify?(ownerId: string, text: string, to?: string[]): Promise<void>;
+  /**
+   * Tells the person on their chats (Telegram…); `to` picks some of them, all when not set.
+   * Undefined when no chat is linked. A report says where it arrived (nothing arrived anywhere
+   * when both lists are empty: no chat linked); without one the message counts as delivered.
+   */
+  // biome-ignore lint/suspicious/noConfusingVoidType: a host without a report returns nothing.
+  notify?(ownerId: string, text: string, to?: string[]): Promise<NotifyReport | void>;
+  /** Shows a run's message in the web app (recipes with `notify.to: [web]`). */
+  notice?(ownerId: string, text: string, info: NoticeInfo): Promise<void> | void;
+}
+
+/** Which run a web notice is about. */
+export interface NoticeInfo {
+  automationId: string;
+  name: string;
+  runId: string;
+  status: AutomationRunStatus;
+  sessionId: string | null;
 }
 
 export interface RunContext {
@@ -45,6 +63,8 @@ export interface AutomationServiceOptions {
   maxSleepMs?: number;
   /** For tests: how long a minute of `timeoutMinutes` lasts (default 60 000 ms). */
   minuteMs?: number;
+  /** Where scheduler failures are written besides the run history (default: console.error). */
+  logError?: (message: string, err: unknown) => void;
 }
 
 export class AutomationNotFoundError extends Error {}
@@ -77,6 +97,7 @@ export async function migrateAutomations(db: SqlClient): Promise<void> {
       started_at    timestamptz NOT NULL,
       finished_at   timestamptz
     )`);
+  await db.query("ALTER TABLE rg_automation_runs ADD COLUMN IF NOT EXISTS delivery jsonb");
   await db.query(
     "CREATE INDEX IF NOT EXISTS rg_automation_runs_recent ON rg_automation_runs (automation_id, started_at DESC)",
   );
@@ -104,6 +125,7 @@ interface RunRow {
   summary: string;
   started_at: Date | string;
   finished_at: Date | string | null;
+  delivery?: AutomationDelivery | string | null;
 }
 
 const iso = (d: Date | string) => new Date(d).toISOString();
@@ -118,7 +140,19 @@ const toRun = (r: RunRow): AutomationRun => ({
   summary: r.summary,
   startedAt: iso(r.started_at),
   finishedAt: r.finished_at ? iso(r.finished_at) : null,
+  delivery: typeof r.delivery === "string" ? JSON.parse(r.delivery) : (r.delivery ?? null),
 });
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/** A run that could not start; `recorded` when its row already says why. */
+class RunNotStarted extends Error {
+  constructor(
+    cause: unknown,
+    readonly recorded: boolean,
+  ) {
+    super(message(cause), { cause });
+  }
+}
 
 /** Longest answer kept in the run history (the whole turn stays in the session). */
 const MAX_SUMMARY = 20_000;
@@ -368,6 +402,7 @@ export class AutomationService {
     if (!busy) this.running.set(row.id, { controller, done: finished });
     const status: AutomationRunStatus = busy ? "skipped" : "running";
     const startedAt = this.now();
+    let inserted = false;
     try {
       await this.o.db.query(
         `INSERT INTO rg_automation_runs (id, automation_id, owner_id, trigger, status, summary, started_at, finished_at)
@@ -383,13 +418,27 @@ export class AutomationService {
           busy ? startedAt : null,
         ],
       );
+      inserted = true;
       await this.log(row, recipe, runId, trigger, status, null);
     } catch (err) {
       if (!busy) {
         this.running.delete(row.id);
         release();
       }
-      throw err;
+      // A run row left "running" would stay so until the next restart: close it with the reason.
+      const recorded =
+        inserted &&
+        (await this.o.db
+          .query(
+            "UPDATE rg_automation_runs SET status = 'failed', summary = $2, finished_at = $3 WHERE id = $1",
+            [runId, `This run could not start: ${message(err)}`, this.now()],
+          )
+          .then(
+            () => true,
+            () => false,
+          ));
+      if (recorded) this.changed(row.owner_id, row.id);
+      throw new RunNotStarted(err, recorded);
     }
     this.changed(row.owner_id, row.id);
     const run = await this.getRun(runId);
@@ -475,8 +524,94 @@ export class AutomationService {
           : summary
             ? `${head}\n\n${summary}`
             : head;
-      await this.o.host.notify?.(row.owner_id, text, recipe.notify.to).catch(() => {});
+      const delivery = await this.deliver(row.owner_id, text, recipe.notify.to, {
+        automationId: row.id,
+        name: recipe.name,
+        runId,
+        status: outcome.status,
+        sessionId,
+      });
+      await this.o.db
+        .query("UPDATE rg_automation_runs SET delivery = $2::jsonb WHERE id = $1", [
+          runId,
+          JSON.stringify(delivery),
+        ])
+        .then(() => this.changed(row.owner_id, row.id))
+        .catch((err) => this.fail(`run ${runId}: delivery not recorded`, err));
     }
+  }
+
+  /** Sends a run's message where the recipe says and tells where it arrived. Never throws. */
+  private async deliver(
+    ownerId: string,
+    text: string,
+    to: string[] | undefined,
+    info: NoticeInfo,
+  ): Promise<AutomationDelivery> {
+    const delivered: string[] = [];
+    const failed: string[] = [];
+    let noChat = false;
+    if (to?.includes("web")) {
+      if (!this.o.host.notice) failed.push("web: not available");
+      else
+        await Promise.resolve()
+          .then(() => this.o.host.notice?.(ownerId, text, info))
+          .then(
+            () => delivered.push("web"),
+            (err) => failed.push(`web: ${message(err)}`),
+          );
+    }
+    const chats = to?.filter((c) => c !== "web");
+    if (!chats || chats.length > 0) {
+      if (!this.o.host.notify) noChat = true;
+      else {
+        try {
+          const r = await this.o.host.notify(ownerId, text, chats);
+          if (r) {
+            delivered.push(...r.delivered);
+            failed.push(...r.failed.map((f) => `${f.to}: ${f.reason}`));
+            if (r.delivered.length === 0 && r.failed.length === 0) noChat = true;
+          } else delivered.push(...(chats ?? ["chats"]));
+        } catch (err) {
+          failed.push(message(err));
+        }
+      }
+    }
+    const reasons = [...failed, ...(noChat ? ["no chat linked"] : [])];
+    return {
+      status: delivered.length > 0 ? "delivered" : failed.length > 0 ? "failed" : "no-chat",
+      to: delivered,
+      ...(reasons.length > 0 && { reason: reasons.join("; ") }),
+    };
+  }
+
+  /**
+   * A scheduled run that could not happen (a broken recipe, the database): written on the
+   * automation's history so the person sees it, and logged. Never throws.
+   */
+  private async recordFailure(row: Row, trigger: AutomationTrigger, err: unknown) {
+    this.fail(`automation ${row.name} (${row.id})`, err);
+    if (err instanceof RunNotStarted && err.recorded) return;
+    const at = this.now();
+    await this.o.db
+      .query(
+        `INSERT INTO rg_automation_runs (id, automation_id, owner_id, trigger, status, summary, started_at, finished_at)
+       VALUES ($1, $2, $3, $4, 'failed', $5, $6, $6)`,
+        [
+          `run_${randomUUID().slice(0, 12)}`,
+          row.id,
+          row.owner_id,
+          trigger,
+          `This run could not happen: ${message(err)}`.slice(0, MAX_SUMMARY),
+          at,
+        ],
+      )
+      .then(() => this.changed(row.owner_id, row.id))
+      .catch((e) => this.fail(`automation ${row.id}: failure not recorded`, e));
+  }
+
+  private fail(what: string, err: unknown) {
+    (this.o.logError ?? ((m, e) => console.error(m, e)))(`automations: ${what}`, err);
   }
 
   private log(
@@ -512,66 +647,107 @@ export class AutomationService {
    * server was down happen once now if the recipe says `missed: run`.
    */
   async start(): Promise<void> {
-    await this.o.db.query(
-      `UPDATE rg_automation_runs SET status = 'failed', summary = 'Interrupted: the server stopped during the run.', finished_at = $1
+    let failed = false;
+    try {
+      await this.o.db
+        .query(
+          `UPDATE rg_automation_runs SET status = 'failed', summary = 'Interrupted: the server stopped during the run.', finished_at = $1
        WHERE status = 'running'`,
-      [this.now()],
-    );
-    const now = this.now();
-    const late = await this.o.db.query<Row>(
-      "SELECT * FROM rg_automations WHERE enabled AND next_run_at IS NOT NULL AND next_run_at < $1",
-      [now],
-    );
-    for (const row of late) {
-      const recipe = parseRecipe(row.yaml);
-      await this.o.db.query("UPDATE rg_automations SET next_run_at = $2 WHERE id = $1", [
-        row.id,
-        nextRun(recipe, now),
-      ]);
-      if (recipe.missed === "run") await this.trigger(row, "missed");
+          [this.now()],
+        )
+        .catch((err) => this.fail("closing interrupted runs", err));
+      const now = this.now();
+      const late = await this.o.db.query<Row>(
+        "SELECT * FROM rg_automations WHERE enabled AND next_run_at IS NOT NULL AND next_run_at < $1",
+        [now],
+      );
+      for (const row of late) if (!(await this.due(row, now, "missed"))) failed = true;
+    } catch (err) {
+      failed = true;
+      this.fail("start", err);
+    } finally {
+      // Whatever went wrong, the schedule goes on.
+      this.started = true;
+      this.rearm(failed);
     }
-    this.started = true;
-    this.rearm();
   }
 
   /** Runs every recipe that is due at `now`, then points the timer at the next one. */
   async tick(): Promise<void> {
-    const now = this.now();
-    const due = await this.o.db.query<Row>(
-      "SELECT * FROM rg_automations WHERE enabled AND next_run_at IS NOT NULL AND next_run_at <= $1 ORDER BY next_run_at",
-      [now],
-    );
-    for (const row of due) {
-      const recipe = parseRecipe(row.yaml);
+    let failed = false;
+    try {
+      const now = this.now();
+      const due = await this.o.db.query<Row>(
+        "SELECT * FROM rg_automations WHERE enabled AND next_run_at IS NOT NULL AND next_run_at <= $1 ORDER BY next_run_at",
+        [now],
+      );
+      for (const row of due) if (!(await this.due(row, now, "cron"))) failed = true;
+    } catch (err) {
+      failed = true;
+      this.fail("tick", err);
+    } finally {
+      this.rearm(failed);
+    }
+  }
+
+  /**
+   * One recipe whose time has come (`missed`: while the server was down). Its failure stays
+   * its own: written on its history, the other recipes still run. False when it failed.
+   */
+  private async due(row: Row, now: Date, trigger: "cron" | "missed"): Promise<boolean> {
+    let recipe: Recipe;
+    try {
+      recipe = parseRecipe(row.yaml);
+    } catch (err) {
+      // Unreadable (e.g. written by an older version): no next time until the person edits it.
+      await this.o.db
+        .query("UPDATE rg_automations SET next_run_at = NULL WHERE id = $1", [row.id])
+        .catch((e) => this.fail(`automation ${row.id}: schedule not cleared`, e));
+      await this.recordFailure(row, trigger, err);
+      return false;
+    }
+    try {
       // Next time is computed from now: a late tick never fires a burst of catch-up runs.
       await this.o.db.query("UPDATE rg_automations SET next_run_at = $2 WHERE id = $1", [
         row.id,
         nextRun(recipe, now),
       ]);
-      await this.trigger(row, "cron");
+      if (trigger === "cron" || recipe.missed === "run") await this.trigger(row, trigger);
+      return true;
+    } catch (err) {
+      await this.recordFailure(row, trigger, err);
+      return false;
     }
-    this.rearm();
   }
 
-  private rearm() {
+  /**
+   * Points the timer at the next due recipe. After a failure it waits at least `maxSleepMs`,
+   * so a recipe whose schedule could not be moved on is retried, not fired in a tight loop.
+   */
+  private rearm(afterFailure = false) {
     if (!this.started) return;
     clearTimeout(this.timer);
+    const max = this.o.maxSleepMs ?? 60_000;
+    const arm = (wait: number) => {
+      if (!this.started) return;
+      clearTimeout(this.timer);
+      this.timer = setTimeout(
+        () => void this.tick(),
+        afterFailure ? max : Math.max(0, Math.min(wait, max)),
+      );
+      this.timer.unref?.();
+    };
     void this.o.db
       .query<{ next: Date | string | null }>(
         "SELECT min(next_run_at) AS next FROM rg_automations WHERE enabled AND next_run_at IS NOT NULL",
       )
-      .then(([r]) => {
-        if (!this.started) return;
-        const max = this.o.maxSleepMs ?? 60_000;
-        const wait = r?.next ? new Date(r.next).getTime() - this.now().getTime() : max;
-        clearTimeout(this.timer);
-        this.timer = setTimeout(
-          () => void this.tick().catch((err) => console.error("automations:", err)),
-          Math.max(0, Math.min(wait, max)),
-        );
-        this.timer.unref?.();
-      })
-      .catch(() => {});
+      .then(
+        ([r]) => arm(r?.next ? new Date(r.next).getTime() - this.now().getTime() : max),
+        (err) => {
+          this.fail("rearm", err);
+          arm(max);
+        },
+      );
   }
 
   /** Every run that is going right now has finished. */

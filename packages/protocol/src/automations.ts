@@ -3,6 +3,10 @@ import { Effort } from "./agents.js";
 
 export const RECIPE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
+/** Where a run's message can go: the person's chats, and `web` (a notice in the web app). */
+export const NotifyTarget = z.enum(["telegram", "discord", "slack", "signal", "whatsapp", "web"]);
+export type NotifyTarget = z.infer<typeof NotifyTarget>;
+
 /**
  * An automation, written by the user as YAML: when it runs, which agent does the work and what
  * it is asked. The agent keeps its own tools and permissions; a recipe never changes them.
@@ -64,11 +68,11 @@ export const Recipe = z
     notify: z
       .object({
         when: z.enum(["always", "failure", "never"]).default("always"),
-        /** Where (G29.6): some of the person's chats; every linked one when not set. */
-        to: z
-          .array(z.enum(["telegram", "discord", "slack", "signal", "whatsapp"]))
-          .min(1)
-          .optional(),
+        /**
+         * Where (G29.6): some of the person's chats; every linked one when not set. `web` also
+         * shows the message in the web app, as a notice.
+         */
+        to: z.array(NotifyTarget).min(1).optional(),
       })
       .default({ when: "always" }),
   })
@@ -78,6 +82,23 @@ export const Recipe = z
     path: ["instructions"],
   });
 export type Recipe = z.infer<typeof Recipe>;
+
+/**
+ * Whether a run's message reached the person: `delivered` (somewhere, `to` says where; `reason`
+ * lists the places that failed), `failed` (nowhere), `no-chat` (no chat linked for the targets).
+ */
+export const AutomationDelivery = z.object({
+  status: z.enum(["delivered", "failed", "no-chat"]),
+  to: z.array(z.string()),
+  reason: z.string().optional(),
+});
+export type AutomationDelivery = z.infer<typeof AutomationDelivery>;
+
+/** What the host's `notify` may say about a message: where it arrived and where it failed. */
+export interface NotifyReport {
+  delivered: string[];
+  failed: { to: string; reason: string }[];
+}
 
 export const AutomationTrigger = z.enum(["cron", "webhook", "manual", "missed", "email"]);
 export type AutomationTrigger = z.infer<typeof AutomationTrigger>;
@@ -95,6 +116,8 @@ export const AutomationRun = z.object({
   summary: z.string(),
   startedAt: z.string(),
   finishedAt: z.string().nullable(),
+  /** Whether its message reached the person; null when none was due (or not yet sent). */
+  delivery: AutomationDelivery.nullable().optional(),
 });
 export type AutomationRun = z.infer<typeof AutomationRun>;
 

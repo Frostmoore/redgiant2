@@ -138,6 +138,16 @@ export const ServerMessage = z.discriminatedUnion("type", [
   }),
   /** An automation was edited or one of its runs started or ended: clients reload the list. */
   z.object({ type: z.literal("automations.changed"), automationId: z.string() }),
+  /** An automation's message for the web page (`notify.to: [web]`). */
+  z.object({
+    type: z.literal("automation.notice"),
+    automationId: z.string(),
+    runId: z.string(),
+    name: z.string(),
+    status: z.string(),
+    sessionId: z.string().nullable(),
+    text: z.string(),
+  }),
   /** The agents' browser (G24.14b): a frame of its screen (JPEG, base64), and who drives it. */
   z.object({
     type: z.literal("browser.frame"),
