@@ -154,29 +154,10 @@ jobs:
       - run: pnpm install --frozen-lockfile && pnpm build
       - name: The certificate, in a keychain of this run only
         env:
-          P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
-          P12_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
-          NOTARY_KEY: ${{ secrets.MAC_NOTARY_KEY }}
-        run: |
-          set -euo pipefail
-          if [ -z "$P12" ]; then echo "No certificate: the app is signed ad-hoc"; exit 0; fi
-          kc="$RUNNER_TEMP/build.keychain-db"
-          pass="$(openssl rand -hex 16)"
-          security create-keychain -p "$pass" "$kc"
-          security set-keychain-settings -lut 3600 "$kc"
-          security unlock-keychain -p "$pass" "$kc"
-          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$P12_PASSWORD" -T /usr/bin/codesign
-          rm "$RUNNER_TEMP/cert.p12"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pass" "$kc" >/dev/null
-          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
-          id=$(security find-identity -v -p codesigning "$kc" | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/')
-          [ -n "$id" ] || { echo "No Developer ID Application identity in the certificate"; exit 1; }
-          echo "MAC_SIGN_IDENTITY=$id" >> "$GITHUB_ENV"
-          if [ -n "$NOTARY_KEY" ]; then
-            echo "$NOTARY_KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
-            echo "MAC_NOTARY_KEY=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
-          fi
+          MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          MAC_NOTARY_KEY: ${{ secrets.MAC_NOTARY_KEY }}
+        run: bash packaging/mac/keychain.sh
       - name: Build, sign, notarize
         env:
           MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}

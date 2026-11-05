@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - if: runner.os == 'Linux'
-        run: shellcheck install.sh docker/entrypoint.sh packaging/mac/build.sh
+        run: shellcheck install.sh docker/entrypoint.sh packaging/mac/build.sh packaging/mac/keychain.sh
       - if: runner.os == 'Linux'
         run: REDGIANT_TOKEN=x POSTGRES_PASSWORD=y docker compose config -q
       - if: runner.os == 'Windows'

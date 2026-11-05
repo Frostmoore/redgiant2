@@ -1,0 +1,44 @@
+# The Mac app signed and notarized, as a release would make it, but published nowhere: the .dmg
+# stays as this run's download for a few days (2026-11-05). Started by hand from Actions.
+name: Mac app (signed)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mac-app:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile && pnpm build
+      - name: The certificate, in a keychain of this run only
+        env:
+          MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          MAC_NOTARY_KEY: ${{ secrets.MAC_NOTARY_KEY }}
+        run: bash packaging/mac/keychain.sh
+      - name: Build, sign, notarize
+        env:
+          MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
+          MAC_NOTARY_ISSUER_ID: ${{ secrets.MAC_NOTARY_ISSUER_ID }}
+        run: bash packaging/mac/build.sh "0.0.0-$(git rev-parse --short HEAD)"
+      - name: What Gatekeeper says
+        run: |
+          spctl -a -vvv -t install packaging/mac/dist/RedGiant-mac-*.dmg || true
+          hdiutil attach packaging/mac/dist/RedGiant-mac-*.dmg -mountpoint /tmp/rg-dmg -nobrowse -quiet
+          spctl -a -vvv /tmp/rg-dmg/RedGiant.app || true
+          codesign -dv --verbose=2 /tmp/rg-dmg/RedGiant.app 2>&1 | grep -E "Authority|TeamIdentifier|Runtime" || true
+          hdiutil detach /tmp/rg-dmg -quiet
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RedGiant-mac-signed
+          path: packaging/mac/dist/RedGiant-mac-*.dmg
+          retention-days: 7
