@@ -847,6 +847,8 @@ describe("Hugging Face models", () => {
       "mtp-gemma-4-12b-it.gguf",
       "mmproj-F16.gguf",
       "imatrix_unsloth.gguf",
+      // NVIDIA's drafting model beside the real one: a "Q8_0" of 0.37 GB, chosen first otherwise.
+      "dflash-NVIDIA-Nemotron-3.5-Bolt-E4B-Q8_0.gguf",
       "BF16/Qwen3.8-27B-BF16-00001-of-00002.gguf",
       "gemma-4-12b-it-BF16.gguf",
       "gpt-oss-20b-F16.gguf",

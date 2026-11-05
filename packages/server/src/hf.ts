@@ -121,7 +121,8 @@ export function isModelFile(path: string): boolean {
   const name = p.split("/").pop() ?? p;
   return (
     p.endsWith(".gguf") &&
-    !/(^|\/)mtp[-/]|^mtp-|mmproj|imatrix/.test(p) &&
+    // dflash-…: NVIDIA's small drafting model next to the big one (2026-11-05), not the model.
+    !/(^|\/)mtp[-/]|^mtp-|(^|\/)dflash-|mmproj|imatrix/.test(p) &&
     !/-\d{5}-of-\d{5}\.gguf$/.test(name) &&
     !/\b(bf16|f16|f32)\b/.test(name.replace(/[-_.]/g, " "))
   );

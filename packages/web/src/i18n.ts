@@ -743,24 +743,8 @@ const en = {
   lmWarmHelp:
     "The model reads its first context and writes a few words. The first time on a new graphics card this takes minutes: the card prepares its programs once, and then it is fast.",
   lmShowActivation: "Show the activation",
-  "lm_qwen3-4b": "Small and quick: good with tools for its size, fine for simple jobs.",
-  "lm_qwen3-14b": "A solid all-rounder for 10 to 12 GB: reasons step by step.",
-  "lm_mistral-small-24b": "Mistral's: writes well in many languages, reliable with tools.",
-  "lm_devstral-small-24b":
-    "Mistral's model for programming agents: edits files and uses the terminal well.",
-  "lm_qwen3-30b-a3b":
-    "Large but fast (few parts work for each token): a good general model, great with SSD stream.",
-  "lm_qwen3-next-80b": "Big mixture of experts, very fast for its size: made for SSD stream.",
   "lm_glm-4.5-air":
     "Among the strongest open models for code and tools; needs SSD stream on most computers.",
-  "lm_gpt-oss-120b":
-    "OpenAI's large open model: reasons and uses tools very well; with SSD stream on 32 GB of RAM or more.",
-  "lm_llama-3.3-70b":
-    "Meta's large dense model, steady in every language. Dense: each token reads all of it, so beyond the card it is slow; for computers with a lot of RAM, with speculative decoding.",
-  "lm_qwen2.5-72b":
-    "Alibaba's large dense model, good at code and reasoning. Dense: for computers with a lot of RAM, with speculative decoding.",
-  "lm_mistral-large-2411":
-    "Mistral's largest open model, excellent in European languages. Dense and very big: for workstations with 128 GB of RAM or more.",
   dbgTitle: "Diagnostics",
   dbgHelp:
     "Debug mode keeps a detailed log of everything RedGiant does: each step of starting a model with its times, the local engine's own messages, the requests, what the Windows program does. Turn it on when something is slow or goes wrong, repeat it, then download the logs and send them. It writes a lot (at most 300 MB, the oldest go first) and never writes passwords or keys.",
@@ -1031,6 +1015,16 @@ const en = {
   lmLoading: "Looking up the models…",
   lmRecommended: "recommended",
   lmInUse: "in use",
+  lmDownloadedTitle: "Downloaded models",
+  lmDownloadedNote: "{n} on the disk · {size}",
+  lmDownloadedHelp:
+    "Every model file in the folder ({size} in all), the biggest first. Deleting one frees its room at once; the suggested ones can be downloaded again.",
+  lmDownloadedEmpty: "No model downloaded yet.",
+  lmDownloadedPartial: "incomplete",
+  lmDownloadedBusy: "downloading",
+  lmDownloadedConfirm: "Delete {name}? It frees {size}.",
+  lmDownloadedConfirmActive:
+    "{name} is the model in use: the engine stops and the file is deleted ({size}). Go on?",
   lmQuality_high: "high quality",
   lmQuality_good: "good quality",
   lmQuality_reduced: "reduced quality, to fit",
@@ -1069,10 +1063,25 @@ const en = {
     "Google's smallest: quick even without a graphics card. Good for chatting and simple jobs.",
   "lm_gemma-4-e4b": "Small but able: chat, summaries, simple tasks with tools.",
   "lm_gemma-4-12b": "Writes and reasons well, in many languages; the right size for 8 to 12 GB.",
-  "lm_gpt-oss-20b": "OpenAI's open model: reasons step by step and uses tools well.",
+  "lm_qwen3.5-4b": "Small and recent: quick, good with tools for its size.",
+  "lm_nemotron-3.5-bolt-e4b":
+    "NVIDIA's, on Gemma 4: made for assistants and tools, speaks Italian.",
+  "lm_lfm2.5-8b-a1b": "Tiny mixture of experts: fast even on the processor alone.",
+  "lm_qwen3.5-9b": "The strongest of the small ones: reasons well, long context.",
+  "lm_lfm2.5-24b-a2b": "Light mixture of experts, very fast: for everyday jobs.",
+  "lm_glm-4.7-flash": "Strong on code for its size, fast: 3B at work on each token.",
+  "lm_nemotron-3.5-lightning-30b": "NVIDIA's, recent: fast, with a context up to a million tokens.",
+  "lm_qwen3.6-35b-a3b": "The most used medium model: fast, very good with tools and code.",
+  "lm_gemma-4-31b": "Google's dense model: writes very well, in Italian too.",
+  "lm_nemotron-3.5-bolt-74b": "NVIDIA's, October 2026: fits in 16 GB of card and 64 of RAM.",
+  "lm_qwen3-coder-next": "Made for programming: 80B but only 3B at work, so fast.",
+  "lm_mistral-small-4":
+    "Mistral's mixture of experts: writes well in Italian, made for SSD stream.",
+  "lm_nemotron-3.5-super-120b": "NVIDIA's largest here: among the strongest, mostly from the SSD.",
+  "lm_qwen3.5-122b": "Among the strongest open models for a home computer: SSD stream.",
+  "lm_mistral-medium-3.5": "A large dense model, to compare: slow beyond the card.",
   "lm_gemma-4-26b":
     "Large but quick (only part of it works at each step): one of the best for 16 GB.",
-  "lm_qwen3-coder-30b": "Made for programming: reads and writes code, uses the terminal.",
   "lm_qwen3.8-27b": "Among the best local models today, for 16 to 24 GB: code, reasoning, tools.",
   job_model_download: "Downloading {model}",
   job_step_download: "Downloading the model",
@@ -2493,26 +2502,8 @@ const it: Record<Key, string> = {
   lmWarmHelp:
     "Il modello legge il suo primo contesto e scrive qualche parola. La prima volta su una scheda video nuova ci vogliono minuti: la scheda prepara i suoi programmi una volta sola, poi è veloce.",
   lmShowActivation: "Mostra l'attivazione",
-  "lm_qwen3-4b":
-    "Piccolo e veloce: bravo con gli strumenti per la sua taglia, va bene per i lavori semplici.",
-  "lm_qwen3-14b": "Un buon tuttofare per 10-12 GB: ragiona passo per passo.",
-  "lm_mistral-small-24b": "Di Mistral: scrive bene in molte lingue, affidabile con gli strumenti.",
-  "lm_devstral-small-24b":
-    "Il modello di Mistral per gli agenti che programmano: modifica file e usa il terminale bene.",
-  "lm_qwen3-30b-a3b":
-    "Grande ma veloce (lavorano poche parti per ogni token): un buon modello generale, ottimo con lo SSD stream.",
-  "lm_qwen3-next-80b":
-    "Grande modello a esperti, velocissimo per la sua taglia: fatto per lo SSD stream.",
   "lm_glm-4.5-air":
     "Tra i modelli aperti più forti per codice e strumenti; sulla maggior parte dei computer serve lo SSD stream.",
-  "lm_gpt-oss-120b":
-    "Il grande modello aperto di OpenAI: ragiona e usa gli strumenti molto bene; con lo SSD stream da 32 GB di RAM in su.",
-  "lm_llama-3.3-70b":
-    "Il grande modello denso di Meta, solido in tutte le lingue. Denso: ogni token lo legge tutto, quindi fuori dalla scheda è lento; per computer con tanta RAM, con la decodifica speculativa.",
-  "lm_qwen2.5-72b":
-    "Il grande modello denso di Alibaba, bravo con codice e ragionamento. Denso: per computer con tanta RAM, con la decodifica speculativa.",
-  "lm_mistral-large-2411":
-    "Il più grande modello aperto di Mistral, ottimo nelle lingue europee. Denso e molto grande: per workstation con 128 GB di RAM o più.",
   dbgTitle: "Diagnostica",
   dbgHelp:
     "La modalità di debug tiene un registro dettagliato di tutto quello che fa RedGiant: ogni passo dell'avvio di un modello con i suoi tempi, i messaggi del motore locale, le richieste, quello che fa il programma di Windows. Accendila quando qualcosa è lento o va storto, ripeti l'operazione, poi scarica i registri e mandali. Scrive tanto (al massimo 300 MB, i più vecchi se ne vanno) e non scrive mai password né chiavi.",
@@ -2785,6 +2776,16 @@ const it: Record<Key, string> = {
   lmLoading: "Cerco i modelli…",
   lmRecommended: "consigliato",
   lmInUse: "in uso",
+  lmDownloadedTitle: "Modelli scaricati",
+  lmDownloadedNote: "{n} sul disco · {size}",
+  lmDownloadedHelp:
+    "Tutti i file di modello nella cartella ({size} in tutto), dal più grande. Eliminarne uno libera subito il suo spazio; quelli suggeriti si possono riscaricare.",
+  lmDownloadedEmpty: "Nessun modello scaricato.",
+  lmDownloadedPartial: "incompleto",
+  lmDownloadedBusy: "in download",
+  lmDownloadedConfirm: "Eliminare {name}? Libera {size}.",
+  lmDownloadedConfirmActive:
+    "{name} è il modello in uso: il motore si ferma e il file viene cancellato ({size}). Procedo?",
   lmQuality_high: "qualità alta",
   lmQuality_good: "qualità buona",
   lmQuality_reduced: "qualità ridotta, per starci",
@@ -2824,11 +2825,29 @@ const it: Record<Key, string> = {
     "Il più piccolo di Google: veloce anche senza scheda video. Va bene per chiacchierare e lavoretti semplici.",
   "lm_gemma-4-e4b": "Piccolo ma capace: chat, riassunti, compiti semplici con gli strumenti.",
   "lm_gemma-4-12b": "Scrive e ragiona bene, in molte lingue; la misura giusta per 8-12 GB.",
-  "lm_gpt-oss-20b":
-    "Il modello aperto di OpenAI: ragiona passo per passo e usa bene gli strumenti.",
+  "lm_qwen3.5-4b":
+    "Piccolo e recente: veloce, se la cava bene con gli strumenti per la sua taglia.",
+  "lm_nemotron-3.5-bolt-e4b":
+    "Di NVIDIA, su base Gemma 4: fatto per assistenti e strumenti, parla italiano.",
+  "lm_lfm2.5-8b-a1b": "Piccolo modello a esperti: veloce anche con il solo processore.",
+  "lm_qwen3.5-9b": "Il più forte dei piccoli: ragiona bene, contesto lungo.",
+  "lm_lfm2.5-24b-a2b": "Modello a esperti leggero e velocissimo: per i compiti di tutti i giorni.",
+  "lm_glm-4.7-flash":
+    "Forte sul codice per la sua taglia, veloce: 3 miliardi al lavoro per ogni token.",
+  "lm_nemotron-3.5-lightning-30b":
+    "Di NVIDIA, recente: veloce, con un contesto fino a un milione di token.",
+  "lm_qwen3.6-35b-a3b": "Il modello medio più usato: veloce, ottimo con strumenti e codice.",
+  "lm_gemma-4-31b": "Il modello denso di Google: scrive benissimo, anche in italiano.",
+  "lm_nemotron-3.5-bolt-74b": "Di NVIDIA, ottobre 2026: entra in 16 GB di scheda e 64 di RAM.",
+  "lm_qwen3-coder-next": "Fatto per programmare: 80 miliardi ma solo 3 al lavoro, quindi veloce.",
+  "lm_mistral-small-4":
+    "Il modello a esperti di Mistral: scrive bene in italiano, fatto per lo SSD stream.",
+  "lm_nemotron-3.5-super-120b":
+    "Il più grande di NVIDIA qui: tra i più forti, in buona parte dall'SSD.",
+  "lm_qwen3.5-122b": "Tra i modelli aperti più forti per un computer di casa: SSD stream.",
+  "lm_mistral-medium-3.5": "Un grande modello denso, per confronto: lento fuori dalla scheda.",
   "lm_gemma-4-26b":
     "Grande ma veloce (a ogni passo lavora solo una parte): fra i migliori per 16 GB.",
-  "lm_qwen3-coder-30b": "Fatto per programmare: legge e scrive codice, usa il terminale.",
   "lm_qwen3.8-27b":
     "Fra i migliori modelli locali di oggi, per 16-24 GB: codice, ragionamento, strumenti.",
   job_model_download: "Download di {model}",

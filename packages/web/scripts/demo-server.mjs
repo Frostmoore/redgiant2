@@ -665,6 +665,8 @@ await mkdir(join(dir, "claude"), { recursive: true });
 await mkdir(join(dir, "models"), { recursive: true });
 await writeFile(join(dir, "models", "my-model-Q4_K_M.gguf"), "demo");
 await writeFile(join(dir, "models", "huge-model-Q8_0.gguf"), "demo");
+// A download paused halfway (2026-11-05): the «Downloaded models» card lists it too.
+await writeFile(join(dir, "models", "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf.part"), "demo-part");
 await debugLog.configure({ dir: join(dir, "logs") });
 await setup.applyAtStartup();
 await setup.complete();

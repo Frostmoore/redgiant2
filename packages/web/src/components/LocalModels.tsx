@@ -385,6 +385,100 @@ function ActivationSpeeds({ vars }: { vars: Record<string, string> }) {
   );
 }
 
+/**
+ * Every model file on the disk in one place, with the room it takes and a delete button for each
+ * (2026-11-05, the person: «sennò mi trovo con centinaia di giga di monnezza sul pc»). Paused
+ * downloads and models no longer suggested are here too.
+ */
+function DownloadedModels({
+  files,
+  names,
+  jobs,
+  active,
+  variant,
+  onChange,
+}: {
+  files: LocalFile[];
+  /** The suggested models' names by file, for a readable list. */
+  names: Map<string, string>;
+  jobs: Job[];
+  active: string | undefined;
+  variant: EngineVariant;
+  onChange: () => void;
+}) {
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState<string>();
+  if (files.length === 0) return <p class="ui-help">{t("lmDownloadedEmpty")}</p>;
+  const remove = (f: LocalFile) => {
+    const name = names.get(f.file) ?? f.file;
+    const inUse = active === f.file;
+    if (
+      !confirm(
+        t(inUse ? "lmDownloadedConfirmActive" : "lmDownloadedConfirm", {
+          name,
+          size: bytes(f.bytes),
+        }),
+      )
+    )
+      return;
+    setError(undefined);
+    setBusy(f.file);
+    void (async () => {
+      // The model in use goes too: the engine stops first.
+      if (inUse) await getApi().setupEngine(null);
+      await getApi().removeModel(f.file, variant);
+    })()
+      .then(onChange, (e: unknown) => setError(explain(e)))
+      .finally(() => setBusy(undefined));
+  };
+  return (
+    <div class="lm-downloaded">
+      <p class="ui-help">
+        {t("lmDownloadedHelp", { size: bytes(files.reduce((n, f) => n + f.bytes, 0)) })}
+      </p>
+      {error && <p class="notice error">{error}</p>}
+      <table>
+        <tbody>
+          {[...files]
+            .sort((a, b) => b.bytes - a.bytes)
+            .map((f) => {
+              const downloading = latest(jobs, "model_download", f.file)?.state === "running";
+              return (
+                <tr key={f.file}>
+                  <td>
+                    <strong>{names.get(f.file) ?? f.file}</strong>
+                    {names.has(f.file) && <div class="ui-help">{f.file}</div>}
+                  </td>
+                  <td class="num">{bytes(f.bytes)}</td>
+                  <td>
+                    {active === f.file && <span class="chip ok">{t("lmInUse")}</span>}
+                    {downloading ? (
+                      <span class="chip">{t("lmDownloadedBusy")}</span>
+                    ) : (
+                      f.partial && <span class="chip">{t("lmDownloadedPartial")}</span>
+                    )}
+                  </td>
+                  <td>
+                    {!downloading && (
+                      <button
+                        type="button"
+                        class="danger tiny"
+                        disabled={busy === f.file}
+                        onClick={() => remove(f)}
+                      >
+                        <IconTrash size={13} /> {t("lmDelete")}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** What can be done with one model file: download, pause, go on, start, use, delete. */
 function FileActions({
   repo,
@@ -1219,24 +1313,43 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
             </>
           ),
         }
-      : open === "hf"
+      : open === "disk"
         ? {
-            title: t("lmSearch"),
+            title: t("lmDownloadedTitle"),
             body: (
-              <>
-                <p class="ui-help">{t("lmSearchHint")}</p>
-                <HfSearch
-                  jobs={jobs}
-                  files={files}
-                  active={active}
-                  variant={variant}
-                  stream={streaming}
-                  onChange={changed}
-                />
-              </>
+              <DownloadedModels
+                files={files}
+                names={
+                  new Map(
+                    data?.models.flatMap((m) => (m.file ? [[target(m.file.file), m.name]] : [])) ??
+                      [],
+                  )
+                }
+                jobs={jobs}
+                active={active}
+                variant={variant}
+                onChange={changed}
+              />
             ),
           }
-        : null;
+        : open === "hf"
+          ? {
+              title: t("lmSearch"),
+              body: (
+                <>
+                  <p class="ui-help">{t("lmSearchHint")}</p>
+                  <HfSearch
+                    jobs={jobs}
+                    files={files}
+                    active={active}
+                    variant={variant}
+                    stream={streaming}
+                    onChange={changed}
+                  />
+                </>
+              ),
+            }
+          : null;
   return (
     <div class="lm">
       <Machine
@@ -1317,6 +1430,18 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
             </span>
           </GalleryCard>
         ))}
+        <GalleryCard selected={open === "disk"} onOpen={() => setOpen("disk")}>
+          <span class="gcard-head">
+            <strong>{t("lmDownloadedTitle")}</strong>
+            <IconTrash size={16} />
+          </span>
+          <span class="gcard-note">
+            {t("lmDownloadedNote", {
+              n: String(files.length),
+              size: bytes(files.reduce((n, f) => n + f.bytes, 0)),
+            })}
+          </span>
+        </GalleryCard>
         <GalleryCard selected={open === "hf"} onOpen={() => setOpen("hf")}>
           <span class="gcard-head">
             <strong>{t("lmSearch")}</strong>
