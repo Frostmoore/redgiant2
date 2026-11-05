@@ -949,6 +949,8 @@ const en = {
   lmTokensUnit: "tokens/s",
   lmSpeedEstimate: "tokens/s, estimate",
   lmSpeedMeasured: "tokens/s, measured",
+  lmUsableHint:
+    "Outlined in green: the ones that run between the graphics card and the RAM (all of it, closing other programs), with nothing from the SSD, at {n} tokens a second or more, measured or estimated. The others work too, but slowly.",
   lmContextTokens: "tokens of context",
   lmWhere: "Where the model goes",
   lmFactCache: "Experts' cache in the card",
@@ -2711,6 +2713,8 @@ const it: Record<Key, string> = {
   lmTokensUnit: "token/s",
   lmSpeedEstimate: "token/s, stima",
   lmSpeedMeasured: "token/s, misurati",
+  lmUsableHint:
+    "Con il contorno verde: quelli che girano tra scheda video e RAM (tutta, chiudendo gli altri programmi), senza niente dall'SSD, ad almeno {n} token al secondo, misurati o stimati. Gli altri funzionano, ma piano.",
   lmContextTokens: "token di contesto",
   lmWhere: "Dove va il modello",
   lmFactCache: "Cache degli esperti nella scheda",

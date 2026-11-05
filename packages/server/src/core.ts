@@ -823,6 +823,8 @@ export class RedGiantCore implements OrchestrationHost {
     sessionModel?: ModelSpec,
     /** The project the conversation works in, when not the agent's own (an assignment). */
     workProject?: string | null,
+    /** Built to look at, never recorded (`prefillStarts`). */
+    preview = false,
   ): Promise<Live> {
     const record = this.registry.get(agentId);
     if (!record || record.ownerId !== ownerId)
@@ -1044,7 +1046,11 @@ export class RedGiantCore implements OrchestrationHost {
         budget: this.budget,
       }),
     };
-    const session = resume ? await AgentSession.resume(options) : await AgentSession.start(options);
+    const session = preview
+      ? AgentSession.preview(options)
+      : resume
+        ? await AgentSession.resume(options)
+        : await AgentSession.start(options);
     return {
       id: sessionId,
       ownerId,
@@ -2830,6 +2836,45 @@ export class RedGiantCore implements OrchestrationHost {
       const l = await this.open(ownerId, r.id).catch(() => undefined);
       if (!l || l.running || l.model.provider !== "local") continue;
       await l.session.prefill(signal).catch((err) => console.warn(`prefill: ${String(err)}`));
+      done++;
+    }
+    return done;
+  }
+
+  /**
+   * The start of a new conversation, computed ahead for the agents used last (God when there are
+   * none yet): system and tools, the same for every new conversation of an agent (2026-11-05: on
+   * Rig a new conversation with a model just started read 5,500 tokens in 205 s). Nothing is
+   * recorded; an engine that already keeps a start skips it.
+   */
+  async prefillStarts(ownerId: string, count = 2, signal?: AbortSignal): Promise<number> {
+    const rows = (await this.listSessions(ownerId))
+      .filter((r) => !r.archived)
+      .sort((a, b) => (b.last_at?.getTime() ?? 0) - (a.last_at?.getTime() ?? 0));
+    const agents = [...new Set(rows.map((r) => r.agent_id))];
+    if (agents.length === 0)
+      agents.push(
+        ...this.registry
+          .list({ ownerId, activeOnly: true })
+          .filter((a) => a.kind === "god")
+          .map((a) => a.id),
+      );
+    let done = 0;
+    for (const agentId of agents) {
+      if (done >= count || signal?.aborted) break;
+      const l = await this.build(
+        ownerId,
+        agentId,
+        `start_${agentId}`,
+        false,
+        undefined,
+        undefined,
+        true,
+      ).catch(() => undefined);
+      if (!l || l.model.provider !== "local") continue;
+      await l.session
+        .prefillStart(signal)
+        .catch((err) => console.warn(`prefill start: ${String(err)}`));
       done++;
     }
     return done;

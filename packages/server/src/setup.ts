@@ -928,6 +928,14 @@ export class SetupService {
       .then((n) =>
         debugLog.write("engine", "conversations computed ahead", { count: n, ms: Date.now() - t0 }),
       )
+      // Then the start of a new conversation, for the agents used last.
+      .then(() => this.o.core.prefillStarts(this.o.ownerId))
+      .then((n) =>
+        debugLog.write("engine", "new conversations' start computed ahead", {
+          count: n,
+          ms: Date.now() - t0,
+        }),
+      )
       .catch(() => {});
   }
 

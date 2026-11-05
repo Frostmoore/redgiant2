@@ -849,6 +849,7 @@ describe("Hugging Face models", () => {
       "imatrix_unsloth.gguf",
       // NVIDIA's drafting model beside the real one: a "Q8_0" of 0.37 GB, chosen first otherwise.
       "dflash-NVIDIA-Nemotron-3.5-Bolt-E4B-Q8_0.gguf",
+      "LiLiCorr/lilicorr-NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4.gguf",
       "BF16/Qwen3.8-27B-BF16-00001-of-00002.gguf",
       "gemma-4-12b-it-BF16.gguf",
       "gpt-oss-20b-F16.gguf",
@@ -866,6 +867,24 @@ describe("Hugging Face models", () => {
       "high",
       "good",
       "reduced",
+    ]);
+  });
+
+  it("leaves out an add-on with no quantisation in its name, a fraction of the model (2026-11-05)", async () => {
+    const GB = 1024 ** 3;
+    const fake = (async () =>
+      Response.json([
+        { path: "Q4_K_M/big-Q4_K_M.gguf", lfs: { size: 60 * GB } },
+        // NVIDIA's correction for its 4-bit format: 1.2 GB beside a 120B model.
+        { path: "Extra/extra-big-NV4.gguf", lfs: { size: 1.2 * GB } },
+        // Named some other way but as big as a model: still offered.
+        { path: "big-custom.gguf", lfs: { size: 55 * GB } },
+      ])) as unknown as typeof fetch;
+    s = await startServer(() => ({ text: "x" }));
+    const hf = new HuggingFace(join(s.dir, "models-addon"), fake);
+    expect((await hf.files("acme/addon-GGUF")).map((f) => f.file)).toEqual([
+      "big-custom.gguf",
+      "Q4_K_M/big-Q4_K_M.gguf",
     ]);
   });
 

@@ -118,6 +118,24 @@ describe("LocalEngineProvider", () => {
     expect(engine.requests.at(-1)?.cached).toBeGreaterThan(0.9 * c.c.usage.inputTokens);
   });
 
+  it("computes a new conversation's start ahead, once, and the first message reads only itself (2026-11-05)", async () => {
+    const { engine, provider } = await setup(1);
+    // The start every new conversation of the agent shares: a long system prompt.
+    const start = (session: string, text: string) =>
+      req(session, [user(text)], { system: `You are God. ${longDoc}` });
+    await provider.prefill(start("start_god", "."), undefined, { onlyStart: true });
+    const ahead = engine.requests.length;
+    expect(engine.requests.at(-1)?.processed).toBeGreaterThan(100);
+    // Already kept: the next start of the engine does not compute it again.
+    await provider.prefill(start("start_god", "."), undefined, { onlyStart: true });
+    expect(engine.requests).toHaveLength(ahead);
+    // Another conversation took the slot meanwhile; a new one restores the start from the disk.
+    await turn(provider, "Z", [], "something unrelated");
+    const first = await complete(provider.stream(start("N", "ciao")));
+    expect(first.metrics.kvRestoredTokens).toBeGreaterThan(0);
+    expect(engine.requests.at(-1)?.processed).toBeLessThan(20);
+  });
+
   it("never restores a cache made with another model", async () => {
     const first = await setup(1);
     const a1 = await turn(first.provider, "A", [], longDoc);

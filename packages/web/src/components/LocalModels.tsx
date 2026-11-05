@@ -152,6 +152,24 @@ function measuredTps(s: SetupState, file: string): number | undefined {
   return e.trials?.find((x) => x.chosen)?.genTps;
 }
 
+/**
+ * Usable here (2026-11-05, the person: «quelli che possono girare tra gpu e ram, che mi
+ * consentano di andare almeno a 10»): the model fits in the card and the computer's whole RAM,
+ * nothing from the SSD, and writes at least this many tokens a second there, or measured it.
+ * gpt-oss 120B on Rig: about 15, outlined; GLM-4.5 Air: about 5, measured 1-3, not.
+ */
+export const USABLE_TPS = 10;
+function usable(
+  m: { totalB: number; activeB: number },
+  sizeGb: number,
+  hw: Parameters<typeof estimatedSpeed>[2],
+  measured: number | undefined,
+) {
+  if (measured !== undefined) return measured >= USABLE_TPS;
+  const all = estimatedSpeed(m, sizeGb, hw);
+  return !all.range && all.tokensPerSec >= USABLE_TPS;
+}
+
 /** A speed for a card: measured when known, else the estimate (a range when it is uncertain). */
 function SpeedText({
   speed,
@@ -1305,6 +1323,8 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
   const known = new Set(data?.models.flatMap((m) => (m.file ? [target(m.file.file)] : [])) ?? []);
   const others = files.filter((f) => !known.has(f.file) && !f.partial);
   const hw = { ...s.hardware.suggestion, ramGb: s.hardware.freeRamGb ?? s.hardware.ramGb };
+  // What can run between the card and all of the RAM (other programs can be closed).
+  const wholeRam = { ...s.hardware.suggestion, ramGb: s.hardware.ramGb };
   const openModel = data?.models.find((m) => m.id === open);
   const openFile = open?.startsWith("file:")
     ? others.find((f) => `file:${f.file}` === open)
@@ -1403,16 +1423,19 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
       <ModelsDisk s={s} variant={variant} onMoved={changed} />
       <h3>{t("lmSuggested")}</h3>
       <p class="ui-help">{t("lmScoresHint")}</p>
+      <p class="ui-help">{t("lmUsableHint", { n: String(USABLE_TPS) })}</p>
       {!data && <p class="ui-help">{t("lmLoading")}</p>}
       <Gallery panel={panel} onClose={() => setOpen(null)}>
         {data?.models.map((m) => {
           const speed = m.file ? estimatedSpeed(m, m.file.sizeGb, hw) : undefined;
           const inUse = !!m.file && active === target(m.file.file);
+          const works =
+            !!m.file && usable(m, m.file.sizeGb, wholeRam, measuredTps(s, target(m.file.file)));
           return (
             <GalleryCard
               key={m.id}
               selected={open === m.id}
-              tone={inUse ? "ok" : undefined}
+              tone={works ? "usable" : inUse ? "ok" : undefined}
               onOpen={() => setOpen(m.id)}
             >
               <span class="gcard-head">

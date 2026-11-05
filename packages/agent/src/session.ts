@@ -227,6 +227,14 @@ export class AgentSession {
     return s;
   }
 
+  /**
+   * A session that records nothing (2026-11-05): what a new conversation of this agent would send,
+   * so its start (system and tools) can be computed ahead. Never sent to; never in the log.
+   */
+  static preview(options: AgentSessionOptions): AgentSession {
+    return new AgentSession(options);
+  }
+
   /** Reopens an existing session from the event log. */
   static async resume(options: AgentSessionOptions): Promise<AgentSession> {
     const events = await options.store.list({ sessionId: options.sessionId });
@@ -785,6 +793,33 @@ export class AgentSession {
    * writes (after a summary; at start, 2026-11-05: the first message read the whole context
    * again). Exactly what the next request will send, minus the new message. Nothing elsewhere.
    */
+  /**
+   * The start every new conversation of this agent shares (system and tools: 5,500 tokens and
+   * 205 s for GLM-4.5 Air on Rig), computed ahead and kept by a local engine: the first message
+   * of a new conversation then reads only itself. Nothing when it is already kept.
+   */
+  async prefillStart(signal?: AbortSignal): Promise<void> {
+    if (this.o.engine) return;
+    const p = this.o.providers.get(this.o.model.provider) as {
+      prefill?: (
+        r: ReturnType<AgentSession["request"]>,
+        signal?: AbortSignal,
+        o?: { onlyStart?: boolean },
+      ) => Promise<void>;
+    };
+    await p.prefill?.(
+      {
+        ...this.request(),
+        // One character after the start: the cache keeps everything before it.
+        messages: [{ role: "user", parts: [{ type: "text", text: "." }] }],
+        model: this.o.model.model,
+        ...(this.o.model.effort && { effort: this.o.model.effort }),
+      } as never,
+      signal,
+      { onlyStart: true },
+    );
+  }
+
   async prefill(signal?: AbortSignal): Promise<void> {
     if (this.o.engine) return;
     const p = this.o.providers.get(this.o.model.provider) as {

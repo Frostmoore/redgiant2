@@ -5104,6 +5104,11 @@ button.pick-tile.on {
 .gcard.ok {
   border-color: color-mix(in srgb, var(--ok) 55%, var(--line));
 }
+/* A model that runs fast enough here to work with (2026-11-05): outlined in green. */
+.gcard.usable {
+  border-color: var(--ok);
+  box-shadow: inset 0 0 0 1px var(--ok);
+}
 .gcard.selected {
   outline: 2px solid var(--accent);
   outline-offset: -1px;

@@ -166,10 +166,24 @@ export class LocalEngineProvider implements Provider {
    * costs only itself. The lowest priority: a working session goes first. One token is
    * generated (the safest way across llama.cpp versions), then the slot is saved to disk.
    */
-  async prefill(request: CompletionRequest, signal?: AbortSignal): Promise<void> {
+  async prefill(
+    request: CompletionRequest,
+    signal?: AbortSignal,
+    /** A start computed ahead (2026-11-05): nothing to do when a kept file already holds it. */
+    o: { onlyStart?: boolean } = {},
+  ): Promise<void> {
     const sessionId = request.cacheKey;
     if (!sessionId) return;
-    await this.connect();
+    const props = await this.connect();
+    if (o.onlyStart && this.o.kv) {
+      const kept = await this.o.kv.find({
+        scope: request.cacheScope ?? "default",
+        model: props.modelPath,
+        ctx: props.ctxPerSlot,
+        hashes: prefixHashes(request),
+      });
+      if (kept && kept.messages >= 1) return;
+    }
     const scheduler = this.scheduler as SlotScheduler;
     const scope = request.cacheScope ?? "default";
     const lease = await scheduler.acquire(sessionId, 0, signal);

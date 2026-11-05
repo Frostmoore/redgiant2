@@ -65,8 +65,8 @@ export function GalleryCard({
   children,
 }: {
   selected: boolean;
-  /** "ok": in use, connected. */
-  tone?: "ok" | undefined;
+  /** "ok": in use, connected; "usable": fast enough here to work with (2026-11-05). */
+  tone?: "ok" | "usable" | undefined;
   onOpen: () => void;
   children: ComponentChildren;
 }) {

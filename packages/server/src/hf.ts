@@ -121,8 +121,9 @@ export function isModelFile(path: string): boolean {
   const name = p.split("/").pop() ?? p;
   return (
     p.endsWith(".gguf") &&
-    // dflash-…: NVIDIA's small drafting model next to the big one (2026-11-05), not the model.
-    !/(^|\/)mtp[-/]|^mtp-|(^|\/)dflash-|mmproj|imatrix/.test(p) &&
+    // dflash-…: NVIDIA's small drafting model next to the big one (2026-11-05), not the model;
+    // lilicorr-…: a correction for NVIDIA's own 4-bit format, not a model either.
+    !/(^|\/)mtp[-/]|^mtp-|(^|\/)dflash-|(^|\/)lilicorr|mmproj|imatrix/.test(p) &&
     !/-\d{5}-of-\d{5}\.gguf$/.test(name) &&
     !/\b(bf16|f16|f32)\b/.test(name.replace(/[-_.]/g, " "))
   );
@@ -197,8 +198,12 @@ export class HuggingFace {
       });
     }
     files.sort((a, b) => a.sizeGb - b.sizeGb);
-    this.cache.set(repo, { at: Date.now(), files });
-    return files;
+    // A file with no quantisation in its name and a fraction of the biggest one is an add-on
+    // (2026-11-05: NVIDIA's 1.2 GB correction was chosen for a 120B model, «200 tokens/s»).
+    const largest = Math.max(0, ...files.map((f) => f.sizeGb));
+    const kept = files.filter((f) => f.quant !== null || f.sizeGb >= largest * 0.25);
+    this.cache.set(repo, { at: Date.now(), files: kept });
+    return kept;
   }
 
   /** The name a repository's file gets in the models folder. */
