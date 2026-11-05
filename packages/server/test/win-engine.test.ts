@@ -82,16 +82,26 @@ describe("the engine on Windows itself", () => {
     const jobs = new Jobs();
     const job = jobs.start("me", "engine", ["image", "preload", "start", "load"], async (h) => {
       h.skip("image");
-      await engine.start("m.gguf", h, undefined, true, {
-        speculative: "draft",
-        draft: "small.gguf",
-      });
+      await engine.start(
+        "m.gguf",
+        h,
+        undefined,
+        true,
+        { speculative: "draft", draft: "small.gguf" },
+        "cuda",
+        "redgiant-gpt-oss.jinja",
+      );
     });
     const end = await jobs.settled(job.id);
     l.close();
     expect(end?.state).toBe("done");
     expect(end?.steps.find((s) => s.id === "preload")?.state).toBe("done");
-    expect(l.seen[0]).toMatchObject({ preload: "1", draft: "small.gguf" });
+    expect(l.seen[0]).toMatchObject({
+      preload: "1",
+      draft: "small.gguf",
+      flavor: "cuda",
+      template: "redgiant-gpt-oss.jinja",
+    });
   });
 
   it("says why it failed, from the launcher's code or the engine's log", async () => {

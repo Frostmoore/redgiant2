@@ -792,6 +792,7 @@ export class SetupService {
         } catch (err) {
           throw new JobFailure("no_answer", (err as Error).message);
         }
+        this.prefillConversations();
         // The plan the start computed (SSD stream): the page shows its context and source.
         this.config.engine = { ...wanted, ...(plan && { plan }) };
         await this.save();
@@ -822,6 +823,20 @@ export class SetupService {
    * a few words written, the reading shown as it goes. The first time on a new card the engine
    * prepares its programs here (minutes, once), not at the person's first message.
    */
+  /**
+   * After the warm-up (2026-11-05): the latest conversations on the local model are computed in
+   * their slots, in the background, so the first message after starting reads only itself.
+   */
+  private prefillConversations(): void {
+    const t0 = Date.now();
+    void this.o.core
+      .prefillRecent(this.o.ownerId)
+      .then((n) =>
+        debugLog.write("engine", "conversations computed ahead", { count: n, ms: Date.now() - t0 }),
+      )
+      .catch(() => {});
+  }
+
   private async warmLocal(model: string, h: JobHandle): Promise<void> {
     const p = this.o.core.providers.get("local");
     // A new first line every time: the same text would come back from the saved contexts and
@@ -1001,6 +1016,7 @@ export class SetupService {
         await this.warmLocal(e.model, h).catch((err: unknown) =>
           debugLog.write("engine", "warm-up after loading failed", { error: String(err) }),
         );
+        this.prefillConversations();
       },
       { model: e.model },
     );

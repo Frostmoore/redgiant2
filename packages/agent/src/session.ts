@@ -642,6 +642,26 @@ export class AgentSession {
    * soon as it is ready (the session is idle). The next message waits for it if needed, and on
    * a local engine finds the new history already computed.
    */
+  /**
+   * A local engine computes this conversation as it stands, in its slot, before the person
+   * writes (after a summary; at start, 2026-11-05: the first message read the whole context
+   * again). Exactly what the next request will send, minus the new message. Nothing elsewhere.
+   */
+  async prefill(signal?: AbortSignal): Promise<void> {
+    if (this.o.engine) return;
+    const p = this.o.providers.get(this.o.model.provider) as {
+      prefill?: (r: ReturnType<AgentSession["request"]>, signal?: AbortSignal) => Promise<void>;
+    };
+    await p.prefill?.(
+      {
+        ...this.request(),
+        model: this.o.model.model,
+        ...(this.o.model.effort && { effort: this.o.model.effort }),
+      } as never,
+      signal,
+    );
+  }
+
   private compactAhead(): void {
     const m = this.lastMetrics;
     if (!m || this.o.engine || m.contextUsed < (this.o.compactAt ?? 0.8) * m.contextWindow) return;
@@ -649,17 +669,7 @@ export class AgentSession {
       .then(async (done) => {
         if (!done) return;
         // A local engine computes the new history now, not when the person writes (G24.14).
-        const p = this.o.providers.get(this.o.model.provider) as {
-          prefill?: (r: ReturnType<AgentSession["request"]>) => Promise<void>;
-        };
-        // Exactly what streamWithFallback will send next time, minus the new message.
-        await p
-          .prefill?.({
-            ...this.request(),
-            model: this.o.model.model,
-            ...(this.o.model.effort && { effort: this.o.model.effort }),
-          } as never)
-          .catch(() => {});
+        await this.prefill().catch(() => {});
       })
       .catch((err) => console.warn(`compaction of ${this.ctx.sessionId}: ${String(err)}`))
       .finally(() => {

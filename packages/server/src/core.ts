@@ -2631,6 +2631,26 @@ export class RedGiantCore implements OrchestrationHost {
   /** Followers of conversations not in memory now (no model yet, or being rebuilt). */
   private readonly waiting = new Map<string, Set<(m: ServerMessage) => void>>();
 
+  /**
+   * The local model just started (2026-11-05): the person's latest conversations on it are
+   * computed ahead, so their next message reads only itself; new conversations of the same
+   * agents find the common start (instructions, tools) saved too. The lowest priority.
+   */
+  async prefillRecent(ownerId: string, count = 2, signal?: AbortSignal): Promise<number> {
+    const rows = (await this.listSessions(ownerId))
+      .filter((r) => !r.archived && r.last_at)
+      .sort((a, b) => (b.last_at?.getTime() ?? 0) - (a.last_at?.getTime() ?? 0));
+    let done = 0;
+    for (const r of rows) {
+      if (done >= count || signal?.aborted) break;
+      const l = await this.open(ownerId, r.id).catch(() => undefined);
+      if (!l || l.running || l.model.provider !== "local") continue;
+      await l.session.prefill(signal).catch((err) => console.warn(`prefill: ${String(err)}`));
+      done++;
+    }
+    return done;
+  }
+
   async listSessions(ownerId: string, agentId?: string) {
     return this.o.db.query<{
       id: string;

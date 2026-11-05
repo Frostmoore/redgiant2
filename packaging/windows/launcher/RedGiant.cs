@@ -583,7 +583,8 @@ static class WinEngine
         string wanted = Field(json, "flavor") == "cuda" ? "cuda" : "vulkan";
         var t = new Thread(() => Handle(gen, id, Field(json, "model"), Field(json, "build"),
             Field(json, "ctx") ?? "65536", Field(json, "parallel") ?? "4", Field(json, "args"),
-            Field(json, "fit"), Field(json, "preload"), Field(json, "draft"), wanted)) { IsBackground = true };
+            Field(json, "fit"), Field(json, "preload"), Field(json, "draft"), wanted,
+            Field(json, "template"))) { IsBackground = true };
         t.Start();
     }
 
@@ -683,7 +684,18 @@ static class WinEngine
         return " --spec-type draft-simple -md \"" + Path.Combine(Dir, "models", draft) + "\" -ngld 99 --spec-draft-n-max 8 --spec-draft-p-min 0.75";
     }
 
-    static void Handle(int gen, string id, string model, string build, string ctx, string parallel, string args, string fit, string preload, string draft, string wanted)
+    /**
+     * A chat template RedGiant put in templates/ (2026-11-05: gpt-oss keeping its reasoning, so
+     * the engine reuses its cache). Only a plain file name that is there.
+     */
+    static string TemplateArgs(string template)
+    {
+        if (string.IsNullOrEmpty(template) || !Regex.IsMatch(template, @"^[A-Za-z0-9_.-]+\.jinja$")) return "";
+        string path = Path.Combine(Dir, "templates", template);
+        return File.Exists(path) ? " --chat-template-file \"" + path + "\"" : "";
+    }
+
+    static void Handle(int gen, string id, string model, string build, string ctx, string parallel, string args, string fit, string preload, string draft, string wanted, string template)
     {
         lock (gate) { if (gen != generation) return; Kill(); flavor = wanted; }
         if (model == null) { Status(gen, id, "stopped", null); Diag.Log("engine", "stop asked"); return; }
@@ -709,7 +721,7 @@ static class WinEngine
                 + " -c " + ctx + " --parallel " + parallel + " --slot-save-path \"" + Path.Combine(Dir, "kv")
                 + "\" --swa-full --kv-unified --jinja"
                 // SSD stream: llama.cpp fits the layers to the card itself (--fit, its default).
-                + (fit == "1" ? "" : " --n-gpu-layers 999") + SafeArgs(args) + DraftArgs(draft))
+                + (fit == "1" ? "" : " --n-gpu-layers 999") + SafeArgs(args) + DraftArgs(draft) + TemplateArgs(template))
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,

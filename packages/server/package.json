@@ -14,7 +14,8 @@
     "redgiant-server": "./dist/main.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "templates"
   ],
   "dependencies": {
     "@electric-sql/pglite": "^0.5.13",

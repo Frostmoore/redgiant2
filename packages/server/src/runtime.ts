@@ -27,6 +27,7 @@ import { migrateTelegram, TelegramGateway } from "@redgiant/telegram";
 import { searchProvider } from "@redgiant/tools";
 import type Docker from "dockerode";
 import type { AppOptions } from "./app.js";
+import { installTemplate, templateFor } from "./chat-templates.js";
 import type { ChatHub, Outlets } from "./chats.js";
 import type { RedGiantCore } from "./core.js";
 import { debugLog } from "./debug-log.js";
@@ -458,6 +459,9 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
           const flavor = gpus.some((g) => g.vendor === "nvidia" && !g.integrated)
             ? "cuda"
             : "vulkan";
+          // A template of ours where the model's own changes past turns (gpt-oss, 2026-11-05).
+          const template = templateFor(cfg.model);
+          if (template) await installTemplate(template, join(win.dir, "templates"));
           const baseURL = await win.start(
             cfg.model,
             h,
@@ -465,6 +469,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
             pre.fits,
             { speculative: cfg.speculative, draft: cfg.draftModel },
             flavor,
+            template,
           );
           const provider = new LocalEngineProvider({
             id: "local",
@@ -523,6 +528,10 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       const gpu = cfg.variant !== "cpu";
       let container: Docker.Container;
       try {
+        // The model's own template changes past turns (gpt-oss): ours, in the models volume.
+        const template = templateFor(cfg.model);
+        if (template && e.modelsDir)
+          await installTemplate(template, join(e.modelsDir, ".redgiant"));
         container = await docker.createContainer({
           name: ENGINE,
           Image: image,
@@ -535,6 +544,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
             ...(plan ? ["-c", String(plan.ctx), ...plan.args] : []),
             // Speculative decoding, when the person turned it on (2026-11-04).
             ...speculativeArgs(cfg.speculative, cfg.draftModel && `/models/${cfg.draftModel}`),
+            ...(template ? ["--chat-template-file", `/models/.redgiant/${template}`] : []),
             // One pool shared by the slots, and each conversation may use all of it: without
             // this llama.cpp gives each slot a quarter (16k of 65k, seen 2026-11-04).
             "--kv-unified-per-slot",

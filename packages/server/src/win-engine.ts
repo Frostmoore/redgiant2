@@ -35,6 +35,8 @@ export interface WinEngineRequest {
   draft?: string;
   /** Which llama.cpp build: CUDA for NVIDIA cards, Vulkan for the others (2026-11-04). */
   flavor?: "cuda" | "vulkan";
+  /** A chat template file in `templates/` (2026-11-05: gpt-oss keeping its reasoning). */
+  template?: string;
 }
 
 export interface WinEngineStatus {
@@ -85,6 +87,7 @@ export class WinEngine {
     preload = false,
     spec: { speculative?: "draft" | "ngram" | undefined; draft?: string | undefined } = {},
     flavor: "cuda" | "vulkan" = "vulkan",
+    template?: string,
   ): Promise<string> {
     const r: WinEngineRequest = {
       flavor,
@@ -106,6 +109,8 @@ export class WinEngine {
       fit: "1" as const,
       ...(preload && { preload: "1" as const }),
       ...(spec.speculative === "draft" && spec.draft && { draft: spec.draft }),
+      // A chat template in the engine folder's templates/ (2026-11-05), by name only.
+      ...(template && { template }),
     };
     await mkdir(this.o.dir, { recursive: true });
     const file = join(this.o.dir, "engine.json");
@@ -210,13 +215,14 @@ export class WinEngine {
     preload = false,
     spec: { speculative?: "draft" | "ngram" | undefined; draft?: string | undefined } = {},
     flavor: "cuda" | "vulkan" = "vulkan",
+    template?: string,
   ): Promise<string> {
     if (!this.o.host)
       throw new JobFailure(
         "launcher_missing",
         "RedGiant does not know Windows' address on WSL's network: start RedGiant again from its icon",
       );
-    const id = await this.request(model, plan, preload, spec, flavor);
+    const id = await this.request(model, plan, preload, spec, flavor, template);
     const poll = this.o.pollMs ?? 1000;
     const asked = Date.now();
     let seen = false;
