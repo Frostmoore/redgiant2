@@ -281,6 +281,20 @@ function settingValue(v: unknown): unknown {
 }
 
 /** Composition root: storage, hierarchy, approvals and live sessions. */
+/**
+ * What the model is and where it runs (2026-11-05: a local gpt-oss, asked where it ran, said
+ * "on OpenAI's servers" from its training). Set when the conversation starts.
+ */
+function whereYouRun(model: ModelSpec): string {
+  const where =
+    model.provider === "local"
+      ? "on this computer, through RedGiant's local engine (llama.cpp): nothing you read or write leaves it"
+      : model.provider.endsWith("-subscription")
+        ? `through the person's ${model.provider.replace("-subscription", "")} subscription`
+        : `through ${model.provider}'s API`;
+  return `## Where you run\nYou are the model "${model.model}", running ${where}. When asked what or where you are, say this; do not guess from your training.`;
+}
+
 export class RedGiantCore implements OrchestrationHost {
   readonly store: EventStore;
   readonly registry: AgentRegistry;
@@ -889,6 +903,7 @@ export class RedGiantCore implements OrchestrationHost {
       ...(engine && { engine }),
       system: [
         this.systemFor(agent),
+        whereYouRun(model),
         // Every agent that works remembers (G29.3); read once, the prefix stays the same.
         agent.kind !== "demigod" && agent.kind !== "inspector"
           ? await this.notes.prompt(this.noteOwner(agent, assignedTo))

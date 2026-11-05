@@ -163,6 +163,14 @@ export function defaultShell(
   return "powershell.exe";
 }
 
+/** How a shell is spoken to: cd and "then" differ between cmd, PowerShell and POSIX shells. */
+export function shellKind(shell: string = defaultShell()): "cmd" | "powershell" | "posix" {
+  const name = shell.split(/[\\/]/).pop()?.toLowerCase() ?? "";
+  if (name === "cmd.exe" || name === "cmd") return "cmd";
+  if (name.startsWith("powershell") || name.startsWith("pwsh")) return "powershell";
+  return "posix";
+}
+
 /** Directories never walked by glob/grep. */
 export const IGNORED_DIRS = [
   ".git",

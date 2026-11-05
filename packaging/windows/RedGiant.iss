@@ -94,7 +94,7 @@ Root: HKCU; Subkey: "Software\RedGiant"; ValueType: string; ValueName: "DataDir"
 
 [Run]
 ; A first installation asks; an update opens RedGiant by itself (CurStepChanged).
-Filename: "{app}\RedGiant.exe"; Description: "{cm:LaunchProgram,RedGiant}"; Flags: nowait postinstall; Check: not IsUpdate
+Filename: "{app}\RedGiant.exe"; Description: "{cm:LaunchProgram,RedGiant}"; Flags: nowait postinstall skipifsilent; Check: not IsUpdate
 
 [Code]
 const

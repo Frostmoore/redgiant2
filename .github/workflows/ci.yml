@@ -25,6 +25,8 @@ jobs:
 
   installers:
     runs-on: ${{ matrix.os }}
+    # A hung installer or launcher must fail the run, not hold it for hours.
+    timeout-minutes: 30
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
@@ -98,7 +100,9 @@ jobs:
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=0.0.0-ci" RedGiant.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-Item dist\RedGiant-Setup.exe | Format-List Name, Length
-          Start-Process dist\RedGiant-Setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LANG=en", '/TASKS=""' -Wait
+          # -Wait would also wait for whatever setup leaves running: only setup itself, with a limit.
+          $setup = Start-Process dist\RedGiant-Setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LANG=en", '/TASKS=""' -PassThru
+          if (-not $setup.WaitForExit(600000)) { "setup did not finish"; exit 1 }
           Pop-Location
           $app = "$env:LOCALAPPDATA\RedGiant"
           if (-not (Test-Path "$app\server\dist\main.js")) { "the server was not installed"; exit 1 }

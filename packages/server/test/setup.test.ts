@@ -681,6 +681,8 @@ describe("the GPUs of the host", () => {
         hostGpus,
         gpuAccess,
         dockerRuntimes: async () => runtimes,
+        // The containers' engine (a Linux or Docker install), even when the tests run on Windows.
+        windowsEngine: false,
       }).then((x) => x.suggestion);
     expect(await h("NVIDIA GeForce RTX 4080 SUPER:16", ["nvidia", "runc"])).toEqual({
       engine: "cuda",

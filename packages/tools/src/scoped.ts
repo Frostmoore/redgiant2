@@ -7,6 +7,7 @@ import {
   type ExecOptions,
   type ExecResult,
   ReadOnlyWorkspaceError,
+  shellKind,
   type Terminal,
   type TerminalOptions,
   type Workspace,
@@ -97,12 +98,16 @@ export class SubprojectWorkspace implements Workspace {
   }
 
   exec(command: string, options: ExecOptions): Promise<ExecResult> {
-    // cmd.exe on Windows (a local workspace), a POSIX shell everywhere else.
-    const cd =
-      process.platform === "win32"
-        ? `cd /d "${this.own.replaceAll("/", "\\")}"`
-        : `cd ${quote(this.own)}`;
-    return this.inner.exec(`${cd} && ${command}`, options);
+    // The shell's own way (RedGiant 3.0 on Windows: Git's bash, or PowerShell, or cmd).
+    const kind = process.platform === "win32" ? shellKind() : "posix";
+    if (kind === "cmd")
+      return this.inner.exec(`cd /d "${this.own.replaceAll("/", "\\")}" && ${command}`, options);
+    if (kind === "powershell")
+      return this.inner.exec(
+        `Set-Location -LiteralPath '${this.own.replaceAll("'", "''")}' -ErrorAction Stop; ${command}`,
+        options,
+      );
+    return this.inner.exec(`cd ${quote(this.own)} && ${command}`, options);
   }
 
   execFile(file: string, args: string[], options: ExecOptions): Promise<ExecResult> {
