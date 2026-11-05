@@ -156,6 +156,13 @@ jobs:
           node-version: 24
       - run: corepack enable
       - run: pnpm install --frozen-lockfile && pnpm build
+      # Signed with the Developer ID when the repository has it (hardened runtime: Node, Postgres
+      # and the native modules must run under it), not notarized: that is the release's.
+      - name: The certificate, in a keychain of this run only
+        env:
+          MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+        run: bash packaging/mac/keychain.sh
       - run: bash packaging/mac/build.sh 0.0.0-ci
       - name: Install from the disk image, start, stop
         run: |
@@ -164,6 +171,7 @@ jobs:
           cp -R /tmp/rg-dmg/RedGiant.app /tmp/RedGiant.app
           hdiutil detach /tmp/rg-dmg -quiet
           codesign --verify --deep --strict /tmp/RedGiant.app
+          codesign -dv --verbose=2 /tmp/RedGiant.app 2>&1 | grep -E "Authority=Developer|TeamIdentifier|flags" || true
           /tmp/RedGiant.app/Contents/MacOS/RedGiant --background &
           up=0
           for i in $(seq 1 90); do
