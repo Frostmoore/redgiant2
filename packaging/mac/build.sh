@@ -27,6 +27,10 @@ pnpm --filter @redgiant/server deploy --prod --legacy --config.node-linker=hoist
 # Codex and Claude Code (hundreds of MB) come down only when a subscription is switched on.
 rm -rf "$res"/server/node_modules/@openai/codex-darwin-* \
   "$res"/server/node_modules/@anthropic-ai/claude-agent-sdk-darwin-*
+# Postgres' libraries come three times each from npm: the copies become links again.
+for lib in "$res"/server/node_modules/@embedded-postgres/darwin-*/native/lib; do
+  node "$here/dedupe-libs.mjs" "$lib" | tail -1
+done
 cp -R packages/web/dist "$res/web"
 cp "$(command -v node)" "$res/node/node"
 echo "what weighs most:"
