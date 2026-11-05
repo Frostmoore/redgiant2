@@ -88,10 +88,11 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          pnpm --filter @redgiant/server deploy --prod --legacy packaging/windows/server
+          # Real folders, no links: the installer copies files, and Windows' junctions would not survive.
+          pnpm --filter @redgiant/server deploy --prod --legacy --config.node-linker=hoisted packaging/windows/server
           if ($LASTEXITCODE -ne 0) { exit 1 }
           # Codex and Claude Code (hundreds of MB) come down only when a subscription is switched on.
-          Get-ChildItem packaging/windows/server/node_modules/.pnpm -Directory | Where-Object { $_.Name -like "@openai+codex@*-win32-*" -or $_.Name -like "@anthropic-ai+claude-agent-sdk-win32-*" } | Remove-Item -Recurse -Force
+          Get-ChildItem packaging/windows/server/node_modules/@openai, packaging/windows/server/node_modules/@anthropic-ai -Directory | Where-Object { $_.Name -like "codex-win32-*" -or $_.Name -like "claude-agent-sdk-win32-*" } | Remove-Item -Recurse -Force
           Copy-Item -Recurse packages/web/dist packaging/windows/web
           New-Item -ItemType Directory -Force packaging/windows/node | Out-Null
           Copy-Item (Get-Command node).Source packaging/windows/node/node.exe
