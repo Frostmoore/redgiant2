@@ -17,6 +17,8 @@ export const PermissionRequestInfo = z.object({
   reasons: z.array(z.string()),
   danger: z.array(z.string()),
   createdAt: z.iso.datetime(),
+  /** The conversation that asked, when there is one (allow for this conversation). */
+  sessionId: z.string().optional(),
 });
 export type PermissionRequestInfo = z.infer<typeof PermissionRequestInfo>;
 
@@ -41,6 +43,10 @@ export const ClientMessage = z.discriminatedUnion("type", [
     requestId: z.string(),
     decision: z.enum(["allow", "deny"]),
     remember: z.boolean().default(false),
+    /** 2026-11-05: allow for this conversation only; "always" is the same as remember. */
+    scope: z.enum(["once", "session", "always"]).optional(),
+    /** Denied with words the agent reads ("not that file, the other one"). */
+    reason: z.string().max(1000).optional(),
   }),
   // The personal agents' browser (G24.14b): its screen, and the person's hands on it.
   z.object({ type: z.literal("browser.watch") }),

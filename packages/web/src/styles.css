@@ -5485,3 +5485,11 @@ textarea.instructions {
   cursor: pointer;
   opacity: 0.7;
 }
+
+.permission-why {
+  margin-top: 8px;
+  gap: 6px;
+}
+.permission-why input {
+  flex: 1;
+}

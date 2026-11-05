@@ -1482,6 +1482,10 @@ const en = {
   notifyEnable: "Turn on",
   todosTitle: "Steps: {done} of {all} done",
   unqueue: "Take it back (if the agent has not read it yet)",
+  thisChat: "In this conversation",
+  thisChatHint: "Allow {tool} without asking again, in this conversation only",
+  denyWhy: "Deny and say why",
+  denyWhyPlaceholder: "What to do instead (the agent reads it)",
   chats: "Other chats",
   chatsHint:
     "Talk to Demi-God from Discord, Slack, Signal or WhatsApp too. It is one conversation: begun on Telegram or here, it goes on wherever you write. Approvals and questions arrive with buttons (on Signal, with numbers to reply).",
@@ -3209,6 +3213,10 @@ const it: Record<Key, string> = {
   notifyEnable: "Attiva",
   todosTitle: "Passi: {done} su {all} fatti",
   unqueue: "Ritira (se l'agente non l'ha ancora letto)",
+  thisChat: "In questa conversazione",
+  thisChatHint: "Consenti {tool} senza chiederlo più, solo in questa conversazione",
+  denyWhy: "Nega e spiega perché",
+  denyWhyPlaceholder: "Cosa fare invece (l'agente lo legge)",
   chats: "Altre chat",
   chatsHint:
     "Parla con il Demi-God anche da Discord, Slack, Signal o WhatsApp. È una conversazione sola: cominciata su Telegram o qui, continua ovunque scrivi. Approvazioni e domande arrivano con i pulsanti (su Signal, con i numeri da rispondere).",

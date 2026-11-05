@@ -260,7 +260,7 @@ describe("evaluate", () => {
 describe("PermissionBroker", () => {
   async function setup(
     answers: Record<string, AgentAnswer>,
-    human: "allow" | "deny" | "never" = "allow",
+    human: "allow" | "deny" | "never" | { deny: string } = "allow",
     settings: Partial<PolicySettings> = {},
   ) {
     const t = await buildTree();
@@ -286,6 +286,31 @@ describe("PermissionBroker", () => {
     });
     return { t, broker, asked };
   }
+
+  it("passes the person's words on a denial, and allows for one conversation only (2026-11-05)", async () => {
+    const ask = { rules: [{ tool: "bash", decision: "ask" as const }], approverKinds: [] };
+    const no = await setup({}, { deny: "use the test database" }, ask);
+    expect(await no.broker.check(no.t.sub, call("bash", { command: "psql prod" }), "s1")).toEqual({
+      allow: false,
+      reason: "denied by the person, who said: use the test database",
+    });
+  });
+
+  it("allows a tool for one conversation only, never past a human-only danger (2026-11-05)", async () => {
+    const ask = { rules: [{ tool: "bash", decision: "ask" as const }], approverKinds: [] };
+    const yes = await setup({}, "allow", ask);
+    yes.broker.allowForSession("s1", "bash");
+    expect(await yes.broker.check(yes.t.sub, call("bash", { command: "ls" }), "s1")).toEqual({
+      allow: true,
+    });
+    expect(yes.asked).toEqual([]);
+    // Another conversation still asks.
+    await yes.broker.check(yes.t.sub, call("bash", { command: "ls" }), "s2");
+    expect(yes.asked).toEqual(["human"]);
+    // A danger only the person approves asks even where the tool is allowed for the conversation.
+    await yes.broker.check(yes.t.sub, call("bash", { command: "git push --force" }), "s1");
+    expect(yes.asked).toEqual(["human", "human"]);
+  });
 
   it("lets the parent approve an ordinary risky call", async () => {
     const { t, broker, asked } = await setup({ Coder: "allow" });

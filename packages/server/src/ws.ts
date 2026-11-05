@@ -192,12 +192,20 @@ export function attachWebSocket(
             return;
           case "permission.resolve": {
             const pending = core.approvals.list(owner).find((r) => r.requestId === msg.requestId);
-            if (!core.approvals.decide(owner, msg.requestId, msg.decision))
+            if (!core.approvals.decide(owner, msg.requestId, msg.decision, msg.reason))
               return fail("not_found", "No such pending request");
+            // For this conversation only (2026-11-05): never for a danger, which asks every time.
+            if (
+              msg.scope === "session" &&
+              msg.decision === "allow" &&
+              pending?.sessionId &&
+              pending.danger.length === 0
+            )
+              core.broker.allowForSession(pending.sessionId, pending.tool);
             // "Always": an allow rule for that tool, recorded and undoable like any platform change.
             // Never for dangerous calls: those ask every time.
             if (
-              msg.remember &&
+              (msg.remember || msg.scope === "always") &&
               msg.decision === "allow" &&
               pending &&
               pending.danger.length === 0

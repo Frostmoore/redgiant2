@@ -185,9 +185,22 @@ function ToolLine({
 /** A request waiting for the human, inside the conversation it belongs to. */
 export function PermissionCard({ r }: { r: PermissionRequestInfo }) {
   const [all, setAll] = useState(false);
+  // Denied with words the agent reads (2026-11-05).
+  const [why, setWhy] = useState<string | null>(null);
   const input = JSON.stringify(r.input, null, 2);
-  const resolve = (decision: "allow" | "deny", remember = false) =>
-    getLive().send({ type: "permission.resolve", requestId: r.requestId, decision, remember });
+  const resolve = (
+    decision: "allow" | "deny",
+    scope: "once" | "session" | "always" = "once",
+    reason?: string,
+  ) =>
+    getLive().send({
+      type: "permission.resolve",
+      requestId: r.requestId,
+      decision,
+      remember: scope === "always",
+      scope,
+      ...(reason?.trim() && { reason: reason.trim() }),
+    });
   return (
     <div class="permission">
       <div class="row">
@@ -212,12 +225,22 @@ export function PermissionCard({ r }: { r: PermissionRequestInfo }) {
         <button type="button" class="yes" onClick={() => resolve("allow")}>
           {t("allow")}
         </button>
+        {r.danger.length === 0 && r.sessionId && (
+          <button
+            type="button"
+            class="always"
+            title={t("thisChatHint", { tool: r.tool })}
+            onClick={() => resolve("allow", "session")}
+          >
+            {t("thisChat")}
+          </button>
+        )}
         {r.danger.length === 0 && (
           <button
             type="button"
             class="always"
             title={t("alwaysHint", { tool: r.tool })}
-            onClick={() => resolve("allow", true)}
+            onClick={() => resolve("allow", "always")}
           >
             {t("always")}
           </button>
@@ -225,7 +248,30 @@ export function PermissionCard({ r }: { r: PermissionRequestInfo }) {
         <button type="button" class="no" onClick={() => resolve("deny")}>
           {t("deny")}
         </button>
+        {why === null && (
+          <button type="button" class="link" onClick={() => setWhy("")}>
+            {t("denyWhy")}
+          </button>
+        )}
       </div>
+      {why !== null && (
+        <form
+          class="row permission-why"
+          onSubmit={(e) => {
+            e.preventDefault();
+            resolve("deny", "once", why);
+          }}
+        >
+          <input
+            value={why}
+            placeholder={t("denyWhyPlaceholder")}
+            onInput={(e) => setWhy((e.target as HTMLInputElement).value)}
+          />
+          <button type="submit" class="no" disabled={!why.trim()}>
+            {t("deny")}
+          </button>
+        </form>
+      )}
     </div>
   );
 }

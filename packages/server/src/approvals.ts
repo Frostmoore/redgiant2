@@ -1,11 +1,11 @@
 import { EventEmitter } from "node:events";
-import type { ApprovalRequest } from "@redgiant/hierarchy";
+import type { ApprovalRequest, HumanAnswer } from "@redgiant/hierarchy";
 import type { PermissionRequestInfo } from "@redgiant/protocol";
 
 interface Pending {
   info: PermissionRequestInfo;
   ownerId: string;
-  resolve: (d: "allow" | "deny") => void;
+  resolve: (d: HumanAnswer) => void;
 }
 
 /**
@@ -18,7 +18,7 @@ export class HumanApprovals extends EventEmitter<{
 }> {
   private readonly pending = new Map<string, Pending>();
 
-  ask(request: ApprovalRequest, signal: AbortSignal): Promise<"allow" | "deny"> {
+  ask(request: ApprovalRequest, signal: AbortSignal): Promise<HumanAnswer> {
     const info: PermissionRequestInfo = {
       requestId: request.requestId,
       agentId: request.requester.id,
@@ -29,6 +29,7 @@ export class HumanApprovals extends EventEmitter<{
       reasons: request.reasons,
       danger: request.danger,
       createdAt: new Date().toISOString(),
+      ...(request.sessionId && { sessionId: request.sessionId }),
     };
     const ownerId = request.requester.ownerId;
     return new Promise((resolve) => {
@@ -45,11 +46,11 @@ export class HumanApprovals extends EventEmitter<{
   }
 
   /** Returns false when the request does not exist or belongs to someone else. */
-  decide(ownerId: string, requestId: string, decision: "allow" | "deny"): boolean {
+  decide(ownerId: string, requestId: string, decision: "allow" | "deny", reason?: string): boolean {
     const p = this.pending.get(requestId);
     if (!p || p.ownerId !== ownerId) return false;
     this.pending.delete(requestId);
-    p.resolve(decision);
+    p.resolve(decision === "deny" && reason?.trim() ? { deny: reason.trim() } : decision);
     this.emit("closed", ownerId, requestId, decision);
     return true;
   }

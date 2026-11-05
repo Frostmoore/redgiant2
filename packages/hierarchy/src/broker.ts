@@ -11,7 +11,12 @@ export interface ApprovalRequest {
   call: ToolCallInfo;
   reasons: string[];
   danger: string[];
+  /** The conversation that asked (2026-11-05: "allow for this conversation"). */
+  sessionId?: string;
 }
+
+/** The person's answer: yes, no, or no with words the agent reads (2026-11-05). */
+export type HumanAnswer = "allow" | "deny" | { deny: string };
 
 export type AgentAnswer = "allow" | "deny" | "escalate";
 
@@ -24,7 +29,7 @@ export interface PermissionBrokerOptions {
   /** Asks a parent agent (normally by letting its model decide). */
   askAgent: (approver: AgentNode, request: ApprovalRequest) => Promise<AgentAnswer>;
   /** Asks the human (web UI, or Telegram via Demi-God); resolves when they answer. */
-  askHuman: (request: ApprovalRequest, signal: AbortSignal) => Promise<"allow" | "deny">;
+  askHuman: (request: ApprovalRequest, signal: AbortSignal) => Promise<HumanAnswer>;
 }
 
 /**
@@ -44,6 +49,14 @@ export class PermissionBroker {
     const settings = this.o.settingsFor(agent);
     const ev = evaluate(this.o.modeFor(agent), call, settings);
     if (ev.decision === "allow") return { allow: true };
+    // Allowed for this conversation by the person, unless it is a danger only they approve.
+    if (
+      ev.decision === "ask" &&
+      sessionId &&
+      this.sessionAllows.get(sessionId)?.has(call.name) &&
+      !ev.danger.some((d) => settings.humanOnly.includes(d))
+    )
+      return { allow: true };
     if (ev.decision === "deny") return { allow: false, reason: ev.reasons.join("; ") };
 
     const request: ApprovalRequest = {
@@ -52,6 +65,7 @@ export class PermissionBroker {
       call,
       reasons: ev.reasons,
       danger: ev.danger,
+      ...(sessionId && { sessionId }),
     };
     const humanOnly = ev.danger.some((d) => settings.humanOnly.includes(d));
     for (const approver of approvalChain(agent, this.o.resolve)) {
@@ -68,10 +82,17 @@ export class PermissionBroker {
       const answer = approver
         ? await this.o.askAgent(approver, request).catch(() => "escalate" as const)
         : await this.human(request, settings);
+      const said = typeof answer === "object" ? answer.deny : undefined;
       await this.log(agent, sessionId, {
         type: "permission.resolved",
-        payload: { requestId: request.requestId, decision: answer, by: approver?.id ?? "human" },
+        payload: {
+          requestId: request.requestId,
+          decision: typeof answer === "object" ? "deny" : answer,
+          by: approver?.id ?? "human",
+        },
       });
+      if (said !== undefined)
+        return { allow: false, reason: `denied by the person, who said: ${said}` };
       if (answer === "allow") return { allow: true };
       if (answer === "deny")
         return { allow: false, reason: `denied by ${approver?.name ?? "the user"}` };
@@ -79,7 +100,15 @@ export class PermissionBroker {
     return { allow: false, reason: "nobody approved the request" };
   }
 
-  private async human(request: ApprovalRequest, s: PolicySettings): Promise<"allow" | "deny"> {
+  /** Tools the person allowed for one conversation (never past a human-only danger). */
+  private readonly sessionAllows = new Map<string, Set<string>>();
+  allowForSession(sessionId: string, tool: string): void {
+    const set = this.sessionAllows.get(sessionId) ?? new Set<string>();
+    set.add(tool);
+    this.sessionAllows.set(sessionId, set);
+  }
+
+  private async human(request: ApprovalRequest, s: PolicySettings): Promise<HumanAnswer> {
     const controller = new AbortController();
     // A channel that fails or is cancelled counts as a refusal, never as an approval.
     const asked = this.o.askHuman(request, controller.signal).catch(() => "deny" as const);
