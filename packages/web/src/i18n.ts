@@ -1056,6 +1056,7 @@ const en = {
   lmEngine_cuda: "NVIDIA graphics card (CUDA)",
   lmEngine_vulkan: "AMD, Intel or built-in graphics (Vulkan)",
   lmEngine_windows: "Graphics card, with Windows' own engine (Vulkan)",
+  lmEngine_mac: "The Mac's graphics chip (Metal), next to RedGiant",
   job_error_launcher_missing:
     "RedGiant's program on Windows did not answer. Check that RedGiant is open (its icon next to the clock), then try again.",
   lmSearch: "Other models from Hugging Face",
@@ -2808,6 +2809,7 @@ const it: Record<Key, string> = {
   lmEngine_cuda: "Scheda video NVIDIA (CUDA)",
   lmEngine_vulkan: "Scheda AMD, Intel o integrata (Vulkan)",
   lmEngine_windows: "Scheda video, con il motore di Windows (Vulkan)",
+  lmEngine_mac: "Il chip grafico del Mac (Metal), accanto a RedGiant",
   job_error_launcher_missing:
     "Il programma di RedGiant su Windows non ha risposto. Controlla che RedGiant sia aperto (la sua icona vicino all'orologio), poi riprova.",
   lmSearch: "Altri modelli da Hugging Face",

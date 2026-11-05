@@ -11,7 +11,7 @@ export interface Gpu {
   integrated: boolean;
 }
 
-export type GpuVendor = "nvidia" | "amd" | "intel" | "other";
+export type GpuVendor = "nvidia" | "amd" | "intel" | "apple" | "other";
 
 /**
  * The local engine's builds: llama.cpp for the CPU, CUDA (NVIDIA) and Vulkan (AMD, Intel…) in
@@ -121,6 +121,11 @@ function nvidiaSmi(): Promise<Gpu[]> {
   });
 }
 
+/** Apple Silicon's GPU: Metal can give it about 75 % of the shared memory. */
+export function appleGpu(name: string, ramGb: number): Gpu {
+  return { name, vramGb: round(ramGb * 0.75), vendor: "apple", integrated: false };
+}
+
 /** The maker and kind of a GPU from its name (and its memory: a tiny one is shared). */
 export function describeGpu(name: string, vramGb: number): Gpu {
   const n = name.toLowerCase();
@@ -171,6 +176,9 @@ export async function detectHardware(o: {
   windowsEngine?: boolean | undefined;
   /** The Windows engine's folder, where the launcher says how much memory Windows has free. */
   winEngineDir?: string | undefined;
+  /** Tests: another system. */
+  platform?: NodeJS.Platform;
+  arch?: NodeJS.Architecture;
 }): Promise<Hardware> {
   const list = cpus();
   const disk = await statfs(o.dataDir)
@@ -180,6 +188,14 @@ export async function detectHardware(o: {
   // which GPUs it has in REDGIANT_HOST_GPUS ("name:GB;name:GB").
   let gpus = await (o.gpus ?? nvidiaSmi)();
   if (gpus.length === 0) gpus = hostGpus(o.hostGpus ?? process.env.REDGIANT_HOST_GPUS);
+  // A Mac with Apple Silicon (2026-11-05): its GPU shares the memory, and Metal lets it use
+  // about three quarters of it.
+  if (
+    gpus.length === 0 &&
+    (o.platform ?? process.platform) === "darwin" &&
+    (o.arch ?? process.arch) === "arm64"
+  )
+    gpus = [appleGpu(list[0]?.model.trim() ?? "Apple Silicon", totalmem() / GB)];
   const runtimes: string[] = await (o.dockerRuntimes?.() ?? Promise.resolve([])).catch(() => []);
   const dockerGpu = runtimes.includes("nvidia");
   const access = o.gpuAccess ?? process.env.REDGIANT_ENGINE_GPU ?? "";
@@ -187,8 +203,11 @@ export async function detectHardware(o: {
   // Natively on Windows (RedGiant 3.0) the engine there is the only one.
   o = {
     ...o,
+    // A Mac runs llama.cpp next to the server the same way (native-launcher.ts).
     windowsEngine:
-      o.windowsEngine ?? (Boolean(process.env.REDGIANT_WIN_HOST) || process.platform === "win32"),
+      o.windowsEngine ??
+      (Boolean(process.env.REDGIANT_WIN_HOST) ||
+        ["win32", "darwin"].includes(o.platform ?? process.platform)),
   };
   const onWindows =
     o.windowsEngine === true || Boolean(o.winEngineDir ?? process.env.REDGIANT_HOST_ENGINE_DIR);

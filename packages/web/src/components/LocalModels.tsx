@@ -1307,7 +1307,10 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
               : (["cpu", "cuda", "vulkan"] as const)
             ).map((v) => (
               <option key={v} value={v}>
-                {t(`lmEngine_${v}`)}
+                {/* A Mac runs the same engine next to RedGiant, with Metal (2026-11-05). */}
+                {t(
+                  v === "windows" && s.hardware.os === "darwin" ? "lmEngine_mac" : `lmEngine_${v}`,
+                )}
                 {v === s.hardware.suggestion.engine ? ` (${t("lmRecommended")})` : ""}
               </option>
             ))}

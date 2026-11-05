@@ -22,11 +22,12 @@ import { debugLog } from "./debug-log.js";
 import { startEmbeddedDatabase } from "./embedded-db.js";
 import { GitHosts } from "./git-hosts.js";
 import { HuggingFace } from "./hf.js";
+import { NativeLauncher } from "./native-launcher.js";
 import { ensureGit } from "./portable-git.js";
 import { backgroundPuller, runtimeHooks } from "./runtime.js";
 import { serve } from "./serve.js";
 import { SetupService } from "./setup.js";
-import { WinEngine } from "./win-engine.js";
+import { WIN_ENGINE_BUILD, WinEngine } from "./win-engine.js";
 
 const env = process.env;
 
@@ -193,17 +194,33 @@ const docker = sandbox.kind === "docker" || env.REDGIANT_ENGINE_NETWORK ? new Do
 // RedGiant 3.0 (G30.1): on Windows the server itself runs there, next to RedGiant.exe and its
 // engine folder; the engine answers on this computer.
 const nativeWindows = process.platform === "win32";
+// On a Mac (2026-11-05) the same engine folder and files, with the launcher's part done here
+// (native-launcher.ts): llama.cpp's macOS build with Metal, next to the server.
+const nativeMac = process.platform === "darwin";
+if (nativeMac)
+  env.REDGIANT_WIN_ENGINE_DIR ??= join(
+    homedir(),
+    "Library",
+    "Application Support",
+    "RedGiant",
+    "engine",
+  );
 const winEngine =
-  env.REDGIANT_WIN_HOST || env.REDGIANT_HOST_ENGINE_DIR || nativeWindows
+  env.REDGIANT_WIN_HOST || env.REDGIANT_HOST_ENGINE_DIR || nativeWindows || nativeMac
     ? new WinEngine({
         dir:
           env.REDGIANT_WIN_ENGINE_DIR ??
           (nativeWindows
             ? join(env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "RedGiant", "engine")
             : "/winengine"),
-        host: env.REDGIANT_WIN_HOST ?? (nativeWindows ? "127.0.0.1" : ""),
+        host: env.REDGIANT_WIN_HOST ?? (nativeWindows || nativeMac ? "127.0.0.1" : ""),
       })
     : undefined;
+if (nativeMac && winEngine) {
+  const launcher = new NativeLauncher({ dir: winEngine.dir, build: WIN_ENGINE_BUILD });
+  launcher.start();
+  shutdownHooks.push(() => launcher.close());
+}
 // Debug mode (2026-11-04): before the engine and the setup start, so their start is logged too.
 await debugLog.configure({
   dir: join(dataDir, "logs"),

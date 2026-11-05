@@ -73,11 +73,10 @@ export async function transcribe(
   let type = mime.split(";")[0]?.trim().toLowerCase() || "application/octet-stream";
   // whisper.cpp reads WAV, MP3, FLAC and Ogg/Vorbis only: the rest is converted here first.
   if (cfg.api === "local") {
-    ({ audio, type } = await forWhisperCpp(
-      audio,
-      type,
-      { ...(opts.ffmpeg && { ffmpeg: opts.ffmpeg }), ...(cfg.wavOnly && { wavOnly: true }) },
-    ).catch((err) => {
+    ({ audio, type } = await forWhisperCpp(audio, type, {
+      ...(opts.ffmpeg && { ffmpeg: opts.ffmpeg }),
+      ...(cfg.wavOnly && { wavOnly: true }),
+    }).catch((err) => {
       throw new TranscriptionError((err as Error).message);
     }));
   }
