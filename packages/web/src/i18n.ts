@@ -1461,6 +1461,10 @@ const en = {
     "{name} is downloaded when you switch this on (once, a few hundred MB, with its bar in the corner).",
   subsUseShared: "Use the sign-in already here",
   instructionsTitle: "Instructions for every agent",
+  backupModelTitle: "Backup model for tasks",
+  backupModelHint:
+    "When an agent gives up on a task (an error, the budget, or no check that the result is right), this model tries it once more in a new conversation, knowing what the first attempt did. Better if it is from another provider.",
+  backupModelNone: "None: a task given up on stays so",
   instructionsHint:
     "What every agent should know or do, whoever it is: how you like answers, your conventions, things to avoid. They are added to each agent's own instructions (those are in each agent's card under Agents).",
   instructionsPlaceholder:
@@ -3218,6 +3222,10 @@ const it: Record<Key, string> = {
     "{name} viene scaricato quando lo attivi (una volta sola, qualche centinaio di MB, con la barra nell'angolo).",
   subsUseShared: "Usa l'accesso già presente",
   instructionsTitle: "Istruzioni per tutti gli agenti",
+  backupModelTitle: "Modello di riserva per i task",
+  backupModelHint:
+    "Quando un agente rinuncia a un task (un errore, il budget, o nessuna verifica che il risultato sia giusto), questo modello lo riprova una volta in una conversazione nuova, sapendo cosa ha fatto il primo tentativo. Meglio se è di un altro fornitore.",
+  backupModelNone: "Nessuno: un task abbandonato resta tale",
   instructionsHint:
     "Quello che ogni agente deve sapere o fare, chiunque sia: come vuoi le risposte, le tue convenzioni, cosa evitare. Si aggiungono alle istruzioni proprie di ciascun agente (quelle sono nella sua scheda, in Agenti).",
   instructionsPlaceholder:

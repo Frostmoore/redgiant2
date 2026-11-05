@@ -51,6 +51,7 @@ export interface SetupState {
     language?: "it" | "en";
     /** The person's instructions for every agent (2026-11-05). */
     instructions?: string;
+    backupModel?: { provider: string; model: string; effort?: string };
     defaultModel?: { provider: string; model: string; effort?: string };
     keyProviders?: string[];
     mode?: "standard" | "advanced";
@@ -679,6 +680,8 @@ export class Api {
     this.call<{ username: string } | null>("PUT", "/api/setup/telegram", { token });
   setupSafety = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/safety", b);
   setupInstructions = (text: string) => this.call("PUT", "/api/setup/instructions", { text });
+  setupBackupModel = (model: { provider: string; model: string; effort?: string } | null) =>
+    this.call("PUT", "/api/setup/backup-model", { model });
   /** The conversation an agent works in for the chats (the same on every platform). */
   workSession = (agentId: string) =>
     this.call<{ sessionId: string }>("POST", `/api/agents/${agentId}/work-session`);

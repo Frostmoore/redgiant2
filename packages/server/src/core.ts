@@ -111,6 +111,7 @@ import {
   modelApprover,
   type OrchestrationHost,
   orchestrationTools,
+  type Task,
   TaskTracker,
 } from "./orchestration.js";
 import {
@@ -391,6 +392,7 @@ export class RedGiantCore implements OrchestrationHost {
     this.projects = new ProjectStore(o.db, o.workspacesDir);
     this.sandbox = o.sandbox ?? new HostSandboxProvider();
     this.tasks = new TaskTracker(this.store);
+    this.tasks.escalate = (task, reason) => this.escalate(task, reason);
     this.board = new Board(o.db, this.store);
     // Apart from every workspace (2026-11-05: in the assistants' folder an assistant could read and
     // rewrite any agent's or project's notes with its file tools).
@@ -1574,6 +1576,60 @@ export class RedGiantCore implements OrchestrationHost {
   private instructions: string | undefined;
   setInstructions(text: string | undefined): void {
     this.instructions = text?.trim() || undefined;
+  }
+
+  /**
+   * The backup model for tasks (2026-11-05, the user's idea): a task an agent gives up on (an
+   * error, the budget, no verification after the reminders) is tried once more by this model,
+   * best from another provider, in a new conversation of the same agent. Never a switch in the
+   * middle of a conversation: that would throw its cache away.
+   */
+  private backupModel: ModelSpec | undefined;
+  setBackupModel(model: ModelSpec | undefined): void {
+    this.backupModel = model;
+  }
+
+  private async escalate(
+    task: Task,
+    reason: string,
+  ): Promise<{ task: Task; done: Promise<unknown> } | undefined> {
+    const backup = this.backupModel;
+    const agent = this.registry.get(task.agentId);
+    if (!backup || !agent || agent.status !== "active") return undefined;
+    const first = this.live.get(task.sessionId)?.model;
+    // The same model again would most likely fail the same way.
+    if (first && first.provider === backup.provider && first.model === backup.model)
+      return undefined;
+    const sid = await this.startSession(task.ownerId, agent.id, {
+      model: backup,
+      ...(task.projectId && task.projectId !== agent.projectId && { projectId: task.projectId }),
+    });
+    const next = await this.tasks.open(
+      agent,
+      sid,
+      task.title,
+      task.from,
+      task.projectId ?? undefined,
+      {
+        ...(task.brief && { brief: task.brief }),
+        escalatedFrom: task.id,
+      },
+    );
+    const tried = lastText(await this.store.list({ sessionId: task.sessionId }));
+    const who = first ? `${first.provider}/${first.model}` : "another model";
+    const text =
+      `Task «${task.title}»${task.from ? ` from ${task.from.name}` : ""}\n\n${task.brief ?? task.title}\n\n` +
+      `<previous_attempt model="${who}">\nIt was tried by ${who}, which did not finish it: ${reason}.\n` +
+      (tried
+        ? `Its last words:\n${tried.length > 4000 ? `${tried.slice(0, 4000)}\n[…]` : tried}\n`
+        : "") +
+      "</previous_attempt>\n" +
+      "The files may already hold part of that attempt: look at them before you start, keep what is right, " +
+      `fix what is not. When it is done, verify the result and call complete_task (taskId "${next.id}").`;
+    await this.nameSession(sid, `${task.title} (backup model)`).catch(() => {});
+    const { done } = await this.send(task.ownerId, sid, text, { queue: true });
+    done.catch(() => {});
+    return { task: next, done };
   }
 
   private say(ownerId: string, key: AlertText, vars?: Record<string, string | number>) {

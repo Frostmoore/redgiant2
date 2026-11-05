@@ -67,7 +67,7 @@ export interface OrchestrationHost {
 
 type Outcome = "verified" | "not_testable" | "abandoned";
 
-interface Task {
+export interface Task {
   id: string;
   title: string;
   agentId: string;
@@ -80,7 +80,24 @@ interface Task {
   from?: { agentId: string; sessionId: string; name: string };
   /** Its report was sent to `from`. */
   reported?: boolean;
+  /** What was asked (kept in memory: an escalation hands it to the next model). */
+  brief?: string;
+  /** The task this one takes over from, after another model gave up on it. */
+  escalatedFrom?: string;
+  /** Given up here and handed to the backup model: that task and its turn. */
+  escalation?: { task: Task; done: Promise<unknown> };
+  /** Its closing (and escalation), once started: closing twice waits for the first. */
+  closing?: Promise<void>;
 }
+
+/**
+ * A task given up on, handed once to the backup model (2026-11-05, the user's idea): a new
+ * conversation of the same agent, with that model, the task and what the first attempt did.
+ */
+export type Escalate = (
+  task: Task,
+  reason: string,
+) => Promise<{ task: Task; done: Promise<unknown> } | undefined>;
 
 /**
  * Tasks handed from a parent to a child (RD17): a task closes only with a verifier that
@@ -91,6 +108,9 @@ export class TaskTracker {
   private readonly tasks = new Map<string, Task>();
   static readonly MAX_REMINDERS = 3;
 
+  /** Set by the core: where a task given up on goes next (nowhere without a backup model). */
+  escalate: Escalate | undefined;
+
   constructor(private readonly store: EventStore) {}
 
   async open(
@@ -100,6 +120,7 @@ export class TaskTracker {
     from?: Task["from"],
     /** The project it is done for, when not the agent's own (an assignment). */
     projectId?: string,
+    extra: { brief?: string; escalatedFrom?: string } = {},
   ): Promise<Task> {
     const task: Task = {
       id: `task_${randomUUID().slice(0, 8)}`,
@@ -110,11 +131,18 @@ export class TaskTracker {
       projectId: projectId ?? agent.projectId,
       reminders: 0,
       ...(from && { from }),
+      ...(extra.brief && { brief: extra.brief }),
+      ...(extra.escalatedFrom && { escalatedFrom: extra.escalatedFrom }),
     };
     this.tasks.set(task.id, task);
     await this.log(task, {
       type: "task.opened",
-      payload: { taskId: task.id, title, ...(from && { from }) },
+      payload: {
+        taskId: task.id,
+        title,
+        ...(from && { from }),
+        ...(extra.escalatedFrom && { escalatedFrom: extra.escalatedFrom }),
+      },
     });
     return task;
   }
@@ -180,9 +208,21 @@ export class TaskTracker {
       | { outcome: "verified" }
       | { outcome: "not_testable"; justification: string }
       | { outcome: "abandoned"; reason: string },
-  ) {
+  ): Promise<void> {
+    if (task.closing) return task.closing;
     task.outcome = how.outcome;
-    await this.log(task, { type: "task.closed", payload: { taskId: task.id, ...how } });
+    task.closing = (async () => {
+      await this.log(task, { type: "task.closed", payload: { taskId: task.id, ...how } });
+      // Once only: a task the backup model gives up on too is reported as abandoned.
+      if (how.outcome === "abandoned" && !task.escalatedFrom && this.escalate) {
+        // Its report waits for the backup model's attempt.
+        task.reported = true;
+        const next = await this.escalate(task, how.reason).catch(() => undefined);
+        if (next) task.escalation = next;
+        else task.reported = false;
+      }
+    })();
+    return task.closing;
   }
 
   private log(task: Task, body: Parameters<EventStore["append"]>[0]["body"]) {
@@ -285,6 +325,7 @@ export function orchestrationTools(
       title,
       { agentId: self.id, sessionId: ctx.sessionId, name: self.name },
       here,
+      { brief: task },
     );
     const text =
       `Task from ${self.name}: «${title}»\n\n${task}\n\n` +
@@ -305,17 +346,40 @@ export function orchestrationTools(
     if (!can(me, "message", to, host.registry.resolve))
       throw new Error(`You cannot assign work to ${to.name}`);
     const sid = sessionId ?? (await host.workSession(to));
-    const t = await tasks.open(to, sid, title);
+    let t = await tasks.open(to, sid, title, undefined, undefined, { brief: task });
     const text =
       `Task from ${self.name}: «${title}»\n\n${task}\n\n` +
       `When it is done, verify the result and call complete_task (taskId "${t.id}").`;
     await host.nameSession?.(sid, `${self.name}: ${title}`);
     const { done } = await host.send(self.ownerId, sid, text);
-    const r = await done;
-    const answer = lastAssistantText(await host.store.list({ sessionId: sid }));
-    const outcome = t.outcome ?? "still open";
+    /** A turn ended: a task it did not close is given up on (and maybe escalated) now. */
+    const settle = async (task: typeof t, r: SendResult) => {
+      if (!task.outcome)
+        await tasks.close(task, {
+          outcome: "abandoned",
+          reason: `the agent stopped: ${r.stopReason}${r.reason ? `, ${r.reason}` : ""}`,
+        });
+      await task.closing;
+    };
+    const ended = (p: Promise<unknown>) =>
+      (p as Promise<SendResult>).catch(
+        (err): SendResult => ({ stopReason: "other", turns: 0, reason: (err as Error).message }),
+      );
+    let r = await ended(done);
+    await settle(t, r);
+    let at = sid;
+    // Given up on and handed to the backup model: its attempt is the report.
+    while (t.escalation) {
+      const next = t.escalation;
+      r = await ended(next.done);
+      t = next.task;
+      at = t.sessionId;
+      await settle(t, r);
+    }
+    const answer = lastAssistantText(await host.store.list({ sessionId: at }));
+    const outcome = `${t.outcome ?? "still open"}${t.escalatedFrom ? " (by the backup model, after the first one gave up)" : ""}`;
     // The last line lets the chat open the sub-agent's conversation (and the model read it).
-    return `Task ${t.id} — ${outcome}${r.stopReason !== "end_turn" ? ` (agent stopped: ${r.stopReason}${r.reason ? `, ${r.reason}` : ""})` : ""}.\nReport from ${to.name}:\n${clip(answer)}\nConversation: ${sid} (${to.id})`;
+    return `Task ${t.id} — ${outcome}${r.stopReason !== "end_turn" ? ` (agent stopped: ${r.stopReason}${r.reason ? `, ${r.reason}` : ""})` : ""}.\nReport from ${to.name}:\n${clip(answer)}\nConversation: ${at} (${to.id})`;
   };
 
   const tools: Tool[] = [];

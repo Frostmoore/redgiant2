@@ -186,6 +186,8 @@ export interface SetupConfig {
   language?: "it" | "en";
   /** The person's instructions for every agent (2026-11-05), part of each one's system prompt. */
   instructions?: string;
+  /** Tries again a task an agent gave up on (2026-11-05), best from another provider. */
+  backupModel?: ModelSpec;
   defaultModel?: ModelSpec;
   /** Providers connected with a key (the keys are in the secrets). */
   keyProviders?: string[];
@@ -481,6 +483,7 @@ export class SetupService {
     if (!this.locked.defaultModel && c.defaultModel) this.o.core.setDefaultModel(c.defaultModel);
     if (c.language) this.o.core.setLanguage(c.language);
     if (c.instructions) this.o.core.setInstructions(c.instructions);
+    if (c.backupModel) this.o.core.setBackupModel(c.backupModel);
     if (!this.locked.telegram && s.telegramToken)
       await run("Telegram", h.telegram(s.telegramToken));
     for (const [p, settings] of Object.entries(s.chats ?? {}))
@@ -1470,6 +1473,17 @@ export class SetupService {
     if (t) this.config.instructions = t;
     else delete this.config.instructions;
     this.o.core.setInstructions(t || undefined);
+    await this.save();
+  }
+
+  /** The backup model for tasks given up on (2026-11-05); null: none. */
+  async saveBackupModel(model: ModelSpec | null): Promise<void> {
+    if (model) {
+      if (!this.o.core.providers.has(model.provider))
+        throw new SetupError(`${model.provider} is not connected`);
+      this.config.backupModel = model;
+    } else delete this.config.backupModel;
+    this.o.core.setBackupModel(model ?? undefined);
     await this.save();
   }
 

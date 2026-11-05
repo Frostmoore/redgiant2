@@ -223,7 +223,12 @@ export const EventBody = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("task.opened"),
-    payload: z.object({ taskId: z.string(), title: z.string() }),
+    payload: z.object({
+      taskId: z.string(),
+      title: z.string(),
+      /** Handed to the backup model after this task was given up on (2026-11-05). */
+      escalatedFrom: z.string().optional(),
+    }),
   }),
   z.object({
     type: z.literal("task.verified"),

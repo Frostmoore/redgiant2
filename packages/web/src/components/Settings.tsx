@@ -35,6 +35,7 @@ import { CodeSettings } from "./CodeSettings.js";
 import { EmailSettings } from "./EmailSettings.js";
 import { Extensions } from "./Extensions.js";
 import { Hierarchy } from "./Hierarchy.js";
+import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
 import { Platform } from "./Platform.js";
 import { RemoteSettings } from "./RemoteSettings.js";
 import { Services } from "./Services.js";
@@ -144,6 +145,50 @@ function Instructions() {
   );
 }
 
+/**
+ * The backup model for tasks (2026-11-05): a task an agent gives up on is tried once more by
+ * this model, in a new conversation; best from another provider.
+ */
+function BackupModel() {
+  const models = useModels();
+  const [value, setValue] = useState<Spec | null>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    void getApi()
+      .setup()
+      .then(
+        (s) => setValue(s.config.backupModel ?? null),
+        () => setValue(null),
+      );
+  }, []);
+  if (value === undefined || !models) return null;
+  const choose = (m: Spec | null) => {
+    const before = value;
+    setValue(m);
+    setError(undefined);
+    getApi()
+      .setupBackupModel(m)
+      .catch((e) => {
+        setValue(before);
+        setError(explain(e));
+      });
+  };
+  return (
+    <>
+      <h2 style={{ marginTop: "24px" }}>{t("backupModelTitle")}</h2>
+      <p class="ui-help">{t("backupModelHint")}</p>
+      <ModelSelect
+        models={models}
+        value={value}
+        onChange={choose}
+        empty={t("backupModelNone")}
+        label={t("backupModelTitle")}
+      />
+      {error && <p class="notice error">{error}</p>}
+    </>
+  );
+}
+
 function General() {
   return (
     <div class="settings-section">
@@ -188,6 +233,7 @@ function General() {
       </div>
       <BrowserNotifications />
       <Instructions />
+      <BackupModel />
       <Services />
       <EmailSettings />
       <Updates />

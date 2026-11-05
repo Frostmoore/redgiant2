@@ -2447,6 +2447,26 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       return (setup as SetupService).startEngine(e);
     }),
   );
+  app.put("/api/setup/backup-model", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).saveBackupModel(
+        (
+          await parsed(
+            c,
+            z.object({
+              model: z
+                .object({
+                  provider: z.string().min(1),
+                  model: z.string().min(1),
+                  effort: z.enum(["low", "medium", "high", "max"]).optional(),
+                })
+                .nullable(),
+            }),
+          )
+        ).model,
+      ),
+    ),
+  );
   app.put("/api/setup/instructions", (c) =>
     wizard(c, async () =>
       (setup as SetupService).saveInstructions(
