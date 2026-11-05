@@ -314,7 +314,8 @@ export function orchestrationTools(
     const r = await done;
     const answer = lastAssistantText(await host.store.list({ sessionId: sid }));
     const outcome = t.outcome ?? "still open";
-    return `Task ${t.id} — ${outcome}${r.stopReason !== "end_turn" ? ` (agent stopped: ${r.stopReason}${r.reason ? `, ${r.reason}` : ""})` : ""}.\nReport from ${to.name}:\n${clip(answer)}`;
+    // The last line lets the chat open the sub-agent's conversation (and the model read it).
+    return `Task ${t.id} — ${outcome}${r.stopReason !== "end_turn" ? ` (agent stopped: ${r.stopReason}${r.reason ? `, ${r.reason}` : ""})` : ""}.\nReport from ${to.name}:\n${clip(answer)}\nConversation: ${sid} (${to.id})`;
   };
 
   const tools: Tool[] = [];

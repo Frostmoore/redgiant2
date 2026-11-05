@@ -177,6 +177,16 @@ describe("orchestration", () => {
       "verified",
     ]);
     expect((await s.core.store.verify()).ok).toBe(true);
+    // The parent's report names the sub-agent's conversation, so the chat can open it.
+    const sub = agents.find((a) => a.kind === "subagent")?.id ?? "";
+    const subSession = of("task.opened").find((e) => e.agentId === sub)?.sessionId ?? "";
+    expect(
+      of("tool.result").some((e) =>
+        String((e.payload as { output: string }).output).endsWith(
+          `\nConversation: ${subSession} (${sub})`,
+        ),
+      ),
+    ).toBe(true);
     // The work conversations are named after who gave the task and what, not after an id.
     const titles = (await s.core.listSessions("me")).map((r) => r.title);
     expect(titles).toEqual(expect.arrayContaining(["God: Greeting", "Orch: Write greeting"]));

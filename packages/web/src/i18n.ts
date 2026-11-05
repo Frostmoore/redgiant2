@@ -1435,24 +1435,27 @@ const en = {
   telegram: "Telegram",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
-  news2Guardian: "A guardian instead of containers",
-  news2GuardianText:
-    "Agents now work directly in their project's folder, with no Docker in between. Before one writes anywhere else, the guardian asks you (or lets it be: Settings, Setup, Safety). Their commands never see RedGiant's keys.",
-  news2Memory: "Every agent remembers",
-  news2MemoryText:
-    "Each agent keeps short notes between conversations: about you (shared by all), its own, and its project's.",
-  news2Skills: "Skills they write themselves",
-  news2SkillsText:
-    "After a hard problem an agent can save the steps as a skill every agent finds next time. You choose whether they wait for you or install once tested.",
-  news2Chats: "Discord, Slack, Signal and WhatsApp",
-  news2ChatsText:
-    "Talk to Demi-God from any of them (Settings, Other chats). One conversation: begun on Telegram, it goes on wherever you write. Automations can deliver to the chats you name.",
-  news2Subagents: "Sub-agents in parallel",
-  news2SubagentsText:
-    "An agent can split work among up to six sub-agents, each in its own copy of the code, and gets their work back merged. Long chains of steps can run as a small script that calls its tools, without filling the conversation.",
-  news2Browser: "The browser on your computer",
-  news2BrowserText:
-    "Where Chrome, Chromium or Edge is installed, agents use it, with a profile of their own, instead of a container.",
+  news3Windows: "Windows without WSL",
+  news3WindowsText:
+    "RedGiant now runs directly on Windows: the server, its database and the local models. No WSL, no virtualization to switch on. Docker is used only if it is already there.",
+  news3Downloads: "Downloads only when needed",
+  news3DownloadsText:
+    "Codex and Claude Code are downloaded when you activate their subscription, and an existing installation or sign-in is used as it is. Without Git, a portable Git is downloaded for the agents' terminal.",
+  news3Chat: "A better chat",
+  news3ChatText:
+    "File changes show their diff, the agent's reasoning appears live, Esc stops it, a message still waiting can be taken back, and a sent message can be edited and resent. Approvals can hold for the whole conversation, and a refusal can say why.",
+  news3Voice: "Voice notes on your computer",
+  news3VoiceText:
+    "Voice notes can be transcribed locally, without an online service. Every common format is read: Telegram, WhatsApp, the browser; M4A needs ffmpeg.",
+  news3Skills: "Skills in the common format",
+  news3SkillsText:
+    "Skills follow the agentskills.io format: agents search them, and you can download one as a .zip or import one. An agent's skill never replaces one already installed without you.",
+  news3Automations: "Automations that say where they arrived",
+  news3AutomationsText:
+    "Each run tells whether its message reached Telegram, the other chats or this page (the bell). One broken recipe no longer stops the others.",
+  news3Browser: "The browser for every agent",
+  news3BrowserText:
+    "Every agent that works can use the browser, now able to scroll, press keys and choose from menus, and to look at images. Reading pages never reaches your home network.",
   subsSharedLogin:
     "{name} is already signed in on this computer: RedGiant uses that sign-in as it is, no need to sign in again.",
   subsProgramSystem: "{name} is already installed on this computer: RedGiant uses it.",
@@ -1474,6 +1477,7 @@ const en = {
   viaScript: "from a script",
   notifyDone: "An agent finished its work",
   notifyApproval: "{name} asks for your approval",
+  openSubagentChat: "Open the conversation of {name}",
   notifyQuestion: "{name} has a question for you",
   notifyTitle: "Browser notifications",
   notifyHint: "When RedGiant's page is not in view: an agent finished, or waits for you.",
@@ -3190,24 +3194,27 @@ const it: Record<Key, string> = {
   telegram: "Telegram",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
-  news2Guardian: "Un guardiano al posto dei contenitori",
-  news2GuardianText:
-    "Gli agenti ora lavorano direttamente nella cartella del loro progetto, senza Docker in mezzo. Prima che uno scriva altrove, il guardiano te lo chiede (o lascia fare: Impostazioni, Configurazione, Sicurezza). I loro comandi non vedono mai le chiavi di RedGiant.",
-  news2Memory: "Ogni agente ricorda",
-  news2MemoryText:
-    "Ogni agente tiene note brevi fra una conversazione e l'altra: su di te (condivise da tutti), sue, e del suo progetto.",
-  news2Skills: "Skill che scrivono da soli",
-  news2SkillsText:
-    "Dopo un problema difficile un agente può salvare i passi in una skill che la prossima volta trova ogni agente. Scegli tu se aspettano te o si installano quando passano le prove.",
-  news2Chats: "Discord, Slack, Signal e WhatsApp",
-  news2ChatsText:
-    "Parla con il Demi-God da ognuna di queste (Impostazioni, Altre chat). Una conversazione sola: cominciata su Telegram, continua ovunque scrivi. Le automazioni possono consegnare nelle chat che indichi.",
-  news2Subagents: "Sotto-agenti in parallelo",
-  news2SubagentsText:
-    "Un agente può dividere il lavoro fra un massimo di sei sotto-agenti, ognuno nella sua copia del codice, e riaverlo unito. Le catene lunghe di passi possono girare come un piccolo script che chiama i suoi strumenti, senza riempire la conversazione.",
-  news2Browser: "Il browser del tuo computer",
-  news2BrowserText:
-    "Dove c'è Chrome, Chromium o Edge, gli agenti usano quello, con un profilo tutto loro, invece di un contenitore.",
+  news3Windows: "Windows senza WSL",
+  news3WindowsText:
+    "RedGiant ora gira direttamente su Windows: il server, il suo database e i modelli locali. Niente WSL, niente virtualizzazione da attivare. Docker si usa solo se c'è già.",
+  news3Downloads: "Download solo quando servono",
+  news3DownloadsText:
+    "Codex e Claude Code si scaricano quando attivi il loro abbonamento, e se sono già installati o collegati si usano così come sono. Se manca Git, per il terminale degli agenti si scarica un Git portatile.",
+  news3Chat: "Una chat migliore",
+  news3ChatText:
+    "Le modifiche ai file mostrano le differenze, il ragionamento dell'agente appare mentre lo scrive, Esc lo ferma, un messaggio ancora in attesa si può ritirare e uno inviato si può modificare e rimandare. Un'approvazione può valere per tutta la conversazione, e un rifiuto può spiegare il perché.",
+  news3Voice: "I vocali sul tuo computer",
+  news3VoiceText:
+    "I vocali si possono trascrivere in locale, senza un servizio online. Si leggono tutti i formati comuni: Telegram, WhatsApp, il browser; per gli M4A serve ffmpeg.",
+  news3Skills: "Skill nel formato comune",
+  news3SkillsText:
+    "Le skill seguono il formato di agentskills.io: gli agenti le cercano, e puoi scaricarne una come .zip o importarla. La skill di un agente non sostituisce mai una già installata senza di te.",
+  news3Automations: "Automazioni che dicono dove sono arrivate",
+  news3AutomationsText:
+    "Ogni esecuzione dice se il messaggio è arrivato su Telegram, sulle altre chat o in questa pagina (la campanella). Una ricetta rotta non ferma più le altre.",
+  news3Browser: "Il browser per ogni agente",
+  news3BrowserText:
+    "Ogni agente che lavora può usare il browser, che ora scorre la pagina, preme tasti, sceglie dai menu e guarda le immagini. La lettura delle pagine non raggiunge mai la tua rete di casa.",
   subsSharedLogin:
     "{name} è già collegato su questo computer: RedGiant usa quell'accesso così com'è, senza rifarlo.",
   subsProgramSystem: "{name} è già installato su questo computer: RedGiant usa quello.",
@@ -3229,6 +3236,7 @@ const it: Record<Key, string> = {
   viaScript: "da uno script",
   notifyDone: "Un agente ha finito il suo lavoro",
   notifyApproval: "{name} chiede la tua approvazione",
+  openSubagentChat: "Apri la conversazione di {name}",
   notifyQuestion: "{name} ha una domanda per te",
   notifyTitle: "Notifiche del browser",
   notifyHint: "Quando la pagina di RedGiant non è in vista: un agente ha finito, o ti aspetta.",

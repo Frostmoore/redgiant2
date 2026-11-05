@@ -228,6 +228,8 @@ function ToolLine({
   const diff = item.result?.output.match(/```diff\n([\s\S]*?)```/)?.[1];
   const added = diff?.split("\n").filter((l) => l.startsWith("+")).length ?? 0;
   const removed = diff?.split("\n").filter((l) => l.startsWith("-")).length ?? 0;
+  // Sub-agents' conversations, even once they are stopped (their reports end with this line).
+  const talks = [...(item.result?.output.matchAll(/^Conversation: (\S+) \((\S+)\)$/gm) ?? [])];
   return (
     <div class={`tool ${state}${item.viaScript ? " via-script" : ""}`}>
       <button type="button" class="tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -254,6 +256,28 @@ function ToolLine({
           <pre>{JSON.stringify(item.input, null, 2)}</pre>
           {item.result && <pre>{item.result.output}</pre>}
         </>
+      )}
+      {talks.length > 0 && (
+        <div class="row tool-links">
+          {talks.map(([, sessionId, subId]) => (
+            <button
+              type="button"
+              class="link"
+              key={sessionId}
+              onClick={() =>
+                openSession({
+                  id: sessionId ?? "",
+                  agentId: subId ?? "",
+                  title: agents.value.find((a) => a.id === subId)?.name ?? null,
+                })
+              }
+            >
+              {t("openSubagentChat", {
+                name: agents.value.find((a) => a.id === subId)?.name ?? t("kind_subagent"),
+              })}
+            </button>
+          ))}
+        </div>
       )}
       {item.tool === "generate_image" && item.result?.ok && picture && (
         <WorkspaceImage scope={scopeOf(agentId)} path={picture} />
