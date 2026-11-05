@@ -23,16 +23,29 @@ Hugging Face, names, Telegram, safety and costs).
 
 ## macOS
 
-Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) or
+On Apple silicon RedGiant runs best directly on the Mac, without Docker: the local engine then
+uses the GPU through Metal (llama.cpp's macOS build, downloaded the first time), and voice messages
+are transcribed on the Mac (whisper with Metal). With Node.js 22+ and git:
+
+```sh
+git clone https://github.com/Frostmoore/redgiant2.git && cd redgiant2
+corepack enable && pnpm install --frozen-lockfile && pnpm build
+DATABASE_URL=embedded REDGIANT_TOKEN=$(openssl rand -hex 24) REDGIANT_HOST=127.0.0.1 \
+  node packages/server/dist/main.js
+```
+
+`DATABASE_URL=embedded` keeps its own database in the data folder. Models for the local engine go in
+`~/Library/Application Support/RedGiant/engine/models`.
+
+Or in containers: install [Docker Desktop](https://www.docker.com/products/docker-desktop/) or
 [OrbStack](https://orbstack.dev) (`brew install --cask orbstack`) and start it, then:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Frostmoore/redgiant2/main/install.sh | bash
 ```
 
-Apple silicon is supported (the images are built for arm64 too). The local engine runs on the CPU
-inside Docker; Metal acceleration needs llama.cpp running natively (point `REDGIANT_LLAMACPP_URL`
-at it).
+Apple silicon is supported (the images are built for arm64 too), but inside Docker the local engine
+runs on the CPU only: for Metal, run RedGiant on the Mac as above.
 
 ## Windows
 
@@ -136,7 +149,7 @@ environment variables. Requirements: Node.js 22+ and pnpm (`corepack enable`).
 
 | Variable                                                            | Meaning                                                                                                                                     |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                      | Postgres connection string (required); `memory:` for a throwaway in-process database (trial copies, demos)                                  |
+| `DATABASE_URL`                                                      | Postgres connection string (required); `embedded` for a Postgres of its own in the data folder; `memory:` for a throwaway one (demos)       |
 | `REDGIANT_TOKEN`                                                    | API token, 16+ characters (required)                                                                                                        |
 | `REDGIANT_DATA_DIR`                                                 | Workspaces and platform data (default `./data`)                                                                                             |
 | `REDGIANT_PORT` / `REDGIANT_HOST`                                   | Listen address (default `0.0.0.0:7600`)                                                                                                     |
