@@ -29,6 +29,8 @@ rm -rf "$res"/server/node_modules/@openai/codex-darwin-* \
   "$res"/server/node_modules/@anthropic-ai/claude-agent-sdk-darwin-*
 cp -R packages/web/dist "$res/web"
 cp "$(command -v node)" "$res/node/node"
+echo "what weighs most:"
+du -sh "$res/node" "$res/web" "$res"/server/node_modules/* "$res"/server/node_modules/@*/* 2>/dev/null | sort -h | tail -8
 
 echo "== The icon"
 iconset="$dist/RedGiant.iconset"
@@ -76,7 +78,8 @@ mkdir -p "$stage"
 cp -R "$app" "$stage/"
 ln -s /Applications "$stage/Applications"
 dmg="$dist/RedGiant-mac-$arch.dmg"
-hdiutil create -volname RedGiant -srcfolder "$stage" -ov -format UDZO "$dmg" >/dev/null
+# LZMA (macOS 10.15 and later): smaller than the default zlib.
+hdiutil create -volname RedGiant -srcfolder "$stage" -ov -format ULMO "$dmg" >/dev/null
 rm -rf "$stage"
 if [ "$identity" != "-" ]; then
   codesign --force --timestamp --sign "$identity" "$dmg"
