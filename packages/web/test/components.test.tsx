@@ -6,7 +6,7 @@ import type { SetupState } from "../src/api.js";
 import { fromCron, toCron, whenWords } from "../src/components/Automations.js";
 import {
   hardwareText,
-  MoePrefetchPick,
+  MoePrefetchSwitch,
   placeModel,
   roomTiers,
   SysmemAdvice,
@@ -292,21 +292,28 @@ describe("«next layer ahead» (G32.2)", () => {
   it("turns on, says what it downloads, and stays off where the version has no binaries", () => {
     const seen: boolean[] = [];
     const r = render(
-      <MoePrefetchPick state="available" on={false} onChange={(v) => seen.push(v)} />,
+      <MoePrefetchSwitch state="available" on={false} onChange={(v) => seen.push(v)} />,
     );
     expect(r.getByText("Strato dopo in anticipo")).toBeTruthy();
     expect(r.getByText("sperimentale")).toBeTruthy();
     expect(r.container.textContent).toMatch(/circa \d+ MB/);
-    fireEvent.click(r.container.querySelector("button") as HTMLButtonElement);
+    fireEvent.click(r.container.querySelector("[role=switch]") as HTMLButtonElement);
     expect(seen).toEqual([true]);
     r.unmount();
     const missing = render(
-      <MoePrefetchPick state="missing" on={true} onChange={(v) => seen.push(v)} />,
+      <MoePrefetchSwitch state="missing" on={true} onChange={(v) => seen.push(v)} />,
     );
-    const button = missing.container.querySelector("button") as HTMLButtonElement;
+    const button = missing.container.querySelector("[role=switch]") as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(button.getAttribute("aria-pressed")).toBe("false");
+    expect(button.getAttribute("aria-checked")).toBe("false");
     expect(missing.getByText(/senza il motore modificato/)).toBeTruthy();
+    missing.unmount();
+    // With the engine in Docker it speaks of the patched image instead of the Windows zip.
+    const docker = render(
+      <MoePrefetchSwitch variant="cuda" state="missing" on={false} onChange={() => {}} />,
+    );
+    expect(docker.getByText(/L'immagine del motore modificato/)).toBeTruthy();
+    expect(docker.container.textContent).toMatch(/runtime NVIDIA di Docker/);
     fireEvent.click(button);
     expect(seen).toEqual([true]);
   });

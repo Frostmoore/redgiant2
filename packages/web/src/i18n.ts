@@ -700,8 +700,6 @@ const en = {
   searchTriedEmpty: "It answered, but with no results for the test search.",
   searchSaved: "From now on the models that cannot search by themselves use {name}.",
   lmStream: "SSD stream",
-  lmStreamHelp:
-    "For models bigger than the graphics card, and for a much longer context. The model's parts used most stay in the card and in RAM, the rest is read from the SSD when needed (as antirez's DwarfStar does). Best with mixture-of-experts models; dense ones work too, slower. The first start measures this computer and keeps the fastest setting.",
   lmStreamUnknownDisk:
     "RedGiant does not know yet which disk holds the models (it learns at the next start of RedGiant): use it only if it is an SSD.",
   lmStreamThisDisk: "the models' disk",
@@ -727,16 +725,8 @@ const en = {
   lmTuneUse: "Use",
   lmTuneHelp:
     "Each row is a real try: the model reads a context of about 2,000 tokens and writes 64. A typical turn is an agent reading 1,500 tokens of tool results and writing 300: the fastest one is kept for this model, and you can pick another.",
-  lmDiskTitle: "Where the models are",
-  lmDiskNow: "Now on {disk} ({kind}, {free} free).",
-  lmDiskNowUnknown:
-    "RedGiant does not know yet which disk holds them (it learns at its next start).",
   lmDiskHdd: "spinning disk",
   lmDiskUnknown: "disk",
-  lmDiskFree: "{free} free",
-  lmDiskMove: "Move here",
-  lmMoveModelsHelp:
-    "The Windows engine's models are copied with a bar, then the old folder points to the new one. The engine stops while they move and starts again after.",
   job_models_move: "Moving the models",
   job_step_move: "Copying to the new disk",
   job_error_move_failed: "The models could not be moved.",
@@ -921,19 +911,17 @@ const en = {
     "Careful: the agents run their commands directly on this computer, without a closed box.",
   lmPurpose:
     "A model that runs here: free, and nothing leaves your computer. RedGiant suggests the ones that fit; download one and start it. You can skip this if you use a subscription or a key.",
-  modelsKind_local: "On this computer",
-  modelsKind_subs: "Subscriptions",
-  modelsKind_keys: "API keys",
-  modelsKind_server: "Your servers",
-  modelsKind_search: "Web search",
-  modelsKind_default: "Agents' model",
-  modelsNotConnected: "not connected",
-  modelsOff: "off",
+  mpLead:
+    "Pick one or more ways: combine them as you like. Each square opens its window; the lit ones are connected.",
+  mpNoDefault: "No model chosen",
+  mpNoDefaultText: "Connect a way above, then choose the one agents use.",
+  mpChange: "Change",
+  mpSearchTitle: "Web search",
+  mpSearchLead:
+    "How agents look things up on the internet. One provider at a time: the lit one is in use.",
+  mpLocalLead:
+    "Free, and nothing leaves here: the computer, where the models are, the models to download and the ones already on the disk.",
   lmThisPc: "This computer",
-  lmPartCard: "Card",
-  lmPartCardSub: "{vram}, {use} for the model",
-  lmPartMemory: "Memory (shared with the card)",
-  lmPartRam: "RAM",
   lmPartRamSub: "{free} free now",
   lmPartSsd: "Models' SSD",
   lmPartSsdSub: "{free} free",
@@ -949,8 +937,6 @@ const en = {
   lmTokensUnit: "tokens/s",
   lmSpeedEstimate: "tokens/s, estimate",
   lmSpeedMeasured: "tokens/s, measured",
-  lmUsableHint:
-    "Outlined in green: the ones that run between the graphics card and the RAM (all of it, closing other programs), with nothing from the SSD, at {n} tokens a second or more, measured or estimated. The others work too, but slowly.",
   lmContextTokens: "tokens of context",
   lmWhere: "Where the model goes",
   lmFactCache: "Experts' cache in the card",
@@ -1034,7 +1020,6 @@ const en = {
     "The engine cannot reach the graphics card here: models run on the processor, slower; up to about {max} GB.",
   lmHwCpu:
     "No graphics card to use: models run on the processor, slower; small ones, up to about {max} GB.",
-  lmSuggested: "Models that suit this computer",
   lmLoading: "Looking up the models…",
   lmRecommended: "recommended",
   lmInUse: "in use",
@@ -1136,8 +1121,6 @@ const en = {
   brainPurpose:
     "RedGiant needs at least one model to think with. Pick one or more ways below; you can also skip this and add one later in Settings, but until then the agents cannot answer.",
   brainClaude: "Claude subscription",
-  brainClaudeCard:
-    "Your Claude Pro or Max plan. You sign in on Anthropic's page, nothing to copy by hand.",
   brainClaudeHint:
     "RedGiant uses Claude through Anthropic's official program, signed in with your account. What you use counts against your plan's limits, not money.",
   brainClaudeOpen: "Open Anthropic's sign-in page",
@@ -1148,7 +1131,6 @@ const en = {
   brainConnect: "Connect",
   brainDisconnect: "Disconnect",
   brainChatgpt: "ChatGPT subscription",
-  brainChatgptCard: "Your ChatGPT Plus or Pro plan. You type a short code on OpenAI's page.",
   brainChatgptHint:
     "RedGiant uses ChatGPT through OpenAI's official Codex program, signed in with your account. What you use counts against your plan's limits.",
   brainChatgptStart: "Connect ChatGPT",
@@ -1156,25 +1138,14 @@ const en = {
   brainChatgptStep2: "Type this code there:",
   brainChatgptDevice:
     "If OpenAI says sign-in with a device code is not allowed: on chatgpt.com open Settings, Security, and turn on device code authorization, then try again.",
-  brainKeys: "A provider's API key",
-  brainKeysCard:
-    "Anthropic, OpenAI, Gemini, Mistral, DeepSeek, Grok and others. You pay the provider for what you use.",
-  brainKeysHint:
-    "A key is like a password that lets RedGiant use the provider's models on your account. Add as many as you like; each one is tried at once.",
   brainConnected: "connected",
-  brainAddKey: "Add the key",
   brainKeyMake: "Create a key on {name}'s page",
-  brainKeyPaste: "Paste the key",
   brainKeyExample: "It looks like this: {example}",
   brainKeyTry: "Try and save",
   brainKeyWorks: "It works: {n} models available.",
   brainLocal: "A model on this computer",
-  brainLocalCard:
-    "Free and private: nothing leaves your computer. It needs a good graphics card to be fast.",
-  brainLocalNext: "You pick it in the next step: RedGiant suggests one that fits this computer.",
   brainLocalSettings: "Pick and start it from the setup wizard, in the step about the local model.",
   brainServer: "A server of yours",
-  brainServerCard: "Ollama, LM Studio, vLLM or another server that speaks the OpenAI language.",
   brainServerHint:
     "If you already run models with Ollama, LM Studio or vLLM, give RedGiant its address.",
   brainServerUrl: "Server address",
@@ -2104,7 +2075,6 @@ const en = {
   lmMoePrefetchMissingDocker:
     "The changed engine's image is not available yet (this version has not published it, or there is no network): the option stays off.",
 } as const;
-} as const;
 
 export type Key = keyof typeof en;
 
@@ -2810,8 +2780,6 @@ const it: Record<Key, string> = {
   searchTriedEmpty: "Ha risposto, ma senza risultati per la ricerca di prova.",
   searchSaved: "Da ora i modelli che non sanno cercare da soli usano {name}.",
   lmStream: "SSD stream",
-  lmStreamHelp:
-    "Per modelli più grandi della scheda video, e per un contesto molto più lungo. Le parti del modello usate di più stanno nella scheda e in RAM, il resto si legge dall'SSD quando serve (come fa DwarfStar di antirez). Rende al meglio con i modelli a esperti; quelli densi funzionano, più lenti. Al primo avvio misura questo computer e tiene la regolazione più veloce.",
   lmStreamUnknownDisk:
     "RedGiant non sa ancora su che disco stanno i modelli (lo saprà al prossimo avvio di RedGiant): usalo solo se è un SSD.",
   lmStreamThisDisk: "il disco dei modelli",
@@ -2838,15 +2806,8 @@ const it: Record<Key, string> = {
   lmTuneUse: "Usa",
   lmTuneHelp:
     "Ogni riga è una prova vera: il modello legge un contesto di circa 2.000 token e ne scrive 64. Il turno tipico è un agente che legge 1.500 token di risultati e ne scrive 300: resta la riga più veloce, per questo modello, e puoi sceglierne un'altra.",
-  lmDiskTitle: "Dove stanno i modelli",
-  lmDiskNow: "Ora su {disk} ({kind}, {free} liberi).",
-  lmDiskNowUnknown: "RedGiant non sa ancora su che disco stanno (lo saprà al prossimo avvio).",
   lmDiskHdd: "disco meccanico",
   lmDiskUnknown: "disco",
-  lmDiskFree: "{free} liberi",
-  lmDiskMove: "Sposta qui",
-  lmMoveModelsHelp:
-    "I modelli del motore Windows vengono copiati con la barra, poi la vecchia cartella rimanda alla nuova. Il motore si ferma durante lo spostamento e riparte dopo.",
   job_models_move: "Sposto i modelli",
   job_step_move: "Copio sul nuovo disco",
   job_error_move_failed: "Non sono riuscito a spostare i modelli.",
@@ -3033,19 +2994,17 @@ const it: Record<Key, string> = {
     "Attenzione: gli agenti eseguono i comandi direttamente su questo computer, senza una scatola chiusa.",
   lmPurpose:
     "Un modello che gira qui: gratis, e niente esce dal tuo computer. RedGiant ti suggerisce quelli adatti; scaricane uno e avvialo. Puoi saltare questo passo se usi un abbonamento o una chiave.",
-  modelsKind_local: "Sul computer",
-  modelsKind_subs: "Abbonamenti",
-  modelsKind_keys: "Chiavi API",
-  modelsKind_server: "Server tuoi",
-  modelsKind_search: "Ricerca",
-  modelsKind_default: "Modello degli agenti",
-  modelsNotConnected: "non collegato",
-  modelsOff: "spento",
+  mpLead:
+    "Scegline uno o più: li combini come vuoi. Ogni riquadro apre la sua finestra; quelli accesi sono collegati.",
+  mpNoDefault: "Nessun modello scelto",
+  mpNoDefaultText: "Collega un modo qui sopra, poi scegli quale usano gli agenti.",
+  mpChange: "Cambia",
+  mpSearchTitle: "Ricerca sul web",
+  mpSearchLead:
+    "Come gli agenti cercano su internet. Un fornitore alla volta: quello acceso è in uso.",
+  mpLocalLead:
+    "Gratis, e niente esce da qui: il computer, dove stanno i modelli, quelli da scaricare e quelli già sul disco.",
   lmThisPc: "Questo computer",
-  lmPartCard: "Scheda",
-  lmPartCardSub: "{vram}, {use} per il modello",
-  lmPartMemory: "Memoria (condivisa con la scheda)",
-  lmPartRam: "RAM",
   lmPartRamSub: "{free} liberi adesso",
   lmPartSsd: "SSD dei modelli",
   lmPartSsdSub: "{free} liberi",
@@ -3061,8 +3020,6 @@ const it: Record<Key, string> = {
   lmTokensUnit: "token/s",
   lmSpeedEstimate: "token/s, stima",
   lmSpeedMeasured: "token/s, misurati",
-  lmUsableHint:
-    "Con il contorno verde: quelli che girano tra scheda video e RAM (tutta, chiudendo gli altri programmi), senza niente dall'SSD, ad almeno {n} token al secondo, misurati o stimati. Gli altri funzionano, ma piano.",
   lmContextTokens: "token di contesto",
   lmWhere: "Dove va il modello",
   lmFactCache: "Cache degli esperti nella scheda",
@@ -3146,7 +3103,6 @@ const it: Record<Key, string> = {
     "Qui il motore non riesce a raggiungere la scheda video: i modelli girano sul processore, più lenti; fino a circa {max} GB.",
   lmHwCpu:
     "Nessuna scheda video da usare: i modelli girano sul processore, più lenti; piccoli, fino a circa {max} GB.",
-  lmSuggested: "Modelli adatti a questo computer",
   lmLoading: "Cerco i modelli…",
   lmRecommended: "consigliato",
   lmInUse: "in uso",
@@ -3255,8 +3211,6 @@ const it: Record<Key, string> = {
   brainPurpose:
     "Per pensare RedGiant ha bisogno di almeno un modello. Scegli uno o più modi qui sotto; puoi anche saltare e aggiungerlo dopo dalle Impostazioni, ma fino ad allora gli agenti non possono rispondere.",
   brainClaude: "Abbonamento Claude",
-  brainClaudeCard:
-    "Il tuo piano Claude Pro o Max. Accedi sulla pagina di Anthropic, niente da copiare a mano.",
   brainClaudeHint:
     "RedGiant usa Claude tramite il programma ufficiale di Anthropic, collegato al tuo account. Quello che usi conta sui limiti del tuo piano, non costa soldi in più.",
   brainClaudeOpen: "Apri la pagina di accesso di Anthropic",
@@ -3268,8 +3222,6 @@ const it: Record<Key, string> = {
   brainConnect: "Collega",
   brainDisconnect: "Scollega",
   brainChatgpt: "Abbonamento ChatGPT",
-  brainChatgptCard:
-    "Il tuo piano ChatGPT Plus o Pro. Scrivi un codice breve sulla pagina di OpenAI.",
   brainChatgptHint:
     "RedGiant usa ChatGPT tramite Codex, il programma ufficiale di OpenAI, collegato al tuo account. Quello che usi conta sui limiti del tuo piano.",
   brainChatgptStart: "Collega ChatGPT",
@@ -3277,27 +3229,15 @@ const it: Record<Key, string> = {
   brainChatgptStep2: "Lì scrivi questo codice:",
   brainChatgptDevice:
     "Se OpenAI dice che l'accesso con codice dispositivo non è permesso: su chatgpt.com apri Impostazioni, Sicurezza, attiva l'autorizzazione con codice dispositivo e riprova.",
-  brainKeys: "La chiave API di un fornitore",
-  brainKeysCard:
-    "Anthropic, OpenAI, Gemini, Mistral, DeepSeek, Grok e altri. Paghi il fornitore per quello che usi.",
-  brainKeysHint:
-    "Una chiave è come una password che permette a RedGiant di usare i modelli del fornitore sul tuo account. Aggiungine quante vuoi: ognuna viene provata subito.",
   brainConnected: "collegato",
-  brainAddKey: "Aggiungi la chiave",
   brainKeyMake: "Crea una chiave sulla pagina di {name}",
-  brainKeyPaste: "Incolla la chiave",
   brainKeyExample: "È fatta così: {example}",
   brainKeyTry: "Prova e salva",
   brainKeyWorks: "Funziona: {n} modelli disponibili.",
   brainLocal: "Un modello su questo computer",
-  brainLocalCard:
-    "Gratis e privato: niente esce dal tuo computer. Per essere veloce serve una buona scheda video.",
-  brainLocalNext:
-    "Lo scegli nel passo successivo: RedGiant ti suggerisce quello adatto a questo computer.",
   brainLocalSettings:
     "Sceglilo e avvialo dalla configurazione guidata, nel passo del modello locale.",
   brainServer: "Un server tuo",
-  brainServerCard: "Ollama, LM Studio, vLLM o un altro server che parla la lingua di OpenAI.",
   brainServerHint:
     "Se fai già girare dei modelli con Ollama, LM Studio o vLLM, dai a RedGiant il suo indirizzo.",
   brainServerUrl: "Indirizzo del server",
@@ -4235,7 +4175,6 @@ const it: Record<Key, string> = {
     "Usa una versione di llama.cpp modificata da RedGiant: mentre la scheda video calcola uno strato, gli esperti di quello dopo le stanno già arrivando, e il modello è caricato nella RAM quando ci sta. Con i modelli a esperti i messaggi lunghi si leggono fino a 1,7 volte più in fretta (misurato con una RTX 4080 Super). Al primo avvio scarica l'immagine di quel motore (circa {size}), tenuta accanto a quella solita. Solo schede NVIDIA, con il runtime NVIDIA di Docker.",
   lmMoePrefetchMissingDocker:
     "L'immagine del motore modificato non c'è ancora (questa versione non l'ha pubblicata, o manca la rete): l'opzione resta spenta.",
-};
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, it };

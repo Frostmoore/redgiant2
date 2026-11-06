@@ -1,15 +1,17 @@
 // "How should RedGiant think?" (G24.2): the subscriptions, linked from the browser; providers
 // with a key of one's own; one's own server; a model on this computer. Any of them, or none.
-// The same cards are in Settings, so everything is changed where it was chosen.
-import { KEY_PROVIDERS, type KeyProvider, OWN_SERVER_ID } from "@redgiant/protocol";
+// The same squares and windows are in the wizard and in Settings (2026-11-06), so everything is
+// changed where it was chosen.
+import { KEY_PROVIDERS, OWN_SERVER_ID } from "@redgiant/protocol";
+import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { ApiError, type ClaudeAccount, type SetupState, type SubscriptionProgram } from "../api.js";
 import { t, tOptional } from "../i18n.js";
-import { IconCard, IconCheck, IconCpu, IconLayers, IconMonitor } from "../icons.js";
+import { IconChat, IconCheck, IconKey, IconMonitor, IconServer, IconSpark } from "../icons.js";
 import { getApi, refreshLimits } from "../state.js";
-import { type Way, waysInUse } from "../wizard.js";
-import { LocalModels } from "./LocalModels.js";
-import { Advanced, Choice, Field, Pick } from "./ui.js";
+import type { Way } from "../wizard.js";
+import { Acts } from "./SetupKit.js";
+import { Field, Pick } from "./ui.js";
 
 /** An error in plain words: its code when the server gives one, otherwise its message. */
 export function explain(err: unknown): string {
@@ -317,25 +319,23 @@ export function ChatgptCard({
   );
 }
 
-/** One provider of the catalog: where the key is made, the key, a test at once. */
-export function KeyRow({
-  p,
-  connected,
-  locked,
+/** The API keys, as the prototype has them: the providers as chips, one key at a time. */
+export function KeysForm({
+  s,
   onChange,
-  startOpen = false,
+  onClose,
 }: {
-  p: KeyProvider;
-  connected: boolean;
-  locked: boolean;
+  s: SetupState;
   onChange: () => void;
-  /** In a panel of its own the form is open at once. */
-  startOpen?: boolean;
+  onClose: () => void;
 }) {
-  const [open, setOpen] = useState(startOpen && !connected);
+  const [prov, setProv] = useState(KEY_PROVIDERS[0]?.id ?? "anthropic");
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string }>();
+  const p = KEY_PROVIDERS.find((x) => x.id === prov) ?? KEY_PROVIDERS[0];
+  if (!p) return null;
+  const connected = s.secretsSet.keys;
   const save = async (e: Event) => {
     e.preventDefault();
     setBusy(true);
@@ -344,7 +344,6 @@ export function KeyRow({
       const r = await getApi().setupKey(p.id, key.trim());
       setResult({ ok: true, text: t("brainKeyWorks", { n: String(r.models.length) }) });
       setKey("");
-      setOpen(false);
       onChange();
     } catch (err) {
       setResult({ ok: false, text: explain(err) });
@@ -352,78 +351,77 @@ export function KeyRow({
     setBusy(false);
   };
   return (
-    <li class="brain-key">
-      <div class="row">
-        <strong>{p.name}</strong>
-        {(connected || locked) && (
-          <span class="chip ok">{locked ? t("wzLocked") : t("brainConnected")}</span>
-        )}
-        <div class="spacer" />
-        {connected && !locked ? (
+    <form class="wz-keys" onSubmit={(e) => void save(e)}>
+      <p class="wz-lead2">{t("wzKeysLead")}</p>
+      {(connected.length > 0 || s.locked.anthropic) && (
+        <ul class="wz-keylist">
+          {s.locked.anthropic && !connected.includes("anthropic") && (
+            <li>
+              <b>{providerName("anthropic")}</b>
+              <span class="dim">{t("wzLocked")}</span>
+            </li>
+          )}
+          {connected.map((k) => (
+            <li key={k}>
+              <b>{providerName(k)}</b>
+              <button
+                type="button"
+                class="wz-link inl"
+                onClick={() =>
+                  void getApi()
+                    .removeKey(k)
+                    .then(onChange, () => {})
+                }
+              >
+                {t("wzRemove")}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <span class="wz-lb">{t("wzProvider")}</span>
+      <div class="wz-provs">
+        {KEY_PROVIDERS.map((x) => (
           <button
             type="button"
-            class="link"
-            onClick={() => void getApi().removeKey(p.id).then(onChange)}
+            key={x.id}
+            class={`wz-chip${x.id === prov ? " on" : ""}`}
+            aria-pressed={x.id === prov}
+            onClick={() => {
+              setProv(x.id);
+              setResult(undefined);
+            }}
           >
-            {t("brainDisconnect")}
+            {x.name}
           </button>
-        ) : (
-          !locked && (
-            <button type="button" class="tiny" onClick={() => setOpen(!open)}>
-              {t("brainAddKey")}
-            </button>
-          )
-        )}
-      </div>
-      {open && (
-        <form class="brain-key-form" onSubmit={(e) => void save(e)}>
-          <ol class="brain-steps">
-            <li>
-              <a href={p.keyUrl} target="_blank" rel="noreferrer">
-                {t("brainKeyMake", { name: p.name })}
-              </a>
-            </li>
-            <li>
-              <Field
-                label={t("brainKeyPaste")}
-                help={t("brainKeyExample", { example: p.keyExample })}
-              >
-                <input
-                  type="password"
-                  autocomplete="off"
-                  value={key}
-                  onInput={(e) => setKey((e.target as HTMLInputElement).value)}
-                />
-              </Field>
-            </li>
-          </ol>
-          <button type="submit" class="primary" disabled={busy || key.trim().length < 8}>
-            {busy ? t("wzTrying") : t("brainKeyTry")}
-          </button>
-        </form>
-      )}
-      {result && <p class={`notice ${result.ok ? "ok" : "error"}`}>{result.text}</p>}
-    </li>
-  );
-}
-
-export function KeysPanel({ s, onChange }: { s: SetupState; onChange: () => void }) {
-  return (
-    <div class="brain-panel">
-      <h3>{t("brainKeys")}</h3>
-      <p class="ui-help">{t("brainKeysHint")}</p>
-      <ul class="brain-key-list">
-        {KEY_PROVIDERS.map((p) => (
-          <KeyRow
-            key={p.id}
-            p={p}
-            connected={s.secretsSet.keys.includes(p.id)}
-            locked={p.id === "anthropic" && s.locked.anthropic === true}
-            onChange={onChange}
-          />
         ))}
-      </ul>
-    </div>
+      </div>
+      <Field
+        label={t("wzKeyOf", { name: p.name })}
+        help={t("brainKeyExample", { example: p.keyExample })}
+      >
+        <input
+          class="wz-field mono"
+          type="password"
+          autocomplete="off"
+          spellcheck={false}
+          value={key}
+          onInput={(e) => setKey((e.target as HTMLInputElement).value)}
+        />
+      </Field>
+      <a class="wz-link inl" href={p.keyUrl} target="_blank" rel="noreferrer">
+        {t("brainKeyMake", { name: p.name })}
+      </a>
+      {result && <p class={`notice ${result.ok ? "ok" : "error"}`}>{result.text}</p>}
+      <Acts>
+        <button type="button" class="wz-btn quiet" onClick={onClose}>
+          {t("close")}
+        </button>
+        <button type="submit" class="wz-btn primary" disabled={busy || key.trim().length < 8}>
+          {busy ? t("wzTrying") : t("brainKeyTry")}
+        </button>
+      </Acts>
+    </form>
   );
 }
 
@@ -583,84 +581,31 @@ export function providerName(id: string): string {
   return KEY_PROVIDERS.find((p) => p.id === id)?.name ?? id;
 }
 
-/**
- * Every way of thinking, as cards to pick and the panel of each one picked. `wizard` adds the
- * hint that the local model is chosen in the next step.
- */
-export function Brain({
-  s,
-  reload,
-  wizard,
-}: {
-  s: SetupState;
-  reload: () => void;
-  wizard?: boolean;
-}) {
-  const [ways, setWays] = useState<Way[]>(() => waysInUse(s));
-  const [ack, setAckState] = useState(s.config.subscriptionAck === true);
-  const setAck = (v: boolean) => {
-    setAckState(v);
-    void getApi()
-      .setupSubscriptions({ ack: v })
-      .catch(() => {});
-  };
-  return (
-    <div class="brain">
-      <Choice<Way>
-        multiple
-        value={ways}
-        onChange={setWays}
-        options={[
-          {
-            id: "claude",
-            title: t("brainClaude"),
-            description: t("brainClaudeCard"),
-            icon: <IconCard size={16} />,
-          },
-          {
-            id: "chatgpt",
-            title: t("brainChatgpt"),
-            description: t("brainChatgptCard"),
-            icon: <IconCard size={16} />,
-          },
-          {
-            id: "keys",
-            title: t("brainKeys"),
-            description: t("brainKeysCard"),
-            icon: <IconLayers size={16} />,
-          },
-          {
-            id: "local",
-            title: t("brainLocal"),
-            description: t("brainLocalCard"),
-            icon: <IconCpu size={16} />,
-          },
-          {
-            id: "server",
-            title: t("brainServer"),
-            description: t("brainServerCard"),
-            icon: <IconMonitor size={16} />,
-          },
-        ]}
-      />
-      {ways.includes("claude") && <ClaudeCard ack={ack} setAck={setAck} onChange={reload} />}
-      {ways.includes("chatgpt") && <ChatgptCard ack={ack} setAck={setAck} onChange={reload} />}
-      {ways.includes("keys") && <KeysPanel s={s} onChange={reload} />}
-      {ways.includes("local") && (
-        <div class="brain-panel">
-          <h3>{t("brainLocal")}</h3>
-          {/* In Settings the whole page: download, start, delete, search (2026-11-03). */}
-          {wizard ? (
-            <p class="ui-help">{t("brainLocalNext")}</p>
-          ) : (
-            <LocalModels s={s} reload={reload} />
-          )}
-        </div>
-      )}
-      {ways.includes("server") && <ServerPanel s={s} onChange={reload} />}
-      <Advanced label={t("brainWhy")}>
-        <p class="ui-help">{t("brainWhyText")}</p>
-      </Advanced>
-    </div>
-  );
+/** The ways of thinking as the wizard's squares (2026-11-06): the wizard and Settings show them. */
+export function wayTiles(): [Way, JSX.Element, string, string][] {
+  return [
+    ["claude", <IconSpark key="c" />, t("brainClaude"), t("wzBrainClaude")],
+    ["chatgpt", <IconChat key="g" size={22} />, t("brainChatgpt"), t("wzBrainChatgpt")],
+    ["keys", <IconKey key="k" />, t("wzBrainKeysTitle"), t("wzBrainKeys")],
+    ["server", <IconServer key="s" />, t("brainServer"), t("wzBrainServer")],
+    ["local", <IconMonitor key="l" size={22} />, t("brainLocal"), t("wzBrainLocal")],
+  ];
+}
+
+/** What a lit square says under its text: which key, which server, which local model. */
+export function wayState(s: SetupState, w: Way): string {
+  const keys = s.secretsSet.keys;
+  if (w === "keys")
+    return keys.length === 1
+      ? t("wzStateKey", { name: providerName(keys[0] ?? "") })
+      : t("wzStateKeys", { n: String(Math.max(keys.length, 1)) });
+  if (w === "server")
+    return s.config.server
+      ? t("wzStateServer", { url: s.config.server.baseUrl })
+      : t("wzStateLinked");
+  if (w === "local")
+    return s.config.engine
+      ? t("wzStateLocal", { model: s.config.engine.model.replace(/\.gguf$/i, "") })
+      : t("wzStateLocalNext");
+  return t("wzStateLinked");
 }

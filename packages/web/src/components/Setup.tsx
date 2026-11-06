@@ -5,7 +5,6 @@
 // at the bottom of the screen and the windows come up from below. Each step is saved when it is
 // left; the wizard can be run again from Settings.
 
-import { KEY_PROVIDERS } from "@redgiant/protocol";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
@@ -25,7 +24,6 @@ import {
   IconGlobe,
   IconGpu,
   IconHome,
-  IconKey,
   IconList,
   IconLock,
   IconMonitor,
@@ -63,7 +61,15 @@ import {
   type Way,
   waysInUse,
 } from "../wizard.js";
-import { ChatgptCard, ClaudeCard, explain, providerName, ServerPanel } from "./Brain.js";
+import {
+  ChatgptCard,
+  ClaudeCard,
+  KeysForm,
+  providerName,
+  ServerPanel,
+  wayState,
+  wayTiles,
+} from "./Brain.js";
 import { Gitea, Github } from "./GitCode.js";
 import { hardwareText, LocalModels } from "./LocalModels.js";
 import { modelName } from "./ModelMenu.js";
@@ -72,7 +78,7 @@ import { Safety } from "./Safety.js";
 import { AssignStep } from "./SetupAssign.js";
 import { Acts, Head, PHONE, Tile, useMedia, useOnNext, useWz, type Wz, WzCtx } from "./SetupKit.js";
 import { TelegramStep } from "./SetupTelegram.js";
-import { Field, Modal } from "./ui.js";
+import { Modal } from "./ui.js";
 
 function Welcome() {
   const { s } = useWz();
@@ -153,112 +159,6 @@ function Welcome() {
         </span>
       </div>
     </div>
-  );
-}
-
-/** The API keys, as the prototype has them: the providers as chips, one key at a time. */
-function KeysForm({
-  s,
-  onChange,
-  onClose,
-}: {
-  s: SetupState;
-  onChange: () => void;
-  onClose: () => void;
-}) {
-  const [prov, setProv] = useState(KEY_PROVIDERS[0]?.id ?? "anthropic");
-  const [key, setKey] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; text: string }>();
-  const p = KEY_PROVIDERS.find((x) => x.id === prov) ?? KEY_PROVIDERS[0];
-  if (!p) return null;
-  const connected = s.secretsSet.keys;
-  const save = async (e: Event) => {
-    e.preventDefault();
-    setBusy(true);
-    setResult(undefined);
-    try {
-      const r = await getApi().setupKey(p.id, key.trim());
-      setResult({ ok: true, text: t("brainKeyWorks", { n: String(r.models.length) }) });
-      setKey("");
-      onChange();
-    } catch (err) {
-      setResult({ ok: false, text: explain(err) });
-    }
-    setBusy(false);
-  };
-  return (
-    <form class="wz-keys" onSubmit={(e) => void save(e)}>
-      <p class="wz-lead2">{t("wzKeysLead")}</p>
-      {(connected.length > 0 || s.locked.anthropic) && (
-        <ul class="wz-keylist">
-          {s.locked.anthropic && !connected.includes("anthropic") && (
-            <li>
-              <b>{providerName("anthropic")}</b>
-              <span class="dim">{t("wzLocked")}</span>
-            </li>
-          )}
-          {connected.map((k) => (
-            <li key={k}>
-              <b>{providerName(k)}</b>
-              <button
-                type="button"
-                class="wz-link inl"
-                onClick={() =>
-                  void getApi()
-                    .removeKey(k)
-                    .then(onChange, () => {})
-                }
-              >
-                {t("wzRemove")}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <span class="wz-lb">{t("wzProvider")}</span>
-      <div class="wz-provs">
-        {KEY_PROVIDERS.map((x) => (
-          <button
-            type="button"
-            key={x.id}
-            class={`wz-chip${x.id === prov ? " on" : ""}`}
-            aria-pressed={x.id === prov}
-            onClick={() => {
-              setProv(x.id);
-              setResult(undefined);
-            }}
-          >
-            {x.name}
-          </button>
-        ))}
-      </div>
-      <Field
-        label={t("wzKeyOf", { name: p.name })}
-        help={t("brainKeyExample", { example: p.keyExample })}
-      >
-        <input
-          class="wz-field mono"
-          type="password"
-          autocomplete="off"
-          spellcheck={false}
-          value={key}
-          onInput={(e) => setKey((e.target as HTMLInputElement).value)}
-        />
-      </Field>
-      <a class="wz-link inl" href={p.keyUrl} target="_blank" rel="noreferrer">
-        {t("brainKeyMake", { name: p.name })}
-      </a>
-      {result && <p class={`notice ${result.ok ? "ok" : "error"}`}>{result.text}</p>}
-      <Acts>
-        <button type="button" class="wz-btn quiet" onClick={onClose}>
-          {t("close")}
-        </button>
-        <button type="submit" class="wz-btn primary" disabled={busy || key.trim().length < 8}>
-          {busy ? t("wzTrying") : t("brainKeyTry")}
-        </button>
-      </Acts>
-    </form>
   );
 }
 
@@ -353,34 +253,12 @@ function BrainStep() {
   };
   const ways = waysInUse(s);
   const on = (w: Way) => ways.includes(w) || (w === "local" && wantLocal);
-  const keys = s.secretsSet.keys;
-  const state = (w: Way): string | undefined => {
-    if (!on(w)) return undefined;
-    if (w === "keys")
-      return keys.length === 1
-        ? t("wzStateKey", { name: providerName(keys[0] ?? "") })
-        : t("wzStateKeys", { n: String(Math.max(keys.length, 1)) });
-    if (w === "server")
-      return s.config.server
-        ? t("wzStateServer", { url: s.config.server.baseUrl })
-        : t("wzStateLinked");
-    if (w === "local")
-      return s.config.engine
-        ? t("wzStateLocal", { model: s.config.engine.model.replace(/\.gguf$/i, "") })
-        : t("wzStateLocalNext");
-    return t("wzStateLinked");
-  };
+  const state = (w: Way): string | undefined => (on(w) ? wayState(s, w) : undefined);
   const close = () => {
     setOpen(null);
     reload();
   };
-  const TILES: [Way, JSX.Element, string, string][] = [
-    ["claude", <IconSpark key="c" />, t("brainClaude"), t("wzBrainClaude")],
-    ["chatgpt", <IconChat key="g" size={22} />, t("brainChatgpt"), t("wzBrainChatgpt")],
-    ["keys", <IconKey key="k" />, t("wzBrainKeysTitle"), t("wzBrainKeys")],
-    ["server", <IconServer key="s" />, t("brainServer"), t("wzBrainServer")],
-    ["local", <IconMonitor key="l" size={22} />, t("brainLocal"), t("wzBrainLocal")],
-  ];
+  const TILES = wayTiles();
   const titleOf = (w: Way) => TILES.find((x) => x[0] === w)?.[2] ?? "";
   return (
     <div class="wz-inner">

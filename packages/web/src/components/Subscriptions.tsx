@@ -1,12 +1,11 @@
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
-import { t } from "../i18n.js";
 import { getApi } from "../state.js";
 import { ModelsPage } from "./ModelsPage.js";
 
 /**
- * Models and subscriptions (Settings): a gallery of cards with a panel (2026-11-04), the same
- * pieces as the wizard's "How should RedGiant think?".
+ * Models and subscriptions (Settings), drawn as the wizard (2026-11-06): the wizard's squares
+ * and windows inside the page (`wz-look`), with everything the page could already do.
  */
 export function Subscriptions() {
   const [s, setS] = useState<SetupState | null>(null);
@@ -17,9 +16,7 @@ export function Subscriptions() {
   useEffect(load, []);
   if (!s) return null;
   return (
-    <div class="settings-section brain-settings">
-      <h2>{t("subscriptions")}</h2>
-      <p class="ui-purpose">{t("brainPurpose")}</p>
+    <div class="settings-section brain-settings wz-look">
       <ModelsPage s={s} reload={load} />
     </div>
   );

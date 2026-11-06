@@ -2,34 +2,30 @@
 // cards (what each is good at, its size and quality, whether it fits), downloads with a real
 // progress bar that can be paused, and starting the engine with its steps and plain errors.
 import { estimatedSpeed, type Job } from "@redgiant/protocol";
-import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { EngineVariant, LocalFile, LocalModelChoice, SetupState } from "../api.js";
 import { bytes } from "../format.js";
 import { t, tOptional } from "../i18n.js";
 import {
   IconAlert,
-  IconBox,
-  IconChevron,
-  IconCpu,
+  IconDisk,
   IconDownload,
   IconFolder,
   IconGpu,
-  IconLayers,
   IconPlay,
   IconRam,
   IconSearch,
   IconTrash,
 } from "../icons.js";
-import { attempt, closeSysmemAdvice, getApi, sysmemAdviceClosed } from "../state.js";
+import { closeSysmemAdvice, getApi, sysmemAdviceClosed } from "../state.js";
 import {
   bigChunksShown,
   type DiskTile,
   defaultModelsFolder,
   diskTiles,
   gbText,
-  MOE_PREFETCH_SIZE,
   moePrefetchSwitch,
+  moePrefetchTexts,
   num,
   sysmemAdviceDue,
 } from "../wizard.js";
@@ -234,161 +230,6 @@ function streamAvailable(s: SetupState, variant: EngineVariant): Availability {
     return { ok: false, reason: t("lmStreamNoRoom", { disk: label, free: gb(disk.freeGb) }) };
   if (disk.ssd === null) return { ok: true, warn: t("lmStreamMaybeSsd", { disk: label }) };
   return { ok: true };
-}
-
-/**
- * Where the models are, and the other SSDs they can go to (Windows, 2026-11-03): the Windows
- * engine's folder moves with a bar; for the engines in Docker the whole distribution moves
- * (projects too) and RedGiant starts again.
- */
-function ModelsDisk({
-  s,
-  variant,
-  onMoved,
-}: {
-  s: SetupState;
-  variant: EngineVariant;
-  onMoved: () => void;
-}) {
-  const [jobId, setJobId] = useState<string>();
-  const job = useJob(jobId);
-  useEffect(() => {
-    if (job?.state === "done") onMoved();
-  }, [job?.state]);
-  const hw = s.hardware;
-  if (!(hw.onWindows ?? hw.windowsEngine) || !hw.disks?.length) return null;
-  // RedGiant 3.0: only the models move to another disk (there is no WSL distribution).
-  const kind = "models" as const;
-  const here = variant === "windows" ? hw.modelDisk?.windows : hw.modelDisk?.docker;
-  const current = hw.disks.find((d) => d.name === here);
-  const kindOf = (d: { ssd: boolean | null; bus: string }) =>
-    `${d.ssd === true ? "SSD" : d.ssd === false ? t("lmDiskHdd") : t("lmDiskUnknown")}${d.bus !== "other" ? ` ${d.bus.toUpperCase()}` : ""}`;
-  const move = (drive: string) => {
-    void attempt(() => getApi().moveModels(drive, kind)).then((j) => {
-      if (!j) return;
-      setJobId(j.id);
-    });
-  };
-  return (
-    <div class="lm-disk">
-      <strong>{t("lmDiskTitle")}</strong>
-      <p class="ui-help">
-        {current
-          ? t("lmDiskNow", {
-              disk: `${current.name}:`,
-              kind: kindOf(current),
-              free: gb(current.freeGb),
-            })
-          : t("lmDiskNowUnknown")}
-      </p>
-      <ul>
-        {hw.disks
-          .filter((d) => d.name !== here)
-          .map((d) => (
-            <li key={d.name} class="row">
-              <span>
-                <strong>{d.name}:</strong> {kindOf(d)} · {t("lmDiskFree", { free: gb(d.freeGb) })}
-              </span>
-              <button
-                type="button"
-                disabled={d.ssd === false || job?.state === "running"}
-                title={d.ssd === false ? t("lmStreamHdd", { disk: `${d.name}:` }) : undefined}
-                onClick={() => move(d.name)}
-              >
-                {t("lmDiskMove")}
-              </button>
-            </li>
-          ))}
-      </ul>
-      <p class="ui-help">{t("lmMoveModelsHelp")}</p>
-      {job && <JobView job={job} />}
-    </div>
-  );
-}
-
-/** The switch with what it does, why it is off when it is, and what the last start decided. */
-function StreamSwitch({
-  on,
-  available,
-  plan,
-  onChange,
-  children,
-}: {
-  on: boolean;
-  available: Availability;
-  plan:
-    | { ctx: number; moeCacheMib: number; source: string; ssdGbPerWord: number; ramGb?: number }
-    | undefined;
-  onChange: (on: boolean) => void;
-  /** The options that go with it (G32.1): bigger passes, the NVIDIA advice. */
-  children?: ComponentChildren;
-}) {
-  return (
-    <div class={`lm-stream${available.ok ? "" : " off"}`}>
-      <Pick on={on} onChange={(v) => available.ok && onChange(v)}>
-        <strong>{t("lmStream")}</strong>
-      </Pick>
-      <p class="ui-help">{t("lmStreamHelp")}</p>
-      {!available.ok && <p class="notice">{available.reason}</p>}
-      {available.ok && available.warn && <p class="ui-help">{available.warn}</p>}
-      {on && plan && (
-        <p class="ui-help">
-          {t("lmStreamPlan", {
-            ctx: `${Math.round(plan.ctx / 1024)}k`,
-            cache:
-              plan.moeCacheMib > 0 ? t("lmStreamCache", { gb: gb(plan.moeCacheMib / 1024) }) : "",
-            source:
-              plan.source === "ssd"
-                ? t("lmStreamFromSsd", { gb: plan.ssdGbPerWord.toFixed(2) })
-                : plan.source === "ram"
-                  ? t("lmStreamFromRam")
-                  : t("lmStreamFromCard"),
-            ram: plan.ramGb !== undefined ? gb(plan.ramGb) : "?",
-          })}
-        </p>
-      )}
-      {children}
-    </div>
-  );
-}
-
-/** Bigger reading passes (G32.1), next to SSD stream: experimental, off by default. */
-function BigChunksPick({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
-  return (
-    <div class="lm-big">
-      <Pick small on={on} onChange={onChange}>
-        <strong>{t("lmBigChunks")}</strong>
-        <span class="exp-badge">{t("lmExperimental")}</span>
-      </Pick>
-      <p class="ui-help">{t("lmBigChunksHelp")}</p>
-    </div>
-  );
-}
-
-/**
- * «Next layer ahead» (G32.2), next to SSD stream: llama.cpp with RedGiant's patch, experimental and
- * off by default. Where this version has no patched binaries it says so and cannot be turned on.
- */
-export function MoePrefetchPick({
-  state,
-  on,
-  onChange,
-}: {
-  state: "available" | "missing";
-  on: boolean;
-  onChange: (on: boolean) => void;
-}) {
-  const missing = state === "missing";
-  return (
-    <div class="lm-big">
-      <Pick small on={on && !missing} disabled={missing} onChange={onChange}>
-        <strong>{t("lmMoePrefetch")}</strong>
-        <span class="exp-badge">{t("lmExperimental")}</span>
-      </Pick>
-      <p class="ui-help">{t("lmMoePrefetchHelp", { size: MOE_PREFETCH_SIZE })}</p>
-      {missing && <p class="notice">{t("lmMoePrefetchMissing")}</p>}
-    </div>
-  );
 }
 
 /**
@@ -936,71 +777,6 @@ function HfSearch({
   );
 }
 
-/** This computer's places for a model, in order, with the bar of the room each one gives. */
-function Machine({
-  s,
-  tiers,
-  diskFreeGb,
-  activeGb = 0,
-}: {
-  s: SetupState;
-  tiers: Tier[];
-  diskFreeGb: number | undefined;
-  /** The model in use, in GB: shown where it sits (2026-11-05). */
-  activeGb?: number;
-}) {
-  const hw = s.hardware;
-  const card = hw.gpus.find((g) => !g.integrated);
-  const free = hw.freeRamGb ?? hw.ramGb * 0.6;
-  const shared = hw.suggestion.kind !== "gpu" && hw.suggestion.kind !== "gpu-unknown";
-  return (
-    <div class="machine">
-      <strong>{t("lmThisPc")}</strong>
-      <div class="machine-parts">
-        {!shared && (
-          <div class="machine-part">
-            <IconCpu size={18} />
-            <span>
-              <b>{t("lmPartCard")}</b> {card?.name ?? ""}
-              <small>
-                {t("lmPartCardSub", {
-                  vram: gb(hw.suggestion.vramGb),
-                  use: gb(hw.suggestion.maxModelGb),
-                })}
-              </small>
-            </span>
-          </div>
-        )}
-        <div class="machine-part">
-          <IconLayers size={18} />
-          <span>
-            <b>{shared ? t("lmPartMemory") : t("lmPartRam")}</b> {gb(hw.ramGb)}
-            <small>{t("lmPartRamSub", { free: gb(free) })}</small>
-          </span>
-        </div>
-        {diskFreeGb !== undefined && (
-          <div class="machine-part">
-            <IconBox size={18} />
-            <span>
-              <b>{t("lmPartSsd")}</b>
-              <small>{t("lmPartSsdSub", { free: gb(diskFreeGb) })}</small>
-            </span>
-          </div>
-        )}
-      </div>
-      <RoomBar sizeGb={activeGb} tiers={tiers} />
-      <div class="tier-legend">
-        {tiers.map((x) => (
-          <span key={x.kind}>
-            <i class={`tier-${x.kind}`} />
-            {t(`lmLegend_${x.kind}`)}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /** What a card says at its foot: in use, ready, downloading, to download, too big. */
 function cardState(
   m: LocalModelChoice,
@@ -1387,6 +1163,99 @@ function ModelPanel({
   );
 }
 
+/** What the last start with SSD stream decided: context, the experts' cache, the source. */
+type StreamPlan = {
+  ctx: number;
+  moeCacheMib: number;
+  source: string;
+  ssdGbPerWord: number;
+  ramGb?: number;
+};
+
+function planText(plan: StreamPlan): string {
+  return t("lmStreamPlan", {
+    ctx: `${Math.round(plan.ctx / 1024)}k`,
+    cache: plan.moeCacheMib > 0 ? t("lmStreamCache", { gb: gb(plan.moeCacheMib / 1024) }) : "",
+    source:
+      plan.source === "ssd"
+        ? t("lmStreamFromSsd", { gb: plan.ssdGbPerWord.toFixed(2) })
+        : plan.source === "ram"
+          ? t("lmStreamFromRam")
+          : t("lmStreamFromCard"),
+    ram: plan.ramGb !== undefined ? gb(plan.ramGb) : "?",
+  });
+}
+
+/** An experimental switch under SSD stream (G32.1, G32.2): its name, the badge, what it does. */
+export function ExpSwitch({
+  title,
+  help,
+  on,
+  disabled = false,
+  note,
+  onChange,
+}: {
+  title: string;
+  help: string;
+  on: boolean;
+  disabled?: boolean;
+  /** Why it cannot be turned on, when it cannot. */
+  note?: string | undefined;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <div class="wz-big">
+      <div class="wz-tog">
+        <h4>
+          {title}
+          <span class="exp-badge">{t("lmExperimental")}</span>
+        </h4>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on && !disabled}
+          aria-label={title}
+          class={`wz-switch small${on && !disabled ? " on" : ""}`}
+          disabled={disabled}
+          onClick={() => !disabled && onChange(!on)}
+        />
+      </div>
+      <p class="dim">{help}</p>
+      {note && <p class="notice">{note}</p>}
+    </div>
+  );
+}
+
+/**
+ * «Next layer ahead» (G32.2), next to SSD stream: llama.cpp with RedGiant's patch, experimental and
+ * off by default. Where this version has no patched binaries it says so and cannot be turned on.
+ */
+export function MoePrefetchSwitch({
+  state,
+  on,
+  onChange,
+  variant = "windows",
+}: {
+  state: "available" | "missing";
+  on: boolean;
+  onChange: (on: boolean) => void;
+  /** The engine: the Windows zip or, with `cuda`, the patched image in Docker. */
+  variant?: EngineVariant;
+}) {
+  const missing = state === "missing";
+  const texts = moePrefetchTexts(variant);
+  return (
+    <ExpSwitch
+      title={t("lmMoePrefetch")}
+      help={texts.help}
+      on={on}
+      disabled={missing}
+      note={missing ? texts.missing : undefined}
+      onChange={onChange}
+    />
+  );
+}
+
 /**
  * The wizard's computer (2026-11-06, the person's prototype): the card and the RAM on the left,
  * the SSD stream switch inside the same box on the right.
@@ -1399,12 +1268,21 @@ function WzMachine({
   onChange,
   big,
   prefetch,
+  room,
+  plan,
 }: {
   s: SetupState;
   variant: EngineVariant;
   on: boolean;
   available: Availability;
   onChange: (on: boolean) => void;
+  /**
+   * Settings only (2026-11-06): the bar of where the model in use sits (card, RAM, SSD), the RAM
+   * free now and the SSD's room, as the old «This computer» box had them.
+   */
+  room?: { tiers: Tier[]; activeGb: number; diskFreeGb: number | undefined } | undefined;
+  /** Settings only: what the last start with SSD stream decided. */
+  plan?: StreamPlan | undefined;
   /** The bigger passes' switch (G32.1), when SSD stream is on with a card. */
   big?: { on: boolean; onChange: (on: boolean) => void } | undefined;
   /** «Next layer ahead» (G32.2): Windows, an NVIDIA card, SSD stream on. */
@@ -1434,11 +1312,38 @@ function WzMachine({
           <IconRam size={22} />
           <span>
             <b>{gbText(hw.ramGb)}</b> {t("wzOfRamLong")}
+            {room && (
+              <small class="wz-msub">
+                {t("lmPartRamSub", { free: gb(hw.freeRamGb ?? hw.ramGb * 0.6) })}
+              </small>
+            )}
           </span>
         </div>
+        {room?.diskFreeGb !== undefined && (
+          <div class="wz-mrow">
+            <IconDisk size={22} />
+            <span>
+              <b>{t("lmPartSsd")}</b>
+              <small class="wz-msub">{t("lmPartSsdSub", { free: gb(room.diskFreeGb) })}</small>
+            </span>
+          </div>
+        )}
         <div class="dim">
           {shared ? hardwareText(hw) : t("wzFitsUpTo", { max: gbText(hw.suggestion.maxModelGb) })}
         </div>
+        {room && (
+          <div class="wz-room">
+            <RoomBar sizeGb={room.activeGb} tiers={room.tiers} />
+            <div class="tier-legend">
+              {room.tiers.map((x) => (
+                <span key={x.kind}>
+                  <i class={`tier-${x.kind}`} />
+                  {t(`lmLegend_${x.kind}`)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       <div class="wz-machine-r">
         <div class="wz-tog">
@@ -1460,45 +1365,15 @@ function WzMachine({
           {t("wzHowItWorks")}
         </button>
         {big && (
-          <div class="wz-big">
-            <div class="wz-tog">
-              <h4>
-                {t("lmBigChunks")}
-                <span class="exp-badge">{t("lmExperimental")}</span>
-              </h4>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={big.on}
-                aria-label={t("lmBigChunks")}
-                class={`wz-switch small${big.on ? " on" : ""}`}
-                onClick={() => big.onChange(!big.on)}
-              />
-            </div>
-            <p class="dim">{t("lmBigChunksHelp")}</p>
-          </div>
+          <ExpSwitch
+            title={t("lmBigChunks")}
+            help={t("lmBigChunksHelp")}
+            on={big.on}
+            onChange={big.onChange}
+          />
         )}
-        {prefetch && (
-          <div class="wz-big">
-            <div class="wz-tog">
-              <h4>
-                {t("lmMoePrefetch")}
-                <span class="exp-badge">{t("lmExperimental")}</span>
-              </h4>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={prefetch.on && prefetch.state === "available"}
-                aria-label={t("lmMoePrefetch")}
-                class={`wz-switch small${prefetch.on && prefetch.state === "available" ? " on" : ""}`}
-                disabled={prefetch.state === "missing"}
-                onClick={() => prefetch.onChange(!prefetch.on)}
-              />
-            </div>
-            <p class="dim">{t("lmMoePrefetchHelp", { size: MOE_PREFETCH_SIZE })}</p>
-            {prefetch.state === "missing" && <p class="notice">{t("lmMoePrefetchMissing")}</p>}
-          </div>
-        )}
+        {prefetch && <MoePrefetchSwitch {...prefetch} variant={variant} />}
+        {plan && <p class="dim">{planText(plan)}</p>}
       </div>
       {info && (
         <Modal title={t("lmStream")} onClose={() => setInfo(false)}>
@@ -1766,7 +1641,7 @@ export function LocalModels({
   const panel = openModel
     ? {
         title: openModel.name,
-        wide: wizard,
+        wide: true,
         body: (
           <ModelPanel
             key={openModel.id}
@@ -1867,278 +1742,164 @@ export function LocalModels({
       </Field>
     </Advanced>
   );
-  if (wizard) {
-    const off = s.config.engine?.off === true;
-    const works = (m: LocalModelChoice) =>
-      !!m.file && usable(m, m.file.sizeGb, wholeRam, measuredTps(s, target(m.file.file)));
-    const tagOf = (m: LocalModelChoice) => {
-      if (!m.file) return m.unavailable ? t("lmUnavailable") : t("lmCardTooBig");
-      const name = target(m.file.file);
-      if (active === name) return off ? t("lmOff") : t("lmInUse");
-      const busy = latest(jobs, "model_download", name)?.state === "running";
-      if (busy || files.some((f) => f.file === name)) return cardState(m, files, jobs, active, off);
-      return m.id === best ? t("lmRecommended") : "";
-    };
-    const card = (m: LocalModelChoice) => {
-      const speed = m.file ? estimatedSpeed(m, m.file.sizeGb, hw) : undefined;
-      const inUse = !!m.file && active === target(m.file.file);
-      return (
-        <GalleryCard
-          key={m.id}
-          selected={open === m.id}
-          tone={works(m) ? "usable" : inUse ? "ok" : undefined}
-          onOpen={() => setOpen(m.id)}
-        >
-          <span class="wz-mtag">{tagOf(m) || "\u00a0"}</span>
-          <strong class="wz-mname">{m.name}</strong>
-          <span class="wz-mkind">
-            {t(m.activeB < m.totalB ? "wzMoe" : "wzDense", { b: num(m.totalB, 1) })}
-          </span>
-          <span class="wz-mmeta">
-            <span class="wz-mspd">
-              {speed && m.file ? (
-                <SpeedText
-                  speed={speed}
-                  measured={measuredTps(s, target(m.file.file))}
-                  unit={t("lmTokensUnit")}
-                />
-              ) : (
-                "–"
-              )}
-            </span>
-            <span class="dim">{m.file ? gbText(m.file.sizeGb) : ""}</span>
-          </span>
-        </GalleryCard>
-      );
-    };
-    const fit = data?.models.filter(works) ?? [];
-    const slow = data?.models.filter((m) => !works(m)) ?? [];
+  const off = s.config.engine?.off === true;
+  const works = (m: LocalModelChoice) =>
+    !!m.file && usable(m, m.file.sizeGb, wholeRam, measuredTps(s, target(m.file.file)));
+  const tagOf = (m: LocalModelChoice) => {
+    if (!m.file) return m.unavailable ? t("lmUnavailable") : t("lmCardTooBig");
+    const name = target(m.file.file);
+    if (active === name) return off ? t("lmOff") : t("lmInUse");
+    const busy = latest(jobs, "model_download", name)?.state === "running";
+    if (busy || files.some((f) => f.file === name)) return cardState(m, files, jobs, active, off);
+    return m.id === best ? t("lmRecommended") : "";
+  };
+  const card = (m: LocalModelChoice) => {
+    const speed = m.file ? estimatedSpeed(m, m.file.sizeGb, hw) : undefined;
+    const inUse = !!m.file && active === target(m.file.file);
     return (
-      <div class="lm wz-lm" data-tab={tab}>
-        <WzMachine
-          s={s}
-          variant={variant}
-          on={streaming}
-          available={canStream}
-          onChange={(v) => setStream(v)}
-          big={showBig ? { on: bigChunks, onChange: setBigChunks } : undefined}
-          prefetch={
-            prefetchState
-              ? { state: prefetchState, on: moePrefetch, onChange: setMoePrefetch }
-              : undefined
-          }
-        />
-        {sysmem && <SysmemAdvice />}
-        {s.locked.engine && <p class="notice">{t("wzLocked")}</p>}
-        {error && <p class="notice error">{error}</p>}
-        <WzDisks s={s} variant={variant} onMoved={changed} />
-        <h2 class="wz-sub">{t("wzPickModel")}</h2>
-        <div class="wz-legend">
-          <i />
-          <span>{t("wzLegend", { n: String(USABLE_TPS) })}</span>
-        </div>
-        {!data && <p class="ui-help">{t("lmLoading")}</p>}
-        <div class="wz-mtabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "fit"}
-            class={tab === "fit" ? "on" : ""}
-            onClick={() => setTab("fit")}
-          >
-            {t("wzFitTab")} <small>· {fit.length}</small>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "slow"}
-            class={tab === "slow" ? "on" : ""}
-            onClick={() => setTab("slow")}
-          >
-            {t("wzSlowTab")} <small>· {slow.length}</small>
-          </button>
-        </div>
-        <div class="wz-group fit">
-          <div class="wz-ghead">
-            <h3>{t("wzFitTitle")}</h3>
-            <span>{t("wzNModels", { n: String(fit.length) })}</span>
-          </div>
-          {data && fit.length === 0 && <p class="ui-help">{t("wzFitNone")}</p>}
-          <Gallery panel={panel} onClose={() => setOpen(null)}>
-            {fit.map(card)}
-          </Gallery>
-        </div>
-        <div class="wz-group slow">
-          <div class="wz-ghead">
-            <h3>{t("wzSlowTitle")}</h3>
-            <span>{t("wzNModels", { n: String(slow.length) })}</span>
-          </div>
-          <Gallery panel={null} onClose={() => setOpen(null)}>
-            {slow.map(card)}
-          </Gallery>
-        </div>
-        <div class="wz-group more">
-          <div class="wz-ghead">
-            <h3>{t("wzMoreModels")}</h3>
-          </div>
-          <Gallery panel={null} onClose={() => setOpen(null)}>
-            {others.map((f) => (
-              <GalleryCard
-                key={f.file}
-                selected={open === `file:${f.file}`}
-                tone={active === f.file ? "ok" : undefined}
-                onOpen={() => setOpen(`file:${f.file}`)}
-              >
-                <span class="wz-mtag">{active === f.file ? t("lmInUse") : t("lmOther")}</span>
-                <strong class="wz-mname gcard-file">{f.file}</strong>
-                <span class="wz-mmeta">
-                  <span />
-                  <span class="dim">{bytes(f.bytes)}</span>
-                </span>
-              </GalleryCard>
-            ))}
-            <GalleryCard selected={open === "disk"} onOpen={() => setOpen("disk")}>
-              <span class="gcard-head">
-                <strong>{t("lmDownloadedTitle")}</strong>
-                <IconTrash size={16} />
-              </span>
-              <span class="gcard-note">
-                {t("lmDownloadedNote", {
-                  n: String(files.length),
-                  size: bytes(files.reduce((n, f) => n + f.bytes, 0)),
-                })}
-              </span>
-            </GalleryCard>
-            <GalleryCard selected={open === "hf"} onOpen={() => setOpen("hf")}>
-              <span class="gcard-head">
-                <strong>{t("lmSearch")}</strong>
-                <IconSearch size={16} />
-              </span>
-              <span class="gcard-note">{t("lmSearchHint")}</span>
-            </GalleryCard>
-          </Gallery>
-        </div>
-        {engineField}
-      </div>
+      <GalleryCard
+        key={m.id}
+        selected={open === m.id}
+        tone={works(m) ? "usable" : inUse ? "ok" : undefined}
+        onOpen={() => setOpen(m.id)}
+      >
+        <span class="wz-mtag">{tagOf(m) || "\u00a0"}</span>
+        <strong class="wz-mname">{m.name}</strong>
+        <span class="wz-mkind">
+          {t(m.activeB < m.totalB ? "wzMoe" : "wzDense", { b: num(m.totalB, 1) })}
+        </span>
+        <span class="wz-mmeta">
+          <span class="wz-mspd">
+            {speed && m.file ? (
+              <SpeedText
+                speed={speed}
+                measured={measuredTps(s, target(m.file.file))}
+                unit={t("lmTokensUnit")}
+              />
+            ) : (
+              "–"
+            )}
+          </span>
+          <span class="dim">{m.file ? gbText(m.file.sizeGb) : ""}</span>
+        </span>
+      </GalleryCard>
     );
-  }
+  };
+  const fit = data?.models.filter(works) ?? [];
+  const slow = data?.models.filter((m) => !works(m)) ?? [];
   return (
-    <div class="lm">
-      <Machine
+    <div class="lm wz-lm" data-tab={tab}>
+      <WzMachine
         s={s}
-        tiers={tiers}
-        diskFreeGb={streaming ? data?.diskFreeGb : undefined}
-        activeGb={activeGb}
-      />
-      {s.locked.engine && <p class="notice">{t("wzLocked")}</p>}
-      {error && <p class="notice error">{error}</p>}
-      <StreamSwitch
+        variant={variant}
         on={streaming}
         available={canStream}
-        plan={s.config.engine?.stream ? s.config.engine.plan : undefined}
         onChange={(v) => setStream(v)}
-      >
-        {showBig && <BigChunksPick on={bigChunks} onChange={setBigChunks} />}
-        {prefetchState && (
-          <MoePrefetchPick state={prefetchState} on={moePrefetch} onChange={setMoePrefetch} />
-        )}
-        {sysmem && <SysmemAdvice />}
-      </StreamSwitch>
-      <ModelsDisk s={s} variant={variant} onMoved={changed} />
-      <h3>{t("lmSuggested")}</h3>
-      <p class="ui-help">{t("lmScoresHint")}</p>
-      <p class="ui-help">{t("lmUsableHint", { n: String(USABLE_TPS) })}</p>
+        room={
+          wizard
+            ? undefined
+            : { tiers, activeGb, diskFreeGb: streaming ? data?.diskFreeGb : undefined }
+        }
+        plan={!wizard && streaming && s.config.engine?.stream ? s.config.engine.plan : undefined}
+        big={showBig ? { on: bigChunks, onChange: setBigChunks } : undefined}
+        prefetch={
+          prefetchState
+            ? { state: prefetchState, on: moePrefetch, onChange: setMoePrefetch }
+            : undefined
+        }
+      />
+      {sysmem && <SysmemAdvice />}
+      {s.locked.engine && <p class="notice">{t("wzLocked")}</p>}
+      {error && <p class="notice error">{error}</p>}
+      <WzDisks s={s} variant={variant} onMoved={changed} />
+      <h2 class="wz-sub">{t("wzPickModel")}</h2>
+      <div class="wz-legend">
+        <i />
+        <span>{t("wzLegend", { n: String(USABLE_TPS) })}</span>
+      </div>
+      {/* Settings say what the bars and the speeds are (the old page's hints, 2026-11-06). */}
+      {!wizard && <p class="wz-subl">{t("lmScoresHint")}</p>}
       {!data && <p class="ui-help">{t("lmLoading")}</p>}
-      <Gallery panel={panel} onClose={() => setOpen(null)}>
-        {data?.models.map((m) => {
-          const speed = m.file ? estimatedSpeed(m, m.file.sizeGb, hw) : undefined;
-          const inUse = !!m.file && active === target(m.file.file);
-          const works =
-            !!m.file && usable(m, m.file.sizeGb, wholeRam, measuredTps(s, target(m.file.file)));
-          return (
+      <div class="wz-mtabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "fit"}
+          class={tab === "fit" ? "on" : ""}
+          onClick={() => setTab("fit")}
+        >
+          {t("wzFitTab")} <small>· {fit.length}</small>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "slow"}
+          class={tab === "slow" ? "on" : ""}
+          onClick={() => setTab("slow")}
+        >
+          {t("wzSlowTab")} <small>· {slow.length}</small>
+        </button>
+      </div>
+      <div class="wz-group fit">
+        <div class="wz-ghead">
+          <h3>{t("wzFitTitle")}</h3>
+          <span>{t("wzNModels", { n: String(fit.length) })}</span>
+        </div>
+        {data && fit.length === 0 && <p class="ui-help">{t("wzFitNone")}</p>}
+        <Gallery panel={panel} onClose={() => setOpen(null)}>
+          {fit.map(card)}
+        </Gallery>
+      </div>
+      <div class="wz-group slow">
+        <div class="wz-ghead">
+          <h3>{t("wzSlowTitle")}</h3>
+          <span>{t("wzNModels", { n: String(slow.length) })}</span>
+        </div>
+        <Gallery panel={null} onClose={() => setOpen(null)}>
+          {slow.map(card)}
+        </Gallery>
+      </div>
+      <div class="wz-group more">
+        <div class="wz-ghead">
+          <h3>{t("wzMoreModels")}</h3>
+        </div>
+        <Gallery panel={null} onClose={() => setOpen(null)}>
+          {others.map((f) => (
             <GalleryCard
-              key={m.id}
-              selected={open === m.id}
-              tone={works ? "usable" : inUse ? "ok" : undefined}
-              onOpen={() => setOpen(m.id)}
+              key={f.file}
+              selected={open === `file:${f.file}`}
+              tone={active === f.file ? "ok" : undefined}
+              onOpen={() => setOpen(`file:${f.file}`)}
             >
-              <span class="gcard-head">
-                <strong>{m.name}</strong>
-                {inUse ? (
-                  <span class={s.config.engine?.off ? "chip" : "chip ok"}>
-                    {s.config.engine?.off ? t("lmOff") : t("lmInUse")}
-                  </span>
-                ) : (
-                  m.id === best && <span class="chip ok">{t("lmRecommended")}</span>
-                )}
-              </span>
-              {speed && m.file ? (
-                <span class="row wrap">
-                  <span class="gcard-big">
-                    <SpeedText
-                      speed={speed}
-                      measured={measuredTps(s, target(m.file.file))}
-                      unit={t("lmTokensUnit")}
-                    />
-                  </span>
-                  <span class="spacer" />
-                  <span class="dim">{gb(m.file.sizeGb)}</span>
-                </span>
-              ) : (
-                <span class="gcard-note">{tOptional(`lm_${m.id}`) ?? ""}</span>
-              )}
-              {m.file && <RoomBar sizeGb={m.file.sizeGb} tiers={tiers} />}
-              <span class="gcard-foot">
-                <span class="gcard-note">
-                  {cardState(m, files, jobs, active, s.config.engine?.off === true)}
-                </span>
-                <IconChevron open={false} size={14} />
+              <span class="wz-mtag">{active === f.file ? t("lmInUse") : t("lmOther")}</span>
+              <strong class="wz-mname gcard-file">{f.file}</strong>
+              <span class="wz-mmeta">
+                <span />
+                <span class="dim">{bytes(f.bytes)}</span>
               </span>
             </GalleryCard>
-          );
-        })}
-        {others.map((f) => (
-          <GalleryCard
-            key={f.file}
-            selected={open === `file:${f.file}`}
-            tone={active === f.file ? "ok" : undefined}
-            onOpen={() => setOpen(`file:${f.file}`)}
-          >
+          ))}
+          <GalleryCard selected={open === "disk"} onOpen={() => setOpen("disk")}>
             <span class="gcard-head">
-              <strong class="gcard-file">{f.file}</strong>
-              {active === f.file && <span class="chip ok">{t("lmInUse")}</span>}
+              <strong>{t("lmDownloadedTitle")}</strong>
+              <IconTrash size={16} />
             </span>
-            <span class="gcard-note">{t("lmOther")}</span>
-            <span class="gcard-foot">
-              <span class="gcard-note">{bytes(f.bytes)}</span>
-              <IconChevron open={false} size={14} />
+            <span class="gcard-note">
+              {t("lmDownloadedNote", {
+                n: String(files.length),
+                size: bytes(files.reduce((n, f) => n + f.bytes, 0)),
+              })}
             </span>
           </GalleryCard>
-        ))}
-        <GalleryCard selected={open === "disk"} onOpen={() => setOpen("disk")}>
-          <span class="gcard-head">
-            <strong>{t("lmDownloadedTitle")}</strong>
-            <IconTrash size={16} />
-          </span>
-          <span class="gcard-note">
-            {t("lmDownloadedNote", {
-              n: String(files.length),
-              size: bytes(files.reduce((n, f) => n + f.bytes, 0)),
-            })}
-          </span>
-        </GalleryCard>
-        <GalleryCard selected={open === "hf"} onOpen={() => setOpen("hf")}>
-          <span class="gcard-head">
-            <strong>{t("lmSearch")}</strong>
-            <IconSearch size={16} />
-          </span>
-          <span class="gcard-note">{t("lmSearchHint")}</span>
-          <span class="gcard-foot">
-            <span />
-            <IconChevron open={false} size={14} />
-          </span>
-        </GalleryCard>
-      </Gallery>
+          <GalleryCard selected={open === "hf"} onOpen={() => setOpen("hf")}>
+            <span class="gcard-head">
+              <strong>{t("lmSearch")}</strong>
+              <IconSearch size={16} />
+            </span>
+            <span class="gcard-note">{t("lmSearchHint")}</span>
+          </GalleryCard>
+        </Gallery>
+      </div>
       {engineField}
     </div>
   );
