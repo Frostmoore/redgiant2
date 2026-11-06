@@ -2099,6 +2099,11 @@ const en = {
   wzKeyOf: "The key of {name}",
   wzLangItShort: "interface",
   wzLangEnShort: "interface",
+  lmMoePrefetchHelpDocker:
+    "Runs a version of llama.cpp changed by RedGiant: while the graphics card computes one layer, the experts of the next one are already on their way to it, and the model is loaded in RAM when it fits. With mixture-of-experts models long messages are read up to 1.7 times faster (measured on an RTX 4080 Super). The first start downloads that engine's image (about {size}), kept next to the usual one. NVIDIA cards only, through Docker's NVIDIA runtime.",
+  lmMoePrefetchMissingDocker:
+    "The changed engine's image is not available yet (this version has not published it, or there is no network): the option stays off.",
+} as const;
 } as const;
 
 export type Key = keyof typeof en;
@@ -4226,6 +4231,11 @@ const it: Record<Key, string> = {
   wzKeyOf: "La chiave di {name}",
   wzLangItShort: "interfaccia",
   wzLangEnShort: "interface",
+  lmMoePrefetchHelpDocker:
+    "Usa una versione di llama.cpp modificata da RedGiant: mentre la scheda video calcola uno strato, gli esperti di quello dopo le stanno già arrivando, e il modello è caricato nella RAM quando ci sta. Con i modelli a esperti i messaggi lunghi si leggono fino a 1,7 volte più in fretta (misurato con una RTX 4080 Super). Al primo avvio scarica l'immagine di quel motore (circa {size}), tenuta accanto a quella solita. Solo schede NVIDIA, con il runtime NVIDIA di Docker.",
+  lmMoePrefetchMissingDocker:
+    "L'immagine del motore modificato non c'è ancora (questa versione non l'ha pubblicata, o manca la rete): l'opzione resta spenta.",
+};
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, it };

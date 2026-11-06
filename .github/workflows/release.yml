@@ -1,4 +1,5 @@
 # Publishes the images when a version tag is pushed (git tag v1.16.0 && git push --tags).
+# Run by hand (workflow_dispatch) it builds and publishes nothing: no image is pushed, no release.
 name: Release images
 
 on:
@@ -7,12 +8,12 @@ on:
   workflow_dispatch:
     inputs:
       only:
-        description: "Run one job only (llama-cuda: the patched llama.cpp for Windows, nothing published)"
+        description: "Run one job only (llama-cuda: the patched llama.cpp for Windows; engine-prefetch: its Linux image). Nothing is published by hand"
         type: choice
-        options: ["", "llama-cuda"]
+        options: ["", "llama-cuda", "engine-prefetch"]
         default: ""
       cuda_archs:
-        description: "CUDA architectures for llama-cuda (empty: the release's list)"
+        description: "CUDA architectures for llama-cuda and engine-prefetch (empty: the release's list)"
         type: string
         default: ""
 
@@ -25,7 +26,7 @@ env:
 
 jobs:
   images:
-    if: inputs.only != 'llama-cuda'
+    if: ${{ !inputs.only }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -85,7 +86,8 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           platforms: ${{ matrix.platforms }}
-          push: true
+          # Only a version tag publishes: a run by hand never overwrites the released images.
+          push: ${{ startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.tags.outputs.tags }}
           build-args: |
             REDGIANT_VERSION=${{ steps.tags.outputs.version }}
@@ -96,7 +98,7 @@ jobs:
   # RedGiant-Setup.exe (G22; 3.0, G30.2): the launcher, Node, the server built for Windows and the
   # web page, attached to the tag's GitHub Release. No WSL: everything runs on Windows itself.
   windows-installer:
-    if: inputs.only != 'llama-cuda'
+    if: ${{ !inputs.only }}
     runs-on: windows-latest
     permissions:
       contents: write
@@ -154,7 +156,7 @@ jobs:
   # certificate exported as .p12, base64), MAC_CERTIFICATE_PASSWORD, MAC_NOTARY_KEY (an App Store
   # Connect API key, the .p8 file in base64), MAC_NOTARY_KEY_ID, MAC_NOTARY_ISSUER_ID.
   mac-app:
-    if: inputs.only != 'llama-cuda'
+    if: ${{ !inputs.only }}
     runs-on: macos-latest
     permissions:
       contents: write
@@ -187,6 +189,7 @@ jobs:
   # (cudart, cuBLAS) and is attached to the release; RedGiant downloads it only when the person
   # turns on «Next layer ahead». Alone: Actions > Release images > Run workflow, only = llama-cuda.
   llama-cuda:
+    if: ${{ !inputs.only || inputs.only == 'llama-cuda' }}
     runs-on: windows-latest
     timeout-minutes: 240
     permissions:
@@ -302,3 +305,47 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ${{ env.ZIP }}
+
+  # The same patched llama.cpp for the engines in Docker (Linux, NVIDIA runtime), G32.2:
+  # redgiant2-engine:cuda-prefetch, built from source (docker/engine-prefetch.Dockerfile: b12034 +
+  # apply.sh, CUDA 12.8). Its own image, not the `cuda` one: that one stays llama.cpp's official
+  # build (no compilation in every release, always llama.cpp's latest), and only those who turn the
+  # option on download this one. Alone: Run workflow with only = engine-prefetch (built, not pushed).
+  engine-prefetch:
+    if: ${{ !inputs.only || inputs.only == 'engine-prefetch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      CUDA_ARCHS: ${{ inputs.cuda_archs || '75-real;80-real;86-real;89-real;90-real;120' }}
+    steps:
+      - uses: actions/checkout@v4
+      # CUDA's devel image and the build need more room than the runner leaves free.
+      - name: Room on the disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: tags
+        shell: bash
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          image=$REGISTRY/redgiant2-engine
+          echo "tags=$image:cuda-prefetch,$image:$version-cuda-prefetch" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: engine
+          file: docker/engine-prefetch.Dockerfile
+          platforms: linux/amd64
+          push: ${{ startsWith(github.ref, 'refs/tags/') }}
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            CUDA_ARCHS=${{ env.CUDA_ARCHS }}
+      - name: Size
+        if: startsWith(github.ref, 'refs/tags/')
+        run: docker buildx imagetools inspect "$REGISTRY/redgiant2-engine:cuda-prefetch"

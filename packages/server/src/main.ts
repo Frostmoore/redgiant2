@@ -250,6 +250,10 @@ const hooks = runtimeHooks({
         cpu: env.REDGIANT_ENGINE_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:cpu",
         cuda: env.REDGIANT_ENGINE_CUDA_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:cuda",
         vulkan: env.REDGIANT_ENGINE_VULKAN_IMAGE ?? "ghcr.io/frostmoore/redgiant2-engine:vulkan",
+        // «Next layer ahead» (G32.2): llama.cpp with RedGiant's patch, NVIDIA cards.
+        cudaPrefetch:
+          env.REDGIANT_ENGINE_CUDA_PREFETCH_IMAGE ??
+          "ghcr.io/frostmoore/redgiant2-engine:cuda-prefetch",
       },
       gpuAccess: env.REDGIANT_ENGINE_GPU === "dri" ? "dri" : "",
       ...(winEngine && { windows: winEngine }),

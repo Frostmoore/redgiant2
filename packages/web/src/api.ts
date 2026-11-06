@@ -178,6 +178,8 @@ export interface SetupState {
    * absent, an older server) where it does not apply (not Windows, no NVIDIA card).
    */
   moePrefetch?: "available" | "missing" | null;
+  /** The same for the `cuda` engine in Docker (Linux): the patched image is there, or not. */
+  moePrefetchImage?: "available" | "missing" | null;
 }
 
 export interface GgufFile {

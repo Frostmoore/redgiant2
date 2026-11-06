@@ -210,20 +210,41 @@ export function bigChunksShown(
 export const MOE_PREFETCH_SIZE = "700 MB";
 
 /**
- * The «next layer ahead» switch (G32.2): with SSD stream on, RedGiant's engine on Windows and an
- * NVIDIA card of its own, and the server saying whether this version has the patched binaries
- * ("missing": shown, saying so, and off). null: not shown.
+ * The «next layer ahead» switch (G32.2): with SSD stream on and an NVIDIA card of its own, either
+ * RedGiant's engine on Windows (the server saying whether this version has the patched binaries)
+ * or the `cuda` engine in Docker on Linux (whether the patched image is there). "missing": shown,
+ * saying so, and off. null: not shown (never on a Mac, never with Vulkan or the CPU).
  */
 export function moePrefetchSwitch(
-  s: Pick<SetupState, "hardware" | "moePrefetch">,
+  s: Pick<SetupState, "hardware" | "moePrefetch" | "moePrefetchImage">,
   variant: string,
   streaming: boolean,
 ): "available" | "missing" | null {
   const hw = s.hardware;
-  if (!streaming || variant !== "windows" || !s.moePrefetch) return null;
-  if (!(hw.onWindows ?? hw.windowsEngine)) return null;
+  if (!streaming || hw.os === "darwin") return null;
   if (!hw.gpus.some((g) => g.vendor === "nvidia" && !g.integrated)) return null;
-  return s.moePrefetch;
+  if (variant === "windows") {
+    if (!s.moePrefetch || !(hw.onWindows ?? hw.windowsEngine)) return null;
+    return s.moePrefetch;
+  }
+  if (variant === "cuda") return (hw.dockerGpu && s.moePrefetchImage) || null;
+  return null;
+}
+
+/** The patched image for Docker (Linux), as the registry measured it. */
+export const MOE_PREFETCH_IMAGE_SIZE = "2.5 GB";
+
+/** The switch's help and its «missing» notice for the engine chosen (G32.2). */
+export function moePrefetchTexts(variant: string): { help: string; missing: string } {
+  return variant === "cuda"
+    ? {
+        help: t("lmMoePrefetchHelpDocker", { size: MOE_PREFETCH_IMAGE_SIZE }),
+        missing: t("lmMoePrefetchMissingDocker"),
+      }
+    : {
+        help: t("lmMoePrefetchHelp", { size: MOE_PREFETCH_SIZE }),
+        missing: t("lmMoePrefetchMissing"),
+      };
 }
 
 /**

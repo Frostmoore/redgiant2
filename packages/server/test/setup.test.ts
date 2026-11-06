@@ -621,6 +621,33 @@ describe("the setup wizard", () => {
     expect((await api<SetupState>("GET", "/api/setup")).body.moePrefetch).toBeNull();
   });
 
+  it("«next layer ahead» in Docker: the page is told about the patched image, the switch starts again (G32.2)", async () => {
+    const { calls, hooks } = await setup();
+    const api = (s as Server).api;
+    expect((await api<SetupState>("GET", "/api/setup")).body.moePrefetchImage).toBeNull();
+    hooks.moePrefetchImage = async () => "missing";
+    expect((await api<SetupState>("GET", "/api/setup")).body.moePrefetchImage).toBe("missing");
+    hooks.moePrefetchImage = async () => {
+      throw new Error("docker is down");
+    };
+    expect((await api<SetupState>("GET", "/api/setup")).body.moePrefetchImage).toBeNull();
+    hooks.moePrefetchImage = async () => "available";
+    const setup2 = await api<SetupState>("GET", "/api/setup");
+    expect(setup2.body.moePrefetchImage).toBe("available");
+    // The Windows zip is another question.
+    expect(setup2.body.moePrefetch).toBeNull();
+    s?.core.providers.register(
+      new FakeProvider(() => ({ text: "OK" }), { id: "local", now: () => 0 }),
+    );
+    const job = await api<Job>("PUT", "/api/setup/engine", {
+      engine: { variant: "cuda", model: "qwen.gguf", stream: true, moePrefetch: true },
+    });
+    expect((await s?.core.jobs.settled(job.body.id))?.state).toBe("done");
+    expect(
+      calls.filter((c) => c.startsWith("engine:cuda")).every((c) => c.endsWith(":prefetch")),
+    ).toBe(true);
+  });
+
   it("a model tuned without bigger passes gets only their tries when they are turned on", async () => {
     const { calls } = await setup();
     const api = (s as Server).api;

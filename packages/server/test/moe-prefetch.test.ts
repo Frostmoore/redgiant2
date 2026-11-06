@@ -3,10 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  engineContainerEnv,
   MISSING_AGAIN_MS,
   MOE_PREFETCH_ASSET,
+  MOE_PREFETCH_IMAGE,
   moePrefetchApplies,
   moePrefetchChecker,
+  moePrefetchImage,
+  moePrefetchImageChecker,
   moePrefetchRelease,
   moePrefetchUrl,
   releaseVersion,
@@ -137,5 +141,105 @@ describe("«next layer ahead»: the patched llama.cpp (G32.2)", () => {
     // Never inherited from RedGiant's own environment.
     expect(engineEnv(plain, { PATH: "p", LLAMA_MOE_PREFETCH: "1" })).toEqual({ PATH: "p" });
     expect(engineEnv({ ...r, flavor: "vulkan" }, {})).toEqual({});
+  });
+
+  it("in Docker: an NVIDIA card through Docker's NVIDIA runtime, never on a Mac", () => {
+    const linux = { os: "linux", windowsEngine: false, onWindows: false, dockerGpu: true };
+    expect(moePrefetchApplies({ ...linux, gpus: [nvidia] }, "docker")).toBe(true);
+    // The card without the runtime runs through Vulkan: not this engine.
+    expect(moePrefetchApplies({ ...linux, dockerGpu: false, gpus: [nvidia] }, "docker")).toBe(
+      false,
+    );
+    expect(
+      moePrefetchApplies({ ...linux, gpus: [{ vendor: "amd", integrated: false }] }, "docker"),
+    ).toBe(false);
+    expect(
+      moePrefetchApplies({ ...linux, gpus: [{ vendor: "nvidia", integrated: true }] }, "docker"),
+    ).toBe(false);
+    expect(moePrefetchApplies({ ...linux, os: "darwin", gpus: [nvidia] }, "docker")).toBe(false);
+    // The Windows zip does not apply to Linux, the image does not need Windows.
+    expect(moePrefetchApplies({ ...linux, gpus: [nvidia] })).toBe(false);
+  });
+
+  it("looks for the image here first, then in the registry; keeps a yes, asks a no again later", async () => {
+    const asked: string[] = [];
+    let local = false;
+    let remote = false;
+    let t = 0;
+    const docker = {
+      getImage: (name: string) => ({
+        inspect: async () => {
+          asked.push(`inspect ${name}`);
+          if (!local) throw new Error("no such image");
+        },
+        distribution: async () => {
+          asked.push(`distribution ${name}`);
+          if (!remote) throw new Error("404");
+        },
+      }),
+    };
+    const check = moePrefetchImageChecker(MOE_PREFETCH_IMAGE, docker, () => t);
+    expect(await check()).toBe("missing");
+    expect(asked).toEqual([`inspect ${MOE_PREFETCH_IMAGE}`, `distribution ${MOE_PREFETCH_IMAGE}`]);
+    remote = true;
+    // Published later: the registry is not asked again for a while, the computer is.
+    t += MISSING_AGAIN_MS - 1;
+    expect(await check()).toBe("missing");
+    expect(asked.filter((a) => a.startsWith("distribution"))).toHaveLength(1);
+    t += 1;
+    expect(await check()).toBe("available");
+    remote = false;
+    expect(await check()).toBe("available");
+    expect(asked).toHaveLength(5);
+    // Already pulled: no registry at all.
+    const here: string[] = [];
+    local = true;
+    const pulled = moePrefetchImageChecker("img", {
+      getImage: (n) => ({
+        inspect: async () => here.push(n),
+        distribution: async () => here.push(`remote ${n}`),
+      }),
+    });
+    expect(await pulled()).toBe("available");
+    expect(here).toEqual(["img"]);
+  });
+
+  it("in Docker the patched image runs only with the option, SSD stream, CUDA and the image", () => {
+    const on = { variant: "cuda", stream: true, moePrefetch: true };
+    expect(moePrefetchImage(on, "available")).toBe(MOE_PREFETCH_IMAGE);
+    expect(moePrefetchImage(on, "available", "mine:test")).toBe("mine:test");
+    expect(moePrefetchImage({ ...on, moePrefetch: false }, "available")).toBeUndefined();
+    expect(moePrefetchImage({ ...on, stream: false }, "available")).toBeUndefined();
+    for (const variant of ["vulkan", "cpu", "windows"])
+      expect(moePrefetchImage({ ...on, variant }, "available")).toBeUndefined();
+    expect(moePrefetchImage(on, "missing")).toBeUndefined();
+    expect(moePrefetchImage(on, null)).toBeUndefined();
+  });
+
+  it("switches the patch on in the container's environment only for the patched image", () => {
+    const plain = ["CUDA_CACHE_PATH=/kv/cuda-cache", "CUDA_CACHE_MAXSIZE=4294967296"];
+    expect(engineContainerEnv(false)).toEqual(plain);
+    expect(engineContainerEnv(true)).toEqual([...plain, "LLAMA_MOE_PREFETCH=1"]);
+  });
+
+  it("the patched image has the usual engine's defaults, b12034 with apply.sh, every card family", async () => {
+    const root = join(import.meta.dirname, "..", "..", "..");
+    const usual = await readFile(join(root, "docker", "engine.Dockerfile"), "utf8");
+    const patched = await readFile(join(root, "docker", "engine-prefetch.Dockerfile"), "utf8");
+    const defaults = (f: string) => {
+      const env = f.slice(f.indexOf("ENV LLAMA_ARG_HOST"));
+      return [
+        env.slice(0, env.indexOf("\nVOLUME")),
+        f.match(/^VOLUME .*$/m)?.[0],
+        f.match(/^ENTRYPOINT .*$/m)?.[0],
+      ];
+    };
+    expect(defaults(patched)).toEqual(defaults(usual));
+    expect(patched).toContain("ARG LLAMA_BUILD=b12034");
+    expect(patched).toContain("sh /patches/apply.sh");
+    expect(patched).toContain('CUDA_ARCHS="75-real;80-real;86-real;89-real;90-real;120"');
+    const workflow = await readFile(join(root, ".github", "workflows", "release.yml"), "utf8");
+    expect(workflow).toContain("docker/engine-prefetch.Dockerfile");
+    expect(workflow).toContain(MOE_PREFETCH_IMAGE.split(":")[1]);
   });
 });

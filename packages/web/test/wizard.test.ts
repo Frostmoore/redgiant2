@@ -5,7 +5,10 @@ import { lang } from "../src/i18n.js";
 import {
   bigChunksShown,
   diskTiles,
+  MOE_PREFETCH_IMAGE_SIZE,
+  MOE_PREFETCH_SIZE,
   moePrefetchSwitch,
+  moePrefetchTexts,
   PRESETS,
   presetOf,
   recap,
@@ -173,6 +176,46 @@ describe("the options next to SSD stream (G32.1)", () => {
       gpus: nvidia,
     } as Partial<SetupState["hardware"]>);
     expect(moePrefetchSwitch(at(mac, "available"), "windows", true)).toBeNull();
+  });
+
+  it("the «next layer ahead» switch in Docker on Linux: CUDA engine, NVIDIA runtime, the image (G32.2)", () => {
+    const linux = hw({
+      os: "linux",
+      onWindows: false,
+      windowsEngine: false,
+      dockerGpu: true,
+      gpus: nvidia,
+    } as Partial<SetupState["hardware"]>);
+    const at = (
+      h: SetupState["hardware"],
+      image: SetupState["moePrefetchImage"],
+      zip: SetupState["moePrefetch"] = null,
+    ) => ({ hardware: h, moePrefetch: zip, moePrefetchImage: image });
+    expect(moePrefetchSwitch(at(linux, "available"), "cuda", true)).toBe("available");
+    expect(moePrefetchSwitch(at(linux, "missing"), "cuda", true)).toBe("missing");
+    expect(moePrefetchSwitch(at(linux, "available"), "cuda", false)).toBeNull();
+    // Vulkan and the CPU never; nor the Windows engine with only the image there.
+    expect(moePrefetchSwitch(at(linux, "available"), "vulkan", true)).toBeNull();
+    expect(moePrefetchSwitch(at(linux, "available"), "cpu", true)).toBeNull();
+    expect(moePrefetchSwitch(at(linux, "available"), "windows", true)).toBeNull();
+    expect(moePrefetchSwitch(at(linux, null), "cuda", true)).toBeNull();
+    expect(moePrefetchSwitch({ hardware: linux }, "cuda", true)).toBeNull();
+    // Without Docker's NVIDIA runtime the card is not handed to the engine.
+    const noRuntime = { ...linux, dockerGpu: false };
+    expect(moePrefetchSwitch(at(noRuntime, "available"), "cuda", true)).toBeNull();
+    const amd = {
+      ...linux,
+      gpus: [{ name: "RX 7900", vramGb: 24, vendor: "amd", integrated: false }],
+    } as SetupState["hardware"];
+    expect(moePrefetchSwitch(at(amd, "available"), "cuda", true)).toBeNull();
+    const mac = { ...linux, os: "darwin" };
+    expect(moePrefetchSwitch(at(mac, "available", "available"), "cuda", true)).toBeNull();
+    expect(moePrefetchSwitch(at(mac, "available", "available"), "windows", true)).toBeNull();
+    // Each engine says what it downloads.
+    expect(moePrefetchTexts("cuda").help).toContain(MOE_PREFETCH_IMAGE_SIZE);
+    expect(moePrefetchTexts("cuda").help).toContain("Docker");
+    expect(moePrefetchTexts("windows").help).toContain(MOE_PREFETCH_SIZE);
+    expect(moePrefetchTexts("cuda").missing).not.toBe(moePrefetchTexts("windows").missing);
   });
 
   it("NVIDIA's Sysmem Fallback advice: Windows, an NVIDIA card, SSD stream on, until closed", () => {

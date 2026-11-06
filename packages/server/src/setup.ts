@@ -101,6 +101,11 @@ export interface SetupHooks {
    * null where it has nothing to do (not Windows, or no NVIDIA card).
    */
   moePrefetchBinaries?(): Promise<MoePrefetchState>;
+  /**
+   * The same for the engines in Docker (Linux with Docker's NVIDIA runtime): whether the patched
+   * image (`redgiant2-engine:cuda-prefetch`) is here or in the registry; null where it does not apply.
+   */
+  moePrefetchImage?(): Promise<MoePrefetchState>;
   /** Asks RedGiant.exe to look for a newer version now (Windows); null where it cannot. */
   checkUpdate?(): Promise<{ state: string; version: string } | null>;
   /** A way to reach RedGiant from outside home (G24.6); null switches every way off. */
@@ -231,10 +236,11 @@ export interface EngineConfig {
    */
   bigChunks?: boolean | undefined;
   /**
-   * «Next layer ahead» (G32.2, experimental, off by default): on Windows with an NVIDIA card,
-   * llama.cpp with RedGiant's patch (its own download, from RedGiant's release of this version)
-   * copies the next experts to the card while it computes; the weights are loaded in RAM when they
-   * fit. Used only with SSD stream and where those binaries exist (`SetupState.moePrefetch`).
+   * «Next layer ahead» (G32.2, experimental, off by default): with an NVIDIA card, llama.cpp with
+   * RedGiant's patch (its own download: the zip of RedGiant's release on Windows, the image
+   * `redgiant2-engine:cuda-prefetch` in Docker) copies the next experts to the card while it
+   * computes; the weights are loaded in RAM when they fit. Used only with SSD stream and where that
+   * build exists (`SetupState.moePrefetch` for Windows, `moePrefetchImage` for Docker).
    */
   moePrefetch?: boolean | undefined;
   /** The tries that chose `tuning` (2026-11-05): shown again, and another can be picked. */
@@ -368,6 +374,8 @@ export interface SetupState {
   canRunSearch: boolean;
   /** The «next layer ahead» build for this version (G32.2): null where it does not apply. */
   moePrefetch: MoePrefetchState;
+  /** The same for the `cuda` engine in Docker (Linux): the patched image. null where it does not apply. */
+  moePrefetchImage: MoePrefetchState;
 }
 
 export class SetupError extends Error {
@@ -642,6 +650,7 @@ export class SetupService {
       budgetUsd: global?.limit.usd ?? null,
       canRunSearch: this.canRunSearch,
       moePrefetch: (await this.o.hooks.moePrefetchBinaries?.().catch(() => null)) ?? null,
+      moePrefetchImage: (await this.o.hooks.moePrefetchImage?.().catch(() => null)) ?? null,
     };
   }
 

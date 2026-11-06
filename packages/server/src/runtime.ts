@@ -37,9 +37,13 @@ import { detectHardware, type GpuAccess } from "./hardware.js";
 import { JobFailure, type JobHandle, type Jobs } from "./jobs.js";
 import { readLinuxMemory, readWindowsMemory, usableRamGb } from "./memory.js";
 import {
+  engineContainerEnv,
+  MOE_PREFETCH_IMAGE,
   type MoePrefetchState,
   moePrefetchApplies,
   moePrefetchChecker,
+  moePrefetchImage,
+  moePrefetchImageChecker,
   moePrefetchRelease,
 } from "./moe-prefetch.js";
 import { modelGb, modelParts, preloadFiles } from "./preload.js";
@@ -70,7 +74,8 @@ export interface RuntimeOptions {
   engine?: {
     /** Absent on Windows' native install (G30.1): the engine there needs no Docker. */
     docker?: Docker | undefined;
-    image: { cpu: string; cuda: string; vulkan: string };
+    /** `cudaPrefetch`: the CUDA engine with «next layer ahead» (G32.2), default MOE_PREFETCH_IMAGE. */
+    image: { cpu: string; cuda: string; vulkan: string; cudaPrefetch?: string };
     /** How the engine reaches a GPU that is not NVIDIA's (Vulkan): Linux's /dev/dri. */
     gpuAccess?: GpuAccess;
     /** The engine on Windows itself, driven through RedGiant.exe (G24.3b). */
@@ -223,6 +228,15 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
   const moePrefetchBinaries = async (): Promise<MoePrefetchState> => {
     if (!o.engine?.windows || !moePrefetchApplies(await hardware())) return null;
     return prefetchZip();
+  };
+  /** The same for the engines in Docker (Linux, NVIDIA runtime): whether the patched image is there. */
+  const prefetchImageName = o.engine?.image.cudaPrefetch ?? MOE_PREFETCH_IMAGE;
+  const prefetchImage = o.engine?.docker
+    ? moePrefetchImageChecker(prefetchImageName, o.engine.docker)
+    : undefined;
+  const moePrefetchImageState = async (): Promise<MoePrefetchState> => {
+    if (!prefetchImage || !moePrefetchApplies(await hardware(), "docker")) return null;
+    return prefetchImage();
   };
   /** The RAM a model may use now on this engine: free, not total (2026-11-04). */
   const ramNow = async (cfg: EngineConfig, totalGb: number) => {
@@ -467,14 +481,21 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         cfg.moePrefetch && cfg.stream && cfg.variant === "windows"
           ? moePrefetchRelease(cfg, await moePrefetchBinaries(), version)
           : undefined;
+      // In Docker (Linux, NVIDIA): the patched image, when there (G32.2).
+      const prefetchImg =
+        cfg.moePrefetch && cfg.stream && cfg.variant === "cuda"
+          ? moePrefetchImage(cfg, await moePrefetchImageState(), prefetchImageName)
+          : undefined;
       // SSD stream (2026-11-03): the numbers come from the model's file and this computer.
-      const plan = cfg.stream ? await planFor(cfg, prefetch !== undefined) : undefined;
+      const plan = cfg.stream
+        ? await planFor(cfg, prefetch !== undefined || prefetchImg !== undefined)
+        : undefined;
       debugLog.write("engine", "start asked", {
         variant: cfg.variant,
         model: cfg.model,
         stream: cfg.stream ?? false,
         bigChunks: cfg.bigChunks ?? false,
-        moePrefetch: cfg.moePrefetch ? (prefetch ?? "no binaries") : false,
+        moePrefetch: cfg.moePrefetch ? (prefetch ?? prefetchImg ?? "no binaries") : false,
         speculative: cfg.speculative ?? null,
         draftModel: cfg.draftModel ?? null,
         tuning: cfg.tuning ?? null,
@@ -528,7 +549,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       // The engine in a container (Linux, Mac): Docker is needed from here on.
       const docker = e.docker;
       if (!docker) throw new JobFailure("start", "The local engine needs Docker on this computer");
-      const image = e.image[cfg.variant];
+      const image = prefetchImg ?? e.image[cfg.variant];
       const present = await docker
         .getImage(image)
         .inspect()
@@ -589,9 +610,8 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
             String(plan?.ctx ?? NORMAL_CTX),
           ],
           Labels: { "io.redgiant.engine": "1" },
-          // CUDA's compiled kernels kept in the KV volume: a card newer than the image's build
-          // (an RTX 50) compiles them at the first use, for minutes; once is enough (2026-11-04).
-          Env: ["CUDA_CACHE_PATH=/kv/cuda-cache", "CUDA_CACHE_MAXSIZE=4294967296"],
+          // CUDA's kernel cache in the KV volume; LLAMA_MOE_PREFETCH=1 for the patched image.
+          Env: engineContainerEnv(prefetchImg !== undefined),
           HostConfig: {
             RestartPolicy: { Name: "unless-stopped" },
             NetworkMode: e.network,
@@ -682,6 +702,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
     },
 
     moePrefetchBinaries,
+    moePrefetchImage: moePrefetchImageState,
 
     async checkUpdate() {
       return (await o.engine?.windows?.checkUpdate()) ?? null;
