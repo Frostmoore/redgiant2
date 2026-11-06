@@ -5,7 +5,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { ChatSummary } from "../api.js";
 import { t } from "../i18n.js";
-import { IconChat, IconFolder, IconPlus, IconUsers } from "../icons.js";
+import { IconChat, IconFolder, IconPencil, IconPlus, IconUsers } from "../icons.js";
 import {
   attempt,
   chatAgentId,
@@ -20,6 +20,8 @@ import {
   sessionRows,
 } from "../state.js";
 import { FolderMenu } from "./FolderMenu.js";
+import { PromptEditor } from "./PromptEditor.js";
+import { Modal } from "./ui.js";
 
 const when = (iso: string) =>
   new Date(iso).toLocaleString([], {
@@ -76,6 +78,7 @@ function SessionCard({ r, folders }: { r: SessionRow; folders: string[] }) {
 
 export function Chats() {
   const [error, setError] = useState<string>();
+  const [instructions, setInstructions] = useState(false);
   useEffect(() => {
     void refreshConversations().catch(() => {});
     void getApi()
@@ -106,7 +109,21 @@ export function Chats() {
         <h1>{t("dailyChat")}</h1>
         <p class="ui-help">{t("chatHint")}</p>
         {error && <p class="notice error">{error}</p>}
+        <button type="button" class="chats-prompt" onClick={() => setInstructions(true)}>
+          <IconPencil size={15} /> {t("chatInstructions")}
+        </button>
       </header>
+      {/* The Chat's instructions, built-in or its own (2026-11-06). */}
+      {instructions && (
+        <div class="wz-look">
+          <Modal wide title={t("chatInstructions")} onClose={() => setInstructions(false)}>
+            <PromptEditor
+              load={() => getApi().chatPrompt()}
+              save={(text) => getApi().setChatPrompt(text)}
+            />
+          </Modal>
+        </div>
+      )}
       <div class="chat-grid">
         <button type="button" class="chat-card chat-card-new" onClick={newChat}>
           <IconPlus size={18} /> {t("newChat")}

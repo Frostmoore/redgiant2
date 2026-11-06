@@ -146,8 +146,16 @@ const en = {
   agentOwnWordsHelp:
     "For example: keeps the website's texts in Italian and English and checks the links.",
   agentInstructions: "Its instructions",
+  promptDefault: "Built-in instructions",
+  promptOwn: "Your instructions",
+  promptNewChats:
+    "New instructions apply to new conversations: the open ones keep theirs. The agents' names stay right if you rename them later.",
+  promptReset: "Restore the built-in ones",
+  promptResetConfirm: "Go back to the built-in instructions? Your text will be lost.",
+  asstInstructions: "Instructions",
+  chatInstructions: "The Chat's instructions",
   agentInstructionsHelp:
-    "What the agent reads before every job (in English, the models' best language). Change it if you like.",
+    "What the agent reads before every job (in English, the models' best language): the built-in text or yours. Change it as you like, even a little.",
   agentCreate: "Create the agent",
   agentNeedsProject:
     "Agents work inside a project: create a project first (Projects, + new, on the left).",
@@ -1957,7 +1965,7 @@ const en = {
   wzPromptEdit: "Change the instructions for {god}",
   wzPromptTitle: "Instructions for {god}",
   wzPromptLead:
-    "How you want it to work: the tone, the priorities, what to avoid. Empty: the built-in instructions, fine almost always.",
+    "How you want it to work: the tone, the priorities, what to avoid. Here are the built-in instructions, fine almost always: change them as you like, even a little.",
   wzPromptExample: "For example: answer me briefly; ask me before starting a new project.",
   wzAssignLead:
     "Each one works with its own model: the strongest for who decides, a fast one for who answers. Touch a model to change it.",
@@ -2288,8 +2296,16 @@ const it: Record<Key, string> = {
   agentOwnWordsHelp:
     "Per esempio: tiene i testi del sito in italiano e in inglese e controlla i link.",
   agentInstructions: "Le sue istruzioni",
+  promptDefault: "Istruzioni predefinite",
+  promptOwn: "Istruzioni tue",
+  promptNewChats:
+    "Le istruzioni nuove valgono per le conversazioni nuove: quelle già aperte tengono le loro. I nomi degli agenti restano giusti anche se li cambi dopo.",
+  promptReset: "Ripristina le predefinite",
+  promptResetConfirm: "Tornare alle istruzioni predefinite? Il tuo testo andrà perso.",
+  asstInstructions: "Istruzioni",
+  chatInstructions: "Le istruzioni della Chat",
   agentInstructionsHelp:
-    "Quello che l'agente legge prima di ogni lavoro (in inglese, la lingua in cui i modelli rendono meglio). Cambiale se vuoi.",
+    "Quello che l'agente legge prima di ogni lavoro (in inglese, la lingua in cui i modelli rendono meglio): il testo predefinito o il tuo. Cambialo come vuoi, anche solo un po'.",
   agentCreate: "Crea l'agente",
   agentNeedsProject:
     "Gli agenti lavorano dentro un progetto: prima crea un progetto (Progetti, + nuovo, a sinistra).",
@@ -4124,7 +4140,7 @@ const it: Record<Key, string> = {
   wzPromptEdit: "Modifica le istruzioni per {god}",
   wzPromptTitle: "Istruzioni per {god}",
   wzPromptLead:
-    "Come vuoi che lavori: il tono, le priorità, cosa evitare. Vuoto: le istruzioni predefinite, che vanno bene quasi sempre.",
+    "Come vuoi che lavori: il tono, le priorità, cosa evitare. Qui ci sono le istruzioni predefinite, che vanno bene quasi sempre: cambiale come vuoi, anche solo un po'.",
   wzPromptExample:
     "Per esempio: rispondimi in breve; chiedimi prima di cominciare un progetto nuovo.",
   wzAssignLead:

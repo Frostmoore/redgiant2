@@ -122,6 +122,14 @@ import {
   platformConfigTools,
 } from "./platform.js";
 import { migrateProjects, ProjectStore, type Subproject, slug } from "./projects.js";
+import {
+  defaultTemplate,
+  expandPrompt,
+  type PromptNames,
+  type PromptView,
+  placeholdersOf,
+  toPlaceholders,
+} from "./prompts.js";
 import { HumanQuestions, questionTools } from "./questions.js";
 import { migrateRooms, Rooms } from "./rooms.js";
 import { scriptTool } from "./script.js";
@@ -262,26 +270,6 @@ const PRIORITY: Record<AgentRecord["kind"], number> = {
   agent: 50,
   subagent: 30,
 };
-
-/** The built-in instructions, with the agents' own names (the setup wizard lets you choose them). */
-function defaultPrompt(agent: AgentRecord, god: string, demigod: string): string {
-  switch (agent.kind) {
-    case "god":
-      return `You are ${agent.name}, the main orchestrator of this RedGiant installation. You oversee the platform and every project; you delegate project work to the project orchestrators. You do not do the work yourself: you organise it and hand it over. When the user asks to build, make or change something (a site, an app, a document, code, a design), use the project it belongs to, or create one with create_project and its orchestrator with create_agent (kind orchestrator), then give the work to that orchestrator with delegate. When the user asks about a project (how it is going, what it contains), ask its inspector with ask_inspector, which only reads; when something must be done in it, delegate to its orchestrator. Tasks for the same agent go into the same conversation, so it keeps the context. You are also the user's chief of staff: when a request is the job of one of their personal assistants (list_agents shows them, kind assistant, with their role), hand it over with ask_assistant and report the answer here. Do yourself only what is talk: answering, explaining, planning with the user, the platform's settings. Messages reach you from the user, directly or relayed from their Telegram by ${demigod}, their spokesperson. Handing work over with delegate returns at once: tell the user it has started, stay available, and when its <task_report> comes back as a message, tell them how it went.`;
-    case "demigod":
-      return `You are ${agent.name}, the user's spokesperson on Telegram. Pass every request to ${god} with ask_god, then report ${god}'s answer back to the user concisely, in the user's language, as plain text fit for a phone. You never do anything yourself: ${god} organises the work and hands it to the agents.`;
-    case "orchestrator":
-      return "You are the orchestrator of this project. You plan the work, delegate it to the project's agents and check their results. delegate returns at once: hand over what can run in parallel, end your turn while they work, and go on when their <task_report> messages come back.";
-    case "agent":
-      return "You are a coding agent working in your own git worktree of the project. Every result that can be tested must be tested before you say it is done.";
-    case "subagent":
-      return "You are a sub-agent with one task. Do it, verify it, and report the result briefly.";
-    case "inspector":
-      return "You are the project's inspector. You can only read. Answer questions about the state of the project precisely, citing files and events.";
-    case "assistant":
-      return `You are ${agent.name}, one of the user's personal assistants.${agent.role ? ` Your job: ${agent.role}` : ""} Stay within your job: hand other work to the assistant whose job it is (ask_assistant) or to ${god}. Use the services you are connected to; if one you need is missing, ask for it with request_connection and carry on with what you can. Anything that sends, publishes, deletes or pays waits for the user's approval. When the user asks you to save a job as a skill, write it with propose_extension (kind skill): when to use it, what it needs, the steps, the decisions, what to give back and what needs approval.`;
-  }
-}
 
 /** A value of rg_settings: JSON text or already parsed, as the driver gives it. */
 function settingValue(v: unknown): unknown {
@@ -455,6 +443,7 @@ export class RedGiantCore implements OrchestrationHost {
       budget: this.budget,
       search: () => this.o.search,
       defaultModel: () => this.o.defaultModel,
+      expand: (ownerId, text) => expandPrompt(text, this.chatNames(ownerId)),
       profile: (ownerId, scope) =>
         scope.kind === "inspector"
           ? this.inspector.profile(ownerId, scope.projectId)
@@ -1542,13 +1531,106 @@ export class RedGiantCore implements OrchestrationHost {
     return this.o.db;
   }
 
-  /** An agent's instructions: its own, or the built-in ones with the current names. */
+  /**
+   * An agent's instructions: its own or the built-in ones, with the current names in place of
+   * the placeholders. Read when a conversation starts; the conversation keeps it (cache).
+   */
   systemFor(agent: AgentRecord): string {
-    if (agent.systemPrompt) return agent.systemPrompt;
+    return expandPrompt(agent.systemPrompt || this.templateFor(agent), this.promptNames(agent));
+  }
+
+  /** The names an agent's instructions may mention, as they are now. */
+  promptNames(agent: AgentRecord): PromptNames {
     const all = this.registry.list({ ownerId: agent.ownerId });
     const name = (kind: AgentRecord["kind"], fallback: string) =>
       all.find((a) => a.kind === kind)?.name ?? fallback;
-    return defaultPrompt(agent, name("god", "God"), name("demigod", "Demi-God"));
+    return {
+      name: agent.name,
+      god: name("god", "God"),
+      demigod: name("demigod", "Demi-God"),
+      role: agent.role,
+    };
+  }
+
+  /** The built-in instructions of an agent, with placeholders. */
+  private templateFor(agent: AgentRecord): string {
+    return defaultTemplate(agent.kind, Boolean(agent.role));
+  }
+
+  /** An agent's instructions as the person reads them (the Chat's are the chat's settings). */
+  async promptOf(agent: AgentRecord): Promise<PromptView> {
+    if ((await this.chatAgentIdOf(agent.ownerId)) === agent.id)
+      return this.chatPrompt(agent.ownerId);
+    const names = this.promptNames(agent);
+    const defaultText = expandPrompt(this.templateFor(agent), names);
+    return agent.systemPrompt
+      ? { text: expandPrompt(agent.systemPrompt, names), isDefault: false, defaultText }
+      : { text: defaultText, isDefault: true, defaultText };
+  }
+
+  /**
+   * New instructions for an agent (null, empty or the built-in text: the built-in ones again),
+   * kept with placeholders for the names. Conversations already open keep theirs.
+   */
+  async setPrompt(agent: AgentRecord, text: string | null): Promise<PromptView> {
+    if ((await this.chatAgentIdOf(agent.ownerId)) === agent.id)
+      return this.setChatPrompt(agent.ownerId, text);
+    const kept = this.keptPrompt(text, this.templateFor(agent), this.promptNames(agent));
+    const updated = await this.registry.configure(
+      { type: "human", ownerId: agent.ownerId },
+      agent.id,
+      {
+        systemPrompt: kept,
+      },
+    );
+    return this.promptOf(updated);
+  }
+
+  /** The everyday Chat's instructions as the person reads them. */
+  async chatPrompt(ownerId: string): Promise<PromptView> {
+    const names = this.chatNames(ownerId);
+    const defaultText = expandPrompt(CHAT_AGENT_PROMPT, names);
+    // The chat's settings; else what was written on its agent directly (older versions).
+    const id = await this.chatAgentIdOf(ownerId);
+    const onAgent = id ? this.registry.get(id)?.systemPrompt : undefined;
+    const own =
+      (await this.chat.settings(ownerId)).systemPrompt ??
+      (onAgent &&
+      onAgent !== CHAT_AGENT_PROMPT &&
+      onAgent !== CHAT_AGENT_PROMPT.replace("{god}", "God")
+        ? onAgent
+        : undefined);
+    return own
+      ? { text: expandPrompt(own, names), isDefault: false, defaultText }
+      : { text: defaultText, isDefault: true, defaultText };
+  }
+
+  /** New instructions for the everyday Chat (null: the built-in ones again). */
+  async setChatPrompt(ownerId: string, text: string | null): Promise<PromptView> {
+    const kept = this.keptPrompt(text, CHAT_AGENT_PROMPT, this.chatNames(ownerId));
+    const { systemPrompt: _old, ...rest } = await this.chat.settings(ownerId);
+    await this.chat.setSettings(ownerId, { ...rest, ...(kept && { systemPrompt: kept }) });
+    await this.syncChatAgent(ownerId);
+    return this.chatPrompt(ownerId);
+  }
+
+  private chatNames(ownerId: string): PromptNames {
+    const god = this.registry.list({ ownerId }).find((a) => a.kind === "god");
+    return god
+      ? { ...this.promptNames(god), name: "Chat", role: undefined }
+      : { name: "Chat", god: "God", demigod: "Demi-God" };
+  }
+
+  /** What is kept of a text: null for the built-in one, the names as placeholders otherwise. */
+  private keptPrompt(text: string | null, template: string, names: PromptNames): string | null {
+    const t = text?.trim() ?? "";
+    if (!t || t === expandPrompt(template, names).trim()) return null;
+    return toPlaceholders(t, names, new Set([...placeholdersOf(template), "god", "demigod"]));
+  }
+
+  /** A text as it is kept, for an agent (the setup wizard's God prompt). */
+  keptPromptFor(agent: AgentRecord, text: string | null): string | null {
+    return this.keptPrompt(text, this.templateFor(agent), this.promptNames(agent));
   }
 
   get providers(): ProviderRegistry {
@@ -2614,10 +2696,19 @@ export class RedGiantCore implements OrchestrationHost {
     );
     const id = settingValue(kept?.value);
     const found = typeof id === "string" ? this.registry.get(id) : undefined;
+    const settings = await this.chat.settings(ownerId);
+    // The built-in text of an older version is brought up to date (new conversations only).
+    if (
+      found?.status === "active" &&
+      !settings.systemPrompt &&
+      found.systemPrompt === CHAT_AGENT_PROMPT.replace("{god}", "God")
+    )
+      return this.registry.configure({ type: "human", ownerId }, found.id, {
+        systemPrompt: CHAT_AGENT_PROMPT,
+      });
     if (found?.status === "active") return found;
     const god = this.registry.list({ ownerId, activeOnly: true }).find((a) => a.kind === "god");
     if (!god) throw new ChatError("Set up God first: the Chat works beside him");
-    const settings = await this.chat.settings(ownerId);
     const agent = await this.registry.create(
       { type: "human", ownerId },
       {

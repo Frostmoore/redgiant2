@@ -997,6 +997,27 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     if ("model" in change) core.agentModelChanged(id);
     return c.json(agentOut(updated), 200);
   });
+  // An agent's instructions as the person reads them (2026-11-06): its own or the built-in ones,
+  // with the current names; saving keeps the names as placeholders. Open conversations keep theirs.
+  const PromptBody = z.object({ text: z.string().max(100_000).nullable() });
+  app.get("/api/agents/:id/prompt", async (c) => {
+    const a = core.registry.get(c.req.param("id"));
+    if (a?.ownerId !== owner(c)) return c.json({ error: "Agent not found" }, 404);
+    return c.json(await core.promptOf(a), 200);
+  });
+  app.put("/api/agents/:id/prompt", async (c) => {
+    const a = core.registry.get(c.req.param("id"));
+    if (a?.ownerId !== owner(c)) return c.json({ error: "Agent not found" }, 404);
+    const b = PromptBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "A text (or null) is needed" }, 400);
+    return c.json(await core.setPrompt(a, b.data.text), 200);
+  });
+  app.get("/api/chat/prompt", async (c) => c.json(await core.chatPrompt(owner(c)), 200));
+  app.put("/api/chat/prompt", async (c) => {
+    const b = PromptBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "A text (or null) is needed" }, 400);
+    return c.json(await core.setChatPrompt(owner(c), b.data.text), 200);
+  });
   app.openapi(routes.stopAgent, async (c) => {
     const id = c.req.valid("param").id;
     if (core.registry.get(id)?.ownerId !== owner(c))

@@ -24,6 +24,7 @@ export * from "./notes.js";
 export * from "./orchestration.js";
 export * from "./platform.js";
 export * from "./projects.js";
+export * from "./prompts.js";
 export * from "./questions.js";
 export * from "./remote.js";
 export * from "./rooms.js";

@@ -28,6 +28,7 @@ import {
   IconMonitor,
   IconMoon,
   IconRam,
+  IconRetry,
   IconSend,
   IconShield,
   IconSkip,
@@ -487,13 +488,22 @@ function Names() {
   const [editing, setEditing] = useState<string | null>(null);
   const godName = god.trim() || "God";
   const demiName = demigod.trim() || "Demi-God";
+  // God's built-in instructions with the names being chosen (2026-11-06: shown, not an empty box).
+  const builtIn = (s.names.godPromptTemplate ?? "")
+    .replace(/\{name\}|\{god\}/g, godName)
+    .replace(/\{demigod\}/g, demiName);
+  const isOwn = (text: string) => text.trim() !== "" && text.trim() !== builtIn.trim();
   useOnNext(async () => {
     const r = await attempt(() =>
       getApi().setupNames({
         god: godName,
         demigod: demiName,
         language: lang.value,
-        ...(prompt.trim() && { godPrompt: prompt.trim() }),
+        // The built-in text (or none) is the built-in one again; the server keeps the names as
+        // placeholders, so renaming them later keeps the text right.
+        ...(prompt.trim()
+          ? { godPrompt: prompt.trim() }
+          : s.names.godPrompt && { godPrompt: null }),
       }),
     );
     return r !== undefined;
@@ -606,22 +616,39 @@ function Names() {
         </ul>
       </div>
       <p class="wz-more">
-        <button type="button" class="wz-link" onClick={() => setEditing(prompt)}>
+        <button type="button" class="wz-link" onClick={() => setEditing(prompt || builtIn)}>
           {prompt.trim() ? t("wzPromptEdit", { god: godName }) : t("wzPromptAsk", { god: godName })}
         </button>
       </p>
       {editing !== null && (
         <Modal title={t("wzPromptTitle", { god: godName })} onClose={() => setEditing(null)}>
           <p class="wz-lead2">{t("wzPromptLead")}</p>
+          <div class="pe-head">
+            <span class="wz-lb">{t("agentInstructions")}</span>
+            <span class={`pe-tag${isOwn(editing) ? " own" : ""}`}>
+              {isOwn(editing) ? t("promptOwn") : t("promptDefault")}
+            </span>
+          </div>
           <textarea
-            class="wz-field"
-            rows={7}
+            class="wz-field pe-text"
+            rows={10}
             aria-label={t("wzPromptTitle", { god: godName })}
             placeholder={t("wzPromptExample")}
             value={editing}
             onInput={(e) => setEditing((e.target as HTMLTextAreaElement).value)}
           />
           <Acts>
+            {isOwn(editing) && builtIn && (
+              <button
+                type="button"
+                class="wz-btn quiet"
+                onClick={() => {
+                  if (confirm(t("promptResetConfirm"))) setEditing(builtIn);
+                }}
+              >
+                <IconRetry size={16} /> {t("promptReset")}
+              </button>
+            )}
             <button type="button" class="wz-btn quiet" onClick={() => setEditing(null)}>
               {t("cancel")}
             </button>
@@ -629,7 +656,7 @@ function Names() {
               type="button"
               class="wz-btn primary"
               onClick={() => {
-                setPrompt(editing);
+                setPrompt(isOwn(editing) ? editing : "");
                 setEditing(null);
               }}
             >

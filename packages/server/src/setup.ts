@@ -37,6 +37,7 @@ import { JobFailure, type JobHandle } from "./jobs.js";
 import { LocalWhisper } from "./local-voice.js";
 import { elevenVoices } from "./media.js";
 import type { MoePrefetchState } from "./moe-prefetch.js";
+import { defaultTemplate, toPlaceholders } from "./prompts.js";
 import { REMOTE_STEPS, type RemoteRequest } from "./remote.js";
 import { BIG_BATCHES, type EnginePlan, MOE_BATCH } from "./stream.js";
 
@@ -359,7 +360,12 @@ export interface SetupState {
   locked: Locked;
   providers: string[];
   hardware: Hardware;
-  names: { god: string | null; demigod: string | null; godPrompt: string | null };
+  names: {
+    god: string | null;
+    demigod: string | null;
+    godPrompt: string | null;
+    godPromptTemplate: string;
+  };
   policy: {
     humanOnly: string[];
     disabledDanger: string[];
@@ -638,7 +644,10 @@ export class SetupService {
       names: {
         god: god?.name ?? null,
         demigod: demigod?.name ?? null,
-        godPrompt: god?.systemPrompt ?? null,
+        // As the person reads it: the names in place of the placeholders.
+        godPrompt: god?.systemPrompt ? this.o.core.systemFor(god) : null,
+        /** God's built-in instructions, with {name} and {demigod} for the names being chosen. */
+        godPromptTemplate: defaultTemplate("god", false),
       },
       policy: {
         guardian: policy.guardian ?? "ask",
@@ -1680,13 +1689,21 @@ export class SetupService {
     const reg = this.o.core.registry;
     const human = { type: "human" as const, ownerId: owner };
     let god = reg.list({ ownerId: owner }).find((a) => a.kind === "god");
+    // The names before this step: a text read with them and saved now keeps them as placeholders.
+    const before = god && this.o.core.promptNames(god);
     if (!god) god = await reg.create(human, { kind: "god", parentId: null, name: n.god });
     else if (god.name !== n.god) god = await reg.rename(god.id, n.god);
     const demigod = reg.list({ ownerId: owner }).find((a) => a.kind === "demigod");
     if (!demigod) await reg.create(human, { kind: "demigod", parentId: god.id, name: n.demigod });
     else if (demigod.name !== n.demigod) await reg.rename(demigod.id, n.demigod);
-    if (n.godPrompt !== undefined)
-      await reg.configure(human, god.id, { systemPrompt: n.godPrompt });
+    // Kept with placeholders for the names; the built-in text (or none) is the built-in one again.
+    if (n.godPrompt !== undefined) {
+      const kept = this.o.core.keptPromptFor(god, n.godPrompt);
+      await reg.configure(human, god.id, {
+        systemPrompt:
+          kept && before ? toPlaceholders(kept, before, new Set(["name", "demigod"])) : kept,
+      });
+    }
     if (n.language) {
       this.config.language = n.language;
       this.o.core.setLanguage(n.language);

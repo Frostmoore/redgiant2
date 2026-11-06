@@ -161,7 +161,13 @@ export interface SetupState {
       vramGb: number;
     };
   };
-  names: { god: string | null; demigod: string | null; godPrompt: string | null };
+  names: {
+    god: string | null;
+    demigod: string | null;
+    godPrompt: string | null;
+    /** God's built-in instructions, {name} and {demigod} standing for the names. */
+    godPromptTemplate?: string;
+  };
   policy: {
     humanOnly: string[];
     disabledDanger: string[];
@@ -260,6 +266,13 @@ export interface Project {
   name: string;
   path: string;
   createdAt: string;
+}
+
+/** Instructions as the person reads them: the text in use, whether built-in, and the built-in one. */
+export interface PromptView {
+  text: string;
+  isDefault: boolean;
+  defaultText: string;
 }
 
 export interface Agent {
@@ -467,6 +480,14 @@ export class Api {
   createAgent = (a: Record<string, unknown>) => this.call<Agent>("POST", "/api/agents", a);
   configureAgent = (id: string, change: Record<string, unknown>) =>
     this.call<Agent>("PATCH", `/api/agents/${id}`, change);
+  /** An agent's instructions as they are now, and the built-in ones (2026-11-06). */
+  agentPrompt = (id: string) => this.call<PromptView>("GET", `/api/agents/${id}/prompt`);
+  /** null: the built-in instructions again. */
+  setAgentPrompt = (id: string, text: string | null) =>
+    this.call<PromptView>("PUT", `/api/agents/${id}/prompt`, { text });
+  chatPrompt = () => this.call<PromptView>("GET", "/api/chat/prompt");
+  setChatPrompt = (text: string | null) =>
+    this.call<PromptView>("PUT", "/api/chat/prompt", { text });
   stopAgent = (id: string) =>
     this.call<{ stopped: string[] }>("POST", `/api/agents/${id}/stop`, {
       reason: "stopped from the web UI",

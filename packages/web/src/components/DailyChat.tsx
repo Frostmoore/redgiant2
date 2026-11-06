@@ -24,6 +24,7 @@ import { type Attachment, Composer } from "./Composer.js";
 import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
 import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
+import { PromptEditor } from "./PromptEditor.js";
 import { joinable } from "./Room.js";
 import { Pick } from "./ui.js";
 
@@ -117,57 +118,46 @@ function ChatModel() {
   );
 }
 
+/** The chat's model (kept at once) and its instructions (saved on their own, 2026-11-06). */
 function Settings({ onClose }: { onClose: () => void }) {
   const models = useModels();
   const [model, setModel] = useState<Spec | null>(null);
-  const [prompt, setPrompt] = useState("");
   useEffect(() => {
     void attempt(() => getApi().chatSettings()).then((s) => {
-      if (!s) return;
-      setModel(s.model ?? null);
-      setPrompt(s.systemPrompt ?? "");
+      if (s) setModel(s.model ?? null);
     });
   }, []);
-  const save = async (e: Event) => {
-    e.preventDefault();
-    const ok = await attempt(() =>
-      getApi().setChatSettings({
-        model,
-        ...(prompt.trim() && { systemPrompt: prompt.trim() }),
-      }),
-    );
-    if (ok !== undefined) onClose();
-  };
   return (
-    <form class="form dc-settings" onSubmit={(e) => void save(e)}>
+    <div class="form dc-settings">
       {models && (
         <div class="wide">
           {t("model")}
           <ModelSelect
             models={models}
             value={model}
-            onChange={setModel}
+            onChange={(m) =>
+              void attempt(() => getApi().setChatSettings({ model: m })).then((r) => {
+                if (r !== undefined) setModel(m);
+              })
+            }
             empty={t("agentModelDefault")}
           />
         </div>
       )}
-      <label class="wide">
-        {t("systemPrompt")}
-        <textarea
-          rows={4}
-          value={prompt}
-          onInput={(e) => setPrompt((e.target as HTMLTextAreaElement).value)}
+      <div class="wide">
+        <PromptEditor
+          load={() => getApi().chatPrompt()}
+          save={(text) => getApi().setChatPrompt(text)}
+          label={t("chatInstructions")}
+          rows={8}
         />
-      </label>
+      </div>
       <div class="row">
-        <button type="submit" class="primary">
-          {t("save")}
-        </button>
         <button type="button" onClick={onClose}>
-          {t("cancel")}
+          {t("close")}
         </button>
       </div>
-    </form>
+    </div>
   );
 }
 

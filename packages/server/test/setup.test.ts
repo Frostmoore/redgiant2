@@ -120,7 +120,8 @@ describe("the setup wizard", () => {
     const first = (await api<SetupState>("GET", "/api/setup")).body;
     expect(first.config.completed).toBe(false);
     expect(first.hardware.cores).toBeGreaterThan(0);
-    expect(first.names).toEqual({ god: null, demigod: null, godPrompt: null });
+    expect(first.names).toMatchObject({ god: null, demigod: null, godPrompt: null });
+    expect(first.names.godPromptTemplate).toMatch(/^You are \{name\}, .*by \{demigod\}, /);
 
     const key = "sk-ant-api03-secret-for-the-wizard-test";
     expect((await api("PUT", "/api/setup/keys/anthropic", { key })).body).toEqual({
@@ -148,14 +149,18 @@ describe("the setup wizard", () => {
     await api("PUT", "/api/setup/names", {
       god: "Odino",
       demigod: "Hermes",
-      godPrompt: "Be brief.",
+      godPrompt: "Be brief. Hermes relays for Odino.",
     });
     const agents = s?.core.registry.list({ ownerId: "me" }) ?? [];
     expect(agents.map((a) => [a.kind, a.name])).toEqual([
       ["god", "Odino"],
       ["demigod", "Hermes"],
     ]);
-    expect(agents[0]?.systemPrompt).toBe("Be brief.");
+    // The names are kept as placeholders, and put back when read.
+    expect(agents[0]?.systemPrompt).toBe("Be brief. {demigod} relays for {name}.");
+    expect(
+      (await api<{ names: { godPrompt: string } }>("GET", "/api/setup")).body.names.godPrompt,
+    ).toBe("Be brief. Hermes relays for Odino.");
 
     expect((await api("PUT", "/api/setup/telegram", { token: "not a token" })).status).toBe(400);
     const refused = await api<{ error: string; code: string }>("PUT", "/api/setup/telegram", {
@@ -251,6 +256,15 @@ describe("the setup wizard", () => {
     expect(s?.core.systemFor(demigod as never)).toMatch(
       /^You are Hermes, .*Pass every request to Zeus with ask_god/,
     );
+    // A text read with the old names, saved with new ones: both become placeholders.
+    await service.saveNames({
+      god: "Odin",
+      demigod: "Loki",
+      godPrompt: "Be brief, Odin. Hermes relays for Zeus.",
+    });
+    const odin = s?.core.registry.list({ ownerId: "me" })[0];
+    expect(odin?.systemPrompt).toBe("Be brief, {name}. {demigod} relays for {name}.");
+    expect(s?.core.systemFor(odin as never)).toBe("Be brief, Odin. Loki relays for Odin.");
   });
 
   it("applies the saved choices again at the next start, unless the environment sets them", async () => {

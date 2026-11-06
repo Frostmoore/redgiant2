@@ -27,6 +27,7 @@ import { Editor, recipeWhen } from "./Automations.js";
 import { explain, providerName } from "./Brain.js";
 import { CompactionSettings } from "./CompactionSettings.js";
 import { NotesEditor } from "./NotesEditor.js";
+import { PromptEditor } from "./PromptEditor.js";
 import { Advanced, Choice, Field, Modal, Toggle } from "./ui.js";
 
 /** Ready jobs; the job text is the user's, in their language, so they can read and change it. */
@@ -384,6 +385,15 @@ export function AssistantPage({ agentId }: { agentId: string | null }) {
         </button>
         {saved && !changed && <span class="ui-help">{t("asstSavedNewChats")}</span>}
       </div>
+
+      <h3>{t("asstInstructions")}</h3>
+      <PromptEditor
+        key={`${a.id}-${a.name}-${a.role ?? ""}`}
+        load={() => getApi().agentPrompt(a.id)}
+        save={(text) => getApi().setAgentPrompt(a.id, text)}
+        label={t("agentInstructions")}
+        help={t("agentInstructionsHelp")}
+      />
 
       <h3>{t("asstRoutines")}</h3>
       <p class="ui-help">{t("asstRoutinesHelp")}</p>

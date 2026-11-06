@@ -45,9 +45,9 @@ export const DEFAULT_CHAT_PROMPT =
 
 /**
  * The Chat as an agent (2026-11-03): the everyday assistant with every tool. Its instructions
- * when the person wrote none.
+ * when the person wrote none ({god}: God's name, filled in when a conversation starts).
  */
-export const CHAT_AGENT_PROMPT = `${DEFAULT_CHAT_PROMPT} You have a folder of your own and every tool: files and commands, the canvas (show) to show what you make, boards (publish_board) to propose variants to choose from, send_file, pictures, videos and sounds, web search and pages. Use them instead of describing what you would do. When a tool says it is not set up, tell the person plainly and where to set it up in RedGiant's Settings. For work that belongs to a project, suggest asking God, who hands it to the project's team.`;
+export const CHAT_AGENT_PROMPT = `${DEFAULT_CHAT_PROMPT} You have a folder of your own and every tool: files and commands, the canvas (show) to show what you make, boards (publish_board) to propose variants to choose from, send_file, pictures, videos and sounds, web search and pages. Use them instead of describing what you would do. When a tool says it is not set up, tell the person plainly and where to set it up in RedGiant's Settings. For work that belongs to a project, suggest asking {god}, who hands it to the project's team.`;
 
 export interface ChatSettings {
   model?: ModelSpec;
@@ -120,6 +120,8 @@ export class DailyChat {
       /** Read at each message: the setup wizard can change them while the server runs. */
       search: () => WebSearchProvider | undefined;
       defaultModel: () => ModelSpec | undefined;
+      /** The names in the person's instructions put back ({god}, {demigod}: `prompts.ts`). */
+      expand?: (ownerId: string, text: string) => string;
       /** Instructions, tools and model of the other kinds of chat (the project inspector). */
       profile?: (ownerId: string, scope: ChatScope) => Promise<ChatProfile>;
     },
@@ -310,7 +312,10 @@ export class DailyChat {
     history.push(user);
 
     const tools = profile?.tools ?? this.tools();
-    const system = profile?.system ?? settings.systemPrompt ?? DEFAULT_CHAT_PROMPT;
+    const own =
+      settings.systemPrompt &&
+      (this.o.expand?.(ownerId, settings.systemPrompt) ?? settings.systemPrompt);
+    const system = profile?.system ?? own ?? DEFAULT_CHAT_PROMPT;
     for (let step = 0; step < MAX_STEPS; step++) {
       const completion = await relay(
         onEvent,

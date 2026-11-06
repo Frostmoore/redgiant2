@@ -18,6 +18,7 @@ import { CompactionSettings } from "./CompactionSettings.js";
 import { modelName } from "./ModelMenu.js";
 import { ModelSelect, useModels } from "./ModelSelect.js";
 import { NotesEditor } from "./NotesEditor.js";
+import { PromptEditor } from "./PromptEditor.js";
 import { Acts, Head, Seg, Switch } from "./SettingsKit.js";
 import { Modal } from "./ui.js";
 
@@ -164,22 +165,17 @@ function NewAgentForm({ parent, onDone }: { parent: Agent | null; onDone: () => 
   );
 }
 
-/** Name, what it does and its instructions; for working agents, the projects it also works for. */
+/** Name and what it does; for working agents, the projects it also works for. */
 function GeneralTab({ agent }: { agent: Agent }) {
   const [name, setName] = useState(agent.name);
   const [role, setRole] = useState(agent.role ?? "");
-  const [prompt, setPrompt] = useState(agent.systemPrompt ?? "");
   const [saved, setSaved] = useState(false);
-  const changed =
-    name.trim() !== agent.name ||
-    role.trim() !== (agent.role ?? "") ||
-    prompt !== (agent.systemPrompt ?? "");
+  const changed = name.trim() !== agent.name || role.trim() !== (agent.role ?? "");
   const save = async () => {
     const ok = await attempt(() =>
       getApi().configureAgent(agent.id, {
         ...(name.trim() && name.trim() !== agent.name && { name: name.trim() }),
         ...(role.trim() && role.trim() !== (agent.role ?? "") && { role: role.trim() }),
-        ...(prompt !== (agent.systemPrompt ?? "") && { systemPrompt: prompt }),
       }),
     );
     if (ok) {
@@ -216,19 +212,6 @@ function GeneralTab({ agent }: { agent: Agent }) {
           value={role}
           onInput={(e) => {
             setRole((e.target as HTMLTextAreaElement).value);
-            setSaved(false);
-          }}
-        />
-      </label>
-      <label class="st-field">
-        <span class="wz-lb">{t("agentInstructions")}</span>
-        <span class="ui-help">{t("agentInstructionsHelp")}</span>
-        <textarea
-          class="wz-field"
-          rows={7}
-          value={prompt}
-          onInput={(e) => {
-            setPrompt((e.target as HTMLTextAreaElement).value);
             setSaved(false);
           }}
         />
@@ -337,6 +320,13 @@ function BehaviourTab({ agent }: { agent: Agent }) {
           </button>
         ))}
       </div>
+      {/* Its instructions, built-in or its own, always shown (2026-11-06). */}
+      <PromptEditor
+        key={`${agent.id}-${agent.name}-${agent.role ?? ""}`}
+        load={() => getApi().agentPrompt(agent.id)}
+        save={(text) => getApi().setAgentPrompt(agent.id, text)}
+        help={t("agentInstructionsHelp")}
+      />
     </div>
   );
 }
