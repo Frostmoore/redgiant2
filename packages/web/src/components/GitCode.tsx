@@ -1,14 +1,16 @@
 // Where the code lives (G24.5): GitHub with a fine-grained token made by the user (a guide says
 // which boxes to tick), and/or a Gitea server RedGiant starts on this computer. Every project
-// then gets a private repository. Used by the advanced wizard and by Settings.
+// then gets a private repository. Used by the advanced wizard and by Settings: both show the
+// two squares (`GitTiles`); Settings adds the projects' repositories (`GitSync`).
 import type { Job } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
 import { t } from "../i18n.js";
-import { IconCheck } from "../icons.js";
+import { IconCheck, IconCloud, IconServer } from "../icons.js";
 import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
-import { Field, JobView, useJob } from "./ui.js";
+import { Acts, Tile } from "./SetupKit.js";
+import { Field, JobView, Modal, useJob } from "./ui.js";
 
 const GITHUB_NEW_TOKEN = "https://github.com/settings/personal-access-tokens/new";
 
@@ -170,44 +172,91 @@ export function Gitea({ s, onChange }: { s: SetupState; onChange: () => void }) 
   );
 }
 
-export function GitCode({ s, onChange }: { s: SetupState; onChange: () => void }) {
-  const [sync, setSync] = useState<{ project: string; ok: boolean; error?: string }[]>();
-  const both = s.config.git?.github && s.config.git?.gitea;
-  const any = s.config.git?.github || s.config.git?.gitea;
+/**
+ * GitHub and Gitea as the wizard's two squares (2026-11-06), lit when linked, each opening its
+ * window: shared by the advanced wizard's step and by Settings.
+ */
+export function GitTiles({ s, reload }: { s: SetupState; reload: () => void }) {
+  const [open, setOpen] = useState<"github" | "gitea" | null>(null);
+  const github = !!s.config.git?.github;
+  const gitea = !!s.config.git?.gitea;
+  const close = () => {
+    setOpen(null);
+    reload();
+  };
   return (
-    <div class="brain">
-      <Github s={s} onChange={onChange} />
-      <Gitea s={s} onChange={onChange} />
-      {both && <p class="notice ok">{t("gitBoth")}</p>}
-      {any && (
-        <div class="brain-panel">
-          <h3>{t("gitProjects")}</h3>
-          <p class="ui-help">{t("gitProjectsHint")}</p>
-          <div>
-            <button
-              type="button"
-              onClick={() =>
-                void getApi()
-                  .gitSync()
-                  .then(setSync, () => {})
-              }
-            >
-              {t("gitSync")}
-            </button>
+    <>
+      <div class="wz-two">
+        <Tile
+          wide
+          on={github}
+          icon={<IconCloud />}
+          title="GitHub"
+          text={t("wzCodeGithub")}
+          state={github ? t("wzStateLinked") : undefined}
+          onClick={() => setOpen("github")}
+        />
+        <Tile
+          wide
+          on={gitea}
+          icon={<IconServer />}
+          title={t("wzCodeGiteaTitle")}
+          text={t("wzCodeGitea")}
+          state={gitea ? t("wzStateLinked") : undefined}
+          onClick={() => setOpen("gitea")}
+        />
+      </div>
+      {github && gitea && <p class="wz-more dim">{t("gitBoth")}</p>}
+      {open && (
+        <Modal title={open === "github" ? "GitHub" : t("wzCodeGiteaTitle")} onClose={close}>
+          <div class="wz-panel-in">
+            {open === "github" ? (
+              <Github s={s} onChange={reload} />
+            ) : (
+              <Gitea s={s} onChange={reload} />
+            )}
           </div>
-          {sync && (
-            <ul class="lm-files">
-              {sync.length === 0 && <li class="ui-help">{t("gitNoProjects")}</li>}
-              {sync.map((r) => (
-                <li key={r.project}>
-                  <span class={`notice ${r.ok ? "ok" : "error"}`}>
-                    {r.project}: {r.ok ? t("gitSynced") : r.error}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+          <Acts>
+            <button type="button" class="wz-btn primary" onClick={close}>
+              {t("wzDoneBtn")}
+            </button>
+          </Acts>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+/** Every project's private repository, made again where it is missing (Settings). */
+export function GitSync() {
+  const [sync, setSync] = useState<{ project: string; ok: boolean; error?: string }[]>();
+  const [busy, setBusy] = useState(false);
+  return (
+    <div class="git-sync">
+      <button
+        type="button"
+        class="wz-btn primary"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          void getApi()
+            .gitSync()
+            .then(setSync, () => {})
+            .finally(() => setBusy(false));
+        }}
+      >
+        {t("gitSync")}
+      </button>
+      {sync && (
+        <ul class="git-sync-list">
+          {sync.length === 0 && <li class="ui-help">{t("gitNoProjects")}</li>}
+          {sync.map((r) => (
+            <li key={r.project} class={r.ok ? "ok" : "error"}>
+              <b>{r.project}</b>
+              <span>{r.ok ? t("gitSynced") : r.error}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

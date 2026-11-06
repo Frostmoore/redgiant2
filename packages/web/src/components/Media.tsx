@@ -75,7 +75,15 @@ function KeyField({
   );
 }
 
-function KindRow({ kind, s, onChange }: { kind: MediaKind; s: SetupState; onChange: () => void }) {
+export function KindRow({
+  kind,
+  s,
+  onChange,
+}: {
+  kind: MediaKind;
+  s: SetupState;
+  onChange: () => void;
+}) {
   const saved = s.config.media?.[kind];
   const able = MEDIA_PROVIDERS.filter((p) => p.models[kind]?.length);
   const [voices, setVoices] = useState<{ id: string; label: string }[]>();

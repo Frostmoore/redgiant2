@@ -1,10 +1,16 @@
-// Spending in plain words (G24.10): this month day by day, then each project and agent with
-// its limit, editable in its row. Limits count everything spent since they were set.
+// Spending in plain words (G24.10), drawn as the wizard (2026-11-06): this month's total big and
+// centred with its days, then everything, each project and each agent as big boxes, lit when they
+// have a limit; a box opens a window (a sheet from below on phones) with the wizard's amounts.
+// Limits count everything spent since they were set. `LimitEditor` stays for the agents' page.
 import { useEffect, useState } from "preact/hooks";
 import type { Budget } from "../api.js";
 import { kTokens, monthDays, usd } from "../format.js";
 import { lang, t } from "../i18n.js";
 import { agents, attempt, budgets, getApi, projects } from "../state.js";
+import { num } from "../wizard.js";
+import { BoxButton, WzPage } from "./SettingsKit-budget.js";
+import { Acts, Head } from "./SetupKit.js";
+import { Modal } from "./ui.js";
 
 type Daily = { day: string; scope: Budget["scope"]; id: string; usd: number; tokens: number };
 
@@ -70,36 +76,144 @@ export function LimitEditor({ row, onSaved }: { row: Budget; onSaved: () => void
   );
 }
 
+const limitText = (row: Budget) =>
+  row.limit.usd !== undefined
+    ? usd(row.limit.usd)
+    : row.limit.tokens !== undefined
+      ? `${kTokens(row.limit.tokens)} token`
+      : t("chgNoLimit");
+
+/** One box: what it spent this month and since the start, its limit and how far it got. */
 function Row({
   row,
   name,
   month,
-  onSaved,
+  onOpen,
 }: {
   row: Budget;
   name: string;
   month: number;
-  onSaved: () => void;
+  onOpen: () => void;
 }) {
   const limit = row.limit.usd;
+  const has = limit !== undefined || row.limit.tokens !== undefined;
   const pct = limit ? Math.min(100, (row.used.usd / limit) * 100) : 0;
   const over = limit !== undefined && row.used.usd >= limit;
   return (
-    <div class={`budget-row${over ? " over" : ""}`}>
-      <div class="budget-name">
-        <strong>{name}</strong>
-        <span class="dim">
-          {t("budgetMonth", { usd: usd(month) })} · {t("budgetEver", { usd: usd(row.used.usd) })}
+    <BoxButton
+      on={has}
+      warn={over}
+      title={name}
+      pill={has ? t("sbLimitIs", { limit: limitText(row) }) : t("chgNoLimit")}
+      onClick={onOpen}
+    >
+      <span class="sb-box-p">
+        {t("budgetMonth", { usd: usd(month) })} · {t("budgetEver", { usd: usd(row.used.usd) })}
+      </span>
+      {limit !== undefined && (
+        <span class="sb-meter" title={`${Math.round(pct)}%`}>
+          <span style={{ width: `${pct}%` }} />
         </span>
-        {limit !== undefined && (
-          <div class="meter" title={`${Math.round(pct)}%`}>
-            <span style={{ width: `${pct}%` }} />
-          </div>
-        )}
-        {over && <span class="chip danger">{t("budgetStopped")}</span>}
+      )}
+      {over ? (
+        <span class="sb-box-warn">{t("budgetStopped")}</span>
+      ) : (
+        <span class="wz-state">{t("mpChange")}</span>
+      )}
+    </BoxButton>
+  );
+}
+
+const AMOUNTS = ["5", "20", "50", "100"] as const;
+
+/** The window of one box: the wizard's amounts or another one, or no limit. */
+function LimitWindow({
+  row,
+  name,
+  onClose,
+}: {
+  row: Budget;
+  name: string;
+  onClose: (saved: boolean) => void;
+}) {
+  const [value, setValue] = useState(row.limit.usd !== undefined ? String(row.limit.usd) : "");
+  const [busy, setBusy] = useState(false);
+  const n = Number(value.replace(",", "."));
+  const valid = value.trim() !== "" && Number.isFinite(n) && n > 0;
+  const has = row.limit.usd !== undefined || row.limit.tokens !== undefined;
+  const save = async (usdLimit: number | undefined) => {
+    setBusy(true);
+    const ok = await attempt(() =>
+      getApi().setBudget({
+        scope: row.scope,
+        id: row.id,
+        ...(usdLimit !== undefined && { usd: usdLimit }),
+      }),
+    );
+    setBusy(false);
+    if (ok !== undefined) onClose(true);
+  };
+  return (
+    <Modal title={t("sbLimitFor", { name })} onClose={() => onClose(false)}>
+      <div class="wz-panel-in">
+        <p class="wz-lead2">
+          {t("sbLimitNow", { limit: limitText(row) })} ·{" "}
+          {t("budgetEver", { usd: usd(row.used.usd) })}
+        </p>
+        <form
+          class="wz-money"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (valid) void save(n);
+          }}
+        >
+          {AMOUNTS.map((v) => (
+            <button
+              type="button"
+              key={v}
+              class={`wz-chip${valid && n === Number(v) ? " on" : ""}`}
+              aria-pressed={valid && n === Number(v)}
+              onClick={() => setValue(v)}
+            >
+              ${v}
+            </button>
+          ))}
+          <input
+            class="wz-field wz-money-in"
+            inputMode="decimal"
+            enterkeyhint="done"
+            aria-label={t("limit")}
+            placeholder={t("wzBudgetOther")}
+            value={AMOUNTS.includes(value as never) ? "" : value}
+            onInput={(e) => setValue((e.target as HTMLInputElement).value.replace(/[^\d.,]/g, ""))}
+          />
+        </form>
+        <p class="wz-say">{valid ? t("sbLimitSay", { usd: num(n, 2) }) : t("sbLimitPick")}</p>
       </div>
-      <LimitEditor row={row} onSaved={onSaved} />
-    </div>
+      <Acts>
+        {has && (
+          <button
+            type="button"
+            class="wz-btn quiet"
+            disabled={busy}
+            onClick={() => void save(undefined)}
+          >
+            {t("budgetRemoveLimit")}
+          </button>
+        )}
+        <button type="button" class="wz-btn" onClick={() => onClose(false)}>
+          {t("cancel")}
+        </button>
+        <button
+          type="button"
+          class="wz-btn primary"
+          disabled={busy || !valid}
+          onClick={() => void save(n)}
+        >
+          {t("save")}
+        </button>
+      </Acts>
+    </Modal>
   );
 }
 
@@ -107,6 +221,10 @@ function Row({
 export function Budgets() {
   const [daily, setDaily] = useState<Daily[]>([]);
   const [version, setVersion] = useState(0);
+  const [open, setOpen] = useState<{ scope: Budget["scope"]; id: string; name: string } | null>(
+    null,
+  );
+  const [how, setHow] = useState(false);
   const days = monthDays();
   useEffect(() => {
     void attempt(() => getApi().budgets()).then((b) => {
@@ -152,14 +270,31 @@ export function Budgets() {
   const monthName = new Date().toLocaleDateString(lang.value === "it" ? "it-IT" : "en-US", {
     month: "long",
   });
+  const group = (title: string, list: { scope: Budget["scope"]; id: string; name: string }[]) => (
+    <>
+      <h2 class="wz-sub">{title}</h2>
+      <div class="sb-boxes">
+        {list.sort(byMonth).map((x) => (
+          <Row
+            key={x.id}
+            row={rowFor(x.scope, x.id)}
+            name={x.name}
+            month={x.scope === "global" ? month : monthOf(x.scope, x.id)}
+            onOpen={() => setOpen(x)}
+          />
+        ))}
+      </div>
+    </>
+  );
   return (
-    <div class="budgets-page">
-      <div class="budget-hero">
-        <div>
-          <div class="dim">{t("budgetThisMonth", { month: monthName })}</div>
-          <div class="budget-total">{usd(month)}</div>
-        </div>
-        <div class="budget-chart" role="img" aria-label={t("budgetChart")}>
+    <WzPage class="sb-budgets">
+      <Head
+        eyebrow={t("budgetThisMonth", { month: monthName })}
+        q={usd(month)}
+        lead={t("sbBudgetLead")}
+      />
+      <div class="wz-card sb-chart-card">
+        <div class="sb-chart" role="img" aria-label={t("budgetChart")}>
           {perDay.map((d) => (
             <span
               key={d.day}
@@ -169,49 +304,49 @@ export function Budgets() {
             />
           ))}
         </div>
+        <div class="sb-chart-axis dim">
+          <span>1</span>
+          <span>{days.length}</span>
+        </div>
       </div>
-      <p class="ui-help">{t("budgetHow")}</p>
+      <p class="wz-more">
+        <button type="button" class="wz-link" onClick={() => setHow(true)}>
+          {t("sbBudgetHowLink")}
+        </button>
+      </p>
 
-      <h3>{t("budgetTotal")}</h3>
       {ownerId ? (
-        <Row
-          row={rowFor("global", ownerId)}
-          name={t("budgetEverything")}
-          month={month}
-          onSaved={reload}
-        />
+        group(t("budgetTotal"), [{ scope: "global", id: ownerId, name: t("budgetEverything") }])
       ) : (
-        <p class="dim">{t("budgetNothingYet")}</p>
+        <>
+          <h2 class="wz-sub">{t("budgetTotal")}</h2>
+          <p class="wz-subl">{t("budgetNothingYet")}</p>
+        </>
       )}
+      {projectRows.length > 0 && group(t("budgetProjects"), projectRows)}
+      {agentRows.length > 0 && group(t("budgetAgents"), agentRows)}
 
-      {projectRows.length > 0 && (
-        <>
-          <h3>{t("budgetProjects")}</h3>
-          {projectRows.sort(byMonth).map((p) => (
-            <Row
-              key={p.id}
-              row={rowFor("project", p.id)}
-              name={p.name}
-              month={monthOf("project", p.id)}
-              onSaved={reload}
-            />
-          ))}
-        </>
+      {open && (
+        <LimitWindow
+          key={`${open.scope}:${open.id}`}
+          row={rowFor(open.scope, open.id)}
+          name={open.name}
+          onClose={(saved) => {
+            setOpen(null);
+            if (saved) reload();
+          }}
+        />
       )}
-      {agentRows.length > 0 && (
-        <>
-          <h3>{t("budgetAgents")}</h3>
-          {agentRows.sort(byMonth).map((a) => (
-            <Row
-              key={a.id}
-              row={rowFor("agent", a.id)}
-              name={a.name}
-              month={monthOf("agent", a.id)}
-              onSaved={reload}
-            />
-          ))}
-        </>
+      {how && (
+        <Modal title={t("sbBudgetHowLink")} onClose={() => setHow(false)}>
+          <p class="wz-lead2">{t("budgetHow")}</p>
+          <Acts>
+            <button type="button" class="wz-btn primary" onClick={() => setHow(false)}>
+              {t("wzUnderstood")}
+            </button>
+          </Acts>
+        </Modal>
       )}
-    </div>
+    </WzPage>
   );
 }

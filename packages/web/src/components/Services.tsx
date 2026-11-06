@@ -1,5 +1,6 @@
 // Web search, voice messages and pictures (Settings, General): out of the wizard since G24.2,
-// because most people never change them. Each field says what it is for.
+// because most people never change them. Each field says what it is for; since 2026-11-06 each
+// service has its own window there (a square of the wizard).
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
 import { t } from "../i18n.js";
@@ -60,17 +61,19 @@ export function OwnSearch({ s, onChange }: { s: SetupState; onChange: (url: stri
   );
 }
 
-export function Services() {
-  const [s, setS] = useState<SetupState | null>(null);
-  useEffect(() => {
-    void getApi()
-      .setup()
-      .then(setS, () => {});
-  }, []);
-  return s ? <ServicesForm s={s} /> : null;
-}
-
-function ServicesForm({ s }: { s: SetupState }) {
+/**
+ * One of the services (Settings, General, 2026-11-06): web search, voice messages or pictures,
+ * each in its own window; voice and pictures are saved alone, the others left as they are.
+ */
+export function ServicePanel({
+  s,
+  part,
+  onSaved,
+}: {
+  s: SetupState;
+  part: "search" | "voice" | "images";
+  onSaved: () => void;
+}) {
   const [voiceApi, setVoiceApi] = useState(s.config.transcription?.api ?? "whisper-asr");
   const [voiceUrl, setVoiceUrl] = useState(s.config.transcription?.url ?? "");
   const [voiceModel, setVoiceModel] = useState(s.config.transcription?.model ?? "");
@@ -85,46 +88,50 @@ function ServicesForm({ s }: { s: SetupState }) {
     setResult(undefined);
     try {
       await getApi().setupModels({
-        ...(!s.locked.images &&
+        ...(part === "images" &&
+          !s.locked.images &&
           (imagesKey || imagesModel !== (s.config.imagesModel ?? "")) && {
             images: {
               ...(imagesKey && { key: imagesKey }),
               ...(imagesModel.trim() && { model: imagesModel.trim() }),
             },
           }),
-        ...(!s.locked.voice && {
-          transcription:
-            voiceApi === "local"
-              ? { api: "local", url: "" }
-              : voiceUrl.trim()
-                ? {
-                    api: voiceApi,
-                    url: voiceUrl.trim(),
-                    ...(voiceModel.trim() && { model: voiceModel.trim() }),
-                    ...(voiceKey && { key: voiceKey }),
-                  }
-                : null,
-        }),
+        ...(part === "voice" &&
+          !s.locked.voice && {
+            transcription:
+              voiceApi === "local"
+                ? { api: "local", url: "" }
+                : voiceUrl.trim()
+                  ? {
+                      api: voiceApi,
+                      url: voiceUrl.trim(),
+                      ...(voiceModel.trim() && { model: voiceModel.trim() }),
+                      ...(voiceKey && { key: voiceKey }),
+                    }
+                  : null,
+          }),
       });
       setResult({ ok: true, text: t("saved") });
+      onSaved();
     } catch (err) {
       setResult({ ok: false, text: explain(err) });
     }
     setBusy(false);
   };
+  if (part === "search")
+    return (
+      <div class="services">
+        <p class="wz-lead2">{t("stGenSearchText")}</p>
+        <OwnSearch s={s} onChange={onSaved} />
+        <SearchSettings s={s} onSaved={onSaved} />
+      </div>
+    );
+  const locked = part === "voice" ? s.locked.voice : s.locked.images;
   return (
     <form class="services" onSubmit={(e) => void save(e)}>
-      <h2>{t("servicesTitle")}</h2>
-      <p class="ui-help">{t("servicesHint")}</p>
-      <div class="brain-panel">
-        <h3>{t("servicesSearch")}</h3>
-        <OwnSearch s={s} onChange={() => {}} />
-        <SearchSettings s={s} onSaved={() => {}} />
-      </div>
-      <div class="brain-panel">
-        <h3>{t("servicesVoice")}</h3>
-        <p class="ui-help">{t("servicesVoiceHelp")}</p>
-        <div class="form">
+      {part === "voice" ? (
+        <>
+          <p class="wz-lead2">{t("servicesVoiceHelp")}</p>
           <Field label={t("servicesVoiceService")}>
             <select
               disabled={s.locked.voice}
@@ -177,12 +184,10 @@ function ServicesForm({ s }: { s: SetupState }) {
               </Field>
             </>
           )}
-        </div>
-      </div>
-      <div class="brain-panel">
-        <h3>{t("servicesImages")}</h3>
-        <p class="ui-help">{t("servicesImagesHelp")}</p>
-        <div class="form">
+        </>
+      ) : (
+        <>
+          <p class="wz-lead2">{t("servicesImagesHelp")}</p>
           <Field
             label={t("wzImagesKey")}
             help={s.secretsSet.images ? t("wzAlreadySet") : undefined}
@@ -204,14 +209,14 @@ function ServicesForm({ s }: { s: SetupState }) {
               onInput={(e) => setImagesModel((e.target as HTMLInputElement).value)}
             />
           </Field>
-        </div>
-      </div>
-      <div class="row">
-        <button type="submit" class="primary" disabled={busy}>
+        </>
+      )}
+      {result && <p class={`notice ${result.ok ? "ok" : "error"}`}>{result.text}</p>}
+      <div class="wz-acts">
+        <button type="submit" class="wz-btn primary" disabled={busy || locked}>
           {t("save")}
         </button>
       </div>
-      {result && <p class={`notice ${result.ok ? "ok" : "error"}`}>{result.text}</p>}
     </form>
   );
 }

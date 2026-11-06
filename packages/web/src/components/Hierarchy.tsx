@@ -2,11 +2,14 @@
 // the person switches between, a tree (an org chart: God on top, the personal agents, each
 // project in its own frame) and cards grouped by where they work. Clicking an agent opens all
 // its settings in a panel: docked on the right beside the tree, a drawer over the cards; on a
-// phone always a drawer that slides away with the finger.
+// phone always a drawer that slides away with the finger. Drawn as the wizard since 2026-11-06
+// (the person: «tutte le pagine delle impostazioni con lo stesso stile del wizard»): a big
+// heading, segments, a switch, nodes and cards lit by border and background (never a check
+// mark), and the forms to create an agent in the wizard's windows.
 import { useRef, useState } from "preact/hooks";
 import type { Agent, Budget } from "../api.js";
 import { t, tOptional } from "../i18n.js";
-import { IconCheck, IconClose, IconPlus } from "../icons.js";
+import { IconClose, IconPlus } from "../icons.js";
 import { agents, attempt, budgets, getApi, openAgent, projects, refresh } from "../state.js";
 import { useSwipeAway } from "../swipe.js";
 import { AgentWizard } from "./AgentWizard.js";
@@ -15,6 +18,9 @@ import { CompactionSettings } from "./CompactionSettings.js";
 import { modelName } from "./ModelMenu.js";
 import { ModelSelect, useModels } from "./ModelSelect.js";
 import { NotesEditor } from "./NotesEditor.js";
+import { Seg, Switch } from "./SettingsKit-cornice.js";
+import { Acts, Head } from "./SetupKit.js";
+import { Modal } from "./ui.js";
 
 const CHILDREN: Record<Agent["kind"], Agent["kind"][]> = {
   god: ["demigod", "orchestrator", "inspector", "assistant"],
@@ -71,11 +77,12 @@ function NewAgentForm({ parent, onDone }: { parent: Agent | null; onDone: () => 
     }
   };
   return (
-    <form class="form" onSubmit={(e) => void submit(e)}>
+    <form class="st-form" onSubmit={(e) => void submit(e)}>
       {kinds.length > 1 && (
-        <label>
-          {t("kind")}
+        <label class="st-field">
+          <span class="wz-lb">{t("kind")}</span>
           <select
+            class="wz-field"
             value={kind}
             onChange={(e) => setKind((e.target as HTMLSelectElement).value as Agent["kind"])}
           >
@@ -87,22 +94,28 @@ function NewAgentForm({ parent, onDone }: { parent: Agent | null; onDone: () => 
           </select>
         </label>
       )}
-      <label>
-        {t("name")}
+      <label class="st-field">
+        <span class="wz-lb">{t("name")}</span>
         <input
+          class="wz-field"
           required
           value={name}
           onInput={(e) => setName((e.target as HTMLInputElement).value)}
         />
       </label>
-      <label>
-        {t("agentWhatItDoes")}
-        <input value={role} onInput={(e) => setRole((e.target as HTMLInputElement).value)} />
+      <label class="st-field">
+        <span class="wz-lb">{t("agentWhatItDoes")}</span>
+        <input
+          class="wz-field"
+          value={role}
+          onInput={(e) => setRole((e.target as HTMLInputElement).value)}
+        />
       </label>
       {(kind === "orchestrator" || kind === "inspector") && (
-        <label>
-          {t("projects")}
+        <label class="st-field">
+          <span class="wz-lb">{t("projects")}</span>
           <select
+            class="wz-field"
             value={project}
             onChange={(e) => setProject((e.target as HTMLSelectElement).value)}
           >
@@ -115,8 +128,8 @@ function NewAgentForm({ parent, onDone }: { parent: Agent | null; onDone: () => 
         </label>
       )}
       {models && (
-        <div class="field">
-          {t("model")}
+        <div class="st-field">
+          <span class="wz-lb">{t("model")}</span>
           <ModelSelect
             models={models}
             value={model ?? null}
@@ -126,9 +139,13 @@ function NewAgentForm({ parent, onDone }: { parent: Agent | null; onDone: () => 
           />
         </div>
       )}
-      <label>
-        {t("mode")}
-        <select value={mode} onChange={(e) => setMode((e.target as HTMLSelectElement).value)}>
+      <label class="st-field">
+        <span class="wz-lb">{t("mode")}</span>
+        <select
+          class="wz-field"
+          value={mode}
+          onChange={(e) => setMode((e.target as HTMLSelectElement).value)}
+        >
           {MODES.map((x) => (
             <option key={x} value={x}>
               {t(`agentMode_${x}`)}
@@ -136,14 +153,14 @@ function NewAgentForm({ parent, onDone }: { parent: Agent | null; onDone: () => 
           ))}
         </select>
       </label>
-      <div class="row">
-        <button type="submit" class="primary">
-          {t("create")}
-        </button>
-        <button type="button" onClick={onDone}>
+      <Acts>
+        <button type="button" class="wz-btn quiet" onClick={onDone}>
           {t("cancel")}
         </button>
-      </div>
+        <button type="submit" class="wz-btn primary">
+          {t("create")}
+        </button>
+      </Acts>
     </form>
   );
 }
@@ -179,10 +196,11 @@ function GeneralTab({ agent }: { agent: Agent }) {
     void attempt(() => getApi().configureAgent(agent.id, { projects: [...next] })).then(refresh);
   };
   return (
-    <div class="form stack">
-      <label>
-        {t("name")}
+    <div class="st-form">
+      <label class="st-field">
+        <span class="wz-lb">{t("name")}</span>
         <input
+          class="wz-field"
           value={name}
           onInput={(e) => {
             setName((e.target as HTMLInputElement).value);
@@ -190,10 +208,11 @@ function GeneralTab({ agent }: { agent: Agent }) {
           }}
         />
       </label>
-      <label>
-        {t("agentWhatItDoes")}
+      <label class="st-field">
+        <span class="wz-lb">{t("agentWhatItDoes")}</span>
         <span class="ui-help">{t("agentWhatItDoesHelp")}</span>
         <textarea
+          class="wz-field"
           rows={3}
           value={role}
           onInput={(e) => {
@@ -202,10 +221,11 @@ function GeneralTab({ agent }: { agent: Agent }) {
           }}
         />
       </label>
-      <label>
-        {t("agentInstructions")}
+      <label class="st-field">
+        <span class="wz-lb">{t("agentInstructions")}</span>
         <span class="ui-help">{t("agentInstructionsHelp")}</span>
         <textarea
+          class="wz-field"
           rows={7}
           value={prompt}
           onInput={(e) => {
@@ -214,31 +234,33 @@ function GeneralTab({ agent }: { agent: Agent }) {
           }}
         />
       </label>
-      <div class="row">
-        <button type="button" class="primary" disabled={!changed} onClick={() => void save()}>
+      <div class="st-save">
+        {saved && <span class="st-on">{t("agentSaved")}</span>}
+        <button
+          type="button"
+          class="wz-btn small primary"
+          disabled={!changed}
+          onClick={() => void save()}
+        >
           {t("save")}
         </button>
-        {saved && <span class="notice ok">{t("agentSaved")}</span>}
       </div>
       {assignable && projects.value.length > 0 && (
-        <fieldset class="agent-projects">
-          <legend>{t("asstProjects")}</legend>
+        <fieldset class="st-field st-projects">
+          <legend class="wz-lb">{t("asstProjects")}</legend>
           <span class="ui-help">{t("asstProjectsHelp", { name: agent.name })}</span>
-          <div class="pick-grid">
+          <div class="wz-chips">
             {projects.value
               .filter((p) => p.id !== agent.projectId)
               .map((p) => (
                 <button
                   type="button"
                   key={p.id}
-                  class={`pick-tile ${agent.projects?.includes(p.id) ? "on" : ""}`}
+                  class={`wz-chip ${agent.projects?.includes(p.id) ? "on" : ""}`}
                   aria-pressed={agent.projects?.includes(p.id) ?? false}
                   onClick={() => assign(p.id, !agent.projects?.includes(p.id))}
                 >
-                  <span class="pick-mark">
-                    {agent.projects?.includes(p.id) && <IconCheck size={13} />}
-                  </span>
-                  <span>{p.name}</span>
+                  {p.name}
                 </button>
               ))}
           </div>
@@ -253,7 +275,7 @@ function ModelTab({ agent }: { agent: Agent }) {
   const [saved, setSaved] = useState(false);
   if (!models) return <p class="dim">{t("loading")}</p>;
   return (
-    <div class="form stack">
+    <div class="st-form">
       <p class="ui-help">{agent.kind === "god" ? t("agentModelGodHelp") : t("agentModelHelp")}</p>
       <ModelSelect
         models={models}
@@ -268,7 +290,7 @@ function ModelTab({ agent }: { agent: Agent }) {
           })
         }
       />
-      {saved && <span class="notice ok">{t("agentModelSaved")}</span>}
+      {saved && <span class="st-on">{t("agentModelSaved")}</span>}
     </div>
   );
 }
@@ -281,14 +303,14 @@ function LimitsTab({ agent }: { agent: Agent }) {
     used: { usd: 0, tokens: 0 },
   };
   return (
-    <div class="form stack">
+    <div class="st-form">
       <p class="ui-help">{t("agentLimitHelp")}</p>
-      <div class="field">
-        {t("agentSpent")}
-        <strong>${row.used.usd.toFixed(2)}</strong>
+      <div class="st-field">
+        <span class="wz-lb">{t("agentSpent")}</span>
+        <strong class="st-big">${row.used.usd.toFixed(2)}</strong>
       </div>
-      <div class="field">
-        {t("limit")}
+      <div class="st-field">
+        <span class="wz-lb">{t("limit")}</span>
         <LimitEditor row={row} onSaved={() => void refresh()} />
       </div>
     </div>
@@ -300,19 +322,19 @@ function BehaviourTab({ agent }: { agent: Agent }) {
   const set = (m: string) =>
     void attempt(() => getApi().configureAgent(agent.id, { mode: m })).then(refresh);
   return (
-    <div class="form stack">
+    <div class="st-form">
       <p class="ui-help">{t("agentModeHelp")}</p>
-      <div class="agent-modes">
+      <div class="wz-opt">
         {MODES.map((m) => (
           <button
             type="button"
             key={m}
-            class={mode === m ? "active" : ""}
+            class={mode === m ? "on" : ""}
             aria-pressed={mode === m}
             onClick={() => set(m)}
           >
-            <strong>{t(`agentMode_${m}`)}</strong>
-            <span class="ui-help">{t(`agentModeExplain_${m}`)}</span>
+            <b>{t(`agentMode_${m}`)}</b>
+            <small>{t(`agentModeExplain_${m}`)}</small>
           </button>
         ))}
       </div>
@@ -325,13 +347,15 @@ function AgentPanel({
   agent,
   overlay,
   onClose,
+  onAdd,
 }: {
   agent: Agent;
   overlay: boolean;
   onClose: () => void;
+  /** Opens the window to add an agent under this one. */
+  onAdd: (a: Agent) => void;
 }) {
   const [tab, setTab] = useState<PanelTab>("general");
-  const [adding, setAdding] = useState(false);
   const ref = useRef<HTMLElement>(null);
   useSwipeAway(ref, "right", onClose);
   const active = agent.status === "active";
@@ -362,18 +386,18 @@ function AgentPanel({
             </span>
           </div>
           {!active && <span class="chip muted">{t("stopped")}</span>}
-          <button type="button" class="icon-button" aria-label={t("close")} onClick={onClose}>
+          <button type="button" class="ui-modal-x" aria-label={t("close")} onClick={onClose}>
             <IconClose />
           </button>
         </header>
-        <div class="agent-panel-tabs" role="tablist">
+        <div class="agent-panel-tabs wz-seg st-tabs" role="tablist">
           {tabs.map((x) => (
             <button
               type="button"
               role="tab"
               key={x}
               aria-selected={tab === x}
-              class={tab === x ? "active" : ""}
+              class={tab === x ? "on" : ""}
               onClick={() => setTab(x)}
             >
               {t(`agentTab_${x}`)}
@@ -386,7 +410,7 @@ function AgentPanel({
           {tab === "limits" && <LimitsTab agent={agent} />}
           {tab === "behaviour" && <BehaviourTab agent={agent} />}
           {tab === "memory" && (
-            <div class="form stack">
+            <div class="st-form">
               {/* What the agent remembers between conversations (2026-11-05), editable here. */}
               {agent.kind !== "demigod" && agent.kind !== "inspector" && (
                 <NotesEditor
@@ -409,28 +433,26 @@ function AgentPanel({
               <CompactionSettings agent={agent} />
             </div>
           )}
-          {adding && (
-            <div class="agent-panel-add">
-              <h4>{t("agentAddUnder", { name: agent.name })}</h4>
-              <NewAgentForm parent={agent} onDone={() => setAdding(false)} />
-            </div>
-          )}
         </div>
         {active && (
           <footer class="agent-panel-foot">
-            <button type="button" onClick={() => void attempt(() => openAgent(agent))}>
+            <button
+              type="button"
+              class="wz-btn small primary"
+              onClick={() => void attempt(() => openAgent(agent))}
+            >
               {t("agentOpenChat")}
             </button>
-            {canAddUnder(agent) && !adding && (
-              <button type="button" class="row" onClick={() => setAdding(true)}>
-                <IconPlus size={13} /> {t("agentAddShort")}
+            {canAddUnder(agent) && (
+              <button type="button" class="wz-btn small" onClick={() => onAdd(agent)}>
+                <IconPlus size={16} /> {t("agentAddShort")}
               </button>
             )}
             <span class="spacer" />
             {agent.kind !== "god" && (
               <button
                 type="button"
-                class="danger"
+                class="wz-btn small quiet st-danger"
                 onClick={() => {
                   if (confirm(t("agentStopConfirm", { name: agent.name })))
                     void attempt(() => getApi().stopAgent(agent.id)).then(refresh);
@@ -760,28 +782,27 @@ function AgentsPage({ projectId = null }: { projectId?: string | null }) {
   const select = (a: Agent) => setSelectedId(a.id === selectedId ? null : a.id);
   const hasGod = agents.value.some((a) => a.parentId === null);
   return (
-    <div class={`agents-page settings-section view-${view}`}>
+    <div class={`agents-page settings-section wz-look st-page st-agents view-${view}`}>
       <header class="agents-head">
-        <div>
-          <h2>{projectId ? t("agentsOf", { project: projectName(projectId) }) : t("agents")}</h2>
-          <p class="ui-purpose">{projectId ? t("projectAgentsPurpose") : t("agentsPurpose")}</p>
-        </div>
+        {projectId ? (
+          <Head
+            eyebrow={t("agents")}
+            q={t("agentsOf", { project: projectName(projectId) })}
+            lead={t("projectAgentsPurpose")}
+          />
+        ) : (
+          <Head eyebrow={t("agents")} q={t("stAgQ")} lead={t("agentsPurpose")} />
+        )}
         <div class="agents-tools">
-          <fieldset class="choice" aria-label={t("agentsView")}>
-            {(["tree", "cards"] as const).map((v) => (
-              <button
-                type="button"
-                key={v}
-                class={view === v ? "active" : ""}
-                aria-pressed={view === v}
-                onClick={() => pickView(v)}
-              >
-                {t(`agentsView_${v}`)}
-              </button>
-            ))}
-          </fieldset>
+          <Seg
+            label={t("agentsView")}
+            value={view}
+            onChange={pickView}
+            options={(["tree", "cards"] as const).map((v) => [v, t(`agentsView_${v}`)] as const)}
+          />
           {!projectId && projects.value.length > 0 && (
             <select
+              class="wz-field st-filter"
               aria-label={t("projects")}
               value={filter}
               onChange={(e) => setFilter((e.target as HTMLSelectElement).value)}
@@ -794,42 +815,58 @@ function AgentsPage({ projectId = null }: { projectId?: string | null }) {
               ))}
             </select>
           )}
-          <button
-            type="button"
-            class={`pick-tile small ${showStopped ? "on" : ""}`}
-            aria-pressed={showStopped}
-            onClick={() => setShowStopped(!showStopped)}
-          >
-            <span class="pick-mark">{showStopped && <IconCheck size={12} />}</span>
-            <span>{t("agentsShowStopped")}</span>
-          </button>
+          <span class="st-inline-switch">
+            <Switch
+              small
+              on={showStopped}
+              onChange={setShowStopped}
+              label={t("agentsShowStopped")}
+            />
+            <span aria-hidden="true">{t("agentsShowStopped")}</span>
+          </span>
           {hasGod && !projectId && (
-            <button type="button" class="primary row" onClick={() => setWizard(true)}>
-              <IconPlus size={13} /> {t("agentNew")}
+            <button type="button" class="wz-btn small primary" onClick={() => setWizard(true)}>
+              <IconPlus size={16} /> {t("agentNew")}
             </button>
           )}
         </div>
       </header>
-      {wizard && <AgentWizard onDone={() => setWizard(false)} />}
+      {wizard && (
+        <Modal wide title={t("agentNew")} onClose={() => setWizard(false)}>
+          <div class="wz-panel-in st-agent-wizard">
+            <AgentWizard onDone={() => setWizard(false)} />
+          </div>
+        </Modal>
+      )}
       {!hasGod && !creatingGod && (
-        <div class="empty">
-          <p>{t("createGodFirst")}</p>
-          <button type="button" class="primary" onClick={() => setCreatingGod(true)}>
+        <div class="wz-card st-empty">
+          <p class="wz-lead2">{t("createGodFirst")}</p>
+          <button type="button" class="wz-btn primary" onClick={() => setCreatingGod(true)}>
             {t("createGod")}
           </button>
         </div>
       )}
-      {creatingGod && <NewAgentForm parent={null} onDone={() => setCreatingGod(false)} />}
+      {creatingGod && (
+        <Modal title={t("createGod")} onClose={() => setCreatingGod(false)}>
+          <div class="wz-panel-in">
+            <NewAgentForm parent={null} onDone={() => setCreatingGod(false)} />
+          </div>
+        </Modal>
+      )}
       {addUnder && (
-        <div class="agents-add">
-          <h4>{t("agentAddUnder", { name: addUnder.name })}</h4>
-          <NewAgentForm parent={addUnder} onDone={() => setAddUnder(null)} />
-        </div>
+        <Modal
+          title={t("agentAddUnder", { name: addUnder.name })}
+          onClose={() => setAddUnder(null)}
+        >
+          <div class="wz-panel-in">
+            <NewAgentForm parent={addUnder} onDone={() => setAddUnder(null)} />
+          </div>
+        </Modal>
       )}
       <div class={`agents-layout ${view === "tree" && selected ? "with-panel" : ""}`}>
         <div class="agents-main">
           {projectId && !list.some((a) => a.kind === "orchestrator") && (
-            <p class="empty">{t("noOrchestrator")}</p>
+            <p class="wz-center dim">{t("noOrchestrator")}</p>
           )}
           {view === "tree" ? (
             <TreeView
@@ -849,6 +886,7 @@ function AgentsPage({ projectId = null }: { projectId?: string | null }) {
             agent={selected}
             overlay={view === "cards"}
             onClose={() => setSelectedId(null)}
+            onAdd={setAddUnder}
           />
         )}
       </div>

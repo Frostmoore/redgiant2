@@ -4,6 +4,31 @@ import { dangerWords } from "@redgiant/protocol";
 export type Lang = "it" | "en";
 
 const en = {
+  // Settings drawn as the wizard: the frame, General, Agents, Telegram, Code, Remote (2026-11-06).
+  stGrpBasics: "Basics",
+  stGrpWho: "Who works for you",
+  stGrpWhere: "Where you talk to it",
+  stGrpModels: "Models and spending",
+  stGrpHome: "Code, access and safety",
+  stGenQ: "How do you want RedGiant?",
+  stGenLead:
+    "Its look and language, then what every agent shares and the extra services. Each square opens its window; the lit ones are set.",
+  stGenAgents: "For every agent",
+  stGenAgentsLead: "What every agent reads, and who tries again a task an agent gives up on.",
+  stGenInstrText:
+    "What every agent should know or do: how you like answers, your conventions, what to avoid.",
+  stGenWritten: "written",
+  stGenBackupText:
+    "A task an agent gives up on is tried once more by this model, in a new conversation.",
+  stGenSearchText: "Lets every agent and the Chat look things up on the web.",
+  stGenOn: "on",
+  stGenCare: "Updates and diagnostics",
+  stGenCareLead: "Whether a newer RedGiant is out, and a log to send when something goes wrong.",
+  stGenDebugText: "Everything RedGiant does, written in a log you can download and send.",
+  stTgAccounts: "Linked accounts",
+  stCodeEyebrow: "Code",
+  stRemoteQ: "RedGiant away from home",
+  stAgQ: "Your team",
   appName: "RedGiant",
   login: "Sign in",
   loginHint: "Paste the token of your RedGiant server.",
@@ -55,6 +80,37 @@ const en = {
   autoYamlHint: "What the form writes. Changed here, it is saved as it is.",
   autoOn: "Switched on",
   autoOff: "Switched off: it does not run until you switch it on.",
+  // settings: automations, extensions (drawn as the wizard, 2026-11-06)
+  awQ: "What should RedGiant do on its own?",
+  awLead:
+    "An automation asks an agent to do something at a time or when something happens; a reminder sends you a message on a day. The lit squares are switched on.",
+  awNewText: "An agent does something for you: every morning, every week, on an email or a push.",
+  awReminderText: "A message for you on the day and at the time you choose, as you wrote it.",
+  awListTitle: "Your automations",
+  awListLead: "Open one to switch it on or off, run it now, change it or read how it went.",
+  awLastRun: "Last run",
+  awStarted: "Started: its run appears below in a moment.",
+  awChange: "Change",
+  xwKind: "Kind",
+  xwAuthor: "Proposed by",
+  xwTests: "Tests in a throwaway sandbox",
+  xwSource: "Made by",
+  xwSignIn: "Sign-in",
+  xwConnectedLead: "The lit ones work. Open one to sign in again or remove it.",
+  xwState: "State",
+  xwAddress: "Address",
+  xwSkillNameHelp: "Lowercase letters, digits and dashes, such as weekly-report.",
+  xwFile: "File",
+  xwOpenFile: "Open the file",
+  xwWaitsYou: "waits for your yes",
+  xwTestsFailed: "tests failed",
+  xwOwnTitle: "Made by hand",
+  xwOwnLead:
+    "For experts: a skill someone shared with you, one you write, a server not in the catalog.",
+  xwImportText: "A .zip someone shared, into everything or one project.",
+  xwNewSkillText: "Instructions you write for your agents; it installs right away.",
+  xwServerText: "An MCP server by address or by command, with its key if it needs one.",
+  xwFailedLead: "Proposals of the agents whose tests did not pass: they were never installed.",
   autoEmpty: "Choose an automation on the left, or make a new one.",
   tplTitle_morning: "Morning briefing",
   tplDesc_morning: "Every working day at 8: what happened on every project.",
@@ -2074,11 +2130,56 @@ const en = {
     "Runs a version of llama.cpp changed by RedGiant: while the graphics card computes one layer, the experts of the next one are already on their way to it, and the model is loaded in RAM when it fits. With mixture-of-experts models long messages are read up to 1.7 times faster (measured on an RTX 4080 Super). The first start downloads that engine's image (about {size}), kept next to the usual one. NVIDIA cards only, through Docker's NVIDIA runtime.",
   lmMoePrefetchMissingDocker:
     "The changed engine's image is not available yet (this version has not published it, or there is no network): the option stays off.",
+  // settings: chats, budgets, backup, platform drawn as the wizard (2026-11-06)
+  sbChatsQ: "Talk to Demi-God from other apps too",
+  sbChatDiscordText: "A bot in your Discord server, in private messages or in a channel.",
+  sbChatSlackText: "An app in your Slack workspace, in Socket Mode: no public address needed.",
+  sbChatSignalText: "A Signal number of its own, through signal-cli-rest-api.",
+  sbChatWaText: "Your WhatsApp Business number, through Meta's Cloud API.",
+  sbChatAccounts: "Linked accounts",
+  sbChatNoAccount: "No account linked yet: send the code below from the chat.",
+  sbChatWaiting: "Waiting for the code… this window notices by itself.",
+  sbChatOnWaiting: "On: send the code from the chat",
+  sbBudgetLead: "What projects and agents spend, and how far they may go.",
+  sbBudgetHowLink: "How limits work",
+  sbLimitIs: "Limit {limit}",
+  sbLimitFor: "Limit for {name}",
+  sbLimitNow: "Now: {limit}",
+  sbLimitSay: "At ${usd} its agents stop and tell you; you raise it whenever you like.",
+  sbLimitPick: "Choose an amount, or write another one.",
+  sbBackupQ: "All of RedGiant in one file",
+  sbPlatformQ: "What changed, and who did it",
 } as const;
 
 export type Key = keyof typeof en;
 
 const it: Record<Key, string> = {
+  // Settings drawn as the wizard: the frame, General, Agents, Telegram, Code, Remote (2026-11-06).
+  stGrpBasics: "Di base",
+  stGrpWho: "Chi lavora per te",
+  stGrpWhere: "Dove gli parli",
+  stGrpModels: "Modelli e spese",
+  stGrpHome: "Codice, accesso e sicurezza",
+  stGenQ: "Come vuoi RedGiant?",
+  stGenLead:
+    "Aspetto e lingua, poi quello che vale per tutti gli agenti e i servizi in più. Ogni riquadro apre la sua finestra; quelli accesi sono impostati.",
+  stGenAgents: "Per tutti gli agenti",
+  stGenAgentsLead:
+    "Quello che legge ogni agente, e chi riprova un task quando un agente si arrende.",
+  stGenInstrText:
+    "Quello che ogni agente deve sapere o fare: come vuoi le risposte, le tue convenzioni, cosa evitare.",
+  stGenWritten: "scritte",
+  stGenBackupText:
+    "Un task su cui un agente si arrende viene riprovato una volta da questo modello, in una conversazione nuova.",
+  stGenSearchText: "Permette a ogni agente e alla Chat di cercare sul web.",
+  stGenOn: "acceso",
+  stGenCare: "Aggiornamenti e diagnostica",
+  stGenCareLead: "Se c'è un RedGiant più nuovo, e un registro da mandare quando qualcosa non va.",
+  stGenDebugText: "Tutto quello che fa RedGiant, scritto in un registro da scaricare e mandare.",
+  stTgAccounts: "Account collegati",
+  stCodeEyebrow: "Codice",
+  stRemoteQ: "RedGiant anche fuori casa",
+  stAgQ: "La tua squadra",
   appName: "RedGiant",
   login: "Accedi",
   loginHint: "Incolla il token del tuo server RedGiant.",
@@ -2130,6 +2231,39 @@ const it: Record<Key, string> = {
   autoYamlHint: "Quello che scrive il modulo. Se la cambi qui, viene salvata così.",
   autoOn: "Accesa",
   autoOff: "Spenta: non parte finché non la riaccendi.",
+  // settings: automations, extensions (drawn as the wizard, 2026-11-06)
+  awQ: "Cosa deve fare RedGiant da solo?",
+  awLead:
+    "Un'automazione chiede a un agente di fare qualcosa a un'ora o quando succede qualcosa; un promemoria ti manda un messaggio in un giorno. I riquadri accesi sono attivi.",
+  awNewText: "Un agente fa qualcosa per te: ogni mattina, ogni settimana, a una mail o a un push.",
+  awReminderText: "Un messaggio per te nel giorno e all'ora che scegli, così come l'hai scritto.",
+  awListTitle: "Le tue automazioni",
+  awListLead:
+    "Aprine una per accenderla o spegnerla, farla partire ora, cambiarla o vedere com'è andata.",
+  awLastRun: "Ultima volta",
+  awStarted: "Partita: tra un momento la vedi qui sotto.",
+  awChange: "Cambia",
+  xwKind: "Tipo",
+  xwAuthor: "Proposta da",
+  xwTests: "Prove in una sandbox usa e getta",
+  xwSource: "Fatto da",
+  xwSignIn: "Accesso",
+  xwConnectedLead: "Quelli accesi funzionano. Aprine uno per rifare l'accesso o toglierlo.",
+  xwState: "Stato",
+  xwAddress: "Indirizzo",
+  xwSkillNameHelp: "Lettere minuscole, cifre e trattini, come report-settimanale.",
+  xwFile: "File",
+  xwOpenFile: "Apri il file",
+  xwWaitsYou: "aspetta il tuo sì",
+  xwTestsFailed: "prove non superate",
+  xwOwnTitle: "Fatte a mano",
+  xwOwnLead:
+    "Per esperti: una skill che ti hanno passato, una che scrivi tu, un server che non è nel catalogo.",
+  xwImportText: "Uno .zip che ti hanno passato, per tutto o per un progetto.",
+  xwNewSkillText: "Istruzioni che scrivi tu per i tuoi agenti; si installa subito.",
+  xwServerText: "Un server MCP per indirizzo o per comando, con la sua chiave se serve.",
+  xwFailedLead:
+    "Proposte degli agenti che non hanno passato le prove: non sono mai state installate.",
   autoEmpty: "Scegli un'automazione a sinistra, o creane una nuova.",
   tplTitle_morning: "Il punto del mattino",
   tplDesc_morning: "Ogni giorno lavorativo alle 8: cosa è successo in ogni progetto.",
@@ -4175,6 +4309,26 @@ const it: Record<Key, string> = {
     "Usa una versione di llama.cpp modificata da RedGiant: mentre la scheda video calcola uno strato, gli esperti di quello dopo le stanno già arrivando, e il modello è caricato nella RAM quando ci sta. Con i modelli a esperti i messaggi lunghi si leggono fino a 1,7 volte più in fretta (misurato con una RTX 4080 Super). Al primo avvio scarica l'immagine di quel motore (circa {size}), tenuta accanto a quella solita. Solo schede NVIDIA, con il runtime NVIDIA di Docker.",
   lmMoePrefetchMissingDocker:
     "L'immagine del motore modificato non c'è ancora (questa versione non l'ha pubblicata, o manca la rete): l'opzione resta spenta.",
+  // settings: chats, budgets, backup, platform drawn as the wizard (2026-11-06)
+  sbChatsQ: "Parla con Demi-God anche da altre app",
+  sbChatDiscordText: "Un bot nel tuo server Discord, in privato o in un canale.",
+  sbChatSlackText:
+    "Un'app nel tuo spazio di lavoro Slack, in Socket Mode: niente indirizzo pubblico.",
+  sbChatSignalText: "Un numero Signal tutto suo, con signal-cli-rest-api.",
+  sbChatWaText: "Il tuo numero WhatsApp Business, con la Cloud API di Meta.",
+  sbChatAccounts: "Account collegati",
+  sbChatNoAccount: "Ancora nessun account collegato: manda il codice qui sotto dalla chat.",
+  sbChatWaiting: "Aspetto il codice… questa finestra se ne accorge da sola.",
+  sbChatOnWaiting: "Acceso: manda il codice dalla chat",
+  sbBudgetLead: "Quanto spendono progetti e agenti, e fin dove possono arrivare.",
+  sbBudgetHowLink: "Come funzionano i limiti",
+  sbLimitIs: "Limite {limit}",
+  sbLimitFor: "Limite per {name}",
+  sbLimitNow: "Ora: {limit}",
+  sbLimitSay: "A ${usd} i suoi agenti si fermano e te lo dicono; lo alzi quando vuoi.",
+  sbLimitPick: "Scegli una cifra, o scrivine un'altra.",
+  sbBackupQ: "Tutto RedGiant in un file",
+  sbPlatformQ: "Cosa è cambiato, e chi l'ha fatto",
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, it };

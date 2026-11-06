@@ -15,7 +15,6 @@ import {
   IconCheck,
   IconChevronDown,
   IconChevronLeft,
-  IconCloud,
   IconCpu,
   IconCrown,
   IconDisk,
@@ -30,7 +29,6 @@ import {
   IconMoon,
   IconRam,
   IconSend,
-  IconServer,
   IconShield,
   IconSkip,
   IconSliders,
@@ -70,7 +68,7 @@ import {
   wayState,
   wayTiles,
 } from "./Brain.js";
-import { Gitea, Github } from "./GitCode.js";
+import { GitTiles } from "./GitCode.js";
 import { hardwareText, LocalModels } from "./LocalModels.js";
 import { modelName } from "./ModelMenu.js";
 import { RemoteAccess } from "./RemoteAccess.js";
@@ -645,62 +643,10 @@ function Names() {
 
 function CodeStep() {
   const { s, reload } = useWz();
-  const [open, setOpen] = useState<"github" | "gitea" | null>(null);
-  const github = !!s.config.git?.github;
-  const gitea = !!s.config.git?.gitea;
   return (
     <div class="wz-inner">
       <Head eyebrow={t("modeAdvanced")} q={t("wzCodeQ")} lead={t("wzCodeLead")} />
-      <div class="wz-two">
-        <Tile
-          wide
-          on={github}
-          icon={<IconCloud />}
-          title="GitHub"
-          text={t("wzCodeGithub")}
-          state={github ? t("wzStateLinked") : undefined}
-          onClick={() => setOpen("github")}
-        />
-        <Tile
-          wide
-          on={gitea}
-          icon={<IconServer />}
-          title={t("wzCodeGiteaTitle")}
-          text={t("wzCodeGitea")}
-          state={gitea ? t("wzStateLinked") : undefined}
-          onClick={() => setOpen("gitea")}
-        />
-      </div>
-      {github && gitea && <p class="wz-more dim">{t("gitBoth")}</p>}
-      {open && (
-        <Modal
-          title={open === "github" ? "GitHub" : t("wzCodeGiteaTitle")}
-          onClose={() => {
-            setOpen(null);
-            reload();
-          }}
-        >
-          <div class="wz-panel-in">
-            {open === "github" ? (
-              <Github s={s} onChange={reload} />
-            ) : (
-              <Gitea s={s} onChange={reload} />
-            )}
-          </div>
-          <Acts>
-            <button
-              type="button"
-              class="wz-btn primary"
-              onClick={() => {
-                setOpen(null);
-                reload();
-              }}
-            >
-              {t("wzDoneBtn")}
-            </button>
-          </Acts>
-        </Modal>
-      )}
+      <GitTiles s={s} reload={reload} />
     </div>
   );
 }

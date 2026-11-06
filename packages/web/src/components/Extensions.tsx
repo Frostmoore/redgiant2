@@ -1,18 +1,35 @@
-// Extensions in plain words (G24.9): ask God for a new ability, add a service from the catalog
-// (its own sign-in page, or a key pasted once), see what is connected. Hand-made skills and
-// servers stay under "Advanced".
+// Extensions in plain words (G24.9), drawn as the wizard (2026-11-06): ask God for a new ability
+// right under the question; what waits for the person (the agents' proposals, tested in a
+// throwaway sandbox), the services connected, the generation of pictures, video and sound, the
+// catalog, the skills and tools installed and the hand-made ones, all as the wizard's squares
+// that open a window (a sheet from below on phones).
 import {
   catalogConfig,
   type Guide,
   MCP_CATALOG,
   type McpCatalogEntry,
   type McpCategory,
+  MEDIA_KINDS,
+  MEDIA_PROVIDERS,
+  type MediaKind,
+  mediaProvider,
 } from "@redgiant/protocol";
+import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { ApiError, type Installed, type McpEntry, type McpStatus, type Proposal } from "../api.js";
+import {
+  ApiError,
+  type Installed,
+  type McpEntry,
+  type McpStatus,
+  type Proposal,
+  type SetupState,
+} from "../api.js";
 import { lang, t } from "../i18n.js";
 import {
+  IconBell,
   IconBoard,
+  IconBook,
+  IconCanvas,
   IconCheck,
   IconClose,
   IconCompass,
@@ -21,19 +38,28 @@ import {
   IconDownload,
   IconFile,
   IconLayers,
+  IconMic,
   IconMonitor,
   IconPencil,
+  IconPlay,
+  IconPlus,
   IconSearch,
   IconSend,
+  IconServer,
+  IconShield,
+  IconSpark,
   IconTerminal,
+  IconTool,
   IconUpload,
 } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
 import { agents, attempt, getApi, getLive, openTab, projects } from "../state.js";
 import { explain } from "./Brain.js";
 import { Chat } from "./Chat.js";
-import { DefaultExtensions } from "./Media.js";
-import { Advanced, Field, Pick } from "./ui.js";
+import { KindRow } from "./Media.js";
+import { Facts, Sub, SwitchRow } from "./SettingsKit-automazioni.js";
+import { Acts, Head, Tile } from "./SetupKit.js";
+import { Field, Modal } from "./ui.js";
 
 const scopeLabel = (projectId: string | null) =>
   projectId
@@ -41,61 +67,89 @@ const scopeLabel = (projectId: string | null) =>
     : t("scopePlatform");
 const who = (id: string) =>
   id === "human" ? t("you") : (agents.value.find((a) => a.id === id)?.name ?? id);
+const value = (e: Event) => (e.target as HTMLInputElement).value;
 
-function ProposalCard({ p, onDone }: { p: Proposal; onDone: () => void }) {
+/** The projects as options of a select, after the first one (everywhere). */
+const projectOptions = (val: (id: string) => string, label: (name: string) => string) =>
+  projects.value.map((p) => (
+    <option key={p.id} value={val(p.id)}>
+      {label(p.name)}
+    </option>
+  ));
+
+/** An agent's proposal, read in full: what it does, its files, how its tests went. */
+function ProposalView({
+  p,
+  onDone,
+  onClose,
+}: {
+  p: Proposal;
+  onDone: () => void;
+  onClose: () => void;
+}) {
   const decide = (d: "approve" | "reject") =>
-    void attempt(() => getApi().decideExtension(p.id, d)).then(onDone);
+    void attempt(() => getApi().decideExtension(p.id, d)).then(() => {
+      onDone();
+      onClose();
+    });
   const description = p.input.spec?.description ?? p.input.description ?? "";
   return (
-    <div class="approval">
-      <div class="row">
-        <span class={`kind-badge ${p.kind === "tool" ? "result" : "decision"}`}>
-          {t(p.kind === "tool" ? "extKindTool" : "extKindSkill")}
-        </span>
-        <strong>{p.name}</strong>
-        <span class="chip">{scopeLabel(p.projectId)}</span>
-        <span class="dim">
-          {t("by")} {who(p.author)}
-        </span>
-      </div>
-      <div>{description}</div>
-      {p.input.spec && <code>{p.input.spec.command}</code>}
-      {p.input.body && (
-        <div
-          class="md board-summary"
-          dangerouslySetInnerHTML={{ __html: renderMarkdown(p.input.body) }}
+    <Modal wide title={p.name} onClose={onClose}>
+      <div class="wz-panel-in xw-prop">
+        <Facts
+          rows={[
+            [t("xwKind"), t(p.kind === "tool" ? "extKindTool" : "extKindSkill")],
+            [t("scope"), scopeLabel(p.projectId)],
+            [t("xwAuthor"), who(p.author)],
+          ]}
         />
-      )}
-      {Object.entries(p.input.files ?? {}).map(([path, content]) => (
-        <details key={path}>
-          <summary>
-            <code>{path}</code>
-          </summary>
-          <pre>{content}</pre>
-        </details>
-      ))}
-      <div>
-        {p.report.map((r) => (
-          <div key={r.name} class={`notice ${r.passed ? "ok" : "error"}`}>
-            {r.passed ? <IconCheck /> : <IconClose />} {r.name}: {r.detail.split("\n")[0]}
-          </div>
+        {description && <p class="wz-lead2">{description}</p>}
+        {p.input.spec && <code class="xw-cmd">{p.input.spec.command}</code>}
+        {p.input.body && (
+          <div
+            class="md xw-body"
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(p.input.body) }}
+          />
+        )}
+        {Object.entries(p.input.files ?? {}).map(([path, content]) => (
+          <details key={path} class="xw-file">
+            <summary>
+              <code>{path}</code>
+            </summary>
+            <pre>{content}</pre>
+          </details>
         ))}
-      </div>
-      {p.status === "pending" && (
-        <div class="row">
-          <button type="button" class="primary" onClick={() => decide("approve")}>
-            {t("approve")}
-          </button>
-          <button type="button" class="danger" onClick={() => decide("reject")}>
-            {t("reject")}
-          </button>
+        {p.report.length > 0 && <h4>{t("xwTests")}</h4>}
+        <div class="xw-report">
+          {p.report.map((r) => (
+            <p key={r.name} class={`notice ${r.passed ? "ok" : "error"}`}>
+              {r.passed ? <IconCheck size={14} /> : <IconClose size={14} />} {r.name}:{" "}
+              {r.detail.split("\n")[0]}
+            </p>
+          ))}
         </div>
-      )}
-    </div>
+      </div>
+      <Acts>
+        {p.status === "pending" ? (
+          <>
+            <button type="button" class="wz-btn quiet xw-danger" onClick={() => decide("reject")}>
+              {t("reject")}
+            </button>
+            <button type="button" class="wz-btn primary" onClick={() => decide("approve")}>
+              {t("approve")}
+            </button>
+          </>
+        ) : (
+          <button type="button" class="wz-btn primary" onClick={onClose}>
+            {t("wzDoneBtn")}
+          </button>
+        )}
+      </Acts>
+    </Modal>
   );
 }
 
-/** "What should your agents be able to do?": a conversation with God, right here. */
+/** "What should your agents be able to do?": a conversation with God, right under the question. */
 function AskGod() {
   const god = agents.value.find((a) => a.kind === "god");
   const [text, setText] = useState("");
@@ -119,30 +173,29 @@ function AskGod() {
     }
   };
   return (
-    <div class="ext-ask">
-      <h3>{t("extAskTitle")}</h3>
-      <p class="ui-help">{t("extAskHelp")}</p>
+    <div class="wz-card xw-ask">
       {session ? (
         <>
           <div class="ext-chat">
             <Chat sessionId={session} agentId={god.id} />
           </div>
-          <div class="row">
-            <button type="button" onClick={() => setSession(undefined)}>
+          <div class="xw-ask-again">
+            <button type="button" class="wz-btn small" onClick={() => setSession(undefined)}>
               {t("extAskAgain")}
             </button>
           </div>
         </>
       ) : (
-        <form class="row" onSubmit={(e) => void ask(e)}>
+        <form class="xw-ask-form" onSubmit={(e) => void ask(e)}>
           <input
+            class="wz-field"
             aria-label={t("extAskTitle")}
             placeholder={t("extAskPlaceholder")}
             value={text}
-            onInput={(e) => setText((e.target as HTMLInputElement).value)}
+            onInput={(e) => setText(value(e))}
           />
-          <button type="submit" class="primary" disabled={!text.trim()}>
-            <IconSend size={14} /> {t("extAsk")}
+          <button type="submit" class="wz-btn primary small" disabled={!text.trim()}>
+            <IconSend size={18} /> {t("extAsk")}
           </button>
         </form>
       )}
@@ -172,8 +225,7 @@ async function signIn(name: string): Promise<boolean> {
   }
 }
 
-/** Adding one entry: where it works and, when it needs one, its key. */
-/** What the card says about signing in. */
+/** What the window says about signing in. */
 const authLabel = (type: McpCatalogEntry["auth"]["type"]) =>
   type === "app"
     ? "extAuth_app"
@@ -199,7 +251,7 @@ function GuideSteps({ guide }: { guide: Guide }) {
                 <code class="ext-redirect">{redirect}</code>{" "}
                 <button
                   type="button"
-                  class="tiny"
+                  class="wz-link inl"
                   onClick={() =>
                     void navigator.clipboard?.writeText(redirect).then(() => setCopied(true))
                   }
@@ -266,7 +318,7 @@ function AddForm({
   };
   const guide = "guide" in a ? a.guide : undefined;
   return (
-    <form class="form ext-add" onSubmit={(e) => void add(e)}>
+    <form class="xw-form" onSubmit={(e) => void add(e)}>
       {entry.note && <p class="notice warn">{entry.note[lang.value]}</p>}
       {entry.unverified && <p class="ui-help">{t("extUnverified")}</p>}
       {guide && (
@@ -276,29 +328,29 @@ function AddForm({
           </summary>
           <GuideSteps guide={guide} />
           {a.type === "app" && (
-            <a href={a.consoleUrl} target="_blank" rel="noreferrer">
+            <a class="wz-link inl" href={a.consoleUrl} target="_blank" rel="noreferrer">
               {t("extAppConsole", { name: entry.name })}
             </a>
           )}
         </details>
       )}
       <Field label={t("extWhere")} help={t("extWhereHelp")}>
-        <select value={scope} onChange={(e) => setScope((e.target as HTMLSelectElement).value)}>
+        <select class="wz-field" value={scope} onChange={(e) => setScope(value(e))}>
           <option value="">{t("extEverywhere")}</option>
-          {projects.value.map((p) => (
-            <option key={p.id} value={p.id}>
-              {t("extOnlyProject", { name: p.name })}
-            </option>
-          ))}
+          {projectOptions(
+            (id) => id,
+            (name) => t("extOnlyProject", { name }),
+          )}
         </select>
       </Field>
       {entry.userUrl && (
         <Field label={t("extServerUrl", { name: entry.name })} help={t("extServerUrlHelp")}>
           <input
+            class="wz-field"
             type="url"
             placeholder={entry.userUrl.example}
             value={url}
-            onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
+            onInput={(e) => setUrl(value(e))}
           />
         </Field>
       )}
@@ -306,9 +358,10 @@ function AddForm({
         <>
           <Field label={t("extClientId")}>
             <input
+              class="wz-field"
               autocomplete="off"
               value={clientId}
-              onInput={(e) => setClientId((e.target as HTMLInputElement).value)}
+              onInput={(e) => setClientId(value(e))}
             />
           </Field>
           <Field
@@ -316,10 +369,11 @@ function AddForm({
             help={t("extKeyHelp")}
           >
             <input
+              class="wz-field mono"
               type="password"
               autocomplete="off"
               value={clientSecret}
-              onInput={(e) => setClientSecret((e.target as HTMLInputElement).value)}
+              onInput={(e) => setClientSecret(value(e))}
             />
           </Field>
         </>
@@ -328,40 +382,42 @@ function AddForm({
         a.fields.map((f) => (
           <Field key={f.env} label={f.label[lang.value]}>
             <input
+              class="wz-field"
               type={(f.secret ? "password" : "text") as "text"}
               autocomplete="off"
               placeholder={f.example ?? ""}
               value={fields[f.env] ?? ""}
-              onInput={(e) =>
-                setFields({ ...fields, [f.env]: (e.target as HTMLInputElement).value })
-              }
+              onInput={(e) => setFields({ ...fields, [f.env]: value(e) })}
             />
           </Field>
         ))}
       {needsKey && (
-        <Field label={t("extKey", { name: entry.name })} help={t("extKeyHelp")}>
-          <input
-            type="password"
-            autocomplete="off"
-            placeholder={a.keyExample ?? ""}
-            value={key}
-            onInput={(e) => setKey((e.target as HTMLInputElement).value)}
-          />
-          <a href={a.keyUrl} target="_blank" rel="noreferrer">
+        <>
+          <Field label={t("extKey", { name: entry.name })} help={t("extKeyHelp")}>
+            <input
+              class="wz-field mono"
+              type="password"
+              autocomplete="off"
+              placeholder={a.keyExample ?? ""}
+              value={key}
+              onInput={(e) => setKey(value(e))}
+            />
+          </Field>
+          <a class="wz-link inl" href={a.keyUrl} target="_blank" rel="noreferrer">
             {t("extKeyWhere", { name: entry.name })}
           </a>
-        </Field>
+        </>
       )}
       {signsIn && <p class="ui-help">{t("extOauthHelp", { name: entry.name })}</p>}
       {error && <p class="notice error">{error}</p>}
-      <div class="row">
-        <button type="submit" class="primary" disabled={busy || !ready}>
-          {signsIn ? t("extAddAndConnect") : t("extAdd")}
-        </button>
-        <button type="button" onClick={onCancel}>
+      <Acts>
+        <button type="button" class="wz-btn quiet" onClick={onCancel}>
           {t("cancel")}
         </button>
-      </div>
+        <button type="submit" class="wz-btn primary" disabled={busy || !ready}>
+          {signsIn ? t("extAddAndConnect") : t("extAdd")}
+        </button>
+      </Acts>
     </form>
   );
 }
@@ -380,7 +436,12 @@ const CATEGORY_ICON = {
   cloud: IconCpu,
   home: IconMonitor,
 } as const;
+const catIcon = (c: McpCategory) => {
+  const Icon = CATEGORY_ICON[c];
+  return <Icon />;
+};
 
+/** The catalog: a search, the kinds as chips, one square per service; each opens its window. */
 function Catalog({
   added,
   onAdded,
@@ -390,7 +451,7 @@ function Catalog({
 }) {
   const [q, setQ] = useState("");
   const [category, setCategory] = useState<McpCategory | "">("");
-  const [open, setOpen] = useState<string>();
+  const [open, setOpen] = useState<McpCatalogEntry>();
   const words = q.trim().toLowerCase();
   const shown = MCP_CATALOG.filter(
     (e) =>
@@ -398,81 +459,99 @@ function Catalog({
       (!words || `${e.name} ${e.description[lang.value]} ${e.id}`.toLowerCase().includes(words)),
   ).sort((x, y) => Number(y.official) - Number(x.official));
   return (
-    <div class="ext-catalog">
-      <h3>{t("extCatalog")}</h3>
-      <p class="ui-help">{t("extCatalogHelp")}</p>
-      <div class="row wrap">
-        <label class="ext-search">
-          <IconSearch size={14} />
+    <>
+      <Sub title={t("extCatalog")} lead={t("extCatalogHelp")} />
+      <div class="xw-filter">
+        <label class="xw-search">
+          <IconSearch size={18} />
           <input
+            class="wz-field"
             aria-label={t("extSearch")}
             placeholder={t("extSearch")}
             value={q}
-            onInput={(e) => setQ((e.target as HTMLInputElement).value)}
+            onInput={(e) => setQ(value(e))}
           />
         </label>
-        {(["", ...CATEGORIES] as const).map((c) => (
-          <button
-            key={c}
-            type="button"
-            class={`chip-button${category === c ? " on" : ""}`}
-            aria-pressed={category === c}
-            onClick={() => setCategory(c)}
-          >
-            {t(c ? `extCat_${c}` : "extCatAll")}
-          </button>
+        <div class="wz-chips">
+          {(["", ...CATEGORIES] as const).map((c) => (
+            <button
+              key={c}
+              type="button"
+              class={`wz-chip${category === c ? " on" : ""}`}
+              aria-pressed={category === c}
+              onClick={() => setCategory(c)}
+            >
+              {t(c ? `extCat_${c}` : "extCatAll")}
+            </button>
+          ))}
+        </div>
+      </div>
+      {shown.length === 0 && <p class="wz-subl">{t("extNothingFound")}</p>}
+      <div class="wz-brain xw-grid xw-cat">
+        {shown.map((e) => (
+          <Tile
+            key={e.id}
+            on={added.has(e.id)}
+            icon={catIcon(e.category)}
+            title={e.name}
+            badge={e.official ? t("extOfficial") : undefined}
+            text={e.description[lang.value]}
+            state={added.has(e.id) ? t("extAdded") : undefined}
+            onClick={() => setOpen(e)}
+          />
         ))}
       </div>
-      {shown.length === 0 && <p class="dim">{t("extNothingFound")}</p>}
-      <div class="lm-cards">
-        {shown.map((e) => (
-          <div key={e.id} class="lm-card">
-            <div class="row">
-              {(() => {
-                const Icon = CATEGORY_ICON[e.category];
-                return <Icon size={16} />;
-              })()}
-              <strong>{e.name}</strong>
-              <span class={`chip${e.official ? " ok" : ""}`}>
-                {t(e.official ? "extOfficial" : "extCommunity")}
-              </span>
-            </div>
-            <p class="ui-help">{e.description[lang.value]}</p>
-            <p class="lm-meta">
-              {t(authLabel(e.auth.type))}
-              {e.unverified && ` · ${t("extUnverifiedShort")}`}
-            </p>
-            {added.has(e.id) ? (
-              <span class="chip ok">
-                <IconCheck size={12} /> {t("extAdded")}
-              </span>
-            ) : open === e.id ? (
+      {open && (
+        <Modal title={open.name} onClose={() => setOpen(undefined)}>
+          <div class="wz-panel-in">
+            <p class="wz-lead2">{open.description[lang.value]}</p>
+            <Facts
+              rows={[
+                [t("xwSource"), t(open.official ? "extOfficial" : "extCommunity")],
+                [
+                  t("xwSignIn"),
+                  `${t(authLabel(open.auth.type))}${open.unverified ? ` · ${t("extUnverifiedShort")}` : ""}`,
+                ],
+              ]}
+            />
+            <a class="wz-link inl" href={open.homepage} target="_blank" rel="noreferrer">
+              {t("extMore")}
+            </a>
+            {added.has(open.id) ? (
+              <>
+                <p class="notice ok">{t("extAdded")}</p>
+                <Acts>
+                  <button type="button" class="wz-btn primary" onClick={() => setOpen(undefined)}>
+                    {t("wzDoneBtn")}
+                  </button>
+                </Acts>
+              </>
+            ) : (
               <AddForm
-                entry={e}
+                entry={open}
                 onCancel={() => setOpen(undefined)}
                 onDone={(signingIn) => {
                   setOpen(undefined);
                   onAdded(signingIn);
                 }}
               />
-            ) : (
-              <div class="row">
-                <button type="button" class="primary" onClick={() => setOpen(e.id)}>
-                  {t("extAdd")}
-                </button>
-                <a href={e.homepage} target="_blank" rel="noreferrer">
-                  {t("extMore")}
-                </a>
-              </div>
             )}
           </div>
-        ))}
-      </div>
-    </div>
+        </Modal>
+      )}
+    </>
   );
 }
 
-/** The servers added, whether each works, and the button that signs in. */
+/** A service's state in words, for its square and its window. */
+function serviceState(s: McpStatus | undefined): string {
+  if (!s) return t("extChecking");
+  if (s.state === "connected") return t("extWorks", { n: String(s.tools) });
+  if (s.state === "login") return t("extNeedsLogin");
+  return t("extBroken");
+}
+
+/** The servers added: lit when they work; each window signs in or removes it. */
 function Connected({
   mcp,
   status,
@@ -483,6 +562,7 @@ function Connected({
   onChange: (signingIn?: boolean) => void;
 }) {
   const [error, setError] = useState<string>();
+  const [open, setOpen] = useState<string>();
   if (mcp.length === 0) return null;
   const connect = async (name: string) => {
     setError(undefined);
@@ -492,49 +572,149 @@ function Connected({
       setError(explain(err));
     }
   };
+  const m = mcp.find((x) => x.name === open);
+  const s = status?.find((x) => x.name === open);
+  const entry = MCP_CATALOG.find((e) => e.id === open);
+  const close = () => {
+    setOpen(undefined);
+    setError(undefined);
+  };
   return (
-    <div class="ext-connected">
-      <h3>{t("extConnected")}</h3>
-      {mcp.map((m) => {
-        const s = status?.find((x) => x.name === m.name);
-        const entry = MCP_CATALOG.find((e) => e.id === m.name);
-        return (
-          <div class="node-row" key={m.name}>
-            <strong>{entry?.name ?? m.name}</strong>
-            <span class="chip">{scopeLabel(m.project_id)}</span>
-            {!s ? (
-              <span class="dim">{t("extChecking")}</span>
-            ) : s.state === "connected" ? (
-              <span class="chip ok">{t("extWorks", { n: String(s.tools) })}</span>
-            ) : s.state === "login" ? (
-              <>
-                <span class="chip warn">{t("extNeedsLogin")}</span>
-                <button type="button" class="primary" onClick={() => void connect(m.name)}>
-                  {t("extConnect")}
-                </button>
-              </>
-            ) : (
-              <span class="chip danger" title={s.error}>
-                {t("extBroken")}
-              </span>
-            )}
+    <>
+      <Sub title={t("extConnected")} lead={t("xwConnectedLead")} />
+      <div class="wz-brain xw-grid">
+        {mcp.map((x) => {
+          const st = status?.find((y) => y.name === x.name);
+          const e = MCP_CATALOG.find((y) => y.id === x.name);
+          return (
+            <Tile
+              key={x.name}
+              on={st?.state === "connected"}
+              icon={e ? catIcon(e.category) : <IconServer />}
+              title={e?.name ?? x.name}
+              badge={st?.state === "error" ? t("extBroken") : undefined}
+              text={scopeLabel(x.project_id)}
+              state={serviceState(st)}
+              onClick={() => setOpen(x.name)}
+            />
+          );
+        })}
+      </div>
+      {status?.some((x) => x.state === "error") && <p class="wz-subl">{t("extBrokenHelp")}</p>}
+      {m && (
+        <Modal title={entry?.name ?? m.name} onClose={close}>
+          <div class="wz-panel-in">
+            <Facts
+              rows={[
+                [t("scope"), scopeLabel(m.project_id)],
+                [t("xwState"), serviceState(s)],
+                [
+                  t("xwAddress"),
+                  <code key="a">
+                    {m.transport.type === "http"
+                      ? m.transport.url
+                      : [m.transport.command, ...(m.transport.args ?? [])].join(" ")}
+                  </code>,
+                ],
+              ]}
+            />
+            {s?.state === "error" && s.error && <p class="notice error">{s.error}</p>}
+            {s?.state === "error" && <p class="ui-help">{t("extBrokenHelp")}</p>}
+            {error && <p class="notice error">{error}</p>}
+          </div>
+          <Acts>
             <button
               type="button"
-              class="danger"
-              onClick={() => void attempt(() => getApi().removeMcp(m.name)).then(() => onChange())}
+              class="wz-btn quiet xw-danger"
+              onClick={() =>
+                void attempt(() => getApi().removeMcp(m.name)).then(() => {
+                  close();
+                  onChange();
+                })
+              }
             >
               {t("remove")}
             </button>
-          </div>
-        );
-      })}
-      {status?.some((s) => s.state === "error") && <p class="ui-help">{t("extBrokenHelp")}</p>}
-      {error && <p class="notice error">{error}</p>}
-    </div>
+            {s?.state === "login" ? (
+              <button type="button" class="wz-btn primary" onClick={() => void connect(m.name)}>
+                {t("extConnect")}
+              </button>
+            ) : (
+              <button type="button" class="wz-btn primary" onClick={close}>
+                {t("wzDoneBtn")}
+              </button>
+            )}
+          </Acts>
+        </Modal>
+      )}
+    </>
   );
 }
 
-function NewSkill({ onDone }: { onDone: () => void }) {
+const MEDIA_ICON: Record<MediaKind, () => JSX.Element> = {
+  image: () => <IconCanvas />,
+  video: () => <IconPlay />,
+  speech: () => <IconMic />,
+  music: () => <IconSpark />,
+  sound: () => <IconBell />,
+};
+
+/** The agents' tools that make pictures, video and sound (G25.3): one square per kind. */
+function MediaTiles() {
+  const [s, setS] = useState<SetupState | null>(null);
+  const [open, setOpen] = useState<MediaKind>();
+  const load = () =>
+    void getApi()
+      .setup()
+      .then(setS, () => {});
+  useEffect(load, []);
+  if (!s) return null;
+  const stateOf = (kind: MediaKind) => {
+    const saved = s.config.media?.[kind];
+    if (!saved) return undefined;
+    const p = mediaProvider(saved.provider);
+    if (!(s.secretsSet.media?.includes(saved.provider) ?? false)) return t("mediaNeedsKey");
+    const model = p?.models[kind]?.find((m) => m.id === saved.model)?.label ?? saved.model;
+    return `${p?.name ?? saved.provider} · ${model}`;
+  };
+  const ready = (kind: MediaKind) => {
+    const saved = s.config.media?.[kind];
+    return !!saved && (s.secretsSet.media?.includes(saved.provider) ?? false);
+  };
+  return (
+    <>
+      <Sub title={t("mediaTitle")} lead={t("mediaPurpose")} />
+      <div class="wz-brain xw-grid">
+        {MEDIA_KINDS.filter((k) => MEDIA_PROVIDERS.some((p) => p.models[k]?.length)).map((k) => (
+          <Tile
+            key={k}
+            on={ready(k)}
+            icon={MEDIA_ICON[k]()}
+            title={t(`media_${k}`)}
+            text={t(`media_${k}_help`)}
+            state={stateOf(k)}
+            onClick={() => setOpen(k)}
+          />
+        ))}
+      </div>
+      {open && (
+        <Modal title={t(`media_${open}`)} onClose={() => setOpen(undefined)}>
+          <div class="wz-panel-in xw-media">
+            <KindRow kind={open} s={s} onChange={load} />
+          </div>
+          <Acts>
+            <button type="button" class="wz-btn primary" onClick={() => setOpen(undefined)}>
+              {t("wzDoneBtn")}
+            </button>
+          </Acts>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+/** A skill written by hand: its name, what it is for, where it works, its instructions. */
+function NewSkill({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [body, setBody] = useState("");
@@ -558,57 +738,58 @@ function NewSkill({ onDone }: { onDone: () => void }) {
     }
   };
   return (
-    <form class="form" onSubmit={(e) => void submit(e)}>
-      <label>
-        {t("name")}
+    <form class="xw-form" onSubmit={(e) => void submit(e)}>
+      <Field label={t("name")} help={t("xwSkillNameHelp")}>
         <input
+          class="wz-field mono"
           required
           pattern="[a-z0-9][a-z0-9-]{1,48}"
           value={name}
-          onInput={(e) => setName((e.target as HTMLInputElement).value)}
+          onInput={(e) => setName(value(e))}
         />
-      </label>
-      <label>
-        {t("description")}
+      </Field>
+      <Field label={t("description")}>
         <input
+          class="wz-field"
           required
           minLength={10}
           value={description}
-          onInput={(e) => setDescription((e.target as HTMLInputElement).value)}
+          onInput={(e) => setDescription(value(e))}
         />
-      </label>
-      <label>
-        {t("scope")}
-        <select value={scope} onChange={(e) => setScope((e.target as HTMLSelectElement).value)}>
+      </Field>
+      <Field label={t("scope")}>
+        <select class="wz-field" value={scope} onChange={(e) => setScope(value(e))}>
           <option value="">{t("scopePlatform")}</option>
-          {projects.value.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
+          {projectOptions(
+            (id) => id,
+            (n) => n,
+          )}
         </select>
-      </label>
-      <label class="wide">
-        {t("instructions")}
+      </Field>
+      <Field label={t("instructions")}>
         <textarea
+          class="wz-field"
           required
           minLength={20}
-          rows={6}
+          rows={7}
           value={body}
-          onInput={(e) => setBody((e.target as HTMLTextAreaElement).value)}
+          onInput={(e) => setBody(value(e))}
         />
-      </label>
-      <div class="row">
-        <button type="submit" class="primary">
+      </Field>
+      <Acts>
+        <button type="button" class="wz-btn quiet" onClick={onCancel}>
+          {t("cancel")}
+        </button>
+        <button type="submit" class="wz-btn primary">
           {t("create")}
         </button>
-      </div>
+      </Acts>
     </form>
   );
 }
 
 /** A server not in the catalog: its address (or command), and how it signs in. */
-function McpForm({ onDone }: { onDone: () => void }) {
+function McpForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [name, setName] = useState("");
   const [type, setType] = useState<"stdio" | "http">("http");
   const [command, setCommand] = useState("");
@@ -635,84 +816,86 @@ function McpForm({ onDone }: { onDone: () => void }) {
       onDone();
   };
   return (
-    <form class="form" onSubmit={(e) => void submit(e)}>
-      <label>
-        {t("name")}
+    <form class="xw-form" onSubmit={(e) => void submit(e)}>
+      <Field label={t("name")}>
         <input
+          class="wz-field mono"
           required
           pattern="[a-z0-9][a-z0-9-]{0,30}"
           value={name}
-          onInput={(e) => setName((e.target as HTMLInputElement).value)}
+          onInput={(e) => setName(value(e))}
         />
-      </label>
-      <label>
-        {t("scope")}
-        <select value={scope} onChange={(e) => setScope((e.target as HTMLSelectElement).value)}>
+      </Field>
+      <Field label={t("scope")}>
+        <select class="wz-field" value={scope} onChange={(e) => setScope(value(e))}>
           <option value="">{t("scopePlatform")}</option>
-          {projects.value.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
+          {projectOptions(
+            (id) => id,
+            (n) => n,
+          )}
         </select>
-      </label>
-      <label>
-        {t("extTransport")}
-        <select
-          value={type}
-          onChange={(e) => setType((e.target as HTMLSelectElement).value as "stdio" | "http")}
-        >
-          <option value="http">{t("extTransportHttp")}</option>
-          <option value="stdio">{t("extTransportStdio")}</option>
-        </select>
-      </label>
+      </Field>
+      <span class="wz-lb">{t("extTransport")}</span>
+      <div class="wz-seg">
+        {(["http", "stdio"] as const).map((x) => (
+          <button
+            key={x}
+            type="button"
+            aria-pressed={type === x}
+            class={type === x ? "on" : ""}
+            onClick={() => setType(x)}
+          >
+            {t(x === "http" ? "extTransportHttp" : "extTransportStdio")}
+          </button>
+        ))}
+      </div>
       {type === "http" ? (
         <>
-          <label class="wide">
-            {t("url")}
+          <Field label={t("url")}>
             <input
+              class="wz-field"
               required
               type="url"
               value={url}
-              onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
+              onInput={(e) => setUrl(value(e))}
             />
-          </label>
-          <Pick small on={oauth} onChange={(v) => setOauth(v)}>
-            {t("extManualOauth")}
-          </Pick>
+          </Field>
+          <SwitchRow title={t("extManualOauth")} on={oauth} onChange={setOauth} />
           {!oauth && (
-            <label>
-              {t("extManualToken")}
+            <Field label={t("extManualToken")}>
               <input
+                class="wz-field mono"
                 type="password"
                 autocomplete="off"
                 value={token}
-                onInput={(e) => setToken((e.target as HTMLInputElement).value)}
+                onInput={(e) => setToken(value(e))}
               />
-            </label>
+            </Field>
           )}
         </>
       ) : (
         <>
-          <label>
-            {t("command")}
+          <Field label={t("command")}>
             <input
+              class="wz-field mono"
               required
               value={command}
-              onInput={(e) => setCommand((e.target as HTMLInputElement).value)}
+              onInput={(e) => setCommand(value(e))}
             />
-          </label>
-          <label>
-            {t("args")}
-            <input value={args} onInput={(e) => setArgs((e.target as HTMLInputElement).value)} />
-          </label>
+          </Field>
+          <Field label={t("args")}>
+            <input class="wz-field mono" value={args} onInput={(e) => setArgs(value(e))} />
+          </Field>
         </>
       )}
-      <div class="row">
-        <button type="submit" class="primary">
+      <Acts>
+        <button type="button" class="wz-btn quiet" onClick={onCancel}>
+          {t("cancel")}
+        </button>
+        <button type="submit" class="wz-btn primary">
           {t("addServer")}
         </button>
-      </div>
+      </Acts>
     </form>
   );
 }
@@ -728,7 +911,7 @@ async function downloadSkill(x: Installed) {
 }
 
 /** A shared skill (.zip) into the platform or a project; asks before replacing one. */
-function ImportSkill({ onDone }: { onDone: () => void }) {
+function ImportSkill({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
   const picker = useRef<HTMLInputElement>(null);
   const [scope, setScope] = useState("platform");
   const [done, setDone] = useState<string>();
@@ -750,47 +933,100 @@ function ImportSkill({ onDone }: { onDone: () => void }) {
     onDone();
   };
   return (
-    <>
-      <h3>{t("skillImport")}</h3>
-      <p class="ui-help">{t("skillImportHelp")}</p>
-      <div class="row">
-        <Field label={t("skillImportWhere")}>
-          <select value={scope} onChange={(e) => setScope((e.target as HTMLSelectElement).value)}>
-            <option value="platform">{t("scopePlatform")}</option>
-            {projects.value.map((p) => (
-              <option key={p.id} value={`project:${p.id}`}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <button type="button" class="primary row" onClick={() => picker.current?.click()}>
-          <IconUpload size={14} /> {t("skillImportFile")}
-        </button>
-        <input
-          ref={picker}
-          type="file"
-          accept=".zip,application/zip"
-          hidden
-          onChange={(e) => {
-            const input = e.target as HTMLInputElement;
-            void pick(input.files?.[0]);
-            input.value = "";
-          }}
-        />
-      </div>
+    <div class="xw-form">
+      <p class="wz-lead2">{t("skillImportHelp")}</p>
+      <Field label={t("skillImportWhere")}>
+        <select class="wz-field" value={scope} onChange={(e) => setScope(value(e))}>
+          <option value="platform">{t("scopePlatform")}</option>
+          {projectOptions(
+            (id) => `project:${id}`,
+            (n) => n,
+          )}
+        </select>
+      </Field>
+      <input
+        ref={picker}
+        type="file"
+        accept=".zip,application/zip"
+        hidden
+        onChange={(e) => {
+          const input = e.target as HTMLInputElement;
+          void pick(input.files?.[0]);
+          input.value = "";
+        }}
+      />
       {done && <p class="notice ok">{t("skillImported", { name: done })}</p>}
-    </>
+      <Acts>
+        <button type="button" class="wz-btn quiet" onClick={onClose}>
+          {done ? t("wzDoneBtn") : t("cancel")}
+        </button>
+        <button type="button" class="wz-btn primary" onClick={() => picker.current?.click()}>
+          <IconUpload size={18} /> {t("skillImportFile")}
+        </button>
+      </Acts>
+    </div>
   );
 }
 
-/** Abilities for the agents: ask God, the catalog, what is connected, the hand-made ones. */
+/** A skill or tool installed: what it is, where it works; open its file or download it. */
+function InstalledView({ x, onClose }: { x: Installed; onClose: () => void }) {
+  return (
+    <Modal title={x.name} onClose={onClose}>
+      <div class="wz-panel-in">
+        <p class="wz-lead2">{x.description}</p>
+        <Facts
+          rows={[
+            [t("xwKind"), t(x.kind === "tool" ? "extKindTool" : "extKindSkill")],
+            [t("scope"), x.scope === "platform" ? t("scopePlatform") : x.scope.slice(8)],
+            [t("xwFile"), <code key="p">{x.path}</code>],
+          ]}
+        />
+        {x.kind === "skill" && <p class="ui-help">{t("skillDownloadHelp")}</p>}
+      </div>
+      <Acts>
+        {x.kind === "skill" && (
+          <button type="button" class="wz-btn" onClick={() => void downloadSkill(x)}>
+            <IconDownload size={18} /> {t("skillDownload")}
+          </button>
+        )}
+        <button
+          type="button"
+          class="wz-btn primary"
+          onClick={() => {
+            openTab({
+              id: `edit:${x.scope}:${x.path}`,
+              type: "editor",
+              title: x.name,
+              scope: x.scope,
+              path: x.path,
+            });
+            onClose();
+          }}
+        >
+          <IconPencil size={18} /> {t("xwOpenFile")}
+        </button>
+      </Acts>
+    </Modal>
+  );
+}
+
+/** What is open on the page: a proposal, a skill installed, or one of the hand-made forms. */
+type Open =
+  | { proposal: Proposal }
+  | { installed: Installed }
+  | "import"
+  | "skill"
+  | "server"
+  | "failed";
+
+/** Abilities for the agents: ask God, what waits, what is connected, the catalog, the rest. */
 export function Extensions() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [installed, setInstalled] = useState<Installed[]>([]);
   const [mcp, setMcp] = useState<McpEntry[]>([]);
   const [status, setStatus] = useState<McpStatus[]>();
   const [version, setVersion] = useState(0);
+  const [open, setOpen] = useState<Open | null>(null);
   /** Until when to look again for a sign-in finished in the other tab. */
   const [watchUntil, setWatchUntil] = useState(0);
   const reload = (signingIn?: boolean) => {
@@ -823,82 +1059,133 @@ export function Extensions() {
   }, [status, watchUntil]);
   const pending = proposals.filter((p) => p.status === "pending");
   const failed = proposals.filter((p) => p.status === "failed").slice(0, 5);
+  const close = () => setOpen(null);
+  const doneAndClose = () => {
+    close();
+    reload();
+  };
+  const proposalTile = (p: Proposal, waiting: boolean) => (
+    <Tile
+      key={p.id}
+      on={false}
+      icon={p.kind === "tool" ? <IconTool /> : <IconBook />}
+      title={p.name}
+      badge={t(p.kind === "tool" ? "extKindTool" : "extKindSkill")}
+      text={p.input.spec?.description ?? p.input.description ?? ""}
+      state={
+        waiting
+          ? `${t("xwWaitsYou")} · ${t("by")} ${who(p.author)}`
+          : `${t("xwTestsFailed")} · ${t("by")} ${who(p.author)}`
+      }
+      onClick={() => setOpen({ proposal: p })}
+    />
+  );
   return (
-    <div class="hierarchy extensions">
-      <DefaultExtensions />
-      <AskGod />
-      {pending.length > 0 && (
-        <>
-          <h3>{t("extProposals")}</h3>
-          <p class="ui-help">{t("extProposalsHelp")}</p>
-          {pending.map((p) => (
-            <ProposalCard key={p.id} p={p} onDone={reload} />
-          ))}
-        </>
-      )}
-      <Connected mcp={mcp} status={status} onChange={reload} />
-      <Catalog added={new Set(mcp.map((m) => m.name))} onAdded={reload} />
+    <div class="settings-section wz-look xw-page">
+      <section class="wz-inner">
+        <Head eyebrow={t("extensions")} q={t("extAskTitle")} lead={t("extAskHelp")} />
+        <AskGod />
 
-      {installed.length > 0 && (
-        <>
-          <h3>{t("extSkills")}</h3>
-          <p class="ui-help">{t("extSkillsHelp")}</p>
-          {installed.map((x) => (
-            <div class="node-row" key={`${x.scope}:${x.kind}:${x.name}`}>
-              <span class={`kind-badge ${x.kind === "tool" ? "result" : "decision"}`}>
-                {t(x.kind === "tool" ? "extKindTool" : "extKindSkill")}
-              </span>
-              <button
-                type="button"
-                class="link"
-                onClick={() =>
-                  openTab({
-                    id: `edit:${x.scope}:${x.path}`,
-                    type: "editor",
-                    title: x.name,
-                    scope: x.scope,
-                    path: x.path,
-                  })
-                }
-              >
-                {x.name}
-              </button>
-              <span class="dim">{x.description}</span>
-              <span class="chip">
-                {x.scope === "platform" ? t("scopePlatform") : x.scope.slice(8)}
-              </span>
-              {x.kind === "skill" && (
-                <button
-                  type="button"
-                  class="row"
-                  title={t("skillDownloadHelp")}
-                  onClick={() => void downloadSkill(x)}
-                >
-                  <IconDownload size={13} /> {t("skillDownload")}
-                </button>
-              )}
-            </div>
-          ))}
-        </>
-      )}
-      <ImportSkill onDone={reload} />
-
-      <Advanced>
-        {failed.length > 0 && (
-          <details>
-            <summary class="dim">
-              {t("failedTests")} ({failed.length})
-            </summary>
-            {failed.map((p) => (
-              <ProposalCard key={p.id} p={p} onDone={reload} />
-            ))}
-          </details>
+        {pending.length > 0 && (
+          <>
+            <Sub title={t("extProposals")} lead={t("extProposalsHelp")} />
+            <div class="wz-brain xw-grid xw-wait">{pending.map((p) => proposalTile(p, true))}</div>
+          </>
         )}
-        <h3>{t("newSkill")}</h3>
-        <NewSkill onDone={reload} />
-        <h3>{t("addServer")}</h3>
-        <McpForm onDone={reload} />
-      </Advanced>
+
+        <Connected mcp={mcp} status={status} onChange={reload} />
+        <MediaTiles />
+        <Catalog added={new Set(mcp.map((m) => m.name))} onAdded={reload} />
+
+        {installed.length > 0 && (
+          <>
+            <Sub title={t("extSkills")} lead={t("extSkillsHelp")} />
+            <div class="wz-brain xw-grid">
+              {installed.map((x) => (
+                <Tile
+                  key={`${x.scope}:${x.kind}:${x.name}`}
+                  on
+                  icon={x.kind === "tool" ? <IconTool /> : <IconBook />}
+                  title={x.name}
+                  badge={t(x.kind === "tool" ? "extKindTool" : "extKindSkill")}
+                  text={x.description}
+                  state={x.scope === "platform" ? t("scopePlatform") : x.scope.slice(8)}
+                  onClick={() => setOpen({ installed: x })}
+                />
+              ))}
+            </div>
+          </>
+        )}
+
+        <Sub title={t("xwOwnTitle")} lead={t("xwOwnLead")} />
+        <div class="wz-brain xw-grid">
+          <Tile
+            on={false}
+            icon={<IconUpload />}
+            title={t("skillImport")}
+            text={t("xwImportText")}
+            onClick={() => setOpen("import")}
+          />
+          <Tile
+            on={false}
+            icon={<IconPlus />}
+            title={t("newSkill")}
+            text={t("xwNewSkillText")}
+            onClick={() => setOpen("skill")}
+          />
+          <Tile
+            on={false}
+            icon={<IconServer />}
+            title={t("addServer")}
+            text={t("xwServerText")}
+            onClick={() => setOpen("server")}
+          />
+        </div>
+        {failed.length > 0 && (
+          <p class="wz-more">
+            <button type="button" class="wz-link" onClick={() => setOpen("failed")}>
+              <IconShield size={16} /> {t("failedTests")} ({failed.length})
+            </button>
+          </p>
+        )}
+      </section>
+
+      {open && typeof open === "object" && "proposal" in open && (
+        <ProposalView p={open.proposal} onDone={reload} onClose={close} />
+      )}
+      {open && typeof open === "object" && "installed" in open && (
+        <InstalledView x={open.installed} onClose={close} />
+      )}
+      {open === "import" && (
+        <Modal title={t("skillImport")} onClose={close}>
+          <ImportSkill onDone={reload} onClose={close} />
+        </Modal>
+      )}
+      {open === "skill" && (
+        <Modal wide title={t("newSkill")} onClose={close}>
+          <NewSkill onDone={doneAndClose} onCancel={close} />
+        </Modal>
+      )}
+      {open === "server" && (
+        <Modal title={t("addServer")} onClose={close}>
+          <McpForm onDone={doneAndClose} onCancel={close} />
+        </Modal>
+      )}
+      {open === "failed" && (
+        <Modal wide title={t("failedTests")} onClose={close}>
+          <div class="wz-panel-in">
+            <p class="wz-lead2">{t("xwFailedLead")}</p>
+            <div class="wz-brain xw-grid xw-failed">
+              {failed.map((p) => proposalTile(p, false))}
+            </div>
+          </div>
+          <Acts>
+            <button type="button" class="wz-btn primary" onClick={close}>
+              {t("wzDoneBtn")}
+            </button>
+          </Acts>
+        </Modal>
+      )}
     </div>
   );
 }
