@@ -73,6 +73,84 @@ export function renderMarkdown(md: string): string {
   return DOMPurify.sanitize(marked.parse(md, { async: false }));
 }
 
+/**
+ * An answer with its sources (2026-11-06, the person: «le fonti dovrebbero essere mostrate come
+ * link già nel testo… un po' come fa ChatGPT»). When the answer ends with a numbered list of
+ * links, every [n] in the text becomes a small link to source n named after its site, several in
+ * a row become one («cbsnews.com +2»), and the list itself is drawn small.
+ */
+export function renderAnswer(md: string): string {
+  return linkCitations(renderMarkdown(md));
+}
+
+export function linkCitations(html: string): string {
+  if (typeof document === "undefined" || !/\[\d+\]/.test(html)) return html;
+  const box = document.createElement("template");
+  box.innerHTML = html;
+  const sourcesOf = (ol: Element) => [...ol.children].filter((li) => li.tagName === "LI");
+  const list = [...box.content.querySelectorAll("ol")].reverse().find((ol) => {
+    const items = sourcesOf(ol);
+    return items.length > 0 && items.every((li) => li.querySelector('a[href^="http"]'));
+  });
+  if (!list) return html;
+  const first = Number(list.getAttribute("start") ?? "1") || 1;
+  const sources = new Map<number, { href: string; site: string; title: string }>();
+  sourcesOf(list).forEach((li, i) => {
+    const href = li.querySelector('a[href^="http"]')?.getAttribute("href") ?? "";
+    try {
+      const site = new URL(href).hostname.replace(/^www\./, "");
+      const title = (li.textContent ?? "").split(/:\s/)[0]?.trim() || site;
+      sources.set(first + i, { href, site, title });
+    } catch {
+      // not an address: that source has no link
+    }
+  });
+  list.classList.add("sources");
+  const before = list.previousElementSibling;
+  if (before && /^(fonti|sources|riferimenti|references)\b/i.test(before.textContent?.trim() ?? ""))
+    before.classList.add("sources-title");
+  const walker = document.createTreeWalker(box.content, NodeFilter.SHOW_TEXT);
+  const texts: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = n as Text;
+    if (text.parentElement?.closest("a, code, pre, ol.sources")) continue;
+    if (/\[\d+\]/.test(text.data)) texts.push(text);
+  }
+  for (const text of texts) {
+    const out = document.createDocumentFragment();
+    let rest = text.data;
+    // Runs of citations, spaces between them allowed: one link each run.
+    for (let m = /(?:\[\d+\]\s*)+/.exec(rest); m; m = /(?:\[\d+\]\s*)+/.exec(rest)) {
+      const found = [...m[0].matchAll(/\[(\d+)\]/g)].flatMap((x) => {
+        const s = sources.get(Number(x[1]));
+        return s ? [s] : [];
+      });
+      const end = m.index + m[0].length;
+      if (found.length === 0) {
+        out.append(rest.slice(0, end));
+        rest = rest.slice(end);
+        continue;
+      }
+      const [head] = found as [(typeof found)[0]];
+      out.append(rest.slice(0, m.index));
+      const a = document.createElement("a");
+      a.className = "cite";
+      a.href = head.href;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.title = found.map((s) => s.title).join("\n");
+      a.textContent = found.length > 1 ? `${head.site} +${found.length - 1}` : head.site;
+      out.append(a);
+      // The space after the run stays, so the next word does not touch the link.
+      if (/\s$/.test(m[0])) out.append(" ");
+      rest = rest.slice(end);
+    }
+    out.append(rest);
+    text.replaceWith(out);
+  }
+  return box.innerHTML;
+}
+
 /** A character models do not write (Unicode private use): where the cursor goes. */
 const CURSOR_MARK = "\uE000";
 const CURSOR_MARK_URL = encodeURI(CURSOR_MARK);

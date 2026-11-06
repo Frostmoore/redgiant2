@@ -11,7 +11,7 @@ import {
   IconTrash,
   IconUsers,
 } from "../icons.js";
-import { renderMarkdown, renderStreamingMarkdown } from "../markdown.js";
+import { renderAnswer, renderStreamingMarkdown } from "../markdown.js";
 import {
   attempt,
   closeTab,
@@ -77,7 +77,7 @@ function Entry({ e }: { e: ChatEntry }) {
           ))}
         </div>
       )}
-      {text && <div class="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />}
+      {text && <div class="md" dangerouslySetInnerHTML={{ __html: renderAnswer(text) }} />}
       {e.metrics && text && (
         <MetricsBar
           m={e.metrics}

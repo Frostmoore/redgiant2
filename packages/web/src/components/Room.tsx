@@ -6,7 +6,7 @@ import type { Agent } from "../api.js";
 import { usd } from "../format.js";
 import { lang, t } from "../i18n.js";
 import { IconClose, IconCrown, IconEye, IconPlus, IconTree, IconUser } from "../icons.js";
-import { renderMarkdown } from "../markdown.js";
+import { renderAnswer } from "../markdown.js";
 import { agents, attempt, getApi, projects, refreshRooms, rooms, roomsVersion } from "../state.js";
 import { Composer, packMessage } from "./Composer.js";
 
@@ -113,7 +113,7 @@ function Message({ e }: { e: Event }) {
       <div class="room-author">
         {kindIcon(a)} <strong>{p.name}</strong>
       </div>
-      <div class="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(p.text) }} />
+      <div class="md" dangerouslySetInnerHTML={{ __html: renderAnswer(p.text) }} />
     </div>
   );
 }

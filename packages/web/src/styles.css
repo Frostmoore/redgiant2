@@ -5071,9 +5071,6 @@ button.pick-tile.on {
   gap: 16px;
   align-items: start;
 }
-.gallery.with-panel {
-  grid-template-columns: minmax(0, 1fr) 400px;
-}
 .gallery-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -5144,32 +5141,10 @@ button.pick-tile.on {
   font-weight: 500;
   color: var(--dim);
 }
-.gallery-panel {
-  position: sticky;
-  top: 12px;
-  max-height: calc(100vh - 140px);
-  overflow: auto;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-}
-.gallery-panel header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-}
 .gallery-panel-body {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 14px;
 }
 .gallery-panel-body > .brain-panel {
   border: none;
@@ -5291,11 +5266,11 @@ button.pick-tile.on {
   background: var(--warn);
 }
 .gcard .lm-room,
-.gallery-panel .lm-room {
+.gallery-panel-body .lm-room {
   width: 100%;
 }
 .gcard .lm-room-bar,
-.gallery-panel .lm-room-bar {
+.gallery-panel-body .lm-room-bar {
   max-width: none;
 }
 .models-page {
@@ -5322,7 +5297,7 @@ button.pick-tile.on {
 }
 /* Inside cards and panels the label of a bar is the card's own words, not drawn again. */
 .gcard .lm-room::before,
-.gallery-panel .lm-room::before,
+.gallery-panel-body .lm-room::before,
 .ui-modal .lm-room::before,
 .machine .lm-room::before,
 .gscore .lm-meter::before {
@@ -5562,4 +5537,37 @@ textarea.instructions {
   width: 100%;
   box-sizing: border-box;
   font: inherit;
+}
+
+/* Sources in the answer's text, as small links named after their site (2026-11-06). */
+.md a.cite {
+  display: inline-block;
+  margin: 0 2px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
+  vertical-align: 1px;
+  color: var(--dim);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.md a.cite:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+.md .sources-title {
+  margin-bottom: 2px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.md ol.sources {
+  font-size: 12px;
+  color: var(--dim);
+}
+.md ol.sources a {
+  color: var(--dim);
+  overflow-wrap: anywhere;
 }

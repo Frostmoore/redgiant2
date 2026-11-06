@@ -17,7 +17,7 @@ import {
   IconSpinner,
   IconUsers,
 } from "../icons.js";
-import { renderMarkdown, renderStreamingMarkdown } from "../markdown.js";
+import { renderAnswer, renderMarkdown, renderStreamingMarkdown } from "../markdown.js";
 import {
   agents,
   approvals,
@@ -61,7 +61,7 @@ function Parts({ parts }: { parts: AssistantPart[] }) {
             </details>
           ) : null
         ) : p.type === "text" ? (
-          <div class="md" key={i} dangerouslySetInnerHTML={{ __html: renderMarkdown(p.text) }} />
+          <div class="md" key={i} dangerouslySetInnerHTML={{ __html: renderAnswer(p.text) }} />
         ) : null,
       )}
     </>

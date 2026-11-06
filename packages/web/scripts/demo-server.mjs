@@ -59,6 +59,24 @@ const brain = (req) => {
   const results = last?.role === "user" && last.parts.every((p) => p.type === "tool_result");
   turn++;
   const said = last?.parts.find((p) => p.type === "text")?.text ?? "";
+  // An answer with its sources (2026-11-06): the [n] become links named after their site.
+  if (said.includes("Chi ha vinto le midterm")) {
+    return {
+      text: [
+        "Le midterm del 3 novembre 2026 le hanno vinte **i Democratici**, che hanno preso il controllo sia della **Camera** sia del **Senato** [1][2][3].",
+        "",
+        "- **Camera:** più di una ventina di seggi strappati ai Repubblicani [1].",
+        "- **Senato:** almeno 54 seggi, con vittorie a sorpresa in Texas e South Carolina [2]. In Mississippi lo spoglio era ancora in corso [4].",
+        "",
+        "**Fonti**",
+        "",
+        "1. CBS News: House election results 2026: https://www.cbsnews.com/live-updates/house-election-results-2026/",
+        "2. CBS News: Senate election results 2026: https://www.cbsnews.com/live-updates/senate-election-results-2026/",
+        "3. Il Sole 24 Ore: Midterm 2026, i risultati: https://lab24.ilsole24ore.com/midterm-usa-2026/",
+        "4. Yahoo News: Midterms 2026 live updates: https://www.yahoo.com/news/politics/live/midterms-2026/",
+      ].join("\n"),
+    };
+  }
   // God asks before planning: a question card waits for the human.
   if (said.startsWith("Plan the export feature")) {
     return {
@@ -429,6 +447,8 @@ const insp = await core.chat.create("local", "Stato", { kind: "inspector", proje
 await core.chat.send("local", insp.id, "A che punto è il progetto?", [], () => {});
 const daily = await core.chat.create("local");
 await core.chat.send("local", daily.id, "Come preparo un buon caffè con la moka?", [], () => {});
+const news = await core.chat.create("local");
+await core.chat.send("local", news.id, "Chi ha vinto le midterm?", [], () => {});
 // The agents' computer downloading on its own (DEMO_DOWNLOAD=1): the card with the bar.
 if (process.env.DEMO_DOWNLOAD === "1")
   core.jobs.start("local", "download_sandbox", ["image_download"], async (h) => {
