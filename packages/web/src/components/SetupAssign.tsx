@@ -14,6 +14,7 @@ import {
   IconRetry,
   IconTool,
   IconUser,
+  IconUsers,
 } from "../icons.js";
 import { attempt, getApi } from "../state.js";
 import { type Spec, sameModel, suggestModel } from "../wizard.js";
@@ -23,7 +24,7 @@ import { useModels } from "./ModelSelect.js";
 import { Acts, Head, useOnNext, useWz } from "./SetupKit.js";
 import { Modal } from "./ui.js";
 
-type Role = "god" | "demigod" | "chat" | "backup";
+type Role = "god" | "demigod" | "chat" | "others" | "backup";
 const EFFORTS = ["low", "medium", "high", "max"] as const;
 const key = (m: { provider: string; model: string }) => `${m.provider}/${m.model}`;
 
@@ -85,6 +86,7 @@ export function AssignStep() {
     god: null,
     demigod: null,
     chat: null,
+    others: null,
     backup: null,
   });
   const [open, setOpen] = useState<Role | null>(null);
@@ -102,6 +104,7 @@ export function AssignStep() {
           god: g?.model ?? null,
           demigod: d?.model ?? null,
           chat: c.model ?? null,
+          others: s.config.defaultModel ?? null,
           backup: s.config.backupModel ?? null,
         };
         setStored(saved);
@@ -111,6 +114,7 @@ export function AssignStep() {
           god,
           demigod: saved.demigod ?? suggestModel(models, "fast"),
           chat: saved.chat ?? suggestModel(models, "fast"),
+          others: saved.others ?? god,
           backup:
             s.config.backupModel !== undefined
               ? saved.backup
@@ -132,6 +136,9 @@ export function AssignStep() {
         await a.configureAgent(who.demigod.id, { model: val.demigod });
       if (!sameModel(val.chat, stored.chat)) await a.setChatSettings({ model: val.chat });
       if (!sameModel(val.backup, stored.backup)) await a.setupBackupModel(val.backup);
+      // The default model (agents made later, summaries): tried with a real question when saved.
+      if (!s.locked.defaultModel && val.others && !sameModel(val.others, stored.others))
+        await a.setupModels({ defaultModel: val.others });
       return true;
     });
     return r === true;
@@ -280,12 +287,14 @@ export function AssignStep() {
     god: godName,
     demigod: demiName,
     chat: t("wzAssistants"),
+    others: t("wzAssignOthers"),
     backup: t("backupModelTitle"),
   };
   const roleText: Record<Role, string> = {
     god: t("wzAssignGod"),
     demigod: t("wzAssignDemigod2"),
     chat: t("wzAssignChat"),
+    others: t("wzAssignOthersHelp"),
     backup: t("wzBackupWindow"),
   };
   const choose = (role: Role, m: ModelChoice | null) =>
@@ -325,6 +334,18 @@ export function AssignStep() {
           {nodes.chat}
           {nodes.orch}
           {nodes.agents}
+        </div>
+      )}
+      {!s.locked.defaultModel && (
+        <div class="wz-reserve">
+          <span class="wz-node-av">
+            <IconUsers size={20} />
+          </span>
+          <div>
+            <b>{t("wzAssignOthers")}</b>
+            <p>{t("wzAssignOthersHelp")}</p>
+          </div>
+          <Pick who="others" />
         </div>
       )}
       <div class="wz-reserve">

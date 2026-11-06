@@ -465,7 +465,7 @@ const en = {
   wzAssignChat: "The everyday chat, with web search: questions, texts, ideas.",
   wzAssignOthers: "The agents you create later",
   wzAssignOthersHelp:
-    "Unless you choose one for them. It is tried with a real question before it is saved.",
+    "And the board's summaries, unless you choose one for them. It is tried with a real question before it is saved.",
   wzBrainMore:
     "Choose one way now: a subscription, an API key or a model on this computer. You can add others any time, from Settings, Models and subscriptions; in the next steps you choose which model each one uses.",
   modelPick: "Choose a model",
@@ -2536,7 +2536,7 @@ const it: Record<Key, string> = {
   wzAssignChat: "La chat di tutti i giorni, con la ricerca sul web: domande, testi, idee.",
   wzAssignOthers: "Gli agenti che crei dopo",
   wzAssignOthersHelp:
-    "Se non ne scegli uno apposta per loro. Prima di salvarlo viene provato con una domanda vera.",
+    "E i riassunti della bacheca, se non ne scegli uno apposta per loro. Prima di salvarlo viene provato con una domanda vera.",
   wzBrainMore:
     "Scegli adesso un modo: un abbonamento, una chiave API o un modello su questo computer. Ne aggiungi altri quando vuoi, da Impostazioni, Modelli e abbonamenti; nei passi dopo scegli quale modello usa ognuno.",
   modelPick: "Scegli un modello",
