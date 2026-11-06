@@ -1489,6 +1489,18 @@ const en = {
   news3Browser: "The browser for every agent",
   news3BrowserText:
     "Every agent that works can use the browser, now able to scroll, press keys and choose from menus, and to look at images. Reading pages never reaches your home network.",
+  news32Setup: "The setup, one thing at a time",
+  news32SetupText:
+    "The configuration is new: one question per page, big buttons, a counter that opens the list of steps, details in windows in the middle, and a layout of its own on the phone. Each choice shows what it really sets.",
+  news32Sources: "Sources inside the answer",
+  news32SourcesText:
+    "When an answer comes from the web, its sources are small links right in the text, named after their site, and the list underneath is drawn small.",
+  news32Models: "Model details in a window",
+  news32ModelsText:
+    "The details of a local model open in a window above everything, no longer in a panel on the side.",
+  news32Stream: "SSD stream: two experimental switches",
+  news32StreamText:
+    "Next to SSD stream: «Big chunks» reads long messages in bigger passes, and «Next layer ahead» (Windows, NVIDIA) uses our own llama.cpp that copies the next experts while the card computes: up to 1.7 times faster reading on an RTX 4080 Super. With an NVIDIA card on Windows, advice on the driver's sysmem fallback, which slows reading down.",
   subsSharedLogin:
     "{name} is already signed in on this computer: RedGiant uses that sign-in as it is, no need to sign in again.",
   subsProgramSystem: "{name} is already installed on this computer: RedGiant uses it.",
@@ -3598,6 +3610,18 @@ const it: Record<Key, string> = {
   news3Browser: "Il browser per ogni agente",
   news3BrowserText:
     "Ogni agente che lavora può usare il browser, che ora scorre la pagina, preme tasti, sceglie dai menu e guarda le immagini. La lettura delle pagine non raggiunge mai la tua rete di casa.",
+  news32Setup: "La configurazione, una cosa alla volta",
+  news32SetupText:
+    "La configurazione è nuova: una domanda per pagina, pulsanti grandi, un contatore che apre l'elenco dei passi, i dettagli in finestre al centro e una versione tutta sua sul telefono. Ogni scelta mostra cosa imposta davvero.",
+  news32Sources: "Le fonti dentro la risposta",
+  news32SourcesText:
+    "Quando una risposta viene dal web, le fonti sono piccoli link direttamente nel testo, con il nome del sito, e l'elenco sotto è scritto in piccolo.",
+  news32Models: "I dettagli dei modelli in una finestra",
+  news32ModelsText:
+    "I dettagli di un modello locale si aprono in una finestra sopra a tutto, non più in un pannello di lato.",
+  news32Stream: "SSD stream: due interruttori sperimentali",
+  news32StreamText:
+    "Accanto a SSD stream: «Blocchi grandi» legge i messaggi lunghi a blocchi più grandi, e «Strato dopo in anticipo» (Windows, NVIDIA) usa un llama.cpp nostro che copia gli esperti successivi mentre la scheda calcola: lettura fino a 1,7 volte più veloce su una RTX 4080 Super. Con una scheda NVIDIA su Windows, un consiglio sul Sysmem Fallback del driver, che rallenta la lettura.",
   subsSharedLogin:
     "{name} è già collegato su questo computer: RedGiant usa quell'accesso così com'è, senza rifarlo.",
   subsProgramSystem: "{name} è già installato su questo computer: RedGiant usa quello.",
