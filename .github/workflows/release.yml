@@ -5,6 +5,16 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Run one job only (llama-cuda: the patched llama.cpp for Windows, nothing published)"
+        type: choice
+        options: ["", "llama-cuda"]
+        default: ""
+      cuda_archs:
+        description: "CUDA architectures for llama-cuda (empty: the release's list)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -15,6 +25,7 @@ env:
 
 jobs:
   images:
+    if: inputs.only != 'llama-cuda'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -85,6 +96,7 @@ jobs:
   # RedGiant-Setup.exe (G22; 3.0, G30.2): the launcher, Node, the server built for Windows and the
   # web page, attached to the tag's GitHub Release. No WSL: everything runs on Windows itself.
   windows-installer:
+    if: inputs.only != 'llama-cuda'
     runs-on: windows-latest
     permissions:
       contents: write
@@ -142,6 +154,7 @@ jobs:
   # certificate exported as .p12, base64), MAC_CERTIFICATE_PASSWORD, MAC_NOTARY_KEY (an App Store
   # Connect API key, the .p8 file in base64), MAC_NOTARY_KEY_ID, MAC_NOTARY_ISSUER_ID.
   mac-app:
+    if: inputs.only != 'llama-cuda'
     runs-on: macos-latest
     permissions:
       contents: write
@@ -167,3 +180,112 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: packaging/mac/dist/RedGiant-mac-*.dmg
+
+  # llama.cpp with RedGiant's patches for Windows and NVIDIA cards (G32.2): b12034 plus
+  # engine/llama-patches (apply.ps1), CUDA 12.8 from NVIDIA's redistributable archives (no
+  # installer), MSVC and Ninja. The zip carries llama-server.exe with its DLLs and CUDA's own
+  # (cudart, cuBLAS) and is attached to the release; RedGiant downloads it only when the person
+  # turns on «Next layer ahead». Alone: Actions > Release images > Run workflow, only = llama-cuda.
+  llama-cuda:
+    runs-on: windows-latest
+    timeout-minutes: 240
+    permissions:
+      contents: write
+    env:
+      LLAMA_BUILD: b12034
+      CUDA_VERSION: 12.8.1
+      CUDA_DIR: C:\cuda
+      # Turing to Blackwell; 89 (RTX 40) is the card it was measured on. Each "-real" is machine
+      # code for that family only; 120 also carries PTX for newer cards.
+      CUDA_ARCHS: ${{ inputs.cuda_archs || '75-real;80-real;86-real;89-real;90-real;120' }}
+      ZIP: llama-redgiant-win-cuda12.8-x64.zip
+    steps:
+      - uses: actions/checkout@v4
+      - name: CUDA from the cache
+        id: cuda-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\cuda
+          key: cuda-redist-${{ env.CUDA_VERSION }}-win-${{ hashFiles('engine/llama-patches/cuda-redist.ps1') }}
+      - name: CUDA's archives, checked against NVIDIA's sha256
+        if: steps.cuda-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./engine/llama-patches/cuda-redist.ps1 -Out $env:CUDA_DIR -Version $env:CUDA_VERSION
+      - name: llama.cpp at its tag, with RedGiant's patches
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch $env:LLAMA_BUILD https://github.com/ggml-org/llama.cpp llama
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Set-Location llama
+          ../engine/llama-patches/apply.ps1
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Ninja and sccache
+        shell: pwsh
+        run: |
+          choco install ninja sccache -y --no-progress
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\sccache
+          key: sccache-llama-${{ env.LLAMA_BUILD }}-${{ env.CUDA_ARCHS }}-${{ hashFiles('engine/llama-patches/*') }}
+          restore-keys: |
+            sccache-llama-${{ env.LLAMA_BUILD }}-${{ env.CUDA_ARCHS }}-
+            sccache-llama-${{ env.LLAMA_BUILD }}-
+      - name: Build
+        shell: pwsh
+        working-directory: llama
+        env:
+          SCCACHE_DIR: ${{ runner.temp }}\sccache
+          SCCACHE_CACHE_SIZE: 4G
+        run: |
+          $env:CUDA_PATH = $env:CUDA_DIR
+          $env:PATH = "$env:CUDA_DIR\bin;$env:PATH"
+          cl 2>&1 | Select-Object -First 1
+          nvcc --version
+          sccache --start-server
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_CUDA_COMPILER="$env:CUDA_DIR/bin/nvcc.exe" -DCUDAToolkit_ROOT="$env:CUDA_DIR" `
+            -DCMAKE_CUDA_ARCHITECTURES="$env:CUDA_ARCHS" `
+            -DGGML_CUDA=ON -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON `
+            -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # Everything: with GGML_BACKEND_DL the CUDA and CPU backends are modules llama-server loads.
+          cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          sccache --show-stats
+      - name: The zip, with CUDA's and Visual C++'s libraries next to the program
+        shell: pwsh
+        run: |
+          $out = New-Item -ItemType Directory -Force pack
+          Copy-Item llama/build/bin/llama-server.exe, llama/build/bin/*.dll $out
+          Copy-Item "$env:CUDA_DIR/bin/cudart64_12.dll", "$env:CUDA_DIR/bin/cublas64_12.dll", "$env:CUDA_DIR/bin/cublasLt64_12.dll" $out
+          # The Visual C++ runtime and OpenMP, so it runs where they are not installed.
+          $redist = Get-ChildItem "$env:VCToolsRedistDir/x64" -Directory | Where-Object { $_.Name -like "Microsoft.VC*.CRT" -or $_.Name -like "Microsoft.VC*.OpenMP" }
+          foreach ($d in $redist) { Copy-Item "$($d.FullName)/*.dll" $out }
+          Set-Content "$out/build.txt" "$env:LLAMA_BUILD + RedGiant patches (0001 teal, 0002 moe-prefetch), CUDA $env:CUDA_VERSION, $env:CUDA_ARCHS"
+          foreach ($f in "llama-server.exe", "llama.dll", "ggml.dll", "ggml-base.dll", "ggml-cuda.dll", "cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll") {
+            if (-not (Test-Path "$out/$f")) { throw "$f is missing" }
+          }
+          if (-not (Get-ChildItem "$out/ggml-cpu*.dll")) { throw "no ggml-cpu backend" }
+          # No card here: it must start and say its version all the same.
+          & "$out/llama-server.exe" --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Compress-Archive -Path "$out/*" -DestinationPath $env:ZIP -CompressionLevel Optimal
+          Get-ChildItem $out | Sort-Object Length -Descending | Format-Table Name, @{ n = "MB"; e = { [math]::Round($_.Length / 1MB, 1) } }
+          "{0:N0} MB zipped" -f ((Get-Item $env:ZIP).Length / 1MB)
+          (Get-FileHash -Algorithm SHA256 $env:ZIP).Hash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llama-redgiant-win-cuda12.8-x64
+          path: ${{ env.ZIP }}
+          compression-level: 0
+          retention-days: 14
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ env.ZIP }}
