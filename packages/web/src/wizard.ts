@@ -206,6 +206,26 @@ export function bigChunksShown(
   return streaming && variant !== "cpu" && hw.suggestion.kind !== "igpu";
 }
 
+/** The patched engine's download (G32.2), as the release's zip measured. */
+export const MOE_PREFETCH_SIZE = "600 MB";
+
+/**
+ * The «next layer ahead» switch (G32.2): with SSD stream on, RedGiant's engine on Windows and an
+ * NVIDIA card of its own, and the server saying whether this version has the patched binaries
+ * ("missing": shown, saying so, and off). null: not shown.
+ */
+export function moePrefetchSwitch(
+  s: Pick<SetupState, "hardware" | "moePrefetch">,
+  variant: string,
+  streaming: boolean,
+): "available" | "missing" | null {
+  const hw = s.hardware;
+  if (!streaming || variant !== "windows" || !s.moePrefetch) return null;
+  if (!(hw.onWindows ?? hw.windowsEngine)) return null;
+  if (!hw.gpus.some((g) => g.vendor === "nvidia" && !g.integrated)) return null;
+  return s.moePrefetch;
+}
+
 /**
  * Whether the advice on NVIDIA's «CUDA Sysmem Fallback» is due (G32.1): Windows with an NVIDIA
  * card and SSD stream on. The driver's setting cannot be read reliably without privileges (it is

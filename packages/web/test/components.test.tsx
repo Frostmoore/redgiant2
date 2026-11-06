@@ -6,6 +6,7 @@ import type { SetupState } from "../src/api.js";
 import { fromCron, toCron, whenWords } from "../src/components/Automations.js";
 import {
   hardwareText,
+  MoePrefetchPick,
   placeModel,
   roomTiers,
   SysmemAdvice,
@@ -284,5 +285,29 @@ describe("NVIDIA's Sysmem Fallback advice (G32.1)", () => {
     fireEvent.click(r.getByText("Ho capito"));
     expect(sysmemAdviceClosed.value).toBe(true);
     expect(localStorage.getItem("rg.sysmemAdvice")).toBe("1");
+  });
+});
+
+describe("«next layer ahead» (G32.2)", () => {
+  it("turns on, says what it downloads, and stays off where the version has no binaries", () => {
+    const seen: boolean[] = [];
+    const r = render(
+      <MoePrefetchPick state="available" on={false} onChange={(v) => seen.push(v)} />,
+    );
+    expect(r.getByText("Strato dopo in anticipo")).toBeTruthy();
+    expect(r.getByText("sperimentale")).toBeTruthy();
+    expect(r.container.textContent).toMatch(/circa \d+ MB/);
+    fireEvent.click(r.container.querySelector("button") as HTMLButtonElement);
+    expect(seen).toEqual([true]);
+    r.unmount();
+    const missing = render(
+      <MoePrefetchPick state="missing" on={true} onChange={(v) => seen.push(v)} />,
+    );
+    const button = missing.container.querySelector("button") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    expect(missing.getByText(/senza il motore modificato/)).toBeTruthy();
+    fireEvent.click(button);
+    expect(seen).toEqual([true]);
   });
 });

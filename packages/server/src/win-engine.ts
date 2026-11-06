@@ -37,6 +37,13 @@ export interface WinEngineRequest {
   flavor?: "cuda" | "vulkan";
   /** A chat template file in `templates/` (2026-11-05: gpt-oss keeping its reasoning). */
   template?: string;
+  /**
+   * «Next layer ahead» (G32.2): with `flavor` cuda, llama.cpp with RedGiant's patch from the
+   * release of version `release` ("3.2.0", `moe-prefetch.ts`), in a folder of its own next to
+   * the official build, run with LLAMA_MOE_PREFETCH=1.
+   */
+  prefetch?: "1";
+  release?: string;
 }
 
 export interface WinEngineStatus {
@@ -88,6 +95,7 @@ export class WinEngine {
     spec: { speculative?: "draft" | "ngram" | undefined; draft?: string | undefined } = {},
     flavor: "cuda" | "vulkan" = "vulkan",
     template?: string,
+    prefetchRelease?: string,
   ): Promise<string> {
     const r: WinEngineRequest = {
       flavor,
@@ -111,6 +119,9 @@ export class WinEngine {
       ...(spec.speculative === "draft" && spec.draft && { draft: spec.draft }),
       // A chat template in the engine folder's templates/ (2026-11-05), by name only.
       ...(template && { template }),
+      // The patched build exists only for CUDA (G32.2).
+      ...(flavor === "cuda" &&
+        prefetchRelease && { prefetch: "1" as const, release: prefetchRelease }),
     };
     await mkdir(this.o.dir, { recursive: true });
     const file = join(this.o.dir, "engine.json");
@@ -214,18 +225,25 @@ export class WinEngine {
     spec: { speculative?: "draft" | "ngram" | undefined; draft?: string | undefined } = {},
     flavor: "cuda" | "vulkan" = "vulkan",
     template?: string,
+    prefetchRelease?: string,
   ): Promise<string> {
     if (!this.o.host)
       throw new JobFailure(
         "launcher_missing",
         "RedGiant does not know Windows' address on WSL's network: start RedGiant again from its icon",
       );
-    const id = await this.request(model, plan, preload, spec, flavor, template);
+    const id = await this.request(model, plan, preload, spec, flavor, template, prefetchRelease);
     const poll = this.o.pollMs ?? 1000;
     const asked = Date.now();
     let seen = false;
     let lastState = "";
-    debugLog.write("engine", "Windows engine asked", { model, plan: plan ?? null, preload, spec });
+    debugLog.write("engine", "Windows engine asked", {
+      model,
+      plan: plan ?? null,
+      preload,
+      spec,
+      prefetch: flavor === "cuda" && prefetchRelease ? prefetchRelease : null,
+    });
     for (;;) {
       if (h?.signal.aborted) {
         await this.stop();

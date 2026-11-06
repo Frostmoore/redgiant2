@@ -27,6 +27,9 @@ static class Updates
         public long Size;
     }
 
+    /** The version the installer wrote, null before the first install. */
+    public static string Installed { get { return Get("Version"); } }
+
     static string Get(string name)
     {
         using (var k = Registry.CurrentUser.OpenSubKey(Key))

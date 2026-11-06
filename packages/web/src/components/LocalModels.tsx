@@ -28,6 +28,8 @@ import {
   defaultModelsFolder,
   diskTiles,
   gbText,
+  MOE_PREFETCH_SIZE,
+  moePrefetchSwitch,
   num,
   sysmemAdviceDue,
 } from "../wizard.js";
@@ -364,6 +366,32 @@ function BigChunksPick({ on, onChange }: { on: boolean; onChange: (on: boolean) 
 }
 
 /**
+ * «Next layer ahead» (G32.2), next to SSD stream: llama.cpp with RedGiant's patch, experimental and
+ * off by default. Where this version has no patched binaries it says so and cannot be turned on.
+ */
+export function MoePrefetchPick({
+  state,
+  on,
+  onChange,
+}: {
+  state: "available" | "missing";
+  on: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  const missing = state === "missing";
+  return (
+    <div class="lm-big">
+      <Pick small on={on && !missing} disabled={missing} onChange={onChange}>
+        <strong>{t("lmMoePrefetch")}</strong>
+        <span class="exp-badge">{t("lmExperimental")}</span>
+      </Pick>
+      <p class="ui-help">{t("lmMoePrefetchHelp", { size: MOE_PREFETCH_SIZE })}</p>
+      {missing && <p class="notice">{t("lmMoePrefetchMissing")}</p>}
+    </div>
+  );
+}
+
+/**
  * NVIDIA's «CUDA Sysmem Fallback» on Windows (G32.1, Strata's issue #4219): the driver spills to
  * the computer's RAM when the card is full and reading gets 2-3.5 times slower. How to turn it
  * off, until the person closes it; RedGiant never changes the driver's settings itself.
@@ -611,6 +639,7 @@ function FileActions({
   variant,
   stream,
   bigChunks,
+  moePrefetch,
   speculative,
   off,
   onChange,
@@ -626,6 +655,8 @@ function FileActions({
   stream?: boolean;
   /** With SSD stream, bigger reading passes (G32.1, experimental). */
   bigChunks?: boolean;
+  /** With SSD stream, the next layer copied ahead (G32.2, experimental). */
+  moePrefetch?: boolean;
   /** Start it with speculative decoding (2026-11-04). */
   speculative?: { speculative: "draft" | "ngram"; draftModel?: string } | undefined;
   /** The model in use, turned off by the person (2026-11-04). */
@@ -708,6 +739,7 @@ function FileActions({
                   model: name,
                   stream,
                   ...(stream && bigChunks && { bigChunks }),
+                  ...(stream && moePrefetch && { moePrefetch }),
                   ...speculative,
                   tuning: {
                     moeCacheShare: x.share,
@@ -757,6 +789,7 @@ function FileActions({
                       model: name,
                       stream,
                       ...(stream && bigChunks && { bigChunks }),
+                      ...(stream && moePrefetch && { moePrefetch }),
                       ...speculative,
                     }),
                   )
@@ -817,6 +850,7 @@ function HfSearch({
   variant,
   stream,
   bigChunks,
+  moePrefetch,
   onChange,
 }: {
   jobs: Job[];
@@ -825,6 +859,7 @@ function HfSearch({
   variant: EngineVariant;
   stream: boolean;
   bigChunks?: boolean;
+  moePrefetch?: boolean;
   onChange: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -889,6 +924,7 @@ function HfSearch({
                 variant={variant}
                 stream={stream}
                 bigChunks={bigChunks}
+                moePrefetch={moePrefetch}
                 onChange={onChange}
               />
             </li>
@@ -1206,6 +1242,7 @@ function ModelPanel({
   variant,
   stream,
   bigChunks,
+  moePrefetch,
   onChange,
 }: {
   m: LocalModelChoice;
@@ -1217,6 +1254,7 @@ function ModelPanel({
   variant: EngineVariant;
   stream: boolean;
   bigChunks?: boolean;
+  moePrefetch?: boolean;
   onChange: () => void;
 }) {
   const [pick, setPick] = useState(m.file?.file);
@@ -1329,6 +1367,7 @@ function ModelPanel({
             variant={variant}
             stream={stream}
             bigChunks={bigChunks}
+            moePrefetch={moePrefetch}
             speculative={chosenSpec}
             off={inUse && s.config.engine?.off === true}
             onChange={onChange}
@@ -1359,6 +1398,7 @@ function WzMachine({
   available,
   onChange,
   big,
+  prefetch,
 }: {
   s: SetupState;
   variant: EngineVariant;
@@ -1367,6 +1407,10 @@ function WzMachine({
   onChange: (on: boolean) => void;
   /** The bigger passes' switch (G32.1), when SSD stream is on with a card. */
   big?: { on: boolean; onChange: (on: boolean) => void } | undefined;
+  /** «Next layer ahead» (G32.2): Windows, an NVIDIA card, SSD stream on. */
+  prefetch?:
+    | { state: "available" | "missing"; on: boolean; onChange: (on: boolean) => void }
+    | undefined;
 }) {
   const [info, setInfo] = useState(false);
   const hw = s.hardware;
@@ -1432,6 +1476,27 @@ function WzMachine({
               />
             </div>
             <p class="dim">{t("lmBigChunksHelp")}</p>
+          </div>
+        )}
+        {prefetch && (
+          <div class="wz-big">
+            <div class="wz-tog">
+              <h4>
+                {t("lmMoePrefetch")}
+                <span class="exp-badge">{t("lmExperimental")}</span>
+              </h4>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={prefetch.on && prefetch.state === "available"}
+                aria-label={t("lmMoePrefetch")}
+                class={`wz-switch small${prefetch.on && prefetch.state === "available" ? " on" : ""}`}
+                disabled={prefetch.state === "missing"}
+                onClick={() => prefetch.onChange(!prefetch.on)}
+              />
+            </div>
+            <p class="dim">{t("lmMoePrefetchHelp", { size: MOE_PREFETCH_SIZE })}</p>
+            {prefetch.state === "missing" && <p class="notice">{t("lmMoePrefetchMissing")}</p>}
           </div>
         )}
       </div>
@@ -1629,6 +1694,7 @@ export function LocalModels({
   const [error, setError] = useState<string>();
   const [stream, setStream] = useState(s.config.engine?.stream ?? false);
   const [bigChunks, setBigChunks] = useState(s.config.engine?.bigChunks ?? false);
+  const [moePrefetch, setMoePrefetch] = useState(s.config.engine?.moePrefetch ?? false);
   /** The card whose panel is open: a model's id, `file:` and a file, or `hf`. */
   const [open, setOpen] = useState<string | null>(null);
   /** On a phone the wizard shows one group at a time. */
@@ -1676,6 +1742,9 @@ export function LocalModels({
   // The options next to SSD stream (G32.1): bigger passes and NVIDIA's advice on Windows.
   const showBig = bigChunksShown(s.hardware, variant, streaming);
   const bigOn = showBig && bigChunks;
+  // «Next layer ahead» (G32.2): Windows and NVIDIA, only where the patched binaries exist.
+  const prefetchState = moePrefetchSwitch(s, variant, streaming);
+  const prefetchOn = prefetchState === "available" && moePrefetch;
   const sysmem = sysmemAdviceDue(s.hardware, variant, streaming, sysmemAdviceClosed.value);
   const tiers = roomTiers(s.hardware, streaming ? data?.diskFreeGb : undefined);
   const files = data?.files ?? [];
@@ -1710,6 +1779,7 @@ export function LocalModels({
             variant={variant}
             stream={streaming}
             bigChunks={bigOn}
+            moePrefetch={prefetchOn}
             onChange={changed}
           />
         ),
@@ -1730,6 +1800,7 @@ export function LocalModels({
                 variant={variant}
                 stream={streaming}
                 bigChunks={bigOn}
+                moePrefetch={prefetchOn}
                 onChange={changed}
               />
             </>
@@ -1767,6 +1838,7 @@ export function LocalModels({
                     variant={variant}
                     stream={streaming}
                     bigChunks={bigOn}
+                    moePrefetch={prefetchOn}
                     onChange={changed}
                   />
                 </>
@@ -1850,6 +1922,11 @@ export function LocalModels({
           available={canStream}
           onChange={(v) => setStream(v)}
           big={showBig ? { on: bigChunks, onChange: setBigChunks } : undefined}
+          prefetch={
+            prefetchState
+              ? { state: prefetchState, on: moePrefetch, onChange: setMoePrefetch }
+              : undefined
+          }
         />
         {sysmem && <SysmemAdvice />}
         {s.locked.engine && <p class="notice">{t("wzLocked")}</p>}
@@ -1962,6 +2039,9 @@ export function LocalModels({
         onChange={(v) => setStream(v)}
       >
         {showBig && <BigChunksPick on={bigChunks} onChange={setBigChunks} />}
+        {prefetchState && (
+          <MoePrefetchPick state={prefetchState} on={moePrefetch} onChange={setMoePrefetch} />
+        )}
         {sysmem && <SysmemAdvice />}
       </StreamSwitch>
       <ModelsDisk s={s} variant={variant} onMoved={changed} />

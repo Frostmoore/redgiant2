@@ -342,18 +342,21 @@ export function Pick({
   onChange,
   children,
   small,
+  disabled,
 }: {
   on: boolean;
   onChange: (on: boolean) => void;
   children: ComponentChildren;
   small?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       class={`pick-tile ${small ? "small" : ""} ${on ? "on" : ""}`}
       aria-pressed={on}
-      onClick={() => onChange(!on)}
+      disabled={disabled}
+      onClick={() => !disabled && onChange(!on)}
     >
       <span class="pick-mark">{on && <IconCheck size={small ? 12 : 13} />}</span>
       <span>{children}</span>

@@ -1798,6 +1798,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       .optional(),
     /** Bigger reading passes with SSD stream (G32.1, experimental). */
     bigChunks: z.boolean().optional(),
+    /** The next layer's experts copied ahead, patched llama.cpp on Windows (G32.2, experimental). */
+    moePrefetch: z.boolean().optional(),
     /** Speculative decoding (2026-11-04): a small model of the family, or the text written. */
     speculative: z.enum(["draft", "ngram"]).optional(),
     draftModel: z.string().min(1).optional(),

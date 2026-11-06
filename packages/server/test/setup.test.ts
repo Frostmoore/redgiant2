@@ -63,7 +63,7 @@ function fakeHooks() {
       const share = cfg?.tuning?.moeCacheShare;
       const batch = cfg?.bigChunks ? cfg.tuning?.batch : undefined;
       calls.push(
-        `engine:${cfg ? `${cfg.variant}:${cfg.model}${cfg.stream ? `:stream${share ?? ""}` : ""}${batch ? `:b${batch}` : ""}` : "off"}`,
+        `engine:${cfg ? `${cfg.variant}:${cfg.model}${cfg.stream ? `:stream${share ?? ""}` : ""}${batch ? `:b${batch}` : ""}${cfg.moePrefetch ? ":prefetch" : ""}` : "off"}`,
       );
       // A mixture of experts streamed: a plan with a cache for its experts.
       if (cfg?.stream)
@@ -589,6 +589,36 @@ describe("the setup wizard", () => {
     const offDone = await s?.core.jobs.settled(off.body.id);
     expect(offDone?.steps.find((x) => x.id === "tune")?.state).toBe("skipped");
     expect(calls.at(-1)).not.toMatch(/:b\d+$/);
+  });
+
+  it("«next layer ahead»: every try of the tuning runs the patched engine, and the switch is a new start (G32.2)", async () => {
+    const { calls, hooks } = await setup();
+    hooks.moePrefetchBinaries = async () => "available";
+    const api = (s as Server).api;
+    s?.core.providers.register(
+      new FakeProvider(() => ({ text: "OK" }), { id: "local", now: () => 0 }),
+    );
+    expect((await api<SetupState>("GET", "/api/setup")).body.moePrefetch).toBe("available");
+    const job = await api<Job>("PUT", "/api/setup/engine", {
+      engine: { variant: "windows", model: "qwen.gguf", stream: true, moePrefetch: true },
+    });
+    const done = await s?.core.jobs.settled(job.body.id);
+    expect(done?.state).toBe("done");
+    expect(done?.steps.find((x) => x.id === "tune")?.state).toBe("done");
+    const started = calls.filter((c) => c.startsWith("engine:windows"));
+    expect(started.length).toBeGreaterThan(2);
+    expect(started.every((c) => c.endsWith(":prefetch"))).toBe(true);
+    expect((await api<SetupState>("GET", "/api/setup")).body.config.engine?.moePrefetch).toBe(true);
+    // Turned off: started again with the official engine, the tuning kept (no new tries).
+    const off = await api<Job>("PUT", "/api/setup/engine", {
+      engine: { variant: "windows", model: "qwen.gguf", stream: true },
+    });
+    const offDone = await s?.core.jobs.settled(off.body.id);
+    expect(offDone?.steps.find((x) => x.id === "tune")?.state).toBe("skipped");
+    expect(calls.at(-1)).toMatch(/^engine:windows:qwen\.gguf:stream[\d.]*$/);
+    // Where it does not apply the page is told nothing about it.
+    hooks.moePrefetchBinaries = async () => null;
+    expect((await api<SetupState>("GET", "/api/setup")).body.moePrefetch).toBeNull();
   });
 
   it("a model tuned without bigger passes gets only their tries when they are turned on", async () => {

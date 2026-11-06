@@ -36,6 +36,12 @@ import { engineError } from "./engine-errors.js";
 import { detectHardware, type GpuAccess } from "./hardware.js";
 import { JobFailure, type JobHandle, type Jobs } from "./jobs.js";
 import { readLinuxMemory, readWindowsMemory, usableRamGb } from "./memory.js";
+import {
+  type MoePrefetchState,
+  moePrefetchApplies,
+  moePrefetchChecker,
+  moePrefetchRelease,
+} from "./moe-prefetch.js";
 import { modelGb, modelParts, preloadFiles } from "./preload.js";
 import { startRemote, stopRemote } from "./remote.js";
 import { LocalSearxng } from "./searxng-local.js";
@@ -58,6 +64,8 @@ export interface RuntimeOptions {
   owner?: () => string;
   /** Where the subscription engines keep their own state (`$DATA/engines/…`). */
   dataDir?: string;
+  /** RedGiant's released version (the installer's, `REDGIANT_VERSION`): its release's binaries. */
+  version?: string | undefined;
   /** The local engine, when the wizard starts it (Docker installs). */
   engine?: {
     /** Absent on Windows' native install (G30.1): the engine there needs no Docker. */
@@ -209,6 +217,13 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         return Object.keys(info.Runtimes ?? {});
       },
     });
+  /** «Next layer ahead» (G32.2): whether this version's release has the patched build. */
+  const version = o.version ?? process.env.REDGIANT_VERSION;
+  const prefetchZip = moePrefetchChecker(version);
+  const moePrefetchBinaries = async (): Promise<MoePrefetchState> => {
+    if (!o.engine?.windows || !moePrefetchApplies(await hardware())) return null;
+    return prefetchZip();
+  };
   /** The RAM a model may use now on this engine: free, not total (2026-11-04). */
   const ramNow = async (cfg: EngineConfig, totalGb: number) => {
     const [linux, windows] = await Promise.all([
@@ -235,7 +250,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
     return { dir: dir ?? "/models", fits: gb <= ram.gb };
   };
   /** The streaming plan for a model file, from its header and this computer's memory. */
-  const planFor = async (cfg: EngineConfig): Promise<EnginePlan> => {
+  const planFor = async (cfg: EngineConfig, prefetch = false): Promise<EnginePlan> => {
     const dir = cfg.variant === "windows" ? o.engine?.windows?.modelsDir : o.engine?.modelsDir;
     const path = join(dir ?? "/models", cfg.model);
     const [meta, size, hw] = await Promise.all([
@@ -269,7 +284,9 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
     const plan = streamPlan(meta, size, streamHw, {
       ...tuning,
       ...(cfg.bigChunks && batch !== undefined && { batch }),
-      ...(cfg.bigChunks && { loadInRam: true }),
+      // Weights in RAM when they fit (-lm none): the experts reach the card faster, and with the
+      // next layer ahead (G32.2) the copies it hides are the faster ones (×1.70 measured on Rig).
+      ...((cfg.bigChunks || prefetch) && { loadInRam: true }),
       draftGb,
     });
     if (!cfg.bigChunks) return plan;
@@ -445,13 +462,19 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         o.providers.remove("local");
         return;
       }
+      // «Next layer ahead» (G32.2): the patched build of this version's release, when there.
+      const prefetch =
+        cfg.moePrefetch && cfg.stream && cfg.variant === "windows"
+          ? moePrefetchRelease(cfg, await moePrefetchBinaries(), version)
+          : undefined;
       // SSD stream (2026-11-03): the numbers come from the model's file and this computer.
-      const plan = cfg.stream ? await planFor(cfg) : undefined;
+      const plan = cfg.stream ? await planFor(cfg, prefetch !== undefined) : undefined;
       debugLog.write("engine", "start asked", {
         variant: cfg.variant,
         model: cfg.model,
         stream: cfg.stream ?? false,
         bigChunks: cfg.bigChunks ?? false,
+        moePrefetch: cfg.moePrefetch ? (prefetch ?? "no binaries") : false,
         speculative: cfg.speculative ?? null,
         draftModel: cfg.draftModel ?? null,
         tuning: cfg.tuning ?? null,
@@ -484,6 +507,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
             { speculative: cfg.speculative, draft: cfg.draftModel },
             flavor,
             template,
+            prefetch,
           );
           const provider = new LocalEngineProvider({
             id: "local",
@@ -656,6 +680,8 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
     async releaseMemory() {
       await o.engine?.windows?.releaseMemory();
     },
+
+    moePrefetchBinaries,
 
     async checkUpdate() {
       return (await o.engine?.windows?.checkUpdate()) ?? null;

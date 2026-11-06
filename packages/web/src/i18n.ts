@@ -971,6 +971,11 @@ const en = {
   lmExperimental: "experimental",
   lmBigChunksHelp:
     "Reads long messages in passes of 8,192 or 16,384 tokens instead of 4,096, when the graphics card has room for them, and loads the model in RAM when it fits with a margin: the experts go through the card once a pass, so fewer passes read faster. The first start measures them on a long message (a few minutes more) and keeps the fastest. Only for mixture-of-experts models.",
+  lmMoePrefetch: "Next layer ahead",
+  lmMoePrefetchHelp:
+    "Runs a version of llama.cpp changed by RedGiant: while the graphics card computes one layer, the experts of the next one are already on their way to it, and the model is loaded in RAM when it fits. With mixture-of-experts models long messages are read up to 1.7 times faster (measured on an RTX 4080 Super). The first start downloads that engine (about {size}), kept next to the official one. NVIDIA cards on Windows only.",
+  lmMoePrefetchMissing:
+    "This version of RedGiant was released without the changed engine: the option stays off.",
   lmTuneBatch: "passes of {n} tokens",
   lmTuneLongRead: "a message of {n} tokens",
   lmSysmemTitle: "NVIDIA card: turn off «CUDA Sysmem Fallback»",
@@ -3061,6 +3066,11 @@ const it: Record<Key, string> = {
   lmExperimental: "sperimentale",
   lmBigChunksHelp:
     "Legge i messaggi lunghi a blocchi da 8.192 o 16.384 token invece che da 4.096, quando la scheda video ha posto, e carica il modello nella RAM quando ci sta con margine: gli esperti passano nella scheda una volta a blocco, quindi meno blocchi leggono più in fretta. Al primo avvio li misura su un messaggio lungo (qualche minuto in più) e tiene il più veloce. Solo per i modelli a esperti.",
+  lmMoePrefetch: "Strato dopo in anticipo",
+  lmMoePrefetchHelp:
+    "Usa una versione di llama.cpp modificata da RedGiant: mentre la scheda video calcola uno strato, gli esperti di quello dopo le stanno già arrivando, e il modello è caricato nella RAM quando ci sta. Con i modelli a esperti i messaggi lunghi si leggono fino a 1,7 volte più in fretta (misurato con una RTX 4080 Super). Al primo avvio scarica quel motore (circa {size}), tenuto accanto a quello ufficiale. Solo schede NVIDIA su Windows.",
+  lmMoePrefetchMissing:
+    "Questa versione di RedGiant è uscita senza il motore modificato: l'opzione resta spenta.",
   lmTuneBatch: "blocchi da {n} token",
   lmTuneLongRead: "un messaggio da {n} token",
   lmSysmemTitle: "Scheda NVIDIA: spegni «CUDA Sysmem Fallback»",

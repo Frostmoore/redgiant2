@@ -301,6 +301,8 @@ sealed class Launcher : ApplicationContext
         env["REDGIANT_HOST_DISKS"] = WindowsDisks();
         env["REDGIANT_HOST_DATA_DIR"] = DataDir();
         env["REDGIANT_STOP_ON_STDIN_END"] = "1";
+        // The installed version: its release has the patched engine (G32.2, «next layer ahead»).
+        env["REDGIANT_VERSION"] = Updates.Installed ?? "";
         env["NODE_ENV"] = "production";
         engine = new Process { StartInfo = info, EnableRaisingEvents = true };
         var startedAt = DateTime.Now;
@@ -514,7 +516,18 @@ static class WinEngine
      * (in WSL the card sits behind a virtualisation layer), "vulkan" for the others.
      */
     static string flavor = "vulkan";
-    static string Bin { get { return Path.Combine(Dir, "bin", flavor == "cuda" ? "current-cuda" : "current"); } }
+    /**
+     * "cuda-prefetch" (G32.2, «next layer ahead»): llama.cpp with RedGiant's patch, from
+     * RedGiant's release of the version asked, in a folder of its own next to the official build.
+     */
+    static string Bin
+    {
+        get
+        {
+            return Path.Combine(Dir, "bin", flavor == "cuda-prefetch" ? "current-cuda-prefetch" : flavor == "cuda" ? "current-cuda" : "current");
+        }
+    }
+    const string PrefetchZip = "llama-redgiant-win-cuda12.8-x64.zip";
     static string Exe { get { return Path.Combine(Bin, "llama-server.exe"); } }
     static readonly object gate = new object();
     static System.Threading.Timer timer;
@@ -573,10 +586,14 @@ static class WinEngine
         int gen;
         lock (gate) gen = ++generation;
         string wanted = Field(json, "flavor") == "cuda" ? "cuda" : "vulkan";
+        // The patched build only for CUDA, and only of a version written as one ("3.2.0").
+        string release = Field(json, "release");
+        if (release != null && !Regex.IsMatch(release, @"^\d+\.\d+\.\d+$")) release = null;
+        if (wanted == "cuda" && Field(json, "prefetch") == "1" && release != null) wanted = "cuda-prefetch";
         var t = new Thread(() => Handle(gen, id, Field(json, "model"), Field(json, "build"),
             Field(json, "ctx") ?? "65536", Field(json, "parallel") ?? "4", Field(json, "args"),
             Field(json, "fit"), Field(json, "preload"), Field(json, "draft"), wanted,
-            Field(json, "template"))) { IsBackground = true };
+            Field(json, "template"), release)) { IsBackground = true };
         t.Start();
     }
 
@@ -687,7 +704,7 @@ static class WinEngine
         return File.Exists(path) ? " --chat-template-file \"" + path + "\"" : "";
     }
 
-    static void Handle(int gen, string id, string model, string build, string ctx, string parallel, string args, string fit, string preload, string draft, string wanted, string template)
+    static void Handle(int gen, string id, string model, string build, string ctx, string parallel, string args, string fit, string preload, string draft, string wanted, string template, string release)
     {
         lock (gate) { if (gen != generation) return; Kill(); flavor = wanted; }
         if (model == null) { Status(gen, id, "stopped", null); Diag.Log("engine", "stop asked"); return; }
@@ -697,8 +714,10 @@ static class WinEngine
         try
         {
             string marker = Path.Combine(Bin, "build.txt");
-            bool ready = File.Exists(Exe) && File.Exists(marker) && File.ReadAllText(marker).Trim() == build;
-            if (!ready) Download(gen, id, build);
+            // The patched build is RedGiant's: a new version of RedGiant brings its own.
+            string want = wanted == "cuda-prefetch" ? build + "+redgiant-" + release : build;
+            bool ready = File.Exists(Exe) && File.Exists(marker) && File.ReadAllText(marker).Trim() == want;
+            if (!ready) Download(gen, id, build, release);
             // RedGiant 3.0: the server runs on this computer, so the engine listens on 127.0.0.1
             // only and needs no firewall rule.
             Status(gen, id, "starting", null);
@@ -721,6 +740,8 @@ static class WinEngine
                 RedirectStandardError = true,
                 WorkingDirectory = Bin,
             };
+            // The patch does nothing without it (G32.2).
+            if (wanted == "cuda-prefetch") info.EnvironmentVariables["LLAMA_MOE_PREFETCH"] = "1";
             var p = new Process { StartInfo = info };
             DataReceivedEventHandler keep = (s, e) =>
             {
@@ -809,11 +830,14 @@ static class WinEngine
      * llama.cpp for Windows from its GitHub release, into bin\current (Vulkan) or
      * bin\current-cuda (CUDA 12.4 with its runtime libraries, 2026-11-04).
      */
-    static void Download(int gen, string id, string build)
+    static void Download(int gen, string id, string build, string release)
     {
         ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; // TLS 1.2
         string base_ = "https://github.com/ggml-org/llama.cpp/releases/download/" + build + "/";
-        string url = base_ + "llama-" + build + (flavor == "cuda" ? "-bin-win-cuda-12.4-x64.zip" : "-bin-win-vulkan-x64.zip");
+        // The patched build (G32.2) is one zip with CUDA's libraries inside.
+        string url = flavor == "cuda-prefetch"
+            ? "https://github.com/Frostmoore/redgiant2/releases/download/v" + release + "/" + PrefetchZip
+            : base_ + "llama-" + build + (flavor == "cuda" ? "-bin-win-cuda-12.4-x64.zip" : "-bin-win-vulkan-x64.zip");
         string fresh = Path.Combine(Dir, "bin", build + "-" + flavor);
         if (Directory.Exists(fresh)) Directory.Delete(fresh, true);
         string zip = Path.Combine(Dir, "bin", build + "-" + flavor + ".zip");
@@ -839,7 +863,7 @@ static class WinEngine
             foreach (var dll in Directory.GetFiles(Path.Combine(fresh, "cudart"), "*.dll", SearchOption.AllDirectories))
                 File.Copy(dll, Path.Combine(Bin, Path.GetFileName(dll)), true);
         if (Directory.Exists(fresh)) Directory.Delete(fresh, true);
-        File.WriteAllText(Path.Combine(Bin, "build.txt"), build);
+        File.WriteAllText(Path.Combine(Bin, "build.txt"), flavor == "cuda-prefetch" ? build + "+redgiant-" + release : build);
     }
 }
 

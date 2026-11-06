@@ -99,6 +99,20 @@ export function engineArgs(dir: string, r: WinEngineRequest, port: number): stri
   ];
 }
 
+/**
+ * llama-server's environment for a request: «next layer ahead» (G32.2) is switched on by
+ * LLAMA_MOE_PREFETCH=1, which only RedGiant's patched build reads (the Windows launcher's rule).
+ */
+export function engineEnv(
+  r: WinEngineRequest,
+  base: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const env = { ...base };
+  delete env.LLAMA_MOE_PREFETCH;
+  if (r.prefetch === "1" && r.flavor === "cuda") env.LLAMA_MOE_PREFETCH = "1";
+  return env;
+}
+
 /** What macOS can hand out now, from vm_stat: free, inactive, speculative and purgeable pages. */
 export function parseVmStat(text: string): number | undefined {
   const size = Number(/page size of (\d+) bytes/.exec(text)?.[1]);
@@ -230,6 +244,7 @@ export class NativeLauncher {
       this.tail = [];
       const p = spawn(join(this.bin, "llama-server"), engineArgs(this.o.dir, r, this.port), {
         cwd: this.bin,
+        env: engineEnv(r),
         stdio: ["ignore", "pipe", "pipe"],
       });
       this.server = p;

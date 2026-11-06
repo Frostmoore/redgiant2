@@ -78,6 +78,8 @@ export interface SetupState {
       tuning?: { moeCacheShare?: number; opOffload?: boolean; batch?: number };
       /** Bigger reading passes with SSD stream (G32.1, experimental). */
       bigChunks?: boolean;
+      /** The next layer's experts copied ahead, patched llama.cpp (G32.2, experimental). */
+      moePrefetch?: boolean;
       /** Turned off by the person: kept, not loaded (2026-11-04). */
       off?: boolean;
       /** Speculative decoding (2026-11-04). */
@@ -171,6 +173,11 @@ export interface SetupState {
   };
   budgetUsd: number | null;
   canRunSearch: boolean;
+  /**
+   * «Next layer ahead» (G32.2): this version's release has the patched engine, or not; null (or
+   * absent, an older server) where it does not apply (not Windows, no NVIDIA card).
+   */
+  moePrefetch?: "available" | "missing" | null;
 }
 
 export interface GgufFile {
@@ -679,6 +686,8 @@ export class Api {
       stream?: boolean;
       /** Bigger reading passes (G32.1). */
       bigChunks?: boolean;
+      /** «Next layer ahead» (G32.2). */
+      moePrefetch?: boolean;
       speculative?: "draft" | "ngram";
       draftModel?: string;
       /** A row of the tuning table picked by the person (2026-11-05). */

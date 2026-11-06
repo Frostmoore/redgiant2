@@ -607,6 +607,10 @@ const setup = new SetupService({
   hooks: {
     // DEMO_NVIDIA=1 (with REDGIANT_HOST_GPUS) shows a computer with an NVIDIA card.
     dockerRuntimes: async () => (process.env.DEMO_NVIDIA ? ["nvidia"] : []),
+    // «Next layer ahead» (G32.2): DEMO_PREFETCH=available|missing shows its switch on Windows.
+    ...(process.env.DEMO_PREFETCH && {
+      moePrefetchBinaries: async () => process.env.DEMO_PREFETCH,
+    }),
     // Keys "work" unless they contain "wrong", to show both answers.
     key: async (id, key) => {
       if (key?.includes("wrong"))

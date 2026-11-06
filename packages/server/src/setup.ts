@@ -36,6 +36,7 @@ import { IMAGE_MODEL } from "./images.js";
 import { JobFailure, type JobHandle } from "./jobs.js";
 import { LocalWhisper } from "./local-voice.js";
 import { elevenVoices } from "./media.js";
+import type { MoePrefetchState } from "./moe-prefetch.js";
 import { REMOTE_STEPS, type RemoteRequest } from "./remote.js";
 import { BIG_BATCHES, type EnginePlan, MOE_BATCH } from "./stream.js";
 
@@ -95,6 +96,11 @@ export interface SetupHooks {
    * the whole distribution for the engines in Docker. Only where RedGiant.exe can do it.
    */
   moveModels?(kind: "models", to: string, h?: JobHandle): Promise<void>;
+  /**
+   * Whether this version's release has llama.cpp with the «next layer ahead» patch (G32.2);
+   * null where it has nothing to do (not Windows, or no NVIDIA card).
+   */
+  moePrefetchBinaries?(): Promise<MoePrefetchState>;
   /** Asks RedGiant.exe to look for a newer version now (Windows); null where it cannot. */
   checkUpdate?(): Promise<{ state: string; version: string } | null>;
   /** A way to reach RedGiant from outside home (G24.6); null switches every way off. */
@@ -224,6 +230,13 @@ export interface EngineConfig {
    * the weights are loaded in RAM instead of mapped when they fit with a margin.
    */
   bigChunks?: boolean | undefined;
+  /**
+   * «Next layer ahead» (G32.2, experimental, off by default): on Windows with an NVIDIA card,
+   * llama.cpp with RedGiant's patch (its own download, from RedGiant's release of this version)
+   * copies the next experts to the card while it computes; the weights are loaded in RAM when they
+   * fit. Used only with SSD stream and where those binaries exist (`SetupState.moePrefetch`).
+   */
+  moePrefetch?: boolean | undefined;
   /** The tries that chose `tuning` (2026-11-05): shown again, and another can be picked. */
   trials?: Trial[] | undefined;
   plan?: EnginePlan | undefined;
@@ -353,6 +366,8 @@ export interface SetupState {
   budgetUsd: number | null;
   /** RedGiant can run its own search engine here (SearXNG in Docker). */
   canRunSearch: boolean;
+  /** The «next layer ahead» build for this version (G32.2): null where it does not apply. */
+  moePrefetch: MoePrefetchState;
 }
 
 export class SetupError extends Error {
@@ -626,6 +641,7 @@ export class SetupService {
       },
       budgetUsd: global?.limit.usd ?? null,
       canRunSearch: this.canRunSearch,
+      moePrefetch: (await this.o.hooks.moePrefetchBinaries?.().catch(() => null)) ?? null,
     };
   }
 
@@ -823,6 +839,7 @@ export class SetupService {
           now.model === e.model &&
           Boolean(now.stream) === Boolean(e.stream) &&
           Boolean(now.bigChunks) === Boolean(e.bigChunks) &&
+          Boolean(now.moePrefetch) === Boolean(e.moePrefetch) &&
           now.speculative === e.speculative &&
           now.draftModel === e.draftModel &&
           // Another tuning picked from the table (2026-11-05) is a new start.

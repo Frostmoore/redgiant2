@@ -5,6 +5,7 @@ import { lang } from "../src/i18n.js";
 import {
   bigChunksShown,
   diskTiles,
+  moePrefetchSwitch,
   PRESETS,
   presetOf,
   recap,
@@ -141,6 +142,37 @@ describe("the options next to SSD stream (G32.1)", () => {
     expect(bigChunksShown(hw(), "cpu", true)).toBe(false);
     const igpu = hw({ suggestion: { engine: "vulkan", maxModelGb: 8, kind: "igpu", vramGb: 0 } });
     expect(bigChunksShown(igpu, "vulkan", true)).toBe(false);
+  });
+
+  it("«next layer ahead» (G32.2): Windows, an NVIDIA card, the native engine, SSD stream on", () => {
+    const win = hw({ onWindows: true, windowsEngine: true, gpus: nvidia } as Partial<
+      SetupState["hardware"]
+    >);
+    const at = (h: SetupState["hardware"], m: SetupState["moePrefetch"]) => ({
+      hardware: h,
+      moePrefetch: m,
+    });
+    expect(moePrefetchSwitch(at(win, "available"), "windows", true)).toBe("available");
+    // A version released without the binaries: shown, saying so.
+    expect(moePrefetchSwitch(at(win, "missing"), "windows", true)).toBe("missing");
+    expect(moePrefetchSwitch(at(win, "available"), "windows", false)).toBeNull();
+    // Only RedGiant's own engine on Windows runs the patched build (not the Docker ones).
+    expect(moePrefetchSwitch(at(win, "available"), "cuda", true)).toBeNull();
+    // The server did not say (an older one, or nothing to do).
+    expect(moePrefetchSwitch(at(win, null), "windows", true)).toBeNull();
+    expect(moePrefetchSwitch({ hardware: win }, "windows", true)).toBeNull();
+    const amd = hw({
+      onWindows: true,
+      gpus: [{ name: "RX 7900", vramGb: 24, vendor: "amd", integrated: false }],
+    } as Partial<SetupState["hardware"]>);
+    expect(moePrefetchSwitch(at(amd, "available"), "windows", true)).toBeNull();
+    const mac = hw({
+      os: "darwin",
+      onWindows: false,
+      windowsEngine: false,
+      gpus: nvidia,
+    } as Partial<SetupState["hardware"]>);
+    expect(moePrefetchSwitch(at(mac, "available"), "windows", true)).toBeNull();
   });
 
   it("NVIDIA's Sysmem Fallback advice: Windows, an NVIDIA card, SSD stream on, until closed", () => {
