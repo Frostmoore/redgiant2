@@ -967,6 +967,21 @@ const en = {
   lmCardOff: "chosen, turned off",
   job_engine_load: "Loading {model}",
   lmTuneNoCopy: "experts computed on the processor when reading",
+  lmBigChunks: "Big chunks",
+  lmExperimental: "experimental",
+  lmBigChunksHelp:
+    "Reads long messages in passes of 8,192 to 32,768 tokens instead of 4,096, when the graphics card has room for them: the experts go through the card once a pass, so fewer passes read faster. The first start measures them on a long message (a few minutes more) and keeps the fastest. Only for mixture-of-experts models.",
+  lmTuneBatch: "passes of {n} tokens",
+  lmTuneLongRead: "a message of {n} tokens",
+  lmSysmemTitle: "NVIDIA card: turn off «CUDA Sysmem Fallback»",
+  lmSysmemText:
+    "When the card's memory runs out, NVIDIA's driver on Windows uses the computer's RAM instead of failing: reading messages becomes 2 to 3.5 times slower. RedGiant cannot read this setting, so check it once:",
+  lmSysmemStep1: "Open the NVIDIA Control Panel (right click on the desktop).",
+  lmSysmemStep2:
+    "Manage 3D settings, then Global Settings (or Program Settings with llama-server.exe, for the engine only).",
+  lmSysmemStep3: "CUDA - Sysmem Fallback Policy: choose «Prefer No Sysmem Fallback» and Apply.",
+  lmSysmemStep4: "Start the model again: the engine reads the setting when it starts.",
+  lmSysmemClose: "Got it",
   lmSpeedTest: "Measure the gain",
   lmSpeedTestTitle: "How much faster here",
   lmSpeedTestIntro:
@@ -3042,6 +3057,21 @@ const it: Record<Key, string> = {
   lmCardOff: "scelto, spento",
   job_engine_load: "Carico {model}",
   lmTuneNoCopy: "esperti calcolati sul processore nella lettura",
+  lmBigChunks: "Blocchi grandi",
+  lmExperimental: "sperimentale",
+  lmBigChunksHelp:
+    "Legge i messaggi lunghi a blocchi da 8.192 fino a 32.768 token invece che da 4.096, quando la scheda video ha posto: gli esperti passano nella scheda una volta a blocco, quindi meno blocchi leggono più in fretta. Al primo avvio li misura su un messaggio lungo (qualche minuto in più) e tiene il più veloce. Solo per i modelli a esperti.",
+  lmTuneBatch: "blocchi da {n} token",
+  lmTuneLongRead: "un messaggio da {n} token",
+  lmSysmemTitle: "Scheda NVIDIA: spegni «CUDA Sysmem Fallback»",
+  lmSysmemText:
+    "Quando la memoria della scheda finisce, il driver NVIDIA su Windows usa la RAM del computer invece di dare errore: la lettura dei messaggi diventa da 2 a 3,5 volte più lenta. RedGiant non può leggere questa impostazione, quindi controllala una volta:",
+  lmSysmemStep1: "Apri il Pannello di controllo NVIDIA (clic destro sul desktop).",
+  lmSysmemStep2:
+    "Gestisci impostazioni 3D, poi Impostazioni globali (oppure Impostazioni programma con llama-server.exe, solo per il motore).",
+  lmSysmemStep3: "CUDA - Sysmem Fallback Policy: scegli «Prefer No Sysmem Fallback» e Applica.",
+  lmSysmemStep4: "Riattiva il modello: il motore legge l'impostazione quando parte.",
+  lmSysmemClose: "Ho capito",
   lmSpeedTest: "Misura il guadagno",
   lmSpeedTestTitle: "Quanto va più veloce qui",
   lmSpeedTestIntro:

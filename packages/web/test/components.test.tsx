@@ -4,7 +4,12 @@ import { fireEvent, render } from "@testing-library/preact";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { SetupState } from "../src/api.js";
 import { fromCron, toCron, whenWords } from "../src/components/Automations.js";
-import { hardwareText, placeModel, roomTiers } from "../src/components/LocalModels.js";
+import {
+  hardwareText,
+  placeModel,
+  roomTiers,
+  SysmemAdvice,
+} from "../src/components/LocalModels.js";
 import { Safety } from "../src/components/Safety.js";
 import {
   Choice,
@@ -17,6 +22,7 @@ import {
   timeLeft,
 } from "../src/components/ui.js";
 import { lang } from "../src/i18n.js";
+import { sysmemAdviceClosed } from "../src/state.js";
 
 beforeEach(() => {
   lang.value = "it";
@@ -265,5 +271,18 @@ describe("room for a local model (2026-11-04)", () => {
   it("memory shared with the processor is one tier; without SSD stream only memory counts", () => {
     expect(roomTiers(hw("igpu", 8), 500).map((x) => x.kind)).toEqual(["memory", "ssd"]);
     expect(roomTiers(hw("gpu", 12.8)).map((x) => x.kind)).toEqual(["card"]);
+  });
+});
+
+describe("NVIDIA's Sysmem Fallback advice (G32.1)", () => {
+  it("says where the setting is and closes for good", () => {
+    sysmemAdviceClosed.value = false;
+    const r = render(<SysmemAdvice />);
+    expect(r.getByText(/Prefer No Sysmem Fallback/)).toBeTruthy();
+    expect(r.getByText(/llama-server\.exe/)).toBeTruthy();
+    expect(r.container.textContent).toMatch(/da 2 a 3,5 volte/);
+    fireEvent.click(r.getByText("Ho capito"));
+    expect(sysmemAdviceClosed.value).toBe(true);
+    expect(localStorage.getItem("rg.sysmemAdvice")).toBe("1");
   });
 });

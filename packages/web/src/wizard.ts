@@ -194,6 +194,34 @@ export function diskTiles(hw: SetupState["hardware"], variant: string): DiskTile
 }
 
 /** The usual folder for the models on a disk. */
+/**
+ * Whether the bigger reading passes' switch makes sense (G32.1): SSD stream on, and an engine for
+ * a card of its own (a card sharing the computer's memory, or none, gains nothing from them).
+ */
+export function bigChunksShown(
+  hw: SetupState["hardware"],
+  variant: string,
+  streaming: boolean,
+): boolean {
+  return streaming && variant !== "cpu" && hw.suggestion.kind !== "igpu";
+}
+
+/**
+ * Whether the advice on NVIDIA's «CUDA Sysmem Fallback» is due (G32.1): Windows with an NVIDIA
+ * card and SSD stream on. The driver's setting cannot be read reliably without privileges (it is
+ * in the driver's profiles, not in the registry nor in nvidia-smi), so it is explained once.
+ */
+export function sysmemAdviceDue(
+  hw: SetupState["hardware"],
+  variant: string,
+  streaming: boolean,
+  closed: boolean,
+): boolean {
+  if (closed || !streaming || variant === "cpu") return false;
+  if (!(hw.onWindows ?? hw.windowsEngine)) return false;
+  return hw.gpus.some((g) => g.vendor === "nvidia" && !g.integrated);
+}
+
 export const defaultModelsFolder = (drive: string) => `${drive}:\\RedGiant\\models`;
 
 /** One square of the closing summary: what was set up, and the step that changes it. */

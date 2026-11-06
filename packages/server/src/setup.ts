@@ -37,7 +37,7 @@ import { JobFailure, type JobHandle } from "./jobs.js";
 import { LocalWhisper } from "./local-voice.js";
 import { elevenVoices } from "./media.js";
 import { REMOTE_STEPS, type RemoteRequest } from "./remote.js";
-import type { EnginePlan } from "./stream.js";
+import { BIG_BATCHES, type EnginePlan, MOE_BATCH } from "./stream.js";
 
 /** Applies a choice while the server runs (set by main.ts; tests pass fakes). */
 export interface SetupHooks {
@@ -114,6 +114,10 @@ export interface Trial {
   share: number;
   /** false: the try without sending the experts to the card to read a context. */
   opOffload?: boolean;
+  /** Tokens a pass, for the tries of bigger passes (G32.1); absent: 4096. */
+  batch?: number;
+  /** Tokens of the long message those tries read (their `turnS` reads it instead of 1,500). */
+  readTokens?: number;
   ctx: number;
   cacheMib: number;
   state: "running" | "done" | "failed";
@@ -132,9 +136,27 @@ export interface Trial {
  */
 export const TURN_READ = 1500;
 export const TURN_WRITE = 300;
-export function typicalTurn(t: { prefillTps?: number; genTps?: number }): number | undefined {
+export function typicalTurn(
+  t: { prefillTps?: number; genTps?: number },
+  read: number = TURN_READ,
+): number | undefined {
   if (!t.prefillTps || !t.genTps) return undefined;
-  return Math.round((TURN_READ / t.prefillTps + TURN_WRITE / t.genTps) * 10) / 10;
+  return Math.round((read / t.prefillTps + TURN_WRITE / t.genTps) * 10) / 10;
+}
+
+/**
+ * The bigger passes the tuning tries (G32.1) and how long the message it reads is: as long as
+ * the biggest pass, or a pass of 32768 would read the same as one of 16384; never past the
+ * context (a thousand tokens left for the answer and the template).
+ */
+export function batchTrials(plan: { ctx: number; bigBatches?: number[] | undefined } | undefined): {
+  batches: number[];
+  read: number;
+} {
+  const ctx = plan?.ctx ?? 0;
+  const batches = (plan?.bigBatches ?? []).filter((b) => b <= ctx);
+  if (batches.length === 0) return { batches: [], read: 0 };
+  return { batches, read: Math.min(Math.max(...batches), ctx - 1024) };
 }
 
 /** The fastest try for a typical turn; the first one when none finished. */
@@ -188,7 +210,19 @@ export interface EngineConfig {
   variant: EngineVariant;
   model: string;
   stream?: boolean | undefined;
-  tuning?: { moeCacheShare?: number | undefined; opOffload?: boolean | undefined } | undefined;
+  tuning?:
+    | {
+        moeCacheShare?: number | undefined;
+        opOffload?: boolean | undefined;
+        /** Tokens a pass the tuning chose with `bigChunks` (G32.1). */
+        batch?: number | undefined;
+      }
+    | undefined;
+  /**
+   * Bigger reading passes (G32.1, experimental, off by default): with SSD stream, the tuning
+   * also tries passes of 8192 to 32768 tokens when the card has room, and keeps the fastest.
+   */
+  bigChunks?: boolean | undefined;
   /** The tries that chose `tuning` (2026-11-05): shown again, and another can be picked. */
   trials?: Trial[] | undefined;
   plan?: EnginePlan | undefined;
@@ -787,12 +821,14 @@ export class SetupService {
           now.variant === e.variant &&
           now.model === e.model &&
           Boolean(now.stream) === Boolean(e.stream) &&
+          Boolean(now.bigChunks) === Boolean(e.bigChunks) &&
           now.speculative === e.speculative &&
           now.draftModel === e.draftModel &&
           // Another tuning picked from the table (2026-11-05) is a new start.
           (!e.tuning ||
             ((e.tuning.moeCacheShare ?? 0) === (now.tuning?.moeCacheShare ?? 0) &&
-              (e.tuning.opOffload === false) === (now.tuning?.opOffload === false))) &&
+              (e.tuning.opOffload === false) === (now.tuning?.opOffload === false) &&
+              (e.tuning.batch ?? 0) === (now.tuning?.batch ?? 0))) &&
           // Tuned before the try without the copy to the card (2026-11-04): that try is still due.
           !(
             now.plan &&
@@ -818,25 +854,35 @@ export class SetupService {
         const tuned =
           this.config.engine?.model === e.model ? this.config.engine?.tuning : undefined;
         const moe = !!plan && (plan.moe ?? plan.moeCacheMib > 0) && !e.tuning;
-        if (moe && (!tuned || tuned.opOffload === undefined)) {
+        // Bigger passes (G32.1): tried once for the model, after the split of the card; a model
+        // tuned before without them gets only these tries.
+        const fullTune = moe && (!tuned || tuned.opOffload === undefined);
+        const batchTune = moe && !!asked.bigChunks && (fullTune || tuned?.batch === undefined);
+        if (fullTune || batchTune) {
           h.step("tune");
-          const trials: Trial[] = [];
+          const earlier =
+            this.config.engine?.model === e.model ? this.config.engine?.trials : undefined;
+          const trials: Trial[] = fullTune ? [] : (earlier ?? []).map((x) => ({ ...x }));
           const show = () => h.info({ trials: JSON.stringify(trials) });
-          const tryOne = async (tuning: { moeCacheShare: number; opOffload?: boolean }) => {
-            const tried = await this.o.hooks.engine({ ...asked, tuning });
+          type Tuning = { moeCacheShare: number; opOffload?: boolean; batch?: number };
+          /** Starts the engine with `tuning` (unless `started` already did) and measures it. */
+          const tryOne = async (tuning: Tuning, read?: number, started?: EnginePlan) => {
+            const tried = started ?? (await this.o.hooks.engine({ ...asked, tuning }));
             const trial: Trial = {
               share: tuning.moeCacheShare,
               ctx: tried ? tried.ctx : 0,
               cacheMib: tried ? tried.moeCacheMib : 0,
               state: "running",
               ...(tuning.opOffload === false && { opOffload: false }),
+              ...(tuning.batch !== undefined && { batch: tuning.batch }),
+              ...(read !== undefined && { readTokens: read }),
             };
             trials.push(trial);
             show();
             try {
               await this.waitLocal(h);
-              Object.assign(trial, await this.benchLocal(e.model), { state: "done" });
-              const turn = typicalTurn(trial);
+              Object.assign(trial, await this.benchLocal(e.model, read), { state: "done" });
+              const turn = typicalTurn(trial, read);
               if (turn !== undefined) trial.turnS = turn;
             } catch (err) {
               Object.assign(trial, {
@@ -847,34 +893,80 @@ export class SetupService {
             show();
             return trial;
           };
-          // No cache of experts on the card first: it was the fastest through WSL (2026-11-04).
-          const shares =
-            tuned?.moeCacheShare !== undefined ? [tuned.moeCacheShare] : [0, 0.15, 0.3];
-          const steps = shares.length + 1;
-          for (const [i, share] of shares.entries()) {
-            h.progress(i, steps);
-            const now = await tryOne({ moeCacheShare: share });
-            // More of the card for the experts made it slower: more would too (2026-11-05,
-            // Rig: 0 % then 15 % then 30 %, each worse). The rest of the shares are not tried.
-            const before = trials.at(-2);
-            if (before?.turnS !== undefined && now.turnS !== undefined && now.turnS > before.turnS)
-              break;
+          const shares = !fullTune
+            ? []
+            : tuned?.moeCacheShare !== undefined
+              ? [tuned.moeCacheShare]
+              : [0, 0.15, 0.3];
+          const steps =
+            (fullTune ? shares.length + 1 : 0) + (batchTune ? 1 + BIG_BATCHES.length : 0);
+          let done = 0;
+          let base: Tuning = {
+            moeCacheShare: tuned?.moeCacheShare ?? 0,
+            ...(tuned?.opOffload === false && { opOffload: false }),
+          };
+          let chosen: Trial | undefined = trials.find((x) => x.chosen);
+          if (fullTune) {
+            // No cache of experts on the card first: it was the fastest through WSL (2026-11-04).
+            for (const share of shares) {
+              h.progress(done++, steps);
+              const now = await tryOne({ moeCacheShare: share });
+              // More of the card for the experts made it slower: more would too (2026-11-05,
+              // Rig: 0 % then 15 % then 30 %, each worse). The rest of the shares are not tried.
+              const before = trials.at(-2);
+              if (
+                before?.turnS !== undefined &&
+                now.turnS !== undefined &&
+                now.turnS > before.turnS
+              )
+                break;
+            }
+            const best = fastestTrial(trials);
+            const share = best?.share ?? 0;
+            h.progress(done++, steps);
+            const local = await tryOne({ moeCacheShare: share, opOffload: false });
+            // The fastest for a typical turn, reading and writing together (2026-11-05).
+            chosen = fastestTrial(trials);
+            base = {
+              moeCacheShare: chosen?.share ?? share,
+              opOffload: chosen !== local,
+            };
           }
-          const best = fastestTrial(trials);
-          const share = best?.share ?? 0;
-          h.progress(shares.length, steps);
-          const local = await tryOne({ moeCacheShare: share, opOffload: false });
+          if (batchTune) {
+            // The kept split again with passes of 4096 and then each bigger pass the card has
+            // room for, all reading the same long message: the fastest for it is kept. A bigger
+            // pass slower than the one before ends the tries (its buffers took the context's room).
+            const first = await this.o.hooks.engine({
+              ...asked,
+              tuning: { ...base, batch: MOE_BATCH },
+            });
+            const long = batchTrials(first || undefined);
+            const rows: Trial[] = [];
+            if (long.batches.length > 0) {
+              h.progress(done++, steps);
+              rows.push(await tryOne({ ...base, batch: MOE_BATCH }, long.read, first || undefined));
+              for (const batch of long.batches) {
+                h.progress(done++, steps);
+                const now = await tryOne({ ...base, batch }, long.read);
+                rows.push(now);
+                const before = rows.at(-2);
+                if (
+                  before?.turnS !== undefined &&
+                  now.turnS !== undefined &&
+                  now.turnS > before.turnS
+                )
+                  break;
+              }
+            }
+            const best = fastestTrial(rows);
+            const ok = best?.state === "done";
+            if (ok) chosen = best;
+            base = { ...base, batch: ok ? (best.batch ?? MOE_BATCH) : MOE_BATCH };
+          }
           h.progress(steps, steps);
-          // The fastest for a typical turn, reading and writing together (2026-11-05).
-          const chosen = fastestTrial(trials);
-          const noCopy = chosen === local;
           for (const x of trials) x.chosen = x === chosen;
           show();
-          wanted = {
-            ...asked,
-            tuning: { moeCacheShare: chosen?.share ?? share, opOffload: !noCopy },
-            trials,
-          };
+          wanted = { ...asked, tuning: { ...base, opOffload: base.opOffload !== false }, trials };
           plan = await this.o.hooks.engine(wanted, h);
         } else {
           h.skip("tune");
@@ -890,7 +982,8 @@ export class SetupService {
               chosen:
                 x.state === "done" &&
                 x.share === (pick.moeCacheShare ?? 0) &&
-                (x.opOffload === false) === (pick.opOffload === false),
+                (x.opOffload === false) === (pick.opOffload === false) &&
+                (x.batch ?? 0) === (pick.batch ?? 0),
             }));
             wanted = { ...wanted, trials };
             h.info({ trials: JSON.stringify(trials) });
@@ -1083,9 +1176,15 @@ export class SetupService {
   }
 
   /** How fast the local engine reads a context of about 2,000 tokens and writes 64. */
-  private async benchLocal(model: string): Promise<{ genTps: number; prefillTps: number }> {
+  private async benchLocal(
+    model: string,
+    /** About how many tokens to read (G32.1, the bigger passes' long message); default ~2,000. */
+    read?: number,
+  ): Promise<{ genTps: number; prefillTps: number }> {
     const p = this.o.core.providers.get("local");
-    const text = `Measure ${randomBytes(6).toString("hex")}.\n${"RedGiant measures how fast this computer runs the model. ".repeat(180)}`;
+    // The sentence is about 11 tokens: a few fewer than asked, never more than the context.
+    const times = read ? Math.max(1, Math.floor(read / 12)) : 180;
+    const text = `Measure ${randomBytes(6).toString("hex")}.\n${"RedGiant measures how fast this computer runs the model. ".repeat(times)}`;
     const c = await complete(
       p.stream({
         model,

@@ -1792,8 +1792,12 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       .object({
         moeCacheShare: z.number().min(0).max(0.8).optional(),
         opOffload: z.boolean().optional(),
+        /** Tokens a pass, a row of the bigger passes' tries (G32.1). */
+        batch: z.number().int().min(512).max(32768).optional(),
       })
       .optional(),
+    /** Bigger reading passes with SSD stream (G32.1, experimental). */
+    bigChunks: z.boolean().optional(),
     /** Speculative decoding (2026-11-04): a small model of the family, or the text written. */
     speculative: z.enum(["draft", "ngram"]).optional(),
     draftModel: z.string().min(1).optional(),

@@ -4,6 +4,7 @@ import type { Job } from "@redgiant/protocol";
 import { FakeProvider, ProviderError } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  batchTrials,
   describeGpu,
   detectHardware,
   engineError,
@@ -60,8 +61,9 @@ function fakeHooks() {
     },
     async engine(cfg) {
       const share = cfg?.tuning?.moeCacheShare;
+      const batch = cfg?.bigChunks ? cfg.tuning?.batch : undefined;
       calls.push(
-        `engine:${cfg ? `${cfg.variant}:${cfg.model}${cfg.stream ? `:stream${share ?? ""}` : ""}` : "off"}`,
+        `engine:${cfg ? `${cfg.variant}:${cfg.model}${cfg.stream ? `:stream${share ?? ""}` : ""}${batch ? `:b${batch}` : ""}` : "off"}`,
       );
       // A mixture of experts streamed: a plan with a cache for its experts.
       if (cfg?.stream)
@@ -73,6 +75,8 @@ function fakeHooks() {
           moeCacheMib: Math.round((share ?? 0) * 8192),
           source: "ram" as const,
           ssdGbPerWord: 0,
+          // Bigger passes turned on (G32.1): those the card has room for.
+          ...(cfg.bigChunks && { bigBatches: [8192, 16384, 32768] }),
         };
     },
     async moveModels(kind, to, h) {
@@ -508,6 +512,115 @@ describe("the setup wizard", () => {
     // Nothing finished: the first one, as before.
     const failed = [{ share: 0, state: "failed" }];
     expect(fastestTrial(failed)).toBe(failed[0]);
+  });
+
+  it("reads a message as long as the biggest pass, within the context (G32.1)", () => {
+    expect(batchTrials({ ctx: 131072, bigBatches: [8192, 16384, 32768] })).toEqual({
+      batches: [8192, 16384, 32768],
+      read: 32768,
+    });
+    // A pass longer than the context is not tried; the message leaves room for the answer.
+    expect(batchTrials({ ctx: 16384, bigBatches: [8192, 16384, 32768] })).toEqual({
+      batches: [8192, 16384],
+      read: 15360,
+    });
+    expect(batchTrials({ ctx: 131072 })).toEqual({ batches: [], read: 0 });
+    expect(batchTrials(undefined)).toEqual({ batches: [], read: 0 });
+    // The long message's turn counts its own reading, not 1,500 tokens.
+    expect(typicalTurn({ prefillTps: 100, genTps: 10 }, 32768)).toBe(357.7);
+  });
+
+  it("with bigger passes on, tries them on a long message and keeps the fastest (G32.1)", async () => {
+    const { calls, hooks } = await setup();
+    const api = (s as Server).api;
+    // The fake engine's clock runs at the speed of the pass it was started with: 8192 is the
+    // fastest, 16384 slower than it (so 32768 is not tried).
+    const ms: Record<number, number> = { 4096: 100, 8192: 40, 16384: 70, 32768: 10 };
+    let step = 100;
+    let clock = 0;
+    const engine = hooks.engine.bind(hooks);
+    hooks.engine = async (cfg, h) => {
+      step = ms[cfg?.tuning?.batch ?? 4096] ?? 100;
+      return engine(cfg, h);
+    };
+    const local = new FakeProvider(() => ({ text: "OK fine" }), {
+      id: "local",
+      now: () => (clock += step),
+      contextWindow: 200_000,
+    });
+    s?.core.providers.register(local);
+    const job = await api<Job>("PUT", "/api/setup/engine", {
+      engine: { variant: "cuda", model: "qwen.gguf", stream: true, bigChunks: true },
+    });
+    const done = await s?.core.jobs.settled(job.body.id);
+    expect(done?.state).toBe("done");
+    const trials = JSON.parse(done?.vars.trials ?? "[]") as {
+      share: number;
+      batch?: number;
+      readTokens?: number;
+      chosen?: boolean;
+    }[];
+    // The splits and the read without the copy, then 4096 again, 8192, 16384 (slower: stop).
+    expect(trials.map((x) => x.batch ?? 0)).toEqual([0, 0, 0, 0, 4096, 8192, 16384]);
+    // The long message is as long as the biggest pass, within the context (131072).
+    expect(trials.slice(4).every((x) => x.readTokens === 32768)).toBe(true);
+    expect(trials.filter((x) => x.chosen).map((x) => x.batch)).toEqual([8192]);
+    // The measuring message was that long (about 12 tokens a sentence, 4 characters a token).
+    const longest = Math.max(...local.requests.map((r) => JSON.stringify(r.messages).length));
+    expect(longest).toBeGreaterThan(32768 * 3);
+    expect(calls.some((c) => c.endsWith(":b16384"))).toBe(true);
+    expect(calls.some((c) => c.endsWith(":b32768"))).toBe(false);
+    const engineNow = (await api<SetupState>("GET", "/api/setup")).body.config.engine;
+    expect(engineNow?.bigChunks).toBe(true);
+    expect(engineNow?.tuning?.batch).toBe(8192);
+    // The last start used the pass kept.
+    expect(calls.at(-1)).toMatch(/:b8192$/);
+    // Asked again the same way: nothing done again.
+    const before = calls.length;
+    const again = await api<Job>("PUT", "/api/setup/engine", {
+      engine: { variant: "cuda", model: "qwen.gguf", stream: true, bigChunks: true },
+    });
+    await s?.core.jobs.settled(again.body.id);
+    expect(calls.length - before).toBe(0);
+    // Turned off: started again with passes of 4096 (the fake sees no batch), no new tries.
+    const off = await api<Job>("PUT", "/api/setup/engine", {
+      engine: { variant: "cuda", model: "qwen.gguf", stream: true },
+    });
+    const offDone = await s?.core.jobs.settled(off.body.id);
+    expect(offDone?.steps.find((x) => x.id === "tune")?.state).toBe("skipped");
+    expect(calls.at(-1)).not.toMatch(/:b\d+$/);
+  });
+
+  it("a model tuned without bigger passes gets only their tries when they are turned on", async () => {
+    const { calls } = await setup();
+    const api = (s as Server).api;
+    s?.core.providers.register(
+      new FakeProvider(() => ({ text: "OK" }), { id: "local", now: () => 0 }),
+    );
+    const first = await api<Job>("PUT", "/api/setup/engine", {
+      engine: { variant: "cuda", model: "qwen.gguf", stream: true },
+    });
+    await s?.core.jobs.settled(first.body.id);
+    const before = calls.length;
+    const job = await api<Job>("PUT", "/api/setup/engine", {
+      engine: { variant: "cuda", model: "qwen.gguf", stream: true, bigChunks: true },
+    });
+    const done = await s?.core.jobs.settled(job.body.id);
+    expect(done?.steps.find((x) => x.id === "tune")?.state).toBe("done");
+    // No share tried again: the kept one, at 4096 then each bigger pass.
+    // (after the first start, as asked, which finds the model not tuned for them)
+    const tried = calls.slice(before + 1);
+    expect(tried.length).toBeGreaterThan(1);
+    expect(tried.every((c) => /:stream0:b\d+$/.test(c))).toBe(true);
+    const trials = JSON.parse(done?.vars.trials ?? "[]") as { batch?: number; chosen?: boolean }[];
+    // The four earlier rows stay in the table, with the new ones after them.
+    expect(trials.slice(0, 4).every((x) => x.batch === undefined)).toBe(true);
+    expect(trials.slice(4).map((x) => x.batch)).toEqual(
+      [4096, 8192, 16384, 32768].slice(0, trials.length - 4),
+    );
+    expect(trials.filter((x) => x.chosen)).toHaveLength(1);
+    const now = (await api<SetupState>("GET", "/api/setup")).body.config.engine;
+    expect(now?.tuning?.batch).toBeDefined();
   });
 
   it("starts the engine again with another try picked from the table, without measuring again", async () => {

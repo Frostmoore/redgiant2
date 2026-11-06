@@ -7889,6 +7889,87 @@ button.pick-tile.on {
   opacity: 0.45;
   cursor: not-allowed;
 }
+/* The options next to SSD stream (G32.1): bigger passes and NVIDIA's advice. */
+.exp-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.lm-big {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  align-self: stretch;
+}
+.lm-sysmem {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  text-align: left;
+}
+.lm-sysmem p,
+.lm-sysmem ol {
+  margin: 0;
+}
+.lm-sysmem ol {
+  padding-left: 20px;
+}
+.lm-sysmem-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--warn);
+}
+.lm-sysmem-head strong {
+  color: var(--text);
+}
+.wz-big {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+.wz-big h4 {
+  margin: 0;
+  font-size: 16px;
+}
+.wz-big p {
+  font-size: 14px;
+}
+.wz .wz-switch.small {
+  width: 48px;
+  height: 28px;
+}
+.wz .wz-switch.small::after {
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+}
+.wz .wz-switch.small.on::after {
+  transform: translateX(20px);
+}
 /* The SSD stream's tuning tries (2026-11-03). */
 .lm-trials {
   display: flex;

@@ -736,6 +736,14 @@ export const drawerOpen = signal(false);
 const persistTabs = () =>
   localStorage.setItem("rg.tabs", JSON.stringify({ tabs: tabs.value, active: activeTab.value }));
 
+/** The advice on NVIDIA's «CUDA Sysmem Fallback» closed by the person (G32.1): shown once. */
+export const sysmemAdviceClosed = signal(localStorage.getItem("rg.sysmemAdvice") === "1");
+
+export function closeSysmemAdvice(): void {
+  sysmemAdviceClosed.value = true;
+  localStorage.setItem("rg.sysmemAdvice", "1");
+}
+
 export function toggleExplorer(open = !explorerOpen.value): void {
   explorerOpen.value = open;
   localStorage.setItem("rg.explorer", open ? "1" : "0");

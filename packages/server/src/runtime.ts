@@ -40,7 +40,7 @@ import { modelGb, modelParts, preloadFiles } from "./preload.js";
 import { startRemote, stopRemote } from "./remote.js";
 import { LocalSearxng } from "./searxng-local.js";
 import type { EngineConfig, SetupHooks } from "./setup.js";
-import { type EnginePlan, NORMAL_CTX, speculativeArgs, streamPlan } from "./stream.js";
+import { bigBatches, type EnginePlan, NORMAL_CTX, speculativeArgs, streamPlan } from "./stream.js";
 import type { WinEngine } from "./win-engine.js";
 
 export interface RuntimeOptions {
@@ -263,12 +263,17 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
       dockerGpu: hw.dockerGpu,
       gpus: hw.gpus.map((g) => `${g.name} ${g.vramGb} GB`),
     });
-    return streamPlan(
-      meta,
-      size,
-      { kind, vramGb: hw.suggestion.vramGb, ramGb: ram.gb },
-      { ...(cfg.tuning ?? {}), draftGb },
-    );
+    const streamHw = { kind, vramGb: hw.suggestion.vramGb, ramGb: ram.gb };
+    // Bigger passes only when the person turned them on (G32.1): without, always 4096.
+    const { batch, ...tuning } = cfg.tuning ?? {};
+    const plan = streamPlan(meta, size, streamHw, {
+      ...tuning,
+      ...(cfg.bigChunks && batch !== undefined && { batch }),
+      draftGb,
+    });
+    if (!cfg.bigChunks) return plan;
+    // The bigger passes the tuning may try, those whose buffers fit in the card.
+    return { ...plan, bigBatches: bigBatches(meta, size, streamHw, { ...tuning, draftGb }) };
   };
   let gateway: TelegramGateway | undefined;
   return {
@@ -442,6 +447,7 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         variant: cfg.variant,
         model: cfg.model,
         stream: cfg.stream ?? false,
+        bigChunks: cfg.bigChunks ?? false,
         speculative: cfg.speculative ?? null,
         draftModel: cfg.draftModel ?? null,
         tuning: cfg.tuning ?? null,

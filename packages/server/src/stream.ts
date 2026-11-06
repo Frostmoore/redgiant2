@@ -34,6 +34,10 @@ export interface EnginePlan {
   ssdGbPerWord: number;
   /** The free RAM the plan counted on. */
   ramGb: number;
+  /** Tokens read in one pass (`-b`/`-ub`), when the plan sets them (absent in older plans). */
+  batch?: number;
+  /** With bigger passes turned on (G32.1): those the card has room for, for the tuning. */
+  bigBatches?: number[];
 }
 
 /** Keys and values at 8 bits (q8_0): about 53 % of the 16-bit size. */
@@ -46,8 +50,21 @@ const CARD_RESERVE_GB = 1;
  * gpt-oss 120B with 64 GB of RAM, 22 s a pass of 512 tokens, 22 tokens a second. Passes of 4096
  * make it eight times fewer. The larger buffers take about a GB more of the card.
  */
-const MOE_BATCH = 4096;
+export const MOE_BATCH = 4096;
 const MOE_BATCH_GB = 1;
+/**
+ * Bigger passes (G32.1, 2026-11-06, an experimental option after Strata's "layer-major" reading):
+ * the experts go through the card once a pass, so a long message read in passes of 16384 moves
+ * them a quarter as often as in passes of 4096. Tried by the tuning only when they fit.
+ */
+export const BIG_BATCHES = [8192, 16384, 32768] as const;
+/**
+ * The card's room llama.cpp's compute buffers take for a pass of `batch` tokens: they grow with
+ * the pass, about a GB for 4096 (the estimate used since 2026-11-04), so 8 GB for 32768.
+ */
+export const batchGb = (batch: number) => (MOE_BATCH_GB * batch) / MOE_BATCH;
+/** The context a plan never goes below. */
+const MIN_CTX = 16384;
 /** Of the free RAM, what the model's pages may keep (the rest for the engine and the system). */
 const RAM_FOR_CACHE = 0.9;
 
@@ -65,6 +82,8 @@ export function streamPlan(
     draftGb?: number | undefined;
     /** false: the experts' products of a long read on the processor, not sent to the card. */
     opOffload?: boolean | undefined;
+    /** Tokens a pass for a mixture of experts on a card (default `MOE_BATCH`, G32.1). */
+    batch?: number | undefined;
   } = {},
 ): EnginePlan {
   const moe = meta.experts > 0;
@@ -77,7 +96,8 @@ export function streamPlan(
   // embeddings, routers); fine-grained models (64 experts or more) keep about 7 % of the file
   // outside the experts.
   const shared = moe ? fileGb * (meta.experts >= 64 ? 0.07 : 0.12) : 0;
-  const free = Math.max(0, card - CARD_RESERVE_GB - (moe && card > 0 ? MOE_BATCH_GB : 0) - shared);
+  const batch = moe && card > 0 ? Math.max(MOE_BATCH, tuning.batch ?? MOE_BATCH) : 0;
+  const free = Math.max(0, card - CARD_RESERVE_GB - (batch > 0 ? batchGb(batch) : 0) - shared);
   let kvBudgetGb: number;
   let moeCacheMib = 0;
   if (card > 0 && moe) {
@@ -95,7 +115,7 @@ export function streamPlan(
     kvBudgetGb = hw.ramGb * 0.25;
   }
   const trained = meta.contextLength || NORMAL_CTX;
-  const ctx = Math.max(16384, Math.min(steps(trained), steps((kvBudgetGb * GB) / kvPerToken)));
+  const ctx = Math.max(MIN_CTX, Math.min(steps(trained), steps((kvBudgetGb * GB) / kvPerToken)));
   // How much of the weights is read at each token, and how much of it is not in RAM.
   const perWord = moe ? fileGb * (meta.expertsUsed / meta.experts) + shared : fileGb;
   const inRam = Math.max(0, hw.ramGb * RAM_FOR_CACHE);
@@ -111,7 +131,7 @@ export function streamPlan(
     args: [
       ...(moe ? ["--cpu-moe"] : []),
       ...(moeCacheMib > 0 ? ["--moe-cache-mib", String(moeCacheMib)] : []),
-      ...(moe && card > 0 ? ["-b", String(MOE_BATCH), "-ub", String(MOE_BATCH)] : []),
+      ...(batch > 0 ? ["-b", String(batch), "-ub", String(batch)] : []),
       ...(tuning.opOffload === false ? ["--no-op-offload"] : []),
       "-ctk",
       "q8_0",
@@ -124,7 +144,38 @@ export function streamPlan(
     source,
     ssdGbPerWord,
     ramGb: hw.ramGb,
+    ...(batch > 0 && { batch }),
   };
+}
+
+/**
+ * The bigger passes that fit in the card with this tuning (G32.1): their compute buffers leave
+ * room for the shortest context a plan accepts (16384 tokens of keys and values at 8 bits, after
+ * the experts' cache), and a pass is never longer than the context. Only for a mixture of experts
+ * with its experts outside a card: that is where a pass moves them all.
+ */
+export function bigBatches(
+  meta: GgufMeta,
+  fileGb: number,
+  hw: StreamHardware,
+  tuning: { moeCacheShare?: number | undefined; draftGb?: number | undefined } = {},
+): number[] {
+  if (meta.experts <= 0) return [];
+  const base = streamPlan(meta, fileGb, hw, tuning);
+  if (!base.moe) return [];
+  const kvPerToken = Math.max(1, meta.kvBytesPerToken * Q8);
+  const share = Math.min(0.8, Math.max(0, tuning.moeCacheShare ?? 0));
+  const draft = (tuning.draftGb ?? 0) * 1.3;
+  const full = hw.kind === "gpu" ? hw.vramGb : hw.kind === "gpu-unknown" ? 8 : 0;
+  const card = Math.max(0, full - draft);
+  const shared = fileGb * (meta.experts >= 64 ? 0.07 : 0.12);
+  return BIG_BATCHES.filter((b) => {
+    const free = card - CARD_RESERVE_GB - batchGb(b) - shared;
+    if (free <= 0) return false;
+    const kvTokens = (free * (1 - share) * GB) / kvPerToken;
+    const ctx = streamPlan(meta, fileGb, hw, { ...tuning, batch: b }).ctx;
+    return kvTokens >= MIN_CTX && b <= ctx;
+  });
 }
 
 /**

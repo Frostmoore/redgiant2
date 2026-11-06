@@ -75,7 +75,9 @@ export interface SetupState {
       variant: EngineVariant;
       model: string;
       stream?: boolean;
-      tuning?: { moeCacheShare?: number; opOffload?: boolean };
+      tuning?: { moeCacheShare?: number; opOffload?: boolean; batch?: number };
+      /** Bigger reading passes with SSD stream (G32.1, experimental). */
+      bigChunks?: boolean;
       /** Turned off by the person: kept, not loaded (2026-11-04). */
       off?: boolean;
       /** Speculative decoding (2026-11-04). */
@@ -91,6 +93,8 @@ export interface SetupState {
         ssdGbPerWord: number;
         /** The free RAM the plan counted on (2026-11-04). */
         ramGb?: number;
+        /** Tokens a reading pass (G32.1). */
+        batch?: number;
       };
     };
     retentionDays?: number;
@@ -673,10 +677,12 @@ export class Api {
       variant: EngineVariant;
       model: string;
       stream?: boolean;
+      /** Bigger reading passes (G32.1). */
+      bigChunks?: boolean;
       speculative?: "draft" | "ngram";
       draftModel?: string;
       /** A row of the tuning table picked by the person (2026-11-05). */
-      tuning?: { moeCacheShare: number; opOffload: boolean };
+      tuning?: { moeCacheShare: number; opOffload: boolean; batch?: number };
     } | null,
   ) => this.call<Job>("PUT", "/api/setup/engine", { engine });
   setupNames = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/names", b);

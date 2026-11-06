@@ -2,11 +2,13 @@
 // cards (what each is good at, its size and quality, whether it fits), downloads with a real
 // progress bar that can be paused, and starting the engine with its steps and plain errors.
 import { estimatedSpeed, type Job } from "@redgiant/protocol";
+import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { EngineVariant, LocalFile, LocalModelChoice, SetupState } from "../api.js";
 import { bytes } from "../format.js";
 import { t, tOptional } from "../i18n.js";
 import {
+  IconAlert,
   IconBox,
   IconChevron,
   IconCpu,
@@ -19,8 +21,16 @@ import {
   IconSearch,
   IconTrash,
 } from "../icons.js";
-import { attempt, getApi } from "../state.js";
-import { type DiskTile, defaultModelsFolder, diskTiles, gbText, num } from "../wizard.js";
+import { attempt, closeSysmemAdvice, getApi, sysmemAdviceClosed } from "../state.js";
+import {
+  bigChunksShown,
+  type DiskTile,
+  defaultModelsFolder,
+  diskTiles,
+  gbText,
+  num,
+  sysmemAdviceDue,
+} from "../wizard.js";
 import { explain } from "./Brain.js";
 import { Gallery, GalleryCard } from "./Gallery.js";
 import { Advanced, Field, JobView, Modal, Pick, Progress, useJob } from "./ui.js";
@@ -300,6 +310,7 @@ function StreamSwitch({
   available,
   plan,
   onChange,
+  children,
 }: {
   on: boolean;
   available: Availability;
@@ -307,6 +318,8 @@ function StreamSwitch({
     | { ctx: number; moeCacheMib: number; source: string; ssdGbPerWord: number; ramGb?: number }
     | undefined;
   onChange: (on: boolean) => void;
+  /** The options that go with it (G32.1): bigger passes, the NVIDIA advice. */
+  children?: ComponentChildren;
 }) {
   return (
     <div class={`lm-stream${available.ok ? "" : " off"}`}>
@@ -332,6 +345,46 @@ function StreamSwitch({
           })}
         </p>
       )}
+      {children}
+    </div>
+  );
+}
+
+/** Bigger reading passes (G32.1), next to SSD stream: experimental, off by default. */
+function BigChunksPick({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <div class="lm-big">
+      <Pick small on={on} onChange={onChange}>
+        <strong>{t("lmBigChunks")}</strong>
+        <span class="exp-badge">{t("lmExperimental")}</span>
+      </Pick>
+      <p class="ui-help">{t("lmBigChunksHelp")}</p>
+    </div>
+  );
+}
+
+/**
+ * NVIDIA's «CUDA Sysmem Fallback» on Windows (G32.1, Strata's issue #4219): the driver spills to
+ * the computer's RAM when the card is full and reading gets 2-3.5 times slower. How to turn it
+ * off, until the person closes it; RedGiant never changes the driver's settings itself.
+ */
+export function SysmemAdvice() {
+  return (
+    <div class="lm-sysmem" role="note">
+      <div class="lm-sysmem-head">
+        <IconAlert size={16} />
+        <strong>{t("lmSysmemTitle")}</strong>
+      </div>
+      <p>{t("lmSysmemText")}</p>
+      <ol>
+        <li>{t("lmSysmemStep1")}</li>
+        <li>{t("lmSysmemStep2")}</li>
+        <li>{t("lmSysmemStep3")}</li>
+        <li>{t("lmSysmemStep4")}</li>
+      </ol>
+      <button type="button" class="tiny" onClick={closeSysmemAdvice}>
+        {t("lmSysmemClose")}
+      </button>
     </div>
   );
 }
@@ -343,6 +396,9 @@ function StreamSwitch({
 type TuneTrial = {
   share: number;
   opOffload?: boolean;
+  /** Tokens a pass and the long message read, for the bigger passes' tries (G32.1). */
+  batch?: number;
+  readTokens?: number;
   ctx: number;
   cacheMib: number;
   state: "running" | "done" | "failed";
@@ -384,10 +440,19 @@ function TuneTrials({
         </thead>
         <tbody>
           {trials.map((x) => (
-            <tr key={`${x.share}-${x.opOffload ?? true}`} class={x.chosen ? "chosen" : ""}>
+            <tr
+              key={`${x.share}-${x.opOffload ?? true}-${x.batch ?? 0}`}
+              class={x.chosen ? "chosen" : ""}
+            >
               <td>
                 {gb(x.cacheMib / 1024)} · {Math.round(x.share * 100)}%
                 {x.opOffload === false && <span class="sub">{t("lmTuneNoCopy")}</span>}
+                {x.batch !== undefined && (
+                  <span class="sub">
+                    {t("lmTuneBatch", { n: num(x.batch, 0) })}
+                    {x.readTokens ? ` · ${t("lmTuneLongRead", { n: num(x.readTokens, 0) })}` : ""}
+                  </span>
+                )}
               </td>
               <td>{x.ctx ? `${Math.round(x.ctx / 1024)}k` : "–"}</td>
               <td>{x.prefillTps ?? "–"}</td>
@@ -545,6 +610,7 @@ function FileActions({
   active,
   variant,
   stream,
+  bigChunks,
   speculative,
   off,
   onChange,
@@ -558,6 +624,8 @@ function FileActions({
   variant: EngineVariant;
   /** Start it with SSD stream (2026-11-03). */
   stream?: boolean;
+  /** With SSD stream, bigger reading passes (G32.1, experimental). */
+  bigChunks?: boolean;
   /** Start it with speculative decoding (2026-11-04). */
   speculative?: { speculative: "draft" | "ngram"; draftModel?: string } | undefined;
   /** The model in use, turned off by the person (2026-11-04). */
@@ -639,8 +707,13 @@ function FileActions({
                   variant,
                   model: name,
                   stream,
+                  ...(stream && bigChunks && { bigChunks }),
                   ...speculative,
-                  tuning: { moeCacheShare: x.share, opOffload: x.opOffload !== false },
+                  tuning: {
+                    moeCacheShare: x.share,
+                    opOffload: x.opOffload !== false,
+                    ...(x.batch !== undefined && { batch: x.batch }),
+                  },
                 }),
               )
             }
@@ -678,7 +751,15 @@ function FileActions({
                 type="button"
                 class="primary"
                 onClick={() =>
-                  act(() => getApi().setupEngine({ variant, model: name, stream, ...speculative }))
+                  act(() =>
+                    getApi().setupEngine({
+                      variant,
+                      model: name,
+                      stream,
+                      ...(stream && bigChunks && { bigChunks }),
+                      ...speculative,
+                    }),
+                  )
                 }
               >
                 <IconPlay /> {t("lmStart")}
@@ -735,6 +816,7 @@ function HfSearch({
   active,
   variant,
   stream,
+  bigChunks,
   onChange,
 }: {
   jobs: Job[];
@@ -742,6 +824,7 @@ function HfSearch({
   active: string | undefined;
   variant: EngineVariant;
   stream: boolean;
+  bigChunks?: boolean;
   onChange: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -805,6 +888,7 @@ function HfSearch({
                 active={active === target(f.file)}
                 variant={variant}
                 stream={stream}
+                bigChunks={bigChunks}
                 onChange={onChange}
               />
             </li>
@@ -1121,6 +1205,7 @@ function ModelPanel({
   active,
   variant,
   stream,
+  bigChunks,
   onChange,
 }: {
   m: LocalModelChoice;
@@ -1131,6 +1216,7 @@ function ModelPanel({
   active: string | undefined;
   variant: EngineVariant;
   stream: boolean;
+  bigChunks?: boolean;
   onChange: () => void;
 }) {
   const [pick, setPick] = useState(m.file?.file);
@@ -1242,6 +1328,7 @@ function ModelPanel({
             active={inUse && sameSpec}
             variant={variant}
             stream={stream}
+            bigChunks={bigChunks}
             speculative={chosenSpec}
             off={inUse && s.config.engine?.off === true}
             onChange={onChange}
@@ -1271,12 +1358,15 @@ function WzMachine({
   on,
   available,
   onChange,
+  big,
 }: {
   s: SetupState;
   variant: EngineVariant;
   on: boolean;
   available: Availability;
   onChange: (on: boolean) => void;
+  /** The bigger passes' switch (G32.1), when SSD stream is on with a card. */
+  big?: { on: boolean; onChange: (on: boolean) => void } | undefined;
 }) {
   const [info, setInfo] = useState(false);
   const hw = s.hardware;
@@ -1325,6 +1415,25 @@ function WzMachine({
         <button type="button" class="wz-link inl" onClick={() => setInfo(true)}>
           {t("wzHowItWorks")}
         </button>
+        {big && (
+          <div class="wz-big">
+            <div class="wz-tog">
+              <h4>
+                {t("lmBigChunks")}
+                <span class="exp-badge">{t("lmExperimental")}</span>
+              </h4>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={big.on}
+                aria-label={t("lmBigChunks")}
+                class={`wz-switch small${big.on ? " on" : ""}`}
+                onClick={() => big.onChange(!big.on)}
+              />
+            </div>
+            <p class="dim">{t("lmBigChunksHelp")}</p>
+          </div>
+        )}
       </div>
       {info && (
         <Modal title={t("lmStream")} onClose={() => setInfo(false)}>
@@ -1519,6 +1628,7 @@ export function LocalModels({
   );
   const [error, setError] = useState<string>();
   const [stream, setStream] = useState(s.config.engine?.stream ?? false);
+  const [bigChunks, setBigChunks] = useState(s.config.engine?.bigChunks ?? false);
   /** The card whose panel is open: a model's id, `file:` and a file, or `hf`. */
   const [open, setOpen] = useState<string | null>(null);
   /** On a phone the wizard shows one group at a time. */
@@ -1563,6 +1673,10 @@ export function LocalModels({
   const active = s.config.engine?.model;
   const best = data && recommended(data.models, s.hardware);
   const streaming = stream && canStream.ok;
+  // The options next to SSD stream (G32.1): bigger passes and NVIDIA's advice on Windows.
+  const showBig = bigChunksShown(s.hardware, variant, streaming);
+  const bigOn = showBig && bigChunks;
+  const sysmem = sysmemAdviceDue(s.hardware, variant, streaming, sysmemAdviceClosed.value);
   const tiers = roomTiers(s.hardware, streaming ? data?.diskFreeGb : undefined);
   const files = data?.files ?? [];
   // The model in use, drawn on the computer's bar: what is in the card, in RAM, on the SSD.
@@ -1595,6 +1709,7 @@ export function LocalModels({
             active={active}
             variant={variant}
             stream={streaming}
+            bigChunks={bigOn}
             onChange={changed}
           />
         ),
@@ -1614,6 +1729,7 @@ export function LocalModels({
                 active={active === openFile.file}
                 variant={variant}
                 stream={streaming}
+                bigChunks={bigOn}
                 onChange={changed}
               />
             </>
@@ -1650,6 +1766,7 @@ export function LocalModels({
                     active={active}
                     variant={variant}
                     stream={streaming}
+                    bigChunks={bigOn}
                     onChange={changed}
                   />
                 </>
@@ -1732,7 +1849,9 @@ export function LocalModels({
           on={streaming}
           available={canStream}
           onChange={(v) => setStream(v)}
+          big={showBig ? { on: bigChunks, onChange: setBigChunks } : undefined}
         />
+        {sysmem && <SysmemAdvice />}
         {s.locked.engine && <p class="notice">{t("wzLocked")}</p>}
         {error && <p class="notice error">{error}</p>}
         <WzDisks s={s} variant={variant} onMoved={changed} />
@@ -1841,7 +1960,10 @@ export function LocalModels({
         available={canStream}
         plan={s.config.engine?.stream ? s.config.engine.plan : undefined}
         onChange={(v) => setStream(v)}
-      />
+      >
+        {showBig && <BigChunksPick on={bigChunks} onChange={setBigChunks} />}
+        {sysmem && <SysmemAdvice />}
+      </StreamSwitch>
       <ModelsDisk s={s} variant={variant} onMoved={changed} />
       <h3>{t("lmSuggested")}</h3>
       <p class="ui-help">{t("lmScoresHint")}</p>

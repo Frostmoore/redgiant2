@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { SetupState } from "../src/api.js";
 import { lang } from "../src/i18n.js";
 import {
+  bigChunksShown,
   diskTiles,
   PRESETS,
   presetOf,
@@ -11,6 +12,7 @@ import {
   stepAfter,
   stepsFor,
   suggestModel,
+  sysmemAdviceDue,
 } from "../src/wizard.js";
 
 beforeEach(() => {
@@ -127,5 +129,41 @@ describe("the wizard's steps (2026-11-06)", () => {
     expect(items[3]).toMatchObject({ value: "Non ancora", on: false });
     expect(items[4]?.value).toBe("Prudente");
     expect(items[5]?.value).toBe("Al massimo $20");
+  });
+});
+
+describe("the options next to SSD stream (G32.1)", () => {
+  const nvidia = [{ name: "RTX 4080 Super", vramGb: 16, vendor: "nvidia", integrated: false }];
+  it("big chunks only with SSD stream on and an engine for a card of its own", () => {
+    expect(bigChunksShown(hw(), "windows", true)).toBe(true);
+    expect(bigChunksShown(hw(), "cuda", true)).toBe(true);
+    expect(bigChunksShown(hw(), "windows", false)).toBe(false);
+    expect(bigChunksShown(hw(), "cpu", true)).toBe(false);
+    const igpu = hw({ suggestion: { engine: "vulkan", maxModelGb: 8, kind: "igpu", vramGb: 0 } });
+    expect(bigChunksShown(igpu, "vulkan", true)).toBe(false);
+  });
+
+  it("NVIDIA's Sysmem Fallback advice: Windows, an NVIDIA card, SSD stream on, until closed", () => {
+    const win = hw({ onWindows: true, gpus: nvidia } as Partial<SetupState["hardware"]>);
+    expect(sysmemAdviceDue(win, "windows", true, false)).toBe(true);
+    // The engines in Docker on Windows go through the same driver.
+    expect(sysmemAdviceDue(win, "cuda", true, false)).toBe(true);
+    expect(sysmemAdviceDue(win, "windows", true, true)).toBe(false);
+    expect(sysmemAdviceDue(win, "windows", false, false)).toBe(false);
+    expect(sysmemAdviceDue(win, "cpu", true, false)).toBe(false);
+    const linux = hw({ onWindows: false, windowsEngine: false, gpus: nvidia } as Partial<
+      SetupState["hardware"]
+    >);
+    expect(sysmemAdviceDue(linux, "cuda", true, false)).toBe(false);
+    const amd = hw({
+      onWindows: true,
+      gpus: [{ name: "RX 7900", vramGb: 24, vendor: "amd", integrated: false }],
+    } as Partial<SetupState["hardware"]>);
+    expect(sysmemAdviceDue(amd, "windows", true, false)).toBe(false);
+    const laptop = hw({
+      onWindows: true,
+      gpus: [{ name: "Intel Iris", vramGb: 0, vendor: "nvidia", integrated: true }],
+    } as Partial<SetupState["hardware"]>);
+    expect(sysmemAdviceDue(laptop, "windows", true, false)).toBe(false);
   });
 });
