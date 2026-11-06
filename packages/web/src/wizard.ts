@@ -207,7 +207,7 @@ export function bigChunksShown(
 }
 
 /** The patched engine's download (G32.2), as the release's zip measured. */
-export const MOE_PREFETCH_SIZE = "600 MB";
+export const MOE_PREFETCH_SIZE = "700 MB";
 
 /**
  * The «next layer ahead» switch (G32.2): with SSD stream on, RedGiant's engine on Windows and an
