@@ -970,7 +970,7 @@ const en = {
   lmBigChunks: "Big chunks",
   lmExperimental: "experimental",
   lmBigChunksHelp:
-    "Reads long messages in passes of 8,192 to 32,768 tokens instead of 4,096, when the graphics card has room for them: the experts go through the card once a pass, so fewer passes read faster. The first start measures them on a long message (a few minutes more) and keeps the fastest. Only for mixture-of-experts models.",
+    "Reads long messages in passes of 8,192 or 16,384 tokens instead of 4,096, when the graphics card has room for them, and loads the model in RAM when it fits with a margin: the experts go through the card once a pass, so fewer passes read faster. The first start measures them on a long message (a few minutes more) and keeps the fastest. Only for mixture-of-experts models.",
   lmTuneBatch: "passes of {n} tokens",
   lmTuneLongRead: "a message of {n} tokens",
   lmSysmemTitle: "NVIDIA card: turn off «CUDA Sysmem Fallback»",
@@ -3060,7 +3060,7 @@ const it: Record<Key, string> = {
   lmBigChunks: "Blocchi grandi",
   lmExperimental: "sperimentale",
   lmBigChunksHelp:
-    "Legge i messaggi lunghi a blocchi da 8.192 fino a 32.768 token invece che da 4.096, quando la scheda video ha posto: gli esperti passano nella scheda una volta a blocco, quindi meno blocchi leggono più in fretta. Al primo avvio li misura su un messaggio lungo (qualche minuto in più) e tiene il più veloce. Solo per i modelli a esperti.",
+    "Legge i messaggi lunghi a blocchi da 8.192 o 16.384 token invece che da 4.096, quando la scheda video ha posto, e carica il modello nella RAM quando ci sta con margine: gli esperti passano nella scheda una volta a blocco, quindi meno blocchi leggono più in fretta. Al primo avvio li misura su un messaggio lungo (qualche minuto in più) e tiene il più veloce. Solo per i modelli a esperti.",
   lmTuneBatch: "blocchi da {n} token",
   lmTuneLongRead: "un messaggio da {n} token",
   lmSysmemTitle: "Scheda NVIDIA: spegni «CUDA Sysmem Fallback»",

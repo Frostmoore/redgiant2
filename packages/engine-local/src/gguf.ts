@@ -15,6 +15,8 @@ export interface GgufMeta {
   expertsUsed: number;
   /** Bytes of keys and values for one token of context, at 16 bits. */
   kvBytesPerToken: number;
+  /** The words the model knows, when the header says (`<arch>.vocab_size`; 0 when it does not). */
+  vocabSize?: number;
 }
 
 /** Reads `length` bytes at `offset` (fewer at the end of the file). */
@@ -162,6 +164,7 @@ export async function readGgufMeta(read: ReadAt): Promise<GgufMeta> {
     experts: num("expert_count"),
     expertsUsed: num("expert_used_count"),
     kvBytesPerToken: Math.round(layers * kvHeads * (keyLen + valueLen) * 2),
+    ...(num("vocab_size") > 0 && { vocabSize: num("vocab_size") }),
   };
 }
 

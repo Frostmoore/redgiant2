@@ -57,12 +57,19 @@ const MOE_BATCH_GB = 1;
  * the experts go through the card once a pass, so a long message read in passes of 16384 moves
  * them a quarter as often as in passes of 4096. Tried by the tuning only when they fit.
  */
-export const BIG_BATCHES = [8192, 16384, 32768] as const;
+// Never above 16384: on CUDA a pass of a mixture of experts over 25344 tokens stops llama.cpp
+// b12034 (`nbytes_shared <= smpbo` in mmid.cu, 4 bytes a token in 101376 of shared memory).
+export const BIG_BATCHES = [8192, 16384] as const;
+/** The words a model knows when its header does not say (Qwen's 151936, among the larger). */
+const VOCAB = 151936;
 /**
- * The card's room llama.cpp's compute buffers take for a pass of `batch` tokens: they grow with
- * the pass, about a GB for 4096 (the estimate used since 2026-11-04), so 8 GB for 32768.
+ * The card's room llama.cpp's compute buffers take for a pass of `batch` tokens: about a GB for
+ * 4096 (the estimate used since 2026-11-04); past it, measured on Rig with Qwen3 30B A3B
+ * (2026-11-06: 7.1 / 10.0 / 15.7 GB of the card at 4096 / 8192 / 16384), the logits of every
+ * token of the pass (4 bytes a word of the vocabulary) and about 140 KB more a token.
  */
-export const batchGb = (batch: number) => (MOE_BATCH_GB * batch) / MOE_BATCH;
+export const batchGb = (batch: number, vocab = VOCAB) =>
+  MOE_BATCH_GB + (Math.max(0, batch - MOE_BATCH) * (vocab * 4 + 140_000)) / GB;
 /** The context a plan never goes below. */
 const MIN_CTX = 16384;
 /** Of the free RAM, what the model's pages may keep (the rest for the engine and the system). */
@@ -84,6 +91,11 @@ export function streamPlan(
     opOffload?: boolean | undefined;
     /** Tokens a pass for a mixture of experts on a card (default `MOE_BATCH`, G32.1). */
     batch?: number | undefined;
+    /**
+     * The weights loaded in RAM instead of mapped from the file, when they fit (G32.1): measured
+     * on Rig the experts reach the card faster (a long read 3217 -> 3801 tokens a second).
+     */
+    loadInRam?: boolean | undefined;
   } = {},
 ): EnginePlan {
   const moe = meta.experts > 0;
@@ -97,7 +109,10 @@ export function streamPlan(
   // outside the experts.
   const shared = moe ? fileGb * (meta.experts >= 64 ? 0.07 : 0.12) : 0;
   const batch = moe && card > 0 ? Math.max(MOE_BATCH, tuning.batch ?? MOE_BATCH) : 0;
-  const free = Math.max(0, card - CARD_RESERVE_GB - (batch > 0 ? batchGb(batch) : 0) - shared);
+  const free = Math.max(
+    0,
+    card - CARD_RESERVE_GB - (batch > 0 ? batchGb(batch, meta.vocabSize) : 0) - shared,
+  );
   let kvBudgetGb: number;
   let moeCacheMib = 0;
   if (card > 0 && moe) {
@@ -126,6 +141,9 @@ export function streamPlan(
   const ssdGbPerWord = fileGb > 0 ? Math.round(perWord * (outside / fileGb) * 100) / 100 : 0;
   const source: EnginePlan["source"] =
     outside > 0 ? "ssd" : fileGb <= inCard + 0.01 ? "card" : "ram";
+  // Loaded whole only with a good margin of free RAM: never when part is read from the SSD.
+  const loadInRam =
+    !!tuning.loadInRam && moe && card > 0 && source === "ram" && fileGb - inCard <= hw.ramGb * 0.8;
   return {
     ctx,
     args: [
@@ -133,6 +151,7 @@ export function streamPlan(
       ...(moeCacheMib > 0 ? ["--moe-cache-mib", String(moeCacheMib)] : []),
       ...(batch > 0 ? ["-b", String(batch), "-ub", String(batch)] : []),
       ...(tuning.opOffload === false ? ["--no-op-offload"] : []),
+      ...(loadInRam ? ["-lm", "none"] : []),
       "-ctk",
       "q8_0",
       "-ctv",
@@ -158,7 +177,11 @@ export function bigBatches(
   meta: GgufMeta,
   fileGb: number,
   hw: StreamHardware,
-  tuning: { moeCacheShare?: number | undefined; draftGb?: number | undefined } = {},
+  tuning: {
+    moeCacheShare?: number | undefined;
+    draftGb?: number | undefined;
+    loadInRam?: boolean | undefined;
+  } = {},
 ): number[] {
   if (meta.experts <= 0) return [];
   const base = streamPlan(meta, fileGb, hw, tuning);
@@ -170,7 +193,7 @@ export function bigBatches(
   const card = Math.max(0, full - draft);
   const shared = fileGb * (meta.experts >= 64 ? 0.07 : 0.12);
   return BIG_BATCHES.filter((b) => {
-    const free = card - CARD_RESERVE_GB - batchGb(b) - shared;
+    const free = card - CARD_RESERVE_GB - batchGb(b, meta.vocabSize) - shared;
     if (free <= 0) return false;
     const kvTokens = (free * (1 - share) * GB) / kvPerToken;
     const ctx = streamPlan(meta, fileGb, hw, { ...tuning, batch: b }).ctx;

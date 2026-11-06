@@ -1793,7 +1793,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         moeCacheShare: z.number().min(0).max(0.8).optional(),
         opOffload: z.boolean().optional(),
         /** Tokens a pass, a row of the bigger passes' tries (G32.1). */
-        batch: z.number().int().min(512).max(32768).optional(),
+        batch: z.number().int().min(512).max(16384).optional(),
       })
       .optional(),
     /** Bigger reading passes with SSD stream (G32.1, experimental). */

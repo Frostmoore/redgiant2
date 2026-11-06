@@ -146,7 +146,7 @@ export function typicalTurn(
 
 /**
  * The bigger passes the tuning tries (G32.1) and how long the message it reads is: as long as
- * the biggest pass, or a pass of 32768 would read the same as one of 16384; never past the
+ * the biggest pass, or a pass of 16384 would read the same as one of 8192; never past the
  * context (a thousand tokens left for the answer and the template).
  */
 export function batchTrials(plan: { ctx: number; bigBatches?: number[] | undefined } | undefined): {
@@ -220,7 +220,8 @@ export interface EngineConfig {
     | undefined;
   /**
    * Bigger reading passes (G32.1, experimental, off by default): with SSD stream, the tuning
-   * also tries passes of 8192 to 32768 tokens when the card has room, and keeps the fastest.
+   * also tries passes of 8192 and 16384 tokens when the card has room, and keeps the fastest;
+   * the weights are loaded in RAM instead of mapped when they fit with a margin.
    */
   bigChunks?: boolean | undefined;
   /** The tries that chose `tuning` (2026-11-05): shown again, and another can be picked. */

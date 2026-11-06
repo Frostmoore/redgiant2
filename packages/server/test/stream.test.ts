@@ -90,22 +90,38 @@ describe("bigger reading passes (G32.1)", () => {
     expect(streamPlan(qwenCoder, 17.3, card12, { batch: 512 }).batch).toBe(MOE_BATCH);
   });
 
-  it("the compute buffers grow with the pass: a GB for 4096", () => {
+  it("the compute buffers grow with the pass and the vocabulary (measured on Rig, 2026-11-06)", () => {
     expect(batchGb(4096)).toBe(1);
-    expect(batchGb(32768)).toBe(8);
-    expect(BIG_BATCHES).toEqual([8192, 16384, 32768]);
+    // Qwen3 30B A3B: 7.1 / 10.0 / 15.7 GB of the card at 4096 / 8192 / 16384.
+    expect(batchGb(8192)).toBeCloseTo(3.85, 1);
+    expect(batchGb(16384)).toBeCloseTo(9.55, 1);
+    // A larger vocabulary (Gemma's 262144) takes more.
+    expect(batchGb(16384, 262144)).toBeGreaterThan(batchGb(16384) + 3);
+    // Never past 16384: llama.cpp stops over 25344 tokens a pass of experts on CUDA.
+    expect(BIG_BATCHES).toEqual([8192, 16384]);
+  });
+
+  it("loads the weights in RAM only when asked and they fit with a margin", () => {
+    const fits = { kind: "gpu", vramGb: 16, ramGb: 48 } as const;
+    expect(streamPlan(qwenCoder, 17.3, fits, { loadInRam: true }).args.join(" ")).toContain(
+      "-lm none",
+    );
+    expect(streamPlan(qwenCoder, 17.3, fits).args).not.toContain("-lm");
+    // Part read from the SSD: mapped, as always.
+    const tight = { kind: "gpu", vramGb: 16, ramGb: 8 } as const;
+    expect(streamPlan(qwenCoder, 17.3, tight, { loadInRam: true }).args).not.toContain("-lm");
   });
 
   it("tries only the passes whose buffers leave room for 16k of context", () => {
-    expect(bigBatches(qwenCoder, 17.3, card12)).toEqual([8192, 16384, 32768]);
-    // 8 GB: 32768 would need the whole card for its buffers.
-    expect(bigBatches(qwenCoder, 17.3, { kind: "gpu", vramGb: 8, ramGb: 32 })).toEqual([
+    // 16 GB (Rig): 16384 still leaves room; 12 GB: only 8192.
+    expect(bigBatches(qwenCoder, 17.3, { kind: "gpu", vramGb: 16, ramGb: 48 })).toEqual([
       8192, 16384,
     ]);
+    expect(bigBatches(qwenCoder, 17.3, card12)).toEqual([8192]);
     // A cache of experts takes its part of the room too.
     expect(
-      bigBatches(qwenCoder, 17.3, { kind: "gpu", vramGb: 8, ramGb: 32 }, { moeCacheShare: 0.7 }),
-    ).toEqual([8192]);
+      bigBatches(qwenCoder, 17.3, { kind: "gpu", vramGb: 8, ramGb: 32 }, { moeCacheShare: 0.8 }),
+    ).toEqual([]);
     // No card, or a dense model: no passes to make bigger.
     expect(bigBatches(qwenCoder, 17.3, { kind: "cpu", vramGb: 0, ramGb: 32 })).toEqual([]);
     expect(bigBatches(gemma12, 7.3, card12)).toEqual([]);

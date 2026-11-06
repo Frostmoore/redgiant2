@@ -269,11 +269,15 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
     const plan = streamPlan(meta, size, streamHw, {
       ...tuning,
       ...(cfg.bigChunks && batch !== undefined && { batch }),
+      ...(cfg.bigChunks && { loadInRam: true }),
       draftGb,
     });
     if (!cfg.bigChunks) return plan;
     // The bigger passes the tuning may try, those whose buffers fit in the card.
-    return { ...plan, bigBatches: bigBatches(meta, size, streamHw, { ...tuning, draftGb }) };
+    return {
+      ...plan,
+      bigBatches: bigBatches(meta, size, streamHw, { ...tuning, loadInRam: true, draftGb }),
+    };
   };
   let gateway: TelegramGateway | undefined;
   return {
