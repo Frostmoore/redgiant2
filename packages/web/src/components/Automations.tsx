@@ -21,9 +21,8 @@ import {
 import { renderMarkdown } from "../markdown.js";
 import { agents, attempt, automationsVersion, getApi, openTab, projects } from "../state.js";
 import { explain } from "./Brain.js";
-import { Chips, Facts, Sub, SwitchRow } from "./SettingsKit-automazioni.js";
-import { Acts, Head, Tile } from "./SetupKit.js";
-import { Advanced, Choice, Field, Modal, Pick } from "./ui.js";
+import { Acts, Chips, Facts, Head, Sub, SwitchRow, Tile, WzPage } from "./SettingsKit.js";
+import { Advanced, Field, Modal } from "./ui.js";
 
 const STATUSES: AutomationRun["status"][] = ["running", "ok", "failed", "timeout", "skipped"];
 const TRIGGERS: AutomationRun["trigger"][] = ["cron", "webhook", "manual", "missed"];
@@ -378,87 +377,6 @@ function useDraft(
   };
 }
 
-/**
- * Making or changing an automation: when, who, what; the YAML under "Advanced". The plain form,
- * used where the page is not drawn as the wizard (an assistant's routines).
- */
-export function Editor({
-  current,
-  onSaved,
-  who: preset,
-}: {
-  current: Automation | undefined;
-  onSaved: (a: Automation, secret?: string) => void;
-  /** Who does it, chosen beforehand (an assistant's own routine). */
-  who?: string;
-}) {
-  const d = useDraft(current, preset, onSaved);
-  return (
-    <div class="ui-step auto-editor">
-      {!current && (
-        <>
-          <h4>{t("autoStart")}</h4>
-          <Choice<Template>
-            value={[d.tpl]}
-            onChange={([x]) => x && d.pickTemplate(x)}
-            options={[...TEMPLATES, "blank" as const].map((x) => ({
-              id: x,
-              title: t(`tplTitle_${x}`),
-              description: t(`tplDesc_${x}`),
-            }))}
-          />
-        </>
-      )}
-      <div class="form">
-        <Field label={t("autoTitle")} help={t("autoTitleHelp")}>
-          <input
-            value={d.title}
-            onInput={(e) => d.setTitle((e.target as HTMLInputElement).value)}
-          />
-        </Field>
-        <Field label={t("autoWho")} help={t("autoWhoHelp")}>
-          <select
-            value={d.whoKey}
-            onChange={(e) => d.setWhoKey((e.target as HTMLSelectElement).value)}
-          >
-            {d.who.map((x) => (
-              <option key={x.key} value={x.key}>
-                {x.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </div>
-      <h4>{t("autoWhen")}</h4>
-      <WhenPicker when={d.when} onChange={d.setWhen} />
-      <p class="notice ok">{whenWords(d.when)}</p>
-      <Field label={t("autoWhat")} help={t("autoWhatHelp")}>
-        <textarea
-          rows={4}
-          value={d.instructions}
-          onInput={(e) => d.setInstructions((e.target as HTMLTextAreaElement).value)}
-        />
-      </Field>
-      <Advanced label={t("autoYaml")}>
-        <p class="ui-help">{t("autoYamlHint")}</p>
-        <textarea
-          class="code recipe"
-          spellcheck={false}
-          rows={12}
-          value={d.yaml ?? d.generated}
-          onInput={(e) => d.setYaml((e.target as HTMLTextAreaElement).value)}
-        />
-      </Advanced>
-      <div class="row">
-        <button type="button" class="primary" disabled={!d.ready} onClick={() => void d.save()}>
-          {current ? t("save") : t("create")}
-        </button>
-      </div>
-      {d.error && <p class="notice error">{d.error}</p>}
-    </div>
-  );
-}
-
 const WHEN_KINDS = [
   "daily",
   "weekdays",
@@ -482,136 +400,6 @@ function whenOf(kind: WhenKind, current: When): When {
   if (kind === "hours") return { kind, every: 3 };
   if (kind === "webhook") return { kind };
   return { kind, time };
-}
-
-function WhenPicker({ when, onChange }: { when: When; onChange: (w: When) => void }) {
-  return (
-    <div class="when-picker">
-      <div class="choice">
-        {WHEN_KINDS.map((k) => (
-          <button
-            key={k}
-            type="button"
-            class={when.kind === k ? "active" : ""}
-            onClick={() => onChange(whenOf(k, when))}
-          >
-            {t(`whenKind_${k}`)}
-          </button>
-        ))}
-      </div>
-      <div class="row wrap">
-        {"time" in when && (
-          <label class="row">
-            {t("whenAtTime")}
-            <input
-              type="time"
-              value={when.time}
-              onInput={(e) => onChange({ ...when, time: (e.target as HTMLInputElement).value })}
-            />
-          </label>
-        )}
-        {when.kind === "weekly" && (
-          <div class="pick-row">
-            {DAYS.map((d) => (
-              <Pick
-                key={d}
-                small
-                on={when.days.includes(d)}
-                onChange={(v) =>
-                  onChange({
-                    ...when,
-                    days: v ? [...when.days, d] : when.days.filter((x) => x !== d),
-                  })
-                }
-              >
-                {dayName(d)}
-              </Pick>
-            ))}
-          </div>
-        )}
-        {when.kind === "monthly" && (
-          <label class="row">
-            {t("whenDayOfMonth")}
-            <input
-              type="number"
-              min={1}
-              max={28}
-              value={when.day}
-              onInput={(e) =>
-                onChange({ ...when, day: Number((e.target as HTMLInputElement).value) || 1 })
-              }
-            />
-          </label>
-        )}
-        {when.kind === "hours" && (
-          <label class="row">
-            {t("whenEveryHours")}
-            <input
-              type="number"
-              min={1}
-              max={23}
-              value={when.every}
-              onInput={(e) =>
-                onChange({ ...when, every: Number((e.target as HTMLInputElement).value) || 1 })
-              }
-            />
-          </label>
-        )}
-        {when.kind === "custom" && <code>{when.cron}</code>}
-      </div>
-      {when.kind === "webhook" && <p class="ui-help">{t("whenWebhookHelp")}</p>}
-      {when.kind === "repo" && (
-        <div class="row wrap">
-          <select
-            aria-label={t("projects")}
-            value={when.project}
-            onChange={(e) => onChange({ ...when, project: (e.target as HTMLSelectElement).value })}
-          >
-            {projects.value.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <div class="pick-row">
-            {REPO_EVENTS.map((ev) => (
-              <Pick
-                key={ev}
-                small
-                on={when.events.includes(ev)}
-                onChange={(v) =>
-                  onChange({
-                    ...when,
-                    events: v ? [...when.events, ev] : when.events.filter((x) => x !== ev),
-                  })
-                }
-              >
-                {t(`repoEvent_${ev}`)}
-              </Pick>
-            ))}
-          </div>
-          <p class="ui-help">{t("whenRepoHelp")}</p>
-        </div>
-      )}
-      {when.kind === "email" && (
-        <div class="row wrap">
-          <input
-            aria-label={t("emailFrom")}
-            placeholder={t("emailFromPlaceholder")}
-            value={when.from}
-            onInput={(e) => onChange({ ...when, from: (e.target as HTMLInputElement).value })}
-          />
-          <input
-            aria-label={t("emailSubject")}
-            placeholder={t("emailSubjectPlaceholder")}
-            value={when.subject}
-            onInput={(e) => onChange({ ...when, subject: (e.target as HTMLInputElement).value })}
-          />
-          <p class="ui-help">{t("whenEmailHelp")}</p>
-        </div>
-      )}
-    </div>
-  );
 }
 
 const REPO_EVENTS = ["push", "pull_request", "issues", "issue_comment", "release"] as const;
@@ -729,17 +517,23 @@ function WzWhen({ when, onChange }: { when: When; onChange: (w: When) => void })
   );
 }
 
-/** Making or changing an automation in a window: where to start, who, when, what; the YAML. */
-function WzEditor({
+/**
+ * Making or changing an automation in a window: where to start, who, when, what; the YAML. The
+ * Automations page and an assistant's routines (with `who` chosen beforehand) both use it.
+ */
+export function Editor({
   current,
   onSaved,
   onCancel,
+  who: preset,
 }: {
   current: Automation | undefined;
   onSaved: (a: Automation, secret?: string) => void;
   onCancel: () => void;
+  /** Who does it, chosen beforehand (an assistant's own routine). */
+  who?: string;
 }) {
-  const d = useDraft(current, undefined, onSaved);
+  const d = useDraft(current, preset, onSaved);
   return (
     <form
       class="aw-editor"
@@ -1021,83 +815,86 @@ export function Automations() {
       .join(" · ");
 
   return (
-    <div class="settings-section wz-look aw-page">
-      <section class="wz-inner">
-        <Head eyebrow={t("automations")} q={t("awQ")} lead={t("awLead")} />
-        <div class="wz-brain aw-make">
-          <Tile
-            on={open === "new"}
-            icon={<IconPlus />}
-            title={t("newAutomation")}
-            text={t("awNewText")}
-            onClick={() => setOpen("new")}
-          />
-          <Tile
-            on={open === "reminder"}
-            icon={<IconClock />}
-            title={t("newReminder")}
-            text={t("awReminderText")}
-            onClick={() => setOpen("reminder")}
-          />
-        </div>
-
-        <Sub title={t("awListTitle")} lead={list.length > 0 ? t("awListLead") : undefined} />
-        {list.length === 0 ? (
-          <p class="wz-subl">{t("noAutomations")}</p>
-        ) : (
-          <div class="wz-brain aw-list">
-            {list.map((a) => (
-              <Tile
-                key={a.id}
-                on={a.enabled}
-                icon={iconOf(a)}
-                title={a.recipe.description || a.name}
-                badge={a.error ? t("recipeBroken") : undefined}
-                text={recipeWhen(a)}
-                state={stateOf(a)}
-                onClick={() => setOpen({ id: a.id })}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {open === "new" && (
-        <Modal wide title={t("newAutomation")} onClose={close}>
-          <WzEditor current={undefined} onSaved={saved} onCancel={close} />
-        </Modal>
-      )}
-      {open === "reminder" && (
-        <Modal title={t("newReminder")} onClose={close}>
-          <ReminderForm onSaved={(a) => saved(a)} onCancel={close} />
-        </Modal>
-      )}
-      {/* The window starts once the automation it shows is known (after a save, the list
+    <WzPage
+      class="aw-page"
+      after={
+        <>
+          {open === "new" && (
+            <Modal wide title={t("newAutomation")} onClose={close}>
+              <Editor current={undefined} onSaved={saved} onCancel={close} />
+            </Modal>
+          )}
+          {open === "reminder" && (
+            <Modal title={t("newReminder")} onClose={close}>
+              <ReminderForm onSaved={(a) => saved(a)} onCancel={close} />
+            </Modal>
+          )}
+          {/* The window starts once the automation it shows is known (after a save, the list
           arrives a moment later). */}
-      {current && typeof open === "object" && open?.edit && (
-        <Modal wide title={current.recipe.description || current.name} onClose={close}>
-          <WzEditor
-            key={current.id}
-            current={current}
-            onSaved={saved}
-            onCancel={() => setOpen({ id: current.id })}
-          />
-        </Modal>
-      )}
-      {current && typeof open === "object" && !open?.edit && (
-        <AutoView
-          a={current}
-          secret={secret}
-          setSecret={setSecret}
-          onEdit={() => setOpen({ id: current.id, edit: true })}
-          onClose={close}
-          onDeleted={() => {
-            close();
-            reload();
-          }}
-          reload={reload}
+          {current && typeof open === "object" && open?.edit && (
+            <Modal wide title={current.recipe.description || current.name} onClose={close}>
+              <Editor
+                key={current.id}
+                current={current}
+                onSaved={saved}
+                onCancel={() => setOpen({ id: current.id })}
+              />
+            </Modal>
+          )}
+          {current && typeof open === "object" && !open?.edit && (
+            <AutoView
+              a={current}
+              secret={secret}
+              setSecret={setSecret}
+              onEdit={() => setOpen({ id: current.id, edit: true })}
+              onClose={close}
+              onDeleted={() => {
+                close();
+                reload();
+              }}
+              reload={reload}
+            />
+          )}
+        </>
+      }
+    >
+      <Head eyebrow={t("automations")} q={t("awQ")} lead={t("awLead")} />
+      <div class="wz-brain aw-make">
+        <Tile
+          on={open === "new"}
+          icon={<IconPlus />}
+          title={t("newAutomation")}
+          text={t("awNewText")}
+          onClick={() => setOpen("new")}
         />
+        <Tile
+          on={open === "reminder"}
+          icon={<IconClock />}
+          title={t("newReminder")}
+          text={t("awReminderText")}
+          onClick={() => setOpen("reminder")}
+        />
+      </div>
+
+      <Sub title={t("awListTitle")} lead={list.length > 0 ? t("awListLead") : undefined} />
+      {list.length === 0 ? (
+        <p class="wz-subl">{t("noAutomations")}</p>
+      ) : (
+        <div class="wz-brain aw-list">
+          {list.map((a) => (
+            <Tile
+              key={a.id}
+              on={a.enabled}
+              icon={iconOf(a)}
+              title={a.recipe.description || a.name}
+              badge={a.error ? t("recipeBroken") : undefined}
+              text={recipeWhen(a)}
+              state={stateOf(a)}
+              onClick={() => setOpen({ id: a.id })}
+            />
+          ))}
+        </div>
       )}
-    </div>
+    </WzPage>
   );
 }

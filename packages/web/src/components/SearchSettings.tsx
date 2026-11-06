@@ -5,7 +5,6 @@ import { SEARCH_PROVIDERS, type SearchProviderId } from "@redgiant/protocol";
 import { useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
 import { t } from "../i18n.js";
-import { IconCheck } from "../icons.js";
 import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
 import { Choice, Field } from "./ui.js";
@@ -121,7 +120,7 @@ export function SearchSettings({
               disabled={!ready || busy !== null}
               onClick={() => void run("save")}
             >
-              {pick === current && <IconCheck size={13} />} {t("searchUse")}
+              {t("searchUse")}
             </button>
           </div>
           {result && <p class={`notice ${result.ok ? "ok" : "error"}`}>{result.text}</p>}

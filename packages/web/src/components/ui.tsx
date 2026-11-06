@@ -245,12 +245,14 @@ export function useJob(id: string | undefined): Job | undefined {
   return job;
 }
 
+/** Each step's mark: a dot (filled once done), a spinner while it runs, an X when it fails. The
+ * step itself is lit by border and background, never ticked (the person's rule, 2026-11-06). */
 const STEP_ICONS = {
   waiting: <span class="ui-dot" />,
   running: <IconSpinner size={14} />,
-  done: <IconCheck size={14} />,
+  done: <span class="ui-dot" />,
   failed: <IconX size={14} />,
-  skipped: <IconCheck size={14} />,
+  skipped: <span class="ui-dot" />,
 } as const;
 
 /**
@@ -287,11 +289,7 @@ export function JobView({
           </li>
         ))}
       </ol>
-      {job.state === "done" && (
-        <p class="notice ok">
-          <IconCheck size={14} /> {t("uiDone")}
-        </p>
-      )}
+      {job.state === "done" && <p class="notice ok">{t("uiDone")}</p>}
       {job.state === "cancelled" && <p class="notice">{t("uiCancelled")}</p>}
       {job.state === "failed" && job.error && (
         <div class="ui-job-error">

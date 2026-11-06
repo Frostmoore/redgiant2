@@ -31,8 +31,19 @@ import { explain } from "./Brain.js";
 import { EmailSettings } from "./EmailSettings.js";
 import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
 import { ServicePanel } from "./Services.js";
-import { Box, Done, Row, Seg, Sub, Switch, Tiles } from "./SettingsKit-cornice.js";
-import { Acts, Head, Tile } from "./SetupKit.js";
+import {
+  Acts,
+  Box,
+  Done,
+  Head,
+  Row,
+  Seg,
+  Sub,
+  Switch,
+  Tile,
+  Tiles,
+  WzPage,
+} from "./SettingsKit.js";
 import { Modal } from "./ui.js";
 
 type DebugState = { enabled: boolean; forced: boolean; bytes: number; files: number };
@@ -301,127 +312,130 @@ export function General() {
     />
   );
   return (
-    <div class="settings-section wz-look st-page st-general">
-      <section class="wz-inner">
-        <Head eyebrow={t("general")} q={t("stGenQ")} lead={t("stGenLead")} />
-
-        <Box>
-          <Row title={t("theme")}>
-            <Seg
-              label={t("theme")}
-              value={theme.value}
-              onChange={setTheme}
-              options={[
-                ["system", [<IconMonitor key="i" size={18} />, " ", t("themeSystem")]],
-                ["light", [<IconSun key="i" size={18} />, " ", t("themeLight")]],
-                ["dark", [<IconMoon key="i" size={18} />, " ", t("themeDark")]],
-              ]}
-            />
-          </Row>
-          <Row title={t("language")}>
-            <Seg
-              label={t("language")}
-              value={lang.value}
-              onChange={setLang}
-              options={[
-                ["it", "Italiano"],
-                ["en", "English"],
-              ]}
-            />
-          </Row>
-          <BrowserNotifications />
-        </Box>
-
-        <Sub title={t("stGenAgents")} lead={t("stGenAgentsLead")} />
-        <Tiles>
-          {tile(
-            "instructions",
-            !!instructions,
-            <IconBook />,
-            instructions
-              ? instructions.slice(0, 90) + (instructions.length > 90 ? "…" : "")
-              : t("stGenInstrText"),
-            instructions ? t("stGenWritten") : undefined,
+    <WzPage
+      class="st-general"
+      after={
+        <>
+          {open && (
+            <Modal title={titles[open]} onClose={close}>
+              <div class="wz-panel-in">
+                {open === "instructions" && (
+                  <Instructions initial={c.instructions ?? ""} onSaved={load} />
+                )}
+                {open === "backup" && <BackupModel initial={backup} onSaved={load} />}
+                {(open === "search" || open === "voice" || open === "images") && (
+                  <ServicePanel s={s} part={open} onSaved={load} />
+                )}
+                {open === "email" && <EmailSettings onChange={load} />}
+                {open === "updates" && <Updates />}
+                {open === "debug" && dbg && <Diagnostics st={dbg} setSt={setDbg} />}
+              </div>
+              {(open === "backup" || open === "search") && <Done onClick={close} />}
+            </Modal>
           )}
-          {tile(
-            "backup",
-            !!backup,
-            <IconCrown />,
-            t("stGenBackupText"),
-            backup ? (backup.model.split("/").pop() ?? backup.model) : undefined,
-          )}
-        </Tiles>
+        </>
+      }
+    >
+      <Head eyebrow={t("general")} q={t("stGenQ")} lead={t("stGenLead")} />
 
-        <Sub title={t("servicesTitle")} lead={t("servicesHint")} />
-        <Tiles>
-          {tile(
-            "search",
-            !!search,
-            <IconGlobe />,
-            t("stGenSearchText"),
-            search ? t("searchInUse") : undefined,
-          )}
-          {tile(
-            "voice",
-            !!voice,
-            <IconMic size={22} />,
-            t("servicesVoiceHelp"),
-            voice ? t("stGenOn") : undefined,
-          )}
-          {tile(
-            "images",
-            images,
-            <IconBox />,
-            t("servicesImagesHelp"),
-            images ? (c.imagesModel ?? t("stGenOn")) : undefined,
-          )}
-          {tile(
-            "email",
-            !!email?.configured,
-            <IconSend size={22} />,
-            t("emailPurpose"),
-            email?.configured ? email.user : undefined,
-          )}
-        </Tiles>
+      <Box>
+        <Row title={t("theme")}>
+          <Seg
+            label={t("theme")}
+            value={theme.value}
+            onChange={setTheme}
+            options={[
+              ["system", [<IconMonitor key="i" size={18} />, " ", t("themeSystem")]],
+              ["light", [<IconSun key="i" size={18} />, " ", t("themeLight")]],
+              ["dark", [<IconMoon key="i" size={18} />, " ", t("themeDark")]],
+            ]}
+          />
+        </Row>
+        <Row title={t("language")}>
+          <Seg
+            label={t("language")}
+            value={lang.value}
+            onChange={setLang}
+            options={[
+              ["it", "Italiano"],
+              ["en", "English"],
+            ]}
+          />
+        </Row>
+        <BrowserNotifications />
+      </Box>
 
-        <Sub title={t("stGenCare")} lead={t("stGenCareLead")} />
-        <Tiles>
-          {tile("updates", false, <IconRefresh size={22} />, t("updHelp"))}
-          {dbg &&
-            tile(
-              "debug",
-              dbg.enabled,
-              <IconTool />,
-              t("stGenDebugText"),
-              dbg.enabled ? t("stGenOn") : undefined,
-            )}
-        </Tiles>
+      <Sub title={t("stGenAgents")} lead={t("stGenAgentsLead")} />
+      <Tiles>
+        {tile(
+          "instructions",
+          !!instructions,
+          <IconBook />,
+          instructions
+            ? instructions.slice(0, 90) + (instructions.length > 90 ? "…" : "")
+            : t("stGenInstrText"),
+          instructions ? t("stGenWritten") : undefined,
+        )}
+        {tile(
+          "backup",
+          !!backup,
+          <IconCrown />,
+          t("stGenBackupText"),
+          backup ? (backup.model.split("/").pop() ?? backup.model) : undefined,
+        )}
+      </Tiles>
 
-        <Sub title={t("account")} />
-        <p class="st-center">
-          <button type="button" class="wz-btn" onClick={signOut}>
-            <IconLogout size={18} /> {t("logout")}
-          </button>
-        </p>
-      </section>
+      <Sub title={t("servicesTitle")} lead={t("servicesHint")} />
+      <Tiles>
+        {tile(
+          "search",
+          !!search,
+          <IconGlobe />,
+          t("stGenSearchText"),
+          search ? t("searchInUse") : undefined,
+        )}
+        {tile(
+          "voice",
+          !!voice,
+          <IconMic size={22} />,
+          t("servicesVoiceHelp"),
+          voice ? t("stGenOn") : undefined,
+        )}
+        {tile(
+          "images",
+          images,
+          <IconBox />,
+          t("servicesImagesHelp"),
+          images ? (c.imagesModel ?? t("stGenOn")) : undefined,
+        )}
+        {tile(
+          "email",
+          !!email?.configured,
+          <IconSend size={22} />,
+          t("emailPurpose"),
+          email?.configured ? email.user : undefined,
+        )}
+      </Tiles>
 
-      {open && (
-        <Modal title={titles[open]} onClose={close}>
-          <div class="wz-panel-in">
-            {open === "instructions" && (
-              <Instructions initial={c.instructions ?? ""} onSaved={load} />
-            )}
-            {open === "backup" && <BackupModel initial={backup} onSaved={load} />}
-            {(open === "search" || open === "voice" || open === "images") && (
-              <ServicePanel s={s} part={open} onSaved={load} />
-            )}
-            {open === "email" && <EmailSettings onChange={load} />}
-            {open === "updates" && <Updates />}
-            {open === "debug" && dbg && <Diagnostics st={dbg} setSt={setDbg} />}
-          </div>
-          {(open === "backup" || open === "search") && <Done onClick={close} />}
-        </Modal>
-      )}
-    </div>
+      <Sub title={t("stGenCare")} lead={t("stGenCareLead")} />
+      <Tiles>
+        {tile("updates", false, <IconRefresh size={22} />, t("updHelp"))}
+        {dbg &&
+          tile(
+            "debug",
+            dbg.enabled,
+            <IconTool />,
+            t("stGenDebugText"),
+            dbg.enabled ? t("stGenOn") : undefined,
+          )}
+      </Tiles>
+
+      <Sub title={t("account")} />
+      <p class="st-center">
+        <button type="button" class="wz-btn" onClick={signOut}>
+          <IconLogout size={18} /> {t("logout")}
+        </button>
+      </p>
+    </WzPage>
   );
 }

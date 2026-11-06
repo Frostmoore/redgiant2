@@ -3,7 +3,6 @@
 // keeps the agents' queue and size limit.
 import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
-import { IconCheck } from "../icons.js";
 import { attempt, getApi } from "../state.js";
 import { Field } from "./ui.js";
 
@@ -52,11 +51,7 @@ export function NotesEditor({
         >
           {t("save")}
         </button>
-        {saved && (
-          <span class="chip ok">
-            <IconCheck size={12} /> {t("saved")}
-          </span>
-        )}
+        {saved && <span class="chip ok">{t("saved")}</span>}
       </div>
     </Field>
   );

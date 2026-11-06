@@ -10,64 +10,11 @@ import { IconApprove, IconBook, IconClock, IconShield, IconWallet } from "../ico
 import { getApi } from "../state.js";
 import { num, PRESETS, type Preset, paysPerUse, presetOf } from "../wizard.js";
 import { explain } from "./Brain.js";
+import { Acts, SCard, Seg, Switch } from "./SettingsKit.js";
 import { Modal } from "./ui.js";
 
 const RETENTION = ["forever", "365", "90", "30"] as const;
 const BUDGETS = ["20", "50", "100", ""] as const;
-
-/** A row of choices, one lit. */
-function Seg<T extends string>({
-  options,
-  value,
-  onChange,
-  vertical,
-}: {
-  options: [T, string][];
-  value: T | null;
-  onChange: (v: T) => void;
-  vertical?: boolean;
-}) {
-  return (
-    <div class={`wz-seg${vertical ? " v" : ""}`}>
-      {options.map(([v, label]) => (
-        <button
-          type="button"
-          key={v}
-          class={value === v ? "on" : ""}
-          aria-pressed={value === v}
-          onClick={() => onChange(v)}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function Card({
-  icon,
-  title,
-  q,
-  children,
-}: {
-  icon: preact.JSX.Element;
-  title: string;
-  q: string;
-  children: preact.ComponentChildren;
-}) {
-  return (
-    <div class="wz-scard">
-      <div class="wz-scard-hd">
-        <span class="wz-scard-av">{icon}</span>
-        <div>
-          <h3>{title}</h3>
-          <div class="wz-scard-q">{q}</div>
-        </div>
-      </div>
-      {children}
-    </div>
-  );
-}
 
 export function Safety({
   s,
@@ -115,7 +62,7 @@ export function Safety({
   return (
     <>
       <div class="wz-safe">
-        <Card icon={<IconShield size={22} />} title={t("guardianTitle")} q={t("wzGuardQ")}>
+        <SCard icon={<IconShield size={22} />} title={t("guardianTitle")} q={t("wzGuardQ")}>
           <Seg
             options={[
               ["ask", t("wzGuardAsk")],
@@ -125,9 +72,9 @@ export function Safety({
             onChange={setGuardian}
           />
           <p class="wz-say">{guardian === "ask" ? t("guardianAskText") : t("guardianAutoText")}</p>
-        </Card>
+        </SCard>
 
-        <Card icon={<IconApprove size={22} />} title={t("wzApprTitle")} q={t("wzApprQ")}>
+        <SCard icon={<IconApprove size={22} />} title={t("wzApprTitle")} q={t("wzApprQ")}>
           <Seg
             options={[
               ["careful", t("safetyCareful")],
@@ -154,9 +101,9 @@ export function Safety({
               {t("safetyPersonalize")}
             </button>
           </p>
-        </Card>
+        </SCard>
 
-        <Card
+        <SCard
           icon={<IconWallet size={22} />}
           title={t("wzBudgetTitle")}
           q={paid ? t("wzBudgetQ") : t("wzBudgetQFree")}
@@ -196,9 +143,9 @@ export function Safety({
           ) : (
             <p class="wz-say first">{t("safetyNothingPaid")}</p>
           )}
-        </Card>
+        </SCard>
 
-        <Card icon={<IconBook size={22} />} title={t("wzSkillsTitle")} q={t("wzSkillsQ")}>
+        <SCard icon={<IconBook size={22} />} title={t("wzSkillsTitle")} q={t("wzSkillsQ")}>
           <Seg
             vertical
             options={[
@@ -211,7 +158,7 @@ export function Safety({
           <p class="wz-say">
             {skills === "ask" ? t("skillsAskText") : t("skillsAutoText")} {t("wzSkillsTools")}
           </p>
-        </Card>
+        </SCard>
       </div>
       <div class="wz-strip">
         <div>
@@ -252,13 +199,10 @@ export function Safety({
                     <b>{w.name}</b>
                     <small>{w.hint}</small>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={on}
-                    aria-label={w.name}
-                    class={`wz-switch${on ? " on" : ""}`}
-                    onClick={() =>
+                  <Switch
+                    on={on}
+                    label={w.name}
+                    onChange={() =>
                       setHumanOnly(on ? humanOnly.filter((x) => x !== d.id) : [...humanOnly, d.id])
                     }
                   />
@@ -266,14 +210,14 @@ export function Safety({
               );
             })}
           </div>
-          <div class="wz-acts">
+          <Acts>
             <button type="button" class="wz-btn quiet" onClick={() => pick(base)}>
               {t("wzBackTo", { preset: t(`wzPreset_${base}`) })}
             </button>
             <button type="button" class="wz-btn primary" onClick={() => setCustom(false)}>
               {t("wzDoneBtn")}
             </button>
-          </div>
+          </Acts>
         </Modal>
       )}
     </>

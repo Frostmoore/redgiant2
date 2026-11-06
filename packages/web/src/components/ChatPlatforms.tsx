@@ -8,8 +8,7 @@ import { type Key, t } from "../i18n.js";
 import { IconChat, IconPhone, IconUsers } from "../icons.js";
 import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
-import { WzPage } from "./SettingsKit-budget.js";
-import { Acts, Head, Tile } from "./SetupKit.js";
+import { Acts, Head, Tile, WzPage } from "./SettingsKit.js";
 import { Modal } from "./ui.js";
 
 type Link = { userId: string; username: string | null; linkedAt: string };

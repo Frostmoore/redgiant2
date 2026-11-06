@@ -4,7 +4,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
 import { t } from "../i18n.js";
-import { IconCheck } from "../icons.js";
 import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
 import { Advanced, Field, JobView, useJob } from "./ui.js";
@@ -84,9 +83,7 @@ export function PiholePanel({ s, onChange }: { s: SetupState; onChange: () => vo
       <h3>{t("piholeTitle")}</h3>
       {active ? (
         <>
-          <p class="notice ok">
-            <IconCheck size={14} /> {t("piholeOn", { ip: active.lanIp })}
-          </p>
+          <p class="notice ok">{t("piholeOn", { ip: active.lanIp })}</p>
           {active.domain && (
             <p class="ui-help">{t("piholeAnswers", { domain: active.domain, ip: active.lanIp })}</p>
           )}

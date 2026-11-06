@@ -4,7 +4,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { loginMethods, type SetupState } from "../api.js";
 import { t } from "../i18n.js";
-import { IconCheck } from "../icons.js";
 import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
 import { Advanced, Choice, Field, JobView, Qr, useJob } from "./ui.js";
@@ -38,9 +37,7 @@ function PasswordPanel({ onChange }: { onChange: () => void }) {
       <p class="ui-help">{t("remotePasswordHint")}</p>
       {methods.password && !changing ? (
         <div class="row brain-linked">
-          <span class="notice ok">
-            <IconCheck size={14} /> {t("remotePasswordSet")}
-          </span>
+          <span class="notice ok">{t("remotePasswordSet")}</span>
           <button type="button" class="link" onClick={() => setChanging(true)}>
             {t("remotePasswordChange")}
           </button>
@@ -89,9 +86,7 @@ function PasswordPanel({ onChange }: { onChange: () => void }) {
           <p class="ui-help">{t("remoteCodeHint")}</p>
           {methods.code ? (
             <div class="row brain-linked">
-              <span class="notice ok">
-                <IconCheck size={14} /> {t("remoteCodeOn")}
-              </span>
+              <span class="notice ok">{t("remoteCodeOn")}</span>
               <button
                 type="button"
                 class="link"
@@ -345,9 +340,7 @@ export function RemoteAccess({ s, onChange }: { s: SetupState; onChange: () => v
         {active ? (
           <div class="tg-pair">
             <div>
-              <span class="notice ok">
-                <IconCheck size={14} /> {t("remoteOn")}
-              </span>
+              <span class="notice ok">{t("remoteOn")}</span>
               <a class="button primary" href={active.url} target="_blank" rel="noreferrer">
                 {active.url}
               </a>

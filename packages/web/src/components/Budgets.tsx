@@ -8,8 +8,7 @@ import { kTokens, monthDays, usd } from "../format.js";
 import { lang, t } from "../i18n.js";
 import { agents, attempt, budgets, getApi, projects } from "../state.js";
 import { num } from "../wizard.js";
-import { BoxButton, WzPage } from "./SettingsKit-budget.js";
-import { Acts, Head } from "./SetupKit.js";
+import { Acts, BoxButton, Head, Sub, WzPage } from "./SettingsKit.js";
 import { Modal } from "./ui.js";
 
 type Daily = { day: string; scope: Budget["scope"]; id: string; usd: number; tokens: number };
@@ -272,7 +271,7 @@ export function Budgets() {
   });
   const group = (title: string, list: { scope: Budget["scope"]; id: string; name: string }[]) => (
     <>
-      <h2 class="wz-sub">{title}</h2>
+      <Sub title={title} />
       <div class="sb-boxes">
         {list.sort(byMonth).map((x) => (
           <Row
@@ -319,8 +318,7 @@ export function Budgets() {
         group(t("budgetTotal"), [{ scope: "global", id: ownerId, name: t("budgetEverything") }])
       ) : (
         <>
-          <h2 class="wz-sub">{t("budgetTotal")}</h2>
-          <p class="wz-subl">{t("budgetNothingYet")}</p>
+          <Sub title={t("budgetTotal")} lead={t("budgetNothingYet")} />
         </>
       )}
       {projectRows.length > 0 && group(t("budgetProjects"), projectRows)}

@@ -7,10 +7,10 @@ import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { ApiError, type ClaudeAccount, type SetupState, type SubscriptionProgram } from "../api.js";
 import { t, tOptional } from "../i18n.js";
-import { IconChat, IconCheck, IconKey, IconMonitor, IconServer, IconSpark } from "../icons.js";
+import { IconChat, IconKey, IconMonitor, IconServer, IconSpark } from "../icons.js";
 import { getApi, refreshLimits } from "../state.js";
 import type { Way } from "../wizard.js";
-import { Acts } from "./SetupKit.js";
+import { Acts } from "./SettingsKit.js";
 import { Field, Pick } from "./ui.js";
 
 /** An error in plain words: its code when the server gives one, otherwise its message. */
@@ -58,9 +58,7 @@ function ProgramNote({ name, s }: { name: string; s: SubscriptionProgram | undef
 function Linked({ who, onOut }: { who: string; onOut: () => void }) {
   return (
     <div class="row brain-linked">
-      <span class="notice ok">
-        <IconCheck size={14} /> {who}
-      </span>
+      <span class="notice ok">{who}</span>
       <button type="button" class="link" onClick={onOut}>
         {t("brainDisconnect")}
       </button>

@@ -6,10 +6,10 @@ import type { Job } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
 import { t } from "../i18n.js";
-import { IconCheck, IconCloud, IconServer } from "../icons.js";
+import { IconCloud, IconServer } from "../icons.js";
 import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
-import { Acts, Tile } from "./SetupKit.js";
+import { Acts, Tile } from "./SettingsKit.js";
 import { Field, JobView, Modal, useJob } from "./ui.js";
 
 const GITHUB_NEW_TOKEN = "https://github.com/settings/personal-access-tokens/new";
@@ -38,9 +38,7 @@ export function Github({ s, onChange }: { s: SetupState; onChange: () => void })
       <p class="ui-help">{t("gitGithubHint")}</p>
       {login ? (
         <div class="row brain-linked">
-          <span class="notice ok">
-            <IconCheck size={14} /> {t("gitGithubLinked", { login })}
-          </span>
+          <span class="notice ok">{t("gitGithubLinked", { login })}</span>
           <button
             type="button"
             class="link"
@@ -117,9 +115,7 @@ export function Gitea({ s, onChange }: { s: SetupState; onChange: () => void }) 
       <p class="ui-help">{t("gitGiteaHint")}</p>
       {running ? (
         <div class="row brain-linked">
-          <span class="notice ok">
-            <IconCheck size={14} /> {t("gitGiteaReady", { user: running.user })}
-          </span>
+          <span class="notice ok">{t("gitGiteaReady", { user: running.user })}</span>
           <a class="button" href={running.publicUrl} target="_blank" rel="noreferrer">
             {t("gitGiteaOpen")}
           </a>

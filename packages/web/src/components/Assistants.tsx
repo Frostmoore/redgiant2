@@ -27,7 +27,7 @@ import { Editor, recipeWhen } from "./Automations.js";
 import { explain, providerName } from "./Brain.js";
 import { CompactionSettings } from "./CompactionSettings.js";
 import { NotesEditor } from "./NotesEditor.js";
-import { Advanced, Choice, Field, Toggle } from "./ui.js";
+import { Advanced, Choice, Field, Modal, Toggle } from "./ui.js";
 
 /** Ready jobs; the job text is the user's, in their language, so they can read and change it. */
 const JOBS = ["secretary", "researcher", "social", "accounts", "tech", "custom"] as const;
@@ -396,19 +396,25 @@ export function AssistantPage({ agentId }: { agentId: string | null }) {
           </span>
         </div>
       ))}
-      {newRoutine ? (
-        <Editor
-          current={undefined}
-          who={`p:${a.id}`}
-          onSaved={() => {
-            setNewRoutine(false);
-            loadRoutines();
-          }}
-        />
-      ) : (
-        <button type="button" onClick={() => setNewRoutine(true)}>
-          <IconPlus size={14} /> {t("asstNewRoutine")}
-        </button>
+      <button type="button" onClick={() => setNewRoutine(true)}>
+        <IconPlus size={14} /> {t("asstNewRoutine")}
+      </button>
+      {/* The same window as Settings, Automations (drawn as the wizard), with this assistant
+          already chosen as who does it. */}
+      {newRoutine && (
+        <div class="wz-look">
+          <Modal wide title={t("asstNewRoutine")} onClose={() => setNewRoutine(false)}>
+            <Editor
+              current={undefined}
+              who={`p:${a.id}`}
+              onCancel={() => setNewRoutine(false)}
+              onSaved={() => {
+                setNewRoutine(false);
+                loadRoutines();
+              }}
+            />
+          </Modal>
+        </div>
       )}
 
       <h3>{t("asstProjects")}</h3>

@@ -8,8 +8,7 @@ import { codeStageText, describeChange, type Names } from "../changes.js";
 import { t } from "../i18n.js";
 import { IconGit, IconSettings } from "../icons.js";
 import { agents, attempt, getApi, platformInfo, platformVersion, projects } from "../state.js";
-import { WzPage } from "./SettingsKit-budget.js";
-import { Acts, Head } from "./SetupKit.js";
+import { Acts, Head, Sub, WzPage } from "./SettingsKit.js";
 import { Advanced, Modal } from "./ui.js";
 
 const names: Names = {
@@ -121,8 +120,9 @@ function CodeChange({
           <p class="wz-lead2">{describeChange(c, names)[0]}</p>
           <p class="wz-lead2">{t("historyPromoteConfirm")}</p>
           <Acts>
+            {/* Not «Annulla»: in Italian that is also the word for undoing a change. */}
             <button type="button" class="wz-btn" onClick={() => setAsking(false)}>
-              {t("cancel")}
+              {t("wzNotNow")}
             </button>
             <button
               type="button"
@@ -167,8 +167,7 @@ export function Platform() {
       <Head eyebrow={t("platformView")} q={t("sbPlatformQ")} lead={t("historyIntro")} />
       {code.length > 0 && (
         <>
-          <h2 class="wz-sub">{t("historyCode")}</h2>
-          <p class="wz-subl">{t("historyCodeHelp")}</p>
+          <Sub title={t("historyCode")} lead={t("historyCodeHelp")} />
           <div class="sb-list">
             {code.map((c) => (
               <CodeChange key={c.id} c={c} supervised={info?.supervised ?? false} onDone={reload} />
@@ -176,7 +175,7 @@ export function Platform() {
           </div>
         </>
       )}
-      <h2 class="wz-sub">{t("historySettings")}</h2>
+      <Sub title={t("historySettings")} />
       {config.length === 0 ? (
         <p class="wz-subl">{t("noChanges")}</p>
       ) : (

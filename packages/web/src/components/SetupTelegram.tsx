@@ -4,10 +4,11 @@
 // BotFather, paste its token, open the bot and press Start (the link carries the pairing code).
 import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
-import { IconCheck, IconSend, IconSpark } from "../icons.js";
+import { IconSend, IconSpark } from "../icons.js";
 import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
-import { Head, useWz } from "./SetupKit.js";
+import { Head } from "./SettingsKit.js";
+import { useWz } from "./SetupKit.js";
 import { Qr } from "./ui.js";
 
 type Link = { userId: number; username: string | null; linkedAt: string };
@@ -111,9 +112,7 @@ export function TelegramStep() {
   const s2: Stage = hasBot ? "done" : opened ? "now" : "later";
   const s3: Stage = linked ? "done" : hasBot ? "now" : "later";
   const word = { done: t("wzTgDone"), now: t("wzTgNow"), later: t("wzTgLater") };
-  const dot = (n: number, st: Stage) => (
-    <span class="wz-dot">{st === "done" ? <IconCheck size={20} /> : n}</span>
-  );
+  const dot = (n: number, st: Stage) => <span class="wz-dot">{n}</span>;
   const botFather = (
     <Chat
       cap={phone ? t("wzTgYouWillSee") : undefined}

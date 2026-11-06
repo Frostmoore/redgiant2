@@ -5,7 +5,7 @@ import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import { attempt, getApi } from "../state.js";
 import { explain } from "./Brain.js";
-import { Row, Switch } from "./SettingsKit-cornice.js";
+import { Acts, Row, Switch } from "./SettingsKit.js";
 import { Advanced, Field } from "./ui.js";
 
 type Shown = { configured: boolean; host?: string; port?: number; secure?: boolean; user?: string };
@@ -99,7 +99,7 @@ export function EmailSettings({ onChange }: { onChange?: () => void }) {
         </Row>
       </Advanced>
       {error && <p class="notice error">{error}</p>}
-      <div class="wz-acts">
+      <Acts>
         {shown.configured && (
           <button
             type="button"
@@ -122,7 +122,7 @@ export function EmailSettings({ onChange }: { onChange?: () => void }) {
         >
           {busy ? t("emailTesting") : t("emailSave")}
         </button>
-      </div>
+      </Acts>
     </div>
   );
 }

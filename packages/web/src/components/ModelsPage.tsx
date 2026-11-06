@@ -24,7 +24,7 @@ import {
 import { LocalModels } from "./LocalModels.js";
 import { SearchSettings } from "./SearchSettings.js";
 import { OwnSearch } from "./Services.js";
-import { Acts, Head, Tile } from "./SetupKit.js";
+import { Acts, Head, Sub, Tile } from "./SettingsKit.js";
 import { Modal } from "./ui.js";
 
 /** The window open: a way of thinking, the agents' model, a search provider, or the help. */
@@ -93,8 +93,7 @@ export function ModelsPage({ s, reload }: { s: SetupState; reload: () => void })
           </button>
         </p>
 
-        <h2 class="wz-sub">{t("brainDefault")}</h2>
-        <p class="wz-subl">{t("brainDefaultHint")}</p>
+        <Sub title={t("brainDefault")} lead={t("brainDefaultHint")} />
         <div class="wz-brain mp-one">
           <Tile
             on={!!d}
@@ -112,8 +111,7 @@ export function ModelsPage({ s, reload }: { s: SetupState; reload: () => void })
           />
         </div>
 
-        <h2 class="wz-sub">{t("mpSearchTitle")}</h2>
-        <p class="wz-subl">{t("mpSearchLead")}</p>
+        <Sub title={t("mpSearchTitle")} lead={t("mpSearchLead")} />
         <div class="wz-brain mp-search">
           {SEARCH_PROVIDERS.map((p) => (
             <Tile

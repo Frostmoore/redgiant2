@@ -30,7 +30,6 @@ import {
   IconBoard,
   IconBook,
   IconCanvas,
-  IconCheck,
   IconClose,
   IconCompass,
   IconCopy,
@@ -57,8 +56,8 @@ import { agents, attempt, getApi, getLive, openTab, projects } from "../state.js
 import { explain } from "./Brain.js";
 import { Chat } from "./Chat.js";
 import { KindRow } from "./Media.js";
-import { Facts, Sub, SwitchRow } from "./SettingsKit-automazioni.js";
-import { Acts, Head, Tile } from "./SetupKit.js";
+import { Acts, Facts, Head, Seg, Sub, SwitchRow, Tile, WzPage } from "./SettingsKit.js";
+import { PHONE, useMedia } from "./SetupKit.js";
 import { Field, Modal } from "./ui.js";
 
 const scopeLabel = (projectId: string | null) =>
@@ -123,8 +122,7 @@ function ProposalView({
         <div class="xw-report">
           {p.report.map((r) => (
             <p key={r.name} class={`notice ${r.passed ? "ok" : "error"}`}>
-              {r.passed ? <IconCheck size={14} /> : <IconClose size={14} />} {r.name}:{" "}
-              {r.detail.split("\n")[0]}
+              {!r.passed && <IconClose size={14} />} {r.name}: {r.detail.split("\n")[0]}
             </p>
           ))}
         </div>
@@ -441,7 +439,10 @@ const catIcon = (c: McpCategory) => {
   return <Icon />;
 };
 
-/** The catalog: a search, the kinds as chips, one square per service; each opens its window. */
+/**
+ * The catalog: a search, the kinds as chips, one square per service; each opens its window. On a
+ * phone one kind at a time (the first at the start), or what the search finds among all of them.
+ */
 function Catalog({
   added,
   onAdded,
@@ -452,10 +453,12 @@ function Catalog({
   const [q, setQ] = useState("");
   const [category, setCategory] = useState<McpCategory | "">("");
   const [open, setOpen] = useState<McpCatalogEntry>();
+  const phone = useMedia(PHONE);
   const words = q.trim().toLowerCase();
+  const kind = phone ? (words ? "" : category || CATEGORIES[0]) : category;
   const shown = MCP_CATALOG.filter(
     (e) =>
-      (!category || e.category === category) &&
+      (!kind || e.category === kind) &&
       (!words || `${e.name} ${e.description[lang.value]} ${e.id}`.toLowerCase().includes(words)),
   ).sort((x, y) => Number(y.official) - Number(x.official));
   return (
@@ -472,14 +475,17 @@ function Catalog({
             onInput={(e) => setQ(value(e))}
           />
         </label>
-        <div class="wz-chips">
-          {(["", ...CATEGORIES] as const).map((c) => (
+        <div class="wz-chips xw-kinds">
+          {(phone ? CATEGORIES : (["", ...CATEGORIES] as const)).map((c) => (
             <button
               key={c}
               type="button"
-              class={`wz-chip${category === c ? " on" : ""}`}
-              aria-pressed={category === c}
-              onClick={() => setCategory(c)}
+              class={`wz-chip${kind === c ? " on" : ""}`}
+              aria-pressed={kind === c}
+              onClick={() => {
+                setCategory(c);
+                if (phone) setQ("");
+              }}
             >
               {t(c ? `extCat_${c}` : "extCatAll")}
             </button>
@@ -836,19 +842,15 @@ function McpForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => voi
         </select>
       </Field>
       <span class="wz-lb">{t("extTransport")}</span>
-      <div class="wz-seg">
-        {(["http", "stdio"] as const).map((x) => (
-          <button
-            key={x}
-            type="button"
-            aria-pressed={type === x}
-            class={type === x ? "on" : ""}
-            onClick={() => setType(x)}
-          >
-            {t(x === "http" ? "extTransportHttp" : "extTransportStdio")}
-          </button>
-        ))}
-      </div>
+      <Seg
+        label={t("extTransport")}
+        value={type}
+        onChange={setType}
+        options={[
+          ["http", t("extTransportHttp")],
+          ["stdio", t("extTransportStdio")],
+        ]}
+      />
       {type === "http" ? (
         <>
           <Field label={t("url")}>
@@ -1081,111 +1083,114 @@ export function Extensions() {
     />
   );
   return (
-    <div class="settings-section wz-look xw-page">
-      <section class="wz-inner">
-        <Head eyebrow={t("extensions")} q={t("extAskTitle")} lead={t("extAskHelp")} />
-        <AskGod />
+    <WzPage
+      class="xw-page"
+      after={
+        <>
+          {open && typeof open === "object" && "proposal" in open && (
+            <ProposalView p={open.proposal} onDone={reload} onClose={close} />
+          )}
+          {open && typeof open === "object" && "installed" in open && (
+            <InstalledView x={open.installed} onClose={close} />
+          )}
+          {open === "import" && (
+            <Modal title={t("skillImport")} onClose={close}>
+              <ImportSkill onDone={reload} onClose={close} />
+            </Modal>
+          )}
+          {open === "skill" && (
+            <Modal wide title={t("newSkill")} onClose={close}>
+              <NewSkill onDone={doneAndClose} onCancel={close} />
+            </Modal>
+          )}
+          {open === "server" && (
+            <Modal title={t("addServer")} onClose={close}>
+              <McpForm onDone={doneAndClose} onCancel={close} />
+            </Modal>
+          )}
+          {open === "failed" && (
+            <Modal wide title={t("failedTests")} onClose={close}>
+              <div class="wz-panel-in">
+                <p class="wz-lead2">{t("xwFailedLead")}</p>
+                <div class="wz-brain xw-grid xw-failed">
+                  {failed.map((p) => proposalTile(p, false))}
+                </div>
+              </div>
+              <Acts>
+                <button type="button" class="wz-btn primary" onClick={close}>
+                  {t("wzDoneBtn")}
+                </button>
+              </Acts>
+            </Modal>
+          )}
+        </>
+      }
+    >
+      <Head eyebrow={t("extensions")} q={t("extAskTitle")} lead={t("extAskHelp")} />
+      <AskGod />
 
-        {pending.length > 0 && (
-          <>
-            <Sub title={t("extProposals")} lead={t("extProposalsHelp")} />
-            <div class="wz-brain xw-grid xw-wait">{pending.map((p) => proposalTile(p, true))}</div>
-          </>
-        )}
+      {pending.length > 0 && (
+        <>
+          <Sub title={t("extProposals")} lead={t("extProposalsHelp")} />
+          <div class="wz-brain xw-grid xw-wait">{pending.map((p) => proposalTile(p, true))}</div>
+        </>
+      )}
 
-        <Connected mcp={mcp} status={status} onChange={reload} />
-        <MediaTiles />
-        <Catalog added={new Set(mcp.map((m) => m.name))} onAdded={reload} />
+      <Connected mcp={mcp} status={status} onChange={reload} />
+      <MediaTiles />
+      <Catalog added={new Set(mcp.map((m) => m.name))} onAdded={reload} />
 
-        {installed.length > 0 && (
-          <>
-            <Sub title={t("extSkills")} lead={t("extSkillsHelp")} />
-            <div class="wz-brain xw-grid">
-              {installed.map((x) => (
-                <Tile
-                  key={`${x.scope}:${x.kind}:${x.name}`}
-                  on
-                  icon={x.kind === "tool" ? <IconTool /> : <IconBook />}
-                  title={x.name}
-                  badge={t(x.kind === "tool" ? "extKindTool" : "extKindSkill")}
-                  text={x.description}
-                  state={x.scope === "platform" ? t("scopePlatform") : x.scope.slice(8)}
-                  onClick={() => setOpen({ installed: x })}
-                />
-              ))}
-            </div>
-          </>
-        )}
-
-        <Sub title={t("xwOwnTitle")} lead={t("xwOwnLead")} />
-        <div class="wz-brain xw-grid">
-          <Tile
-            on={false}
-            icon={<IconUpload />}
-            title={t("skillImport")}
-            text={t("xwImportText")}
-            onClick={() => setOpen("import")}
-          />
-          <Tile
-            on={false}
-            icon={<IconPlus />}
-            title={t("newSkill")}
-            text={t("xwNewSkillText")}
-            onClick={() => setOpen("skill")}
-          />
-          <Tile
-            on={false}
-            icon={<IconServer />}
-            title={t("addServer")}
-            text={t("xwServerText")}
-            onClick={() => setOpen("server")}
-          />
-        </div>
-        {failed.length > 0 && (
-          <p class="wz-more">
-            <button type="button" class="wz-link" onClick={() => setOpen("failed")}>
-              <IconShield size={16} /> {t("failedTests")} ({failed.length})
-            </button>
-          </p>
-        )}
-      </section>
-
-      {open && typeof open === "object" && "proposal" in open && (
-        <ProposalView p={open.proposal} onDone={reload} onClose={close} />
-      )}
-      {open && typeof open === "object" && "installed" in open && (
-        <InstalledView x={open.installed} onClose={close} />
-      )}
-      {open === "import" && (
-        <Modal title={t("skillImport")} onClose={close}>
-          <ImportSkill onDone={reload} onClose={close} />
-        </Modal>
-      )}
-      {open === "skill" && (
-        <Modal wide title={t("newSkill")} onClose={close}>
-          <NewSkill onDone={doneAndClose} onCancel={close} />
-        </Modal>
-      )}
-      {open === "server" && (
-        <Modal title={t("addServer")} onClose={close}>
-          <McpForm onDone={doneAndClose} onCancel={close} />
-        </Modal>
-      )}
-      {open === "failed" && (
-        <Modal wide title={t("failedTests")} onClose={close}>
-          <div class="wz-panel-in">
-            <p class="wz-lead2">{t("xwFailedLead")}</p>
-            <div class="wz-brain xw-grid xw-failed">
-              {failed.map((p) => proposalTile(p, false))}
-            </div>
+      {installed.length > 0 && (
+        <>
+          <Sub title={t("extSkills")} lead={t("extSkillsHelp")} />
+          <div class="wz-brain xw-grid">
+            {installed.map((x) => (
+              <Tile
+                key={`${x.scope}:${x.kind}:${x.name}`}
+                on
+                icon={x.kind === "tool" ? <IconTool /> : <IconBook />}
+                title={x.name}
+                badge={t(x.kind === "tool" ? "extKindTool" : "extKindSkill")}
+                text={x.description}
+                state={x.scope === "platform" ? t("scopePlatform") : x.scope.slice(8)}
+                onClick={() => setOpen({ installed: x })}
+              />
+            ))}
           </div>
-          <Acts>
-            <button type="button" class="wz-btn primary" onClick={close}>
-              {t("wzDoneBtn")}
-            </button>
-          </Acts>
-        </Modal>
+        </>
       )}
-    </div>
+
+      <Sub title={t("xwOwnTitle")} lead={t("xwOwnLead")} />
+      <div class="wz-brain xw-grid">
+        <Tile
+          on={false}
+          icon={<IconUpload />}
+          title={t("skillImport")}
+          text={t("xwImportText")}
+          onClick={() => setOpen("import")}
+        />
+        <Tile
+          on={false}
+          icon={<IconPlus />}
+          title={t("newSkill")}
+          text={t("xwNewSkillText")}
+          onClick={() => setOpen("skill")}
+        />
+        <Tile
+          on={false}
+          icon={<IconServer />}
+          title={t("addServer")}
+          text={t("xwServerText")}
+          onClick={() => setOpen("server")}
+        />
+      </div>
+      {failed.length > 0 && (
+        <p class="wz-more">
+          <button type="button" class="wz-link" onClick={() => setOpen("failed")}>
+            <IconShield size={16} /> {t("failedTests")} ({failed.length})
+          </button>
+        </p>
+      )}
+    </WzPage>
   );
 }

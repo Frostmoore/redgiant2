@@ -31,6 +31,7 @@ import {
 } from "../wizard.js";
 import { explain } from "./Brain.js";
 import { Gallery, GalleryCard } from "./Gallery.js";
+import { Acts, Sub, Switch } from "./SettingsKit.js";
 import { Advanced, Field, JobView, Modal, Pick, Progress, useJob } from "./ui.js";
 
 const gb = (n: number) => `${n.toFixed(1)} GB`;
@@ -1210,15 +1211,7 @@ export function ExpSwitch({
           {title}
           <span class="exp-badge">{t("lmExperimental")}</span>
         </h4>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={on && !disabled}
-          aria-label={title}
-          class={`wz-switch small${on && !disabled ? " on" : ""}`}
-          disabled={disabled}
-          onClick={() => !disabled && onChange(!on)}
-        />
+        <Switch small on={on && !disabled} label={title} disabled={disabled} onChange={onChange} />
       </div>
       <p class="dim">{help}</p>
       {note && <p class="notice">{note}</p>}
@@ -1348,15 +1341,7 @@ function WzMachine({
       <div class="wz-machine-r">
         <div class="wz-tog">
           <h3>{t("lmStream")}</h3>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={on}
-            aria-label={t("lmStream")}
-            class={`wz-switch${on ? " on" : ""}`}
-            disabled={!available.ok}
-            onClick={() => onChange(!on)}
-          />
+          <Switch on={on} label={t("lmStream")} disabled={!available.ok} onChange={onChange} />
         </div>
         <p class="dim">{on ? t("wzStreamOn", { disk }) : t("wzStreamOff")}</p>
         {!available.ok && <p class="notice">{available.reason}</p>}
@@ -1380,11 +1365,11 @@ function WzMachine({
           <p class="wz-lead2">{t("wzStreamInfo1")}</p>
           <p>{t("wzStreamInfo2")}</p>
           <p>{t("wzStreamInfo3")}</p>
-          <div class="wz-acts">
+          <Acts>
             <button type="button" class="wz-btn primary" onClick={() => setInfo(false)}>
               {t("wzUnderstood")}
             </button>
-          </div>
+          </Acts>
         </Modal>
       )}
     </div>
@@ -1430,7 +1415,7 @@ function WzDisks({
   };
   return (
     <>
-      <h2 class="wz-sub">{t("wzDisksTitle")}</h2>
+      <Sub title={t("wzDisksTitle")} />
       <p class="wz-subl">{t("wzDisksLead")}</p>
       <div class={`wz-disks n${Math.min(tiles.length, 4)}`}>
         {tiles.map((d) => (
@@ -1499,14 +1484,14 @@ function WzDisks({
               folder: defaultModelsFolder(ask.tile.name),
             })}
           </p>
-          <div class="wz-acts">
+          <Acts>
             <button type="button" class="wz-btn quiet" onClick={() => setAsk(null)}>
               {t("cancel")}
             </button>
             <button type="button" class="wz-btn primary" onClick={() => start(ask.tile.name)}>
               {t("wzMoveHere")}
             </button>
-          </div>
+          </Acts>
         </Modal>
       )}
       {ask?.folder && (
@@ -1527,7 +1512,7 @@ function WzDisks({
                 onInput={(e) => setFolder((e.target as HTMLInputElement).value)}
               />
             </Field>
-            <div class="wz-acts">
+            <Acts>
               <button type="button" class="wz-btn quiet" onClick={() => setAsk(null)}>
                 {t("cancel")}
               </button>
@@ -1538,7 +1523,7 @@ function WzDisks({
               >
                 {t("wzUseFolder")}
               </button>
-            </div>
+            </Acts>
           </form>
         </Modal>
       )}
@@ -1812,7 +1797,7 @@ export function LocalModels({
       {s.locked.engine && <p class="notice">{t("wzLocked")}</p>}
       {error && <p class="notice error">{error}</p>}
       <WzDisks s={s} variant={variant} onMoved={changed} />
-      <h2 class="wz-sub">{t("wzPickModel")}</h2>
+      <Sub title={t("wzPickModel")} />
       <div class="wz-legend">
         <i />
         <span>{t("wzLegend", { n: String(USABLE_TPS) })}</span>

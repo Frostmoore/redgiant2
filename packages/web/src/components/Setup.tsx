@@ -12,7 +12,6 @@ import { lang, setLang, t } from "../i18n.js";
 import {
   IconArrowRight,
   IconChat,
-  IconCheck,
   IconChevronDown,
   IconChevronLeft,
   IconCpu,
@@ -23,6 +22,7 @@ import {
   IconGlobe,
   IconGpu,
   IconHome,
+  IconLayers,
   IconList,
   IconLock,
   IconMonitor,
@@ -73,8 +73,9 @@ import { hardwareText, LocalModels } from "./LocalModels.js";
 import { modelName } from "./ModelMenu.js";
 import { RemoteAccess } from "./RemoteAccess.js";
 import { Safety } from "./Safety.js";
+import { Acts, Head, Sub, Tile } from "./SettingsKit.js";
 import { AssignStep } from "./SetupAssign.js";
-import { Acts, Head, PHONE, Tile, useMedia, useOnNext, useWz, type Wz, WzCtx } from "./SetupKit.js";
+import { PHONE, useMedia, useOnNext, useWz, type Wz, WzCtx } from "./SetupKit.js";
 import { TelegramStep } from "./SetupTelegram.js";
 import { Modal } from "./ui.js";
 
@@ -169,7 +170,7 @@ const MODE_ROWS = {
     [<IconGit key="4" />, "wzStd4", "wzStd4Text"],
   ],
   advanced: [
-    [<IconCheck key="1" size={20} />, "wzAdv1", "wzAdv1Text"],
+    [<IconLayers key="1" />, "wzAdv1", "wzAdv1Text"],
     [<IconGit key="2" />, "wzAdv2", "wzAdv2Text"],
     [<IconList key="3" />, "wzAdv3", "wzAdv3Text"],
     [<IconWifi key="4" />, "wzAdv4", "wzAdv4Text"],
@@ -785,8 +786,7 @@ function Done() {
           </button>
         ))}
       </div>
-      <h2 class="wz-sub">{t("wzWhatNow")}</h2>
-      <p class="wz-subl">{t("wzWhatNowLead")}</p>
+      <Sub title={t("wzWhatNow")} lead={t("wzWhatNowLead")} />
       <div class="wz-next3">
         {NEXT.map(([icon, title, text, act]) => (
           <Tile key={title} wide on={false} icon={icon} title={title} text={text} onClick={act} />
@@ -831,11 +831,11 @@ function JumpList({
           <li key={k}>
             <button
               type="button"
-              class={`${i === at ? "cur" : ""}${i < at ? " done" : ""}`}
+              class={`wz-jump-item${i === at ? " cur" : ""}${i < at ? " done" : ""}`}
               aria-current={i === at ? "step" : undefined}
               onClick={() => onPick(k)}
             >
-              <span class="wz-n">{i < at ? <IconCheck size={16} /> : i + 1}</span>
+              <span class="wz-n">{i + 1}</span>
               <span class="wz-jump-name">
                 {ADVANCED_STEPS.includes(k) && <span class="wz-adv">{t("modeAdvanced")}</span>}
                 {t(k)}

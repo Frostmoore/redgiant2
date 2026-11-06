@@ -6,7 +6,7 @@ import type { SetupState } from "../api.js";
 import { t } from "../i18n.js";
 import { IconTelegram } from "../icons.js";
 import { getApi } from "../state.js";
-import { Box, Row, Sub } from "./SettingsKit-cornice.js";
+import { Box, Row, Sub } from "./SettingsKit.js";
 import { PHONE, useMedia, type Wz, WzCtx } from "./SetupKit.js";
 import { TelegramStep } from "./SetupTelegram.js";
 

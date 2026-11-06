@@ -111,7 +111,6 @@ const en = {
   xwNewSkillText: "Instructions you write for your agents; it installs right away.",
   xwServerText: "An MCP server by address or by command, with its key if it needs one.",
   xwFailedLead: "Proposals of the agents whose tests did not pass: they were never installed.",
-  autoEmpty: "Choose an automation on the left, or make a new one.",
   tplTitle_morning: "Morning briefing",
   tplDesc_morning: "Every working day at 8: what happened on every project.",
   tplText_morning:
@@ -894,18 +893,6 @@ const en = {
   job_error_account: "Gitea did not create the account. The details below say why.",
   err_missing_permission:
     "GitHub did not let the token create repositories. Make a new one with Administration set to Read and write.",
-  tgPurpose:
-    "Talk to RedGiant from your phone with Telegram, and get its alerts there (approvals, questions, long jobs, budgets). Optional: skip it if you do not use Telegram.",
-  tgStep1: "Open BotFather, Telegram's official bot for making bots:",
-  tgOpenBotFather: "Open BotFather",
-  tgStep2:
-    'Write /newbot to it. It asks for a name (whatever you like, e.g. My RedGiant) and then a username that ends in "bot" (e.g. mario_redgiant_bot).',
-  tgStep3: "BotFather answers with the bot's token: copy it and paste it here",
-  tgTokenHelp:
-    "It is a long line made of digits, a colon and letters, like 123456789:AAH… Keep it private: it is the bot's key.",
-  tgLastStep: "Last step: open @{bot} and press Start",
-  tgPressStart:
-    "Press the button (or scan the code with your phone): Telegram opens your bot; press Start and you are linked. Nothing to type.",
   tgOpenBot: "Open @{bot}",
   tgWaiting: "Waiting for you to press Start… this page notices by itself.",
   tgQr: "Scan with your phone's camera",
@@ -1174,8 +1161,6 @@ const en = {
     "The download stopped before the end: press Go on to continue from where it stopped.",
   job_error_bad_file: "This is not a model file of Hugging Face.",
   wzBrain: "How should RedGiant think?",
-  brainPurpose:
-    "RedGiant needs at least one model to think with. Pick one or more ways below; you can also skip this and add one later in Settings, but until then the agents cannot answer.",
   brainClaude: "Claude subscription",
   brainClaudeHint:
     "RedGiant uses Claude through Anthropic's official program, signed in with your account. What you use counts against your plan's limits, not money.",
@@ -1194,7 +1179,6 @@ const en = {
   brainChatgptStep2: "Type this code there:",
   brainChatgptDevice:
     "If OpenAI says sign-in with a device code is not allowed: on chatgpt.com open Settings, Security, and turn on device code authorization, then try again.",
-  brainConnected: "connected",
   brainKeyMake: "Create a key on {name}'s page",
   brainKeyExample: "It looks like this: {example}",
   brainKeyTry: "Try and save",
@@ -1218,7 +1202,6 @@ const en = {
     "How much it reasons before answering: low is quick and cheap, high is slower but more careful.",
   brainDefaultTry: "Try and use this one",
   brainDefaultSaved: "Saved: agents will use it.",
-  brainWhy: "Which one should I choose?",
   brainWhyText:
     "If you already pay for Claude or ChatGPT, start with that: nothing more to pay. With a key you pay for what you use, and you can pick among many providers. A model on this computer costs nothing and keeps everything private, but it is slower and less capable than the big online ones. You can combine them: for example a subscription for hard work and a local model for small jobs.",
   err_key_rejected:
@@ -2264,7 +2247,6 @@ const it: Record<Key, string> = {
   xwServerText: "Un server MCP per indirizzo o per comando, con la sua chiave se serve.",
   xwFailedLead:
     "Proposte degli agenti che non hanno passato le prove: non sono mai state installate.",
-  autoEmpty: "Scegli un'automazione a sinistra, o creane una nuova.",
   tplTitle_morning: "Il punto del mattino",
   tplDesc_morning: "Ogni giorno lavorativo alle 8: cosa è successo in ogni progetto.",
   tplText_morning:
@@ -3056,18 +3038,6 @@ const it: Record<Key, string> = {
   job_error_account: "Gitea non ha creato l'account. I dettagli qui sotto dicono perché.",
   err_missing_permission:
     "GitHub non ha lasciato creare repository a questo token. Fanne uno nuovo con Administration su Read and write.",
-  tgPurpose:
-    "Parla con RedGiant dal telefono con Telegram, e ricevi lì i suoi avvisi (approvazioni, domande, lavori lunghi, budget). Facoltativo: saltalo se non usi Telegram.",
-  tgStep1: "Apri BotFather, il bot ufficiale di Telegram che crea i bot:",
-  tgOpenBotFather: "Apri BotFather",
-  tgStep2:
-    'Scrivigli /newbot. Ti chiede un nome (quello che vuoi, per esempio Il mio RedGiant) e poi un nome utente che finisce con "bot" (per esempio mario_redgiant_bot).',
-  tgStep3: "BotFather risponde con il token del bot: copialo e incollalo qui",
-  tgTokenHelp:
-    "È una riga lunga fatta di numeri, due punti e lettere, tipo 123456789:AAH… Tienila per te: è la chiave del bot.",
-  tgLastStep: "Ultimo passo: apri @{bot} e premi Avvia",
-  tgPressStart:
-    "Premi il pulsante (o inquadra il codice con il telefono): Telegram apre il tuo bot; premi Avvia e sei collegato. Niente da scrivere.",
   tgOpenBot: "Apri @{bot}",
   tgWaiting: "Aspetto che premi Avvia… questa pagina se ne accorge da sola.",
   tgQr: "Inquadra con la fotocamera del telefono",
@@ -3342,8 +3312,6 @@ const it: Record<Key, string> = {
     "Il download si è fermato prima della fine: premi Riprendi per continuare da dove era.",
   job_error_bad_file: "Questo non è un file di modello di Hugging Face.",
   wzBrain: "Come deve pensare RedGiant?",
-  brainPurpose:
-    "Per pensare RedGiant ha bisogno di almeno un modello. Scegli uno o più modi qui sotto; puoi anche saltare e aggiungerlo dopo dalle Impostazioni, ma fino ad allora gli agenti non possono rispondere.",
   brainClaude: "Abbonamento Claude",
   brainClaudeHint:
     "RedGiant usa Claude tramite il programma ufficiale di Anthropic, collegato al tuo account. Quello che usi conta sui limiti del tuo piano, non costa soldi in più.",
@@ -3363,7 +3331,6 @@ const it: Record<Key, string> = {
   brainChatgptStep2: "Lì scrivi questo codice:",
   brainChatgptDevice:
     "Se OpenAI dice che l'accesso con codice dispositivo non è permesso: su chatgpt.com apri Impostazioni, Sicurezza, attiva l'autorizzazione con codice dispositivo e riprova.",
-  brainConnected: "collegato",
   brainKeyMake: "Crea una chiave sulla pagina di {name}",
   brainKeyExample: "È fatta così: {example}",
   brainKeyTry: "Prova e salva",
@@ -3388,7 +3355,6 @@ const it: Record<Key, string> = {
     "Quanto ragiona prima di rispondere: basso è veloce ed economico, alto è più lento ma più accurato.",
   brainDefaultTry: "Prova e usa questo",
   brainDefaultSaved: "Salvato: gli agenti useranno questo.",
-  brainWhy: "Quale scelgo?",
   brainWhyText:
     "Se paghi già Claude o ChatGPT, comincia da lì: non spendi altro. Con una chiave paghi quello che usi e puoi scegliere fra tanti fornitori. Un modello su questo computer non costa niente e tiene tutto privato, ma è più lento e meno bravo dei grandi modelli online. Puoi anche combinarli: per esempio un abbonamento per i lavori difficili e un modello locale per quelli piccoli.",
   err_key_rejected:

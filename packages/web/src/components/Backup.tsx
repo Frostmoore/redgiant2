@@ -9,8 +9,7 @@ import { bytes } from "../format.js";
 import { lang, t } from "../i18n.js";
 import { IconDownload, IconUpload } from "../icons.js";
 import { attempt, getApi, refresh } from "../state.js";
-import { SCard, Seg, WzPage } from "./SettingsKit-budget.js";
-import { Acts, Head } from "./SetupKit.js";
+import { Acts, Head, SCard, Seg, WzPage } from "./SettingsKit.js";
 import { JobView, Progress, useJob } from "./ui.js";
 
 /** A transfer the page does itself, with the rate of the last seconds and the time left. */

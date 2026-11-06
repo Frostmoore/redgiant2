@@ -21,7 +21,8 @@ import { type Spec, sameModel, suggestModel } from "../wizard.js";
 import { providerName } from "./Brain.js";
 import { modelName } from "./ModelMenu.js";
 import { useModels } from "./ModelSelect.js";
-import { Acts, Head, useOnNext, useWz } from "./SetupKit.js";
+import { Acts, Head, Seg } from "./SettingsKit.js";
+import { useOnNext, useWz } from "./SetupKit.js";
 import { Modal } from "./ui.js";
 
 type Role = "god" | "demigod" | "chat" | "others" | "backup";
@@ -406,19 +407,12 @@ export function AssignStep() {
           {hasEffort && current && (
             <>
               <h4>{t("wzEffortTitle")}</h4>
-              <div class="wz-seg">
-                {EFFORTS.map((x) => (
-                  <button
-                    type="button"
-                    key={x}
-                    class={(current.effort ?? "medium") === x ? "on" : ""}
-                    aria-pressed={(current.effort ?? "medium") === x}
-                    onClick={() => setVal((v) => ({ ...v, [open]: { ...current, effort: x } }))}
-                  >
-                    {t(`wzEffort_${x}`)}
-                  </button>
-                ))}
-              </div>
+              <Seg
+                label={t("wzEffortTitle")}
+                value={current.effort ?? "medium"}
+                onChange={(x) => setVal((v) => ({ ...v, [open]: { ...current, effort: x } }))}
+                options={EFFORTS.map((x) => [x, t(`wzEffort_${x}`)] as const)}
+              />
               <p class="ui-help">{t("wzEffortHelp")}</p>
             </>
           )}

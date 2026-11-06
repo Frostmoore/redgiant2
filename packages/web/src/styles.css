@@ -12,6 +12,8 @@
   --accent-dim: #f2b8b0;
   --ok: #2e9d5b;
   --warn: #c99a14;
+  /* The yellow as text (on a panel or on --warn-soft): 4.5:1 or more in both themes (WCAG AA). */
+  --warn-text: #7a5600;
   --err: #d23d3d;
   --user: #f3e6e4;
   --code: #0f131a;
@@ -33,6 +35,7 @@ html[data-theme="dark"] {
   --accent-dim: #5a2722;
   --user: #33211f;
   --code: #0d1016;
+  --warn-text: #e0b23a;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -49,10 +52,10 @@ html[data-theme="dark"] {
     --accent-dim: #5a2722;
     --user: #33211f;
     --code: #0d1016;
+    --warn-text: #e0b23a;
     color-scheme: dark;
   }
 }
-
 * {
   box-sizing: border-box;
 }
@@ -230,7 +233,7 @@ pre {
   border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
 }
 .chip.warn {
-  color: var(--warn);
+  color: var(--warn-text);
   border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
 }
 .chip.muted {
@@ -351,7 +354,6 @@ pre {
 .limit-num {
   font-variant-numeric: tabular-nums;
 }
-
 .body {
   flex: 1;
   display: flex;
@@ -401,29 +403,6 @@ button.bar-settings {
   border: 1px solid var(--line);
   background: var(--panel);
   font-weight: 600;
-}
-.bar-title {
-  display: flex;
-  align-items: center;
-  margin: 14px 8px 4px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--dim);
-}
-.bar-title .add {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font-size: 12px;
-  text-transform: none;
-  letter-spacing: 0;
-  font-weight: 600;
-  padding: 0;
 }
 .bar-row {
   display: flex;
@@ -912,7 +891,7 @@ button.bar-settings {
   color: var(--ok);
 }
 .notice.warn {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 .notice.error {
   color: var(--err);
@@ -1052,7 +1031,6 @@ button.bar-settings {
   box-shadow: 0 4px 14px rgb(0 0 0 / 0.25);
   padding: 0;
 }
-
 .chat-head {
   display: flex;
   align-items: center;
@@ -1572,28 +1550,6 @@ select.model:disabled {
   gap: 2px;
   overflow-y: auto;
 }
-.settings-nav button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: 0;
-  background: none;
-  text-align: left;
-  padding: 8px 10px;
-  border-radius: 8px;
-  color: var(--text);
-}
-.settings-nav button:hover {
-  background: var(--panel-2);
-}
-.settings-nav button.active {
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
-}
-.settings-nav .icon {
-  color: inherit;
-}
 .settings-body {
   flex: 1;
   min-width: 0;
@@ -1663,11 +1619,14 @@ select.model:disabled {
     width: min(85vw, 320px);
     z-index: 20;
     transform: translateX(-100%);
-    transition: transform 0.2s ease;
-    box-shadow: 4px 0 20px rgb(0 0 0 / 0.25);
+    transition:
+      transform 0.2s ease,
+      box-shadow 0.2s ease;
   }
+  /* The shadow only while it is open: closed, it spilled onto the page's left edge. */
   .drawer-open .side {
     transform: none;
+    box-shadow: 4px 0 20px rgb(0 0 0 / 0.25);
   }
   .drawer-open .veil {
     display: block;
@@ -1711,9 +1670,6 @@ select.model:disabled {
     overflow-x: auto;
     border-right: 0;
     border-bottom: 1px solid var(--line);
-  }
-  .settings-nav button {
-    white-space: nowrap;
   }
   .composer {
     padding: 6px 8px;
@@ -1949,18 +1905,6 @@ img.logo {
   flex-direction: column;
   gap: 8px;
 }
-.meter {
-  height: 3px;
-  background: #241d1e;
-  margin-top: 3px;
-  border-radius: 2px;
-  overflow: hidden;
-}
-.meter span {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-}
 
 /* Board */
 .board {
@@ -2051,7 +1995,7 @@ img.logo {
   color: var(--dim);
 }
 .kind-badge.decision {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 .kind-badge.blocker,
 .status-chip.blocked {
@@ -2102,18 +2046,9 @@ img.logo {
 .board-composer .row select {
   flex: 1;
 }
-
-.extensions h3 {
-  margin: 14px 0 4px;
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--dim);
-}
 .form .wide {
   grid-column: 1 / -1;
 }
-
 .pairing-code {
   font-size: 20px;
   letter-spacing: 0.08em;
@@ -2131,21 +2066,6 @@ textarea.recipe {
 }
 .board-thread h4 {
   margin: 16px 0 0;
-}
-.automations .board-list {
-  width: 280px;
-}
-/* Narrow panes: the list goes above the recipe. */
-@container (max-width: 760px) {
-  .automations {
-    flex-direction: column;
-  }
-  .automations .board-list {
-    width: auto;
-    max-height: 40%;
-    border-right: none;
-    border-bottom: 1px solid var(--line);
-  }
 }
 
 /* Platform */
@@ -2171,50 +2091,10 @@ textarea.recipe {
   overflow: auto;
   font-size: 12px;
 }
-.platform-warning {
-  padding: 4px 12px;
-  font-size: 12.5px;
-  background: #2a2412;
-  color: var(--warn);
-  border-bottom: 1px solid var(--line);
-}
-.platform-warning.metal {
-  background: #3a1210;
-  color: #ffb3a8;
-  font-weight: 600;
-}
 
 /* Daily chat */
-.dc-thread {
-  padding: 0;
-}
-.dc-thread > header,
-.dc-thread > .row,
 .dc-settings {
   padding: 8px 16px;
-}
-.dc-messages {
-  flex: 1;
-  overflow: auto;
-  padding: 10px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.dc-user {
-  align-self: flex-end;
-  max-width: 80%;
-  white-space: pre-wrap;
-  background: var(--accent-soft, #3a1714);
-  border: 1px solid var(--line);
-  border-radius: 12px 12px 2px 12px;
-  padding: 8px 12px;
-}
-.dc-assistant {
-  max-width: 92%;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 .row.wrap {
   flex-wrap: wrap;
@@ -3151,7 +3031,7 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
 }
 .wz-disk-warn {
   font-size: 14px;
-  color: var(--warn);
+  color: var(--warn-text);
   margin: -6px 0 12px;
 }
 :is(.wz, .wz-look) .wz-disk .wz-btn {
@@ -3983,6 +3863,10 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
   background: var(--panel-2);
   border-radius: 14px;
   padding: 5px;
+  /* `Seg` draws it as a fieldset: none of a fieldset's own frame. */
+  border: none;
+  margin: 0;
+  min-inline-size: 0;
 }
 :is(.wz, .wz-look) .wz-seg button {
   border: none;
@@ -4392,7 +4276,6 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
   color: var(--dim);
   font-size: 13.5px;
 }
-
 .wz-keys {
   display: flex;
   flex-direction: column;
@@ -4613,7 +4496,6 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
   .wz-center {
     text-align: left;
   }
-
   /* the bar at the bottom: Back as an icon, Next big, Skip in words */
   .wz-foot {
     padding: 10px var(--gut) calc(10px + env(safe-area-inset-bottom));
@@ -4699,7 +4581,6 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
     border-radius: 16px;
     text-align: center;
   }
-
   /* tiles in one column */
   :is(.wz, .wz-look) .wz-tile {
     grid-template-columns: 44px minmax(0, 1fr);
@@ -4741,7 +4622,6 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
   :is(.wz, .wz-look) .wz-brain .wz-tile {
     width: 100%;
   }
-
   .wz-langs {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -4817,7 +4697,6 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
     border-bottom: none;
     padding-bottom: 0;
   }
-
   /* local */
   .wz-machine {
     grid-template-columns: minmax(0, 1fr);
@@ -4874,9 +4753,27 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
   }
   :is(.wz, .wz-look) .wz-disk {
     padding: 14px 16px 16px;
+    /* The phone's tile rule above sets a gap: the disk's parts keep their own margins. */
+    gap: 0;
   }
   .wz-letter {
-    font-size: 30px;
+    font-size: 26px;
+  }
+  /* Short squares: no tall empty bands between the name, the bar and the free room. */
+  :is(.wz, .wz-look) .wz-disks {
+    align-items: flex-start;
+  }
+  .wz-disk-kind {
+    margin: 4px 0 10px;
+  }
+  .wz-free {
+    margin: 8px 0 10px;
+  }
+  .wz-disk > :last-child {
+    margin-bottom: 0;
+  }
+  .wz-disk-warn {
+    margin: -2px 0 10px;
   }
   .wz-legend {
     display: grid;
@@ -4968,7 +4865,6 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
   .wz-ghead {
     margin: 22px 0 10px;
   }
-
   /* names */
   .wz-duo {
     display: block;
@@ -5045,7 +4941,6 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
     padding: 6px 12px;
     font-size: 14.5px;
   }
-
   /* the tree, vertical */
   .wz-vt .wz-node.boss {
     border-width: 2px;
@@ -5110,7 +5005,6 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
   .wz-empty-acts .wz-btn {
     width: 100%;
   }
-
   /* telegram: vertical steps, the chat flat inside the current one */
   .wz-tg {
     display: block;
@@ -5170,7 +5064,6 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
   .wz-linked .wz-note {
     margin: 0;
   }
-
   /* safety */
   .wz-safe,
   .wz-strip {
@@ -5214,7 +5107,6 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
   :is(.wz, .wz-look) .wz-money-in {
     width: 104px;
   }
-
   /* done: the summary as a list */
   .wz-hero {
     width: 88px;
@@ -5261,7 +5153,6 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
     border-bottom: 2px solid var(--dim);
     rotate: -45deg;
   }
-
   /* windows become sheets from below */
   :is(.wz, .wz-look) .ui-modal-back {
     align-items: flex-end;
@@ -5371,12 +5262,6 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
   gap: 4px;
   font-size: 13px;
   color: var(--dim);
-}
-.form.stack {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 14px;
 }
 
 /* --- G24.1: the pieces every screen is built from (components/ui.tsx) --- */
@@ -5596,6 +5481,26 @@ button.ui-card.on {
   gap: 8px;
   align-items: flex-start;
   font-size: 14px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+/* Steps lit by border and background, never ticked: done in green, the running one in the accent. */
+.ui-job-steps li.done {
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.ui-job-steps li.running {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.ui-job-steps li.failed {
+  border-color: var(--err);
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+}
+.ui-job-steps li.done .ui-dot {
+  background: var(--ok);
+  border-color: var(--ok);
 }
 .ui-job-steps li > span:last-child {
   flex: 1;
@@ -5737,45 +5642,6 @@ button.ui-card.on {
   margin: 6px 0 0;
   font-size: 16px;
 }
-.lm-pc {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  background: var(--panel-2);
-}
-.lm-pc p {
-  margin: 2px 0 0;
-}
-.lm-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-}
-.lm-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-}
-.lm-card.best {
-  border: 2px solid var(--accent);
-  padding: 13px;
-}
-.lm-card.too-big {
-  opacity: 0.6;
-}
-.lm-card p {
-  margin: 0;
-}
-.lm-meta {
-  font-size: 13px;
-  font-weight: 600;
-}
 .lm-progress {
   display: flex;
   align-items: flex-end;
@@ -5849,11 +5715,6 @@ a.button.primary {
   font-weight: 600;
   padding: 8px 14px;
 }
-.tg {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
 .tg-token {
   display: flex;
   flex-direction: column;
@@ -5922,21 +5783,6 @@ a.button.primary {
   justify-content: center;
   gap: 6px;
 }
-.when-picker {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.when-picker .choice {
-  display: flex;
-  flex-wrap: wrap;
-}
-.when-picker .day {
-  gap: 4px;
-}
-.auto-editor h4 {
-  margin: 4px 0 0;
-}
 .board-thread > header button {
   display: inline-flex;
   align-items: center;
@@ -5944,17 +5790,6 @@ a.button.primary {
 }
 
 /* --- extensions (G24.9) --- */
-.ext-ask form input {
-  flex: 1;
-  min-width: 0;
-}
-.ext-ask .row button,
-.ext-catalog button,
-.ext-connected button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
 .ext-chat {
   display: flex;
   height: 420px;
@@ -5967,119 +5802,19 @@ a.button.primary {
   flex: 1;
   min-width: 0;
 }
-.ext-search {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 200px;
-  color: var(--dim);
-}
-.ext-search input {
-  flex: 1;
-  min-width: 0;
-}
-.chip-button {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 2px 11px;
-  font-size: 12px;
-  background: var(--panel);
-  color: var(--dim);
-}
-.chip-button.on {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.ext-catalog .lm-cards {
-  margin-top: 10px;
-}
-.ext-add {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.extensions a {
-  color: var(--accent);
-}
-.extensions h3 + .ui-help {
-  margin-top: 0;
-}
 
 /* --- budgets and history (G24.10) --- */
-.budgets-page {
-  padding: 16px;
-  max-width: 900px;
-}
-.budgets-page,
 .history {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.budgets-page h3,
 .history h3 {
   margin: 14px 0 0;
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--dim);
-}
-.budget-hero {
-  display: flex;
-  gap: 24px;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-.budget-total {
-  font-size: 32px;
-  font-weight: 600;
-}
-.budget-chart {
-  flex: 1;
-  min-width: 220px;
-  height: 80px;
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
-}
-.budget-chart span {
-  flex: 1;
-  max-width: 18px;
-  background: var(--accent);
-  border-radius: 2px 2px 0 0;
-  min-width: 3px;
-}
-.budget-chart span.zero {
-  background: var(--line);
-}
-.budget-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-.budget-row.over {
-  border-color: color-mix(in srgb, var(--err) 50%, var(--line));
-}
-.budget-name {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 200px;
-  flex: 1;
-}
-.budget-name .meter {
-  max-width: 260px;
-  height: 5px;
-  background: var(--line);
 }
 .budget-limit {
   display: inline-flex;
@@ -6088,31 +5823,6 @@ a.button.primary {
 }
 .budget-limit input {
   width: 90px;
-}
-.history-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 8px 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-.history-item.undone {
-  opacity: 0.6;
-}
-.history-item.bad {
-  border-color: color-mix(in srgb, var(--err) 50%, var(--line));
-}
-.history-text {
-  flex: 1;
-  min-width: 220px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.history-item .ui-advanced {
-  flex-basis: 100%;
 }
 
 /* --- personal assistants (G24.11) --- */
@@ -6415,13 +6125,6 @@ a.button.primary {
 }
 .model-select select:first-child {
   min-width: 220px;
-}
-.agent-model {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-  margin: 6px 0 10px;
 }
 .chat-head .model-select select {
   width: auto;
@@ -6766,11 +6469,7 @@ a.button.primary {
   max-width: 100%;
   border-radius: 6px;
 }
-
-/* The default extensions (G25.3), at the top of Extensions: one card per kind, as a wizard. */
-.default-extensions {
-  margin-bottom: 18px;
-}
+/* The kinds of generation (G25.3, Extensions' «Generation» window): one row per kind. */
 .media-kind-head {
   align-items: center;
   gap: 10px;
@@ -7044,126 +6743,11 @@ button.chat-card-new {
   flex: 1;
   min-width: 0;
 }
-.agent-projects {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 6px 0 10px;
-}
-.agent-projects label {
-  gap: 8px;
-  align-items: center;
-}
 .assigned {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin-top: 6px;
-}
-.assigned-agent {
-  border-left: 2px dashed var(--line);
-  padding-left: 8px;
-}
-
-/* Agents as cards (2026-11-03): who, what it does, three clear actions, a wide "+" under it. */
-.agent-card {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel);
-  padding: 12px 14px;
-  margin-bottom: 8px;
-}
-.agent-card.stopped {
-  opacity: 0.6;
-}
-.agent-card-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.agent-card-name {
-  font-weight: 700;
-  font-size: 15px;
-}
-.agent-card-role {
-  margin: 6px 0 0;
-  color: var(--dim);
-  font-size: 13px;
-}
-.agent-card-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
-.agent-card-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.agent-card-settings {
-  margin-top: 10px;
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
-}
-.agent-card-settings h4 {
-  margin: 0 0 4px;
-}
-button.agent-add {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px;
-  margin-bottom: 12px;
-  border: 1px dashed var(--line);
-  border-radius: 12px;
-  background: none;
-  color: var(--accent);
-  font-weight: 600;
-}
-button.agent-add:hover {
-  background: var(--panel);
-}
-/* Backup (2026-11-03): export and import, one under the other. */
-.backup-part {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 18px 0 26px;
-  max-width: 640px;
-}
-.backup-part > .ui-progress,
-.backup-part > div,
-.backup-part > .ui-job {
-  align-self: stretch;
-}
-.backup-card {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.backup-card ul {
-  margin: 0;
-  padding-left: 18px;
-}
-.backup-name {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.backup-name legend {
-  padding: 0 4px;
 }
 /* The agents page (2026-11-03): tree or cards, and the agent's settings in a panel. */
 .agents-page {
@@ -7189,17 +6773,6 @@ button.agent-add:hover {
   border: 0;
   padding: 0;
   margin: 0;
-}
-.agents-stopped {
-  font-size: 13px;
-  color: var(--dim);
-}
-.agents-add {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin: 12px 0;
-  max-width: 520px;
 }
 .agents-layout {
   display: flex;
@@ -7530,11 +7103,6 @@ button.org-add {
   width: 100%;
   resize: vertical;
 }
-.agent-panel-add {
-  margin-top: 18px;
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
-}
 .agent-panel-foot {
   display: flex;
   flex-wrap: wrap;
@@ -7545,31 +7113,6 @@ button.org-add {
 }
 .agent-panel-foot .spacer {
   flex: 1;
-}
-.agent-projects {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.agent-modes {
-  display: grid;
-  gap: 8px;
-}
-.agent-modes button {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 10px 12px;
-  text-align: left;
-  border-radius: 10px;
-}
-.agent-modes button.active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
 }
 @media (max-width: 1100px) {
   .agent-panel {
@@ -7620,9 +7163,10 @@ button.org-add {
   .org-project {
     align-items: stretch;
   }
+  /* A strip of the page stays on the left: touching it (the veil) closes the panel. */
   .agent-panel,
   .agent-panel.overlay {
-    width: 100vw;
+    width: calc(100vw - 28px);
     border-left: 0;
   }
   .agent-panel-head::before {
@@ -7642,12 +7186,6 @@ button.org-add {
   padding: 0;
   margin: 0;
   background: none;
-}
-.agent-panel-body .form.stack {
-  align-items: stretch;
-}
-.agent-panel-body .form.stack > .row {
-  align-self: flex-start;
 }
 .org-stack {
   display: flex;
@@ -7680,11 +7218,6 @@ button.org-add {
   display: none;
 }
 /* Selectable squares instead of check boxes (2026-11-03, the user's request). */
-.pick-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 8px;
-}
 button.pick-tile {
   display: flex;
   align-items: center;
@@ -7728,68 +7261,10 @@ button.pick-tile.on {
   border-color: var(--accent);
   color: #fff;
 }
-.pick-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
 /* Local models compared at a glance (2026-11-03): a table, one row a model; on a phone each
    row becomes a card with the column's name before each value. */
 .lm {
   container: local-models / inline-size;
-}
-.lm-table {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  overflow: hidden;
-  margin: 8px 0 16px;
-}
-.lm-row {
-  display: grid;
-  grid-template-columns: minmax(180px, 2fr) repeat(4, 84px) 120px 120px minmax(140px, 1.2fr);
-  gap: 10px;
-  align-items: center;
-  padding: 12px 14px;
-  border-top: 1px solid var(--line);
-  background: var(--panel);
-}
-.lm-row.lm-head {
-  border-top: 0;
-  background: var(--panel-2);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--dim);
-  padding-top: 8px;
-  padding-bottom: 8px;
-}
-.lm-row.best {
-  box-shadow: inset 3px 0 0 var(--accent);
-  background: color-mix(in srgb, var(--accent) 5%, var(--panel));
-}
-.lm-row.too-big > :not(.lm-name):not(.lm-actions) {
-  opacity: 0.35;
-}
-.lm-row.too-big .lm-name strong {
-  color: var(--dim);
-}
-.lm-name {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-.lm-name .ui-help {
-  font-size: 12.5px;
-}
-.lm-meta {
-  font-size: 12px;
-  color: var(--dim);
-}
-.lm-meta.warn {
-  display: block;
-  color: var(--warn);
 }
 .lm-meter,
 .lm-room {
@@ -7852,26 +7327,7 @@ button.pick-tile.on {
 .lm-tier.tier-ssd > span {
   background: var(--warn);
 }
-.lm-actions {
-  min-width: 0;
-}
 @container local-models (max-width: 1000px) {
-  .lm-row {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    align-items: start;
-    row-gap: 12px;
-  }
-  .lm-row > .lm-meter[data-label]:nth-child(6),
-  .lm-row > .lm-room {
-    grid-column: span 2;
-  }
-  .lm-row.lm-head {
-    display: none;
-  }
-  .lm-name,
-  .lm-actions {
-    grid-column: 1 / -1;
-  }
   .lm-meter::before,
   .lm-room::before {
     content: attr(data-label);
@@ -7882,9 +7338,6 @@ button.pick-tile.on {
 /* The models page is wide enough for the comparison table. */
 .settings-section.brain-settings {
   max-width: 1200px;
-}
-.lm-actions button {
-  white-space: nowrap;
 }
 /* What the model is doing now (2026-11-03): reading the context or writing, with speeds. */
 .turn-progress {
@@ -7939,7 +7392,6 @@ button.pick-tile.on {
   color: var(--accent);
   font-weight: 600;
 }
-/* SSD stream (2026-11-03). */
 /* The options next to SSD stream (G32.1): bigger passes and NVIDIA's advice. */
 .exp-badge {
   display: inline-block;
@@ -7947,7 +7399,7 @@ button.pick-tile.on {
   padding: 0 8px;
   border: 1px solid currentColor;
   border-radius: 999px;
-  color: var(--warn);
+  color: var(--warn-text);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.03em;
@@ -7979,7 +7431,7 @@ button.pick-tile.on {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--warn);
+  color: var(--warn-text);
 }
 .lm-sysmem-head strong {
   color: var(--text);
@@ -8080,7 +7532,6 @@ button.pick-tile.on {
   text-align: right;
   white-space: nowrap;
 }
-/* Where the models are (2026-11-03). */
 /* A window over the page (2026-11-04). */
 .ui-modal-back {
   position: fixed;
@@ -8196,14 +7647,6 @@ button.pick-tile.on {
 }
 .gcard-head strong {
   font-size: 14.5px;
-}
-.gcard-foot {
-  margin-top: auto;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  color: var(--dim);
 }
 .gcard .dim,
 .gcard-note {
@@ -8381,17 +7824,6 @@ button.pick-tile.on {
   }
 }
 
-/* The other chats (G29.5): one card per platform, side by side where there is room. */
-.chat-platforms {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
-  gap: 12px;
-  align-items: start;
-}
-.chat-platforms .chat-platform {
-  margin: 0;
-}
-
 /* What a big update brings (WhatsNew.tsx). */
 .whats-new section h3 {
   margin: 12px 0 4px;
@@ -8404,14 +7836,6 @@ button.pick-tile.on {
 }
 .whats-new .row {
   margin-top: 16px;
-}
-
-/* Instructions for every agent (Settings, General). */
-textarea.instructions {
-  width: 100%;
-  box-sizing: border-box;
-  font: inherit;
-  margin-bottom: 8px;
 }
 
 /* A message sent while the agent works (2026-11-05): already in the conversation, a bit faded. */
@@ -8502,7 +7926,6 @@ textarea.instructions {
   border: 1px solid var(--dim);
   border-radius: 50%;
 }
-
 .bubble.user.pending {
   position: relative;
   padding-right: 30px;
@@ -8517,7 +7940,6 @@ textarea.instructions {
   cursor: pointer;
   opacity: 0.7;
 }
-
 .permission-why {
   margin-top: 8px;
   gap: 6px;
@@ -8582,114 +8004,29 @@ textarea.instructions {
   overflow-wrap: anywhere;
 }
 
-/* settings: chats on other apps, budgets, backup, platform (2026-11-06, drawn as the wizard) */
-.sb-page .wz-inner > .wz-q {
+/* Settings and the wizard's look (2026-11-06, every page drawn as the wizard). */
+/* settings, the page and its parts (WzPage, Head, Sub, Tiles): a big heading, a lot of room */
+.st-page .wz-q {
   font-size: clamp(28px, 2.6vw, 42px);
 }
-.sb-page .wz-brain .wz-tile {
+.st-page h2.wz-sub {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 60px 0 8px;
+}
+.st-page .wz-brain .wz-tile {
   width: auto;
   flex: 0 1 300px;
   min-width: min(260px, 100%);
 }
-.sb-page h2.wz-sub {
-  font-size: 22px;
-  font-weight: 700;
-  margin: 56px 0 8px;
+.st-eyebrow {
+  text-align: center;
 }
-.sb-page h2.wz-sub + .sb-boxes,
-.sb-page h2.wz-sub + .sb-list {
-  margin-top: 20px;
+.st-center {
+  text-align: center;
+  margin: 0;
 }
-.sb-tiles {
-  max-width: 980px;
-}
-/* a window's fields: the label over the box */
-.sb-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-weight: 600;
-  font-size: 15px;
-}
-.sb-chat h4 {
-  margin: 4px 0 0;
-  font-size: 16px;
-}
-.sb-accounts {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.sb-account {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  background: var(--accent-soft);
-  border: 2px solid var(--accent);
-  border-radius: 16px;
-  padding: 8px 8px 8px 12px;
-}
-.sb-account-av {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: var(--accent);
-  color: #fff;
-  display: grid;
-  place-items: center;
-}
-.sb-account-name {
-  font-weight: 700;
-  font-size: 17px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.sb-pair {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-}
-/* budgets: the month's days, then the boxes */
-.sb-chart-card {
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 22px 26px 12px;
-}
-.sb-chart {
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  height: 140px;
-}
-.sb-chart span {
-  flex: 1 1 0;
-  min-width: 0;
-  background: var(--accent);
-  border-radius: 4px 4px 2px 2px;
-}
-.sb-chart span.zero {
-  background: var(--line);
-}
-.sb-chart-axis {
-  display: flex;
-  justify-content: space-between;
-  font-size: 13px;
-  margin-top: 6px;
-}
-.sb-boxes {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 16px;
-  max-width: 1040px;
-  margin: 0 auto;
-}
-:is(.wz, .wz-look) .sb-boxes .sb-box {
-  flex: 0 1 330px;
-  min-width: min(280px, 100%);
-}
+/* settings, the kit's pieces (SettingsKit.tsx): lit by border and background, never a mark */
 :is(.wz, .wz-look) .sb-box {
   display: flex;
   flex-direction: column;
@@ -8781,215 +8118,7 @@ textarea.instructions {
 .sb-box .wz-state {
   margin-top: 2px;
 }
-.sb-box-warn {
-  font-size: 14.5px;
-  font-weight: 700;
-  color: color-mix(in srgb, var(--warn) 75%, var(--text));
-}
-.sb-page .wz-money {
-  justify-content: flex-start;
-}
-/* backup: the two halves as cards */
-.sb-two {
-  max-width: 1040px;
-}
-.sb-backup-body {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  flex: 1;
-}
-.sb-backup-acts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-:is(.wz, .wz-look) .sb-backup-acts .wz-btn {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  white-space: normal;
-  min-height: 46px;
-  height: auto;
-  padding-block: 8px;
-}
-.sb-backup-send {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.sb-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  border-top: 1px solid var(--line);
-  padding-top: 14px;
-}
-.sb-preview-title {
-  font-size: 17px;
-}
-.sb-projects {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.sb-projects li {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 4px 12px;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 2px solid var(--accent);
-  background: var(--accent-soft);
-  font-weight: 600;
-}
-.sb-projects li.here {
-  border-color: var(--line);
-  background: var(--panel-2);
-  font-weight: 500;
-}
-.sb-projects li .dim {
-  font-size: 14px;
-  font-weight: 400;
-}
-.sb-name {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.sb-name p,
-.sb-preview p {
-  margin: 0;
-}
-.sb-preview .wz-acts {
-  margin-top: 4px;
-}
-/* platform: each change a card */
-.sb-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-width: 860px;
-  margin: 0 auto;
-  text-align: left;
-}
-.sb-change {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 18px 22px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.sb-change.undone {
-  opacity: 0.6;
-}
-.sb-change.ready {
-  border: 2px solid var(--ok);
-  background: var(--ok-soft);
-}
-.sb-change.bad {
-  border: 2px solid var(--err);
-  background: color-mix(in srgb, var(--err) 10%, var(--panel));
-}
-.sb-change-hd {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 14px;
-}
-.sb-change-av {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: var(--accent-soft);
-  color: var(--accent-text);
-  display: grid;
-  place-items: center;
-}
-.sb-change-text {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.sb-change-line {
-  font-size: 16.5px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-.sb-change-meta {
-  font-size: 14px;
-  margin-top: 4px;
-}
-.sb-stage {
-  font-size: 14.5px;
-  color: var(--dim);
-}
-.sb-stage.ok {
-  color: var(--ok);
-  font-weight: 600;
-}
-.sb-stage.bad {
-  color: var(--err);
-  font-weight: 600;
-}
-.sb-change-acts {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 10px;
-}
-.sb-change .ui-advanced,
-.sb-tech .ui-advanced {
-  font-size: 14.5px;
-}
-.sb-tech {
-  margin-top: 40px;
-}
-.sb-change pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-@media (max-width: 640px) {
-  .sb-page .wz-inner > .wz-q {
-    font-size: 26px;
-  }
-  .sb-page h2.wz-sub {
-    font-size: 20px;
-    margin-top: 36px;
-  }
-  .sb-chart {
-    height: 100px;
-    gap: 2px;
-  }
-  .sb-chart-card {
-    padding: 16px 16px 10px;
-  }
-  .sb-change {
-    padding: 16px;
-  }
-  .sb-change-hd {
-    grid-template-columns: 36px minmax(0, 1fr);
-  }
-  .sb-change-hd > .wz-btn {
-    grid-column: 1 / -1;
-    justify-self: end;
-  }
-  .sb-change-av {
-    width: 36px;
-    height: 36px;
-  }
-}
-
-/* settings: automations, extensions (2026-11-06, drawn as the wizard) */
-.ska-switch-row {
+.st-switch-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -9002,34 +8131,34 @@ textarea.instructions {
     border-color 0.2s,
     background 0.2s;
 }
-.ska-switch-row.on {
+.st-switch-row.on {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
-.ska-switch-row > div {
+.st-switch-row > div {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
-.ska-switch-row b {
+.st-switch-row b {
   font-size: 17px;
 }
-.ska-switch-row span {
+.st-switch-row span {
   color: var(--dim);
   font-size: 14.5px;
 }
-.ska-chips {
+.st-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-:is(.wz, .wz-look) .ska-chips .wz-chip {
+:is(.wz, .wz-look) .st-chips .wz-chip {
   white-space: normal;
   line-height: 1.25;
   padding: 6px 16px;
 }
-.ska-facts {
+.st-facts {
   display: grid;
   gap: 0;
   margin: 0;
@@ -9038,7 +8167,7 @@ textarea.instructions {
   padding: 2px 18px;
   background: var(--panel-2);
 }
-.ska-facts > div {
+.st-facts > div {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -9047,34 +8176,534 @@ textarea.instructions {
   border-bottom: 1px solid var(--line);
   min-width: 0;
 }
-.ska-facts > div:last-child {
+.st-facts > div:last-child {
   border-bottom: none;
 }
-.ska-facts dt {
+.st-facts dt {
   color: var(--dim);
 }
-.ska-facts dd {
+.st-facts dd {
   margin: 0;
   font-weight: 600;
   min-width: 0;
   overflow-wrap: anywhere;
   text-align: right;
 }
-
-/* Automations */
-.aw-page .wz-q,
-.xw-page .wz-q {
-  font-size: clamp(28px, 2.6vw, 42px);
+.st-box {
+  max-width: 860px;
+  margin: 0 auto;
 }
-.aw-page .wz-brain .wz-tile,
-.xw-page .wz-brain .wz-tile {
+.st-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+.st-row:first-child {
+  padding-top: 0;
+}
+.st-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.st-row-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.st-row-text b {
+  font-size: 17px;
+}
+.st-row-text small {
+  color: var(--dim);
+  font-size: 14.5px;
+  line-height: 1.45;
+}
+.st-row-ctl {
+  flex: none;
+  max-width: 62%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+:is(.wz, .wz-look) .wz-seg button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.wz-panel-in .services {
+  margin-top: 0;
+}
+.wz-panel-in .email-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* The shared panels inside a big box: no box in the box, a line between them. */
+.st-box .brain {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.st-box .brain-panel {
+  border: none;
+  background: none;
+  padding: 0;
+  gap: 14px;
+}
+.st-box .brain-panel + .brain-panel {
+  border-top: 1px solid var(--line);
+  margin-top: 26px;
+  padding-top: 26px;
+}
+.st-box .brain-panel > h3 {
+  font-size: 20px;
+  margin: 0;
+}
+/* The shared panels' fields and plain buttons (no class, primary, danger, tiny) as the wizard's,
+   inside boxes, windows and the agent's panel, everywhere in the new look: 44px or more to touch.
+   The wizard's own buttons (steps, segments, tiles…) keep their look: an empty class is no class
+   at all once drawn, hence the parents named here. */
+:is(.wz, .wz-look)
+  :is(.st-box, .ui-modal, .agent-panel)
+  input:not([type="checkbox"], [type="radio"], [type="range"]),
+:is(.wz, .wz-look) :is(.st-box, .ui-modal, .agent-panel) select {
+  min-height: 46px;
+  font-size: 16px;
+  border-radius: 12px;
+}
+:is(.wz, .wz-look)
+  :is(.st-box, .ui-modal, .agent-panel)
+  :is(button:not([class]), button.primary, button.danger, button.tiny, a.button):not(
+    .wz-btn,
+    .link,
+    .wz-link,
+    [role="tab"],
+    [role="switch"],
+    .wz-opt button,
+    .wz-seg button,
+    .wz-jump button
+  ) {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 12px;
+  font-size: 15.5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+/* The shared big cards to pick (`Choice`): lit by border and background, without the mark. */
+:is(.wz, .wz-look) button.ui-card {
+  border: 2px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  padding: 14px 16px;
+}
+:is(.wz, .wz-look) button.ui-card:hover:not(:disabled) {
+  border-color: var(--dim);
+}
+:is(.wz, .wz-look) button.ui-card.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+:is(.wz, .wz-look) .ui-card-mark {
+  display: none;
+}
+:is(.wz, .wz-look) .ui-card-head {
+  font-size: 16.5px;
+}
+.st-facts dt::first-letter {
+  text-transform: uppercase;
+}
+/* settings, the frame: the sections on the left, on a phone a bar that opens them in a sheet */
+.settings-nav.wz-look {
+  width: 272px;
+  padding: 22px 14px 28px;
+  gap: 0;
+  font-size: 15.5px;
+}
+.st-group + .st-group {
+  margin-top: 16px;
+}
+.settings-nav .wz-grp,
+.st-sheet-list .wz-grp {
+  margin: 0 0 6px 12px;
+  font-size: 12px;
+}
+.wz-look .st-nav-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 50px;
+  padding: 6px 12px 6px 7px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
+  color: var(--text);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
+}
+.wz-look .st-nav-item:hover {
+  background: var(--panel-2);
+  border-color: transparent;
+}
+.wz-look .st-nav-item.cur {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 650;
+}
+.wz-look .st-nav-item:focus-visible,
+.wz-look .st-pick:focus-visible {
+  outline: 3px solid var(--accent-dim);
+  outline-offset: 2px;
+}
+.st-nav-ico {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  display: grid;
+  place-items: center;
+  color: var(--text);
+}
+.st-nav-item.cur .st-nav-ico {
+  background: var(--accent);
+  color: #fff;
+}
+.st-nav-name {
+  min-width: 0;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.st-bar {
+  display: none;
+}
+.st-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.st-sheet-list .st-group + .st-group {
+  margin-top: 12px;
+}
+/* settings, General, Telegram, Code, Remote */
+.st-on {
+  color: var(--ok);
+  font-weight: 600;
+  font-size: 15px;
+}
+.st-small {
+  font-size: 14px;
+}
+.st-acct {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.st-acct .icon {
+  color: var(--tg, #2a9bd8);
+}
+.st-instructions {
+  min-height: 200px;
+}
+.st-pihole .brain-panel > h3 {
+  display: none;
+}
+.git-sync {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+.git-sync-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  max-width: 640px;
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+.git-sync-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 14px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.git-sync-list li.ok {
+  background: var(--ok-soft);
+}
+.git-sync-list li.error span {
+  color: var(--err);
+}
+/* settings, Agents: the tree or the cards, the agent's panel, its forms */
+.st-agents .agents-head {
+  display: block;
+  text-align: center;
+}
+.st-agents .agents-head h2,
+.st-agents .agents-head .wz-q {
+  margin-bottom: 12px;
+}
+.st-agents .agents-head .wz-lead {
+  margin-bottom: 28px;
+}
+.st-agents .agents-tools {
+  justify-content: center;
+  gap: 14px;
+}
+.st-agents .agents-tools .wz-seg {
+  min-width: 240px;
+}
+.wz-look .st-filter {
   width: auto;
-  flex: 0 1 320px;
-  min-width: min(260px, 100%);
+  max-width: 260px;
+  height: 50px;
 }
-.aw-page h2.wz-sub,
-.xw-page h2.wz-sub {
-  margin-top: 64px;
+.st-inline-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15.5px;
+}
+.st-agents .agents-layout {
+  margin-top: 36px;
+  text-align: left;
+}
+.st-agents .org-node {
+  min-width: 170px;
+  max-width: 240px;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 2px solid var(--line);
+  transition:
+    border-color 0.2s,
+    background 0.2s;
+}
+.st-agents .org-node:hover {
+  border-color: var(--dim);
+}
+.st-agents .org-node.god {
+  border-color: var(--god-line);
+}
+.st-agents .org-node.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+.st-agents .org-node.assigned {
+  border-style: dashed;
+}
+.st-agents .agent-avatar {
+  width: 40px;
+  height: 40px;
+  font-size: 13.5px;
+}
+.st-agents .org-node-text strong {
+  font-size: 16px;
+}
+.st-agents .org-node-text .dim {
+  font-size: 13.5px;
+}
+.st-agents .org-project {
+  border-radius: 22px;
+  padding: 14px 14px 16px;
+}
+.st-agents .org-project-name {
+  font-size: 12.5px;
+  letter-spacing: 0.1em;
+  color: var(--accent-text);
+  margin-bottom: 4px;
+}
+.st-agents button.org-add {
+  border: 2px dashed var(--line);
+  border-radius: 14px;
+  background: transparent;
+  padding: 10px 14px;
+  font-size: 14.5px;
+}
+.st-agents .agent-group h3 {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  margin: 28px 0 12px;
+}
+.st-agents .agent-tiles {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+.st-agents .agent-tile {
+  gap: 12px;
+  padding: 18px 20px;
+  border-radius: 20px;
+  border: 2px solid var(--line);
+  transition:
+    border-color 0.2s,
+    background 0.2s,
+    transform 0.2s;
+}
+.st-agents .agent-tile:hover {
+  border-color: var(--dim);
+  transform: translateY(-2px);
+}
+.st-agents .agent-tile.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+.st-agents .agent-tile.assigned {
+  border-style: dashed;
+}
+.st-agents .agent-tile-name strong {
+  font-size: 17px;
+}
+.st-agents .agent-tile-role {
+  font-size: 14.5px;
+}
+.st-agents .agent-panel {
+  width: 480px;
+  border-radius: 24px;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.25);
+  max-height: calc(100vh - 140px);
+  overflow: hidden;
+}
+.st-agents .agent-panel.overlay {
+  width: min(480px, 100vw);
+  max-height: none;
+  border-radius: 24px 0 0 24px;
+}
+.st-agents .agents-veil {
+  background: color-mix(in srgb, var(--bg) 35%, rgb(5 7 10 / 0.6));
+}
+.st-agents .agent-panel-head {
+  gap: 14px;
+  padding: 22px 20px 14px 22px;
+}
+.st-agents .agent-panel-head .agent-avatar {
+  width: 48px;
+  height: 48px;
+  font-size: 15px;
+}
+.st-agents .agent-panel-title strong {
+  font-size: 21px;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+.st-agents .agent-panel-title .dim {
+  font-size: 14px;
+}
+/* The tabs in one row: they scroll sideways when the panel is narrow, never wrap. */
+.st-agents .agent-panel-tabs.st-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  gap: 4px;
+  margin: 2px 20px 0;
+  padding: 5px;
+  border-bottom: none;
+}
+.st-agents .agent-panel-tabs.st-tabs::-webkit-scrollbar {
+  display: none;
+}
+.st-agents .agent-panel-tabs.st-tabs button {
+  flex: 1 0 auto;
+  border: none;
+  border-radius: 10px;
+  padding: 8px 10px;
+  min-height: 44px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.st-agents .agent-panel-body {
+  padding: 20px 22px;
+}
+.st-agents .agent-panel-body input[type="range"] {
+  margin-inline: 0;
+}
+.st-agents .agent-panel-foot {
+  gap: 10px;
+  padding: 14px 20px 18px;
+}
+.wz-look .wz-btn.st-danger {
+  color: var(--err);
+}
+.wz-look .wz-btn.st-danger:hover:not(:disabled) {
+  border-color: var(--err);
+}
+.st-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  text-align: left;
+}
+.st-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+.st-field .wz-lb {
+  margin: 0;
+  padding: 0;
+}
+.st-save {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+}
+.st-big {
+  font-size: 26px;
+}
+.st-projects .wz-chips {
+  justify-content: flex-start;
+  margin-top: 6px;
+}
+.st-agents .wz-opt small {
+  font-size: 14px;
+}
+.st-empty {
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+}
+.st-agent-wizard .ui-step {
+  border: none;
+  padding: 0;
+  background: none;
+}
+.st-agent-wizard h3 {
+  font-size: 18px;
+  margin: 12px 0 4px;
+}
+/* settings, Automations */
+.aw-editor .ui-label::first-letter {
+  text-transform: uppercase;
 }
 .aw-make .wz-tile {
   flex-basis: 380px;
@@ -9214,8 +8843,14 @@ textarea.instructions {
   color: var(--err);
   margin-right: auto;
 }
-
-/* Extensions */
+/* settings, Extensions */
+.xw-page .ext-guide-box {
+  border-radius: 14px;
+  padding: 12px 16px;
+}
+.xw-page .ext-guide {
+  font-size: 14.5px;
+}
 .xw-ask {
   max-width: 820px;
   margin: 0 auto;
@@ -9249,7 +8884,7 @@ textarea.instructions {
 }
 .xw-wait .wz-state,
 .xw-failed .wz-state {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 .xw-filter {
   display: flex;
@@ -9324,126 +8959,294 @@ textarea.instructions {
 .xw-media .media-kind-head h3 {
   display: none;
 }
-/* The window's provider cards: lit by border and background, without the check mark. */
-.xw-media .ui-card-mark {
-  display: none;
+/* settings, Chats on other apps */
+.sb-tiles {
+  max-width: 980px;
 }
-.xw-media .ui-card.on {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+.sb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 15px;
 }
-.xw-page .ext-guide-box {
-  border-radius: 14px;
-  padding: 12px 16px;
+.sb-chat h4 {
+  margin: 4px 0 0;
+  font-size: 16px;
 }
-.xw-page .ext-guide {
-  font-size: 14.5px;
+.sb-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
-@media (max-width: 640px) {
-  .aw-page h2.wz-sub,
-  .xw-page h2.wz-sub {
-    margin-top: 40px;
-  }
-  .aw-page .wz-q,
-  .xw-page .wz-q {
-    font-size: 26px;
-  }
-  .aw-tpl {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .xw-ask-form {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .xw-ask .ext-chat {
-    height: 60vh;
-  }
-  .wz-card.xw-ask {
-    padding: 16px;
-  }
-  .ska-switch-row {
-    padding: 14px 16px;
-  }
-}
-
-/* settings: frame, General, Agents, Telegram, Code, Remote (2026-11-06, drawn as the wizard) */
-.settings-nav.wz-look {
-  width: 272px;
-  padding: 22px 14px 28px;
-  gap: 0;
-  font-size: 15.5px;
-}
-.st-group + .st-group {
-  margin-top: 16px;
-}
-.settings-nav .wz-grp,
-.st-sheet-list .wz-grp {
-  margin: 0 0 6px 12px;
-  font-size: 12px;
-}
-.wz-look .st-nav-item {
-  width: 100%;
+.sb-account {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  min-height: 50px;
-  padding: 6px 12px 6px 7px;
-  border-radius: 14px;
-  border: 1px solid transparent;
-  background: transparent;
-  text-align: left;
-  color: var(--text);
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background 0.2s,
-    border-color 0.2s;
-}
-.wz-look .st-nav-item:hover {
-  background: var(--panel-2);
-  border-color: transparent;
-}
-.wz-look .st-nav-item.cur {
-  border-color: var(--accent);
   background: var(--accent-soft);
-  font-weight: 650;
+  border: 2px solid var(--accent);
+  border-radius: 16px;
+  padding: 8px 8px 8px 12px;
 }
-.wz-look .st-nav-item:focus-visible,
-.wz-look .st-pick:focus-visible {
-  outline: 3px solid var(--accent-dim);
-  outline-offset: 2px;
-}
-.st-nav-ico {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: var(--panel-2);
-  display: grid;
-  place-items: center;
-  color: var(--text);
-}
-.st-nav-item.cur .st-nav-ico {
+.sb-account-av {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   background: var(--accent);
   color: #fff;
+  display: grid;
+  place-items: center;
 }
-.st-nav-name {
+.sb-account-name {
+  font-weight: 700;
+  font-size: 17px;
   min-width: 0;
-  line-height: 1.25;
   overflow-wrap: anywhere;
 }
-.st-bar {
-  display: none;
+.sb-pair {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
 }
-.st-sheet-list {
+/* settings, Budgets: the month's days, then the boxes */
+.st-page h2.wz-sub + .sb-boxes,
+.st-page h2.wz-sub + .sb-list {
+  margin-top: 20px;
+}
+.sb-chart-card {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 22px 26px 12px;
+}
+.sb-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 140px;
+}
+.sb-chart span {
+  flex: 1 1 0;
+  min-width: 0;
+  background: var(--accent);
+  border-radius: 4px 4px 2px 2px;
+}
+.sb-chart span.zero {
+  background: var(--line);
+}
+.sb-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin-top: 6px;
+}
+.sb-boxes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+:is(.wz, .wz-look) .sb-boxes .sb-box {
+  flex: 0 1 330px;
+  min-width: min(280px, 100%);
+}
+.sb-box-warn {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--warn-text);
+}
+.sb-budgets .wz-money {
+  justify-content: flex-start;
+}
+/* settings, Backup: the two halves as cards */
+.sb-two {
+  max-width: 1040px;
+}
+.sb-backup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+}
+.sb-backup-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+:is(.wz, .wz-look) .sb-backup-acts .wz-btn {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  min-height: 46px;
+  height: auto;
+  padding-block: 8px;
+}
+.sb-backup-send {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sb-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.sb-preview-title {
+  font-size: 17px;
+}
+.sb-projects {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sb-projects li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 2px solid var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+.sb-projects li.here {
+  border-color: var(--line);
+  background: var(--panel-2);
+  font-weight: 500;
+}
+.sb-projects li .dim {
+  font-size: 14px;
+  font-weight: 400;
+}
+.sb-name {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sb-name p,
+.sb-preview p {
+  margin: 0;
+}
+.sb-preview .wz-acts {
+  margin-top: 4px;
+}
+/* settings, Platform: each change a card */
+.sb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 860px;
+  margin: 0 auto;
+  text-align: left;
+}
+.sb-change {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 18px 22px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sb-change.undone {
+  opacity: 0.6;
+}
+.sb-change.ready {
+  border: 2px solid var(--ok);
+  background: var(--ok-soft);
+}
+.sb-change.bad {
+  border: 2px solid var(--err);
+  background: color-mix(in srgb, var(--err) 10%, var(--panel));
+}
+.sb-change-hd {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+}
+.sb-change-av {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  display: grid;
+  place-items: center;
+}
+.sb-change-text {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.st-sheet-list .st-group + .st-group {
-  margin-top: 12px;
+.sb-change-line {
+  font-size: 16.5px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.sb-change-meta {
+  font-size: 14px;
+  margin-top: 4px;
+}
+.sb-stage {
+  font-size: 14.5px;
+  color: var(--dim);
+}
+.sb-stage.ok {
+  color: var(--ok);
+  font-weight: 600;
+}
+.sb-stage.bad {
+  color: var(--err);
+  font-weight: 600;
+}
+.sb-change-acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.sb-change .ui-advanced,
+.sb-tech .ui-advanced {
+  font-size: 14.5px;
+}
+.sb-tech {
+  margin-top: 40px;
+}
+.sb-change pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1500px) {
+  /* agents */
+  .st-agents .agent-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    width: min(480px, 100vw);
+    max-height: none;
+    border-radius: 24px 0 0 24px;
+  }
+  .st-agents .agents-veil.docked {
+    display: block;
+  }
 }
 @media (max-width: 760px) {
+  /* the frame */
   .settings-nav.wz-look {
     display: none;
   }
@@ -9494,481 +9297,12 @@ textarea.instructions {
   .st-pick > .icon {
     color: var(--dim);
   }
-}
-
-/* the pages */
-.st-page .wz-q {
-  font-size: clamp(28px, 2.6vw, 42px);
-}
-.st-page h2.wz-sub {
-  font-size: 22px;
-  margin: 60px 0 8px;
-}
-.st-page .st-tiles .wz-tile {
-  width: auto;
-  flex: 0 1 300px;
-  min-width: min(260px, 100%);
-}
-.st-eyebrow {
-  text-align: center;
-}
-.st-center {
-  text-align: center;
-  margin: 0;
-}
-.st-box {
-  max-width: 860px;
-  margin: 0 auto;
-}
-.st-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 18px 0;
-  border-bottom: 1px solid var(--line);
-}
-.st-row:first-child {
-  padding-top: 0;
-}
-.st-row:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-.st-row-text {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.st-row-text b {
-  font-size: 17px;
-}
-.st-row-text small {
-  color: var(--dim);
-  font-size: 14.5px;
-  line-height: 1.45;
-}
-.st-row-ctl {
-  flex: none;
-  max-width: 62%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.wz-seg.st-seg {
-  border: none;
-  margin: 0;
-  min-inline-size: 0;
-}
-.wz-look .st-seg button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 9px 16px;
-}
-.st-on {
-  color: var(--ok);
-  font-weight: 600;
-  font-size: 15px;
-}
-.st-small {
-  font-size: 14px;
-}
-.st-acct {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.st-acct .icon {
-  color: var(--tg, #2a9bd8);
-}
-.st-instructions {
-  min-height: 200px;
-}
-.wz-panel-in .services {
-  margin-top: 0;
-}
-.wz-panel-in .email-settings {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-/* The shared panels inside a big box: no box in the box, a line between them. */
-.st-box .brain {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-.st-box .brain-panel {
-  border: none;
-  background: none;
-  padding: 0;
-  gap: 14px;
-}
-.st-box .brain-panel + .brain-panel {
-  border-top: 1px solid var(--line);
-  margin-top: 26px;
-  padding-top: 26px;
-}
-.st-box .brain-panel > h3 {
-  font-size: 20px;
-  margin: 0;
-}
-.st-pihole .brain-panel > h3 {
-  display: none;
-}
-.st-page
-  :is(.st-box, .ui-modal, .agent-panel)
-  input:not([type="checkbox"], [type="radio"], [type="range"]),
-.st-page :is(.st-box, .ui-modal, .agent-panel) select {
-  min-height: 46px;
-  font-size: 16px;
-  border-radius: 12px;
-}
-/* The shared panels' plain buttons, as the wizard's smaller ones. */
-.st-page
-  :is(.st-box, .ui-modal, .agent-panel)
-  :is(button, a.button):not(
-    .wz-btn,
-    .wz-switch,
-    .ui-card,
-    .wz-chip,
-    .ui-modal-x,
-    .wz-link,
-    .link,
-    [role="tab"],
-    .wz-opt button
-  ) {
-  min-height: 44px;
-  padding: 0 18px;
-  border-radius: 12px;
-  font-size: 15.5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-/* The shared big cards to pick (`Choice`): lit by border and background, without the mark. */
-.st-page button.ui-card {
-  border: 2px solid var(--line);
-  border-radius: 16px;
-  background: var(--panel);
-  padding: 14px 16px;
-}
-.st-page button.ui-card:hover:not(:disabled) {
-  border-color: var(--dim);
-}
-.st-page button.ui-card.on {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-.st-page .ui-card-mark {
-  display: none;
-}
-.st-page .ui-card-head {
-  font-size: 16.5px;
-}
-.git-sync {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-}
-.git-sync-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  width: 100%;
-  max-width: 640px;
-  display: grid;
-  gap: 8px;
-  text-align: left;
-}
-.git-sync-list li {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 4px 14px;
-  padding: 12px 16px;
-  border-radius: 14px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  overflow-wrap: anywhere;
-}
-.git-sync-list li.ok {
-  background: var(--ok-soft);
-}
-.git-sync-list li.error span {
-  color: var(--err);
-}
-
-/* Agents */
-.st-agents .agents-head {
-  display: block;
-  text-align: center;
-}
-.st-agents .agents-head h2,
-.st-agents .agents-head .wz-q {
-  margin-bottom: 12px;
-}
-.st-agents .agents-head .wz-lead {
-  margin-bottom: 28px;
-}
-.st-agents .agents-tools {
-  justify-content: center;
-  gap: 14px;
-}
-.st-agents .st-seg {
-  min-width: 240px;
-}
-.wz-look .st-filter {
-  width: auto;
-  max-width: 260px;
-  height: 50px;
-}
-.st-inline-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 15.5px;
-}
-.st-agents .agents-layout {
-  margin-top: 36px;
-  text-align: left;
-}
-.st-agents .org-node {
-  min-width: 170px;
-  max-width: 240px;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  border: 2px solid var(--line);
-  transition:
-    border-color 0.2s,
-    background 0.2s;
-}
-.st-agents .org-node:hover {
-  border-color: var(--dim);
-}
-.st-agents .org-node.god {
-  border-color: var(--god-line);
-}
-.st-agents .org-node.selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  box-shadow: none;
-}
-.st-agents .org-node.assigned {
-  border-style: dashed;
-}
-.st-agents .agent-avatar {
-  width: 40px;
-  height: 40px;
-  font-size: 13.5px;
-}
-.st-agents .org-node-text strong {
-  font-size: 16px;
-}
-.st-agents .org-node-text .dim {
-  font-size: 13.5px;
-}
-.st-agents .org-project {
-  border-radius: 22px;
-  padding: 14px 14px 16px;
-}
-.st-agents .org-project-name {
-  font-size: 12.5px;
-  letter-spacing: 0.1em;
-  color: var(--accent-text);
-  margin-bottom: 4px;
-}
-.st-agents button.org-add {
-  border: 2px dashed var(--line);
-  border-radius: 14px;
-  background: transparent;
-  padding: 10px 14px;
-  font-size: 14.5px;
-}
-.st-agents .agent-group h3 {
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  margin: 28px 0 12px;
-}
-.st-agents .agent-tiles {
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
-}
-.st-agents .agent-tile {
-  gap: 12px;
-  padding: 18px 20px;
-  border-radius: 20px;
-  border: 2px solid var(--line);
-  transition:
-    border-color 0.2s,
-    background 0.2s,
-    transform 0.2s;
-}
-.st-agents .agent-tile:hover {
-  border-color: var(--dim);
-  transform: translateY(-2px);
-}
-.st-agents .agent-tile.selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  box-shadow: none;
-}
-.st-agents .agent-tile.assigned {
-  border-style: dashed;
-}
-.st-agents .agent-tile-name strong {
-  font-size: 17px;
-}
-.st-agents .agent-tile-role {
-  font-size: 14.5px;
-}
-/* the agent's panel */
-.st-agents .agent-panel {
-  width: 480px;
-  border-radius: 24px;
-  box-shadow: 0 24px 60px rgb(0 0 0 / 0.25);
-  max-height: calc(100vh - 140px);
-  overflow: hidden;
-}
-.st-agents .agent-panel.overlay {
-  width: min(480px, 100vw);
-  max-height: none;
-  border-radius: 24px 0 0 24px;
-}
-.st-agents .agents-veil {
-  background: color-mix(in srgb, var(--bg) 35%, rgb(5 7 10 / 0.6));
-}
-.st-agents .agent-panel-head {
-  gap: 14px;
-  padding: 22px 20px 14px 22px;
-}
-.st-agents .agent-panel-head .agent-avatar {
-  width: 48px;
-  height: 48px;
-  font-size: 15px;
-}
-.st-agents .agent-panel-title strong {
-  font-size: 21px;
-  letter-spacing: -0.01em;
-  line-height: 1.25;
-}
-.st-agents .agent-panel-title .dim {
-  font-size: 14px;
-}
-.st-agents .agent-panel-tabs.st-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 2px 20px 0;
-  padding: 5px;
-  border-bottom: none;
-}
-.st-agents .agent-panel-tabs.st-tabs button {
-  flex: 1 1 auto;
-  border: none;
-  border-radius: 10px;
-  padding: 8px 8px;
-  min-height: 40px;
-  font-size: 14px;
-  white-space: nowrap;
-}
-.st-agents .agent-panel-body {
-  padding: 20px 22px;
-}
-.st-agents .agent-panel-body input[type="range"] {
-  margin-inline: 0;
-}
-.st-agents .agent-panel-foot {
-  gap: 10px;
-  padding: 14px 20px 18px;
-}
-.wz-look .wz-btn.st-danger {
-  color: var(--err);
-}
-.wz-look .wz-btn.st-danger:hover:not(:disabled) {
-  border-color: var(--err);
-}
-.st-form {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  text-align: left;
-}
-.st-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  border: none;
-  padding: 0;
-  margin: 0;
-}
-.st-field .wz-lb {
-  margin: 0;
-  padding: 0;
-}
-.st-save {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 12px;
-}
-.st-big {
-  font-size: 26px;
-}
-.st-projects .wz-chips {
-  justify-content: flex-start;
-  margin-top: 6px;
-}
-.st-agents .wz-opt small {
-  font-size: 14px;
-}
-.st-empty {
-  max-width: 560px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-  text-align: center;
-}
-.st-agent-wizard .ui-step {
-  border: none;
-  padding: 0;
-  background: none;
-}
-.st-agent-wizard h3 {
-  font-size: 18px;
-  margin: 12px 0 4px;
-}
-/* Beside the settings' list the tree has less room: the panel is a drawer up to wider screens. */
-@media (max-width: 1500px) {
-  .st-agents .agent-panel {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 40;
-    width: min(480px, 100vw);
-    max-height: none;
-    border-radius: 24px 0 0 24px;
-  }
-  .st-agents .agents-veil.docked {
-    display: block;
-  }
-}
-@media (max-width: 760px) {
+  /* agents */
   .st-agents .agents-tools {
     flex-direction: column;
     align-items: stretch;
   }
-  .st-agents .st-seg,
+  .st-agents .agents-tools .wz-seg,
   .wz-look .st-filter {
     min-width: 0;
     max-width: none;
@@ -9983,20 +9317,24 @@ textarea.instructions {
   }
   .st-agents .agent-panel,
   .st-agents .agent-panel.overlay {
-    border-radius: 0;
+    width: calc(100vw - 28px);
+    border-radius: 20px 0 0 20px;
   }
   .st-agents .agent-tiles {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 @media (max-width: 640px) {
+  /* the page and the kit */
+  .st-page .wz-q {
+    font-size: 26px;
+  }
   .st-page h2.wz-sub {
     font-size: 20px;
     margin: 40px 0 4px;
   }
-  .st-page .wz-q,
-  .st-page h1.wz-q {
-    font-size: 26px;
+  .st-switch-row {
+    padding: 14px 16px;
   }
   .st-row {
     flex-direction: column;
@@ -10006,10 +9344,11 @@ textarea.instructions {
   .st-row-ctl {
     max-width: none;
   }
-  .st-row-ctl .st-seg {
+  .st-row-ctl .wz-seg {
     width: 100%;
   }
-  .wz-look .st-seg button {
+  .st-row-ctl .wz-seg button,
+  .st-agents .agents-tools .wz-seg button {
     padding: 9px 6px;
     gap: 5px;
     overflow-wrap: normal;
@@ -10019,15 +9358,90 @@ textarea.instructions {
   .st-agents .agents-head {
     text-align: left;
   }
-  .settings-section.wz-look.st-agents {
-    padding: 18px var(--gut) 40px;
-  }
   .st-box {
     padding: 18px 16px;
     border-radius: 18px;
   }
-}
-.ska-facts dt::first-letter,
-.aw-editor .ui-label::first-letter {
-  text-transform: uppercase;
+  /* agents */
+  .settings-section.wz-look.st-agents {
+    padding: 18px var(--gut) 40px;
+  }
+  /* automations */
+  .aw-tpl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* extensions: the catalog compact, one kind at a time, its chips in one row that scrolls */
+  .xw-kinds {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .xw-kinds .wz-chip {
+    flex: none;
+  }
+  .wz-brain.xw-cat {
+    gap: 8px;
+  }
+  :is(.wz, .wz-look) .xw-cat .wz-tile {
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 14px;
+  }
+  .xw-cat .wz-ico {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+  .xw-cat .wz-ico .icon {
+    width: 20px;
+    height: 20px;
+  }
+  .xw-cat .wz-tile-title {
+    font-size: 16px;
+    margin-bottom: 2px;
+  }
+  .xw-cat .wz-tile-p {
+    font-size: 14px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .xw-ask-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .xw-ask .ext-chat {
+    height: 60vh;
+  }
+  .wz-card.xw-ask {
+    padding: 16px;
+  }
+  /* budgets */
+  .sb-chart {
+    height: 100px;
+    gap: 2px;
+  }
+  .sb-chart-card {
+    padding: 16px 16px 10px;
+  }
+  /* platform */
+  .sb-change {
+    padding: 16px;
+  }
+  .sb-change-hd {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+  .sb-change-hd > .wz-btn {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+  .sb-change-av {
+    width: 36px;
+    height: 36px;
+  }
 }

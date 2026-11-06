@@ -18,8 +18,7 @@ import { CompactionSettings } from "./CompactionSettings.js";
 import { modelName } from "./ModelMenu.js";
 import { ModelSelect, useModels } from "./ModelSelect.js";
 import { NotesEditor } from "./NotesEditor.js";
-import { Seg, Switch } from "./SettingsKit-cornice.js";
-import { Acts, Head } from "./SetupKit.js";
+import { Acts, Head, Seg, Switch } from "./SettingsKit.js";
 import { Modal } from "./ui.js";
 
 const CHILDREN: Record<Agent["kind"], Agent["kind"][]> = {

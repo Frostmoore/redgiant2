@@ -7,6 +7,7 @@ import { t } from "../i18n.js";
 import { attempt, getApi } from "../state.js";
 import { explain } from "./Brain.js";
 import { SearchSettings } from "./SearchSettings.js";
+import { Acts } from "./SettingsKit.js";
 import { Field, JobView, useJob } from "./ui.js";
 
 /**
@@ -212,11 +213,11 @@ export function ServicePanel({
         </>
       )}
       {result && <p class={`notice ${result.ok ? "ok" : "error"}`}>{result.text}</p>}
-      <div class="wz-acts">
+      <Acts>
         <button type="submit" class="wz-btn primary" disabled={busy || locked}>
           {t("save")}
         </button>
-      </div>
+      </Acts>
     </form>
   );
 }

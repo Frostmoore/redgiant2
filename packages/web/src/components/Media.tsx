@@ -1,11 +1,10 @@
-// Settings, Generation (G25.3): who makes pictures, videos, speech, music and sound effects, with
-// which model and key. The agents' three tools (image_generation, video_generation,
-// audio_generation) use what is chosen here.
-import { MEDIA_KINDS, MEDIA_PROVIDERS, type MediaKind, mediaProvider } from "@redgiant/protocol";
+// Generation (G25.3): who makes pictures, videos, speech, music and sound effects, with which
+// model and key, one kind per row (shown in Settings, Extensions). The agents' three tools
+// (image_generation, video_generation, audio_generation) use what is chosen here.
+import { MEDIA_PROVIDERS, type MediaKind, mediaProvider } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
 import { t } from "../i18n.js";
-import { IconCheck } from "../icons.js";
 import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
 import { Choice, Field } from "./ui.js";
@@ -30,9 +29,7 @@ function KeyField({
   if (linked && !changing)
     return (
       <div class="row media-key">
-        <span class="notice ok">
-          <IconCheck size={14} /> {t("mediaKeyLinked", { name: p.name })}
-        </span>
+        <span class="notice ok">{t("mediaKeyLinked", { name: p.name })}</span>
         <button type="button" class="link" onClick={() => setChanging(true)}>
           {t("remotePasswordChange")}
         </button>
@@ -218,49 +215,6 @@ export function KindRow({
         </>
       )}
       {error && <p class="notice error">{error}</p>}
-    </div>
-  );
-}
-
-/** Settings, Extensions: the default extensions, the agents' three tools (G25.3). */
-export function DefaultExtensions() {
-  const [s, setS] = useState<SetupState | null>(null);
-  const load = () =>
-    void getApi()
-      .setup()
-      .then(setS, () => {});
-  useEffect(load, []);
-  if (!s) return null;
-  return (
-    <section class="default-extensions">
-      <h3>{t("mediaTitle")}</h3>
-      <p class="ui-help">{t("mediaPurpose")}</p>
-      <div class="brain">
-        {MEDIA_KINDS.map((k) => (
-          <KindRow key={k} kind={k} s={s} onChange={load} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-export function MediaSettings() {
-  const [s, setS] = useState<SetupState | null>(null);
-  const load = () =>
-    void getApi()
-      .setup()
-      .then(setS, () => {});
-  useEffect(load, []);
-  if (!s) return null;
-  return (
-    <div class="settings-section brain-settings">
-      <h2>{t("mediaTitle")}</h2>
-      <p class="ui-purpose">{t("mediaPurpose")}</p>
-      <div class="brain">
-        {MEDIA_KINDS.map((k) => (
-          <KindRow key={k} kind={k} s={s} onChange={load} />
-        ))}
-      </div>
     </div>
   );
 }
