@@ -2,8 +2,9 @@
 // impostazioni con lo stesso stile del wizard»): a big heading, the look and the notifications on
 // rows with segments and a switch, then the wizard's squares, lit when something is set (never a
 // check mark), each opening a window (a sheet from below on phones) with its real panel:
-// instructions for every agent, the backup model, web search, voice messages, pictures, the
-// mailbox, updates and the debug log. The account at the bottom.
+// instructions for every agent, the backup model, web search, voice messages, pictures, updates
+// and the debug log. The account at the bottom. The mailbox serves automations only and lives
+// in Settings > Automations (2026-11-07).
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
@@ -20,7 +21,6 @@ import {
   IconMonitor,
   IconMoon,
   IconRefresh,
-  IconSend,
   IconSun,
   IconTool,
   IconTrash,
@@ -28,7 +28,6 @@ import {
 import { attempt, getApi, signOut } from "../state.js";
 import { setTheme, theme } from "../theme.js";
 import { explain } from "./Brain.js";
-import { EmailSettings } from "./EmailSettings.js";
 import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
 import { ServicePanel } from "./Services.js";
 import {
@@ -47,15 +46,7 @@ import {
 import { Modal } from "./ui.js";
 
 type DebugState = { enabled: boolean; forced: boolean; bytes: number; files: number };
-type Open =
-  | "instructions"
-  | "backup"
-  | "search"
-  | "voice"
-  | "images"
-  | "email"
-  | "updates"
-  | "debug";
+type Open = "instructions" | "backup" | "search" | "voice" | "images" | "updates" | "debug";
 
 /** The browser's notifications (2026-11-05): when the page is not in view and an agent needs you. */
 function BrowserNotifications() {
@@ -264,16 +255,12 @@ function Updates() {
 
 export function General() {
   const [s, setS] = useState<SetupState | null>(null);
-  const [email, setEmail] = useState<{ configured: boolean; user?: string }>();
   const [dbg, setDbg] = useState<DebugState>();
   const [open, setOpen] = useState<Open | null>(null);
   const load = () => {
     void getApi()
       .setup()
       .then(setS, () => {});
-    void getApi()
-      .emailSettings()
-      .then(setEmail, () => setEmail({ configured: false }));
   };
   useEffect(() => {
     load();
@@ -296,7 +283,6 @@ export function General() {
     search: t("servicesSearch"),
     voice: t("servicesVoice"),
     images: t("servicesImages"),
-    email: t("emailTitle"),
     updates: t("updTitle"),
     debug: t("dbgTitle"),
   };
@@ -326,7 +312,6 @@ export function General() {
                 {(open === "search" || open === "voice" || open === "images") && (
                   <ServicePanel s={s} part={open} onSaved={load} />
                 )}
-                {open === "email" && <EmailSettings onChange={load} />}
                 {open === "updates" && <Updates />}
                 {open === "debug" && dbg && <Diagnostics st={dbg} setSt={setDbg} />}
               </div>
@@ -407,13 +392,6 @@ export function General() {
           <IconBox />,
           t("servicesImagesHelp"),
           images ? (c.imagesModel ?? t("stGenOn")) : undefined,
-        )}
-        {tile(
-          "email",
-          !!email?.configured,
-          <IconSend size={22} />,
-          t("emailPurpose"),
-          email?.configured ? email.user : undefined,
         )}
       </Tiles>
 

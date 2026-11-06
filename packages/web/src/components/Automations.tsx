@@ -21,6 +21,7 @@ import {
 import { renderMarkdown } from "../markdown.js";
 import { agents, attempt, automationsVersion, getApi, openTab, projects } from "../state.js";
 import { explain } from "./Brain.js";
+import { MailboxNeed, MailboxWindow, useMailbox } from "./EmailSettings.js";
 import { Acts, Chips, Facts, Head, Sub, SwitchRow, Tile, WzPage } from "./SettingsKit.js";
 import { Advanced, Field, Modal } from "./ui.js";
 
@@ -510,6 +511,7 @@ function WzWhen({ when, onChange }: { when: When; onChange: (w: When) => void })
               />
             </Field>
           </div>
+          <MailboxNeed />
           <p class="ui-help">{t("whenEmailHelp")}</p>
         </>
       )}
@@ -785,13 +787,14 @@ function AutoView({
 }
 
 /** What is open: a new automation, a new reminder, one automation, or one being changed. */
-type Open = "new" | "reminder" | { id: string; edit?: boolean };
+type Open = "new" | "reminder" | "mailbox" | { id: string; edit?: boolean };
 
 /** Automations (G24.8): squares made and changed with words; the YAML for experts. */
 export function Automations() {
   const [list, setList] = useState<Automation[]>([]);
   const [open, setOpen] = useState<Open | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
+  const mailbox = useMailbox();
   const version = automationsVersion.value;
   const openId = typeof open === "object" && open ? open.id : undefined;
   const current = list.find((a) => a.id === openId);
@@ -823,6 +826,14 @@ export function Automations() {
             <Modal wide title={t("newAutomation")} onClose={close}>
               <Editor current={undefined} onSaved={saved} onCancel={close} />
             </Modal>
+          )}
+          {open === "mailbox" && (
+            <MailboxWindow
+              onClose={() => {
+                close();
+                mailbox.reload();
+              }}
+            />
           )}
           {open === "reminder" && (
             <Modal title={t("newReminder")} onClose={close}>
@@ -895,6 +906,18 @@ export function Automations() {
           ))}
         </div>
       )}
+
+      <Sub title={t("awSourcesTitle")} lead={t("awSourcesLead")} />
+      <div class="wz-brain aw-make aw-sources">
+        <Tile
+          on={!!mailbox.box?.configured}
+          icon={<IconSend />}
+          title={t("emailTitle")}
+          text={t("emailTileText")}
+          state={mailbox.box?.configured ? mailbox.box.user : t("emailNotConnected")}
+          onClick={() => setOpen("mailbox")}
+        />
+      </div>
     </WzPage>
   );
 }

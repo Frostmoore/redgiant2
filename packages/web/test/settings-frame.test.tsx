@@ -86,7 +86,6 @@ describe("Settings drawn as the wizard", () => {
       "Ricerca sul web",
       "Messaggi vocali",
       "Immagini",
-      "Email per le routine",
       "Aggiornamenti",
       "Diagnostica",
     ]);
@@ -101,7 +100,9 @@ describe("Settings drawn as the wizard", () => {
     fireEvent.click(r.getByText("Salva"));
     await waitFor(() => expect(calls).toContain("setupInstructions"));
     expect(r.getByText("Esci")).toBeTruthy();
-    expect(calls).toEqual(expect.arrayContaining(["setup", "emailSettings", "debugState"]));
+    expect(calls).toEqual(expect.arrayContaining(["setup", "debugState"]));
+    // The mailbox serves automations only and lives with them (2026-11-07).
+    expect(calls).not.toContain("emailSettings");
   });
 
   it("General: voice messages are saved alone", async () => {

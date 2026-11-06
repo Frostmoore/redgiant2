@@ -363,6 +363,9 @@ export function Pick({
 }
 
 /** A window over the page, closed with its button, Escape or a click outside (2026-11-04). */
+/** The windows open now, the last on top. */
+const stack: object[] = [];
+
 export function Modal({
   title,
   onClose,
@@ -375,8 +378,17 @@ export function Modal({
   /** A wider window, for a model's details (2026-11-06). */
   wide?: boolean | undefined;
 }) {
+  const [me] = useState(() => ({}));
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    stack.push(me);
+    return () => {
+      stack.splice(stack.indexOf(me), 1);
+    };
+  }, []);
+  useEffect(() => {
+    // Only the window on top closes: Escape in the mailbox's window, opened from an automation
+    // being written, must not throw the draft away.
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && stack.at(-1) === me && onClose();
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
   }, [onClose]);

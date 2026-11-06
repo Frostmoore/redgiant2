@@ -8708,6 +8708,33 @@ button.pick-tile.on {
 .aw-make .wz-tile {
   flex-basis: 380px;
 }
+/* the mailbox under the «On an email» trigger (2026-11-07) */
+.aw-mailbox {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+.aw-mailbox-text {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.aw-mailbox.need {
+  border-color: var(--warn);
+  background: var(--warn-soft, var(--panel));
+}
+.aw-mailbox-ico {
+  display: flex;
+  color: var(--ok);
+}
+.aw-mailbox.need .aw-mailbox-ico {
+  color: var(--warn);
+}
 .aw-editor,
 .xw-form {
   display: flex;

@@ -197,7 +197,15 @@ const en = {
   boardSub: "Subproject",
   chatToGroup: "Go on as a group: add an agent, which gets this chat as context",
   roomUsageHint: "What its answers here cost, and how full its context is",
-  emailTitle: "Email for routines",
+  emailTitle: "Mailbox",
+  emailTileText: "For the automations that start when an email arrives.",
+  emailNotConnected: "Not connected",
+  emailNeedFirst: "Connect the mailbox first: until then this automation never starts.",
+  emailConnect: "Connect the mailbox",
+  emailWatching: "Watching {user} on {host}.",
+  emailChange: "Change",
+  awSourcesTitle: "Connections",
+  awSourcesLead: "What automations can listen to besides the clock.",
   emailPurpose:
     "A routine can start when an email arrives (an invoice, an alert). RedGiant looks only at new mail, every two minutes, and changes nothing in your mailbox; the email reaches the agent as information, never as instructions.",
   emailConnected: "Reading {user} on {host}.",
@@ -230,7 +238,7 @@ const en = {
   emailFromPlaceholder: "From (part of the address, optional)",
   emailSubjectPlaceholder: "The subject contains (optional)",
   whenEmailHelp:
-    "Set the mailbox once in Settings › General › Email for routines. The email reaches the agent as information, never as instructions.",
+    "The mailbox is set once, here or in Settings › Automations › Mailbox. The email reaches the agent as information, never as instructions.",
   extCat_home: "Home",
   extAuth_app: "Your own app, with a guide",
   extUnverified:
@@ -2349,7 +2357,16 @@ const it: Record<Key, string> = {
   boardSub: "Sottoprogetto",
   chatToGroup: "Continua in gruppo: aggiungi un agente, che riceve questa chat come contesto",
   roomUsageHint: "Quanto sono costate le sue risposte qui, e quanto è pieno il suo contesto",
-  emailTitle: "Email per le routine",
+  emailTitle: "Casella email",
+  emailTileText: "Per le automazioni che partono quando arriva una email.",
+  emailNotConnected: "Non collegata",
+  emailNeedFirst:
+    "Prima collega la casella email: finché non è collegata, questa automazione non parte.",
+  emailConnect: "Collega la casella email",
+  emailWatching: "Guarda {user} su {host}.",
+  emailChange: "Cambia",
+  awSourcesTitle: "Collegamenti",
+  awSourcesLead: "Cosa possono ascoltare le automazioni, oltre all'orologio.",
   emailPurpose:
     "Una routine può partire quando arriva una email (una fattura, un avviso). RedGiant guarda solo la posta nuova, ogni due minuti, e non cambia niente nella tua casella; l'email arriva all'agente come informazione, mai come istruzioni.",
   emailConnected: "Leggo {user} su {host}.",
@@ -2382,7 +2399,7 @@ const it: Record<Key, string> = {
   emailFromPlaceholder: "Mittente (parte dell'indirizzo, facoltativo)",
   emailSubjectPlaceholder: "L'oggetto contiene (facoltativo)",
   whenEmailHelp:
-    "Imposta la casella una volta in Impostazioni › Generale › Email per le routine. L'email arriva all'agente come informazione, mai come istruzioni.",
+    "La casella si imposta una volta, qui o in Impostazioni › Automazioni › Casella email. L'email arriva all'agente come informazione, mai come istruzioni.",
   extCat_home: "Casa",
   extAuth_app: "La tua app, con una guida",
   extUnverified:
