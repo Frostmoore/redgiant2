@@ -1499,6 +1499,12 @@ const en = {
   news3Browser: "The browser for every agent",
   news3BrowserText:
     "Every agent that works can use the browser, now able to scroll, press keys and choose from menus, and to look at images. Reading pages never reaches your home network.",
+  news321Settings: "Settings in the setup's style",
+  news321SettingsText:
+    "Every page of Settings now looks like the setup: big titles, tiles lit when something is on, details in windows in the middle, sections in five groups and, on a phone, a bar that opens their list. Nothing was taken away.",
+  news321Linux: "Next layer ahead on Linux too",
+  news321LinuxText:
+    "The experimental «Next layer ahead» switch of SSD stream now works on Linux with an NVIDIA card too, with an engine image of its own downloaded only when you turn it on.",
   news32Setup: "The setup, one thing at a time",
   news32SetupText:
     "The configuration is new: one question per page, big buttons, a counter that opens the list of steps, details in windows in the middle, and a layout of its own on the phone. Each choice shows what it really sets.",
@@ -3655,6 +3661,12 @@ const it: Record<Key, string> = {
   news3Browser: "Il browser per ogni agente",
   news3BrowserText:
     "Ogni agente che lavora può usare il browser, che ora scorre la pagina, preme tasti, sceglie dai menu e guarda le immagini. La lettura delle pagine non raggiunge mai la tua rete di casa.",
+  news321Settings: "Le Impostazioni nello stile della configurazione",
+  news321SettingsText:
+    "Tutte le pagine delle Impostazioni ora sono come la configurazione: titoli grandi, riquadri accesi quando qualcosa è attivo, dettagli in finestre al centro, sezioni in cinque gruppi e, sul telefono, una barra che ne apre l'elenco. Non è stato tolto niente.",
+  news321Linux: "Strato dopo in anticipo anche su Linux",
+  news321LinuxText:
+    "L'interruttore sperimentale «Strato dopo in anticipo» di SSD stream ora funziona anche su Linux con una scheda NVIDIA, con un'immagine del motore tutta sua scaricata solo quando lo accendi.",
   news32Setup: "La configurazione, una cosa alla volta",
   news32SetupText:
     "La configurazione è nuova: una domanda per pagina, pulsanti grandi, un contatore che apre l'elenco dei passi, i dettagli in finestre al centro e una versione tutta sua sul telefono. Ogni scelta mostra cosa imposta davvero.",

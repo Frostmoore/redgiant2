@@ -7,10 +7,12 @@ import { getApi } from "../state.js";
 import { Modal } from "./ui.js";
 
 /** Bump with every big update, and write its items below. */
-const NEWS_VERSION = "3.2.0";
+const NEWS_VERSION = "3.2.1";
 const SEEN = "rg.newsSeen";
 
 const ITEMS: { title: Key; text: Key }[] = [
+  { title: "news321Settings", text: "news321SettingsText" },
+  { title: "news321Linux", text: "news321LinuxText" },
   { title: "news32Setup", text: "news32SetupText" },
   { title: "news32Sources", text: "news32SourcesText" },
   { title: "news32Models", text: "news32ModelsText" },
