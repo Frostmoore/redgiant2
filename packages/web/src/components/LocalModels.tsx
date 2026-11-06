@@ -11,12 +11,16 @@ import {
   IconChevron,
   IconCpu,
   IconDownload,
+  IconFolder,
+  IconGpu,
   IconLayers,
   IconPlay,
+  IconRam,
   IconSearch,
   IconTrash,
 } from "../icons.js";
 import { attempt, getApi } from "../state.js";
+import { type DiskTile, defaultModelsFolder, diskTiles, gbText, num } from "../wizard.js";
 import { explain } from "./Brain.js";
 import { Gallery, GalleryCard } from "./Gallery.js";
 import { Advanced, Field, JobView, Modal, Pick, Progress, useJob } from "./ui.js";
@@ -1257,7 +1261,252 @@ function ModelPanel({
   );
 }
 
-export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }) {
+/**
+ * The wizard's computer (2026-11-06, the person's prototype): the card and the RAM on the left,
+ * the SSD stream switch inside the same box on the right.
+ */
+function WzMachine({
+  s,
+  variant,
+  on,
+  available,
+  onChange,
+}: {
+  s: SetupState;
+  variant: EngineVariant;
+  on: boolean;
+  available: Availability;
+  onChange: (on: boolean) => void;
+}) {
+  const [info, setInfo] = useState(false);
+  const hw = s.hardware;
+  const card = hw.gpus.find((g) => !g.integrated);
+  const shared = hw.suggestion.kind !== "gpu" && hw.suggestion.kind !== "gpu-unknown";
+  const name = variant === "windows" ? hw.modelDisk?.windows : hw.modelDisk?.docker;
+  const disk = name && name !== "/" ? `${name}:` : t("lmStreamThisDisk");
+  return (
+    <div class="wz-machine">
+      <div class="wz-machine-l">
+        <div class="wz-eyebrow">{t("lmThisPc")}</div>
+        {!shared && card && (
+          <div class="wz-mrow">
+            <IconGpu size={22} />
+            <span>
+              <b>{card.name}</b> · {t("wzVram", { gb: gbText(hw.suggestion.vramGb) })}
+            </span>
+          </div>
+        )}
+        <div class="wz-mrow">
+          <IconRam size={22} />
+          <span>
+            <b>{gbText(hw.ramGb)}</b> {t("wzOfRamLong")}
+          </span>
+        </div>
+        <div class="dim">
+          {shared ? hardwareText(hw) : t("wzFitsUpTo", { max: gbText(hw.suggestion.maxModelGb) })}
+        </div>
+      </div>
+      <div class="wz-machine-r">
+        <div class="wz-tog">
+          <h3>{t("lmStream")}</h3>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={on}
+            aria-label={t("lmStream")}
+            class={`wz-switch${on ? " on" : ""}`}
+            disabled={!available.ok}
+            onClick={() => onChange(!on)}
+          />
+        </div>
+        <p class="dim">{on ? t("wzStreamOn", { disk }) : t("wzStreamOff")}</p>
+        {!available.ok && <p class="notice">{available.reason}</p>}
+        {available.ok && available.warn && <p class="ui-help">{available.warn}</p>}
+        <button type="button" class="wz-link inl" onClick={() => setInfo(true)}>
+          {t("wzHowItWorks")}
+        </button>
+      </div>
+      {info && (
+        <Modal title={t("lmStream")} onClose={() => setInfo(false)}>
+          <p class="wz-lead2">{t("wzStreamInfo1")}</p>
+          <p>{t("wzStreamInfo2")}</p>
+          <p>{t("wzStreamInfo3")}</p>
+          <div class="wz-acts">
+            <button type="button" class="wz-btn primary" onClick={() => setInfo(false)}>
+              {t("wzUnderstood")}
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Where the models are (2026-11-06): one square per disk with its free room, the models' one lit;
+ * on Windows a click moves them there, and each disk has a button to choose the folder.
+ */
+function WzDisks({
+  s,
+  variant,
+  onMoved,
+}: {
+  s: SetupState;
+  variant: EngineVariant;
+  onMoved: () => void;
+}) {
+  const [jobId, setJobId] = useState<string>();
+  const job = useJob(jobId);
+  const [ask, setAsk] = useState<{ tile: DiskTile; folder: boolean } | null>(null);
+  const [folder, setFolder] = useState("");
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    if (job?.state === "done") onMoved();
+  }, [job?.state]);
+  const tiles = diskTiles(s.hardware, variant);
+  const moving = job?.state === "running";
+  const start = (drive: string, to?: string) => {
+    setError(undefined);
+    setAsk(null);
+    void getApi()
+      .moveModels(drive, "models", to)
+      .then(
+        (j) => setJobId(j.id),
+        (e: unknown) => setError(explain(e)),
+      );
+  };
+  const choose = (d: DiskTile) => {
+    if (d.here || !d.canMove || moving) return;
+    setAsk({ tile: d, folder: false });
+  };
+  return (
+    <>
+      <h2 class="wz-sub">{t("wzDisksTitle")}</h2>
+      <p class="wz-subl">{t("wzDisksLead")}</p>
+      <div class={`wz-disks n${Math.min(tiles.length, 4)}`}>
+        {tiles.map((d) => (
+          // biome-ignore lint/a11y/useSemanticElements: a square with a button inside it.
+          <div
+            key={d.label}
+            class={`wz-tile wz-disk${d.here ? " on" : ""}${d.canMove && !d.here ? " movable" : ""}`}
+            role="button"
+            tabIndex={0}
+            aria-pressed={d.here}
+            onClick={() => choose(d)}
+            onKeyDown={(e) => {
+              if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+              e.preventDefault();
+              choose(d);
+            }}
+          >
+            <div class="wz-disk-top">
+              <span class="wz-letter">{d.label}</span>
+              <span class="wz-here">{d.here ? t("wzHereNow") : ""}</span>
+            </div>
+            <div class="wz-disk-kind">{d.kind}</div>
+            {d.usedPct !== null && (
+              <div class="wz-bar">
+                <i style={{ width: `${d.usedPct}%` }} />
+              </div>
+            )}
+            {d.freeGb !== null && (
+              <div class="wz-free">
+                <b>{gbText(d.freeGb)}</b>{" "}
+                <span class="dim">
+                  {d.totalGb ? t("wzFreeOf", { total: num(d.totalGb, 0) }) : t("wzFree")}
+                </span>
+              </div>
+            )}
+            {d.hdd && <div class="wz-disk-warn">{t("wzDiskHdd")}</div>}
+            {d.name && (
+              <button
+                type="button"
+                class="wz-btn small"
+                disabled={!d.canMove || moving}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFolder(defaultModelsFolder(d.name));
+                  setAsk({ tile: d, folder: true });
+                }}
+              >
+                <IconFolder size={18} />
+                {t("wzPickFolder")}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      {!tiles.some((d) => d.canMove) && (
+        <p class="ui-help wz-center">{t(tiles[0]?.name ? "wzDisksNoMove" : "wzDisksOne")}</p>
+      )}
+      {job && <JobView job={job} />}
+      {error && <p class="notice error">{error}</p>}
+      {ask && !ask.folder && (
+        <Modal title={t("wzMoveTitle", { disk: ask.tile.label })} onClose={() => setAsk(null)}>
+          <p class="wz-lead2">
+            {t("wzMoveLead", {
+              kind: ask.tile.kind,
+              free: ask.tile.freeGb !== null ? gbText(ask.tile.freeGb) : "?",
+              folder: defaultModelsFolder(ask.tile.name),
+            })}
+          </p>
+          <div class="wz-acts">
+            <button type="button" class="wz-btn quiet" onClick={() => setAsk(null)}>
+              {t("cancel")}
+            </button>
+            <button type="button" class="wz-btn primary" onClick={() => start(ask.tile.name)}>
+              {t("wzMoveHere")}
+            </button>
+          </div>
+        </Modal>
+      )}
+      {ask?.folder && (
+        <Modal title={t("wzFolderTitle", { disk: ask.tile.label })} onClose={() => setAsk(null)}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              start(ask.tile.name, folder.trim());
+            }}
+          >
+            <p class="wz-lead2">{t("wzFolderLead")}</p>
+            <Field label={t("wzFolder")} help={t("wzFolderHelp")}>
+              <input
+                class="wz-field mono"
+                autocomplete="off"
+                spellcheck={false}
+                value={folder}
+                onInput={(e) => setFolder((e.target as HTMLInputElement).value)}
+              />
+            </Field>
+            <div class="wz-acts">
+              <button type="button" class="wz-btn quiet" onClick={() => setAsk(null)}>
+                {t("cancel")}
+              </button>
+              <button
+                type="submit"
+                class="wz-btn primary"
+                disabled={!folder.trim().toUpperCase().startsWith(`${ask.tile.name}:`)}
+              >
+                {t("wzUseFolder")}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+export function LocalModels({
+  s,
+  reload,
+  wizard,
+}: {
+  s: SetupState;
+  reload: () => void;
+  /** The wizard's layout (2026-11-06): the computer, the disks, the models in two groups. */
+  wizard?: boolean;
+}) {
   const [data, setData] = useState<{
     models: LocalModelChoice[];
     files: LocalFile[];
@@ -1272,6 +1521,8 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
   const [stream, setStream] = useState(s.config.engine?.stream ?? false);
   /** The card whose panel is open: a model's id, `file:` and a file, or `hf`. */
   const [open, setOpen] = useState<string | null>(null);
+  /** On a phone the wizard shows one group at a time. */
+  const [tab, setTab] = useState<"fit" | "slow">("fit");
   const canStream = streamAvailable(s, variant);
   const load = (v: EngineVariant = variant, st: boolean = stream) => {
     void getApi()
@@ -1332,6 +1583,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
   const panel = openModel
     ? {
         title: openModel.name,
+        wide: wizard,
         body: (
           <ModelPanel
             key={openModel.id}
@@ -1404,6 +1656,176 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
               ),
             }
           : null;
+  const engineField = (
+    <Advanced>
+      <Field label={t("lmEngine")} help={t("lmEngineHelp")}>
+        <select
+          value={variant}
+          onChange={(e) => setVariant((e.target as HTMLSelectElement).value as EngineVariant)}
+        >
+          {(s.hardware.windowsEngine
+            ? // On Windows only the engine that runs natively (2026-11-04).
+              (["windows"] as const)
+            : (["cpu", "cuda", "vulkan"] as const)
+          ).map((v) => (
+            <option key={v} value={v}>
+              {/* A Mac runs the same engine next to RedGiant, with Metal (2026-11-05). */}
+              {t(v === "windows" && s.hardware.os === "darwin" ? "lmEngine_mac" : `lmEngine_${v}`)}
+              {v === s.hardware.suggestion.engine ? ` (${t("lmRecommended")})` : ""}
+            </option>
+          ))}
+        </select>
+      </Field>
+    </Advanced>
+  );
+  if (wizard) {
+    const off = s.config.engine?.off === true;
+    const works = (m: LocalModelChoice) =>
+      !!m.file && usable(m, m.file.sizeGb, wholeRam, measuredTps(s, target(m.file.file)));
+    const tagOf = (m: LocalModelChoice) => {
+      if (!m.file) return m.unavailable ? t("lmUnavailable") : t("lmCardTooBig");
+      const name = target(m.file.file);
+      if (active === name) return off ? t("lmOff") : t("lmInUse");
+      const busy = latest(jobs, "model_download", name)?.state === "running";
+      if (busy || files.some((f) => f.file === name)) return cardState(m, files, jobs, active, off);
+      return m.id === best ? t("lmRecommended") : "";
+    };
+    const card = (m: LocalModelChoice) => {
+      const speed = m.file ? estimatedSpeed(m, m.file.sizeGb, hw) : undefined;
+      const inUse = !!m.file && active === target(m.file.file);
+      return (
+        <GalleryCard
+          key={m.id}
+          selected={open === m.id}
+          tone={works(m) ? "usable" : inUse ? "ok" : undefined}
+          onOpen={() => setOpen(m.id)}
+        >
+          <span class="wz-mtag">{tagOf(m) || "\u00a0"}</span>
+          <strong class="wz-mname">{m.name}</strong>
+          <span class="wz-mkind">
+            {t(m.activeB < m.totalB ? "wzMoe" : "wzDense", { b: num(m.totalB, 1) })}
+          </span>
+          <span class="wz-mmeta">
+            <span class="wz-mspd">
+              {speed && m.file ? (
+                <SpeedText
+                  speed={speed}
+                  measured={measuredTps(s, target(m.file.file))}
+                  unit={t("lmTokensUnit")}
+                />
+              ) : (
+                "–"
+              )}
+            </span>
+            <span class="dim">{m.file ? gbText(m.file.sizeGb) : ""}</span>
+          </span>
+        </GalleryCard>
+      );
+    };
+    const fit = data?.models.filter(works) ?? [];
+    const slow = data?.models.filter((m) => !works(m)) ?? [];
+    return (
+      <div class="lm wz-lm" data-tab={tab}>
+        <WzMachine
+          s={s}
+          variant={variant}
+          on={streaming}
+          available={canStream}
+          onChange={(v) => setStream(v)}
+        />
+        {s.locked.engine && <p class="notice">{t("wzLocked")}</p>}
+        {error && <p class="notice error">{error}</p>}
+        <WzDisks s={s} variant={variant} onMoved={changed} />
+        <h2 class="wz-sub">{t("wzPickModel")}</h2>
+        <div class="wz-legend">
+          <i />
+          <span>{t("wzLegend", { n: String(USABLE_TPS) })}</span>
+        </div>
+        {!data && <p class="ui-help">{t("lmLoading")}</p>}
+        <div class="wz-mtabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "fit"}
+            class={tab === "fit" ? "on" : ""}
+            onClick={() => setTab("fit")}
+          >
+            {t("wzFitTab")} <small>· {fit.length}</small>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "slow"}
+            class={tab === "slow" ? "on" : ""}
+            onClick={() => setTab("slow")}
+          >
+            {t("wzSlowTab")} <small>· {slow.length}</small>
+          </button>
+        </div>
+        <div class="wz-group fit">
+          <div class="wz-ghead">
+            <h3>{t("wzFitTitle")}</h3>
+            <span>{t("wzNModels", { n: String(fit.length) })}</span>
+          </div>
+          {data && fit.length === 0 && <p class="ui-help">{t("wzFitNone")}</p>}
+          <Gallery panel={panel} onClose={() => setOpen(null)}>
+            {fit.map(card)}
+          </Gallery>
+        </div>
+        <div class="wz-group slow">
+          <div class="wz-ghead">
+            <h3>{t("wzSlowTitle")}</h3>
+            <span>{t("wzNModels", { n: String(slow.length) })}</span>
+          </div>
+          <Gallery panel={null} onClose={() => setOpen(null)}>
+            {slow.map(card)}
+          </Gallery>
+        </div>
+        <div class="wz-group more">
+          <div class="wz-ghead">
+            <h3>{t("wzMoreModels")}</h3>
+          </div>
+          <Gallery panel={null} onClose={() => setOpen(null)}>
+            {others.map((f) => (
+              <GalleryCard
+                key={f.file}
+                selected={open === `file:${f.file}`}
+                tone={active === f.file ? "ok" : undefined}
+                onOpen={() => setOpen(`file:${f.file}`)}
+              >
+                <span class="wz-mtag">{active === f.file ? t("lmInUse") : t("lmOther")}</span>
+                <strong class="wz-mname gcard-file">{f.file}</strong>
+                <span class="wz-mmeta">
+                  <span />
+                  <span class="dim">{bytes(f.bytes)}</span>
+                </span>
+              </GalleryCard>
+            ))}
+            <GalleryCard selected={open === "disk"} onOpen={() => setOpen("disk")}>
+              <span class="gcard-head">
+                <strong>{t("lmDownloadedTitle")}</strong>
+                <IconTrash size={16} />
+              </span>
+              <span class="gcard-note">
+                {t("lmDownloadedNote", {
+                  n: String(files.length),
+                  size: bytes(files.reduce((n, f) => n + f.bytes, 0)),
+                })}
+              </span>
+            </GalleryCard>
+            <GalleryCard selected={open === "hf"} onOpen={() => setOpen("hf")}>
+              <span class="gcard-head">
+                <strong>{t("lmSearch")}</strong>
+                <IconSearch size={16} />
+              </span>
+              <span class="gcard-note">{t("lmSearchHint")}</span>
+            </GalleryCard>
+          </Gallery>
+        </div>
+        {engineField}
+      </div>
+    );
+  }
   return (
     <div class="lm">
       <Machine
@@ -1515,28 +1937,7 @@ export function LocalModels({ s, reload }: { s: SetupState; reload: () => void }
           </span>
         </GalleryCard>
       </Gallery>
-      <Advanced>
-        <Field label={t("lmEngine")} help={t("lmEngineHelp")}>
-          <select
-            value={variant}
-            onChange={(e) => setVariant((e.target as HTMLSelectElement).value as EngineVariant)}
-          >
-            {(s.hardware.windowsEngine
-              ? // On Windows only the engine that runs natively (2026-11-04).
-                (["windows"] as const)
-              : (["cpu", "cuda", "vulkan"] as const)
-            ).map((v) => (
-              <option key={v} value={v}>
-                {/* A Mac runs the same engine next to RedGiant, with Metal (2026-11-05). */}
-                {t(
-                  v === "windows" && s.hardware.os === "darwin" ? "lmEngine_mac" : `lmEngine_${v}`,
-                )}
-                {v === s.hardware.suggestion.engine ? ` (${t("lmRecommended")})` : ""}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </Advanced>
+      {engineField}
     </div>
   );
 }

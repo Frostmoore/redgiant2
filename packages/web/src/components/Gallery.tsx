@@ -6,6 +6,7 @@ import { Modal } from "./ui.js";
 export interface GalleryPanel {
   title: string;
   body: ComponentChildren;
+  wide?: boolean | undefined;
 }
 
 export function Gallery({
@@ -21,7 +22,7 @@ export function Gallery({
     <div class="gallery">
       <div class="gallery-cards">{children}</div>
       {panel && (
-        <Modal title={panel.title} onClose={onClose}>
+        <Modal title={panel.title} onClose={onClose} wide={panel.wide}>
           <div class="gallery-panel-body">{panel.body}</div>
         </Modal>
       )}

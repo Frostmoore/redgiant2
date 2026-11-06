@@ -16,6 +16,7 @@ import {
   JobFailure,
   Jobs,
   localModelChoices,
+  modelsFolder,
   qualityOf,
   quantOf,
   type SetupHooks,
@@ -73,6 +74,10 @@ function fakeHooks() {
           source: "ram" as const,
           ssdGbPerWord: 0,
         };
+    },
+    async moveModels(kind, to, h) {
+      h?.progress(1, 2);
+      calls.push(`move:${kind}:${to}`);
     },
     async pihole(o, h) {
       if (o?.lanIp === "10.9.9.9") throw new JobFailure("port_busy", "port 53 is taken");
@@ -1063,5 +1068,42 @@ describe("Hugging Face models", () => {
       engineError("llama_model_load: error loading model: unknown model architecture: 'mtp'"),
     ).toBe("bad_model");
     expect(engineError("all good")).toBeUndefined();
+  });
+});
+
+describe("the models' folder (2026-11-06)", () => {
+  it("accepts a folder of the chosen disk only", () => {
+    expect(modelsFolder("D", "d:\\AI\\modelli\\")).toBe("D:\\AI\\modelli");
+    expect(modelsFolder("D", "D:/AI/modelli")).toBe("D:\\AI\\modelli");
+    for (const bad of ["E:\\AI", "D:\\", "D:\\a\\..\\b", "D:\\a|b", "modelli", "D:\\a:b"])
+      expect(() => modelsFolder("D", bad), bad).toThrow();
+  });
+
+  it("moves the models to the folder the person chose, on an SSD", async () => {
+    const before = process.env.REDGIANT_HOST_DISKS;
+    process.env.REDGIANT_HOST_DISKS = "C|ssd|nvme|120|476;D|ssd|sata|400|931;F|hdd|sata|900|1863";
+    try {
+      const { calls } = await setup();
+      const api = (s as Server).api;
+      const job = await api<Job>("POST", "/api/setup/models-disk", {
+        drive: "d",
+        folder: "D:\\AI\\modelli",
+      });
+      expect(job.status).toBe(200);
+      expect((await s?.core.jobs.settled(job.body.id))?.state).toBe("done");
+      expect(calls).toContain("move:models:D:\\AI\\modelli");
+      // Without a folder, the usual one.
+      const plain = await api<Job>("POST", "/api/setup/models-disk", { drive: "C" });
+      await s?.core.jobs.settled(plain.body.id);
+      expect(calls).toContain("move:models:C:\\RedGiant\\models");
+      // Another disk's folder, or a spinning disk: refused before anything moves.
+      expect(
+        (await api("POST", "/api/setup/models-disk", { drive: "D", folder: "C:\\AI" })).status,
+      ).toBe(400);
+      expect((await api("POST", "/api/setup/models-disk", { drive: "F" })).status).toBe(400);
+    } finally {
+      if (before === undefined) delete process.env.REDGIANT_HOST_DISKS;
+      else process.env.REDGIANT_HOST_DISKS = before;
+    }
   });
 });

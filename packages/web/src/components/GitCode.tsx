@@ -12,7 +12,7 @@ import { Field, JobView, useJob } from "./ui.js";
 
 const GITHUB_NEW_TOKEN = "https://github.com/settings/personal-access-tokens/new";
 
-function Github({ s, onChange }: { s: SetupState; onChange: () => void }) {
+export function Github({ s, onChange }: { s: SetupState; onChange: () => void }) {
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -87,7 +87,7 @@ function Github({ s, onChange }: { s: SetupState; onChange: () => void }) {
   );
 }
 
-function Gitea({ s, onChange }: { s: SetupState; onChange: () => void }) {
+export function Gitea({ s, onChange }: { s: SetupState; onChange: () => void }) {
   const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");

@@ -366,10 +366,13 @@ export function Modal({
   title,
   onClose,
   children,
+  wide,
 }: {
   title: string;
   onClose: () => void;
   children: ComponentChildren;
+  /** A wider window, for a model's details (2026-11-06). */
+  wide?: boolean | undefined;
 }) {
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -379,7 +382,12 @@ export function Modal({
   return (
     <div class="ui-modal-back">
       <button type="button" class="ui-modal-veil" aria-label={t("close")} onClick={onClose} />
-      <div class="ui-modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div
+        class={`ui-modal${wide ? " wide" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
         <header>
           <strong>{title}</strong>
           {/* An X to close, as on phones (2026-11-04). */}

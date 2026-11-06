@@ -342,6 +342,137 @@ export const IconLayers = ({ size = 14 }: P) => (
   </Svg>
 );
 
+/* The setup wizard's drawings (2026-11-06), from the person's prototype. */
+export const IconArrowRight = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </Svg>
+);
+export const IconChevronLeft = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M15 18l-6-6 6-6" />
+  </Svg>
+);
+export const IconChevronDown = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M6 9l6 6 6-6" />
+  </Svg>
+);
+export const IconSkip = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M13 17l5-5-5-5M6 17l5-5-5-5" />
+  </Svg>
+);
+export const IconList = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+  </Svg>
+);
+export const IconGlobe = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="M2 12h20M12 2a15 15 0 0 1 0 20a15 15 0 0 1 0-20" />
+  </Svg>
+);
+export const IconRam = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <rect x="2" y="7" width="20" height="10" rx="2" />
+    <path d="M6 11v2M10 11v2M14 11v2M18 11v2M5 17v3M19 17v3" />
+  </Svg>
+);
+export const IconDisk = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <ellipse cx="12" cy="6" rx="8" ry="3" />
+    <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+  </Svg>
+);
+export const IconGpu = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <rect x="2" y="6" width="20" height="12" rx="2" />
+    <circle cx="9" cy="12" r="3" />
+    <path d="M15 10h3M15 14h3M5 18v2M9 18v2" />
+  </Svg>
+);
+export const IconKey = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <circle cx="7.5" cy="15.5" r="4.5" />
+    <path d="M10.7 12.3L21 2M17 6l3 3M14.5 8.5l2 2" />
+  </Svg>
+);
+export const IconServer = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <rect x="2" y="3" width="20" height="8" rx="2" />
+    <rect x="2" y="13" width="20" height="8" rx="2" />
+    <path d="M6 7h.01M6 17h.01M10 7h8M10 17h8" />
+  </Svg>
+);
+export const IconSpark = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z" />
+  </Svg>
+);
+export const IconApprove = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <circle cx="9" cy="7" r="4" />
+    <path d="M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2M16 11l2 2 4-4" />
+  </Svg>
+);
+export const IconWallet = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <rect x="2" y="5" width="20" height="15" rx="2" />
+    <path d="M2 10h20M16 15h2" />
+  </Svg>
+);
+export const IconBook = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5zM4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5" />
+  </Svg>
+);
+export const IconRetry = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M23 4v6h-6M1 20v-6h6M3.5 9a9 9 0 0 1 14.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15" />
+  </Svg>
+);
+export const IconHome = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10" />
+  </Svg>
+);
+export const IconSliders = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />
+  </Svg>
+);
+export const IconGit = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <circle cx="6" cy="5" r="2.5" />
+    <circle cx="6" cy="19" r="2.5" />
+    <circle cx="18" cy="8" r="2.5" />
+    <path d="M6 7.5v9M18 10.5c0 4-4 4.5-9.5 6.5" />
+  </Svg>
+);
+export const IconWifi = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M2 9a15 15 0 0 1 20 0M12 20h.01" />
+  </Svg>
+);
+export const IconLock = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <rect x="3" y="11" width="18" height="11" rx="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </Svg>
+);
+export const IconZap = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M13 2L3 14h9l-1 8 10-12h-9z" />
+  </Svg>
+);
+export const IconCloud = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M18 10h-1.3A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+  </Svg>
+);
+
 /** The RedGiant mark, drawn: a red giant star with its glow. */
 /** RedGiant's icon (the user's, 2026-11-01): the red giant with its orbits and network. */
 export const Logo = ({ size = 22 }: P) => (

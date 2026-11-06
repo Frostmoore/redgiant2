@@ -7,6 +7,7 @@ import { ApiError, type ClaudeAccount, type SetupState, type SubscriptionProgram
 import { t, tOptional } from "../i18n.js";
 import { IconCard, IconCheck, IconCpu, IconLayers, IconMonitor } from "../icons.js";
 import { getApi, refreshLimits } from "../state.js";
+import { type Way, waysInUse } from "../wizard.js";
 import { LocalModels } from "./LocalModels.js";
 import { Advanced, Choice, Field, Pick } from "./ui.js";
 
@@ -494,19 +495,6 @@ export function ServerPanel({ s, onChange }: { s: SetupState; onChange: () => vo
   );
 }
 
-type Way = "claude" | "chatgpt" | "keys" | "local" | "server";
-
-/** Which ways are in use already: their cards start open. */
-function inUse(s: SetupState): Way[] {
-  const ways: Way[] = [];
-  if (s.config.subscriptions?.claude) ways.push("claude");
-  if (s.config.subscriptions?.chatgpt) ways.push("chatgpt");
-  if (s.secretsSet.keys.length > 0 || s.locked.anthropic) ways.push("keys");
-  if (s.config.engine) ways.push("local");
-  if (s.config.server || s.locked.server) ways.push("server");
-  return ways;
-}
-
 const EFFORTS = ["low", "medium", "high", "max"] as const;
 
 /** The model agents use when nobody chose another, among those connected, and its effort. */
@@ -608,7 +596,7 @@ export function Brain({
   reload: () => void;
   wizard?: boolean;
 }) {
-  const [ways, setWays] = useState<Way[]>(() => inUse(s));
+  const [ways, setWays] = useState<Way[]>(() => waysInUse(s));
   const [ack, setAckState] = useState(s.config.subscriptionAck === true);
   const setAck = (v: boolean) => {
     setAckState(v);

@@ -1929,9 +1929,11 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         z.object({
           drive: z.string().regex(/^[A-Za-z]$/),
           kind: z.literal("models").default("models"),
+          // A folder of that disk (2026-11-06); absent: <drive>:\\RedGiant\\models.
+          folder: z.string().min(3).max(240).optional(),
         }),
       );
-      return (setup as SetupService).startModelsMove(b.drive, b.kind);
+      return (setup as SetupService).startModelsMove(b.drive, b.kind, b.folder);
     }),
   );
   // RedGiant's own search engine (SearXNG, 2026-11-03).

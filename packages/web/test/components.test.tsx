@@ -169,12 +169,13 @@ describe("ui pieces", () => {
     expect(hardwareText(hw([], "cpu", "cpu"))).toMatch(/^Nessuna scheda video da usare/);
   });
 
-  it("safety: three ready choices, a switch per danger, spending only when paid per use", () => {
+  it("safety: four cards, ready choices, a switch per danger in a window, spending only when paid", () => {
     const state = (keys: string[], humanOnly: string[]) =>
       ({
         config: { completed: false },
         secretsSet: { keys, server: false, telegram: false },
         locked: {},
+        names: { god: null, demigod: null, godPrompt: null },
         policy: { humanOnly, disabledDanger: [], dangers: DANGER_IDS.map((id) => ({ id })) },
         budgetUsd: null,
       }) as unknown as SetupState;
@@ -188,23 +189,34 @@ describe("ui pieces", () => {
       "secrets-files",
       "platform",
     ];
-    const r = render(<Safety s={state([], balanced)} next={() => {}} />);
-    const card = (name: RegExp) => r.getByRole("button", { name });
-    expect(card(/^Equilibrata/).getAttribute("aria-pressed")).toBe("true");
+    let save: (() => Promise<boolean>) | undefined;
+    const r = render(<Safety s={state([], balanced)} register={(f) => (save = f)} />);
+    const button = (name: RegExp | string) => r.getByRole("button", { name });
+    expect(button(/^Equilibrata$/).getAttribute("aria-pressed")).toBe("true");
+    expect(button(/^Mi chiede$/).getAttribute("aria-pressed")).toBe("true");
     // Nothing paid per use: no spending limit to ask for.
     expect(r.getByText(/niente si paga a consumo/)).toBeTruthy();
-    expect(r.queryByText(/Quanto può spendere RedGiant/)).toBeNull();
-    fireEvent.click(card(/^Prudente/));
-    expect(card(/^Prudente/).getAttribute("aria-pressed")).toBe("true");
+    expect(r.queryByRole("textbox", { name: "altro" })).toBeNull();
+    fireEvent.click(button(/^Prudente$/));
+    expect(button(/^Prudente$/).getAttribute("aria-pressed")).toBe("true");
+    // The switches are in a window, one per danger.
+    expect(r.container.querySelectorAll('[role="switch"]')).toHaveLength(0);
+    fireEvent.click(button(/^Personalizza$/));
     const switches = [...r.container.querySelectorAll('[role="switch"]')];
     expect(switches).toHaveLength(DANGER_IDS.length);
     expect(switches.every((x) => x.getAttribute("aria-checked") === "true")).toBe(true);
     // One switch off: none of the ready choices any more.
     fireEvent.click(switches[0] as Element);
     expect(r.getByText(/Una scelta tua/)).toBeTruthy();
+    fireEvent.click(button(/^Torna a Prudente$/));
+    expect(r.queryByText(/Una scelta tua/)).toBeNull();
+    // The wizard saves it when Next is pressed.
+    expect(typeof save).toBe("function");
     r.unmount();
-    const paid = render(<Safety s={state(["anthropic"], balanced)} next={() => {}} />);
+    const paid = render(<Safety s={state(["anthropic"], balanced)} register={() => {}} />);
     expect(paid.getByText(/Quanto può spendere RedGiant/)).toBeTruthy();
+    fireEvent.click(paid.getByRole("button", { name: "$50" }));
+    expect(paid.getByText(/Arrivato a \$50/)).toBeTruthy();
   });
 
   it("automations: choices in words become a schedule and come back from it", () => {

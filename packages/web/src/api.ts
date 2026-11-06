@@ -1001,8 +1001,8 @@ export class Api {
   trySearch = (c: { provider: SearchProviderId; url?: string; key?: string }) =>
     this.call<{ results: number; first?: string }>("POST", "/api/setup/search/try", c);
   /** The models to another SSD (Windows): a job for the engine's folder; the distribution restarts RedGiant. */
-  moveModels = (drive: string, kind: "models" = "models") =>
-    this.call<Job>("POST", "/api/setup/models-disk", { drive, kind });
+  moveModels = (drive: string, kind: "models" = "models", folder?: string) =>
+    this.call<Job>("POST", "/api/setup/models-disk", { drive, kind, ...(folder && { folder }) });
   /** Looks for a newer RedGiant (on Windows RedGiant.exe asks on the desktop). */
   checkUpdates = () =>
     this.call<{ state: "available" | "latest" | "unreachable" | "manual"; version?: string }>(

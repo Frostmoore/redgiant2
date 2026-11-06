@@ -374,6 +374,22 @@ export function firstDefault(
   return { provider, model: best.model, ...(best.effort && { effort: "medium" as const }) };
 }
 
+/**
+ * A folder for the models chosen by the person (2026-11-06): a Windows path on the chosen disk,
+ * without the characters Windows refuses and without `..`; the trailing backslash dropped.
+ */
+export function modelsFolder(drive: string, folder: string): string {
+  const path = folder
+    .trim()
+    .replace(/[\\/]+$/, "")
+    .replace(/\//g, "\\");
+  if (!/^[A-Za-z]:\\[^"<>|?*:]+$/.test(path) || path.split("\\").includes(".."))
+    throw new SetupError(`Not a folder of ${drive}: (for example ${drive}:\\RedGiant\\models)`);
+  if (path[0]?.toUpperCase() !== drive.toUpperCase())
+    throw new SetupError(`The folder is not on ${drive}:`);
+  return `${drive.toUpperCase()}${path.slice(1)}`;
+}
+
 export class SetupService {
   private config: SetupConfig = { completed: false };
   private secrets: Secrets = {};
@@ -1298,9 +1314,10 @@ export class SetupService {
 
   /**
    * Moves the models to an SSD the person chose (2026-11-03): the Windows engine's folder to
-   * `<drive>:\\RedGiant\\models`. The engine in use starts again afterwards.
+   * `<drive>:\\RedGiant\\models`, or to a folder of that disk the person chose (2026-11-06).
+   * The engine in use starts again afterwards.
    */
-  async startModelsMove(drive: string, kind: "models" = "models"): Promise<Job> {
+  async startModelsMove(drive: string, kind: "models" = "models", folder?: string): Promise<Job> {
     const hook = this.o.hooks.moveModels;
     if (!hook) throw new SetupError("Models can be moved only in RedGiant's Windows installation");
     const hw = await detectHardware({
@@ -1311,7 +1328,8 @@ export class SetupService {
     if (!disk) throw new SetupError(`No disk ${drive}: on this computer`);
     if (disk.ssd === false)
       throw new SetupError(`${disk.name}: is a spinning disk, too slow for streaming`);
-    const to = `${disk.name}:\\RedGiant\\models`;
+    const to =
+      folder === undefined ? `${disk.name}:\\RedGiant\\models` : modelsFolder(disk.name, folder);
     return this.o.core.jobs.start(
       this.o.ownerId,
       "models_move",

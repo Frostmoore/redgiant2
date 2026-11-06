@@ -689,7 +689,8 @@ await writeFile(join(dir, "models", "huge-model-Q8_0.gguf"), "demo");
 await writeFile(join(dir, "models", "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf.part"), "demo-part");
 await debugLog.configure({ dir: join(dir, "logs") });
 await setup.applyAtStartup();
-await setup.complete();
+// DEMO_FRESH=1: a fresh install, the setup wizard takes the whole page (2026-11-06).
+if (!process.env.DEMO_FRESH) await setup.complete();
 const running = await serve(core, new TokenAuth({ [token]: "local" }), {
   port,
   host: "0.0.0.0",
