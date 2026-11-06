@@ -218,9 +218,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Set-Location llama
           ../engine/llama-patches/apply.ps1
+      # CUDA 12.8 accepts Visual Studio 2017-2022 (MSVC 14.1x-14.4x): windows-latest has Visual
+      # Studio 2026, so its 2022 toolset (v143) when it is installed, otherwise nvcc is told to
+      # accept the newer one.
+      - name: A Visual C++ CUDA 12.8 accepts
+        id: msvc
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $tools = Get-ChildItem "$vs\VC\Tools\MSVC" -Directory | Select-Object -ExpandProperty Name
+          "MSVC toolsets: $($tools -join ', ')"
+          $v143 = $tools | Where-Object { $_ -like "14.4*" } | Sort-Object { [version]$_ } | Select-Object -Last 1
+          if ($v143) { "toolset=$v143" >> $env:GITHUB_OUTPUT } else { "cudaflags=-allow-unsupported-compiler" >> $env:GITHUB_OUTPUT }
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+          toolset: ${{ steps.msvc.outputs.toolset }}
       - name: Ninja and sccache
         shell: pwsh
         run: |
@@ -250,7 +263,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache `
             -DCMAKE_CUDA_COMPILER="$env:CUDA_DIR/bin/nvcc.exe" -DCUDAToolkit_ROOT="$env:CUDA_DIR" `
-            -DCMAKE_CUDA_ARCHITECTURES="$env:CUDA_ARCHS" `
+            -DCMAKE_CUDA_ARCHITECTURES="$env:CUDA_ARCHS" -DCMAKE_CUDA_FLAGS="${{ steps.msvc.outputs.cudaflags }}" `
             -DGGML_CUDA=ON -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON `
             -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON
           if ($LASTEXITCODE -ne 0) { exit 1 }
