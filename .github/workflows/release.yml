@@ -1,5 +1,8 @@
 # Publishes the images when a version tag is pushed (git tag v1.16.0 && git push --tags).
-# Run by hand (workflow_dispatch) it builds and publishes nothing: no image is pushed, no release.
+# Run by hand (workflow_dispatch) on a branch it builds and publishes nothing: no image is pushed, no release.
+# The patched engines (llama-cuda, engine-prefetch) are built only when their fingerprint is new
+# (engine/fingerprint.sh, job engine-plan): otherwise the release reuses the zip kept in the
+# pre-release `engine-cache` and the image tagged `cuda-prefetch-<fingerprint>`.
 name: Release images
 
 on:
@@ -16,6 +19,14 @@ on:
         description: "CUDA architectures for llama-cuda and engine-prefetch (empty: the release's list)"
         type: string
         default: ""
+      rebuild_engine:
+        description: "Build the patched engines even when one with the same fingerprint exists"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Only say, with the fingerprints, whether the patched engines would be reused or built; nothing else runs"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -23,10 +34,20 @@ permissions:
 
 env:
   REGISTRY: ghcr.io/frostmoore
+  # The patched engines (G32.2): what goes into their fingerprint.
+  LLAMA_BUILD: b12034
+  CUDA_VERSION: 12.8.1
+  # Turing to Blackwell; 89 (RTX 40) is the card it was measured on. Each "-real" is machine
+  # code for that family only; 120 also carries PTX for newer cards.
+  CUDA_ARCHS: ${{ inputs.cuda_archs || '75-real;80-real;86-real;89-real;90-real;120' }}
+  # Where built zips are kept for the next releases: a pre-release (never "latest", so the app's
+  # /releases/latest stays on the real release), its tag fixed on v3.2.0's commit.
+  ENGINE_CACHE: engine-cache
+  ZIP: llama-redgiant-win-cuda12.8-x64.zip
 
 jobs:
   images:
-    if: ${{ !inputs.only }}
+    if: ${{ !inputs.only && !inputs.dry_run }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -98,7 +119,7 @@ jobs:
   # RedGiant-Setup.exe (G22; 3.0, G30.2): the launcher, Node, the server built for Windows and the
   # web page, attached to the tag's GitHub Release. No WSL: everything runs on Windows itself.
   windows-installer:
-    if: ${{ !inputs.only }}
+    if: ${{ !inputs.only && !inputs.dry_run }}
     runs-on: windows-latest
     permissions:
       contents: write
@@ -156,7 +177,7 @@ jobs:
   # certificate exported as .p12, base64), MAC_CERTIFICATE_PASSWORD, MAC_NOTARY_KEY (an App Store
   # Connect API key, the .p8 file in base64), MAC_NOTARY_KEY_ID, MAC_NOTARY_ISSUER_ID.
   mac-app:
-    if: ${{ !inputs.only }}
+    if: ${{ !inputs.only && !inputs.dry_run }}
     runs-on: macos-latest
     permissions:
       contents: write
@@ -183,25 +204,79 @@ jobs:
         with:
           files: packaging/mac/dist/RedGiant-mac-*.dmg
 
+  # The patched engines' plan (G32.2): their fingerprints (engine/fingerprint.sh: llama.cpp's tag,
+  # CUDA, the card families, engine/llama-patches and the build recipe) and, for each, "build" (a
+  # new fingerprint, or rebuild_engine), "reuse" (built by an earlier release: copied into this one
+  # in seconds) or "skip" (not asked; or a run by hand with nothing to publish, or dry_run: the
+  # decision is written and the run stops there). In the log and in the run's summary.
+  engine-plan:
+    runs-on: ubuntu-latest
+    outputs:
+      win: ${{ steps.plan.outputs.win }}
+      win_fp: ${{ steps.plan.outputs.win_fp }}
+      linux: ${{ steps.plan.outputs.linux }}
+      linux_fp: ${{ steps.plan.outputs.linux_fp }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: plan
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ONLY: ${{ inputs.only }}
+          REBUILD: ${{ inputs.rebuild_engine }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          PUBLISH: ${{ startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          win_fp=$(engine/fingerprint.sh win)
+          linux_fp=$(engine/fingerprint.sh linux)
+          cached_zip="${ZIP%.zip}-$win_fp.zip"
+          image="$REGISTRY/redgiant2-engine:cuda-prefetch-$linux_fp"
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$ENGINE_CACHE" --jq '.assets[].name' 2>/dev/null | grep -qxF "$cached_zip"; then win_have=yes; else win_have=no; fi
+          if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then linux_have=yes; else linux_have=no; fi
+          wanted() { if [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; then echo yes; else echo no; fi; }
+          echo "| Engine | Fingerprint | Decision | Why |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          plan() { # name fingerprint wanted have where
+            if [ "$3" != yes ]; then action=skip; why="not asked (only=$ONLY)"
+            elif [ "$REBUILD" = true ]; then action=build; why="rebuild_engine"
+            elif [ "$4" = yes ]; then action=reuse; why="already built: $5"
+            else action=build; why="new fingerprint, not found: $5"; fi
+            if [ "$action" != skip ] && [ "$PUBLISH" != true ]; then
+              if [ "$DRY_RUN" = true ]; then why="$why; dry run, would $action: stopping here"; action=skip
+              elif [ "$action" = reuse ]; then why="$why; run by hand, nothing to publish: stopping here"; action=skip; fi
+            fi
+            echo "::notice title=$1 engine $2::$action ($why)"
+            echo "| $1 | \`$2\` | $action | $why |" >> "$GITHUB_STEP_SUMMARY"
+          }
+          plan Windows "$win_fp" "$(wanted llama-cuda)" "$win_have" "$ENGINE_CACHE/$cached_zip"
+          echo "win=$action" >> "$GITHUB_OUTPUT"
+          plan Linux "$linux_fp" "$(wanted engine-prefetch)" "$linux_have" "$image"
+          echo "linux=$action" >> "$GITHUB_OUTPUT"
+          echo "win_fp=$win_fp" >> "$GITHUB_OUTPUT"
+          echo "linux_fp=$linux_fp" >> "$GITHUB_OUTPUT"
+
   # llama.cpp with RedGiant's patches for Windows and NVIDIA cards (G32.2): b12034 plus
   # engine/llama-patches (apply.ps1), CUDA 12.8 from NVIDIA's redistributable archives (no
-  # installer), MSVC and Ninja. The zip carries llama-server.exe with its DLLs and CUDA's own
-  # (cudart, cuBLAS) and is attached to the release; RedGiant downloads it only when the person
-  # turns on «Next layer ahead». Alone: Actions > Release images > Run workflow, only = llama-cuda.
+  # installer), MSVC and Ninja (engine/build-win.ps1). The zip carries llama-server.exe with its
+  # DLLs and CUDA's own (cudart, cuBLAS) and is attached to the release; RedGiant downloads it
+  # only when the person turns on «Next layer ahead». Built only for a new fingerprint (1-3 hours),
+  # then kept in engine-cache as llama-redgiant-win-cuda12.8-x64-<fingerprint>.zip.
+  # Alone: Actions > Release images > Run workflow, only = llama-cuda.
   llama-cuda:
-    if: ${{ !inputs.only || inputs.only == 'llama-cuda' }}
+    needs: engine-plan
+    if: needs.engine-plan.outputs.win == 'build'
     runs-on: windows-latest
     timeout-minutes: 240
     permissions:
       contents: write
     env:
-      LLAMA_BUILD: b12034
-      CUDA_VERSION: 12.8.1
       CUDA_DIR: C:\cuda
-      # Turing to Blackwell; 89 (RTX 40) is the card it was measured on. Each "-real" is machine
-      # code for that family only; 120 also carries PTX for newer cards.
-      CUDA_ARCHS: ${{ inputs.cuda_archs || '75-real;80-real;86-real;89-real;90-real;120' }}
-      ZIP: llama-redgiant-win-cuda12.8-x64.zip
+      CACHED_ZIP: llama-redgiant-win-cuda12.8-x64-${{ needs.engine-plan.outputs.win_fp }}.zip
     steps:
       - uses: actions/checkout@v4
       - name: CUDA from the cache
@@ -214,13 +289,6 @@ jobs:
         if: steps.cuda-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: ./engine/llama-patches/cuda-redist.ps1 -Out $env:CUDA_DIR -Version $env:CUDA_VERSION
-      - name: llama.cpp at its tag, with RedGiant's patches
-        shell: pwsh
-        run: |
-          git clone --depth 1 --branch $env:LLAMA_BUILD https://github.com/ggml-org/llama.cpp llama
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          Set-Location llama
-          ../engine/llama-patches/apply.ps1
       # CUDA 12.8 accepts Visual Studio 2017-2022 (MSVC 14.1x-14.4x): windows-latest has Visual
       # Studio 2026, so its 2022 toolset (v143) when it is installed, otherwise nvcc is told to
       # accept the newer one.
@@ -250,51 +318,12 @@ jobs:
           restore-keys: |
             sccache-llama-${{ env.LLAMA_BUILD }}-${{ env.CUDA_ARCHS }}-
             sccache-llama-${{ env.LLAMA_BUILD }}-
-      - name: Build
+      - name: llama.cpp at its tag with RedGiant's patches, built and zipped
         shell: pwsh
-        working-directory: llama
         env:
           SCCACHE_DIR: ${{ runner.temp }}\sccache
           SCCACHE_CACHE_SIZE: 4G
-        run: |
-          $env:CUDA_PATH = $env:CUDA_DIR
-          $env:PATH = "$env:CUDA_DIR\bin;$env:PATH"
-          cl 2>&1 | Select-Object -First 1
-          nvcc --version
-          sccache --start-server
-          cmake -S . -B build -G Ninja `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache `
-            -DCMAKE_CUDA_COMPILER="$env:CUDA_DIR/bin/nvcc.exe" -DCUDAToolkit_ROOT="$env:CUDA_DIR" `
-            -DCMAKE_CUDA_ARCHITECTURES="$env:CUDA_ARCHS" -DCMAKE_CUDA_FLAGS="${{ steps.msvc.outputs.cudaflags }}" `
-            -DGGML_CUDA=ON -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON `
-            -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          # Everything: with GGML_BACKEND_DL the CUDA and CPU backends are modules llama-server loads.
-          cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          sccache --show-stats
-      - name: The zip, with CUDA's and Visual C++'s libraries next to the program
-        shell: pwsh
-        run: |
-          $out = New-Item -ItemType Directory -Force pack
-          Copy-Item llama/build/bin/llama-server.exe, llama/build/bin/*.dll $out
-          Copy-Item "$env:CUDA_DIR/bin/cudart64_12.dll", "$env:CUDA_DIR/bin/cublas64_12.dll", "$env:CUDA_DIR/bin/cublasLt64_12.dll" $out
-          # The Visual C++ runtime and OpenMP, so it runs where they are not installed.
-          $redist = Get-ChildItem "$env:VCToolsRedistDir/x64" -Directory | Where-Object { $_.Name -like "Microsoft.VC*.CRT" -or $_.Name -like "Microsoft.VC*.OpenMP" }
-          foreach ($d in $redist) { Copy-Item "$($d.FullName)/*.dll" $out }
-          Set-Content "$out/build.txt" "$env:LLAMA_BUILD + RedGiant patches (0001 teal, 0002 moe-prefetch), CUDA $env:CUDA_VERSION, $env:CUDA_ARCHS"
-          foreach ($f in "llama-server.exe", "llama.dll", "ggml.dll", "ggml-base.dll", "ggml-cuda.dll", "cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll") {
-            if (-not (Test-Path "$out/$f")) { throw "$f is missing" }
-          }
-          if (-not (Get-ChildItem "$out/ggml-cpu*.dll")) { throw "no ggml-cpu backend" }
-          # No card here: it must start and say its version all the same.
-          & "$out/llama-server.exe" --version
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          Compress-Archive -Path "$out/*" -DestinationPath $env:ZIP -CompressionLevel Optimal
-          Get-ChildItem $out | Sort-Object Length -Descending | Format-Table Name, @{ n = "MB"; e = { [math]::Round($_.Length / 1MB, 1) } }
-          "{0:N0} MB zipped" -f ((Get-Item $env:ZIP).Length / 1MB)
-          (Get-FileHash -Algorithm SHA256 $env:ZIP).Hash
+        run: ./engine/build-win.ps1 -CudaFlags "${{ steps.msvc.outputs.cudaflags }}"
       - uses: actions/upload-artifact@v4
         with:
           name: llama-redgiant-win-cuda12.8-x64
@@ -305,18 +334,55 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ${{ env.ZIP }}
+      - name: Kept in engine-cache for the next releases
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp "$ZIP" "$CACHED_ZIP"
+          if ! gh release view "$ENGINE_CACHE" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$ENGINE_CACHE" -R "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$GITHUB_SHA" \
+              --title "Engine cache (not a release)" \
+              --notes "Patched llama.cpp builds kept by release.yml, named by their fingerprint (engine/fingerprint.sh). Download RedGiant from the latest release instead."
+          fi
+          gh release upload "$ENGINE_CACHE" "$CACHED_ZIP" -R "$GITHUB_REPOSITORY" --clobber
+
+  # The fingerprint is known: the zip an earlier release built, attached to this release with the
+  # name the app looks for (moe-prefetch.ts, RedGiant.cs: releases/download/v<version>/<zip>).
+  llama-cuda-reuse:
+    needs: engine-plan
+    if: needs.engine-plan.outputs.win == 'reuse'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: The zip built for this fingerprint, from engine-cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CACHED_ZIP: llama-redgiant-win-cuda12.8-x64-${{ needs.engine-plan.outputs.win_fp }}.zip
+        run: |
+          gh release download "$ENGINE_CACHE" -R "$GITHUB_REPOSITORY" -p "$CACHED_ZIP"
+          mv "$CACHED_ZIP" "$ZIP"
+          ls -l "$ZIP"
+          sha256sum "$ZIP"
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ env.ZIP }}
+          generate_release_notes: true
 
   # The same patched llama.cpp for the engines in Docker (Linux, NVIDIA runtime), G32.2:
   # redgiant2-engine:cuda-prefetch, built from source (docker/engine-prefetch.Dockerfile: b12034 +
   # apply.sh, CUDA 12.8). Its own image, not the `cuda` one: that one stays llama.cpp's official
   # build (no compilation in every release, always llama.cpp's latest), and only those who turn the
-  # option on download this one. Alone: Run workflow with only = engine-prefetch (built, not pushed).
+  # option on download this one. Built only for a new fingerprint (~80 minutes), also tagged
+  # cuda-prefetch-<fingerprint>. Alone: Run workflow with only = engine-prefetch (built, not pushed).
   engine-prefetch:
-    if: ${{ !inputs.only || inputs.only == 'engine-prefetch' }}
+    needs: engine-plan
+    if: needs.engine-plan.outputs.linux == 'build'
     runs-on: ubuntu-latest
     timeout-minutes: 240
-    env:
-      CUDA_ARCHS: ${{ inputs.cuda_archs || '75-real;80-real;86-real;89-real;90-real;120' }}
     steps:
       - uses: actions/checkout@v4
       # CUDA's devel image and the build need more room than the runner leaves free.
@@ -336,7 +402,7 @@ jobs:
         run: |
           version=${GITHUB_REF_NAME#v}
           image=$REGISTRY/redgiant2-engine
-          echo "tags=$image:cuda-prefetch,$image:$version-cuda-prefetch" >> "$GITHUB_OUTPUT"
+          echo "tags=$image:cuda-prefetch,$image:$version-cuda-prefetch,$image:cuda-prefetch-${{ needs.engine-plan.outputs.linux_fp }}" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           context: engine
@@ -345,7 +411,29 @@ jobs:
           push: ${{ startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.tags.outputs.tags }}
           build-args: |
+            LLAMA_BUILD=${{ env.LLAMA_BUILD }}
+            CUDA_VERSION=${{ env.CUDA_VERSION }}
             CUDA_ARCHS=${{ env.CUDA_ARCHS }}
       - name: Size
         if: startsWith(github.ref, 'refs/tags/')
         run: docker buildx imagetools inspect "$REGISTRY/redgiant2-engine:cuda-prefetch"
+
+  # The fingerprint is known: the image an earlier release built gets this release's tags, no build.
+  engine-prefetch-reuse:
+    needs: engine-plan
+    if: needs.engine-plan.outputs.linux == 'reuse'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: The image built for this fingerprint, tagged for this release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          image=$REGISTRY/redgiant2-engine
+          docker buildx imagetools create -t "$image:cuda-prefetch" -t "$image:$version-cuda-prefetch" "$image:cuda-prefetch-${{ needs.engine-plan.outputs.linux_fp }}"
+          docker buildx imagetools inspect "$image:cuda-prefetch"
