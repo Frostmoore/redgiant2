@@ -198,8 +198,13 @@ export function attachWebSocket(
             return;
           case "permission.resolve": {
             const pending = core.approvals.list(owner).find((r) => r.requestId === msg.requestId);
+            // A switched-off tool asked back (G36.15): "always" is for that agent, never a rule.
+            const toolRequest = pending?.tool === "request_tool";
+            if (toolRequest)
+              core.toolRequestScope(msg.requestId, msg.remember ? "always" : msg.scope);
             if (!core.approvals.decide(owner, msg.requestId, msg.decision, msg.reason))
               return fail("not_found", "No such pending request");
+            if (toolRequest) return;
             // For this conversation only (2026-11-05): never for a danger, which asks every time.
             if (
               msg.scope === "session" &&

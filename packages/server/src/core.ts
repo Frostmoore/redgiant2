@@ -63,6 +63,9 @@ import {
   type ModelSpec,
   type NotifyReport,
   type Recipe,
+  type RefineEstimate,
+  type RefineRequest,
+  type RefineResult,
   replyLanguageLine,
   type ServerMessage,
   type SharedMemoryView,
@@ -126,6 +129,7 @@ import type { GitHosts } from "./git-hosts.js";
 import { IMAGE_MODEL, imageFileName } from "./images.js";
 import { Inspector } from "./inspector.js";
 import { Jobs } from "./jobs.js";
+import type { KnowledgeService } from "./knowledge/service.js";
 import { LoginStore, migrateLogin } from "./login.js";
 import {
   MAGIC_PROMPT,
@@ -153,6 +157,7 @@ import {
   platformConfigTools,
 } from "./platform.js";
 import { migrateProjects, ProjectStore, type Subproject, slug } from "./projects.js";
+import { kindLabel, PromptRefiner, RefineError, type RefineJob } from "./prompt-refiner.js";
 import {
   defaultTemplate,
   expandPrompt,
@@ -162,6 +167,13 @@ import {
   toPlaceholders,
 } from "./prompts.js";
 import { HumanQuestions, questionTools } from "./questions.js";
+import {
+  REQUEST_TOOL_DRY,
+  REQUEST_TOOL_TIMEOUT_MS,
+  type RequestToolHost,
+  requestTool,
+  switchedOffSection,
+} from "./request-tool.js";
 import { migrateRooms, Rooms } from "./rooms.js";
 import { scriptTool } from "./script.js";
 import { SharedMemory } from "./shared-memory.js";
@@ -428,6 +440,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly skillNudge = new SkillNudge();
   /** The keys kept by the setup (providers, chats, git…), listed in the keychain (set by main). */
   vaultSystem?: (ownerId: string) => Promise<VaultSystemEntry[]>;
+  /** The knowledge (G36, the RAG): set by main.ts once the database and the setup are up. */
+  knowledge?: KnowledgeService;
   private readonly magicHost: MagicHost;
   /** Pull requests and issues on a project's repository (G24.14c), when GitHub or Gitea is set. */
   repoActions:
@@ -1209,10 +1223,22 @@ export class RedGiantCore implements OrchestrationHost {
             resume,
             tools.map((t) => t.def.name),
           );
+    // Asking for one back (G36.15): request_tool, with the tools kept aside; on resume the ones the
+    // person switched back on in this conversation are there again.
+    const granted =
+      resume && toolsOff.length > 0 ? await this.toolsAdded(sessionId) : new Set<string>();
+    const aside: Tool[] = [];
+    let sessionRef: AgentSession | undefined;
     if (toolsOff.length > 0) {
-      const off = new Set(toolsOff);
+      const off = new Set(toolsOff.filter((n) => !granted.has(n)));
       for (let i = tools.length - 1; i >= 0; i--)
-        if (off.has((tools[i] as Tool).def.name)) tools.splice(i, 1);
+        if (off.has((tools[i] as Tool).def.name)) aside.unshift(...tools.splice(i, 1));
+      tools.push(
+        this.requestToolTool(agent, aside, async (added, payload) => {
+          tools.push(...added);
+          await sessionRef?.addTools(added, payload);
+        }),
+      );
     }
     const listeners = new Set<(m: ServerMessage) => void>();
     // A flat subscription's engine runs the turns (G21); everything else stays the same.
@@ -1234,9 +1260,7 @@ export class RedGiantCore implements OrchestrationHost {
         this.instructions
           ? `## The person's instructions for every agent\n${this.instructions}`
           : "",
-        toolsOff.length > 0
-          ? `## Tools switched off\nThe person switched these tools off for you: ${toolsOff.join(", ")}. They are not available in this conversation; if the work needs one, say so.`
-          : "",
+        toolsOff.length > 0 ? switchedOffSection(toolsOff, aside) : "",
         // Every agent that works remembers (G29.3); read once, the prefix stays the same.
         agent.kind !== "demigod" && agent.kind !== "inspector"
           ? await this.notes.prompt(this.noteOwner(agent, assignedTo))
@@ -1323,6 +1347,7 @@ export class RedGiantCore implements OrchestrationHost {
       : resume
         ? await AgentSession.resume(options)
         : await AgentSession.start(options);
+    sessionRef = session;
     return {
       id: sessionId,
       ownerId,
@@ -1335,6 +1360,78 @@ export class RedGiantCore implements OrchestrationHost {
       ownModel: sessionModel !== undefined,
       usedAt: Date.now(),
     };
+  }
+
+  /** The tools a new agent starts without, chosen by the agent that made it (G36.14). */
+  toolsAtCreation(
+    ownerId: string,
+    by: string,
+    agentId: string,
+    off: { tool: string; why: string }[],
+  ) {
+    return this.config.toolsAtCreation(ownerId, by, agentId, off);
+  }
+
+  /** The tools switched back on in a conversation (G36.15), from its log. */
+  private async toolsAdded(sessionId: string): Promise<Set<string>> {
+    const out = new Set<string>();
+    for (const e of await this.store.list({ sessionId }))
+      if (e.type === "session.tools_added" && e.payload)
+        for (const n of e.payload.tools) out.add(n);
+    return out;
+  }
+
+  /** What the person chose for each pending request_tool ("this conversation" or "always"). */
+  private readonly toolRequestScopes = new Map<string, "session" | "agent">();
+  /** How long a request_tool waits for the person (tests make it short). */
+  requestToolTimeoutMs = REQUEST_TOOL_TIMEOUT_MS;
+
+  /** Called before the person's answer is applied (WebSocket, HTTP): "always" means this agent. */
+  toolRequestScope(requestId: string, scope: "once" | "session" | "always" | undefined): void {
+    this.toolRequestScopes.set(requestId, scope === "always" ? "agent" : "session");
+  }
+
+  /** request_tool for one conversation of an agent (G36.15). */
+  private requestToolTool(agent: AgentRecord, aside: Tool[], add: RequestToolHost["add"]): Tool {
+    return requestTool(aside, {
+      ask: async (input, ctx) => {
+        const id = `tool_${randomUUID().slice(0, 12)}`;
+        const signals = [AbortSignal.timeout(this.requestToolTimeoutMs), ctx.signal].filter(
+          (x): x is AbortSignal => x !== undefined,
+        );
+        try {
+          const answer = await this.approvals.ask(
+            {
+              requestId: id,
+              requester: agent,
+              call: {
+                callId: id,
+                name: "request_tool",
+                input: { tool: input.entry, why: input.why },
+              },
+              reasons: [
+                `Switch on ${input.entry} (${input.tools.join(", ")}) for ${agent.name}: ${input.why}`,
+              ],
+              danger: [],
+              sessionId: ctx.sessionId,
+            },
+            AbortSignal.any(signals),
+          );
+          if (answer === "allow")
+            return { allow: true, scope: this.toolRequestScopes.get(id) ?? "session" };
+          return { allow: false, ...(typeof answer === "object" && { reason: answer.deny }) };
+        } finally {
+          this.toolRequestScopes.delete(id);
+        }
+      },
+      keepOn: async (entry) => {
+        const now = await this.toolChoices.get(agent.ownerId);
+        await this.setAgentTools(agent.ownerId, agent.id, {
+          [entry]: now.off.includes(entry) ? "on" : "default",
+        });
+      },
+      add,
+    });
   }
 
   /** What a conversation leaves out (G34.5): its start's record when resumed, the choice now otherwise. */
@@ -1382,13 +1479,22 @@ export class RedGiantCore implements OrchestrationHost {
       const agent = this.registry.get(agentId);
       if (!agent || agent.ownerId !== ownerId)
         throw new NotFoundError(`Agent "${agentId}" not found`);
-      return toolsView(choice, await this.measureTools(agent), agentId);
+      const measured = await this.measureTools(agent);
+      // With something off, the agent also gets request_tool to ask for it back (G36.15).
+      if (toolsSwitchedOff(choice, agentId, [...measured.keys()]).length > 0)
+        measured.set("request_tool", toolChars(requestTool([], REQUEST_TOOL_DRY)));
+      return toolsView(choice, measured, agentId);
     }
     const measured = new Map<string, number>();
     for (const a of this.registry.list({ ownerId, activeOnly: true })) {
       const m = await this.measureTools(a).catch(() => new Map<string, number>());
       for (const [name, chars] of m) measured.set(name, Math.max(chars, measured.get(name) ?? 0));
     }
+    if (
+      choice.off.length > 0 ||
+      Object.values(choice.agents).some((m) => Object.values(m).includes("off"))
+    )
+      measured.set("request_tool", toolChars(requestTool([], REQUEST_TOOL_DRY)));
     return toolsView(choice, measured, null);
   }
 
@@ -2008,6 +2114,131 @@ export class RedGiantCore implements OrchestrationHost {
     return this.o.providers;
   }
 
+  /**
+   * The instructions' refiner (G36.13) and God's instructions for an agent made by hand (G36.14):
+   * what the model gets, resolved from the target. The text goes with placeholders for the names.
+   */
+  private async refineJob(ownerId: string, r: RefineRequest) {
+    const { target } = r;
+    const all = this.registry.list({ ownerId });
+    const nameOf = (kind: AgentRecord["kind"], fallback: string) =>
+      all.find((a) => a.kind === kind)?.name ?? fallback;
+    let names: PromptNames | undefined;
+    let template: string | undefined;
+    let what: string;
+    let current: string | undefined;
+    const settings: string[] = [];
+    let tools: RefineJob["tools"];
+    const modeLine = (m: string | undefined) =>
+      m &&
+      settings.push(
+        `Permission mode: ${m} (${{ auto: "works alone; risky actions wait for the person", manual: "asks the person before each action", plan: "plans first, acts once the plan is approved", readonly: "can only read" }[m] ?? m})`,
+      );
+    if ("general" in target) {
+      what = "every agent of the installation (added to each agent's own instructions)";
+    } else if (
+      "chat" in target ||
+      ("agentId" in target && (await this.chatAgentIdOf(ownerId)) === target.agentId)
+    ) {
+      names = this.chatNames(ownerId);
+      template = CHAT_AGENT_PROMPT;
+      what = "the person's everyday Chat, a general assistant";
+      current = (await this.chatPrompt(ownerId)).text;
+    } else if ("agentId" in target) {
+      const a = this.registry.get(target.agentId);
+      if (a?.ownerId !== ownerId) throw new NotFoundError("Agent not found");
+      names = this.promptNames(a);
+      template = this.templateFor(a);
+      what = `${kindLabel(a.kind)}, named {name}`;
+      current = (await this.promptOf(a)).text;
+      if (a.role) settings.push(`Its job, as the person describes it: ${a.role}`);
+      if (a.projectId)
+        settings.push(
+          `Project: ${(await this.projects.get(ownerId, a.projectId))?.name ?? a.projectId}`,
+        );
+      modeLine(a.mode);
+      if (a.model) settings.push(`Its model: ${a.model.provider}/${a.model.model}`);
+    } else {
+      const d = target.draft;
+      const role = d.role?.trim();
+      names = {
+        name: d.name.trim() || "the agent",
+        god: d.god?.trim() || nameOf("god", "God"),
+        demigod: d.demigod?.trim() || nameOf("demigod", "Demi-God"),
+        role,
+      };
+      if (d.kind === "god") names.name = names.god;
+      if (d.kind === "demigod") names.name = names.demigod;
+      template = defaultTemplate(d.kind, Boolean(role));
+      what = `${kindLabel(d.kind)}, named {name}`;
+      if (role) settings.push(`Its job, as the person describes it: ${role}`);
+      if (d.projectId)
+        settings.push(
+          `Project: ${(await this.projects.get(ownerId, d.projectId))?.name ?? d.projectId}`,
+        );
+      modeLine(d.mode);
+      if (d.model) settings.push(`Its model: ${d.model}`);
+      // Its tools (G36.14): what the rule for everyone gives this kind of agent, weighed on one of
+      // the same kind when there is one; essential ones are never offered.
+      if (r.goal === "draft") {
+        const like = all.find((a) => a.kind === d.kind && a.status === "active");
+        const view = like ? await this.toolsView(ownerId, like.id) : null;
+        tools = view?.entries
+          .filter((e) => !e.essential && e.global)
+          .map((e) => ({ id: e.id, tools: e.tools, tokens: e.tokens }));
+      }
+    }
+    const uses = new Set([...placeholdersOf(template ?? ""), "god", "demigod"] as const);
+    const draft = r.goal === "draft";
+    // A draft starts from the agent's text when it has one of its own, else from the built-in one.
+    const startExpanded = draft
+      ? (current ?? (template && names ? expandPrompt(template, names) : r.text))
+      : r.text;
+    const text = names ? toPlaceholders(startExpanded ?? "", names, uses) : (startExpanded ?? "");
+    const job: RefineJob = {
+      goal: draft ? "draft" : "refine",
+      text,
+      builtIn: template,
+      what,
+      settings,
+      request: r.request ?? "",
+      lang: r.lang ?? "en",
+      keepLanguage: "general" in target,
+      ...(tools?.length && { tools }),
+    };
+    const god = all.find((a) => a.kind === "god");
+    const model: ModelSpec | undefined =
+      r.model ?? (god && this.registry.effectiveModel(god.id)) ?? this.o.defaultModel;
+    if (!model) throw new RefineError("No model to write with: connect one first", "no_model");
+    if (!this.o.providers.has(model.provider))
+      throw new BadRequestError(`${model.provider} is not connected`);
+    const base = names ? expandPrompt(text, names) : text;
+    return { job, model, names, isAgent: !("general" in target), base };
+  }
+
+  private refiner?: PromptRefiner;
+  private get promptRefiner(): PromptRefiner {
+    this.refiner ??= new PromptRefiner({ providers: this.o.providers, budget: this.budget });
+    return this.refiner;
+  }
+
+  /** About how much a revision takes, before asking (nothing is spent). */
+  async estimateRefine(ownerId: string, r: RefineRequest): Promise<RefineEstimate> {
+    const { job, model, base } = await this.refineJob(ownerId, r);
+    return { ...this.promptRefiner.estimate(job, model), base };
+  }
+
+  /** A revised text, with the names, for the editor: never saved here. */
+  async refinePrompt(
+    ownerId: string,
+    r: RefineRequest,
+    signal?: AbortSignal,
+  ): Promise<RefineResult> {
+    const { job, model, names, isAgent } = await this.refineJob(ownerId, r);
+    const out = await this.promptRefiner.run(ownerId, job, model, isAgent, signal);
+    return { ...out, text: names ? expandPrompt(out.text, names) : out.text };
+  }
+
   providerIds(): string[] {
     return this.o.providers.list().map((p) => p.id);
   }
@@ -2217,7 +2448,11 @@ export class RedGiantCore implements OrchestrationHost {
 
   /** An "outside" file the person may open: one an agent showed them, still there. */
   private async outsideFile(ownerId: string, path: string): Promise<string> {
-    if (!(await this.shownOutside(ownerId)).has(path))
+    // Also a file of a folder the person gave the knowledge (a citation opens it, G36.4).
+    if (
+      !(await this.shownOutside(ownerId)).has(path) &&
+      !(await this.knowledge?.holds(ownerId, path).catch(() => false))
+    )
       throw new BadRequestError("That file was never shown here");
     return path;
   }
@@ -2239,6 +2474,11 @@ export class RedGiantCore implements OrchestrationHost {
       body: { type: "canvas.show", payload: { title: r.title, target } },
     });
     return undefined;
+  }
+
+  /** The folder behind a scope on disk (the knowledge's workspace sources, G36.3). */
+  scopeFolder(ownerId: string, scope: string): Promise<string> {
+    return this.scopeRoot(ownerId, scope);
   }
 
   /** The folder behind a scope on disk. */

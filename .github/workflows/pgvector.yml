@@ -1,0 +1,136 @@
+# pgvector for the embedded Postgres 18 (G36.1, memory study_g36_vector.md): built by us on each
+# system from pgvector's release tag, loaded into npm's embedded-postgres from a folder outside the
+# installation (engine/pgvector/test-load.mjs: CREATE EXTENSION, halfvec, HNSW, restart) and kept as
+# artifacts `pgvector-<os>-<arch>`. release.yml calls it and puts the zips into the Windows installer
+# and the Mac app.
+#
+# By hand (workflow_dispatch) it builds and tests only; with `publish` the zips also go to the
+# pre-release `pgvector-cache`, where source installs download them (sha256 fixed in
+# packages/server/src/knowledge/pgvector.ts). A published zip is never replaced: its hash in the code
+# stays true; a new pgvector version is a new file name.
+name: pgvector
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Also publish the zips in the pgvector-cache pre-release (only missing ones)"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      publish:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux, arch: x64, runner: ubuntu-latest }
+          - { os: linux, arch: arm64, runner: ubuntu-24.04-arm }
+          - { os: windows, arch: x64, runner: windows-latest }
+          - { os: macos, arch: universal, runner: macos-latest }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Linux: inside ubuntu:18.04 (the zonky binaries' base, glibc 2.27), run with docker by hand:
+      # GitHub's JavaScript actions do not run in a container that old.
+      - name: Build (Linux, ubuntu:18.04)
+        if: matrix.os == 'linux'
+        run: |
+          docker run --rm -e JOBS=4 -v "$PWD:/w" -w /w ubuntu:18.04 bash engine/pgvector/build-linux.sh out
+          sudo chown -R "$(id -u):$(id -g)" out
+
+      - name: EDB headers cache (Windows)
+        if: matrix.os == 'windows'
+        uses: actions/cache@v4
+        with:
+          path: work/edb
+          key: edb-pg-${{ hashFiles('engine/pgvector/versions.env') }}
+      - name: Build (Windows, MSVC)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: pwsh -NoProfile -File engine/pgvector/build-win.ps1 -Out out -Work work
+
+      - name: Build (macOS universal)
+        if: matrix.os == 'macos'
+        run: bash engine/pgvector/build-mac.sh out
+
+      - name: Load into the embedded Postgres (path with spaces, restart)
+        shell: bash
+        run: |
+          set -e
+          zip=$(ls out/pgvector-*.zip)
+          mkdir -p "t/pgv dir" mods
+          if [ "${{ matrix.os }}" = windows ]; then 7z x -bso0 -o"t/pgv dir" "$zip"; else unzip -q "$zip" -d "t/pgv dir"; fi
+          (cd mods && npm init -y >/dev/null && npm i --no-audit --no-fund --silent embedded-postgres@18.6.0-beta.19 pg@8)
+          node engine/pgvector/test-load.mjs "t/pgv dir" "t/work dir" --modules mods
+          if [ "${{ matrix.os }}" = macos ]; then
+            # The x86_64 slice, through Rosetta (the zonky Mac Postgres is universal too).
+            if arch -x86_64 /usr/bin/true 2>/dev/null; then
+              node engine/pgvector/test-load.mjs "t/pgv dir" "t/work x64" --modules mods --arch x86_64
+            else
+              echo "::warning::Rosetta is not on this runner: the x86_64 slice was built but not loaded"
+            fi
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pgvector-${{ matrix.os }}-${{ matrix.arch }}
+          path: out/pgvector-*.zip*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "### pgvector ${{ matrix.os }}-${{ matrix.arch }}"
+            echo '```'
+            cat out/*.sha256
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    if: ${{ inputs.publish }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CACHE: pgvector-cache
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pgvector-*
+          merge-multiple: true
+          path: out
+      - name: Upload the zips that are not there yet
+        run: |
+          set -e
+          gh release view "$CACHE" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$CACHE" -R "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$GITHUB_SHA" \
+              --title "pgvector cache (not a release)" \
+              --notes "pgvector built for RedGiant's embedded Postgres (workflow pgvector.yml). Files are never replaced: their sha256 is fixed in packages/server/src/knowledge/pgvector.ts."
+          have=$(gh release view "$CACHE" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          for f in out/pgvector-*.zip; do
+            n=$(basename "$f")
+            if grep -qxF "$n" <<<"$have"; then
+              echo "::notice::$n is already published (kept as it is)"
+            else
+              gh release upload "$CACHE" -R "$GITHUB_REPOSITORY" "$f" "$f.sha256"
+              echo "::notice::published $n $(cut -d' ' -f1 "$f.sha256")"
+            fi
+          done

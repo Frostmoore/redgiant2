@@ -142,6 +142,19 @@ files converted (`winget install ArtifexSoftware.GhostScript` on Windows, `brew 
 the Mac, `sudo apt install ghostscript` on Linux; the Docker image has it). Without it an EPS does not
 become a PDF; LibreOffice can still make an SVG of its first page.
 
+### pgvector (the knowledge's vectors)
+
+The knowledge (search by meaning in your files) keeps its vectors in RedGiant's own Postgres with
+**pgvector** 0.8.7 (PostgreSQL licence, about 120-300 KB). It comes inside the Windows installer and
+the Mac app, and inside RedGiant's Postgres image for Docker
+(`ghcr.io/frostmoore/redgiant2-postgres:17-pgvector0.8.7`: `postgres:17-alpine` with pgvector, so an
+existing database volume opens as it is). Running from source with `DATABASE_URL=embedded`, it is
+downloaded the first time it is needed (about 120 KB, checked against its sha256) into `tools/pgvector`;
+`REDGIANT_PGVECTOR_DIR` points to a folder of your own (`lib/` and `share/extension/`). It is never
+written into Postgres' own installation: the embedded Postgres loads it through `redgiant.conf` in its
+data folder. With your own Postgres (`DATABASE_URL=postgres://...`), install pgvector there
+(`CREATE EXTENSION vector` must work for RedGiant's user).
+
 ## Updating
 
 Run the installer again: it keeps your `.env`, downloads the new images and restarts. The new
@@ -196,6 +209,7 @@ environment variables. Requirements: Node.js 22+ and pnpm (`corepack enable`).
 | `REDGIANT_WHISPER_URL` (`_API`, `_KEY`, `_MODEL`)                   | Voice messages: whisper-asr-webservice, or an OpenAI-compatible transcription API with `_API=openai`                                        |
 | `REDGIANT_OPENAI_IMAGES_KEY` (`REDGIANT_IMAGES_MODEL`)              | Pictures with `generate_image` (OpenAI Images; default model gpt-image-2.5-flare)                                                           |
 | `REDGIANT_LLAMACPP_URL`, `REDGIANT_KV_DIR`, `REDGIANT_KV_BUDGET_MB` | A llama.cpp engine (see `docker/engine.Dockerfile`) and the directory where it saves KV caches (`--slot-save-path`, shared with the server) |
+| `REDGIANT_PGVECTOR_DIR`                                             | pgvector for the embedded Postgres (`lib/`, `share/extension/`); otherwise the one next to the server, then `tools/pgvector`                |
 | `REDGIANT_WEB_DIR`                                                  | Built web UI to serve at `/` (default `packages/web/dist`)                                                                                  |
 | `REDGIANT_TELEGRAM_TOKEN` / `REDGIANT_TELEGRAM_TOKEN_FILE`          | Bot token from BotFather: enables Demi-God on Telegram (polling by default)                                                                 |
 | `REDGIANT_TELEGRAM_WEBHOOK_SECRET`                                  | Webhook mode instead of polling: Telegram must send this secret to `/api/telegram/webhook`                                                  |

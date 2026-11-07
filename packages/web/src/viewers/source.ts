@@ -9,6 +9,8 @@ export interface ViewerSource extends ViewerChoice {
   url: string;
   /** Bytes, when known (the server says it, or the archive). */
   size?: number;
+  /** Where to open it (G36.4, a citation): a PDF's page, a text's line. */
+  at?: { page?: number | undefined; line?: number | undefined } | undefined;
 }
 
 export interface ViewerProps {

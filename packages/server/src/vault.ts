@@ -45,7 +45,9 @@ export class VaultError extends Error {
       | "vault_name_taken"
       | "vault_no_value"
       | "vault_bad_passphrase"
-      | "vault_bad_file",
+      | "vault_bad_file"
+      | "vault_host"
+      | "vault_inject",
     message: string,
   ) {
     super(message);
@@ -521,6 +523,71 @@ export class Vault {
   reveal(ownerId: string, id: string): string {
     this.need();
     return this.entry(ownerId, id).value;
+  }
+
+  /** When each credential's use by the server itself was last recorded (one record a while). */
+  private readonly serviceUses = new Map<string, number>();
+
+  /**
+   * A request RedGiant itself makes with a credential the person chose for it in a page (G36.2:
+   * the knowledge's embeddings and reranker). The person's choice is the permission, so nobody is
+   * asked; the value still goes only to the credential's hosts, redirects are not followed, and the
+   * use is recorded (once every ten minutes, not once per batch). `{{vault:<name>}}` in a header
+   * marks where the value goes; without one the credential's own header is used. The whole
+   * answer comes back (vectors are large); it never reaches a model.
+   */
+  async serviceFetch(
+    ownerId: string,
+    name: string,
+    purpose: string,
+    url: string,
+    init: { method: string; headers: Record<string, string>; body?: string },
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    this.need();
+    const e = this.entry(ownerId, name);
+    const target = new URL(url);
+    if (target.protocol !== "https:" && target.protocol !== "http:")
+      throw new VaultError("vault_host", "Only http and https addresses");
+    const host = target.hostname.toLowerCase();
+    if (!e.hosts.some((h) => h === host || (h.startsWith("*.") && host.endsWith(h.slice(1)))))
+      throw new VaultError(
+        "vault_host",
+        `Credential "${name}" is not for ${host}: add the host to it in the keychain`,
+      );
+    const headers: Record<string, string> = {};
+    let placed = false;
+    for (const [k, v] of Object.entries(init.headers)) {
+      if (HAS_PLACEHOLDER.test(v)) placed = true;
+      headers[k] = v.replace(PLACEHOLDER, (_m, n: string) =>
+        n === e.name ? e.value : this.valueOf(ownerId, n),
+      );
+    }
+    if (!placed) {
+      if (!e.inject.header)
+        throw new VaultError("vault_inject", `Credential "${name}" has no header of its own`);
+      headers[e.inject.header] = e.inject.format.includes("{value}")
+        ? e.inject.format.replace("{value}", e.value)
+        : e.value;
+    }
+    const key = `${ownerId}\0${e.id}\0${purpose}`;
+    if (Date.now() - (this.serviceUses.get(key) ?? 0) > 10 * 60_000) {
+      this.serviceUses.set(key, Date.now());
+      await this.record(
+        { ownerId, agentId: null, agentName: null, sessionId: null, tool: purpose },
+        e,
+        host,
+        init.method.toUpperCase(),
+        "used",
+      );
+    }
+    return (this.o.fetch ?? fetch)(url, {
+      method: init.method,
+      headers,
+      ...(init.body !== undefined && { body: init.body }),
+      redirect: "manual",
+      ...(signal && { signal }),
+    });
   }
 
   private async record(

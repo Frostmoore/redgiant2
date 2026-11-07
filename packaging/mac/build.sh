@@ -7,6 +7,8 @@
 # Signed with a Developer ID when MAC_SIGN_IDENTITY names one in the keychain (the CI imports it),
 # otherwise ad-hoc (it runs on this Mac only). Notarized and stapled when MAC_NOTARY_KEY (an App
 # Store Connect API key file, .p8), MAC_NOTARY_KEY_ID and MAC_NOTARY_ISSUER_ID are set.
+# pgvector (G36.1) goes into Resources/server/pgvector, signed with the rest: from PGVECTOR_ZIP (the
+# release's pgvector job), otherwise built here with engine/pgvector/build-mac.sh (a minute or two).
 set -euo pipefail
 
 version="${1:-0.0.0}"
@@ -31,6 +33,15 @@ rm -rf "$res"/server/node_modules/@openai/codex-darwin-* \
 for lib in "$res"/server/node_modules/@embedded-postgres/darwin-*/native/lib; do
   node "$here/dedupe-libs.mjs" "$lib" | tail -1
 done
+echo "== pgvector for the embedded Postgres (universal, from a folder of its own)"
+pgv_zip="${PGVECTOR_ZIP:-}"
+if [ -z "$pgv_zip" ]; then
+  bash "$root/engine/pgvector/build-mac.sh" "$dist/pgvector" | tail -3
+  pgv_zip="$(ls "$dist"/pgvector/pgvector-*-macos-universal.zip)"
+fi
+mkdir -p "$res/server/pgvector"
+unzip -q "$pgv_zip" -d "$res/server/pgvector"
+lipo -info "$res/server/pgvector/lib/vector.dylib"
 cp -R packages/web/dist "$res/web"
 cp "$(command -v node)" "$res/node/node"
 echo "what weighs most:"

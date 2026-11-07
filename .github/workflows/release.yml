@@ -82,6 +82,14 @@ jobs:
             platforms: linux/amd64,linux/arm64
             suffix: vulkan
             variant: server-vulkan
+          # compose.yaml's database (G36.1): postgres:17-alpine with pgvector, tagged by what it
+          # holds (an existing volume opens as it is), not by RedGiant's version.
+          - name: redgiant2-postgres
+            file: docker/postgres.Dockerfile
+            context: docker
+            platforms: linux/amd64,linux/arm64
+            suffix: ""
+            fixed: "17-pgvector0.8.7 latest"
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -96,7 +104,11 @@ jobs:
         run: |
           version=${GITHUB_REF_NAME#v}
           image=$REGISTRY/${{ matrix.name }}
-          if [ -n "${{ matrix.suffix }}" ]; then
+          if [ -n "${{ matrix.fixed }}" ]; then
+            tags=""
+            for t in ${{ matrix.fixed }}; do tags="${tags:+$tags,}$image:$t"; done
+            echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ matrix.suffix }}" ]; then
             echo "tags=$image:${{ matrix.suffix }},$image:$version-${{ matrix.suffix }}" >> "$GITHUB_OUTPUT"
           else
             echo "tags=$image:latest,$image:$version" >> "$GITHUB_OUTPUT"
@@ -116,10 +128,22 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.suffix }}
 
+  # pgvector for the embedded Postgres (G36.1, pgvector.yml): built and loaded on Windows, Linux
+  # and the Mac in seconds; the installers below carry it. A version tag also publishes the zips
+  # missing from the pgvector-cache pre-release (source installs download them).
+  pgvector:
+    if: ${{ !inputs.only && !inputs.dry_run }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/pgvector.yml
+    with:
+      publish: ${{ startsWith(github.ref, 'refs/tags/') }}
+
   # RedGiant-Setup.exe (G22; 3.0, G30.2): the launcher, Node, the server built for Windows and the
   # web page, attached to the tag's GitHub Release. No WSL: everything runs on Windows itself.
   windows-installer:
     if: ${{ !inputs.only && !inputs.dry_run }}
+    needs: pgvector
     runs-on: windows-latest
     permissions:
       contents: write
@@ -135,6 +159,10 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
           if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: pgvector-windows-x64
+          path: pgv
       - name: Stage what the installer carries (server with its production modules, page, Node)
         shell: pwsh
         run: |
@@ -144,6 +172,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           # Codex and Claude Code (hundreds of MB) come down only when a subscription is switched on.
           Get-ChildItem packaging/windows/server/node_modules/@openai, packaging/windows/server/node_modules/@anthropic-ai -Directory | Where-Object { $_.Name -like "codex-win32-*" -or $_.Name -like "claude-agent-sdk-win32-*" } | Remove-Item -Recurse -Force
+          # pgvector next to the server (G36.1): the embedded Postgres loads it from there.
+          Expand-Archive (Get-Item pgv/pgvector-*-windows-x64.zip).FullName packaging/windows/server/pgvector
           Copy-Item -Recurse packages/web/dist packaging/windows/web
           $v = node -p "process.version"
           New-Item -ItemType Directory -Force packaging/windows/node | Out-Null
@@ -178,6 +208,7 @@ jobs:
   # Connect API key, the .p8 file in base64), MAC_NOTARY_KEY_ID, MAC_NOTARY_ISSUER_ID.
   mac-app:
     if: ${{ !inputs.only && !inputs.dry_run }}
+    needs: pgvector
     runs-on: macos-latest
     permissions:
       contents: write
@@ -194,11 +225,15 @@ jobs:
           MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
           MAC_NOTARY_KEY: ${{ secrets.MAC_NOTARY_KEY }}
         run: bash packaging/mac/keychain.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: pgvector-macos-universal
+          path: pgv
       - name: Build, sign, notarize
         env:
           MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
           MAC_NOTARY_ISSUER_ID: ${{ secrets.MAC_NOTARY_ISSUER_ID }}
-        run: bash packaging/mac/build.sh "${GITHUB_REF_NAME#v}"
+        run: PGVECTOR_ZIP="$(ls "$PWD"/pgv/pgvector-*-macos-universal.zip)" bash packaging/mac/build.sh "${GITHUB_REF_NAME#v}"
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:

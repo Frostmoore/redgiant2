@@ -21,6 +21,8 @@ import {
   needsInput,
   PermissionMode,
   ToolChoice,
+  toolCatalogEntry,
+  toolEntryOf,
 } from "@redgiant/protocol";
 import { z } from "zod";
 import type { ToolChoiceStore } from "./tool-choice.js";
@@ -543,6 +545,48 @@ export class PlatformConfig {
       after: clean,
       by,
     });
+  }
+
+  /**
+   * The tools an agent starts with, chosen by the agent that creates it (G36.14, the person: «quando
+   * crea un agente decida anche quali strumenti dargli»): only switching off, only for an agent it has
+   * just made under itself, never an essential tool. In the history with the reasons, undoable.
+   */
+  async toolsAtCreation(
+    ownerId: string,
+    by: string,
+    agentId: string,
+    off: { tool: string; why: string }[],
+  ): Promise<{ change: PlatformChange | null; ignored: string[] }> {
+    const store = this.h.toolChoices;
+    const agent = this.h.registry.get(agentId);
+    if (!store || agent?.ownerId !== ownerId || agent.parentId !== by)
+      throw new ConfigError("Only the agent that created it chooses its first tools");
+    const before = await store.get(ownerId);
+    const own = { ...(before.agents[agentId] ?? {}) };
+    const ignored: string[] = [];
+    const kept: { tool: string; why: string }[] = [];
+    for (const o of off) {
+      const entry = toolCatalogEntry(o.tool) ?? toolEntryOf(o.tool);
+      if (!entry || entry.essential) ignored.push(o.tool);
+      else if (!kept.some((k) => k.tool === entry.id)) {
+        own[entry.id] = "off";
+        kept.push({ tool: entry.id, why: o.why.trim().slice(0, 200) });
+      }
+    }
+    if (kept.length === 0) return { change: null, ignored };
+    const after: ToolChoice = { off: before.off, agents: { ...before.agents, [agentId]: own } };
+    await store.set(ownerId, after);
+    const change = await this.h.changes.record(ownerId, {
+      kind: "config",
+      change: `Tools of ${agent.name}, chosen when it was created: off ${kept.map((k) => `${k.tool} (${k.why})`).join("; ")}`,
+      stage: "promoted",
+      target: `tools:${agentId}`,
+      before,
+      after,
+      by,
+    });
+    return { change, ignored };
   }
 
   /** Puts back what a configuration change replaced; recorded as a change of its own. */

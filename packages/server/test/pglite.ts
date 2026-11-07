@@ -1,4 +1,5 @@
 import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { vector } from "@electric-sql/pglite-pgvector";
 import type { SqlClient } from "@redgiant/events";
 
 /**
@@ -14,7 +15,8 @@ function checkParams(text: string, params: unknown[] = []) {
 
 /** In-process Postgres for tests: real SQL, triggers and locks, no server. */
 export async function memoryDb(): Promise<{ db: SqlClient; pg: PGlite }> {
-  const pg = await PGlite.create();
+  // pgvector 0.8.7 (G36), as in the native Postgres: `CREATE EXTENSION vector` works.
+  const pg = await PGlite.create({ extensions: { vector } });
   const wrap = (q: PGlite | Transaction): SqlClient => ({
     async query<T>(text: string, params?: unknown[]) {
       checkParams(text, params);

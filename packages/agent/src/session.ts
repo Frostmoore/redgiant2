@@ -194,7 +194,7 @@ export class AgentSession {
   private history: HistoryEntry[] = [];
   /** Metrics of the latest model call since the last compaction; drives auto-compaction. */
   private lastMetrics: MessageMetrics | undefined;
-  private readonly tools: Tool[];
+  private tools: Tool[];
   private readonly ctx: ToolContext;
   /** The engine's conversation id (G21), from the log. */
   private engineSession: string | undefined;
@@ -261,6 +261,23 @@ export class AgentSession {
 
   private get maxResultChars(): number {
     return this.o.maxResultChars ?? 100_000;
+  }
+
+  /**
+   * Tools switched back on while the conversation runs (G36.15, the agent asked and the person said
+   * yes): recorded first, then part of every later request. The prefix changes once, here.
+   */
+  async addTools(
+    tools: Tool[],
+    payload: { entry: string; why: string; scope: "session" | "agent" },
+  ): Promise<void> {
+    const fresh = tools.filter((t) => !this.tools.some((x) => x.def.name === t.def.name));
+    if (fresh.length === 0) return;
+    await this.record({
+      type: "session.tools_added",
+      payload: { tools: fresh.map((t) => t.def.name).sort(), ...payload },
+    });
+    this.tools = canonicalTools([...this.tools, ...fresh]);
   }
 
   /** The tools as the model receives them, in order (the tools page weighs them, G34.5). */

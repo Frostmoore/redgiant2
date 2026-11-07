@@ -1,0 +1,70 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R 9 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 184 >>
+stream
+BT /F1 14 Tf
+1 0 0 1 72 760 Tm (Chapter one: the harbour) Tj
+1 0 0 1 72 740 Tm (The lighthouse keeper counts ships every night.) Tj
+1 0 0 1 72 720 Tm (Fog rolls in from the bay.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 212 >>
+stream
+BT /F1 14 Tf
+1 0 0 1 72 760 Tm (Chapter two: the engine) Tj
+1 0 0 1 72 740 Tm (A diesel engine needs clean fuel and fresh oil.) Tj
+1 0 0 1 72 720 Tm () Tj
+1 0 0 1 72 690 Tm (Change the filter every season.) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+8 0 obj
+<< /Length 125 >>
+stream
+BT /F1 14 Tf
+1 0 0 1 72 760 Tm (Chapter three: the garden) Tj
+1 0 0 1 72 740 Tm (Tomatoes like sun; basil likes water.) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Title (Three short chapters) /Producer (RedGiant test) >>
+endobj
+xref
+0 11
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000000432 00000 n 
+0000000558 00000 n 
+0000000821 00000 n 
+0000000947 00000 n 
+0000001123 00000 n 
+0000001249 00000 n 
+trailer
+<< /Size 11 /Root 1 0 R /Info 10 0 R >>
+startxref
+1327
+%%EOF

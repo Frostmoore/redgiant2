@@ -160,6 +160,14 @@ export function PdfView({ src }: ViewerProps) {
     setWidth(el.clientWidth);
     return () => ro.disconnect();
   }, [doc]);
+  // A citation's page (G36.4): once the pages are laid out.
+  const startPage = src.at?.page;
+  useEffect(() => {
+    if (!doc || !startPage || width <= 0) return;
+    const n = Math.max(1, Math.min(doc.numPages, startPage));
+    const id = requestAnimationFrame(() => requestAnimationFrame(() => go(n)));
+    return () => cancelAnimationFrame(id);
+  }, [doc, startPage, width > 0]);
   const fit = width > 80 ? Math.min(3, (width - 32) / base.w) : 1;
   const scale = zoom ?? fit;
   const go = (n: number) => {

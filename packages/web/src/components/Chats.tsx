@@ -120,6 +120,7 @@ export function Chats() {
             <PromptEditor
               load={() => getApi().chatPrompt()}
               save={(text) => getApi().setChatPrompt(text)}
+              target={{ chat: true }}
             />
           </Modal>
         </div>

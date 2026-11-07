@@ -147,6 +147,7 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
             name={name}
             url={url}
             onKind={setShown}
+            {...(target.kind === "file" && target.at && { at: target.at })}
           />
         )}
       </div>

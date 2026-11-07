@@ -66,6 +66,8 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   one("audio_generation", "canvas"),
   // Questions and plans: plan mode ends only through propose_plan.
   one("ask_user", "talk", true),
+  // A switched-off tool comes back only through the person (G36.15): the way to ask must stay.
+  one("request_tool", "talk", true),
   one("propose_plan", "talk", true),
   // Demi-God's one tool.
   one("ask_god", "talk", true),

@@ -74,6 +74,7 @@ import { ImportFrom } from "./ImportFrom.js";
 import { AgentLanguagePicker } from "./LanguagePicker.js";
 import { hardwareText, LocalModels } from "./LocalModels.js";
 import { modelName } from "./ModelMenu.js";
+import { PromptRefiner } from "./PromptRefiner.js";
 import { RemoteAccess } from "./RemoteAccess.js";
 import { Safety } from "./Safety.js";
 import { Acts, Head, Sub, Tile } from "./SettingsKit.js";
@@ -655,6 +656,11 @@ function Names() {
             placeholder={t("wzPromptExample")}
             value={editing}
             onInput={(e) => setEditing((e.target as HTMLTextAreaElement).value)}
+          />
+          <PromptRefiner
+            target={{ draft: { kind: "god", name: godName, god: godName, demigod: demiName } }}
+            text={editing}
+            onUse={setEditing}
           />
           <Acts>
             {isOwn(editing) && builtIn && (

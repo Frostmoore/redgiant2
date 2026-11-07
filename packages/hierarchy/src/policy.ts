@@ -209,6 +209,8 @@ export const READ_ONLY_TOOLS = new Set([
   "show_file",
   // Magic automations (G33.3): a proposal the person approves (or the list of links).
   "propose_automation",
+  // Asking the person to switch a tool back on (G36.15): the person's yes is asked by the tool itself.
+  "request_tool",
 ]);
 
 const toolMatches = (pattern: string, tool: string) =>

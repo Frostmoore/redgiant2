@@ -63,6 +63,13 @@ export interface OrchestrationHost {
    * working in the parent's (parallel sub-agents must not edit the same files at once).
    */
   isolate?(subagentId: string): void;
+  /** G36.14: the tools a new agent starts without, chosen by its creator (history, undoable). */
+  toolsAtCreation?(
+    ownerId: string,
+    by: string,
+    agentId: string,
+    off: { tool: string; why: string }[],
+  ): Promise<{ change: { change: string } | null; ignored: string[] }>;
 }
 
 type Outcome = "verified" | "not_testable" | "abandoned";
@@ -277,6 +284,10 @@ const CreateAgentInput = z.object({
   project_id: z.string().optional(),
   subproject_id: z.string().optional(),
   connections: z.array(z.string().min(1)).optional(),
+  tools_off: z
+    .array(z.object({ tool: z.string().min(1), why: z.string().min(1) }))
+    .max(80)
+    .optional(),
   model: z
     .object({
       provider: z.string(),
@@ -603,6 +614,16 @@ export function orchestrationTools(
               items: { type: "string" },
               description: "assistant only: the MCP servers (by name) it may use",
             },
+            tools_off: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: { tool: { type: "string" }, why: { type: "string" } },
+                required: ["tool", "why"],
+              },
+              description:
+                "tools its job does not need, as named on the Tools page (e.g. browser, blender, convert_file, image_generation, repo), each with why: every request gets cheaper; it can ask for one later",
+            },
             model: {
               type: "object",
               properties: {
@@ -631,7 +652,16 @@ export function orchestrationTools(
           ...(i.subproject_id && { subprojectId: i.subproject_id }),
           ...(i.model && { model: i.model as ModelSpec }),
         });
-        return `Created ${a.kind} ${a.name} (${a.id}) in project ${a.projectId ?? "-"}.`;
+        let tools = "";
+        if (i.tools_off?.length && host.toolsAtCreation) {
+          const r = await host.toolsAtCreation(self.ownerId, self.id, a.id, i.tools_off);
+          tools = r.change
+            ? ` Switched off for it: ${r.change.change.split(": off ")[1] ?? ""}.`
+            : "";
+          if (r.ignored.length)
+            tools += ` Not switched off (unknown or essential): ${r.ignored.join(", ")}.`;
+        }
+        return `Created ${a.kind} ${a.name} (${a.id}) in project ${a.projectId ?? "-"}.${tools}`;
       },
     } as Tool);
   }

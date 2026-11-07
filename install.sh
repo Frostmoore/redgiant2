@@ -10,7 +10,7 @@ HOME_DIR=${REDGIANT_HOME:-$HOME/redgiant}
 REF=${REDGIANT_REF:-main}
 RAW="https://raw.githubusercontent.com/Frostmoore/redgiant2/$REF"
 PORT=${REDGIANT_PORT:-7600}
-FILES=(compose.yaml docker/egress.json docker/searxng/settings.yml .env.example)
+FILES=(compose.yaml docker/egress.json docker/searxng/settings.yml docker/postgres.Dockerfile .env.example)
 
 say() { printf '\033[1;31m▶\033[0m %s\n' "$*"; }
 die() {
@@ -244,7 +244,9 @@ if [ "${REDGIANT_NO_PULL:-}" != 1 ]; then
   say "Downloading RedGiant (the first time takes a few minutes)"
   image=$(compose_image REDGIANT_IMAGE)
   sandbox=$(compose_image REDGIANT_SANDBOX_IMAGE)
-  pull_images "${image:-ghcr.io/frostmoore/redgiant2:latest}" postgres:17-alpine \
+  postgres=$(compose_image REDGIANT_POSTGRES_IMAGE)
+  pull_images "${image:-ghcr.io/frostmoore/redgiant2:latest}" \
+    "${postgres:-ghcr.io/frostmoore/redgiant2-postgres:17-pgvector0.8.7}" \
     "${sandbox:-ghcr.io/frostmoore/redgiant2-sandbox:latest}"
 fi
 if [ "${REDGIANT_NO_START:-}" = 1 ]; then

@@ -8,12 +8,19 @@ import {
   type ImportPreview,
   type ImportRecord,
   type Job,
+  type KnowledgeCitation,
+  type KnowledgeSearchInput,
+  type KnowledgeSearchResult,
+  type KnowledgeStatus,
   type LocalModel,
   type MagicAutomation,
   type Mailbox as MailboxInfo,
   type PermissionRequestInfo,
   PROTOCOL_VERSION,
   type Recipe,
+  type RefineEstimate,
+  type RefineRequest,
+  type RefineResult,
   type SearchProviderId,
   type ServerMessage,
   type SharedMemoryEntry,
@@ -567,6 +574,11 @@ export class Api {
   chatPrompt = () => this.call<PromptView>("GET", "/api/chat/prompt");
   setChatPrompt = (text: string | null) =>
     this.call<PromptView>("PUT", "/api/chat/prompt", { text });
+  /** About how much a revision of instructions takes (G36.13): nothing is spent. */
+  refineEstimate = (r: RefineRequest) =>
+    this.call<RefineEstimate>("POST", "/api/prompts/refine/estimate", r);
+  /** A revised text and what changed: never saved by itself. */
+  refinePrompt = (r: RefineRequest) => this.call<RefineResult>("POST", "/api/prompts/refine", r);
   stopAgent = (id: string) =>
     this.call<{ stopped: string[] }>("POST", `/api/agents/${id}/stop`, {
       reason: "stopped from the web UI",
@@ -1265,6 +1277,25 @@ export class Api {
       "GET",
       `/api/files/convert?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
     );
+  // ---- The knowledge (G36): what the «Knowledge» page (G36.5) uses ----
+  knowledgeStatus = () => this.call<KnowledgeStatus>("GET", "/api/knowledge");
+  knowledgeSearch = (input: KnowledgeSearchInput) =>
+    this.call<KnowledgeSearchResult>("POST", "/api/knowledge/search", input);
+  /** Where a citation opens: a Canvas target with its page or line, or a web address. */
+  knowledgeOpen = (chunkId: string) =>
+    this.call<
+      | {
+          title: string;
+          target: {
+            kind: "file";
+            scope: string;
+            path: string;
+            at?: { page?: number; line?: number };
+          };
+          citation: KnowledgeCitation;
+        }
+      | { title: string; url: string; citation: KnowledgeCitation }
+    >("GET", `/api/knowledge/open/${encodeURIComponent(chunkId)}`);
   /** Converts a file into open formats beside it: a job to follow (G34.3). */
   convertFile = (scope: string, path: string, to?: string[]) =>
     this.call<Job>("POST", "/api/files/convert", { scope, path, ...(to && { to }) });

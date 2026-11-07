@@ -93,9 +93,12 @@ export function FileViewer({
   url,
   onKind,
   convert,
+  at,
 }: {
   name: string;
   url: string;
+  /** Where to open it (a citation: page or line). */
+  at?: ViewerSource["at"];
   /** Offered where a viewer cannot show the file as it is (G34.4). */
   convert?: () => void;
   /** Told which viewer was chosen (the canvas's bar shows it). */
@@ -162,7 +165,7 @@ export function FileViewer({
   if (error && src.kind === "unknown") return <div class="vw-empty">{error}</div>;
   return (
     <Loaded
-      src={src}
+      src={at ? { ...src, at } : src}
       {...(convert && { convert })}
       open={(innerName, bytes) => {
         const format = viewerFor(innerName, bytes.subarray(0, 512)).format;

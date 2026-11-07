@@ -11,7 +11,7 @@ $HomeDir = if ($env:REDGIANT_HOME) { $env:REDGIANT_HOME } else { Join-Path $env:
 $Ref = if ($env:REDGIANT_REF) { $env:REDGIANT_REF } else { "main" }
 $Raw = "https://raw.githubusercontent.com/Frostmoore/redgiant2/$Ref"
 $Port = if ($env:REDGIANT_PORT) { $env:REDGIANT_PORT } else { "7600" }
-$Files = @("compose.yaml", "docker/egress.json", "docker/searxng/settings.yml", ".env.example")
+$Files = @("compose.yaml", "docker/egress.json", "docker/searxng/settings.yml", "docker/postgres.Dockerfile", ".env.example")
 $Yes = $env:REDGIANT_YES -eq "1"
 
 function Say([string]$Text) { Write-Host "> $Text" -ForegroundColor Red }
@@ -208,7 +208,8 @@ if ($env:REDGIANT_NO_PULL -ne "1") {
   Say "Downloading RedGiant (the first time takes a few minutes)"
   $image = if ($settings.REDGIANT_IMAGE) { $settings.REDGIANT_IMAGE } else { "ghcr.io/frostmoore/redgiant2:latest" }
   $sandbox = if ($settings.REDGIANT_SANDBOX_IMAGE) { $settings.REDGIANT_SANDBOX_IMAGE } else { "ghcr.io/frostmoore/redgiant2-sandbox:latest" }
-  Save-Images @($image, "postgres:17-alpine", $sandbox)
+  $postgres = if ($settings.REDGIANT_POSTGRES_IMAGE) { $settings.REDGIANT_POSTGRES_IMAGE } else { "ghcr.io/frostmoore/redgiant2-postgres:17-pgvector0.8.7" }
+  Save-Images @($image, $postgres, $sandbox)
 }
 Say "Starting RedGiant"
 docker compose up -d

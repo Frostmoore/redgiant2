@@ -15,6 +15,10 @@
   Settings > Tools, G34.5); essential tools (`TOOL_CATALOG`, `essential`) never switch off. The set is computed when a
   conversation starts and stays fixed for the session (`session.started.toolsOff`); model profiles change
   descriptions only, never the tool set.
+  Exception (G36.15): an agent can ask for a switched-off tool with `request_tool`; with the person's yes the tool
+  joins the running session through an explicit `session.tools_added` event (the prefix is rebuilt once, like a
+  compaction), and resuming rebuilds the same set from the log. Creators may switch tools off for an agent they
+  just made (`create_agent` `tools_off`), never essential ones.
 - Cache discipline: reasoning is always sent back (Anthropic native blocks; `reasoning_content` for local servers),
   effort/thinking stay fixed for a session (only the human changes the model or effort, from the composer: `setSessionModel`), and compaction reuses the exact same request plus one message.
 - Sandboxes: file tools work on the shared directory, commands run in the container (`ContainerWorkspace`).

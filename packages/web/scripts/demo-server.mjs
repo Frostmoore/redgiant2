@@ -59,6 +59,17 @@ const brain = (req) => {
   const results = last?.role === "user" && last.parts.every((p) => p.type === "tool_result");
   turn++;
   const said = last?.parts.find((p) => p.type === "text")?.text ?? "";
+  // G36.15: an agent asks for a switched-off tool (the person answers from the bell).
+  if (said.includes("Mi serve Blender") && !results)
+    return {
+      text: "Per il modello 3D mi serve Blender, che per me è spento: te lo chiedo.",
+      toolCalls: [
+        {
+          name: "request_tool",
+          input: { tool: "blender", why: "Per fare il modello 3D del logo che mi hai chiesto." },
+        },
+      ],
+    };
   // G34: «Mostra il file <path>» → show_file; its result → a short answer.
   const shownResult = last?.parts.find((p) => p.type === "tool_result")?.content;
   if (results && typeof shownResult === "string" && shownResult.startsWith("Opened "))

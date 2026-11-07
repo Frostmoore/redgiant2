@@ -13,10 +13,18 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import pgDriver from "pg";
+import { pgvectorDir, writePgvectorConf } from "./knowledge/pgvector.js";
 
 export interface EmbeddedDatabase {
   url: string;
   stop(): Promise<void>;
+  /** The pgvector folder in use, if any (G36). */
+  pgvector: string | undefined;
+  /**
+   * Starts using a pgvector folder that arrived while running (a download): rewrites
+   * `redgiant.conf` and reloads the configuration, no restart (both settings take a reload).
+   */
+  setPgvector(dir: string): Promise<void>;
 }
 
 export function freePort(): Promise<number> {
@@ -46,6 +54,7 @@ async function ensureDatabase(adminUrl: string): Promise<void> {
 export async function startEmbeddedDatabase(
   dataDir: string,
   log: (line: string) => void = () => {},
+  opts: { pgvectorDir?: string | undefined } = {},
 ): Promise<EmbeddedDatabase> {
   const { default: EmbeddedPostgres } = await import("embedded-postgres");
   const dir = join(dataDir, "postgres");
@@ -74,8 +83,23 @@ export async function startEmbeddedDatabase(
     onError: (e) => log(`postgres: ${e instanceof Error ? e.message : String(e)}`),
   });
   if (fresh) await pg.initialise();
+  // pgvector from a folder of ours (G36): written before every start, also into a cluster an
+  // older RedGiant made (it gains one include line, nothing else changes).
+  let vectorDir = opts.pgvectorDir ?? pgvectorDir({ dataDir });
+  await writePgvectorConf(dir, vectorDir);
   const url = (db: string) =>
     `postgres://redgiant:${encodeURIComponent(password)}@127.0.0.1:${port}/${db}`;
+  const setPgvector = async (next: string) => {
+    await writePgvectorConf(dir, next);
+    vectorDir = next;
+    const c = new pgDriver.Client({ connectionString: url("postgres") });
+    await c.connect();
+    try {
+      await c.query("SELECT pg_reload_conf()");
+    } finally {
+      await c.end();
+    }
+  };
   if (process.platform === "win32") {
     // Postgres refuses to run with an administrator's rights; pg_ctl drops them on Windows
     // (2026-11-05: started elevated, `postgres` itself just quit), so it starts the server.
@@ -117,9 +141,20 @@ export async function startEmbeddedDatabase(
       stop: async () => {
         await ctl("-m", "fast", "-w", "stop");
       },
+      get pgvector() {
+        return vectorDir;
+      },
+      setPgvector,
     };
   }
   await pg.start();
   await ensureDatabase(url("postgres"));
-  return { url: url("redgiant"), stop: () => pg.stop() };
+  return {
+    url: url("redgiant"),
+    stop: () => pg.stop(),
+    get pgvector() {
+      return vectorDir;
+    },
+    setPgvector,
+  };
 }

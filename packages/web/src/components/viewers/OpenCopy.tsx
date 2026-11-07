@@ -37,6 +37,8 @@ interface FileProps {
   name: string;
   url: string;
   onKind?: (src: ViewerSource) => void;
+  /** Where to open it (a citation: page or line). */
+  at?: ViewerSource["at"];
 }
 
 const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
@@ -44,7 +46,8 @@ const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? 
 /** The file in the canvas: laid out, through its open copy, or in its own viewer. */
 export function CanvasFile(p: FileProps) {
   // A file outside every project has no folder the converter knows: it is shown as it is.
-  if (p.scope === "outside") return <FileViewer name={p.name} url={p.url} onKind={p.onKind} />;
+  if (p.scope === "outside")
+    return <FileViewer name={p.name} url={p.url} onKind={p.onKind} at={p.at} />;
   if (pagedKind(p.name)) return <PagedView {...p} />;
   return <MaybeConverted {...p} />;
 }
@@ -98,7 +101,7 @@ type Paged =
   | { at: "simple" };
 
 /** An office file laid out as on paper (LibreOffice's PDF), or the table of a sheet. */
-export function PagedView({ scope, path, name, url, onKind }: FileProps) {
+export function PagedView({ scope, path, name, url, onKind, at }: FileProps) {
   const kind = pagedKind(name);
   const [state, setState] = useState<Paged>({ at: "asking" });
   const [mode, setMode] = useState<"page" | "table">("page");
@@ -155,7 +158,14 @@ export function PagedView({ scope, path, name, url, onKind }: FileProps) {
   else if (state.at === "ready")
     body = (
       <PdfOf
-        src={{ kind: "pdf", format: "pdf", name: `${name}.pdf`, url: state.url, size: state.size }}
+        src={{
+          kind: "pdf",
+          format: "pdf",
+          name: `${name}.pdf`,
+          url: state.url,
+          size: state.size,
+          ...(at && { at }),
+        }}
       />
     );
   else if (state.at === "simple")
@@ -273,7 +283,8 @@ function MaybeConverted(p: FileProps) {
     report &&
     report.targets.length > 0 &&
     (report.needsConversion || (report.suggested && (media || report.format?.kind === "image")));
-  if (!report || !wanted) return <FileViewer name={p.name} url={p.url} onKind={p.onKind} />;
+  if (!report || !wanted)
+    return <FileViewer name={p.name} url={p.url} onKind={p.onKind} at={p.at} />;
   return <ConvertView {...p} report={report} media={media} refresh={setReport} />;
 }
 

@@ -25,6 +25,22 @@ export const EventBody = z.discriminatedUnion("type", [
       toolsOff: z.array(z.string()).optional(),
     }),
   }),
+  /**
+   * Tools switched back on in a running conversation (G36.15): the agent asked with request_tool and
+   * the person said yes. The one exception to a fixed tool set: the prefix is rebuilt once, here,
+   * like a compaction; resuming the conversation gives it the same tools.
+   */
+  z.object({
+    type: z.literal("session.tools_added"),
+    payload: z.object({
+      tools: z.array(z.string()),
+      /** The catalog entry the person switched on. */
+      entry: z.string(),
+      why: z.string(),
+      /** "session": this conversation only; "agent": from now on for this agent too. */
+      scope: z.enum(["session", "agent"]),
+    }),
+  }),
   /** A flat-subscription engine's own conversation id (G21): resuming continues it. */
   z.object({
     type: z.literal("engine.session"),
@@ -156,7 +172,18 @@ export const EventBody = z.discriminatedUnion("type", [
     payload: z.object({
       title: z.string(),
       target: z.discriminatedUnion("kind", [
-        z.object({ kind: z.literal("file"), scope: z.string(), path: z.string() }),
+        z.object({
+          kind: z.literal("file"),
+          scope: z.string(),
+          path: z.string(),
+          /** Where to open it (G36.4, a citation): a PDF's page, a text's line. */
+          at: z
+            .object({
+              page: z.number().int().positive().optional(),
+              line: z.number().int().positive().optional(),
+            })
+            .optional(),
+        }),
         z.object({
           kind: z.literal("port"),
           agentId: z.string(),
@@ -420,6 +447,35 @@ export const EventBody = z.discriminatedUnion("type", [
       updatedAt: z.string().optional(),
       messages: z.number().int().nonnegative(),
       importId: z.string().optional(),
+    }),
+  }),
+  /**
+   * What happened to the knowledge (G36): collections and sources added or removed, an index
+   * started, ready, swapped in or retired, the model changed. Never the vectors or the texts:
+   * those are derived data, rebuilt from the sources.
+   */
+  z.object({
+    type: z.literal("knowledge.changed"),
+    payload: z.object({
+      action: z.enum([
+        "collection.created",
+        "collection.changed",
+        "collection.removed",
+        "source.added",
+        "source.removed",
+        "index.started",
+        "index.ready",
+        "index.failed",
+        "index.retired",
+        "settings.changed",
+      ]),
+      collectionId: z.string().optional(),
+      sourceId: z.string().optional(),
+      indexId: z.number().int().optional(),
+      /** Short facts for the record: a name, a model, counts. */
+      detail: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+      /** "human" or an agent's id. */
+      by: z.string(),
     }),
   }),
   z.object({

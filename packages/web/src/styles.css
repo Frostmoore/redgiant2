@@ -12983,3 +12983,179 @@ button.vw-archive-row:hover {
     flex-basis: 100%;
   }
 }
+
+/* g36: refiner (G36.13-15): improve the instructions, God's instructions and tools, request_tool */
+.rf {
+  margin-top: 10px;
+}
+.rf-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rf-box {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.rf-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-text, var(--accent));
+}
+.rf-head b {
+  color: var(--text);
+}
+.rf-box .st-field,
+.rf-draft .st-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rf-box .model-select select {
+  max-width: 100%;
+}
+.rf-est {
+  margin: 0;
+}
+.rf-acts {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.rf-working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dim);
+  margin: 6px 0;
+}
+.rf-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  margin: 0 0 6px;
+}
+.rf-key {
+  padding: 1px 8px;
+  border-radius: 6px;
+}
+.rf-diff {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+.rf-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.rf-text {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.6;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.rf-del {
+  background: color-mix(in srgb, var(--err) 18%, transparent);
+  color: var(--text);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--err) 70%, var(--text));
+}
+.rf-add {
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+  color: var(--text);
+  text-decoration: none;
+}
+.rf-why ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.notice.rf-offer {
+  display: block;
+  align-self: stretch;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  font-size: 14px;
+  color: var(--text);
+}
+.rf-offer p {
+  margin: 0 0 10px;
+}
+.rf-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.rf-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rf-tools .ui-help {
+  margin: 0;
+}
+.rf-tool-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.rf-tool-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.rf-tool-list li:last-child {
+  border-bottom: 0;
+}
+.rf-tool-list li > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.rf-tool-list li span {
+  color: var(--dim);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.rf-tool-list li:not(.on) b {
+  color: var(--dim);
+}
+.tool-req p {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .rf-diff {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rf-text {
+    max-height: 300px;
+  }
+}

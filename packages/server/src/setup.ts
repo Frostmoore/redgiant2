@@ -2003,6 +2003,14 @@ export class SetupService {
     await this.saveSubscriptions({ claude: null });
   }
 
+  /**
+   * A provider's key given in the setup (G36.2: the knowledge's cloud embeddings use OpenAI's,
+   * Gemini's or Mistral's when the person chose no keychain entry). Inside the server only.
+   */
+  providerKey(id: string): string | undefined {
+    return this.secrets.keys?.[id] ?? this.secrets.mediaKeys?.[id];
+  }
+
   /** The key a media provider uses: its own, or the chat provider's it shares. */
   private mediaKey(provider: string): string | undefined {
     const own = this.secrets.mediaKeys?.[provider];

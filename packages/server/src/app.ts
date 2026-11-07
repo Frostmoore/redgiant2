@@ -30,6 +30,7 @@ import {
   PermissionMode,
   PermissionRequestInfo,
   PROTOCOL_VERSION,
+  RefineRequest,
   SEARCH_PROVIDER_IDS,
 } from "@redgiant/protocol";
 import type { TelegramGateway } from "@redgiant/telegram";
@@ -56,11 +57,13 @@ import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
 import { HuggingFace } from "./hf.js";
 import { importRoutes } from "./import-routes.js";
+import { knowledgeRoutes } from "./knowledge/routes.js";
 import { localModelChoices } from "./local-models.js";
 import { LoginError } from "./login.js";
 import { MagicNotFoundError, MagicStateError } from "./magic.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
 import { SubprojectError } from "./projects.js";
+import { RefineError } from "./prompt-refiner.js";
 import { RoomError } from "./rooms.js";
 import type { SetupService } from "./setup.js";
 import { MEMORY_ENTRY_LIMIT, MemoryError } from "./shared-memory.js";
@@ -1042,6 +1045,27 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     if (!b.success) return c.json({ error: "A text (or null) is needed" }, 400);
     return c.json(await core.setChatPrompt(owner(c), b.data.text), 200);
   });
+  // The instructions' refiner (G36.13) and God's instructions for a new agent (G36.14): an
+  // estimate first, then the revised text. Nothing is saved: the person saves from the editor.
+  const refining = async (
+    c: Context<Env>,
+    f: (r: z.output<typeof RefineRequest>) => Promise<unknown>,
+  ) => {
+    const b = RefineRequest.safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "A target and a goal are needed" }, 400);
+    try {
+      return c.json(await f(b.data), 200);
+    } catch (err) {
+      if (err instanceof RefineError) return c.json({ error: err.message, code: err.code }, 400);
+      throw err;
+    }
+  };
+  app.post("/api/prompts/refine/estimate", (c) =>
+    refining(c, (r) => core.estimateRefine(owner(c), r)),
+  );
+  app.post("/api/prompts/refine", (c) =>
+    refining(c, (r) => core.refinePrompt(owner(c), r, c.req.raw.signal)),
+  );
   app.openapi(routes.stopAgent, async (c) => {
     const id = c.req.valid("param").id;
     if (core.registry.get(id)?.ownerId !== owner(c))
@@ -1240,6 +1264,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   convertRoutes(app, core, owner);
   // Import from other agents (G36.7): previews, the import as a job, undo.
   importRoutes(app, core, owner, options.setup);
+  // The knowledge (G36, the RAG): collections, sources, models, search, citations.
+  knowledgeRoutes(app, () => core.knowledge, owner);
 
   // Backup (2026-11-03): every project, agent and conversation in one file, and back. Outside
   // OpenAPI: the file goes up and down as raw bytes.

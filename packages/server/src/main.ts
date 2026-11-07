@@ -2,7 +2,7 @@
 // RedGiant server. Configured by environment variables until the setup wizard (G17) exists.
 import { readFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KvStore, LocalEngineProvider } from "@redgiant/engine-local";
 import { pgPoolClient, Redactor, type SqlClient } from "@redgiant/events";
@@ -23,6 +23,10 @@ import { localVaultEgress, routesFileEgress } from "./egress-routes.js";
 import { startEmbeddedDatabase } from "./embedded-db.js";
 import { GitHosts } from "./git-hosts.js";
 import { HuggingFace } from "./hf.js";
+import { EmbeddingError, type KeyedFetch } from "./knowledge/embedders.js";
+import { LocalEmbedServers } from "./knowledge/local-embed.js";
+import { ensurePgvector } from "./knowledge/pgvector.js";
+import { KnowledgeService } from "./knowledge/service.js";
 import { NativeLauncher } from "./native-launcher.js";
 import { ensureGit } from "./portable-git.js";
 import { backgroundPuller, runtimeHooks } from "./runtime.js";
@@ -34,7 +38,9 @@ const env = process.env;
 
 async function memoryDb(): Promise<SqlClient> {
   const { PGlite } = await import("@electric-sql/pglite");
-  const pglite = await PGlite.create();
+  // pgvector for the knowledge (G36): the same 0.8.7 as the native Postgres.
+  const { vector } = await import("@electric-sql/pglite-pgvector");
+  const pglite = await PGlite.create({ extensions: { vector } });
   type Q = Pick<typeof pglite, "query">;
   const wrap = (q: Q, top: boolean): SqlClient => ({
     query: async <T>(text: string, params?: unknown[]) => (await q.query<T>(text, params)).rows,
@@ -357,6 +363,70 @@ if (env.REDGIANT_CLAUDE_SUBSCRIPTION_TOKEN)
   await hooks.claudeSubscription?.(env.REDGIANT_CLAUDE_SUBSCRIPTION_TOKEN);
 shutdownHooks.push(async () => setup.stop());
 const modelsDir = env.REDGIANT_MODELS_DIR ?? join(dataDir, "models");
+
+// The knowledge (G36): pgvector in this same database, models chosen by the person. Keys are put
+// on by the server: the setup's provider key, or the keychain entry chosen in the page.
+const knowledgeFetch =
+  (who: string, provider: string, credential?: string): KeyedFetch =>
+  async (url, init, key, signal) => {
+    const base = { ...init, redirect: "manual" as const, ...(signal && { signal }) };
+    if (!key) return fetch(url, base);
+    if (credential)
+      return core.vault.serviceFetch(
+        who,
+        credential,
+        "knowledge",
+        url,
+        {
+          ...init,
+          headers: {
+            ...init.headers,
+            [key.header]: key.format.replace("{value}", `{{vault:${credential}}}`),
+          },
+        },
+        signal,
+      );
+    const value = setup.providerKey(provider);
+    if (!value)
+      throw new EmbeddingError(
+        "key_missing",
+        `No key for ${provider}: add it in the setup or choose a keychain entry`,
+      );
+    return fetch(url, {
+      ...base,
+      headers: { ...init.headers, [key.header]: key.format.replace("{value}", value) },
+    });
+  };
+const knowledge = new KnowledgeService({
+  db,
+  store: core.store,
+  jobs: core.jobs,
+  dataDir,
+  forbidden: [
+    resolve(env.REDGIANT_VAULT_DIR ?? join(dataDir, "keychain")),
+    join(dataDir, "postgres"),
+  ],
+  local: new LocalEmbedServers({ dataDir, jobs: core.jobs }),
+  keyedFetch: knowledgeFetch,
+  scopeRoot: (who, scope) => core.scopeFolder(who, scope),
+  agentLanguage: () => core.agentLanguageOf(owner) ?? core.uiLanguageOf(owner),
+  // Office files read through the PDF LibreOffice makes, only when it is already here.
+  officePdf: async (who, abs, signal) =>
+    core.programs.find("libreoffice")
+      ? core.converter.preview(dirname(abs), basename(abs), { owner: who, signal })
+      : undefined,
+});
+await knowledge.start();
+core.knowledge = knowledge;
+shutdownHooks.push(() => knowledge.stop());
+// From the sources (Linux, development) pgvector is not in a package: it comes down once.
+if (embedded && !embedded.pgvector)
+  void ensurePgvector(core.jobs, owner, dataDir)
+    .then(async (dir) => {
+      await embedded.setPgvector(dir);
+      await knowledge.vectorArrived();
+    })
+    .catch((err) => console.warn(`pgvector: ${(err as Error).message}`));
 
 const running = await serve(core, new TokenAuth({ [token]: owner }), {
   port: Number(env.REDGIANT_PORT ?? 7600),

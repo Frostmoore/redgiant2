@@ -30,6 +30,7 @@ import { setTheme, theme } from "../theme.js";
 import { explain } from "./Brain.js";
 import { AgentLanguagePicker } from "./LanguagePicker.js";
 import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
+import { PromptRefiner } from "./PromptRefiner.js";
 import { ServicePanel } from "./Services.js";
 import {
   Acts,
@@ -106,6 +107,14 @@ function Instructions({ initial, onSaved }: { initial: string; onSaved: () => vo
         placeholder={t("instructionsPlaceholder")}
         onInput={(e) => {
           setText((e.target as HTMLTextAreaElement).value);
+          setState("idle");
+        }}
+      />
+      <PromptRefiner
+        target={{ general: true }}
+        text={text}
+        onUse={(v) => {
+          setText(v);
           setState("idle");
         }}
       />

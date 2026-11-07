@@ -93,6 +93,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           # Codex and Claude Code (hundreds of MB) come down only when a subscription is switched on.
           Get-ChildItem packaging/windows/server/node_modules/@openai, packaging/windows/server/node_modules/@anthropic-ai -Directory | Where-Object { $_.Name -like "codex-win32-*" -or $_.Name -like "claude-agent-sdk-win32-*" } | Remove-Item -Recurse -Force
+          # pgvector (G36.1), built here as the release does (seconds): next to the server.
+          pwsh -NoProfile -File engine/pgvector/build-win.ps1 -Out pgv-out -Work "$env:RUNNER_TEMP\pgv"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Expand-Archive (Get-Item pgv-out\pgvector-*.zip).FullName packaging/windows/server/pgvector
           Copy-Item -Recurse packages/web/dist packaging/windows/web
           New-Item -ItemType Directory -Force packaging/windows/node | Out-Null
           Copy-Item (Get-Command node).Source packaging/windows/node/node.exe
@@ -130,6 +134,30 @@ jobs:
             exit 1
           }
           "answered after about $($i * 2) s"
+          # pgvector from the installed folder (G36.1): the embedded Postgres loads it from outside
+          # its installation (redgiant.conf), and CREATE EXTENSION works in RedGiant's database.
+          if (-not (Test-Path "$app\server\pgvector\lib\vector.dll")) { "pgvector was not installed"; exit 1 }
+          $conf = Get-Content "$app\data\postgres\redgiant.conf" -Raw
+          if ($conf -notmatch "extension_control_path") { "the embedded Postgres does not use pgvector's folder"; $conf; exit 1 }
+          $port = (Get-Content "$app\data\postgres\postmaster.pid")[3].Trim()
+          $env:PGV_PASSWORD = (Get-Content "$app\data\postgres.json" -Raw | ConvertFrom-Json).password
+          $env:PGV_PORT = $port
+          @'
+          const { createRequire } = require("node:module");
+          const pg = createRequire(process.env.PGV_SERVER + "/package.json")("pg");
+          (async () => {
+            const c = new pg.Client({ host: "127.0.0.1", port: +process.env.PGV_PORT, user: "redgiant", password: process.env.PGV_PASSWORD, database: "redgiant" });
+            await c.connect();
+            await c.query("CREATE EXTENSION IF NOT EXISTS vector");
+            const v = (await c.query("SELECT extversion FROM pg_extension WHERE extname = 'vector'")).rows[0].extversion;
+            const d = (await c.query("SELECT '[1,0,0]'::halfvec <=> '[0,1,0]'::halfvec AS d")).rows[0].d;
+            console.log("pgvector " + v + ", cosine distance " + d);
+            await c.end();
+          })().catch((e) => { console.error(e.message); process.exit(1); });
+          '@ | Set-Content "$env:RUNNER_TEMP\pgv-check.cjs"
+          $env:PGV_SERVER = "$app\server"
+          & "$app\node\node.exe" "$env:RUNNER_TEMP\pgv-check.cjs"
+          if ($LASTEXITCODE -ne 0) { "CREATE EXTENSION vector failed in the installed RedGiant"; exit 1 }
           # RedGiant closed badly with Postgres left running (3.0.0 on Rig, 2026-11-05): setup run
           # again must still replace every file ("Accesso negato" before) and stop that Postgres.
           Stop-Process -Name RedGiant -Force
@@ -204,6 +232,25 @@ jobs:
           token=$(cat ~/Library/Application\ Support/RedGiant/data/token.txt)
           curl -sf -H "Authorization: Bearer $token" http://127.0.0.1:7600/api/setup >/dev/null
           curl -sf http://127.0.0.1:7600/ | grep -q "<html"
+          # pgvector (G36.1): the signed postgres loads the signed vector.dylib from the app's own
+          # folder (hardened runtime, library validation), and CREATE EXTENSION works.
+          data=~/Library/Application\ Support/RedGiant/data
+          grep -q extension_control_path "$data/postgres/redgiant.conf" || { echo "the embedded Postgres does not use pgvector's folder"; exit 1; }
+          # shellcheck disable=SC2016 # the $1 below are SQL parameters, for node
+          PGV_PORT=$(sed -n 4p "$data/postgres/postmaster.pid" | tr -d ' ') \
+          PGV_PASSWORD=$(/tmp/RedGiant.app/Contents/Resources/node/node -p "require(process.argv[1]).password" "$data/postgres.json") \
+          PGV_SERVER=/tmp/RedGiant.app/Contents/Resources/server \
+          /tmp/RedGiant.app/Contents/Resources/node/node -e '
+            const pg = require("node:module").createRequire(process.env.PGV_SERVER + "/package.json")("pg");
+            (async () => {
+              const c = new pg.Client({ host: "127.0.0.1", port: +process.env.PGV_PORT, user: "redgiant", password: process.env.PGV_PASSWORD, database: "redgiant" });
+              await c.connect();
+              await c.query("CREATE EXTENSION IF NOT EXISTS vector");
+              const v = (await c.query("SELECT extversion FROM pg_extension WHERE extname = $1", ["vector"])).rows[0].extversion;
+              const d = (await c.query("SELECT $1::halfvec <=> $2::halfvec AS d", ["[1,0,0]", "[0,1,0]"])).rows[0].d;
+              console.log("pgvector " + v + ", cosine distance " + d);
+              await c.end();
+            })().catch((e) => { console.error(e.message); process.exit(1); });'
           /tmp/RedGiant.app/Contents/MacOS/RedGiant --quit
           sleep 3
           if pgrep -fl "RedGiant.app/Contents/Resources" ; then echo "processes left after --quit"; exit 1; fi

@@ -148,6 +148,7 @@ function Settings({ onClose }: { onClose: () => void }) {
         <PromptEditor
           load={() => getApi().chatPrompt()}
           save={(text) => getApi().setChatPrompt(text)}
+          target={{ chat: true }}
           label={t("chatInstructions")}
           rows={8}
         />

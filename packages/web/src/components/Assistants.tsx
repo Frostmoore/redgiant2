@@ -15,6 +15,7 @@ import {
   getApi,
   getLive,
   newSession,
+  offerPromptRewrite,
   openAgent,
   openSession,
   openTab,
@@ -23,11 +24,18 @@ import {
   refresh,
   sessionRows,
 } from "../state.js";
+import { substantialChange } from "../word-diff.js";
 import { Editor, recipeWhen } from "./Automations.js";
 import { explain, providerName } from "./Brain.js";
 import { CompactionSettings } from "./CompactionSettings.js";
 import { NotesEditor } from "./NotesEditor.js";
 import { PromptEditor } from "./PromptEditor.js";
+import {
+  DraftEstimate,
+  DraftInstructions,
+  type DraftOutcome,
+  type DraftTarget,
+} from "./PromptRefiner.js";
 import { Advanced, Choice, Field, Modal, Toggle } from "./ui.js";
 
 /** Ready jobs; the job text is the user's, in their language, so they can read and change it. */
@@ -117,6 +125,9 @@ export function AssistantWizard({ onDone }: { onDone: (a?: Agent) => void }) {
   const [model, setModel] = useState("");
   const [mode, setMode] = useState<"auto" | "manual">("auto");
   const [error, setError] = useState<string>();
+  // The last step (G36.14): God writes its instructions and proposes its tools.
+  const [step, setStep] = useState<"form" | "instructions">("form");
+  const [outcome, setOutcome] = useState<DraftOutcome | null>(null);
   useEffect(() => {
     void getApi()
       .models()
@@ -141,6 +152,13 @@ export function AssistantWizard({ onDone }: { onDone: (a?: Agent) => void }) {
         mode,
         ...(provider && rest.length > 0 && { model: { provider, model: rest.join("/") } }),
       });
+      if (outcome?.text.trim()) await getApi().setAgentPrompt(a.id, outcome.text);
+      const off = (outcome?.tools ?? []).filter((x) => !x.on);
+      if (off.length > 0)
+        await getApi().setAgentTools(
+          a.id,
+          Object.fromEntries(off.map((x) => [x.id, "off" as const])),
+        );
       await refresh();
       onDone(a);
     } catch (err) {
@@ -155,6 +173,30 @@ export function AssistantWizard({ onDone }: { onDone: (a?: Agent) => void }) {
     onDone();
   };
   const providers = [...new Set(models.map((m) => m.provider))];
+  const draft: DraftTarget = {
+    kind: "assistant",
+    name: name.trim(),
+    ...(role.trim() && { role: role.trim() }),
+    mode,
+    ...(model && { model }),
+  };
+  if (step === "instructions")
+    return (
+      <div class="ui-step asst-wizard">
+        <h2>{t("asstNewTitle")}</h2>
+        <h3>{t("draftTitle")}</h3>
+        <DraftInstructions draft={draft} fallback={(base) => base} onChange={setOutcome} />
+        <div class="row">
+          <button type="button" class="primary" disabled={!outcome} onClick={() => void create()}>
+            {t("asstCreate")}
+          </button>
+          <button type="button" onClick={() => setStep("form")}>
+            {t("wzBack")}
+          </button>
+        </div>
+        {error && <p class="notice error">{error}</p>}
+      </div>
+    );
   return (
     <div class="ui-step asst-wizard">
       <h2>{t("asstNewTitle")}</h2>
@@ -223,15 +265,19 @@ export function AssistantWizard({ onDone }: { onDone: (a?: Agent) => void }) {
         <button
           type="button"
           class="primary"
-          disabled={!name.trim() || !role.trim()}
-          onClick={() => void create()}
+          disabled={!name.trim() || !role.trim() || !god}
+          onClick={() => {
+            setOutcome(null);
+            setStep("instructions");
+          }}
         >
-          {t("asstCreate")}
+          {t("draftNext", { god: god?.name ?? "God" })}
         </button>
         <button type="button" onClick={() => onDone()}>
           {t("cancel")}
         </button>
       </div>
+      {name.trim() && role.trim() && <DraftEstimate draft={draft} />}
       {error && <p class="notice error">{error}</p>}
       <p class="ui-help">
         {t("asstOrAskGod")}{" "}
@@ -324,10 +370,13 @@ export function AssistantPage({ agentId }: { agentId: string | null }) {
   if (!a) return <div class="empty">{t("asstGone")}</div>;
   const state = assistantState(a);
   const save = async () => {
+    const was = roleText(a.role) ?? "";
     const ok = await attempt(() =>
       getApi().configureAgent(a.id, { role: role.trim(), connections }),
     );
     if (ok) {
+      // A new job (G36.14): offer to have God rewrite its instructions.
+      if (substantialChange(was, role.trim())) offerPromptRewrite(a.id, true);
       await refresh();
       setSaved(true);
     }
@@ -391,6 +440,7 @@ export function AssistantPage({ agentId }: { agentId: string | null }) {
         key={`${a.id}-${a.name}-${a.role ?? ""}`}
         load={() => getApi().agentPrompt(a.id)}
         save={(text) => getApi().setAgentPrompt(a.id, text)}
+        target={{ agentId: a.id }}
         label={t("agentInstructions")}
         help={t("agentInstructionsHelp")}
       />

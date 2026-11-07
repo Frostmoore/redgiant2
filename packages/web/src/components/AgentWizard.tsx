@@ -1,12 +1,20 @@
 // A new project agent, step by step (G24.7): what it should do (ready roles, or in one's own
 // words), in which project, its name, which brain, how much it may do alone. The technical form
-// stays under "Advanced" in the tree.
+// stays under "Advanced" in the tree. Then the last step (G36.14): God writes its instructions from
+// the built-in ones and what was chosen here, and proposes its tools; the person reads, changes, creates.
 import { useEffect, useState } from "preact/hooks";
 import type { ModelChoice } from "../api.js";
 import { t } from "../i18n.js";
 import { agents, getApi, projects, refresh, subprojects } from "../state.js";
 import { explain, providerName } from "./Brain.js";
-import { Advanced, Choice, Field } from "./ui.js";
+import {
+  DraftEstimate,
+  DraftInstructions,
+  type DraftOutcome,
+  type DraftTarget,
+  godName,
+} from "./PromptRefiner.js";
+import { Choice, Field } from "./ui.js";
 
 /** Ready roles; their instructions are for the model, so in English like every prompt. */
 const ROLES = {
@@ -38,7 +46,8 @@ export function AgentWizard({ onDone }: { onDone: () => void }) {
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("medium");
   const [mode, setMode] = useState<Mode>("auto");
-  const [prompt, setPrompt] = useState<string>(ROLES.coder);
+  const [step, setStep] = useState<"form" | "instructions">("form");
+  const [outcome, setOutcome] = useState<DraftOutcome | null>(null);
   const [error, setError] = useState<string>();
   useEffect(() => {
     void getApi()
@@ -47,34 +56,68 @@ export function AgentWizard({ onDone }: { onDone: () => void }) {
   }, []);
   const pick = (r: Role) => {
     setRole(r);
-    setPrompt(ROLES[r]);
     if (!named) setName(r === "custom" ? "" : t(`agentRole_${r}`));
   };
   const lead = agents.value.find((a) => a.kind === "orchestrator" && a.projectId === project);
   if (projects.value.length === 0) return <p class="notice warn">{t("agentNeedsProject")}</p>;
+  const job = role === "custom" ? own.trim() : ROLES[role];
+  const draft: DraftTarget = {
+    kind: "agent",
+    name: name.trim(),
+    ...(job && { role: job }),
+    ...(project && { projectId: project }),
+    mode,
+    ...(model && { model }),
+  };
   const create = async () => {
     setError(undefined);
     const [provider, ...rest] = model.split("/");
-    const instructions = role === "custom" ? own.trim() : prompt.trim();
     try {
       if (!lead) throw new Error(t("noOrchestrator"));
-      await getApi().createAgent({
+      const a = await getApi().createAgent({
         kind: "agent",
         parentId: lead.id,
         projectId: project,
         ...(sub && { subprojectId: sub }),
         name: name.trim(),
         role: role === "custom" ? own.trim().slice(0, 120) : t(`agentRole_${role}`),
-        ...(instructions && { systemPrompt: instructions }),
         ...(provider && rest.length > 0 && { model: { provider, model: rest.join("/"), effort } }),
         mode,
       });
+      // Its instructions as kept (placeholders for the names), and the tools it starts without.
+      if (outcome?.text.trim()) await getApi().setAgentPrompt(a.id, outcome.text);
+      const off = (outcome?.tools ?? []).filter((x) => !x.on);
+      if (off.length > 0)
+        await getApi().setAgentTools(
+          a.id,
+          Object.fromEntries(off.map((x) => [x.id, "off" as const])),
+        );
       await refresh();
       onDone();
     } catch (err) {
       setError(explain(err));
     }
   };
+  if (step === "instructions")
+    return (
+      <div class="ui-step agent-wizard">
+        <h3>{t("draftTitle")}</h3>
+        <DraftInstructions
+          draft={draft}
+          fallback={(base) => (job ? `${base}\n\n${job}` : base)}
+          onChange={setOutcome}
+        />
+        <div class="row">
+          <button type="button" class="primary" disabled={!outcome} onClick={() => void create()}>
+            {t("agentCreate")}
+          </button>
+          <button type="button" onClick={() => setStep("form")}>
+            {t("wzBack")}
+          </button>
+        </div>
+        {error && <p class="notice error">{error}</p>}
+      </div>
+    );
   const providers = [...new Set(models.map((m) => m.provider))];
   return (
     <div class="ui-step agent-wizard">
@@ -178,30 +221,24 @@ export function AgentWizard({ onDone }: { onDone: () => void }) {
           ...(m === "auto" && { badge: t("lmRecommended") }),
         }))}
       />
-      {role !== "custom" && (
-        <Advanced label={t("agentInstructions")}>
-          <Field label={t("agentInstructions")} help={t("agentInstructionsHelp")}>
-            <textarea
-              rows={4}
-              value={prompt}
-              onInput={(e) => setPrompt((e.target as HTMLTextAreaElement).value)}
-            />
-          </Field>
-        </Advanced>
-      )}
       <div class="row">
         <button
           type="button"
           class="primary"
-          disabled={!name.trim() || (role === "custom" && !own.trim())}
-          onClick={() => void create()}
+          disabled={!name.trim() || (role === "custom" && !own.trim()) || !lead}
+          onClick={() => {
+            setOutcome(null);
+            setStep("instructions");
+          }}
         >
-          {t("agentCreate")}
+          {t("draftNext", { god: godName() })}
         </button>
         <button type="button" onClick={onDone}>
           {t("cancel")}
         </button>
       </div>
+      {name.trim() && <DraftEstimate draft={draft} />}
+      {!lead && <p class="notice warn">{t("noOrchestrator")}</p>}
       {error && <p class="notice error">{error}</p>}
     </div>
   );

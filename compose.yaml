@@ -6,9 +6,17 @@ name: redgiant
 x-image: &image ${REDGIANT_IMAGE:-ghcr.io/frostmoore/redgiant2:latest}
 
 services:
+  # postgres:17-alpine with pgvector for the knowledge (G36): the same Postgres 17 and Alpine as
+  # before, so an existing volume opens as it is. Built from docker/postgres.Dockerfile when the
+  # image cannot be pulled.
   postgres:
-    image: postgres:17-alpine
+    image: ${REDGIANT_POSTGRES_IMAGE:-ghcr.io/frostmoore/redgiant2-postgres:17-pgvector0.8.7}
+    build:
+      context: docker
+      dockerfile: postgres.Dockerfile
     restart: unless-stopped
+    # Building an HNSW index in parallel keeps its graph in shared memory (Docker gives 64 MB).
+    shm_size: 1gb
     environment:
       POSTGRES_USER: redgiant
       POSTGRES_DB: redgiant
@@ -32,6 +40,8 @@ services:
         required: false
     environment:
       DATABASE_URL: postgres://redgiant:${POSTGRES_PASSWORD}@postgres:5432/redgiant
+      # The database's shared memory (shm_size above): HNSW builds stay below it.
+      REDGIANT_PG_SHM_MB: "1024"
       REDGIANT_TOKEN: ${REDGIANT_TOKEN:?run the installer or set REDGIANT_TOKEN in .env}
       # Inside the container; REDGIANT_PORT and REDGIANT_BIND in .env choose the published port.
       REDGIANT_PORT: "7600"

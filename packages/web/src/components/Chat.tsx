@@ -43,6 +43,7 @@ import { MetricsBar } from "./MetricsBar.js";
 import { ModelMenu } from "./ModelMenu.js";
 import { WorkspaceImage } from "./Preview.js";
 import { QuestionCard } from "./QuestionCard.js";
+import { ToolRequestCard } from "./ToolRequestCard.js";
 import { TurnProgress } from "./TurnProgress.js";
 import { FileIcon } from "./viewers/FileIcon.js";
 
@@ -295,6 +296,12 @@ function ToolLine({
 
 /** A request waiting for the human, inside the conversation it belongs to. */
 export function PermissionCard({ r }: { r: PermissionRequestInfo }) {
+  // A switched-off tool asked back (G36.15) has its own words and choices.
+  if (r.tool === "request_tool") return <ToolRequestCard r={r} />;
+  return <ToolPermission r={r} />;
+}
+
+function ToolPermission({ r }: { r: PermissionRequestInfo }) {
   const [all, setAll] = useState(false);
   // Denied with words the agent reads (2026-11-05).
   const [why, setWhy] = useState<string | null>(null);

@@ -17,10 +17,13 @@ RUN apt-get update \
     ghostscript libx11-6 libx11-xcb1 libxext6 libxinerama1 libcairo2 libcups2t64 libdbus-1-3 libfontconfig1 \
     libfreetype6 libglib2.0-0t64 libgssapi-krb5-2 libnss3 fonts-dejavu-core \
     xvfb xauth xz-utils libxfixes3 libxi6 libxkbcommon0 \
+    libgomp1 \
  && rm -rf /var/lib/apt/lists/* \
  && corepack enable \
  && git config --system init.defaultBranch live \
  && git config --system safe.directory '*'
+# The knowledge (G36.2): llama.cpp's CPU build for local embeddings and reranking comes down into
+# the data volume when chosen; it links OpenMP (libgomp1, 0.3 MB).
 # Conversions into open formats (G34.3): Ghostscript (AGPL-3.0, Debian's own package, a separate
 # program) for EPS and PostScript; the libraries LibreOffice's AppImage needs without a desktop
 # (LibreOffice itself, ~300 MB, comes down into the data volume only when a conversion needs it).

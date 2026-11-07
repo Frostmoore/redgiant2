@@ -32,7 +32,18 @@ const classes = HighlightStyle.define([
   { tag: [tags.meta, tags.processingInstruction, tags.tagName], class: "cmv-meta" },
 ]);
 
-function Code({ text, name, wrap }: { text: string; name: string; wrap: boolean }) {
+function Code({
+  text,
+  name,
+  wrap,
+  line,
+}: {
+  text: string;
+  name: string;
+  wrap: boolean;
+  /** A citation's line (G36.4): selected and brought to the middle. */
+  line?: number | undefined;
+}) {
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = host.current;
@@ -57,19 +68,27 @@ function Code({ text, name, wrap }: { text: string; name: string; wrap: boolean 
           ],
         }),
       });
+      if (line && line >= 1) {
+        const at = view.state.doc.line(Math.min(line, view.state.doc.lines));
+        view.dispatch({
+          selection: { anchor: at.from, head: at.to },
+          effects: EditorView.scrollIntoView(at.from, { y: "center" }),
+        });
+      }
     })();
     return () => {
       live = false;
       view?.destroy();
     };
-  }, [text, name, wrap]);
+  }, [text, name, wrap, line]);
   return <div class="vw-code" ref={host} />;
 }
 
 export function CodeView({ src }: ViewerProps) {
   const { value, error } = useText(src.url);
   const markdown = src.kind === "markdown";
-  const [source, setSource] = useState(!markdown);
+  // A citation's line is in the source: Markdown opens there instead of rendered.
+  const [source, setSource] = useState(!markdown || Boolean(src.at?.line));
   const [wrap, setWrap] = useState(src.kind !== "code");
   if (error) return <div class="vw-empty">{error}</div>;
   if (value === undefined) return <div class="vw-empty dim">{t("loading")}</div>;
@@ -116,7 +135,7 @@ export function CodeView({ src }: ViewerProps) {
       {markdown && !source ? (
         <div class="md vw-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
       ) : (
-        <Code text={text} name={src.name} wrap={wrap} />
+        <Code text={text} name={src.name} wrap={wrap} line={src.at?.line} />
       )}
     </div>
   );

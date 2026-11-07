@@ -25,7 +25,13 @@ import { t, tOptional } from "./i18n.js";
 
 /** What the canvas shows (G25.1): a file or folder of a workspace, or a port of an agent. */
 export type CanvasTarget =
-  | { kind: "file"; scope: string; path: string }
+  | {
+      kind: "file";
+      scope: string;
+      path: string;
+      /** Where to open it (G36.4, a citation): a PDF's page, a text's line. */
+      at?: { page?: number | undefined; line?: number | undefined } | undefined;
+    }
   | { kind: "port"; agentId: string; port: number; path?: string | undefined };
 
 // ---------- Chat items (pure) ----------
@@ -908,6 +914,16 @@ export function openCanvas(title: string, target: CanvasTarget): void {
   persistCanvas();
 }
 
+/**
+ * Opens a knowledge citation (G36.4) at its point: a file in the Canvas at its page or line, a
+ * web page in a new window of the browser.
+ */
+export async function openCitation(chunkId: string): Promise<void> {
+  const r = await getApi().knowledgeOpen(chunkId);
+  if ("url" in r) window.open(r.url, "_blank", "noopener,noreferrer");
+  else openCanvas(r.title, r.target);
+}
+
 /** Opens a board of variants as a page of its own (G25.4). */
 export function openBoard(sessionId: string, proposalId: string, title: string): void {
   openTab({ id: `tavola:${proposalId}`, type: "tavola", title, sessionId, proposalId });
@@ -1003,4 +1019,14 @@ export async function openAgent(agent: Agent, fresh = false): Promise<void> {
     sessionId,
     agentId: agent.id,
   });
+}
+
+/**
+ * Agents whose job changed a lot (G36.14): their instructions editor offers to have God rewrite
+ * them for the new job. Only offered, never done by itself; cleared when answered.
+ */
+export const promptRewriteOffer = signal<Record<string, true>>({});
+export function offerPromptRewrite(agentId: string, on: boolean): void {
+  const { [agentId]: _was, ...rest } = promptRewriteOffer.value;
+  promptRewriteOffer.value = on ? { ...rest, [agentId]: true } : rest;
 }

@@ -1661,6 +1661,15 @@ const en = {
   job_step_convert: "Converting",
   job_preview_file: "Preparing the pages of {name}",
   job_step_model_download: "The model",
+  job_download_knowledge_model:
+    "Downloading {model} ({size}) for the knowledge, to search your files on this computer (only once)",
+  job_download_pgvector:
+    "Downloading pgvector, the search by meaning in RedGiant's database (only once)",
+  job_error_checksum: "The download arrived damaged (its fingerprint does not match): try again.",
+  job_error_pgvector_unavailable:
+    "pgvector is not published for this computer yet: the knowledge searches by words only.",
+  job_error_pgvector_checksum: "The pgvector download arrived damaged: try again.",
+  job_error_unsupported_system: "llama.cpp publishes no build for this computer.",
   viaScript: "from a script",
   notifyDone: "An agent finished its work",
   notifyApproval: "{name} asks for your approval",
@@ -3229,6 +3238,77 @@ const en = {
   toolDo_platform_undo: "Undoes a change to the settings, with your yes.",
   tool_platform_code: "Change RedGiant's code",
   toolDo_platform_code: "Changes RedGiant itself, tried apart before you accept it.",
+  // g36: the instructions' refiner, God's instructions and tools for new agents, request_tool (G36.13-15)
+  refineOpen: "Improve the instructions",
+  refineLead:
+    "A model reads them again and proposes a clearer version. You see what changes before using it; nothing is saved until you save.",
+  refineModel: "The model that writes",
+  refineGodModel: "{god}'s model",
+  refineWish: "What do you want to change? (you can leave it empty)",
+  refineWishPlaceholder:
+    "For example: more concise; always answer with lists; specialise it in invoices. Empty: a general improvement.",
+  refineGo: "Improve",
+  refineWorking: "Rewriting the instructions...",
+  refineEstimate: "Estimate: {what}.",
+  refineNoEstimate: "No estimate: check that the model is still connected.",
+  refineSpent: "Spent: {what}.",
+  refineCostLine: "about {tokens} tokens, {cost}",
+  refineFree: "no money (a local model or a subscription)",
+  refineCost: "about {usd}",
+  refineCostTiny: "less than a cent",
+  refineBefore: "Before",
+  refineAfter: "After",
+  refineLegendDel: "what goes away",
+  refineLegendAdd: "what is new",
+  refineCount: "{del} words out, {add} words in",
+  refineSame: "The model left them as they were.",
+  refineChanges: "What changed",
+  refineUse: "Use this version",
+  refineRetry: "Try again",
+  refineUsed: "The new version is in the field: save to keep it.",
+  refineErr_removed_parts:
+    "The model left out parts that must stay (tools, names). Nothing changed: try again or choose another model.",
+  refineErr_budget: "The budget is used up: raise it in Settings, Budget.",
+  refineErr_no_model: "No model is connected: connect one in Settings, Models.",
+  refineErr_no_answer: "The model gave no usable text. Try again or choose another model.",
+  rewriteOffer:
+    "You changed what {name} does. Do you want {god} to rewrite its instructions for the new job? You will see them before anything changes.",
+  rewriteYes: "Yes, rewrite them",
+  rewriteNo: "No, keep them",
+  rewriteTitle: "Rewrite for the new job",
+  rewriteLead:
+    "{god} starts from the instructions in the field and fits them to what the agent does now. You see the changes first.",
+  rewriteGo: "Rewrite",
+  draftTitle: "Its instructions and tools",
+  draftLead:
+    "{god} writes them from the built-in ones, fitted to what you wrote and to its settings, and chooses the tools it needs. Read, change what you like, then create it.",
+  draftNext: "Next: {god} writes its instructions",
+  draftNextHint:
+    "{god} will write its instructions and choose its tools; you see them before it is created.",
+  draftWorking: "{god} is writing its instructions...",
+  draftRegenerate: "Write them again",
+  draftUseDefault: "Use the built-in ones",
+  draftDefaultUsed:
+    "These are the built-in instructions, with what you wrote. Every tool stays as for the other agents.",
+  draftFailed:
+    "{god} could not write them ({why}). Here are the built-in ones, with what you wrote.",
+  draftToolsTitle: "Its tools",
+  draftToolsSaved:
+    "{n} switched off, saving about {tokens} tokens on every message. If it needs one later, it asks you.",
+  draftToolsAllOn: "Every tool on, as for the other agents.",
+  draftToolsLikeOthers: "All as for the other agents",
+  draftToolOnDefault: "useful for its job",
+  draftToolTokens: "{tokens} tokens",
+  tool_request_tool: "Ask for a tool",
+  toolDo_request_tool: "Asks you to switch on a tool that is off for it, saying why.",
+  toolWhy_request_tool: "so an agent can ask for a switched-off tool instead of working around it",
+  toolReqTitle: "{name} asks to switch on «{tool}»",
+  toolReqWhy: "Why: {why}",
+  toolReqSession: "Switch on for this conversation",
+  toolReqAlways: "Always for {name}",
+  toolReqNo: "No",
+  toolReqHint:
+    "Without your yes it stays off. «Always» changes {name}'s tools (you can undo it in the history).",
 } as const;
 
 export type Key = keyof typeof en;
@@ -4918,6 +4998,15 @@ const it: Record<Key, string> = {
   job_step_convert: "Converto",
   job_preview_file: "Preparo le pagine di {name}",
   job_step_model_download: "Il modello",
+  job_download_knowledge_model:
+    "Scarico {model} ({size}) per la conoscenza, per cercare nei tuoi file su questo computer (una volta sola)",
+  job_download_pgvector:
+    "Scarico pgvector, la ricerca per significato nel database di RedGiant (una volta sola)",
+  job_error_checksum: "Il download è arrivato rovinato (l'impronta non coincide): riprova.",
+  job_error_pgvector_unavailable:
+    "pgvector non è ancora pubblicato per questo computer: la conoscenza cerca solo per parole.",
+  job_error_pgvector_checksum: "Il download di pgvector è arrivato rovinato: riprova.",
+  job_error_unsupported_system: "llama.cpp non pubblica una versione per questo computer.",
   viaScript: "da uno script",
   notifyDone: "Un agente ha finito il suo lavoro",
   notifyApproval: "{name} chiede la tua approvazione",
@@ -6507,6 +6596,78 @@ const it: Record<Key, string> = {
   toolDo_platform_undo: "Annulla una modifica alle impostazioni, con il tuo sì.",
   tool_platform_code: "Cambiare il codice di RedGiant",
   toolDo_platform_code: "Cambia RedGiant stesso, provato a parte prima che tu lo accetti.",
+  // g36: refiner delle istruzioni, istruzioni e strumenti di God per gli agenti nuovi, request_tool (G36.13-15)
+  refineOpen: "Migliora le istruzioni",
+  refineLead:
+    "Un modello le rilegge e propone una versione più chiara. Vedi cosa cambia prima di usarla; non si salva niente finché non salvi tu.",
+  refineModel: "Il modello che scrive",
+  refineGodModel: "Il modello di {god}",
+  refineWish: "Cosa vuoi cambiare? (puoi lasciarlo vuoto)",
+  refineWishPlaceholder:
+    "Per esempio: più conciso; rispondi sempre con elenchi; specializzalo in fatture. Vuoto: un miglioramento generale.",
+  refineGo: "Migliora",
+  refineWorking: "Sto riscrivendo le istruzioni...",
+  refineEstimate: "Stima: {what}.",
+  refineNoEstimate: "Nessuna stima: controlla che il modello sia ancora collegato.",
+  refineSpent: "Speso: {what}.",
+  refineCostLine: "circa {tokens} token, {cost}",
+  refineFree: "nessuna spesa in denaro (modello locale o abbonamento)",
+  refineCost: "circa {usd}",
+  refineCostTiny: "meno di un centesimo",
+  refineBefore: "Prima",
+  refineAfter: "Dopo",
+  refineLegendDel: "quello che va via",
+  refineLegendAdd: "quello che arriva",
+  refineCount: "{del} parole tolte, {add} aggiunte",
+  refineSame: "Il modello le ha lasciate com'erano.",
+  refineChanges: "Cosa è cambiato",
+  refineUse: "Usa questa versione",
+  refineRetry: "Riprova",
+  refineUsed: "La nuova versione è nel campo: salva per tenerla.",
+  refineErr_removed_parts:
+    "Il modello ha tolto parti che devono restare (strumenti, nomi). Non è cambiato niente: riprova o scegli un altro modello.",
+  refineErr_budget: "Il budget è finito: alzalo in Impostazioni, Budget.",
+  refineErr_no_model: "Nessun modello collegato: collegane uno in Impostazioni, Modelli.",
+  refineErr_no_answer:
+    "Il modello non ha dato un testo utilizzabile. Riprova o scegli un altro modello.",
+  rewriteOffer:
+    "Hai cambiato cosa fa {name}. Vuoi che {god} riscriva le sue istruzioni per il nuovo compito? Le vedi prima che cambi qualcosa.",
+  rewriteYes: "Sì, falle riscrivere",
+  rewriteNo: "No, tienile",
+  rewriteTitle: "Riscrivi per il nuovo compito",
+  rewriteLead:
+    "{god} parte dalle istruzioni nel campo e le adatta a quello che l'agente fa adesso. Prima vedi le modifiche.",
+  rewriteGo: "Riscrivi",
+  draftTitle: "Le sue istruzioni e i suoi strumenti",
+  draftLead:
+    "{god} le scrive partendo da quelle predefinite, adattate a quello che hai scritto e alle sue impostazioni, e sceglie gli strumenti che gli servono. Leggi, cambia quello che vuoi, poi crealo.",
+  draftNext: "Avanti: {god} scrive le sue istruzioni",
+  draftNextHint:
+    "{god} scriverà le sue istruzioni e sceglierà i suoi strumenti; li vedi prima che venga creato.",
+  draftWorking: "{god} sta scrivendo le sue istruzioni...",
+  draftRegenerate: "Rigenera",
+  draftUseDefault: "Usa le predefinite",
+  draftDefaultUsed:
+    "Queste sono le istruzioni predefinite, con quello che hai scritto. Gli strumenti restano come per gli altri agenti.",
+  draftFailed:
+    "{god} non è riuscito a scriverle ({why}). Ecco quelle predefinite, con quello che hai scritto.",
+  draftToolsTitle: "I suoi strumenti",
+  draftToolsSaved:
+    "{n} spenti: circa {tokens} token risparmiati a ogni messaggio. Se più avanti gliene serve uno, te lo chiede.",
+  draftToolsAllOn: "Tutti gli strumenti accesi, come per gli altri agenti.",
+  draftToolsLikeOthers: "Tutti come per gli altri agenti",
+  draftToolOnDefault: "utile per il suo lavoro",
+  draftToolTokens: "{tokens} token",
+  tool_request_tool: "Chiedere uno strumento",
+  toolDo_request_tool: "Ti chiede di accendere uno strumento spento per lui, spiegando perché.",
+  toolWhy_request_tool: "perché un agente possa chiedere uno strumento spento invece di aggirarlo",
+  toolReqTitle: "{name} chiede di accendere «{tool}»",
+  toolReqWhy: "Perché: {why}",
+  toolReqSession: "Accendi per questa conversazione",
+  toolReqAlways: "Sempre per {name}",
+  toolReqNo: "No",
+  toolReqHint:
+    "Senza il tuo sì resta spento. «Sempre» cambia gli strumenti di {name} (puoi annullarlo nello storico).",
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, it };

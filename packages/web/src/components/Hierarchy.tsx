@@ -10,7 +10,17 @@ import { useState } from "preact/hooks";
 import type { Agent, Budget } from "../api.js";
 import { roleText, t, tOptional } from "../i18n.js";
 import { IconPlus } from "../icons.js";
-import { agents, attempt, budgets, getApi, openAgent, projects, refresh } from "../state.js";
+import {
+  agents,
+  attempt,
+  budgets,
+  getApi,
+  offerPromptRewrite,
+  openAgent,
+  projects,
+  refresh,
+} from "../state.js";
+import { substantialChange } from "../word-diff.js";
 import { AgentMemory } from "./AgentMemory.js";
 import { AgentTools } from "./AgentTools.js";
 import { AgentWizard } from "./AgentWizard.js";
@@ -180,6 +190,9 @@ function GeneralTab({ agent }: { agent: Agent }) {
       }),
     );
     if (ok) {
+      // A new job (G36.14): offer to have God rewrite its instructions.
+      if (role.trim() && substantialChange(shownRole, role.trim()))
+        offerPromptRewrite(agent.id, true);
       await refresh();
       setSaved(true);
     }
@@ -326,6 +339,7 @@ function BehaviourTab({ agent }: { agent: Agent }) {
         key={`${agent.id}-${agent.name}-${agent.role ?? ""}`}
         load={() => getApi().agentPrompt(agent.id)}
         save={(text) => getApi().setAgentPrompt(agent.id, text)}
+        target={{ agentId: agent.id }}
         help={t("agentInstructionsHelp")}
       />
     </div>
