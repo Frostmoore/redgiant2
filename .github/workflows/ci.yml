@@ -220,7 +220,14 @@ jobs:
           if (-not (Wait-Version "0.0.1")) { "the differential update to 0.0.1 did not finish"; exit 1 }
           $served = [long](Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18765/served).Content
           "0.0.1 in place, $served bytes downloaded of a $((Get-Item "$feed\RedGiant-win-x64.zip").Length)-byte zip"
-          if ($served -gt 2MB) { "too much downloaded for two files"; exit 1 }
+          # What it must cost: the gzipped manifest, its signature if any, and the two changed entries
+          # (one range each: they sit far apart in the zip). 64 KB of slack for nothing else.
+          $m = Get-Content "$feed\RedGiant-win-x64.manifest.json" -Raw | ConvertFrom-Json
+          $changed = ($m.files | Where-Object { $_.path -in @("web/index.html", "server/dist/ci-marker.js") } | Measure-Object csize -Sum).Sum
+          $expected = (Get-Item "$feed\RedGiant-win-x64.manifest.json.gz").Length + $changed
+          if (Test-Path "$feed\RedGiant-win-x64.manifest.json.sig") { $expected += (Get-Item "$feed\RedGiant-win-x64.manifest.json.sig").Length }
+          "expected about $expected bytes (manifest.gz + $changed bytes of entries)"
+          if ($served -gt $expected + 64KB) { "too much downloaded for two files"; Get-Content "$app\engine\launcher-*.log" -ErrorAction SilentlyContinue | Select-String "differential" | Select-Object -Last 5; exit 1 }
           & packaging\windows\UpdateTool.exe verify "$feed\RedGiant-win-x64.manifest.json" $app
           if ($LASTEXITCODE -ne 0) { "the folder is not 0.0.1"; exit 1 }
           for ($i = 0; $i -lt 30 -and (Test-Path "$app\update\0.0.1"); $i++) { Start-Sleep 2 }

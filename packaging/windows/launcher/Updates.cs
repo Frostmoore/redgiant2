@@ -19,6 +19,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -46,6 +47,9 @@ static class Updates
         public string ManifestSha256;
         public string SignatureUrl;
         public string ArchiveUrl;
+        /** The same manifest gzipped (2026-11-08): about a quarter of the bytes; preferred. */
+        public string ManifestGzUrl;
+        public string ManifestGzSha256;
     }
 
     /** Set by the launcher: server, Postgres and engine stopped, so their files can be moved. */
@@ -155,6 +159,12 @@ static class Updates
                 r.ManifestUrl = url;
                 string digest = a.ContainsKey("digest") ? a["digest"] as string : null;
                 if (digest != null && digest.StartsWith("sha256:")) r.ManifestSha256 = digest.Substring(7).ToLowerInvariant();
+            }
+            else if (name == ManifestAsset + ".gz")
+            {
+                r.ManifestGzUrl = url;
+                string digest = a.ContainsKey("digest") ? a["digest"] as string : null;
+                if (digest != null && digest.StartsWith("sha256:")) r.ManifestGzSha256 = digest.Substring(7).ToLowerInvariant();
             }
             else if (name == ManifestAsset + ".sig") r.SignatureUrl = url;
             else if (name == ArchiveAsset) r.ArchiveUrl = url;
@@ -305,9 +315,29 @@ static class Updates
     static UpdateManifest Manifest(Release r)
     {
         byte[] bytes;
-        using (var w = Client()) bytes = w.DownloadData(r.ManifestUrl);
-        if (r.ManifestSha256 != null && Delta.Sha256Bytes(bytes) != r.ManifestSha256)
-            throw new UpdateException("the manifest is not the one the release lists");
+        if (r.ManifestGzUrl != null)
+        {
+            // The gzipped copy: its digest is the .gz's; the signature is over the JSON inside.
+            byte[] gz;
+            using (var w = Client()) gz = w.DownloadData(r.ManifestGzUrl);
+            if (r.ManifestGzSha256 != null && Delta.Sha256Bytes(gz) != r.ManifestGzSha256)
+                throw new UpdateException("the manifest is not the one the release lists");
+            using (var input = new GZipStream(new MemoryStream(gz), CompressionMode.Decompress))
+            using (var output = new MemoryStream())
+            {
+                input.CopyTo(output);
+                bytes = output.ToArray();
+            }
+            if (r.ManifestGzSha256 == null && r.ManifestSha256 != null && Delta.Sha256Bytes(bytes) != r.ManifestSha256)
+                throw new UpdateException("the manifest is not the one the release lists");
+            if (r.ManifestGzSha256 != null) r.ManifestSha256 = r.ManifestGzSha256;
+        }
+        else
+        {
+            using (var w = Client()) bytes = w.DownloadData(r.ManifestUrl);
+            if (r.ManifestSha256 != null && Delta.Sha256Bytes(bytes) != r.ManifestSha256)
+                throw new UpdateException("the manifest is not the one the release lists");
+        }
         if (UpdateKey.PublicKeyXml != "")
         {
             if (r.SignatureUrl == null) throw new UpdateException("the manifest is not signed");

@@ -237,6 +237,7 @@ jobs:
             packaging/windows/dist/RedGiant-Setup.exe
             packaging/windows/update/RedGiant-win-x64.zip
             packaging/windows/update/RedGiant-win-x64.manifest.json
+            packaging/windows/update/RedGiant-win-x64.manifest.json.gz
             packaging/windows/update/RedGiant-win-x64.manifest.json.sig
           fail_on_unmatched_files: false
           generate_release_notes: true

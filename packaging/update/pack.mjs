@@ -4,7 +4,7 @@
 // size, its sha256 and where its bytes sit in the zip.
 //
 //   node packaging/update/pack.mjs --tree <app folder> --version 3.4.0 --platform win-x64 --out <dir>
-//     → <out>/RedGiant-<platform>.zip and <out>/RedGiant-<platform>.manifest.json
+//     → <out>/RedGiant-<platform>.zip, <out>/RedGiant-<platform>.manifest.json and its .gz
 //   node packaging/update/pack.mjs --estimate <old manifest> <new manifest>
 //     → what an update from the old files to the new ones downloads (bytes and requests)
 //
@@ -22,7 +22,7 @@ import {
   writeSync,
 } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { crc32, deflateRawSync, inflateRawSync } from "node:zlib";
+import { crc32, deflateRawSync, gzipSync, inflateRawSync } from "node:zlib";
 
 export const MANIFEST_FORMAT = 1;
 /** Two runs of missing entries closer than this are one request (GitHub serves one range each). */
@@ -296,7 +296,11 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
     const zip = join(o.out, archiveName(o.platform));
     const m = packTree(o.tree, zip, { version: o.version, platform: o.platform, installer });
     checkManifest(m);
-    writeFileSync(join(o.out, manifestName(o.platform)), `${JSON.stringify(m, null, 1)}\n`);
+    // Compact, and gzipped beside it: with ~19 000 files the manifest is most of what a small
+    // update downloads (4.6 MB indented, 2026-11-08 CI), so the launcher fetches the .gz.
+    const text = Buffer.from(`${JSON.stringify(m)}\n`);
+    writeFileSync(join(o.out, manifestName(o.platform)), text);
+    writeFileSync(join(o.out, `${manifestName(o.platform)}.gz`), gzipSync(text, { level: 9 }));
     const total = m.files.reduce((n, f) => n + f.size, 0);
     console.log(
       `${m.files.length} files, ${mb(total)} → ${zip} ${mb(m.archive.size)} (sha256 ${m.archive.sha256})`,
