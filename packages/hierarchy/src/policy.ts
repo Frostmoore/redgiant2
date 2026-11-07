@@ -1,4 +1,5 @@
 import type { ToolCallInfo } from "@redgiant/agent";
+import { criticalOf } from "./critical.js";
 import { outsideShows, outsideWrites } from "./guardian.js";
 
 /** The guardian's danger: writing outside the agent's folders (only the human approves it). */
@@ -155,6 +156,11 @@ export interface PolicySettings {
   guardian?: "ask" | "auto";
   roots?: string[];
   home?: string;
+  /**
+   * What the truly dangerous requests need besides the folders (G36.17b): the keychain's values
+   * (read when a call is checked, never stored here) and RedGiant's own files.
+   */
+  critical?: { knownSecrets?: () => readonly string[]; protectedPaths?: readonly string[] };
 }
 
 export const DEFAULT_POLICY: PolicySettings = {
@@ -251,8 +257,13 @@ export function classify(call: ToolCallInfo, rules: DangerRule[]): DangerRule[] 
 export interface Evaluation {
   decision: Decision;
   reasons: string[];
-  /** Ids of the danger rules the call matched. */
+  /** Ids of the danger rules the call matched (and the critical ones, G36.17b). */
   danger: string[];
+  /**
+   * The truly dangerous kinds the call is (G36.17b, `criticalOf`): such a call always asks the
+   * person, whatever the rules and the mode (a deny stays a deny), and only the person decides it.
+   */
+  critical: string[];
 }
 
 /**
@@ -261,6 +272,28 @@ export interface Evaluation {
  * modify, auto asks only for dangerous calls.
  */
 export function evaluate(mode: PermissionMode, call: ToolCallInfo, s: PolicySettings): Evaluation {
+  const e = evaluateRules(mode, call, s);
+  if (e.decision === "deny") return e;
+  const hits = criticalOf(call, {
+    ...(s.roots && { roots: s.roots }),
+    ...(s.home && { home: s.home }),
+    ...(s.critical?.knownSecrets && { knownSecrets: s.critical.knownSecrets() }),
+    ...(s.critical?.protectedPaths && { protectedPaths: s.critical.protectedPaths }),
+  });
+  if (hits.length === 0) return e;
+  const critical = hits.map((h) => h.id);
+  return {
+    decision: "ask",
+    reasons: [
+      ...hits.map((h) => `truly dangerous: ${h.why}`),
+      ...(e.decision === "ask" ? e.reasons : []),
+    ],
+    danger: [...e.danger, ...critical.filter((id) => !e.danger.includes(id))],
+    critical,
+  };
+}
+
+function evaluateRules(mode: PermissionMode, call: ToolCallInfo, s: PolicySettings): Evaluation {
   const matched = classify(call, s.danger);
   const danger = matched.map((r) => r.id);
   const readOnly = READ_ONLY_TOOLS.has(call.name);
@@ -268,6 +301,7 @@ export function evaluate(mode: PermissionMode, call: ToolCallInfo, s: PolicySett
     decision,
     reasons,
     danger,
+    critical: [],
   });
 
   if ((mode === "plan" || mode === "readonly") && !readOnly) {
@@ -292,6 +326,7 @@ export function evaluate(mode: PermissionMode, call: ToolCallInfo, s: PolicySett
         decision: "ask",
         reasons: [`shows a file outside the project: ${shown.slice(0, 3).join(", ")}`],
         danger: [...danger, OUTSIDE_PROJECT],
+        critical: [],
       };
   }
   if (readOnly) return out("allow");
@@ -303,6 +338,7 @@ export function evaluate(mode: PermissionMode, call: ToolCallInfo, s: PolicySett
         decision: "ask",
         reasons: [`writes outside the project: ${outside.slice(0, 3).join(", ")}`],
         danger: [...danger, OUTSIDE_PROJECT],
+        critical: [],
       };
   }
   if (mode === "manual") return out("ask", "manual mode", ...matched.map((r) => r.label));

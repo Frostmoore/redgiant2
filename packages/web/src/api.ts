@@ -1027,7 +1027,8 @@ export class Api {
       settings: import("@redgiant/protocol").RequestSettings;
       defaults: import("@redgiant/protocol").RequestSettings;
       defaultModel: { provider: string; model: string } | null;
-      humanOnly: string[];
+      /** The truly dangerous requests (G36.17b): they always reach the person. */
+      critical: import("@redgiant/protocol").CriticalId[];
     }>("GET", "/api/settings/requests");
   setRequestSettings = (s: import("@redgiant/protocol").RequestSettings) =>
     this.call<PlatformChange>("PUT", "/api/settings/requests", s);

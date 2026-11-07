@@ -13761,3 +13761,50 @@ button.sub-tab {
   font-size: 14px;
   overflow-wrap: anywhere;
 }
+
+/* g36: the truly dangerous requests (G36.17b) */
+.rq-critical {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+.rq-critical li {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  min-width: 0;
+}
+.rq-critical-ic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+}
+.rq-critical-tx {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rq-critical-tx b {
+  display: block;
+  font-size: 14.5px;
+}
+.rq-critical-tx p {
+  margin: 3px 0 0;
+  font-size: 13.5px;
+  color: var(--dim);
+}
+.rq-critical-tx .rq-critical-eg {
+  font-size: 13px;
+}
+.rq-critical-not {
+  margin-top: 12px;
+}

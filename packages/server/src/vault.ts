@@ -456,6 +456,15 @@ export class Vault {
       .map((e) => ({ name: e.name, service: e.service, hosts: e.hosts }));
   }
 
+  /**
+   * The values of an owner's credentials, only to recognise them leaving (G36.17b: a truly
+   * dangerous request). Never shown to an agent or stored elsewhere.
+   */
+  values(ownerId: string): string[] {
+    if (!this.ready) return [];
+    return this.data.entries.filter((e) => e.ownerId === ownerId).map((e) => e.value);
+  }
+
   has(ownerId: string, name: string): boolean {
     return this.ready && this.data.entries.some((e) => e.ownerId === ownerId && e.name === name);
   }

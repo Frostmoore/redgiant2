@@ -159,7 +159,8 @@ describe("the agents' browser (G24.14b)", () => {
       ).body.sessionId;
       await (await s.core.send("me", sid, "buy it")).done;
       expect(calls[0]).toContain("browser_click");
-      expect(asked).toEqual([["outgoing-browser"]]);
+      // A click that pays is also truly dangerous (G36.17b): only the person decides it.
+      expect(asked).toEqual([["outgoing-browser", "critical-payment"]]);
       expect(page.clicked).toEqual([]);
       const gsid = (
         await s.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: god.body.id })

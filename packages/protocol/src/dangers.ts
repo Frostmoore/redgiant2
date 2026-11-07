@@ -1,3 +1,5 @@
+import { criticalWords, isCriticalId } from "./critical.js";
+
 /**
  * The dangers of the permission policy (`DEFAULT_DANGER_RULES` in @redgiant/hierarchy), in
  * plain words for people: a name, and a line that says what it is with an example. Shared by
@@ -134,5 +136,10 @@ const it: Record<string, Words> = {
 export const DANGER_IDS = Object.keys(en);
 
 export function dangerWords(lang: "it" | "en", id: string): Words {
+  // The truly dangerous requests (G36.17b) travel with the dangers of a request too.
+  if (isCriticalId(id)) {
+    const w = criticalWords(lang, id);
+    return { name: w.name, hint: w.hint };
+  }
   return (lang === "it" ? it : en)[id] ?? { name: id, hint: "" };
 }

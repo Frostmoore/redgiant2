@@ -108,6 +108,36 @@ export function findSecrets(text: string): SecretSpan[] {
   return merged.map((s) => ({ ...s, value: text.slice(s.start, s.end) }));
 }
 
+/** One secret that matters when something leaves the computer (G36.17b). */
+export interface LeakableSecret {
+  /** A well-known key's format (`SECRET_PATTERNS`), or "password", or "token". */
+  name: string;
+  value: string;
+}
+
+/**
+ * The secrets that matter when something leaves (G36.17b, the truly dangerous requests): keys in a
+ * well-known format, and passwords or tokens written with their value. Long random strings, PINs,
+ * card numbers and IBANs are left out: in commands and files they are mostly ids, hashes and
+ * timestamps, and an IBAN is meant to be shared.
+ */
+export function leakableSecrets(text: string): LeakableSecret[] {
+  const out: (LeakableSecret & { at: number })[] = [];
+  // One name per place: "sk-ant-…" is Anthropic's, not also OpenAI's "sk-…".
+  const add = (name: string, value: string, at: number) => {
+    if (!out.some((o) => at < o.at + o.value.length && o.at < at + value.length))
+      out.push({ name, value, at });
+  };
+  for (const { name, re } of SECRET_PATTERNS)
+    for (const m of text.matchAll(re)) add(name, m[0], m.index ?? 0);
+  const valueAt = (m: RegExpMatchArray, v: string) => (m.index ?? 0) + m[0].lastIndexOf(v);
+  for (const m of text.matchAll(PASSWORD))
+    if (m[1] && !NOT_A_VALUE.has(m[1].toLowerCase())) add("password", m[1], valueAt(m, m[1]));
+  for (const m of text.matchAll(KEY))
+    if (m[1] && /\d/.test(m[1])) add("token", m[1], valueAt(m, m[1]));
+  return out.map(({ name, value }) => ({ name, value }));
+}
+
 /** True when the text holds a secret. */
 export const hasSecret = (text: string): boolean => findSecrets(text).length > 0;
 

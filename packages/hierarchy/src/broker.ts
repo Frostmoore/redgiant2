@@ -70,11 +70,13 @@ export class PermissionBroker {
     const settings = this.o.settingsFor(agent);
     const ev = evaluate(this.o.modeFor(agent), call, settings);
     if (ev.decision === "allow") return { allow: true };
-    // Allowed for this conversation by the person, unless it is a danger only they approve.
+    // Allowed for this conversation by the person, unless it is a danger only they approve or a
+    // truly dangerous one (G36.17b: asked every time).
     if (
       ev.decision === "ask" &&
       sessionId &&
       this.sessionAllows.get(sessionId)?.has(call.name) &&
+      ev.critical.length === 0 &&
       !ev.danger.some((d) => settings.humanOnly.includes(d))
     )
       return { allow: true };
@@ -88,7 +90,9 @@ export class PermissionBroker {
       danger: ev.danger,
       ...(sessionId && { sessionId }),
     };
-    const humanOnly = ev.danger.some((d) => settings.humanOnly.includes(d));
+    // Parent agents never decide a danger the person kept for themself, nor a truly dangerous one.
+    const humanOnly =
+      ev.critical.length > 0 || ev.danger.some((d) => settings.humanOnly.includes(d));
     for (const approver of approvalChain(agent, this.o.resolve)) {
       if (approver && (humanOnly || !settings.approverKinds.includes(approver.kind))) continue;
       await this.log(agent, sessionId, {

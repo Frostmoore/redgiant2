@@ -8,9 +8,12 @@
 // time; then an approval is a no (CLAUDE.md: never "allow" on a failure or a timeout) unless they
 // chose the classifier for that case, and a question lets the agent go on with its best guess.
 // "classifier": nothing reaches the person; a model they chose decides with the context, and its
-// reason is recorded. Special requests (dangers only the person approves, keychain keys) reach
-// the person everywhere in both modes and are never the classifier's: their time running out is
-// a no. A classifier that fails is a no.
+// reason is recorded. The truly dangerous requests (G36.17b, `criticalOf` in @redgiant/hierarchy:
+// system files, deletions for good, secrets leaving, payments, RedGiant's protections) reach the
+// person everywhere in both modes and are never the classifier's: their time running out is a no.
+// The policy's `humanOnly` dangers (a push, a deploy, writing outside the project) are ordinary
+// requests here: they skip the parent agents, then follow the person's choice like the others.
+// A classifier that fails is a no.
 import { randomUUID } from "node:crypto";
 import type { EventStore, SqlClient } from "@redgiant/events";
 import {
@@ -159,10 +162,10 @@ const realTimer = (fn: () => void, ms: number) => {
 export interface ApproveOptions {
   kind: RequestKind;
   /**
-   * A special request (a danger only the person approves, a keychain key): it reaches the person
-   * in both modes and is never the classifier's.
+   * A truly dangerous request (G36.17b): it reaches the person in both modes and is never the
+   * classifier's, not even after the time runs out.
    */
-  humanOnly: boolean;
+  critical: boolean;
   /** What is asked, in a line (the list of decisions taken without the person). */
   what: string;
   /** The wait when the person chose no limit (request_tool, credentials have their own). */
@@ -179,7 +182,7 @@ const SAY = {
     no: "It is a no.",
     planNo: "The plan is not approved.",
     guessed: "The agent went on with its best guess.",
-    onlyYou: "Only you approve this: it is a no.",
+    onlyYou: "Only you decide something this dangerous: it is a no.",
     failed: "The classifier could not decide ({error}): it is a no.",
     failedQ: "The classifier could not answer ({error}).",
     day: "1 day",
@@ -193,7 +196,7 @@ const SAY = {
     no: "È un no.",
     planNo: "Il piano non è approvato.",
     guessed: "L'agente è andato avanti con la sua ipotesi migliore.",
-    onlyYou: "Questo lo approvi solo tu: è un no.",
+    onlyYou: "Una cosa così pericolosa la decidi solo tu: è un no.",
     failed: "Il classificatore non è riuscito a decidere ({error}): è un no.",
     failedQ: "Il classificatore non è riuscito a rispondere ({error}).",
     day: "1 giorno",
@@ -272,15 +275,15 @@ export class PersonRequests {
   ): Promise<HumanAnswer> {
     const owner = req.requester.ownerId;
     const s = this.o.settings.get(owner);
-    // Off: nothing reaches the person, except the special requests (they reach them everywhere).
-    if (s.mode === "classifier" && !o.humanOnly) return this.decide(req, o, s, undefined);
+    // Off: nothing reaches the person, except the truly dangerous requests (everywhere).
+    if (s.mode === "classifier" && !o.critical) return this.decide(req, o, s, undefined);
     const wait = s.timeoutMs ?? o.defaultTimeoutMs;
     const { signal: asked, timedOut, done } = this.timed(signal, wait);
     const answer = await this.o.approvals.ask(req, asked).catch(() => "deny" as const);
     done();
     if (!timedOut() || wait === undefined) return answer;
-    // A special request is never the classifier's: its time running out is a no.
-    if (s.mode === "ask" && s.afterTimeout === "classifier" && !o.humanOnly)
+    // A truly dangerous request is never the classifier's: its time running out is a no.
+    if (s.mode === "ask" && s.afterTimeout === "classifier" && !o.critical)
       return this.decide(req, o, s, wait);
     const lang = this.lang(owner);
     const reason = `${say(lang, "late", { time: span(lang, wait) })} ${say(lang, "no")}`;
@@ -377,7 +380,7 @@ export class PersonRequests {
     };
   }
 
-  /** The classifier's yes or no; never on a special request (a guard: callers never send one). */
+  /** The classifier's yes or no; never on a truly dangerous request (a guard: callers never send one). */
   private async decide(
     req: ApprovalRequest,
     o: ApproveOptions,
@@ -386,7 +389,7 @@ export class PersonRequests {
   ): Promise<UnattendedAnswer> {
     const lang = this.lang(req.requester.ownerId);
     const late = after === undefined ? "" : `${say(lang, "late", { time: span(lang, after) })} `;
-    if (o.humanOnly) {
+    if (o.critical) {
       const reason = `${late}${say(lang, "onlyYou")}`;
       await this.record(req, o, { decision: "deny", by: "classifier", reason, model: null });
       return { decision: "deny", by: "classifier", reason };

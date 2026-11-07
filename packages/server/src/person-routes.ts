@@ -1,12 +1,15 @@
 // The person's settings for commands (G36.16) and requests (G36.17), for the web page:
 //   GET  /api/settings/commands        → { settings, defaults }
 //   PUT  /api/settings/commands        → PlatformChange (history, undoable; 400 on a bad value)
-//   GET  /api/settings/requests        → { settings, defaults, defaultModel, humanOnly }
+//   GET  /api/settings/requests        → { settings, defaults, defaultModel, critical }
 //   PUT  /api/settings/requests        → PlatformChange
 //   GET  /api/unattended               → UnattendedDecision[] (decided without the person)
 
-import { DEFAULT_POLICY, OUTSIDE_PROJECT } from "@redgiant/hierarchy";
-import { DEFAULT_COMMAND_SETTINGS, DEFAULT_REQUEST_SETTINGS } from "@redgiant/protocol";
+import {
+  CRITICAL_IDS,
+  DEFAULT_COMMAND_SETTINGS,
+  DEFAULT_REQUEST_SETTINGS,
+} from "@redgiant/protocol";
 import type { Context, Hono } from "hono";
 import type { RedGiantCore } from "./core.js";
 import { ConfigError, type PersonSettingsKey } from "./platform.js";
@@ -36,17 +39,14 @@ export function personRoutes<E extends { Variables: any }>(
   app.put("/api/settings/commands", put("commands"));
   app.get("/api/settings/requests", (c) => {
     const ownerId = owner(c);
-    const policy = core.policies.get(ownerId);
     return c.json(
       {
         settings: core.requestSettings.get(ownerId),
         defaults: DEFAULT_REQUEST_SETTINGS,
         defaultModel: core.memoryModel ?? null,
-        // The special requests: they reach the person everywhere, in both modes, and the
-        // classifier never decides them (the dangers only the person approves, and the keychain).
-        humanOnly: [
-          ...new Set([OUTSIDE_PROJECT, ...(policy.humanOnly ?? DEFAULT_POLICY.humanOnly)]),
-        ],
+        // The truly dangerous requests (G36.17b): they reach the person everywhere, in both
+        // modes, and the classifier never decides them. The page shows them in plain words.
+        critical: [...CRITICAL_IDS],
       },
       200,
     );

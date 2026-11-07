@@ -914,7 +914,7 @@ if (process.env.DEMO_REQUESTS) {
     body: { type: "message.user", payload: { text: "Aggiorna i test del modulo di login." } },
   });
   let n = 0;
-  const ask = (command, danger, humanOnly) =>
+  const ask = (command, danger, critical) =>
     core.person.approve(
       {
         requestId: `demo_${++n}`,
@@ -925,7 +925,7 @@ if (process.env.DEMO_REQUESTS) {
         sessionId: sid,
       },
       new AbortController().signal,
-      { kind: "approval", humanOnly, what: `bash: ${command}` },
+      { kind: "approval", critical, what: `bash: ${command}` },
     );
   await ask("npm install", [], false);
   await core.person.ask(
@@ -948,9 +948,11 @@ if (process.env.DEMO_REQUESTS) {
     undefined,
     "question",
   );
-  await ask("rm -rf build/ dist/ node_modules/", [], false);
-  // A special request: asked of the person even with «Non chiedermi niente» (not awaited).
-  void ask("git push --force origin main", ["git-push", "git-history"], true);
+  await ask("rm -rf build/ dist/ node_modules/", ["rm-recursive"], false);
+  // An ordinary push: the classifier decides it like the rest (G36.17b).
+  await ask("git push origin feature/login", ["git-push"], false);
+  // A truly dangerous request: asked of the person even with «Non chiedermi niente» (not awaited).
+  void ask("git push --force origin main", ["git-push", "git-history", "critical-delete"], true);
 }
 let viewerSession;
 if (process.env.DEMO_SAMPLES) {

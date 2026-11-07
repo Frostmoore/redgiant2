@@ -3415,19 +3415,21 @@ const en = {
   rqModeAskText:
     "Requests reach you everywhere: here and on the chats you connected. Answer where it suits you: the first answer counts, and the other copies close by themselves.",
   rqModeClassifierText:
-    "Nothing reaches you: the classifier decides, a model you choose. It reads each request with the conversation and writes why it decided so. The important requests (listed below) still reach you, everywhere.",
+    "Nothing reaches you: the classifier decides, a model you choose. It reads each request with the conversation and writes why it decided so. Only the truly dangerous things (listed below) still reach you, everywhere.",
   rqModeClassifierWarn:
     "The classifier can be wrong, and each decision costs a small request to its model.",
   rqTimeTitle: "Time to answer",
   rqTimeQ: "How long should an agent wait for your answer?",
-  rqTimeQSpecial: "How long do the important requests wait for your answer?",
+  rqTimeQSpecial: "How long do the truly dangerous things wait for your answer?",
   rqAfterSpecialText: "If you do not answer within {time}, it is a no.",
-  rqTimeNoneSpecial:
-    "They wait as long as it takes. A request to use a key still ends after 10 minutes.",
-  rqSpecialTitle: "The important requests",
-  rqSpecialQ: "What always reaches you?",
+  rqTimeNoneSpecial: "They wait as long as it takes: the agent stays still until you answer.",
+  rqSpecialTitle: "The truly dangerous things",
+  rqSpecialQ: "What always reaches you, wherever you are?",
   rqSpecialText:
-    "Only you decide these: they always reach you, here and on the chats you connected, also with «Don't ask me anything». The classifier never decides them.",
+    "Only these. When an agent is about to do one of them it stops and waits for you: the request reaches you here and on the chats you connected, also with «Don't ask me anything», and the classifier never decides it.",
+  rqSpecialNot:
+    "Everyday work is not on this list: sending code with git push, an ordinary message or email, putting a site online, changing the project's files, using a key from the keychain for its own site. Those follow your choice above.",
+  rqCriticalExamples: "For example:",
   rqTimeNone:
     "The agent waits as long as it takes. Requests to switch on a tool or use a key still end after 15 and 10 minutes.",
   rqAfterQ: "If you do not answer within {time}:",
@@ -3436,14 +3438,13 @@ const en = {
   rqAfterNoText:
     "An approval nobody gives is always a no. To a question the agent goes on with its best guess and tells you which.",
   rqAfterClassifierText:
-    "When the time runs out the classifier decides in your place, as with «Don't ask me anything». The important requests are a no instead.",
+    "When the time runs out the classifier decides in your place, as with «Don't ask me anything». The truly dangerous things are a no instead.",
   rqClassifierTitle: "The classifier",
   rqClassifierQ: "Which model decides for you?",
   rqClassifierModel: "Model",
   rqClassifierDefault: "The light model ({model})",
   rqClassifierHow:
     "It reads what the agent asks, its job and the last messages of the conversation; it answers yes or no with a reason, or picks an answer to a question. When in doubt it says no; if it fails, it is a no.",
-  rqNeverKeychain: "Using a key from the keychain",
   rqNoModel: "none connected",
   rqSaved: "Saved: it counts from the next request.",
   rqDoneTitle: "Decided without you",
@@ -6930,19 +6931,21 @@ const it: Record<Key, string> = {
   rqModeAskText:
     "Le richieste ti arrivano ovunque: qui e sulle chat collegate. Rispondi dove ti è comodo: vale la prima risposta, e le altre copie si chiudono da sole.",
   rqModeClassifierText:
-    "Non ti arriva niente: decide il classificatore, un modello che scegli tu. Legge ogni richiesta con la conversazione e scrive perché ha deciso così. Le richieste importanti (quelle qui sotto) ti arrivano comunque, ovunque.",
+    "Non ti arriva niente: decide il classificatore, un modello che scegli tu. Legge ogni richiesta con la conversazione e scrive perché ha deciso così. Solo le cose davvero pericolose (quelle qui sotto) ti arrivano comunque, ovunque.",
   rqModeClassifierWarn:
     "Il classificatore può sbagliare, e ogni decisione costa una piccola richiesta al suo modello.",
   rqTimeTitle: "Tempo per rispondere",
   rqTimeQ: "Quanto deve aspettare un agente la tua risposta?",
-  rqTimeQSpecial: "Quanto aspettano la tua risposta le richieste importanti?",
+  rqTimeQSpecial: "Quanto aspettano la tua risposta le cose davvero pericolose?",
   rqAfterSpecialText: "Se non rispondi entro {time}, è un no.",
-  rqTimeNoneSpecial:
-    "Aspettano quanto serve. Una richiesta di usare una chiave finisce comunque dopo 10 minuti.",
-  rqSpecialTitle: "Le richieste importanti",
-  rqSpecialQ: "Cosa ti arriva sempre?",
+  rqTimeNoneSpecial: "Aspettano quanto serve: l'agente resta fermo finché non rispondi.",
+  rqSpecialTitle: "Le cose davvero pericolose",
+  rqSpecialQ: "Cosa ti arriva sempre, ovunque tu sia?",
   rqSpecialText:
-    "Queste le decidi solo tu: ti arrivano sempre, qui e sulle chat collegate, anche con «Non chiedermi niente». Il classificatore non le decide mai.",
+    "Solo queste. Quando un agente sta per farne una si ferma e aspetta te: la richiesta ti arriva qui e sulle chat collegate, anche con «Non chiedermi niente», e il classificatore non la decide mai.",
+  rqSpecialNot:
+    "Il lavoro di tutti i giorni non è in questo elenco: mandare il codice con git push, un messaggio o una email normale, mettere online un sito, cambiare i file del progetto, usare una chiave del portachiavi per il suo sito. Questi seguono la tua scelta qui sopra.",
+  rqCriticalExamples: "Per esempio:",
   rqTimeNone:
     "L'agente aspetta quanto serve. Le richieste di accendere uno strumento o di usare una chiave finiscono comunque dopo 15 e 10 minuti.",
   rqAfterQ: "Se non rispondi entro {time}:",
@@ -6951,14 +6954,13 @@ const it: Record<Key, string> = {
   rqAfterNoText:
     "Un'approvazione che nessuno dà è sempre un no. A una domanda l'agente va avanti con la sua ipotesi migliore e ti dice quale.",
   rqAfterClassifierText:
-    "Allo scadere decide il classificatore al posto tuo, come con «Non chiedermi niente». Le richieste importanti invece diventano un no.",
+    "Allo scadere decide il classificatore al posto tuo, come con «Non chiedermi niente». Le cose davvero pericolose invece diventano un no.",
   rqClassifierTitle: "Il classificatore",
   rqClassifierQ: "Quale modello decide per te?",
   rqClassifierModel: "Modello",
   rqClassifierDefault: "Il modello leggero ({model})",
   rqClassifierHow:
     "Legge cosa chiede l'agente, il suo compito e gli ultimi messaggi della conversazione; risponde sì o no con un motivo, o sceglie una risposta a una domanda. Nel dubbio dice no; se non riesce, è un no.",
-  rqNeverKeychain: "Usare una chiave del portachiavi",
   rqNoModel: "nessuno collegato",
   rqSaved: "Salvato: vale dalla prossima richiesta.",
   rqDoneTitle: "Decise senza di te",

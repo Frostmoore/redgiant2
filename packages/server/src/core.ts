@@ -61,6 +61,7 @@ import {
   DEFAULT_REQUEST_SETTINGS,
   type Event,
   type ImagePart,
+  isCriticalId,
   MCP_CATALOG,
   type MediaChoice,
   type MediaKind,
@@ -463,6 +464,11 @@ export class RedGiantCore implements OrchestrationHost {
   readonly magic: MagicAutomations;
   /** The keychain (G33.4): credentials agents use by name, never seeing them. */
   readonly vault: Vault;
+  /**
+   * RedGiant's own files (G36.17b): its settings, its keychain, its database and its releases.
+   * An agent touching them is a truly dangerous request.
+   */
+  private readonly protectedPaths: string[];
   /** Skills that come by themselves (G36.8): one quiet nudge after a problem solved. */
   readonly skillNudge = new SkillNudge();
   /** The keys kept by the setup (providers, chats, git…), listed in the keychain (set by main). */
@@ -552,6 +558,13 @@ export class RedGiantCore implements OrchestrationHost {
       },
     });
     this.notes = new Notes((ownerId) => this.notesPath(ownerId), this.sharedMemory);
+    const dataDir = dirname(o.workspacesDir);
+    this.protectedPaths = [
+      ...["redgiant.yaml", "secrets.json", "keychain", "postgres", "release"].map((f) =>
+        join(dataDir, f),
+      ),
+      ...(o.vault?.dir ? [o.vault.dir] : []),
+    ];
     this.vault = new Vault({
       dir: o.vault?.dir ?? join(dirname(o.workspacesDir), "keychain"),
       redactor: o.redactor,
@@ -789,8 +802,19 @@ export class RedGiantCore implements OrchestrationHost {
         const base = o.policyFor?.(agent) ?? this.policies.settingsFor(agent, o.metal === true);
         // The guardian's folders: where this agent works (2026-11-04).
         const roots = this.agentRoots.get(a.id);
+        // The truly dangerous requests (G36.17b) also look for the keychain's values leaving
+        // and for RedGiant's own files being touched.
+        const withCritical = {
+          ...base,
+          critical: {
+            knownSecrets: () => this.vault.values(agent.ownerId),
+            protectedPaths: this.protectedPaths,
+          },
+        };
         // The system's scratch folder is free too (on Windows it is not /tmp).
-        return roots ? { ...base, roots: [...roots, tmpdir()], home: homedir() } : base;
+        return roots
+          ? { ...withCritical, roots: [...roots, tmpdir()], home: homedir() }
+          : withCritical;
       },
       // An inspector only reads, whatever its settings and its sandbox (RD30).
       modeFor: (a) =>
@@ -807,12 +831,12 @@ export class RedGiantCore implements OrchestrationHost {
               systemFor: (x) => this.systemFor(x),
             })(a, req);
       },
-      // The person's choices (G36.17): their time, or their classifier; a danger only they
-      // approve reaches them everywhere, in both modes.
+      // The person's choices (G36.17): their time, or their classifier; a truly dangerous
+      // request (G36.17b) reaches them everywhere, in both modes, and only they decide it.
       askHuman: (req, signal) =>
         this.person.approve(req, signal, {
           kind: "approval",
-          humanOnly: this.humanOnly(req),
+          critical: req.danger.some(isCriticalId),
           what: `${req.call.name}: ${req.reasons.join("; ") || "needs a yes"}`,
         }),
     });
@@ -1515,14 +1539,6 @@ export class RedGiantCore implements OrchestrationHost {
     return out;
   }
 
-  /** Whether a request carries a danger only the person approves (never the classifier's). */
-  private humanOnly(req: ApprovalRequest): boolean {
-    const agent = this.registry.get(req.requester.id);
-    if (!agent) return true;
-    const s = this.o.policyFor?.(agent) ?? this.policies.settingsFor(agent, this.o.metal === true);
-    return req.danger.some((d) => s.humanOnly.includes(d));
-  }
-
   /** The person's settings kept as configuration (G36.16, G36.17), for the history and undo. */
   ownerSettings(key: "commands" | "requests") {
     return key === "commands" ? this.commandSettings : this.requestSettings;
@@ -1562,7 +1578,7 @@ export class RedGiantCore implements OrchestrationHost {
             ctx.signal ?? new AbortController().signal,
             {
               kind: "tool",
-              humanOnly: false,
+              critical: false,
               what: `Switch on ${input.entry}: ${input.why}`,
               defaultTimeoutMs: this.requestToolTimeoutMs,
             },
@@ -4549,11 +4565,12 @@ export class RedGiantCore implements OrchestrationHost {
         ...(caller.sessionId && { sessionId: caller.sessionId }),
       },
       new AbortController().signal,
-      // A secret is the person's alone: it reaches them everywhere, also with "don't ask me
-      // anything", and the classifier never says yes to it (G36.17).
+      // Using a key for its own hosts is ordinary work (G36.17b, the person): asked like any other
+      // request, decided by the classifier with "don't ask me anything". Only a key's value
+      // leaving is truly dangerous, and agents never get the value.
       {
         kind: "credential",
-        humanOnly: true,
+        critical: false,
         what: `Use "${entry.service}" from the keychain on ${host}`,
         defaultTimeoutMs: 10 * 60_000,
       },
@@ -4681,7 +4698,7 @@ export class RedGiantCore implements OrchestrationHost {
       signal,
       {
         kind: "automation",
-        humanOnly: false,
+        critical: false,
         what: `Run the automation "${recipe.description || recipe.name}" (${ask.about})`,
       },
     );

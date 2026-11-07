@@ -1,8 +1,10 @@
 // Requests to the person (G36.17) and the commands' limits as configuration (G36.16). The person's
 // time runs on a fake clock; the classifier is scripted (or a FakeProvider behind the real one).
-// An approval nobody answers is a no; only the classifier's explicit yes allows, never on a special
-// request (a danger only the person approves, a key): those reach the person everywhere in both
-// modes. A request asked of the person reaches every channel; the first answer closes the copies.
+// An approval nobody answers is a no; only the classifier's explicit yes allows, never on a truly
+// dangerous request (G36.17b: system files, deletions for good, secrets, payments, protections):
+// those reach the person everywhere in both modes. A plain push is ordinary: with "don't ask me
+// anything" the classifier decides it. A request asked of the person reaches every channel; the
+// first answer closes the copies.
 import { EventStore, migrate } from "@redgiant/events";
 import { type Button, ChatBridge, type Incoming, type Transport } from "@redgiant/gateway";
 import {
@@ -141,10 +143,10 @@ async function rig(settings: Partial<RequestSettings>, classify?: Classifier) {
   return { db, store, approvals, questions, person, clock, asked, shown };
 }
 
-const approve = (r: Awaited<ReturnType<typeof rig>>, req: ApprovalRequest, humanOnly = false) =>
+const approve = (r: Awaited<ReturnType<typeof rig>>, req: ApprovalRequest, critical = false) =>
   r.person.approve(req, new AbortController().signal, {
     kind: "approval",
-    humanOnly,
+    critical,
     what: "bash: npm install",
   });
 
@@ -260,13 +262,13 @@ describe("requests to the person (G36.17)", () => {
     expect((await r.person.list("me")).map((d) => d.decision)).toEqual(["deny", "allow"]);
   });
 
-  it("'don't ask me anything': a special request still reaches the person, the classifier never asked", async () => {
+  it("'don't ask me anything': a truly dangerous request still reaches the person, the classifier never asked", async () => {
     const r = await rig({ mode: "classifier" }, async () => ({
       decision: "allow",
       reason: "would say yes",
       model: "fake/light",
     }));
-    const req = request(["git-push"]);
+    const req = request(["git-history", "critical-delete"]);
     const answer = approve(r, req, true);
     await flush();
     expect(r.shown).toEqual([req.requestId]);
@@ -278,7 +280,19 @@ describe("requests to the person (G36.17)", () => {
     expect(await r.person.list("me")).toEqual([]);
   });
 
-  it("a special request whose time runs out is a no, never the classifier's, in both modes", async () => {
+  it("'don't ask me anything': a push (a danger the policy keeps for the person) is the classifier's", async () => {
+    const r = await rig({ mode: "classifier" }, async () => ({
+      decision: "allow",
+      reason: "Un push normale.",
+      model: "fake/light",
+    }));
+    const answer = await approve(r, request(["git-push"]));
+    expect(answer).toEqual({ decision: "allow", by: "classifier", reason: "Un push normale." });
+    expect(r.shown).toEqual([]);
+    expect(r.asked).toHaveLength(1);
+  });
+
+  it("a truly dangerous request whose time runs out is a no, never the classifier's, in both modes", async () => {
     for (const mode of ["ask", "classifier"] as const) {
       const r = await rig(
         { mode, timeoutMs: 5 * 60_000, afterTimeout: "classifier" },
@@ -286,7 +300,7 @@ describe("requests to the person (G36.17)", () => {
       );
       const closed: (string | undefined)[] = [];
       r.approvals.on("closed", (_o, _id, _d, via) => closed.push(via));
-      const req = request(["git-push"]);
+      const req = request(["critical-delete"]);
       const answer = approve(r, req, true);
       await flush();
       expect(r.shown).toEqual([req.requestId]);
@@ -297,7 +311,7 @@ describe("requests to the person (G36.17)", () => {
       // The copies on the page and the chats are told the time ran out.
       expect(closed).toEqual(["timeout"]);
       const [d] = await r.person.list("me");
-      expect(d).toMatchObject({ decision: "deny", by: "timeout", danger: ["git-push"] });
+      expect(d).toMatchObject({ decision: "deny", by: "timeout", danger: ["critical-delete"] });
       expect(d?.reason).toBe("Nessuna risposta entro 5 minuti. È un no.");
     }
   });
@@ -499,7 +513,7 @@ describe("settings as configuration (G36.16, G36.17)", () => {
     expect(s.core.commands.limitsFor("me").maxPerSession).toBe(4);
   });
 
-  it("God cannot change them; the requests' settings come with the default model and the person's dangers", async () => {
+  it("God cannot change them; the requests' settings come with the default model and the truly dangerous kinds", async () => {
     s = await startServer([{ text: "ok" }]);
     await expect(
       s.core.config.setPersonSettings("me", "god", "requests", { mode: "classifier" }),
@@ -511,14 +525,20 @@ describe("settings as configuration (G36.16, G36.17)", () => {
     const got = await s.api<{
       settings: RequestSettings;
       defaultModel: unknown;
-      humanOnly: string[];
+      critical: string[];
     }>("GET", "/api/settings/requests");
     expect(got.body.settings.mode).toBe("classifier");
     expect(got.body.defaultModel).toEqual({ provider: "fake", model: "m" });
-    expect(got.body.humanOnly).toEqual(expect.arrayContaining(["outside-project", "platform"]));
+    expect(got.body.critical).toEqual([
+      "critical-system",
+      "critical-delete",
+      "critical-secret",
+      "critical-payment",
+      "critical-protections",
+    ]);
   });
 
-  it("through the broker: the classifier allows a command, a push still reaches the person", async () => {
+  it("through the broker: the classifier allows a command and a push, a forced push over main reaches the person", async () => {
     const decided: string[] = [];
     s = await startServer(
       (req) => {
@@ -529,7 +549,13 @@ describe("settings as configuration (G36.16, G36.17)", () => {
           toolCalls: [
             {
               name: "bash",
-              input: { command: said?.includes("push") ? "git push --force" : "echo hi" },
+              input: {
+                command: said?.includes("force")
+                  ? "git push --force origin main"
+                  : said?.includes("push")
+                    ? "git push origin main"
+                    : "echo hi",
+              },
             },
           ],
         };
@@ -562,16 +588,21 @@ describe("settings as configuration (G36.16, G36.17)", () => {
     });
     await (await s.core.send("me", sid, "say hi")).done;
     await (await s.core.send("me", sid, "now push")).done;
-    expect(shown).toEqual(["git push --force"]);
-    expect(decided).toHaveLength(1);
+    await (await s.core.send("me", sid, "now force it")).done;
+    expect(shown).toEqual(["git push --force origin main"]);
+    expect(decided).toHaveLength(2);
     const events = (await s.api<Event[]>("GET", `/api/sessions/${sid}/events`)).body;
     const resolved = events.flatMap((e) =>
       e.type === "permission.resolved" ? [e.payload.decision] : [],
     );
-    expect(resolved).toEqual(["allow", "deny"]);
-    // Only the command was decided without the person.
+    expect(resolved).toEqual(["allow", "allow", "deny"]);
+    // The command and the push were decided without the person; the forced push was theirs.
     const all = await s.api<UnattendedDecision[]>("GET", "/api/unattended");
-    expect(all.body.map((d) => d.decision)).toEqual(["allow"]);
+    expect(all.body.map((d) => d.decision)).toEqual(["allow", "allow"]);
+    const forced = events.find(
+      (e) => e.type === "permission.requested" && /truly dangerous/.test(e.payload.reason),
+    );
+    expect(forced).toBeDefined();
   });
 
   it("ask_user in 'don't ask me anything': the classifier answers and the agent is told", async () => {

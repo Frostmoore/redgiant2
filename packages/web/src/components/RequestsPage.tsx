@@ -3,15 +3,32 @@
 // sono attive devono arrivare ovunque, se non sono attive non devono arrivare da nessuna parte.
 // Quelle speciali devono arrivare dovunque»). How agents' requests reach the person (approvals,
 // questions, plans, tools, keys): everywhere (this page and every linked chat) with a time limit,
-// or nowhere ("don't ask me anything") and the classifier decides. The special requests (what only
-// the person approves, the keychain) are listed: they reach the person everywhere in both modes.
-// Every decision taken without the person is listed after, with its reason. Saved as
-// configuration: in the history, undoable.
-import type { RequestSettings, UnattendedDecision } from "@redgiant/protocol";
+// or nowhere ("don't ask me anything") and the classifier decides. The truly dangerous requests
+// (G36.17b, the person: «Solo le richieste VERAMENTE pericolose devono arrivare a me sempre e
+// ovunque… Git push è attività ordinaria») are listed in plain words with examples: they reach
+// the person everywhere in both modes; everyday work (a push, a message, a deploy, a key used for
+// its site) is not on the list. Every decision taken without the person is listed after, with its
+// reason. Saved as configuration: in the history, undoable.
+import {
+  type CriticalId,
+  criticalWords,
+  type RequestSettings,
+  type UnattendedDecision,
+} from "@redgiant/protocol";
+import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { PlatformChange } from "../api.js";
 import { danger, lang, t } from "../i18n.js";
-import { IconBell, IconClock, IconKey, IconShield } from "../icons.js";
+import {
+  IconAlert,
+  IconBell,
+  IconClock,
+  IconKey,
+  IconMonitor,
+  IconShield,
+  IconTrash,
+  IconWallet,
+} from "../icons.js";
 import { getApi, openSession } from "../state.js";
 import { explain } from "./Brain.js";
 import { spanWords } from "./CommandLimits.js";
@@ -33,6 +50,41 @@ const when = (iso: string) =>
     hour: "2-digit",
     minute: "2-digit",
   });
+
+/** A drawn icon for each truly dangerous kind, so the list reads at a glance. */
+const CRITICAL_ICONS: Record<CriticalId, (p: { size?: number }) => JSX.Element> = {
+  "critical-system": IconMonitor,
+  "critical-delete": IconTrash,
+  "critical-secret": IconKey,
+  "critical-payment": IconWallet,
+  "critical-protections": IconShield,
+};
+
+/** The truly dangerous requests, each with its words and examples in the person's language. */
+function CriticalList({ ids }: { ids: CriticalId[] }) {
+  return (
+    <ul class="rq-critical">
+      {ids.map((id) => {
+        const w = criticalWords(lang.value, id);
+        const Icon = CRITICAL_ICONS[id] ?? IconAlert;
+        return (
+          <li key={id}>
+            <span class="rq-critical-ic" aria-hidden="true">
+              <Icon size={18} />
+            </span>
+            <div class="rq-critical-tx">
+              <b>{w.name}</b>
+              <p>{w.hint}</p>
+              <p class="rq-critical-eg">
+                {t("rqCriticalExamples")} {w.examples.join("; ")}.
+              </p>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 function Decision({ d }: { d: UnattendedDecision }) {
   return (
@@ -178,14 +230,10 @@ export function RequestsPage() {
           )}
         </SCard>
 
-        <SCard icon={<IconKey size={22} />} title={t("rqSpecialTitle")} q={t("rqSpecialQ")}>
+        <SCard icon={<IconAlert size={22} />} title={t("rqSpecialTitle")} q={t("rqSpecialQ")}>
           <p class="wz-say">{t("rqSpecialText")}</p>
-          <ul class="rq-never">
-            {loaded.humanOnly.map((id) => (
-              <li key={id}>{danger(id).name}</li>
-            ))}
-            <li>{t("rqNeverKeychain")}</li>
-          </ul>
+          <CriticalList ids={loaded.critical} />
+          <p class="wz-say rq-critical-not">{t("rqSpecialNot")}</p>
         </SCard>
 
         {usesClassifier && (

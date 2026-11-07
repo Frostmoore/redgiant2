@@ -28,11 +28,15 @@
 - Scope rules live in one pure function (`can` in `packages/hierarchy/src/scopes.ts`) and are tested as a table;
   change the table first. Approvals never resolve to "allow" on a failure or timeout. The one "allow" not
   given by a person is their classifier's (G36.17, Settings > Requests to you: "don't ask me anything", or after
-  their time runs out if they chose so): an explicit decision with its reason in the log, never on a danger in
-  `humanOnly` or a keychain credential, and a classifier that fails is a no. Requests asked of the person reach
-  every channel at once (the page and every linked chat, no per-channel choice; the first answer closes the other
-  copies and says where); "don't ask me anything" sends nothing anywhere, except the special requests (`humanOnly`
-  dangers, keychain keys): those reach every channel in both modes, and their time running out is a no.
+  their time runs out if they chose so): an explicit decision with its reason in the log, never on a truly dangerous
+  request, and a classifier that fails is a no. Requests asked of the person reach every channel at once (the page
+  and every linked chat, no per-channel choice; the first answer closes the other copies and says where); "don't ask
+  me anything" sends nothing anywhere, except the truly dangerous requests (G36.17b: `criticalOf` in
+  `packages/hierarchy/src/critical.ts`, a pure function tested as a table, change the table first: system files,
+  deletions for good, secrets leaving, real payments, RedGiant's own protections). Those always ask the person,
+  whatever the rules and modes, reach every channel in both modes, and their time running out is a no. The
+  policy's `humanOnly` dangers (a plain `git push`, deploys, ordinary messages, keychain use) are ordinary requests:
+  they skip the parent agents and then follow the person's choice, classifier included.
 - Server: one WebSocket connection handles its messages strictly in order; `RedGiantCore.send` returns `{ done }`
   (never an async function returning a bare promise: it would wait for the whole turn).
 - Run programs with `Workspace.execFile` (no shell) whenever arguments may come from a model or a user.
