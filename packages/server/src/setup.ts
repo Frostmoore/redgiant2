@@ -6,6 +6,7 @@ import type { Platform } from "@redgiant/gateway";
 import { DEFAULT_POLICY } from "@redgiant/hierarchy";
 import type { Job, VaultSystemEntry } from "@redgiant/protocol";
 import {
+  agentLanguage,
   keyProvider,
   MEDIA_PROVIDERS,
   type MediaChoice,
@@ -263,7 +264,13 @@ export interface EngineConfig {
 
 export interface SetupConfig {
   completed: boolean;
+  /** The interface's language (and the wizard's). */
   language?: "it" | "en";
+  /**
+   * The language the agents speak to the person (G33.5): a BCP-47 code of `AGENT_LANGUAGES`.
+   * Installations from before keep the interface's language (`migrate`).
+   */
+  agentLanguage?: string;
   /** The person's instructions for every agent (2026-11-05), part of each one's system prompt. */
   instructions?: string;
   /** Tries again a task an agent gave up on (2026-11-05), best from another provider. */
@@ -537,6 +544,11 @@ export class SetupService {
       delete s.openaiKey;
       changed = true;
     }
+    // One language for both before G33.5: the agents keep speaking the one they spoke.
+    if (c.language && !c.agentLanguage) {
+      c.agentLanguage = c.language;
+      changed = true;
+    }
     // The OpenAI pictures key (G20.7) becomes the pictures choice (G25.3).
     if (s.openaiImagesKey && !c.media?.image) {
       s.mediaKeys = { openai: s.openaiImagesKey, ...s.mediaKeys };
@@ -617,6 +629,7 @@ export class SetupService {
       await run("Claude subscription", h.claudeSubscription(s.claudeSubscriptionToken ?? ""));
     if (!this.locked.defaultModel && c.defaultModel) this.o.core.setDefaultModel(c.defaultModel);
     if (c.language) this.o.core.setLanguage(c.language);
+    this.o.core.setAgentLanguage(c.agentLanguage);
     if (c.instructions) this.o.core.setInstructions(c.instructions);
     if (c.backupModel) this.o.core.setBackupModel(c.backupModel);
     if (!this.locked.telegram && s.telegramToken)
@@ -1423,12 +1436,11 @@ export class SetupService {
     const days = (Date.parse(expires) - now) / 86_400_000;
     if (days > 14) return false;
     this.reminded = expires;
-    const date = new Date(expires).toLocaleDateString(
-      this.config.language === "it" ? "it-IT" : "en-GB",
-    );
+    const it = this.o.core.language(this.o.ownerId) === "it";
+    const date = new Date(expires).toLocaleDateString(it ? "it-IT" : "en-GB");
     await this.o.core.tell(
       this.o.ownerId,
-      this.config.language === "it"
+      it
         ? `Il token di GitHub di RedGiant scade il ${date}. Creane uno nuovo (Impostazioni, Dove sta il codice) per non fermare i push dei progetti.`
         : `RedGiant's GitHub token expires on ${date}. Make a new one (Settings, Where the code lives) so the projects can keep pushing.`,
     );
@@ -1744,6 +1756,7 @@ export class SetupService {
     demigod: string;
     godPrompt?: string | null | undefined;
     language?: "it" | "en" | undefined;
+    agentLanguage?: string | undefined;
   }) {
     const owner = this.o.ownerId;
     const reg = this.o.core.registry;
@@ -1764,11 +1777,38 @@ export class SetupService {
           kept && before ? toPlaceholders(kept, before, new Set(["name", "demigod"])) : kept,
       });
     }
+    this.setLanguages(n);
+    await this.save();
+  }
+
+  /**
+   * The interface's language and the agents' (G33.5), apart: new conversations speak the new one.
+   * Without an agents' language yet, the agents take the interface's.
+   */
+  async saveLanguages(n: {
+    language?: "it" | "en" | undefined;
+    agentLanguage?: string | undefined;
+  }): Promise<void> {
+    this.setLanguages(n);
+    await this.save();
+  }
+
+  private setLanguages(n: {
+    language?: "it" | "en" | undefined;
+    agentLanguage?: string | undefined;
+  }): void {
+    if (n.agentLanguage !== undefined) {
+      const known = agentLanguage(n.agentLanguage);
+      if (!known) throw new SetupError(`Unknown language: ${n.agentLanguage}`, "unknown_language");
+      this.config.agentLanguage = known.code;
+    }
     if (n.language) {
       this.config.language = n.language;
       this.o.core.setLanguage(n.language);
     }
-    await this.save();
+    if (!this.config.agentLanguage && this.config.language)
+      this.config.agentLanguage = this.config.language;
+    this.o.core.setAgentLanguage(this.config.agentLanguage);
   }
 
   /** Instructions for every agent (2026-11-05): new conversations start with them. */

@@ -129,6 +129,8 @@ export interface SharedMemoryOptions {
   legacy?: (ownerId: string) => Promise<string>;
   /** Called after the import, to put the old file aside. */
   legacyDone?: (ownerId: string) => Promise<void>;
+  /** The agents' language in English (G33.5): the memories are written in it. */
+  language?: (ownerId: string) => string | undefined;
 }
 
 export class SharedMemory {
@@ -533,7 +535,7 @@ export class SharedMemory {
     ].join("\n");
     const c = await complete(
       streamWithFallback(this.o.providers, model, {
-        system: LEARN_PROMPT,
+        system: learnPrompt(this.o.language?.(ownerId)),
         tools: [],
         messages: [{ role: "user", parts: [{ type: "text", text: request }] }],
         maxTokens: 800,
@@ -599,6 +601,16 @@ export class SharedMemory {
     }
     if (lines.length) await this.o.legacyDone?.(ownerId).catch(() => {});
   }
+}
+
+/** The learning pass's instructions; with the agents' language the memories are written in it. */
+export function learnPrompt(language?: string): string {
+  return language
+    ? LEARN_PROMPT.replace(
+        "in the language the person uses",
+        `in ${language}, the language the person chose for their assistants,`,
+      )
+    : LEARN_PROMPT;
 }
 
 const LEARN_PROMPT = [

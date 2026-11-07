@@ -57,7 +57,10 @@ export interface SetupState {
   /** Model files inside WSL that the engine on Windows could run instead (2026-11-04). */
   config: {
     completed: boolean;
+    /** The interface's language. */
     language?: "it" | "en";
+    /** The language the agents speak to the person (G33.5, BCP-47). */
+    agentLanguage?: string;
     /** The person's instructions for every agent (2026-11-05). */
     instructions?: string;
     backupModel?: { provider: string; model: string; effort?: string };
@@ -727,6 +730,9 @@ export class Api {
     } | null,
   ) => this.call<Job>("PUT", "/api/setup/engine", { engine });
   setupNames = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/names", b);
+  /** The interface's language and the agents' (G33.5). */
+  setupLanguages = (b: { language?: "it" | "en"; agentLanguage?: string }) =>
+    this.call("PUT", "/api/setup/languages", b);
   setupTelegram = (token: string | null) =>
     this.call<{ username: string } | null>("PUT", "/api/setup/telegram", { token });
   setupSafety = (b: Record<string, unknown>) => this.call("PUT", "/api/setup/safety", b);

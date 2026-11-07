@@ -2741,6 +2741,121 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
 .wz-lang.on .icon {
   color: var(--accent-text);
 }
+/* the agents' language (G33.5): a big box that opens a window with every language */
+.wz-agentlang {
+  max-width: 560px;
+  margin: -8px auto 44px;
+}
+.wz-agentlang .wz-sub {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+.wz-agentlang .wz-subl {
+  margin-bottom: 16px;
+  font-size: 15px;
+}
+.wz-alang {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 20px;
+  gap: 16px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 14px 20px 14px 14px;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.wz-alang:hover {
+  border-color: var(--dim);
+}
+.wz-alang .wz-ico {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.wz-alang > .icon {
+  color: var(--dim);
+}
+.wz-alang-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.wz-alang-text b {
+  font-size: 19px;
+}
+.wz-alang-text small {
+  color: var(--dim);
+  font-size: 14px;
+}
+.st-row-ctl .wz-alang {
+  width: 300px;
+  max-width: 100%;
+  padding: 10px 16px 10px 10px;
+  grid-template-columns: 40px minmax(0, 1fr) 18px;
+  gap: 12px;
+}
+.st-row-ctl .wz-alang .wz-ico {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+}
+.st-row-ctl .wz-alang-text b {
+  font-size: 16.5px;
+}
+.wz-alang-search {
+  position: relative;
+  display: block;
+}
+.wz-alang-search > .icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  translate: 0 -50%;
+  color: var(--dim);
+  pointer-events: none;
+}
+:is(.wz, .wz-look) .wz-alang-search .wz-field {
+  padding-left: 44px;
+}
+.wz-alang-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+}
+.wz-alang-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.wz-alang-opt:hover {
+  border-color: var(--dim);
+}
+.wz-alang-opt.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.wz-alang-opt b {
+  font-size: 16px;
+}
+.wz-alang-opt small {
+  color: var(--dim);
+  font-size: 13.5px;
+}
 .wz-hw {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -4638,6 +4753,18 @@ html[data-theme="dark"] :is(.wz, .wz-look) {
     grid-template-columns: 1fr 1fr;
     gap: 10px;
     margin-bottom: 22px;
+  }
+  .wz-agentlang {
+    margin: 0 0 24px;
+  }
+  .wz-agentlang .wz-sub {
+    font-size: 18px;
+  }
+  .wz-alang-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .st-row-ctl .wz-alang {
+    width: 100%;
   }
   .wz-lang .wz-long {
     display: none;

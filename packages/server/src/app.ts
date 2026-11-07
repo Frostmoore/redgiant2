@@ -2514,7 +2514,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       );
     const code = c.req.query("code");
     const state = c.req.query("state");
-    const it = core.language(LOCAL_OWNER_ID) === "it";
+    const it = core.uiLanguageOf(LOCAL_OWNER_ID) === "it";
     if (!code || !state)
       return page(
         it ? "Collegamento non riuscito" : "Sign-in failed",
@@ -2814,6 +2814,21 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
             demigod: z.string().trim().min(1).max(40),
             godPrompt: z.string().min(1).nullable().optional(),
             language: z.enum(["it", "en"]).optional(),
+            agentLanguage: z.string().min(2).max(20).optional(),
+          }),
+        ),
+      ),
+    ),
+  );
+  // The interface's language and the agents' (G33.5), from the wizard's first step and Settings.
+  app.put("/api/setup/languages", (c) =>
+    wizard(c, async () =>
+      (setup as SetupService).saveLanguages(
+        await parsed(
+          c,
+          z.object({
+            language: z.enum(["it", "en"]).optional(),
+            agentLanguage: z.string().min(2).max(20).optional(),
           }),
         ),
       ),

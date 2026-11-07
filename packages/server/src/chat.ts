@@ -124,6 +124,8 @@ export class DailyChat {
       expand?: (ownerId: string, text: string) => string;
       /** Instructions, tools and model of the other kinds of chat (the project inspector). */
       profile?: (ownerId: string, scope: ChatScope) => Promise<ChatProfile>;
+      /** The line with the agents' language (G33.5), added to every chat's instructions. */
+      language?: (ownerId: string) => string;
     },
   ) {}
 
@@ -315,7 +317,9 @@ export class DailyChat {
     const own =
       settings.systemPrompt &&
       (this.o.expand?.(ownerId, settings.systemPrompt) ?? settings.systemPrompt);
-    const system = profile?.system ?? own ?? DEFAULT_CHAT_PROMPT;
+    const system = [profile?.system ?? own ?? DEFAULT_CHAT_PROMPT, this.o.language?.(ownerId)]
+      .filter(Boolean)
+      .join("\n\n");
     for (let step = 0; step < MAX_STEPS; step++) {
       const completion = await relay(
         onEvent,

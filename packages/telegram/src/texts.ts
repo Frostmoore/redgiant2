@@ -1,4 +1,5 @@
-// What the bot writes, in the language chosen in the setup wizard (English by default).
+// What the bot writes: in the agents' language when it is translated here, otherwise in the
+// interface's (G33.5; `RedGiantCore.language`), English by default.
 // No emoji and no symbol characters as icons (user's request, 2026-11-01).
 
 const en = {

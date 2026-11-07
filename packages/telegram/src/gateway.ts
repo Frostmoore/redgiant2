@@ -66,7 +66,7 @@ export interface TelegramHost {
     on(event: "closed", l: (ownerId: string, requestId: string) => void): unknown;
     answer(ownerId: string, requestId: string, answers: Answers): boolean;
   };
-  /** The language chosen in the setup wizard. */
+  /** What its texts are written in: the agents' language if translated, else the interface's. */
   language?(ownerId: string): Language;
 }
 

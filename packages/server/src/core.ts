@@ -53,6 +53,7 @@ import {
   READ_ONLY_TOOLS,
 } from "@redgiant/hierarchy";
 import {
+  agentLanguage,
   type Event,
   type ImagePart,
   MCP_CATALOG,
@@ -61,8 +62,11 @@ import {
   type ModelSpec,
   type NotifyReport,
   type Recipe,
+  replyLanguageLine,
   type ServerMessage,
   type SharedMemoryView,
+  textLanguage,
+  type UiLanguage,
   type VaultEntry,
   type VaultSystemEntry,
 } from "@redgiant/protocol";
@@ -478,6 +482,7 @@ export class RedGiantCore implements OrchestrationHost {
       model: () => this.o.memory?.model ?? this.o.boardModel ?? this.o.defaultModel,
       redactor: o.redactor,
       delayMs: o.memory?.delayMs,
+      language: () => agentLanguage(this.agentLang)?.en,
       // The notes about the person kept as a file before G33.2 become its first memories.
       legacy: (ownerId) => readFile(join(this.notesPath(ownerId), "shared.md"), "utf8"),
       legacyDone: async (ownerId) => {
@@ -558,6 +563,7 @@ export class RedGiantCore implements OrchestrationHost {
       search: () => this.o.search,
       defaultModel: () => this.o.defaultModel,
       expand: (ownerId, text) => expandPrompt(text, this.chatNames(ownerId)),
+      language: () => replyLanguageLine(this.agentLang),
       profile: (ownerId, scope) =>
         scope.kind === "inspector"
           ? this.inspector.profile(ownerId, scope.projectId)
@@ -1132,6 +1138,8 @@ export class RedGiantCore implements OrchestrationHost {
       system: [
         this.systemFor(agent),
         whereYouRun(model),
+        // The language the person chose for the agents (G33.5); fixed for the conversation.
+        replyLanguageLine(this.agentLang),
         this.instructions
           ? `## The person's instructions for every agent\n${this.instructions}`
           : "",
@@ -1823,13 +1831,31 @@ export class RedGiantCore implements OrchestrationHost {
     else delete this.o.defaultModel;
   }
 
-  /** The language chosen in the setup wizard: what Telegram writes in. */
-  private uiLanguage: "it" | "en" = "en";
-  language(_ownerId: string): "it" | "en" {
+  /** The interface's language, chosen in the setup wizard (it, en). */
+  private uiLanguage: UiLanguage = "en";
+  /** The language the agents speak to the person (G33.5, BCP-47); none: the person's own. */
+  private agentLang: string | undefined;
+  /**
+   * What automatic texts are written in (Telegram, the gateways, alerts, descriptions born in the
+   * person's language): the agents' language when it is translated, else the interface's.
+   */
+  language(_ownerId: string): UiLanguage {
+    return textLanguage(this.agentLang, this.uiLanguage);
+  }
+  /** The interface's language, for pages the server writes itself. */
+  uiLanguageOf(_ownerId: string): UiLanguage {
     return this.uiLanguage;
   }
-  setLanguage(language: "it" | "en"): void {
+  /** The agents' language (BCP-47), if one is chosen. */
+  agentLanguageOf(_ownerId: string): string | undefined {
+    return this.agentLang;
+  }
+  setLanguage(language: UiLanguage): void {
     this.uiLanguage = language;
+  }
+  /** Read when a conversation starts: conversations already open keep theirs. */
+  setAgentLanguage(code: string | undefined): void {
+    this.agentLang = agentLanguage(code)?.code;
   }
 
   /** The person's instructions for every agent (2026-11-05); read when a conversation starts. */

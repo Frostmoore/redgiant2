@@ -70,6 +70,7 @@ import {
   wayTiles,
 } from "./Brain.js";
 import { GitTiles } from "./GitCode.js";
+import { AgentLanguagePicker } from "./LanguagePicker.js";
 import { hardwareText, LocalModels } from "./LocalModels.js";
 import { modelName } from "./ModelMenu.js";
 import { RemoteAccess } from "./RemoteAccess.js";
@@ -81,7 +82,19 @@ import { TelegramStep } from "./SetupTelegram.js";
 import { Modal } from "./ui.js";
 
 function Welcome() {
-  const { s } = useWz();
+  const { s, reload } = useWz();
+  // The agents' language (G33.5): the interface's until the person picks another.
+  const [agentLang, setAgentLang] = useState<string | null>(s.config.agentLanguage ?? null);
+  const spoken = agentLang ?? lang.value;
+  useOnNext(async () => {
+    if (s.config.language === lang.value && s.config.agentLanguage === spoken) return true;
+    const r = await attempt(() =>
+      getApi().setupLanguages({ language: lang.value, agentLanguage: spoken }),
+    );
+    if (r === undefined) return false;
+    reload();
+    return true;
+  });
   const h = s.hardware;
   const card = h.gpus.find((g) => !g.integrated) ?? h.gpus[0];
   const cpu = cpuShort(h.cpu);
@@ -135,6 +148,11 @@ function Welcome() {
       <div class="wz-langs">
         {L("it", "Italiano", t("wzLangIt"), t("wzLangItShort"))}
         {L("en", "English", t("wzLangEn"), t("wzLangEnShort"))}
+      </div>
+      <div class="wz-agentlang">
+        <h2 class="wz-sub">{t("agentLangQ")}</h2>
+        <p class="wz-subl">{t("agentLangLead")}</p>
+        <AgentLanguagePicker value={spoken} onChange={setAgentLang} />
       </div>
       <div class="wz-hw">
         {cards.map(([icon, k, v, sub]) => (

@@ -1,9 +1,9 @@
 // Settings > General, drawn as the wizard (2026-11-06, the person: «tutte le pagine delle
 // impostazioni con lo stesso stile del wizard»): a big heading, the look and the notifications on
-// rows with segments and a switch, then the wizard's squares, lit when something is set (never a
-// check mark), each opening a window (a sheet from below on phones) with its real panel:
-// instructions for every agent, the backup model, web search, voice messages, pictures, updates
-// and the debug log. The account at the bottom. The mailbox serves automations only and lives
+// rows with segments and a switch (the interface's language and the agents', apart: G33.5),
+// then the wizard's squares, lit when something is set (never a check mark), each opening a
+// window (a sheet from below on phones) with its real panel: instructions for every agent, the
+// backup model, web search, voice messages, pictures, updates and the debug log. The account at the bottom. The mailbox serves automations only and lives
 // in Settings > Automations (2026-11-07).
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
@@ -28,6 +28,7 @@ import {
 import { attempt, getApi, signOut } from "../state.js";
 import { setTheme, theme } from "../theme.js";
 import { explain } from "./Brain.js";
+import { AgentLanguagePicker } from "./LanguagePicker.js";
 import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
 import { ServicePanel } from "./Services.js";
 import {
@@ -336,15 +337,27 @@ export function General() {
             ]}
           />
         </Row>
-        <Row title={t("language")}>
+        <Row title={t("uiLangTitle")} help={t("uiLangHelp")}>
           <Seg
-            label={t("language")}
+            label={t("uiLangTitle")}
             value={lang.value}
-            onChange={setLang}
+            onChange={(l) => {
+              setLang(l);
+              // The server writes its own pages and, failing the agents' language, Telegram in it.
+              void attempt(() => getApi().setupLanguages({ language: l })).then(load);
+            }}
             options={[
               ["it", "Italiano"],
               ["en", "English"],
             ]}
+          />
+        </Row>
+        <Row title={t("agentLangTitle")} help={t("agentLangHelp")}>
+          <AgentLanguagePicker
+            value={c.agentLanguage ?? c.language ?? lang.value}
+            onChange={(code) =>
+              void attempt(() => getApi().setupLanguages({ agentLanguage: code })).then(load)
+            }
           />
         </Row>
         <BrowserNotifications />

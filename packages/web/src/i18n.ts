@@ -2147,6 +2147,20 @@ const en = {
   wzKeyOf: "The key of {name}",
   wzLangItShort: "interface",
   wzLangEnShort: "interface",
+  uiLangTitle: "Interface language",
+  uiLangHelp: "The pages, the menus and the setup.",
+  agentLangQ: "What language should the agents speak to you?",
+  agentLangLead:
+    "Every agent, the Chat and the shared memory write in it. It can differ from the interface's.",
+  agentLangTitle: "Agents' language",
+  agentLangHelp:
+    "What every agent, the Chat and the shared memory write in. New conversations use it; open ones keep theirs.",
+  agentLangSub: "The agents reply in it from the next conversation.",
+  agentLangSearch: "Search a language",
+  agentLangCommon: "Most common",
+  agentLangAll: "All languages",
+  agentLangNone: "No language matches «{q}».",
+  agentLangChange: "change",
   lmMoePrefetchHelpDocker:
     "Runs a version of llama.cpp changed by RedGiant: while the graphics card computes one layer, the experts of the next one are already on their way to it, and the model is loaded in RAM when it fits. With mixture-of-experts models long messages are read up to 1.7 times faster (measured on an RTX 4080 Super). The first start downloads that engine's image (about {size}), kept next to the usual one. NVIDIA cards only, through Docker's NVIDIA runtime.",
   lmMoePrefetchMissingDocker:
@@ -4758,6 +4772,20 @@ const it: Record<Key, string> = {
   wzKeyOf: "La chiave di {name}",
   wzLangItShort: "interfaccia",
   wzLangEnShort: "interface",
+  uiLangTitle: "Lingua dell'interfaccia",
+  uiLangHelp: "Le pagine, i menu e la configurazione.",
+  agentLangQ: "In che lingua devono parlarti gli agenti?",
+  agentLangLead:
+    "Ci scrivono tutti gli agenti, la Chat e la memoria condivisa. Può essere diversa da quella dell'interfaccia.",
+  agentLangTitle: "Lingua degli agenti",
+  agentLangHelp:
+    "La lingua in cui scrivono tutti gli agenti, la Chat e la memoria condivisa. Vale per le conversazioni nuove; quelle aperte tengono la loro.",
+  agentLangSub: "Gli agenti rispondono in questa lingua dalla prossima conversazione.",
+  agentLangSearch: "Cerca una lingua",
+  agentLangCommon: "Le più usate",
+  agentLangAll: "Tutte le lingue",
+  agentLangNone: "Nessuna lingua corrisponde a «{q}».",
+  agentLangChange: "cambia",
   lmMoePrefetchHelpDocker:
     "Usa una versione di llama.cpp modificata da RedGiant: mentre la scheda video calcola uno strato, gli esperti di quello dopo le stanno già arrivando, e il modello è caricato nella RAM quando ci sta. Con i modelli a esperti i messaggi lunghi si leggono fino a 1,7 volte più in fretta (misurato con una RTX 4080 Super). Al primo avvio scarica l'immagine di quel motore (circa {size}), tenuta accanto a quella solita. Solo schede NVIDIA, con il runtime NVIDIA di Docker.",
   lmMoePrefetchMissingDocker:

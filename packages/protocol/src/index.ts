@@ -4,6 +4,7 @@ export * from "./backup.js";
 export * from "./dangers.js";
 export * from "./events.js";
 export * from "./jobs.js";
+export * from "./languages.js";
 export * from "./local-models.js";
 export * from "./mcp-catalog.js";
 export * from "./media.js";
