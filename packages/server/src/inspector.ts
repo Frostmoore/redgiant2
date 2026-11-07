@@ -1,8 +1,20 @@
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { canonicalTools, type Tool } from "@redgiant/agent";
+import { can } from "@redgiant/hierarchy";
 import type { Event, ModelSpec } from "@redgiant/protocol";
 import { complete, costUsd, streamWithFallback } from "@redgiant/providers";
-import { globTool, grepTool, LocalWorkspace, readFileTool } from "@redgiant/tools";
+import {
+  commandLine,
+  describeCommand,
+  globTool,
+  grepTool,
+  LocalWorkspace,
+  type LogQuery,
+  parseLog,
+  queryLog,
+  readFileTool,
+} from "@redgiant/tools";
 import { z } from "zod";
 import type { ChatProfile } from "./chat.js";
 import type { RedGiantCore } from "./core.js";
@@ -22,7 +34,7 @@ export interface InspectorSettings {
 
 const PROMPT = (project: string, path: string) =>
   `You are the inspector of the project "${project}". You can only read: its files (in ${path}), its git history, ` +
-  "its activity log, its tasks, its board and its budget. Answer questions about the state of the project precisely and " +
+  "its activity log, its tasks, its board, its budget and its agents' background commands (project_commands: their logs, every line timed). Answer questions about the state of the project precisely and " +
   "briefly, in the user's language, citing files, commits, tasks or events. Say so when you do not know. You never change anything. " +
   "Start from project_summary (a running summary of everything that happened), then read what you need to be precise.";
 
@@ -30,6 +42,18 @@ const SUMMARISE =
   "You keep a running summary of the state of a software project, for its inspector. Rewrite the summary to include the new " +
   "events: the goal, what is done and verified, open tasks, blockers, decisions, recent changes to the code, notable failures, " +
   "spending. Drop what no longer matters. At most 400 words, plain text, no preamble.";
+const CommandsInput = z.object({
+  id: z.string().optional(),
+  from: z.number().int().min(1).optional(),
+  lines: z.number().int().min(1).max(5000).optional(),
+  tail: z.boolean().optional(),
+  grep: z.string().min(1).optional(),
+  stream: z.enum(["out", "err"]).optional(),
+  since: z.string().optional(),
+  until: z.string().optional(),
+  summary: z.boolean().optional(),
+});
+
 /** Events summarised per request: a long history is folded in a few steps. */
 const CHUNK = 150;
 
@@ -352,6 +376,29 @@ export class Inspector {
       } as Tool,
       {
         def: {
+          name: "project_commands",
+          description:
+            'The background commands of the project\'s agents (bash background): without id the list with state and who started them; with id its log, every line with its time and stream. from/lines/tail, grep (text or /regex/), stream (out|err), since/until ("+30" or "15:04:10"), summary.',
+          inputSchema: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              from: { type: "integer" },
+              lines: { type: "integer" },
+              tail: { type: "boolean" },
+              grep: { type: "string" },
+              stream: { type: "string", enum: ["out", "err"] },
+              since: { type: "string" },
+              until: { type: "string" },
+              summary: { type: "boolean" },
+            },
+          },
+        },
+        schema: CommandsInput,
+        run: (i: z.infer<typeof CommandsInput>) => this.commands(ownerId, projectId, i),
+      } as Tool,
+      {
+        def: {
           name: "project_budget",
           description: "What the project has spent, and its limit.",
           inputSchema: { type: "object", properties: {} },
@@ -371,6 +418,86 @@ export class Inspector {
       tools: canonicalTools(tools),
       ...(settings.model && { model: settings.model }),
     };
+  }
+
+  /**
+   * The project's background commands (p3.3.1, the user: «l'inspector servirebbe anche a
+   * questo»): those of the agents it may read (`can`, as for everything else it reads).
+   */
+  async commands(
+    ownerId: string,
+    projectId: string,
+    i: z.infer<typeof CommandsInput>,
+  ): Promise<string> {
+    const me = {
+      type: "agent" as const,
+      agent: {
+        id: `inspector:${projectId}`,
+        name: "Inspector",
+        kind: "inspector" as const,
+        parentId: null,
+        projectId,
+        ownerId,
+      },
+    };
+    const registry = this.core.registry;
+    const events = (
+      await this.core.store.list({ types: ["command.started", "command.ended"] })
+    ).filter((e) => {
+      if (e.ownerId !== ownerId || !e.agentId) return false;
+      const a = registry.get(e.agentId);
+      return a !== undefined && can(me, "read", a, registry.resolve);
+    });
+    const ended = new Map(
+      events.flatMap((e) =>
+        e.type === "command.ended" && e.payload ? [[e.payload.id, e.payload]] : [],
+      ),
+    );
+    const started = events.flatMap((e) =>
+      e.type === "command.started" && e.payload ? [{ e, p: e.payload }] : [],
+    );
+    const view = (x: (typeof started)[number]) => {
+      const end = ended.get(x.p.id);
+      const live = this.core.commands.get(x.p.id);
+      return {
+        id: x.p.id,
+        sessionId: x.e.sessionId ?? "",
+        command: x.p.command,
+        file: x.p.file,
+        path: x.p.path,
+        cwd: x.p.cwd,
+        by: x.p.by,
+        startedAt: x.e.ts,
+        status: live?.status ?? end?.status ?? "interrupted",
+        exitCode: live?.exitCode ?? end?.exitCode ?? null,
+        ...(live?.endedAt && { endedAt: live.endedAt }),
+      };
+    };
+    if (!i.id) {
+      if (started.length === 0) return "No background commands in this project.";
+      return started
+        .slice(-60)
+        .map((x) => `${commandLine(view(x))}\n    started ${x.e.ts} by ${x.p.by}`)
+        .join("\n");
+    }
+    const x = started.find((y) => y.p.id === i.id);
+    if (!x) return `There is no background command "${i.id}" this inspector can read.`;
+    const log = parseLog(await readFile(x.p.file, "utf8").catch(() => ""));
+    const q: LogQuery = {
+      ...(i.from !== undefined && { from: i.from }),
+      ...(i.lines !== undefined && { lines: i.lines }),
+      ...(i.tail !== undefined && { tail: i.tail }),
+      ...(i.grep && { grep: i.grep }),
+      ...(i.stream && { stream: i.stream }),
+      ...(i.since && { since: i.since }),
+      ...(i.until && { until: i.until }),
+    };
+    if (Object.keys(q).length === 0) Object.assign(q, { tail: true });
+    const lines = queryLog(log, q);
+    const all = queryLog(log, { ...q, lines: Number.MAX_SAFE_INTEGER });
+    return describeCommand(view(x), log, lines, all.length - lines.length, {
+      ...(i.summary && { summary: true }),
+    });
   }
 
   /** God's question (or an automatic summary): answered in the project's "God" chat. */

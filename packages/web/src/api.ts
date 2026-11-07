@@ -957,6 +957,16 @@ export class Api {
       "GET",
       `/api/agents/${encodeURIComponent(agentId)}/compaction-defaults`,
     );
+  /** A background command's log (p3.3.1): the last lines, or from a line on. */
+  commandOutput = (sessionId: string, id: string, from?: number) =>
+    this.call<{
+      log: { started?: string; folder?: string; by?: string; command?: string; dropped: number };
+      lines: { n: number; clock: string; at: number; stream: "out" | "err"; text: string }[];
+      running: boolean;
+    }>(
+      "GET",
+      `/api/sessions/${encodeURIComponent(sessionId)}/commands/${encodeURIComponent(id)}/output${from ? `?from=${from}` : ""}`,
+    );
   undoCompaction = (sessionId: string) =>
     this.call("POST", `/api/sessions/${sessionId}/compaction/undo`);
   promoteChange = (id: string) =>

@@ -45,6 +45,7 @@ import {
   subStatus,
 } from "../state.js";
 import { canvasKind } from "./Canvas.js";
+import { CommandStrip } from "./CommandStrip.js";
 import { Composer, packMessage } from "./Composer.js";
 import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
@@ -923,6 +924,7 @@ function SubagentView({
   const from = agentName(parentAgent);
   return (
     <div class="chat sub-view" data-depth={depth}>
+      <CommandStrip sessionId={tab.childSessionId} />
       <div class="chat-body">
         <div class="chat-scroll" ref={scroller}>
           <details class="sub-task" open={tab.task.length < 600}>
@@ -1033,6 +1035,7 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
   const model = own ?? agent?.model ?? inheritedModel(agentId);
   return (
     <div class="chat">
+      <CommandStrip sessionId={sessionId} />
       <div class="chat-body">
         <div
           class="chat-scroll"

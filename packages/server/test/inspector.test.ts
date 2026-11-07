@@ -124,6 +124,7 @@ describe("the project inspector", () => {
       "project_activity",
       "project_board",
       "project_budget",
+      "project_commands",
       "project_summary",
       "project_tasks",
       "read_file",

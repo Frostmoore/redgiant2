@@ -276,7 +276,7 @@ export class ContainerWorkspace extends LocalWorkspace {
 
   override async exec(
     command: string,
-    { timeoutMs, signal, env }: ExecOptions,
+    { timeoutMs, signal, env, onOutput }: ExecOptions,
   ): Promise<ExecResult> {
     const pidFile = `/tmp/rg-exec-${randomUUID()}.pid`;
     const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
@@ -296,10 +296,12 @@ export class ContainerWorkspace extends LocalWorkspace {
     let stdout = "";
     let stderr = "";
     out.on("data", (d: Buffer) => {
-      stdout += d.toString();
+      if (onOutput) onOutput(d.toString(), "out");
+      else stdout += d.toString();
     });
     err.on("data", (d: Buffer) => {
-      stderr += d.toString();
+      if (onOutput) onOutput(d.toString(), "err");
+      else stderr += d.toString();
     });
     this.container.modem.demuxStream(stream, out, err);
 

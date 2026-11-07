@@ -1068,3 +1068,59 @@ export const subPath = signal<Record<string, string[]>>({});
 export function openSubPath(rootSessionId: string, path: string[]): void {
   subPath.value = { ...subPath.value, [rootSessionId]: path };
 }
+
+// ---------- Background commands (p3.3.1) ----------
+
+/** A background command as the strip shows it. */
+export interface CommandRow {
+  id: string;
+  command: string;
+  by: string;
+  cwd: string;
+  path: string;
+  startedAt: string;
+  endedAt?: string | undefined;
+  status: "running" | "done" | "failed" | "stopped" | "interrupted";
+  exitCode: number | null;
+  closed: boolean;
+}
+
+/** The background commands of a conversation, from its events (pure). */
+export function commandRows(events: Event[]): CommandRow[] {
+  const rows = new Map<string, CommandRow>();
+  for (const e of events) {
+    if (e.payload === null) continue;
+    if (e.type === "command.started")
+      rows.set(e.payload.id, {
+        id: e.payload.id,
+        command: e.payload.command,
+        by: e.payload.by,
+        cwd: e.payload.cwd,
+        path: e.payload.path,
+        startedAt: e.ts,
+        status: "running",
+        exitCode: null,
+        closed: false,
+      });
+    else if (e.type === "command.ended") {
+      const r = rows.get(e.payload.id);
+      if (r)
+        Object.assign(r, { status: e.payload.status, exitCode: e.payload.exitCode, endedAt: e.ts });
+    } else if (e.type === "command.closed") {
+      const r = rows.get(e.payload.id);
+      if (r) r.closed = true;
+    }
+  }
+  return [...rows.values()];
+}
+
+/** The strip reduced to one line, or open (remembered on this device). */
+export const commandStripMin = signal(
+  typeof localStorage !== "undefined" && localStorage.getItem("rg.cmdStrip") === "min",
+);
+export function setCommandStripMin(min: boolean): void {
+  commandStripMin.value = min;
+  try {
+    localStorage.setItem("rg.cmdStrip", min ? "min" : "open");
+  } catch {}
+}

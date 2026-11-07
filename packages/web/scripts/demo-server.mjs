@@ -59,6 +59,46 @@ const brain = (req) => {
   const results = last?.role === "user" && last.parts.every((p) => p.type === "tool_result");
   turn++;
   const said = last?.parts.find((p) => p.type === "text")?.text ?? "";
+  // p3.3.1: background commands (DEMO_SUBAGENTS): a server that keeps writing, tests, a build.
+  if (said.startsWith("Avvia il server di prova"))
+    return {
+      text: "Avvio il server di prova e, intanto, i test e la build.",
+      toolCalls: [
+        {
+          name: "bash",
+          input: {
+            command:
+              'echo "> vite --port 5173"; for i in $(seq 1 900); do echo "[vite] GET /api/stato 200 in $((i % 40 + 3)) ms"; sleep 1; done',
+            background: true,
+          },
+        },
+        {
+          name: "bash",
+          input: {
+            command:
+              "echo 'RUN v5.0.5'; sleep 1; echo 'warning: test lento (2.3 s)' >&2; echo 'Tests 42 passed (42)'",
+            background: true,
+          },
+        },
+        {
+          name: "bash",
+          input: {
+            command:
+              "echo 'tsc -b'; sleep 1; echo 'src/app.ts(12,5): error TS2322: Type string is not assignable to type number.' >&2; exit 2",
+            background: true,
+          },
+        },
+      ],
+    };
+  if (
+    results &&
+    last?.parts.some(
+      (p) => p.type === "tool_result" && p.content.startsWith("Started in the background"),
+    )
+  )
+    return {
+      text: "Il server gira; i test sono passati, la build ha un errore di tipo in `src/app.ts`.",
+    };
   // p3.3.1: the sub-agents of DEMO_SUBAGENTS, each with its own answer.
   if (said.startsWith("Task from God: «Pubblica"))
     return {
@@ -829,6 +869,8 @@ if (process.env.DEMO_SUBAGENTS) {
     }
   }
 }
+if (subSession)
+  await (await core.send("local", subSession, "Avvia il server di prova, i test e la build.")).done;
 let viewerSession;
 if (process.env.DEMO_SAMPLES) {
   const { cp, readdir } = await import("node:fs/promises");

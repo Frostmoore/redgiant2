@@ -27,6 +27,38 @@ export interface ExecOptions {
    * tool the proxy's address for a credential (`REDGIANT_VAULT_<NAME>`), never its value.
    */
   env?: Record<string, string> | undefined;
+  /**
+   * Background commands (p3.3.1): the output as it comes, instead of collected (the result's
+   * stdout and stderr are then empty), and the process's id once it starts.
+   */
+  onOutput?: ((text: string, stream: "out" | "err") => void) | undefined;
+  onSpawn?: ((pid: number) => void) | undefined;
+}
+
+/**
+ * Stops a process and everything it started (p3.3.1). Windows: `taskkill /PID <pid> /T /F` (the
+ * tree; killing the shell alone left its children running); elsewhere the process group, which
+ * every command gets of its own.
+ */
+export function killTree(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+  run: (file: string, args: string[]) => void = (file, args) => {
+    spawn(file, args, { stdio: "ignore", windowsHide: true }).on("error", () => {});
+  },
+  kill: (pid: number, signal: NodeJS.Signals) => void = process.kill,
+): void {
+  if (platform === "win32") {
+    run("taskkill", ["/PID", String(pid), "/T", "/F"]);
+    return;
+  }
+  try {
+    kill(-pid, "SIGKILL");
+  } catch {
+    try {
+      kill(pid, "SIGKILL");
+    } catch {}
+  }
 }
 
 /**
@@ -401,7 +433,7 @@ export class LocalWorkspace implements Workspace {
   private run(
     file: string,
     args: string[],
-    { timeoutMs, signal, env }: ExecOptions,
+    { timeoutMs, signal, env, onOutput, onSpawn }: ExecOptions,
     shell?: string,
   ): Promise<ExecResult> {
     return new Promise((done) => {
@@ -414,9 +446,11 @@ export class LocalWorkspace implements Workspace {
         env: env ? { ...agentEnv(), ...env } : agentEnv(),
         detached: group,
       });
+      if (child.pid) onSpawn?.(child.pid);
+      // The whole tree: on Windows the shell's children too (taskkill with its tree flag).
       const stop = () => {
         try {
-          if (group && child.pid) process.kill(-child.pid, "SIGKILL");
+          if (child.pid) killTree(child.pid);
           else child.kill("SIGKILL");
         } catch {}
       };
@@ -430,10 +464,12 @@ export class LocalWorkspace implements Workspace {
       if (signal?.aborted) stop();
       signal?.addEventListener("abort", stop, { once: true });
       child.stdout.on("data", (d: Buffer) => {
-        stdout += d.toString();
+        if (onOutput) onOutput(d.toString(), "out");
+        else stdout += d.toString();
       });
       child.stderr.on("data", (d: Buffer) => {
-        stderr += d.toString();
+        if (onOutput) onOutput(d.toString(), "err");
+        else stderr += d.toString();
       });
       child.on("error", (err) => {
         stderr += err.message;

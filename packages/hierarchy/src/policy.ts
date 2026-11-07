@@ -205,6 +205,9 @@ export const READ_ONLY_TOOLS = new Set([
   "memory",
   // The agent's list of steps (2026-11-05): shown to the person, changes nothing.
   "update_todos",
+  // Reads or stops the conversation's own background command (p3.3.1): starting it was a bash
+  // call, checked as such.
+  "bash_output",
   // Opens a file in the person's canvas (G34.1); outside the folders the guardian asks.
   "show_file",
   // Magic automations (G33.3): a proposal the person approves (or the list of links).

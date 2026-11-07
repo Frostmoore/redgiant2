@@ -65,6 +65,8 @@ export interface OrchestrationHost {
   isolate?(subagentId: string): void;
   /** Whether a conversation is working now. */
   isRunning?(sessionId: string): boolean;
+  /** Stops a conversation's background commands (a sub-agent's work ended, p3.3.1). */
+  stopCommands?(sessionId: string): Promise<void>;
 }
 
 /** How a sub-agent's work ended, as its tab shows it. */
@@ -899,15 +901,13 @@ export function orchestrationTools(
           parentId: self.id,
           name: `${self.name} › ${title}`.slice(0, 80),
         });
+        let sid: string | undefined;
         try {
-          return await delegate(
-            sub,
-            title,
-            task,
-            await host.startSession(self.ownerId, sub.id),
-            ctx,
-          );
+          sid = await host.startSession(self.ownerId, sub.id);
+          return await delegate(sub, title, task, sid, ctx);
         } finally {
+          // Its background commands end with its work.
+          if (sid) await host.stopCommands?.(sid).catch(() => {});
           await host.registry.stop(me, sub.id, "sub-agent task finished");
         }
       },
@@ -966,17 +966,14 @@ export function orchestrationTools(
             const reports = await Promise.all(
               subs.map(async (sub, i) => {
                 const t = list[i] as { title: string; task: string };
+                let sid: string | undefined;
                 try {
-                  return await delegate(
-                    sub,
-                    t.title,
-                    t.task,
-                    await host.startSession(self.ownerId, sub.id),
-                    ctx,
-                    "run_subagents",
-                  );
+                  sid = await host.startSession(self.ownerId, sub.id);
+                  return await delegate(sub, t.title, t.task, sid, ctx, "run_subagents");
                 } catch (err) {
                   return `${sub.name} failed: ${(err as Error).message}`;
+                } finally {
+                  if (sid) await host.stopCommands?.(sid).catch(() => {});
                 }
               }),
             );

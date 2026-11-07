@@ -196,6 +196,12 @@ export function attachWebSocket(
           case "session.interrupt":
             await core.interrupt(owner, msg.sessionId);
             return;
+          case "command.stop":
+            await core.stopCommand(owner, msg.sessionId, msg.id);
+            return;
+          case "command.close":
+            await core.closeCommand(owner, msg.sessionId, msg.id);
+            return;
           case "subagent.close":
             await core.closeSubagent(owner, msg.sessionId, msg.childSessionId);
             return;

@@ -94,9 +94,15 @@ import {
 } from "@redgiant/sandbox";
 import { readRelease } from "@redgiant/supervisor";
 import {
+  BackgroundCommands,
   baseTools,
   LocalWorkspace,
+  type LogLine,
+  type LogQuery,
   type ModelProfile,
+  type ParsedLog,
+  parseLog,
+  queryLog,
   type ShowFileRequest,
   SubprojectWorkspace,
   type WebSearchProvider,
@@ -105,6 +111,7 @@ import {
 import { z } from "zod";
 import { type Alert, type AlertText, alertText } from "./alerts.js";
 import { HumanApprovals } from "./approvals.js";
+import { type ReapDeps, reapOrphan } from "./background-reap.js";
 import type { BackupDeps } from "./backup.js";
 import { type Browsers, browserTools } from "./browser.js";
 import { contentType, inside, lastChange, Previews, type PreviewTarget } from "./canvas.js";
@@ -439,6 +446,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly programs: Programs;
   /** Closed formats into open ones, beside the original (G34.3). */
   readonly converter: FileConverter;
+  /** Background commands of every conversation (p3.3.1): bash with background, bash_output. */
+  readonly commands: BackgroundCommands;
   /** Backups made or being imported (2026-11-03): next to the workspaces, in the data volume. */
   get backupsDir(): string {
     return join(dirname(this.o.workspacesDir), "backups");
@@ -524,6 +533,55 @@ export class RedGiantCore implements OrchestrationHost {
       share: true,
     });
     this.programs.shareFound();
+    // Background commands (p3.3.1): their start and end are events of the conversation that
+    // started them; the page draws the strip from those and a restart marks them interrupted.
+    this.commands = new BackgroundCommands({
+      who: (ctx) => {
+        const a = ctx.agentId ? this.registry.get(ctx.agentId) : undefined;
+        return `${a?.name ?? "?"} (${a?.kind ?? "agent"} ${ctx.agentId ?? "-"}), conversation ${ctx.sessionId}`;
+      },
+      events: {
+        started: (c, ctx) =>
+          this.store
+            .append({
+              ownerId: ctx.ownerId,
+              projectId: ctx.projectId,
+              agentId: ctx.agentId,
+              sessionId: ctx.sessionId,
+              body: {
+                type: "command.started",
+                payload: {
+                  id: c.id,
+                  command: c.command,
+                  file: c.file,
+                  path: c.path,
+                  cwd: c.cwd,
+                  by: c.by,
+                  ...(c.callId && { callId: c.callId }),
+                  ...(c.pid && { pid: c.pid }),
+                },
+              },
+            })
+            .then(() => {}),
+        ended: (c, ctx) =>
+          this.store
+            .append({
+              ownerId: ctx.ownerId,
+              projectId: ctx.projectId,
+              agentId: ctx.agentId,
+              sessionId: ctx.sessionId,
+              body: {
+                type: "command.ended",
+                payload: {
+                  id: c.id,
+                  status: c.status === "running" ? "stopped" : c.status,
+                  exitCode: c.exitCode,
+                },
+              },
+            })
+            .then(() => {}),
+      },
+    });
     this.converter = new FileConverter({
       programs: this.programs,
       profileDir: join(dirname(o.workspacesDir), "tools", "libreoffice-profile"),
@@ -736,6 +794,7 @@ export class RedGiantCore implements OrchestrationHost {
     await core.registry.load();
     await core.policies.load();
     await core.tasks.rebuild();
+    await core.reapCommands();
     return core;
   }
 
@@ -1045,6 +1104,7 @@ export class RedGiantCore implements OrchestrationHost {
           ...(this.o.search && { search: this.o.search }),
           // show_file (G34.1): what it opens becomes an event the page follows.
           show: (r, ctx) => this.showFile(agent, r, ctx),
+          background: this.commands,
         })
       : [];
     // Closed formats into open ones, and the open packages' insides (G34.3): every workspace.
@@ -4223,6 +4283,100 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /**
+   * Background commands still running in the log when RedGiant starts (p3.3.1): left by a run
+   * that ended without stopping them. Each is stopped if its process is still there, and
+   * marked interrupted.
+   */
+  async reapCommands(deps?: ReapDeps): Promise<void> {
+    const events = await this.store.list({ types: ["command.started", "command.ended"] });
+    const ended = new Set(
+      events.flatMap((e) => (e.type === "command.ended" && e.payload ? [e.payload.id] : [])),
+    );
+    for (const e of events) {
+      if (e.type !== "command.started" || !e.payload || ended.has(e.payload.id)) continue;
+      if (this.commands.get(e.payload.id)) continue;
+      await reapOrphan({ id: e.payload.id, pid: e.payload.pid, startedAt: e.ts }, deps).catch(
+        () => false,
+      );
+      await this.store.append({
+        ownerId: e.ownerId,
+        projectId: e.projectId,
+        agentId: e.agentId,
+        sessionId: e.sessionId,
+        body: {
+          type: "command.ended",
+          payload: { id: e.payload.id, status: "interrupted", exitCode: null },
+        },
+      });
+    }
+  }
+
+  /** A background command of a conversation, as the log has it. */
+  private async commandOf(ownerId: string, sessionId: string, id: string) {
+    await this.open(ownerId, sessionId).catch((err) => {
+      if (!(err instanceof NoModelError)) throw err;
+    });
+    const events = await this.store.list({
+      sessionId,
+      types: ["command.started", "command.ended", "command.closed"],
+    });
+    const mine = events.filter((e) => (e.payload as { id?: string } | null)?.id === id);
+    const started = mine.find((e) => e.type === "command.started");
+    if (!started || started.type !== "command.started" || !started.payload)
+      throw new NotFoundError(`No background command "${id}" in this conversation`);
+    const end = mine.find((e) => e.type === "command.ended");
+    return {
+      started,
+      file: started.payload.file,
+      ended: end?.type === "command.ended" ? end.payload : undefined,
+      closed: mine.some((e) => e.type === "command.closed"),
+    };
+  }
+
+  /** Stops a conversation's background command (the person's «Stop», no confirmation). */
+  async stopCommand(ownerId: string, sessionId: string, id: string): Promise<void> {
+    await this.commandOf(ownerId, sessionId, id);
+    if (this.commands.get(id)?.sessionId === sessionId) await this.commands.stop(id);
+  }
+
+  /** Takes a finished command off the strip: recorded once, for every device. */
+  async closeCommand(ownerId: string, sessionId: string, id: string): Promise<void> {
+    const c = await this.commandOf(ownerId, sessionId, id);
+    if (c.closed) return;
+    if (this.commands.get(id)?.status === "running")
+      throw new BadRequestError("The command is still running: stop it first");
+    await this.store.append({
+      ownerId,
+      projectId: c.started.projectId,
+      agentId: c.started.agentId,
+      sessionId,
+      body: { type: "command.closed", payload: { id } },
+    });
+  }
+
+  /** A command's log for the page: lines with their times (the last ones, or from a line). */
+  async commandOutput(
+    ownerId: string,
+    sessionId: string,
+    id: string,
+    q: LogQuery = {},
+  ): Promise<{ log: ParsedLog; lines: LogLine[]; running: boolean }> {
+    const c = await this.commandOf(ownerId, sessionId, id);
+    const text = await readFile(c.file, "utf8").catch(() => "");
+    const log = parseLog(text);
+    return {
+      log,
+      lines: queryLog(log, { lines: 2000, tail: q.from === undefined, ...q }),
+      running: this.commands.get(id)?.status === "running",
+    };
+  }
+
+  /** Stops the background commands of a conversation (its sub-agent's work ended). */
+  stopCommands(sessionId: string): Promise<void> {
+    return this.commands.stopSession(sessionId);
+  }
+
+  /**
    * Closes a sub-agent's tab in a conversation (p3.3.1): only one that is not working (a working
    * one is stopped first, with «Stop»). Recorded in the conversation, so it stays closed on every
    * device, after a reload and after a restart; closing it again records nothing.
@@ -4316,6 +4470,8 @@ export class RedGiantCore implements OrchestrationHost {
     this.inspector.stop();
     this.code?.unwatch();
     for (const l of this.live.values()) l.running?.abort();
+    // Background commands stop with their whole tree (p3.3.1): nothing is left running.
+    await this.commands.stopAll();
     this.approvals.denyAll();
     this.questions.closeAll();
     for (const sb of this.sandboxes.values()) await (await sb.catch(() => undefined))?.destroy();

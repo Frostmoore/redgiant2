@@ -40,6 +40,8 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   one("write_file", "files", true),
   one("edit_file", "files", true),
   one("bash", "files", true),
+  // Background commands (p3.3.1) are part of bash: reading and stopping them goes with it.
+  one("bash_output", "files", true),
   one("glob", "files"),
   one("grep", "files"),
   one("update_todos", "files"),

@@ -2364,6 +2364,15 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     const sessionId = await core.forkSession(owner(c), c.req.param("id"), body.beforeSeq);
     return c.json({ sessionId }, 201);
   });
+  // A background command's log (p3.3.1): every line with its time and stream; the last 2000, or
+  // from a line on (the page follows a running one).
+  app.get("/api/sessions/:id/commands/:cmd/output", async (c) => {
+    const from = Number(c.req.query("from"));
+    const r = await core.commandOutput(owner(c), c.req.param("id"), c.req.param("cmd"), {
+      ...(Number.isInteger(from) && from > 0 && { from }),
+    });
+    return c.json(r, 200);
+  });
   app.post("/api/sessions/:id/compaction/undo", async (c) => {
     try {
       const ok = await core.undoCompaction(owner(c), c.req.param("id"));

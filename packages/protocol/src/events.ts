@@ -177,6 +177,36 @@ export const EventBody = z.discriminatedUnion("type", [
       summary: z.string().optional(),
     }),
   }),
+  /**
+   * A background command (p3.3.1): started by bash with background, in the conversation that
+   * started it. `file` is its log on the server (every line with its time and stream).
+   */
+  z.object({
+    type: z.literal("command.started"),
+    payload: z.object({
+      id: z.string(),
+      command: z.string(),
+      file: z.string(),
+      path: z.string(),
+      cwd: z.string(),
+      by: z.string(),
+      callId: z.string().optional(),
+      pid: z.number().int().optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal("command.ended"),
+    payload: z.object({
+      id: z.string(),
+      status: z.enum(["done", "failed", "stopped", "interrupted"]),
+      exitCode: z.number().int().nullable(),
+    }),
+  }),
+  /** Taken off the strip by the person: stays off on every device and after a restart. */
+  z.object({
+    type: z.literal("command.closed"),
+    payload: z.object({ id: z.string() }),
+  }),
   /** The person closed its tab: closed stays closed (reloads, other devices, restarts). */
   z.object({
     type: z.literal("subagent.closed"),

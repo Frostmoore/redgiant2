@@ -52,6 +52,7 @@ describe("baseTools", () => {
   it("gives every agent the same tools in canonical order", () => {
     expect(tools().map((t) => t.def.name)).toEqual([
       "bash",
+      "bash_output",
       "edit_file",
       "fetch",
       "glob",
