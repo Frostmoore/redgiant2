@@ -3407,18 +3407,27 @@ const en = {
   rqSection: "Requests to you",
   rqPageQ: "When an agent needs you",
   rqPageLead:
-    "Agents ask before risky actions, ask you questions, propose plans, ask for a tool or a key. Choose how long they wait for you, where they reach you, or whether they should not reach you at all.",
+    "Agents ask before risky actions, ask you questions, propose plans, ask for a tool or a key. Choose whether they ask you, and how long they wait for you.",
   rqModeTitle: "Ask me or not",
   rqModeQ: "Do you want to answer the agents' requests yourself?",
   rqModeAsk: "Ask me",
   rqModeClassifier: "Don't ask me anything",
-  rqModeAskText: "Requests reach you where you choose below and wait for your answer.",
+  rqModeAskText:
+    "Requests reach you everywhere: here and on the chats you connected. Answer where it suits you: the first answer counts, and the other copies close by themselves.",
   rqModeClassifierText:
-    "Nothing reaches you. A model you choose (the classifier) reads each request with the conversation and decides yes or no, writing why. You find every decision at the bottom of this page.",
+    "Nothing reaches you: the classifier decides, a model you choose. It reads each request with the conversation and writes why it decided so. The important requests (listed below) still reach you, everywhere.",
   rqModeClassifierWarn:
-    "The classifier can be wrong, and each decision costs a small request to its model. What only you approve is never decided by it: it is a no, and waits for you in «To review».",
+    "The classifier can be wrong, and each decision costs a small request to its model.",
   rqTimeTitle: "Time to answer",
   rqTimeQ: "How long should an agent wait for your answer?",
+  rqTimeQSpecial: "How long do the important requests wait for your answer?",
+  rqAfterSpecialText: "If you do not answer within {time}, it is a no.",
+  rqTimeNoneSpecial:
+    "They wait as long as it takes. A request to use a key still ends after 10 minutes.",
+  rqSpecialTitle: "The important requests",
+  rqSpecialQ: "What always reaches you?",
+  rqSpecialText:
+    "Only you decide these: they always reach you, here and on the chats you connected, also with «Don't ask me anything». The classifier never decides them.",
   rqTimeNone:
     "The agent waits as long as it takes. Requests to switch on a tool or use a key still end after 15 and 10 minutes.",
   rqAfterQ: "If you do not answer within {time}:",
@@ -3427,35 +3436,20 @@ const en = {
   rqAfterNoText:
     "An approval nobody gives is always a no. To a question the agent goes on with its best guess and tells you which.",
   rqAfterClassifierText:
-    "When the time runs out the classifier decides in your place, with the same rules as «Don't ask me anything».",
-  rqWhereTitle: "Where they reach you",
-  rqWhereQ: "Where do you want to see the requests?",
-  rqWhereWeb: "On this page",
-  rqWhereWebHelp: "The bell and the cards in the conversation.",
-  rqWhereChats: "In the chats",
-  rqWhereChatsHelp: "Telegram and the other chats you connected, with buttons.",
-  rqWhereNone:
-    "With both off nobody would see the requests: keep one, or choose «Don't ask me anything».",
+    "When the time runs out the classifier decides in your place, as with «Don't ask me anything». The important requests are a no instead.",
   rqClassifierTitle: "The classifier",
   rqClassifierQ: "Which model decides for you?",
   rqClassifierModel: "Model",
   rqClassifierDefault: "The light model ({model})",
   rqClassifierHow:
     "It reads what the agent asks, its job and the last messages of the conversation; it answers yes or no with a reason, or picks an answer to a question. When in doubt it says no; if it fails, it is a no.",
-  rqNeverTitle: "It never approves, they wait for you:",
   rqNeverKeychain: "Using a key from the keychain",
   rqNoModel: "none connected",
   rqSaved: "Saved: it counts from the next request.",
-  rqReviewTitle: "To review",
-  rqReviewTitleN: "To review ({n})",
-  rqReviewLead:
-    "Requests only you approve, blocked while you were not asked. The agent got a no: if it is needed, ask it again in the conversation.",
-  rqReviewEmpty: "Nothing to review.",
   rqDoneTitle: "Decided without you",
   rqDoneLead:
     "Every request the classifier decided, or that ended because nobody answered in time, newest first.",
   rqDoneEmpty: "No decision taken without you yet.",
-  rqSeen: "Seen",
   rqOpenChat: "Open the conversation",
   rqByModel: "Classifier ({model}):",
   rqByClassifier: "Classifier:",
@@ -3463,7 +3457,7 @@ const en = {
   rqDecision_allow: "Yes",
   rqDecision_deny: "No",
   rqDecision_answered: "Answered",
-  rqDecision_blocked: "Blocked, yours to decide",
+  rqDecision_blocked: "Blocked",
   rqKind_approval: "action",
   rqKind_question: "question",
   rqKind_plan: "plan",
@@ -6928,18 +6922,27 @@ const it: Record<Key, string> = {
   rqSection: "Richieste a te",
   rqPageQ: "Quando un agente ha bisogno di te",
   rqPageLead:
-    "Gli agenti chiedono prima delle azioni rischiose, ti fanno domande, propongono piani, chiedono uno strumento o una chiave. Scegli quanto ti aspettano, dove ti raggiungono, o se non devono raggiungerti affatto.",
+    "Gli agenti chiedono prima delle azioni rischiose, ti fanno domande, propongono piani, chiedono uno strumento o una chiave. Scegli se devono chiederlo a te, e quanto ti aspettano.",
   rqModeTitle: "Chiedermelo o no",
   rqModeQ: "Vuoi rispondere tu alle richieste degli agenti?",
   rqModeAsk: "Chiedimelo",
   rqModeClassifier: "Non chiedermi niente",
-  rqModeAskText: "Le richieste ti arrivano dove scegli qui sotto e aspettano la tua risposta.",
+  rqModeAskText:
+    "Le richieste ti arrivano ovunque: qui e sulle chat collegate. Rispondi dove ti è comodo: vale la prima risposta, e le altre copie si chiudono da sole.",
   rqModeClassifierText:
-    "Non ti arriva niente. Un modello che scegli tu (il classificatore) legge ogni richiesta con la conversazione e decide sì o no, scrivendo perché. Trovi ogni decisione in fondo a questa pagina.",
+    "Non ti arriva niente: decide il classificatore, un modello che scegli tu. Legge ogni richiesta con la conversazione e scrive perché ha deciso così. Le richieste importanti (quelle qui sotto) ti arrivano comunque, ovunque.",
   rqModeClassifierWarn:
-    "Il classificatore può sbagliare, e ogni decisione costa una piccola richiesta al suo modello. Quello che approvi solo tu non lo decide mai lui: è un no, e ti aspetta in «Da rivedere».",
+    "Il classificatore può sbagliare, e ogni decisione costa una piccola richiesta al suo modello.",
   rqTimeTitle: "Tempo per rispondere",
   rqTimeQ: "Quanto deve aspettare un agente la tua risposta?",
+  rqTimeQSpecial: "Quanto aspettano la tua risposta le richieste importanti?",
+  rqAfterSpecialText: "Se non rispondi entro {time}, è un no.",
+  rqTimeNoneSpecial:
+    "Aspettano quanto serve. Una richiesta di usare una chiave finisce comunque dopo 10 minuti.",
+  rqSpecialTitle: "Le richieste importanti",
+  rqSpecialQ: "Cosa ti arriva sempre?",
+  rqSpecialText:
+    "Queste le decidi solo tu: ti arrivano sempre, qui e sulle chat collegate, anche con «Non chiedermi niente». Il classificatore non le decide mai.",
   rqTimeNone:
     "L'agente aspetta quanto serve. Le richieste di accendere uno strumento o di usare una chiave finiscono comunque dopo 15 e 10 minuti.",
   rqAfterQ: "Se non rispondi entro {time}:",
@@ -6948,35 +6951,20 @@ const it: Record<Key, string> = {
   rqAfterNoText:
     "Un'approvazione che nessuno dà è sempre un no. A una domanda l'agente va avanti con la sua ipotesi migliore e ti dice quale.",
   rqAfterClassifierText:
-    "Allo scadere decide il classificatore al posto tuo, con le stesse regole di «Non chiedermi niente».",
-  rqWhereTitle: "Dove ti raggiungono",
-  rqWhereQ: "Dove vuoi vedere le richieste?",
-  rqWhereWeb: "In questa pagina",
-  rqWhereWebHelp: "La campanella e le schede nella conversazione.",
-  rqWhereChats: "Nelle chat",
-  rqWhereChatsHelp: "Telegram e le altre chat collegate, con i pulsanti.",
-  rqWhereNone:
-    "Con tutte e due spente nessuno vedrebbe le richieste: tienine una, o scegli «Non chiedermi niente».",
+    "Allo scadere decide il classificatore al posto tuo, come con «Non chiedermi niente». Le richieste importanti invece diventano un no.",
   rqClassifierTitle: "Il classificatore",
   rqClassifierQ: "Quale modello decide per te?",
   rqClassifierModel: "Modello",
   rqClassifierDefault: "Il modello leggero ({model})",
   rqClassifierHow:
     "Legge cosa chiede l'agente, il suo compito e gli ultimi messaggi della conversazione; risponde sì o no con un motivo, o sceglie una risposta a una domanda. Nel dubbio dice no; se non riesce, è un no.",
-  rqNeverTitle: "Non approva mai, aspettano te:",
   rqNeverKeychain: "Usare una chiave del portachiavi",
   rqNoModel: "nessuno collegato",
   rqSaved: "Salvato: vale dalla prossima richiesta.",
-  rqReviewTitle: "Da rivedere",
-  rqReviewTitleN: "Da rivedere ({n})",
-  rqReviewLead:
-    "Richieste che approvi solo tu, bloccate mentre non ti si chiedeva niente. L'agente ha ricevuto un no: se serve, chiediglielo di nuovo nella conversazione.",
-  rqReviewEmpty: "Niente da rivedere.",
   rqDoneTitle: "Decise senza di te",
   rqDoneLead:
     "Ogni richiesta decisa dal classificatore, o finita perché nessuno ha risposto in tempo, dalla più recente.",
   rqDoneEmpty: "Ancora nessuna decisione presa senza di te.",
-  rqSeen: "Visto",
   rqOpenChat: "Apri la conversazione",
   rqByModel: "Classificatore ({model}):",
   rqByClassifier: "Classificatore:",
@@ -6984,7 +6972,7 @@ const it: Record<Key, string> = {
   rqDecision_allow: "Sì",
   rqDecision_deny: "No",
   rqDecision_answered: "Ha risposto",
-  rqDecision_blocked: "Bloccata, decidi tu",
+  rqDecision_blocked: "Bloccata",
   rqKind_approval: "azione",
   rqKind_question: "domanda",
   rqKind_plan: "piano",

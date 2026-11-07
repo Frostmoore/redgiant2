@@ -52,18 +52,24 @@ export function attachWebSocket(
       ownerId: string,
       info: Parameters<Parameters<typeof core.approvals.on<"request">>[1]>[1],
     ) => {
-      if (principal?.ownerId === ownerId && core.requestsReach(ownerId, "web"))
-        send({ type: "permission.request", request: info });
+      // A request asked of the person reaches every channel (G36.17), this page included.
+      if (principal?.ownerId === ownerId) send({ type: "permission.request", request: info });
     };
-    const onClosed = (ownerId: string, requestId: string, decision: "allow" | "deny") => {
-      if (principal?.ownerId === ownerId) send({ type: "permission.closed", requestId, decision });
+    const onClosed = (
+      ownerId: string,
+      requestId: string,
+      decision: "allow" | "deny",
+      via: string | undefined,
+    ) => {
+      if (principal?.ownerId === ownerId)
+        send({ type: "permission.closed", requestId, decision, ...(via && { via }) });
     };
     const onQuestion = (ownerId: string, request: QuestionRequestInfo) => {
-      if (principal?.ownerId === ownerId && core.requestsReach(ownerId, "web"))
-        send({ type: "question.request", request });
+      if (principal?.ownerId === ownerId) send({ type: "question.request", request });
     };
-    const onQuestionClosed = (ownerId: string, requestId: string) => {
-      if (principal?.ownerId === ownerId) send({ type: "question.closed", requestId });
+    const onQuestionClosed = (ownerId: string, requestId: string, via: string | undefined) => {
+      if (principal?.ownerId === ownerId)
+        send({ type: "question.closed", requestId, ...(via && { via }) });
     };
     const onBoard = (ownerId: string, projectId: string | null, threadId: string) => {
       if (principal?.ownerId === ownerId) send({ type: "board.changed", projectId, threadId });
@@ -124,13 +130,10 @@ export function attachWebSocket(
           offPlatform = core.changes.onChange(onPlatform);
           offRooms = core.rooms.onChange(onRoom);
           send({ type: "welcome", protocolVersion: PROTOCOL_VERSION, ownerId: principal.ownerId });
-          // Requests reach the page only if the person wants them there (G36.17).
-          if (core.requestsReach(principal.ownerId, "web")) {
-            for (const r of core.approvals.list(principal.ownerId))
-              send({ type: "permission.request", request: r });
-            for (const q of core.questions.list(principal.ownerId))
-              send({ type: "question.request", request: q });
-          }
+          for (const r of core.approvals.list(principal.ownerId))
+            send({ type: "permission.request", request: r });
+          for (const q of core.questions.list(principal.ownerId))
+            send({ type: "question.request", request: q });
           return;
         }
         const owner = principal.ownerId;
@@ -161,7 +164,7 @@ export function attachWebSocket(
             await core.unqueue(owner, msg.sessionId, msg.clientId);
             return;
           case "question.answer":
-            if (!core.questions.answer(owner, msg.requestId, msg.answers))
+            if (!core.questions.answer(owner, msg.requestId, msg.answers, "web"))
               return fail("not_found", "No such open question");
             return;
           // The agents' browser (G24.14b): watching, control, the person's input (never logged).
@@ -216,7 +219,7 @@ export function attachWebSocket(
             const toolRequest = pending?.tool === "request_tool";
             if (toolRequest)
               core.toolRequestScope(msg.requestId, msg.remember ? "always" : msg.scope);
-            if (!core.approvals.decide(owner, msg.requestId, msg.decision, msg.reason))
+            if (!core.approvals.decide(owner, msg.requestId, msg.decision, msg.reason, "web"))
               return fail("not_found", "No such pending request");
             if (toolRequest) return;
             // For this conversation only (2026-11-05): never for a danger, which asks every time.

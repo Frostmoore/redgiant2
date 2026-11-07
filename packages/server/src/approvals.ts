@@ -9,12 +9,13 @@ interface Pending {
 }
 
 /**
- * Requests waiting for the human. Any connected client of the owner may answer; the first
- * answer wins and every client is told the request is closed.
+ * Requests waiting for the human. Every channel gets them at once (the page and every linked
+ * chat, G36.17); the first answer wins and every channel is told the request is closed, and where
+ * it was decided (`via`: "web", a chat platform, "timeout").
  */
 export class HumanApprovals extends EventEmitter<{
   request: [ownerId: string, info: PermissionRequestInfo];
-  closed: [ownerId: string, requestId: string, decision: "allow" | "deny"];
+  closed: [ownerId: string, requestId: string, decision: "allow" | "deny", via: string | undefined];
 }> {
   private readonly pending = new Map<string, Pending>();
 
@@ -34,9 +35,19 @@ export class HumanApprovals extends EventEmitter<{
     const ownerId = request.requester.ownerId;
     return new Promise((resolve) => {
       this.pending.set(info.requestId, { info, ownerId, resolve });
-      signal.addEventListener("abort", () => this.decide(ownerId, info.requestId, "deny"), {
-        once: true,
-      });
+      // The person's time running out aborts with "timeout" (PersonRequests): the copies say so.
+      signal.addEventListener(
+        "abort",
+        () =>
+          this.decide(
+            ownerId,
+            info.requestId,
+            "deny",
+            undefined,
+            signal.reason === "timeout" ? "timeout" : undefined,
+          ),
+        { once: true },
+      );
       this.emit("request", ownerId, info);
     });
   }
@@ -46,12 +57,18 @@ export class HumanApprovals extends EventEmitter<{
   }
 
   /** Returns false when the request does not exist or belongs to someone else. */
-  decide(ownerId: string, requestId: string, decision: "allow" | "deny", reason?: string): boolean {
+  decide(
+    ownerId: string,
+    requestId: string,
+    decision: "allow" | "deny",
+    reason?: string,
+    via?: string,
+  ): boolean {
     const p = this.pending.get(requestId);
     if (!p || p.ownerId !== ownerId) return false;
     this.pending.delete(requestId);
     p.resolve(decision === "deny" && reason?.trim() ? { deny: reason.trim() } : decision);
-    this.emit("closed", ownerId, requestId, decision);
+    this.emit("closed", ownerId, requestId, decision, via);
     return true;
   }
 

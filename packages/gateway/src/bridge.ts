@@ -10,6 +10,7 @@ import { randomInt } from "node:crypto";
 import type { SqlClient } from "@redgiant/events";
 import {
   type Answers,
+  CHANNEL_NAMES,
   dangerWords,
   type ImagePart,
   type PermissionRequestInfo,
@@ -117,18 +118,31 @@ export interface GatewayHost {
     on(event: "request", l: (ownerId: string, info: PermissionRequestInfo) => void): unknown;
     on(
       event: "closed",
-      l: (ownerId: string, requestId: string, decision: "allow" | "deny") => void,
+      l: (
+        ownerId: string,
+        requestId: string,
+        decision: "allow" | "deny",
+        via: string | undefined,
+      ) => void,
     ): unknown;
-    decide(ownerId: string, requestId: string, decision: "allow" | "deny"): boolean;
+    /** `via`: where the person decided (this platform), told to the other copies. */
+    decide(
+      ownerId: string,
+      requestId: string,
+      decision: "allow" | "deny",
+      reason?: string,
+      via?: string,
+    ): boolean;
   };
   questions?: {
     on(event: "request", l: (ownerId: string, info: QuestionRequestInfo) => void): unknown;
-    on(event: "closed", l: (ownerId: string, requestId: string) => void): unknown;
-    answer(ownerId: string, requestId: string, answers: Answers): boolean;
+    on(
+      event: "closed",
+      l: (ownerId: string, requestId: string, via: string | undefined) => void,
+    ): unknown;
+    answer(ownerId: string, requestId: string, answers: Answers, via?: string): boolean;
   };
   language?(ownerId: string): Language;
-  /** Whether the person wants requests in the chats now (G36.17, Settings > Requests). */
-  requestsReach?(ownerId: string, channel: "chats"): boolean;
 }
 
 export interface ChatLink {
@@ -235,22 +249,24 @@ export class ChatBridge {
     h.approvals.on(
       "request",
       guard(async (owner: string, info: PermissionRequestInfo) => {
-        if (h.requestsReach?.(owner, "chats") !== false) await this.sendApproval(owner, info);
+        await this.sendApproval(owner, info);
       }),
     );
     h.approvals.on(
       "closed",
-      guard((_o: string, id: string, d: "allow" | "deny") => this.closeApproval(id, d)),
+      guard((_o: string, id: string, d: "allow" | "deny", via: string | undefined) =>
+        this.closeApproval(id, d, via),
+      ),
     );
     h.questions?.on(
       "request",
       guard(async (owner: string, info: QuestionRequestInfo) => {
-        if (h.requestsReach?.(owner, "chats") !== false) await this.sendQuestion(owner, info);
+        await this.sendQuestion(owner, info);
       }),
     );
     h.questions?.on(
       "closed",
-      guard((_o: string, id: string) => this.closeQuestion(id)),
+      guard((_o: string, id: string, via: string | undefined) => this.closeQuestion(id, via)),
     );
     await this.t.start((m) => this.onIncoming(m));
   }
@@ -565,19 +581,22 @@ export class ChatBridge {
     }
   }
 
-  private async closeApproval(requestId: string, decision: "allow" | "deny") {
+  private async closeApproval(
+    requestId: string,
+    decision: "allow" | "deny",
+    via: string | undefined,
+  ) {
     const owner = this.sentOwner.get(requestId);
-    for (const m of this.sent.get(requestId) ?? []) {
+    const sent = this.sent.get(requestId) ?? [];
+    const tail = this.closedText(owner, via, decision);
+    for (const m of sent) {
       this.clearPrompt(m.chatId, requestId);
       if (m.messageId && this.t.edit)
-        await this.t
-          .edit(
-            m.chatId,
-            m.messageId,
-            `${m.text}\n\n${this.say(owner, decision === "allow" ? "allowed" : "denied")}`,
-          )
-          .catch(() => {});
+        await this.t.edit(m.chatId, m.messageId, `${m.text}\n\n${tail}`).catch(() => {});
     }
+    // A platform that cannot edit is told in a new line, when the answer came from elsewhere.
+    if (!this.t.edit && via && via !== this.platform)
+      for (const chatId of new Set(sent.map((m) => m.chatId))) await this.reply(chatId, tail);
     this.sent.delete(requestId);
     this.sentOwner.delete(requestId);
   }
@@ -654,20 +673,43 @@ export class ChatBridge {
       return;
     }
     this.asking.delete(a.info.requestId);
-    this.o.host.questions?.answer(a.ownerId, a.info.requestId, a.answers);
+    this.o.host.questions?.answer(a.ownerId, a.info.requestId, a.answers, this.platform);
   }
 
-  private async closeQuestion(requestId: string) {
+  private async closeQuestion(requestId: string, via: string | undefined) {
     const a = this.asking.get(requestId);
     if (!a) return;
     this.asking.delete(requestId);
+    const tail = this.closedText(a.ownerId, via);
     for (const m of a.sent) {
       this.clearPrompt(m.chatId, requestId);
       if (m.messageId && this.t.edit)
-        await this.t
-          .edit(m.chatId, m.messageId, `${m.text}\n\n${this.say(a.ownerId, "noAnswer")}`)
-          .catch(() => {});
+        await this.t.edit(m.chatId, m.messageId, `${m.text}\n\n${tail}`).catch(() => {});
     }
+    if (!this.t.edit && via)
+      for (const chatId of new Set(a.sent.map((m) => m.chatId))) await this.reply(chatId, tail);
+  }
+
+  /**
+   * What a copy of a request says once it closed (G36.17: every request reaches every channel,
+   * the first answer decides): decided here, elsewhere ("already decided by you on Telegram"),
+   * or the time ran out.
+   */
+  private closedText(
+    owner: string | undefined,
+    via: string | undefined,
+    decision?: "allow" | "deny",
+  ): string {
+    if (via === "timeout") return this.say(owner, "timedOut");
+    const done = decision && this.say(owner, decision === "allow" ? "allowed" : "denied");
+    if (!via || via === this.platform) return done ?? this.say(owner, "noAnswer");
+    const where =
+      via === "web"
+        ? this.say(owner, "whereWeb")
+        : this.say(owner, "whereChat", { name: CHANNEL_NAMES[via] ?? via });
+    return done
+      ? this.say(owner, "decidedVia", { where, decision: done.toLowerCase() })
+      : this.say(owner, "answeredVia", { where });
   }
 
   private clearPrompt(chatId: string, requestId: string) {
@@ -683,7 +725,13 @@ export class ChatBridge {
       : undefined;
     if (p.kind === "perm") {
       if (numbers?.length !== 1 || (numbers[0] !== 0 && numbers[0] !== 1)) return false;
-      this.o.host.approvals.decide(owner, p.requestId, numbers[0] === 0 ? "allow" : "deny");
+      this.o.host.approvals.decide(
+        owner,
+        p.requestId,
+        numbers[0] === 0 ? "allow" : "deny",
+        undefined,
+        this.platform,
+      );
       return true;
     }
     const a = this.asking.get(p.requestId);
@@ -701,7 +749,13 @@ export class ChatBridge {
   private async onButton(owner: string, id: string) {
     const perm = id.match(/^perm:(.+):(allow|deny)$/);
     if (perm) {
-      this.o.host.approvals.decide(owner, perm[1] as string, perm[2] as "allow" | "deny");
+      this.o.host.approvals.decide(
+        owner,
+        perm[1] as string,
+        perm[2] as "allow" | "deny",
+        undefined,
+        this.platform,
+      );
       return;
     }
     const q = id.match(/^q:(.+):(\d+):(\d+)$/);

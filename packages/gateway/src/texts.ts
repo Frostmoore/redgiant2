@@ -26,6 +26,11 @@ const en = {
   revisePlan: "Keep planning",
   answered: "Answered: {answer}",
   noAnswer: "Closed without an answer.",
+  decidedVia: "Already decided by you {where}: {decision}.",
+  answeredVia: "Already answered by you {where}.",
+  timedOut: "Time ran out without your answer.",
+  whereWeb: "on the web page",
+  whereChat: "on {name}",
   pickByNumber: "Reply with the number of your choice{many}, or write your own answer.",
   pickMany: " (more than one: 1,3)",
   noTranscription:
@@ -70,6 +75,11 @@ const it: Record<TextKey, string> = {
   revisePlan: "Continua a pianificare",
   answered: "Risposta: {answer}",
   noAnswer: "Chiusa senza risposta.",
+  decidedVia: "Già deciso da te {where}: {decision}.",
+  answeredVia: "Già risposto da te {where}.",
+  timedOut: "Tempo scaduto senza la tua risposta.",
+  whereWeb: "nella pagina web",
+  whereChat: "su {name}",
   pickByNumber: "Rispondi con il numero della scelta{many}, oppure scrivi una risposta tua.",
   pickMany: " (più di una: 1,3)",
   noTranscription:

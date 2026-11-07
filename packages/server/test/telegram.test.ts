@@ -260,6 +260,43 @@ describe("Demi-God on Telegram", () => {
     expect(tg?.calls.find((c) => c.method === "editMessageText")?.body.text).toMatch(/Allowed$/);
   });
 
+  it("a request answered on the web page: Telegram's copy says where it was decided (G36.17)", async () => {
+    const { god } = await setup((req) =>
+      toolResult(req) === undefined
+        ? { toolCalls: [{ name: "write_file", input: { path: "a.txt", content: "x" } }] }
+        : { text: "done" },
+    );
+    await pair();
+    await s?.api("POST", "/api/projects", { name: "P" });
+    const orch = await s?.api<{ id: string }>("POST", "/api/agents", {
+      kind: "orchestrator",
+      parentId: god,
+      projectId: "p",
+      name: "O",
+      mode: "manual",
+    });
+    const sid =
+      (await s?.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: orch?.body.id }))
+        ?.body.sessionId ?? "";
+    const turn = (await s?.core.send("me", sid, "write"))?.done;
+    let ask: Record<string, unknown> | undefined;
+    for (let i = 0; i < 100 && !ask; i++) {
+      await new Promise((r) => setTimeout(r, 30));
+      ask = tg?.sent(USER).find((m) => String(m.text).startsWith("Approval needed"));
+    }
+    const [pending] = s?.core.approvals.list("me") ?? [];
+    expect(pending?.tool).toBe("write_file");
+    const res = await s?.api("POST", `/api/permissions/${pending?.requestId}`, {
+      decision: "allow",
+    });
+    expect(res?.status).toBe(200);
+    expect((await turn)?.stopReason).toBe("end_turn");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(tg?.calls.find((c) => c.method === "editMessageText")?.body.text).toMatch(
+      /Already decided by you on the web page: allowed\.$/,
+    );
+  });
+
   it("asks God's questions with buttons, in the wizard's language, and takes replies as answers", async () => {
     const { god } = await setup((req) =>
       toolResult(req) === undefined

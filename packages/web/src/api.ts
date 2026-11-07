@@ -1031,14 +1031,9 @@ export class Api {
     }>("GET", "/api/settings/requests");
   setRequestSettings = (s: import("@redgiant/protocol").RequestSettings) =>
     this.call<PlatformChange>("PUT", "/api/settings/requests", s);
-  /** Requests decided without the person; `review`: only the blocked ones not seen yet. */
-  unattended = (review = false) =>
-    this.call<import("@redgiant/protocol").UnattendedDecision[]>(
-      "GET",
-      `/api/unattended${review ? "?review=1" : ""}`,
-    );
-  unattendedSeen = (id: string) =>
-    this.call<{ ok: boolean }>("POST", `/api/unattended/${encodeURIComponent(id)}/reviewed`);
+  /** Requests decided without the person (the classifier, or the time running out). */
+  unattended = () =>
+    this.call<import("@redgiant/protocol").UnattendedDecision[]>("GET", "/api/unattended");
   /** Tools off for every agent (the essential ones are refused). */
   setToolsOff = (off: string[]) => this.call<PlatformChange>("PUT", "/api/tools", { off });
   /** One agent's own choice: always on, off, or as for every agent ("default"). */

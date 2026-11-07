@@ -896,7 +896,7 @@ if (subSession)
   await (await core.send("local", subSession, "Avvia il server di prova, i test e la build.")).done;
 // G36.16, G36.17, DEMO_REQUESTS=1: background commands without a time limit, and «Non chiedermi
 // niente»: the classifier said yes to an install, no to a deletion, answered a question, and a
-// push (only the person approves it) waits in «Da rivedere».
+// push (only the person approves it) still reaches the person and waits for their answer.
 if (process.env.DEMO_REQUESTS) {
   await core.config.setPersonSettings("local", "human", "commands", {
     maxPerSession: 8,
@@ -949,7 +949,8 @@ if (process.env.DEMO_REQUESTS) {
     "question",
   );
   await ask("rm -rf build/ dist/ node_modules/", [], false);
-  await ask("git push --force origin main", ["git-push", "git-history"], true);
+  // A special request: asked of the person even with «Non chiedermi niente» (not awaited).
+  void ask("git push --force origin main", ["git-push", "git-history"], true);
 }
 let viewerSession;
 if (process.env.DEMO_SAMPLES) {

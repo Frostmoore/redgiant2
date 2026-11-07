@@ -41,38 +41,41 @@ export type CommandSettings = z.infer<typeof CommandSettings>;
 export const DEFAULT_COMMAND_SETTINGS: CommandSettings = CommandSettings.parse({});
 
 /**
- * What reaches the person (G36.17): approvals, questions, plans, tool and credential requests.
- * "ask": they reach the chosen channels and wait up to `timeoutMs`; then an approval is a no,
- * unless `afterTimeout` is "classifier". "classifier" ("don't ask me anything"): nothing reaches
- * the person; the classifier decides, never on a danger only the person approves (those stay a
- * no and wait in the review list).
+ * What reaches the person (G36.17, the person: «Se le richieste sono attive devono arrivare
+ * ovunque, se non sono attive non devono arrivare da nessuna parte. Quelle speciali devono
+ * arrivare dovunque»). "ask": every request reaches every channel at once (the web page and every
+ * linked chat); the first answer decides and closes the other copies; it waits up to `timeoutMs`,
+ * then an approval is a no unless `afterTimeout` is "classifier". "classifier" ("don't ask me
+ * anything"): nothing reaches the person and the classifier decides, except the special requests
+ * (dangers only the person approves, keychain keys): those reach every channel in both modes, are
+ * never the classifier's, and a time that runs out on them is always a no.
  */
-export const RequestSettings = z
-  .object({
-    mode: z.enum(["ask", "classifier"]).default("ask"),
-    /** How long a request waits for the person; null: no limit. */
-    timeoutMs: z
-      .number()
-      .int()
-      .min(MINUTE)
-      .max(7 * DAY)
-      .nullable()
-      .default(null),
-    /** When the time runs out: an approval is a no, or the classifier decides. */
-    afterTimeout: z.enum(["no", "classifier"]).default("no"),
-    /** The classifier's model; absent: the light default model. */
-    classifierModel: ModelSpec.optional(),
-    /** Where requests reach the person: the web page, and the chats (Telegram and the others). */
-    channels: z
-      .object({ web: z.boolean().default(true), chats: z.boolean().default(true) })
-      .default({ web: true, chats: true }),
-  })
-  .refine((s) => s.mode === "classifier" || s.channels.web || s.channels.chats, {
-    message:
-      'Requests must reach the person somewhere: keep the web page or the chats, or choose "classifier"',
-    path: ["channels"],
-  });
-export type RequestSettings = z.infer<typeof RequestSettings>;
+const RequestSettingsShape = z.object({
+  mode: z.enum(["ask", "classifier"]).default("ask"),
+  /** How long a request waits for the person; null: no limit. */
+  timeoutMs: z
+    .number()
+    .int()
+    .min(MINUTE)
+    .max(7 * DAY)
+    .nullable()
+    .default(null),
+  /** When the time runs out: an approval is a no, or the classifier decides (never on a special one). */
+  afterTimeout: z.enum(["no", "classifier"]).default("no"),
+  /** The classifier's model; absent: the light default model. */
+  classifierModel: ModelSpec.optional(),
+});
+
+/**
+ * Settings saved before the channels went away (G36.17, 2026-11-07) had `channels: {web, chats}`:
+ * dropped, since a request now reaches every channel or none.
+ */
+export const RequestSettings = z.preprocess((v) => {
+  if (!v || typeof v !== "object" || !("channels" in v)) return v;
+  const { channels: _gone, ...rest } = v as Record<string, unknown>;
+  return rest;
+}, RequestSettingsShape);
+export type RequestSettings = z.infer<typeof RequestSettingsShape>;
 export const DEFAULT_REQUEST_SETTINGS: RequestSettings = RequestSettings.parse({});
 
 /** The kinds of requests that reach the person. */
@@ -88,7 +91,7 @@ export type RequestKind = z.infer<typeof RequestKind>;
 
 /**
  * A request decided without the person (G36.17): by the classifier, or by the time running out.
- * `review`: a danger only the person approves, blocked; it waits in the review list.
+ * "blocked" only in older history: special requests now reach the person instead of being blocked.
  */
 export const UnattendedDecision = z.object({
   id: z.string(),
@@ -107,8 +110,21 @@ export const UnattendedDecision = z.object({
   reason: z.string(),
   /** The classifier's model, when one decided. */
   model: z.string().nullable(),
-  review: z.boolean(),
-  reviewedAt: z.string().nullable(),
   createdAt: z.string(),
 });
 export type UnattendedDecision = z.infer<typeof UnattendedDecision>;
+
+/**
+ * Where the person answered a request (G36.17): "web", a chat platform's id, or "timeout". The
+ * other copies of the request say so ("already decided by you on Telegram").
+ */
+export const CHANNEL_NAMES: Record<string, string> = {
+  telegram: "Telegram",
+  whatsapp: "WhatsApp",
+  discord: "Discord",
+  slack: "Slack",
+  signal: "Signal",
+  matrix: "Matrix",
+  teams: "Microsoft Teams",
+  imessage: "iMessage",
+};

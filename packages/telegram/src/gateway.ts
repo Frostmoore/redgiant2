@@ -3,6 +3,7 @@ import { autoRetry } from "@grammyjs/auto-retry";
 import type { SqlClient } from "@redgiant/events";
 import {
   type Answers,
+  CHANNEL_NAMES,
   dangerWords,
   type ImagePart,
   type PermissionRequestInfo,
@@ -56,20 +57,33 @@ export interface TelegramHost {
     on(event: "request", l: (ownerId: string, info: PermissionRequestInfo) => void): unknown;
     on(
       event: "closed",
-      l: (ownerId: string, requestId: string, decision: "allow" | "deny") => void,
+      l: (
+        ownerId: string,
+        requestId: string,
+        decision: "allow" | "deny",
+        via: string | undefined,
+      ) => void,
     ): unknown;
-    decide(ownerId: string, requestId: string, decision: "allow" | "deny"): boolean;
+    /** `via`: where the person decided ("telegram"), told to the other copies. */
+    decide(
+      ownerId: string,
+      requestId: string,
+      decision: "allow" | "deny",
+      reason?: string,
+      via?: string,
+    ): boolean;
   };
   /** Questions and plans from the agents (ask_user, propose_plan), answered with buttons. */
   questions?: {
     on(event: "request", l: (ownerId: string, info: QuestionRequestInfo) => void): unknown;
-    on(event: "closed", l: (ownerId: string, requestId: string) => void): unknown;
-    answer(ownerId: string, requestId: string, answers: Answers): boolean;
+    on(
+      event: "closed",
+      l: (ownerId: string, requestId: string, via: string | undefined) => void,
+    ): unknown;
+    answer(ownerId: string, requestId: string, answers: Answers, via?: string): boolean;
   };
   /** What its texts are written in: the agents' language if translated, else the interface's. */
   language?(ownerId: string): Language;
-  /** Whether the person wants requests in the chats now (G36.17, Settings > Requests). */
-  requestsReach?(ownerId: string, channel: "chats"): boolean;
 }
 
 /** A question being answered on Telegram: one message per question. */
@@ -174,22 +188,21 @@ export class TelegramGateway {
     this.bot.on(["message:voice", "message:audio"], (ctx) => this.onVoice(ctx));
     this.bot.on("callback_query:data", (ctx) => this.onButton(ctx));
     this.bot.catch((err) => console.error("telegram:", err.message));
+    // A request asked of the person reaches every channel (G36.17), Telegram included.
     o.host.approvals.on("request", (ownerId, info) => {
-      if (o.host.requestsReach?.(ownerId, "chats") === false) return;
       void this.sendApproval(ownerId, info).catch(() => {});
     });
     o.host.approvals.on(
       "closed",
-      (_ownerId, requestId, decision) =>
-        void this.closeApproval(requestId, decision).catch(() => {}),
+      (_ownerId, requestId, decision, via) =>
+        void this.closeApproval(requestId, decision, via).catch(() => {}),
     );
     o.host.questions?.on("request", (ownerId, info) => {
-      if (o.host.requestsReach?.(ownerId, "chats") === false) return;
       void this.sendQuestion(ownerId, info).catch(() => {});
     });
     o.host.questions?.on(
       "closed",
-      (_ownerId, requestId) => void this.closeQuestion(requestId).catch(() => {}),
+      (_ownerId, requestId, via) => void this.closeQuestion(requestId, via).catch(() => {}),
     );
   }
 
@@ -561,15 +574,16 @@ export class TelegramGateway {
     }
   }
 
-  private async closeApproval(requestId: string, decision: "allow" | "deny") {
+  private async closeApproval(
+    requestId: string,
+    decision: "allow" | "deny",
+    via: string | undefined,
+  ) {
     const owner = this.sentOwner.get(requestId);
+    const tail = this.closedText(owner, via, decision);
     for (const m of this.sent.get(requestId) ?? []) {
       await this.bot.api
-        .editMessageText(
-          m.chatId,
-          m.messageId,
-          `${m.text}\n\n${this.say(owner, decision === "allow" ? "allowed" : "denied")}`,
-        )
+        .editMessageText(m.chatId, m.messageId, `${m.text}\n\n${tail}`)
         .catch(() => {});
     }
     this.sent.delete(requestId);
@@ -651,7 +665,7 @@ export class TelegramGateway {
         .catch(() => {});
     if (a.answers.every((x) => x !== null)) {
       this.asking.delete(a.info.requestId);
-      this.o.host.questions?.answer(a.ownerId, a.info.requestId, a.answers as Answers);
+      this.o.host.questions?.answer(a.ownerId, a.info.requestId, a.answers as Answers, "telegram");
     }
   }
 
@@ -666,14 +680,37 @@ export class TelegramGateway {
     return false;
   }
 
-  private async closeQuestion(requestId: string) {
+  private async closeQuestion(requestId: string, via: string | undefined) {
     const a = this.asking.get(requestId);
     if (!a) return;
     this.asking.delete(requestId);
+    const tail = this.closedText(a.ownerId, via);
     for (const m of a.messages.filter((x) => a.answers[x.index] === null))
       await this.bot.api
-        .editMessageText(m.chatId, m.messageId, `${m.text}\n\n${this.say(a.ownerId, "noAnswer")}`)
+        .editMessageText(m.chatId, m.messageId, `${m.text}\n\n${tail}`)
         .catch(() => {});
+  }
+
+  /**
+   * What a copy of a request says once it closed (G36.17: every request reaches every channel,
+   * the first answer decides): decided here, elsewhere ("already decided by you on the web
+   * page"), or the time ran out.
+   */
+  private closedText(
+    owner: string | undefined,
+    via: string | undefined,
+    decision?: "allow" | "deny",
+  ): string {
+    if (via === "timeout") return this.say(owner, "timedOut");
+    const done = decision && this.say(owner, decision === "allow" ? "allowed" : "denied");
+    if (!via || via === "telegram") return done ?? this.say(owner, "noAnswer");
+    const where =
+      via === "web"
+        ? this.say(owner, "whereWeb")
+        : this.say(owner, "whereChat", { name: CHANNEL_NAMES[via] ?? via });
+    return done
+      ? this.say(owner, "decidedVia", { where, decision: done.toLowerCase() })
+      : this.say(owner, "answeredVia", { where });
   }
 
   private async onQuestionButton(ctx: Context, owner: string, data: string) {
@@ -723,7 +760,13 @@ export class TelegramGateway {
       await ctx.answerCallbackQuery({ text: this.say(owner, "notAllowed") });
       return;
     }
-    const ok = this.o.host.approvals.decide(owner, m[1] as string, m[2] as "allow" | "deny");
+    const ok = this.o.host.approvals.decide(
+      owner,
+      m[1] as string,
+      m[2] as "allow" | "deny",
+      undefined,
+      "telegram",
+    );
     await ctx.answerCallbackQuery({
       text: this.say(owner, ok ? (m[2] === "allow" ? "allowed" : "denied") : "closedAlready"),
     });

@@ -1,8 +1,10 @@
 // Requests to the person (G36.17) and the commands' limits as configuration (G36.16). The person's
 // time runs on a fake clock; the classifier is scripted (or a FakeProvider behind the real one).
-// An approval nobody answers is a no; only the classifier's explicit yes allows, never on a danger
-// only the person approves (blocked, in the review list), and a classifier that fails is a no.
+// An approval nobody answers is a no; only the classifier's explicit yes allows, never on a special
+// request (a danger only the person approves, a key): those reach the person everywhere in both
+// modes. A request asked of the person reaches every channel; the first answer closes the copies.
 import { EventStore, migrate } from "@redgiant/events";
+import { type Button, ChatBridge, type Incoming, type Transport } from "@redgiant/gateway";
 import {
   type AgentRecord,
   AgentRegistry,
@@ -79,6 +81,31 @@ const request = (danger: string[] = []): ApprovalRequest => ({
 });
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
+/** Waits (a little, in real time) until the chats got their messages: they read the database. */
+const until = async (ok: () => boolean) => {
+  for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 10));
+};
+
+/** A chat platform with buttons and edits, as Discord, Slack or WhatsApp. */
+class FakeChat implements Transport {
+  readonly maxLength = 4000;
+  readonly buttons = true;
+  on: ((m: Incoming) => Promise<void>) | undefined;
+  sent: { chatId: string; text: string; buttons?: Button[] }[] = [];
+  edits: { messageId: string; text: string }[] = [];
+  constructor(readonly platform: "discord" | "whatsapp") {}
+  async start(on: (m: Incoming) => Promise<void>) {
+    this.on = on;
+  }
+  async stop() {}
+  async send(chatId: string, text: string, buttons?: Button[]) {
+    this.sent.push({ chatId, text, ...(buttons?.length && { buttons }) });
+    return `m${this.sent.length}`;
+  }
+  async edit(_chatId: string, messageId: string, text: string) {
+    this.edits.push({ messageId, text });
+  }
+}
 
 async function rig(settings: Partial<RequestSettings>, classify?: Classifier) {
   const { db } = await memoryDb();
@@ -93,7 +120,6 @@ async function rig(settings: Partial<RequestSettings>, classify?: Classifier) {
   await stored.set("me", settings);
   const clock = fakeClock();
   const asked: ClassifyRequest[] = [];
-  const reviews: UnattendedDecision[] = [];
   const person = new PersonRequests({
     db,
     store,
@@ -107,13 +133,12 @@ async function rig(settings: Partial<RequestSettings>, classify?: Classifier) {
     },
     defaultModel: () => ({ provider: "fake", model: "light" }),
     language: () => "it",
-    onReview: (_o, d) => reviews.push(d),
     timer: clock.timer,
   });
   const shown: string[] = [];
   approvals.on("request", (_o, info) => shown.push(info.requestId));
   questions.on("request", (_o, info) => shown.push(info.requestId));
-  return { db, store, approvals, questions, person, clock, asked, reviews, shown };
+  return { db, store, approvals, questions, person, clock, asked, shown };
 }
 
 const approve = (r: Awaited<ReturnType<typeof rig>>, req: ApprovalRequest, humanOnly = false) =>
@@ -140,17 +165,30 @@ const question = (): QuestionRequestInfo => ({
 });
 
 describe("requests to the person (G36.17)", () => {
-  it("validates the settings: a time between a minute and a week, a channel unless the classifier", () => {
+  it("validates the settings: a time between a minute and a week", () => {
     expect(RequestSettings.safeParse({ timeoutMs: 1000 }).success).toBe(false);
     expect(RequestSettings.safeParse({ timeoutMs: 15 * 60_000 }).success).toBe(true);
     expect(RequestSettings.safeParse({ timeoutMs: null }).success).toBe(true);
-    expect(RequestSettings.safeParse({ channels: { web: false, chats: false } }).success).toBe(
-      false,
-    );
+  });
+
+  it("settings saved with the old channels load without them (every channel or none)", async () => {
     expect(
-      RequestSettings.safeParse({ mode: "classifier", channels: { web: false, chats: false } })
-        .success,
-    ).toBe(true);
+      RequestSettings.parse({
+        mode: "ask",
+        channels: { web: false, chats: true },
+        timeoutMs: null,
+      }),
+    ).toEqual({ mode: "ask", timeoutMs: null, afterTimeout: "no" });
+    const { db } = await memoryDb();
+    await migratePlatform(db);
+    await db.query("INSERT INTO rg_settings (owner_id, key, value) VALUES ($1, $2, $3)", [
+      "me",
+      "requests",
+      JSON.stringify({ mode: "ask", timeoutMs: 300_000, channels: { web: true, chats: false } }),
+    ]);
+    const stored = new OwnerSettings(db, "requests", RequestSettings, DEFAULT_REQUEST_SETTINGS);
+    await stored.load();
+    expect(stored.get("me")).toEqual({ mode: "ask", timeoutMs: 300_000, afterTimeout: "no" });
   });
 
   it("the person answers in time: their answer, nothing recorded", async () => {
@@ -183,7 +221,7 @@ describe("requests to the person (G36.17)", () => {
     expect(r.asked).toHaveLength(0);
     expect(r.approvals.list("me")).toHaveLength(0);
     const [d] = await r.person.list("me");
-    expect(d).toMatchObject({ decision: "deny", by: "timeout", review: false, kind: "approval" });
+    expect(d).toMatchObject({ decision: "deny", by: "timeout", kind: "approval" });
     expect(d?.reason).toBe("Nessuna risposta entro 15 minuti. È un no.");
     const events = await r.store.list({ sessionId: "ses_1" });
     expect(events.map((e) => e.type)).toContain("request.unattended");
@@ -213,8 +251,6 @@ describe("requests to the person (G36.17)", () => {
       reason: q.detail.includes("rm -rf") ? "Cancella troppo." : "Va bene.",
       model: "fake/light",
     }));
-    expect(r.person.reaches("me", "web")).toBe(false);
-    expect(r.person.reaches("me", "chats")).toBe(false);
     expect(allows(await approve(r, request()))).toBe(true);
     const risky = request();
     risky.call = { ...risky.call, input: { command: "rm -rf build" } };
@@ -224,24 +260,107 @@ describe("requests to the person (G36.17)", () => {
     expect((await r.person.list("me")).map((d) => d.decision)).toEqual(["deny", "allow"]);
   });
 
-  it("never approves a danger only the person approves: blocked, for review, the classifier not asked", async () => {
+  it("'don't ask me anything': a special request still reaches the person, the classifier never asked", async () => {
     const r = await rig({ mode: "classifier" }, async () => ({
       decision: "allow",
       reason: "would say yes",
       model: "fake/light",
     }));
-    const a = await approve(r, request(["git-push"]), true);
-    expect(allows(a)).toBe(false);
+    const req = request(["git-push"]);
+    const answer = approve(r, req, true);
+    await flush();
+    expect(r.shown).toEqual([req.requestId]);
+    // No limit: it waits for the person as long as it takes.
+    expect(r.clock.pending()).toBe(0);
+    r.approvals.decide("me", req.requestId, "allow", undefined, "telegram");
+    expect(await answer).toBe("allow");
     expect(r.asked).toHaveLength(0);
-    const review = await r.person.list("me", { review: true });
-    expect(review).toHaveLength(1);
-    expect(review[0]).toMatchObject({ decision: "blocked", review: true, danger: ["git-push"] });
-    expect(r.reviews).toHaveLength(1);
-    // Seen: it leaves the review list and stays in the history.
-    expect(await r.person.reviewed("me", review[0]?.id as string)).toBe(true);
-    expect(await r.person.reviewed("someone-else", review[0]?.id as string)).toBe(false);
-    expect(await r.person.list("me", { review: true })).toEqual([]);
-    expect((await r.person.list("me"))[0]?.reviewedAt).not.toBeNull();
+    expect(await r.person.list("me")).toEqual([]);
+  });
+
+  it("a special request whose time runs out is a no, never the classifier's, in both modes", async () => {
+    for (const mode of ["ask", "classifier"] as const) {
+      const r = await rig(
+        { mode, timeoutMs: 5 * 60_000, afterTimeout: "classifier" },
+        async () => ({ decision: "allow", reason: "would say yes", model: "fake/light" }),
+      );
+      const closed: (string | undefined)[] = [];
+      r.approvals.on("closed", (_o, _id, _d, via) => closed.push(via));
+      const req = request(["git-push"]);
+      const answer = approve(r, req, true);
+      await flush();
+      expect(r.shown).toEqual([req.requestId]);
+      r.clock.tick(5 * 60_000);
+      const a = await answer;
+      expect(a).toMatchObject({ decision: "deny", by: "timeout" });
+      expect(r.asked).toHaveLength(0);
+      // The copies on the page and the chats are told the time ran out.
+      expect(closed).toEqual(["timeout"]);
+      const [d] = await r.person.list("me");
+      expect(d).toMatchObject({ decision: "deny", by: "timeout", danger: ["git-push"] });
+      expect(d?.reason).toBe("Nessuna risposta entro 5 minuti. È un no.");
+    }
+  });
+
+  it("a request reaches every channel at once; the first answer decides and closes the copies", async () => {
+    const r = await rig({ timeoutMs: 15 * 60_000 });
+    const host = { approvals: r.approvals, questions: r.questions, language: () => "it" as const };
+    const chats = [new FakeChat("discord"), new FakeChat("whatsapp")];
+    for (const t of chats) {
+      const bridge = new ChatBridge({
+        db: r.db,
+        host: { ...host, askDemigod: async () => "" },
+        transport: t,
+      });
+      await bridge.start();
+      const { code } = bridge.pairingCode("me");
+      await t.on?.({ userId: "u1", chatId: "c1", text: `/start ${code}` });
+      t.sent = [];
+    }
+    // The page: what ws.ts sends to every open page of the person.
+    const page: string[] = [];
+    r.approvals.on("request", (_o, info) => page.push(`request ${info.requestId}`));
+    r.approvals.on("closed", (_o, id, d, via) => page.push(`closed ${id} ${d} ${via}`));
+    const req = request();
+    const answer = approve(r, req);
+    await until(() => chats.every((t) => t.sent.length > 0));
+    expect(page).toEqual([`request ${req.requestId}`]);
+    for (const t of chats) expect(t.sent.at(-1)?.text).toContain("Builder");
+    // Answered on Discord: Discord's copy says the answer, WhatsApp's and the page say where.
+    const [discord, whatsapp] = chats as [FakeChat, FakeChat];
+    await discord.on?.({
+      userId: "u1",
+      chatId: "c1",
+      button: discord.sent.at(-1)?.buttons?.[0]?.id ?? "",
+    });
+    expect(await answer).toBe("allow");
+    await until(() => chats.every((t) => t.edits.length === 1));
+    expect(page.at(-1)).toBe(`closed ${req.requestId} allow discord`);
+    expect(discord.edits.at(-1)?.text).toMatch(/Consentito$/);
+    expect(whatsapp.edits.at(-1)?.text).toMatch(/Già deciso da te su Discord: consentito\.$/);
+    // A late tap on WhatsApp changes nothing.
+    expect(r.approvals.decide("me", req.requestId, "deny", undefined, "whatsapp")).toBe(false);
+
+    // A question answered on the page: both chats say so.
+    const q = question();
+    const asked = r.person.ask(AGENT, q, undefined, "question");
+    await until(() => chats.every((t) => t.sent.at(-1)?.text.includes("Which database?")));
+    for (const t of chats) expect(t.sent.at(-1)?.text).toContain("Which database?");
+    r.questions.answer("me", q.requestId, [["SQLite"]], "web");
+    expect(await asked).toEqual({ by: "human", answers: [["SQLite"]] });
+    await until(() => chats.every((t) => t.edits.length === 2));
+    for (const t of chats)
+      expect(t.edits.at(-1)?.text).toMatch(/Già risposto da te nella pagina web\.$/);
+
+    // The time runs out: every copy says so, and it is a no.
+    const late = request();
+    const no = approve(r, late);
+    await until(() => chats.every((t) => t.sent.at(-1)?.text.includes("npm install")));
+    r.clock.tick(15 * 60_000);
+    expect(await no).toMatchObject({ decision: "deny", by: "timeout" });
+    await until(() => chats.every((t) => t.edits.length === 3));
+    for (const t of chats)
+      expect(t.edits.at(-1)?.text).toMatch(/Tempo scaduto senza la tua risposta\.$/);
   });
 
   it("a classifier that fails is a no", async () => {
@@ -251,12 +370,6 @@ describe("requests to the person (G36.17)", () => {
     const a = await approve(r, request());
     expect(allows(a)).toBe(false);
     expect((await r.person.list("me"))[0]?.reason).toContain("model down");
-  });
-
-  it("chooses the channels: the page, the chats, or both", async () => {
-    const r = await rig({ channels: { web: false, chats: true } });
-    expect(r.person.reaches("me", "web")).toBe(false);
-    expect(r.person.reaches("me", "chats")).toBe(true);
   });
 
   it("questions: answered by the classifier among the options, or the agent's best guess", async () => {
@@ -403,10 +516,9 @@ describe("settings as configuration (G36.16, G36.17)", () => {
     expect(got.body.settings.mode).toBe("classifier");
     expect(got.body.defaultModel).toEqual({ provider: "fake", model: "m" });
     expect(got.body.humanOnly).toEqual(expect.arrayContaining(["outside-project", "platform"]));
-    expect(s.core.requestsReach("me", "web")).toBe(false);
   });
 
-  it("through the broker: the classifier allows a command, blocks a push for review", async () => {
+  it("through the broker: the classifier allows a command, a push still reaches the person", async () => {
     const decided: string[] = [];
     s = await startServer(
       (req) => {
@@ -442,26 +554,24 @@ describe("settings as configuration (G36.16, G36.17)", () => {
       .sessionId;
     await s.api("PUT", "/api/settings/requests", { mode: "classifier" });
     const shown: string[] = [];
-    s.core.approvals.on("request", (_o, info) => shown.push(info.tool));
+    const core = s.core;
+    // The person says no to the push, from a chat.
+    core.approvals.on("request", (_o, info) => {
+      shown.push(String((info.input as { command?: string }).command));
+      queueMicrotask(() => core.approvals.decide("me", info.requestId, "deny", undefined, "slack"));
+    });
     await (await s.core.send("me", sid, "say hi")).done;
     await (await s.core.send("me", sid, "now push")).done;
-    expect(shown).toEqual([]);
+    expect(shown).toEqual(["git push --force"]);
     expect(decided).toHaveLength(1);
     const events = (await s.api<Event[]>("GET", `/api/sessions/${sid}/events`)).body;
     const resolved = events.flatMap((e) =>
       e.type === "permission.resolved" ? [e.payload.decision] : [],
     );
     expect(resolved).toEqual(["allow", "deny"]);
-    const results = events.flatMap((e) => (e.type === "tool.result" ? [e.payload.output] : []));
-    expect(String(results.at(-1))).toContain("classifier");
-    const review = await s.api<UnattendedDecision[]>("GET", "/api/unattended?review=1");
-    expect(review.body).toHaveLength(1);
-    expect(review.body[0]?.danger).toContain("git-push");
+    // Only the command was decided without the person.
     const all = await s.api<UnattendedDecision[]>("GET", "/api/unattended");
-    expect(all.body.map((d) => d.decision)).toEqual(["blocked", "allow"]);
-    const seen = await s.api("POST", `/api/unattended/${review.body[0]?.id}/reviewed`);
-    expect(seen.status).toBe(200);
-    expect((await s.api<unknown[]>("GET", "/api/unattended?review=1")).body).toEqual([]);
+    expect(all.body.map((d) => d.decision)).toEqual(["allow"]);
   });
 
   it("ask_user in 'don't ask me anything': the classifier answers and the agent is told", async () => {

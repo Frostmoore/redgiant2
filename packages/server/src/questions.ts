@@ -20,20 +20,26 @@ interface Pending {
 }
 
 /**
- * Questions waiting for the human (G20.3), like the approvals: any client of the owner (or
- * Telegram) may answer, the first answer wins and everyone is told the question is closed.
+ * Questions waiting for the human (G20.3), like the approvals: every channel of the owner gets
+ * them (the page and every linked chat), the first answer wins and everyone is told the question
+ * is closed, and where it was answered.
  * Nobody answering is not an answer: an interrupted turn resolves to null.
  */
 export class HumanQuestions extends EventEmitter<{
   request: [ownerId: string, info: QuestionRequestInfo];
-  closed: [ownerId: string, requestId: string];
+  /** `via`: where it was answered ("web", a chat platform, "timeout"); absent: nobody did. */
+  closed: [ownerId: string, requestId: string, via: string | undefined];
 }> {
   private readonly pending = new Map<string, Pending>();
 
   ask(ownerId: string, info: QuestionRequestInfo, signal?: AbortSignal): Promise<Answers | null> {
     return new Promise((resolve) => {
       this.pending.set(info.requestId, { info, ownerId, resolve });
-      signal?.addEventListener("abort", () => this.close(info.requestId, null), { once: true });
+      signal?.addEventListener(
+        "abort",
+        () => this.close(info.requestId, null, signal.reason === "timeout" ? "timeout" : undefined),
+        { once: true },
+      );
       this.emit("request", ownerId, info);
     });
   }
@@ -48,21 +54,21 @@ export class HumanQuestions extends EventEmitter<{
   }
 
   /** Returns false when the question does not exist, belongs to someone else or is malformed. */
-  answer(ownerId: string, requestId: string, answers: Answers): boolean {
+  answer(ownerId: string, requestId: string, answers: Answers, via?: string): boolean {
     const p = this.pending.get(requestId);
     if (!p || p.ownerId !== ownerId) return false;
     if (answers.length !== p.info.questions.length || answers.some((a) => a.length === 0))
       return false;
-    this.close(requestId, answers);
+    this.close(requestId, answers, via);
     return true;
   }
 
-  private close(requestId: string, answers: Answers | null) {
+  private close(requestId: string, answers: Answers | null, via?: string) {
     const p = this.pending.get(requestId);
     if (!p) return;
     this.pending.delete(requestId);
     p.resolve(answers);
-    this.emit("closed", p.ownerId, requestId);
+    this.emit("closed", p.ownerId, requestId, via);
   }
 
   /** Shutdown: every open question ends unanswered. */

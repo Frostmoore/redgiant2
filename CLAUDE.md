@@ -29,7 +29,10 @@
   change the table first. Approvals never resolve to "allow" on a failure or timeout. The one "allow" not
   given by a person is their classifier's (G36.17, Settings > Requests to you: "don't ask me anything", or after
   their time runs out if they chose so): an explicit decision with its reason in the log, never on a danger in
-  `humanOnly` or a keychain credential (blocked, in the review list), and a classifier that fails is a no.
+  `humanOnly` or a keychain credential, and a classifier that fails is a no. Requests asked of the person reach
+  every channel at once (the page and every linked chat, no per-channel choice; the first answer closes the other
+  copies and says where); "don't ask me anything" sends nothing anywhere, except the special requests (`humanOnly`
+  dangers, keychain keys): those reach every channel in both modes, and their time running out is a no.
 - Server: one WebSocket connection handles its messages strictly in order; `RedGiantCore.send` returns `{ done }`
   (never an async function returning a bare promise: it would wait for the whole turn).
 - Run programs with `Workspace.execFile` (no shell) whenever arguments may come from a model or a user.

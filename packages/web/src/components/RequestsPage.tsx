@@ -1,20 +1,23 @@
 // Settings > Requests to you (G36.17, the person: «devo poter settare un tempo limite per le
-// richieste a me e anche scegliere di non farmele proprio arrivare»). How agents' requests reach
-// the person (approvals, questions, plans, tools, keys): asked on the chosen channels with a time
-// limit, or "don't ask me anything" and the classifier decides. What the classifier never
-// approves is listed; what it blocked waits in «To review»; every decision taken without the
-// person is listed after, with its reason. Saved as configuration: in the history, undoable.
+// richieste a me e anche scegliere di non farmele proprio arrivare»; 2026-11-07: «Se le richieste
+// sono attive devono arrivare ovunque, se non sono attive non devono arrivare da nessuna parte.
+// Quelle speciali devono arrivare dovunque»). How agents' requests reach the person (approvals,
+// questions, plans, tools, keys): everywhere (this page and every linked chat) with a time limit,
+// or nowhere ("don't ask me anything") and the classifier decides. The special requests (what only
+// the person approves, the keychain) are listed: they reach the person everywhere in both modes.
+// Every decision taken without the person is listed after, with its reason. Saved as
+// configuration: in the history, undoable.
 import type { RequestSettings, UnattendedDecision } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { PlatformChange } from "../api.js";
 import { danger, lang, t } from "../i18n.js";
-import { IconBell, IconChat, IconClock, IconShield } from "../icons.js";
+import { IconBell, IconClock, IconKey, IconShield } from "../icons.js";
 import { getApi, openSession } from "../state.js";
 import { explain } from "./Brain.js";
 import { spanWords } from "./CommandLimits.js";
 import { modelName } from "./ModelMenu.js";
 import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
-import { Chips, Head, SCard, Seg, Sub, SwitchRow, WzPage } from "./SettingsKit.js";
+import { Chips, Head, SCard, Seg, Sub, WzPage } from "./SettingsKit.js";
 
 const MIN = 60_000;
 const TIMES = [5 * MIN, 15 * MIN, 60 * MIN, 24 * 60 * MIN, null] as const;
@@ -31,7 +34,7 @@ const when = (iso: string) =>
     minute: "2-digit",
   });
 
-function Decision({ d, onSeen }: { d: UnattendedDecision; onSeen?: () => void }) {
+function Decision({ d }: { d: UnattendedDecision }) {
   return (
     <li class={`rq-item${d.decision === "blocked" ? " blocked" : ""}`}>
       <div class="rq-item-hd">
@@ -54,24 +57,17 @@ function Decision({ d, onSeen }: { d: UnattendedDecision; onSeen?: () => void })
         </span>{" "}
         {d.reason}
       </p>
-      {(onSeen || d.sessionId) && (
+      {d.sessionId && (
         <div class="rq-acts">
-          {d.sessionId && (
-            <button
-              type="button"
-              class="wz-btn small quiet"
-              onClick={() =>
-                openSession({ id: d.sessionId as string, agentId: d.agentId, title: null })
-              }
-            >
-              {t("rqOpenChat")}
-            </button>
-          )}
-          {onSeen && (
-            <button type="button" class="wz-btn small primary" onClick={onSeen}>
-              {t("rqSeen")}
-            </button>
-          )}
+          <button
+            type="button"
+            class="wz-btn small quiet"
+            onClick={() =>
+              openSession({ id: d.sessionId as string, agentId: d.agentId, title: null })
+            }
+          >
+            {t("rqOpenChat")}
+          </button>
         </div>
       )}
     </li>
@@ -81,21 +77,15 @@ function Decision({ d, onSeen }: { d: UnattendedDecision; onSeen?: () => void })
 export function RequestsPage() {
   const [loaded, setLoaded] = useState<Loaded>();
   const [s, setS] = useState<RequestSettings>();
-  const [review, setReview] = useState<UnattendedDecision[]>([]);
   const [all, setAll] = useState<UnattendedDecision[]>([]);
   const [saved, setSaved] = useState<PlatformChange | "undone">();
   const [error, setError] = useState<string>();
   const models = useModels();
   const load = async () => {
     try {
-      const [r, rv, a] = await Promise.all([
-        getApi().requestSettings(),
-        getApi().unattended(true),
-        getApi().unattended(),
-      ]);
+      const [r, a] = await Promise.all([getApi().requestSettings(), getApi().unattended()]);
       setLoaded(r);
       setS(r.settings);
-      setReview(rv);
       setAll(a);
     } catch (err) {
       setError(explain(err));
@@ -131,18 +121,9 @@ export function RequestsPage() {
       setError(explain(err));
     }
   };
-  const seen = async (id: string) => {
-    try {
-      await getApi().unattendedSeen(id);
-      setReview(review.filter((d) => d.id !== id));
-    } catch (err) {
-      setError(explain(err));
-    }
-  };
   const ask = s.mode === "ask";
   const usesClassifier = !ask || (s.timeoutMs !== null && s.afterTimeout === "classifier");
   const lightModel = loaded.defaultModel ? modelName(loaded.defaultModel.model) : t("rqNoModel");
-  const noChannel = ask && !s.channels.web && !s.channels.chats;
   return (
     <WzPage class="rq-page">
       <Head q={t("rqPageQ")} lead={t("rqPageLead")} />
@@ -161,57 +142,51 @@ export function RequestsPage() {
           {!ask && <p class="cl-warn">{t("rqModeClassifierWarn")}</p>}
         </SCard>
 
-        {ask && (
-          <SCard icon={<IconClock size={22} />} title={t("rqTimeTitle")} q={t("rqTimeQ")}>
-            <Chips
-              options={TIMES.map((v) => ({
-                id: v === null ? NONE : String(v),
-                label: v === null ? t("cmdNoLimit") : spanWords(v),
-              }))}
-              value={[s.timeoutMs === null ? NONE : String(s.timeoutMs)]}
-              onChange={([v]) => change({ timeoutMs: !v || v === NONE ? null : Number(v) })}
-            />
-            {s.timeoutMs === null ? (
-              <p class="wz-say">{t("rqTimeNone")}</p>
-            ) : (
-              <>
-                <p class="wz-lb rq-after-q">{t("rqAfterQ", { time: spanWords(s.timeoutMs) })}</p>
-                <Seg
-                  vertical
-                  options={[
-                    ["no", t("rqAfterNo")],
-                    ["classifier", t("rqAfterClassifier")],
-                  ]}
-                  value={s.afterTimeout}
-                  onChange={(afterTimeout) => change({ afterTimeout })}
-                />
-                <p class="wz-say">
-                  {s.afterTimeout === "no" ? t("rqAfterNoText") : t("rqAfterClassifierText")}
-                </p>
-              </>
-            )}
-          </SCard>
-        )}
+        <SCard
+          icon={<IconClock size={22} />}
+          title={t("rqTimeTitle")}
+          q={ask ? t("rqTimeQ") : t("rqTimeQSpecial")}
+        >
+          <Chips
+            options={TIMES.map((v) => ({
+              id: v === null ? NONE : String(v),
+              label: v === null ? t("cmdNoLimit") : spanWords(v),
+            }))}
+            value={[s.timeoutMs === null ? NONE : String(s.timeoutMs)]}
+            onChange={([v]) => change({ timeoutMs: !v || v === NONE ? null : Number(v) })}
+          />
+          {s.timeoutMs === null ? (
+            <p class="wz-say">{ask ? t("rqTimeNone") : t("rqTimeNoneSpecial")}</p>
+          ) : !ask ? (
+            <p class="wz-say">{t("rqAfterSpecialText", { time: spanWords(s.timeoutMs) })}</p>
+          ) : (
+            <>
+              <p class="wz-lb rq-after-q">{t("rqAfterQ", { time: spanWords(s.timeoutMs) })}</p>
+              <Seg
+                vertical
+                options={[
+                  ["no", t("rqAfterNo")],
+                  ["classifier", t("rqAfterClassifier")],
+                ]}
+                value={s.afterTimeout}
+                onChange={(afterTimeout) => change({ afterTimeout })}
+              />
+              <p class="wz-say">
+                {s.afterTimeout === "no" ? t("rqAfterNoText") : t("rqAfterClassifierText")}
+              </p>
+            </>
+          )}
+        </SCard>
 
-        {ask && (
-          <SCard icon={<IconChat size={22} />} title={t("rqWhereTitle")} q={t("rqWhereQ")}>
-            <div class="rq-switches">
-              <SwitchRow
-                title={t("rqWhereWeb")}
-                help={t("rqWhereWebHelp")}
-                on={s.channels.web}
-                onChange={(web) => change({ channels: { ...s.channels, web } })}
-              />
-              <SwitchRow
-                title={t("rqWhereChats")}
-                help={t("rqWhereChatsHelp")}
-                on={s.channels.chats}
-                onChange={(chats) => change({ channels: { ...s.channels, chats } })}
-              />
-            </div>
-            {noChannel && <p class="cl-warn">{t("rqWhereNone")}</p>}
-          </SCard>
-        )}
+        <SCard icon={<IconKey size={22} />} title={t("rqSpecialTitle")} q={t("rqSpecialQ")}>
+          <p class="wz-say">{t("rqSpecialText")}</p>
+          <ul class="rq-never">
+            {loaded.humanOnly.map((id) => (
+              <li key={id}>{danger(id).name}</li>
+            ))}
+            <li>{t("rqNeverKeychain")}</li>
+          </ul>
+        </SCard>
 
         {usesClassifier && (
           <SCard
@@ -238,24 +213,12 @@ export function RequestsPage() {
               )}
             </div>
             <p class="wz-say">{t("rqClassifierHow")}</p>
-            <p class="wz-lb">{t("rqNeverTitle")}</p>
-            <ul class="rq-never">
-              {loaded.humanOnly.map((id) => (
-                <li key={id}>{danger(id).name}</li>
-              ))}
-              <li>{t("rqNeverKeychain")}</li>
-            </ul>
           </SCard>
         )}
       </div>
       {error && <p class="notice error">{error}</p>}
       <div class="cl-acts">
-        <button
-          type="button"
-          class="wz-btn primary"
-          disabled={noChannel}
-          onClick={() => void save()}
-        >
+        <button type="button" class="wz-btn primary" onClick={() => void save()}>
           {t("save")}
         </button>
         {saved && saved !== "undone" && (
@@ -268,22 +231,6 @@ export function RequestsPage() {
         )}
         {saved === "undone" && <span class="cl-saved">{t("cmdUndone")}</span>}
       </div>
-
-      <Sub
-        title={
-          review.length ? t("rqReviewTitleN", { n: String(review.length) }) : t("rqReviewTitle")
-        }
-        lead={t("rqReviewLead")}
-      />
-      {review.length ? (
-        <ul class="rq-list">
-          {review.map((d) => (
-            <Decision key={d.id} d={d} onSeen={() => void seen(d.id)} />
-          ))}
-        </ul>
-      ) : (
-        <p class="rq-empty">{t("rqReviewEmpty")}</p>
-      )}
 
       <Sub title={t("rqDoneTitle")} lead={t("rqDoneLead")} />
       {all.length ? (

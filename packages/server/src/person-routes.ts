@@ -3,8 +3,7 @@
 //   PUT  /api/settings/commands        → PlatformChange (history, undoable; 400 on a bad value)
 //   GET  /api/settings/requests        → { settings, defaults, defaultModel, humanOnly }
 //   PUT  /api/settings/requests        → PlatformChange
-//   GET  /api/unattended?review=1      → UnattendedDecision[] (decided without the person)
-//   POST /api/unattended/:id/reviewed  → { ok } (a blocked request leaves the review list)
+//   GET  /api/unattended               → UnattendedDecision[] (decided without the person)
 
 import { DEFAULT_POLICY, OUTSIDE_PROJECT } from "@redgiant/hierarchy";
 import { DEFAULT_COMMAND_SETTINGS, DEFAULT_REQUEST_SETTINGS } from "@redgiant/protocol";
@@ -43,7 +42,8 @@ export function personRoutes<E extends { Variables: any }>(
         settings: core.requestSettings.get(ownerId),
         defaults: DEFAULT_REQUEST_SETTINGS,
         defaultModel: core.memoryModel ?? null,
-        // What the classifier never approves: the dangers only the person approves, and the keychain.
+        // The special requests: they reach the person everywhere, in both modes, and the
+        // classifier never decides them (the dangers only the person approves, and the keychain).
         humanOnly: [
           ...new Set([OUTSIDE_PROJECT, ...(policy.humanOnly ?? DEFAULT_POLICY.humanOnly)]),
         ],
@@ -55,14 +55,9 @@ export function personRoutes<E extends { Variables: any }>(
   app.get("/api/unattended", async (c) =>
     c.json(
       await core.person.list(owner(c), {
-        review: c.req.query("review") === "1",
         limit: Math.min(200, Math.max(1, Number(c.req.query("limit") ?? 100) || 100)),
       }),
       200,
     ),
   );
-  app.post("/api/unattended/:id/reviewed", async (c) => {
-    const ok = await core.person.reviewed(owner(c), c.req.param("id"));
-    return ok ? c.json({ ok }, 200) : c.json({ error: "Not found" }, 404);
-  });
 }

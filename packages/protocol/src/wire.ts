@@ -128,6 +128,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
     type: z.literal("permission.closed"),
     requestId: z.string(),
     decision: z.enum(["allow", "deny"]),
+    /** Where it was decided: "web", a chat platform, "timeout" (G36.17). */
+    via: z.string().optional(),
   }),
   /** generate_image at work: steps and blurry-to-sharp previews (base64 PNG), not persisted. */
   z.object({
@@ -138,7 +140,12 @@ export const ServerMessage = z.discriminatedUnion("type", [
   }),
   /** A question or plan that waits for the human; answered with `question.answer`. */
   z.object({ type: z.literal("question.request"), request: QuestionRequestInfo }),
-  z.object({ type: z.literal("question.closed"), requestId: z.string() }),
+  z.object({
+    type: z.literal("question.closed"),
+    requestId: z.string(),
+    /** Where it was answered: "web", a chat platform, "timeout" (G36.17). */
+    via: z.string().optional(),
+  }),
   /** Something changed on a board (new post, status): clients reload what they show. */
   z.object({
     type: z.literal("board.changed"),

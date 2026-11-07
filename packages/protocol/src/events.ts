@@ -118,7 +118,7 @@ export const EventBody = z.discriminatedUnion("type", [
   }),
   /**
    * A request decided without the person (G36.17): by their classifier, or because the time ran
-   * out. `review`: a danger only the person approves, blocked and waiting in their review list.
+   * out. "blocked" and `review` only in older logs (special requests now reach the person).
    */
   z.object({
     type: z.literal("request.unattended"),
@@ -131,7 +131,7 @@ export const EventBody = z.discriminatedUnion("type", [
       by: z.enum(["classifier", "timeout"]),
       reason: z.string(),
       model: z.string().optional(),
-      review: z.boolean(),
+      review: z.boolean().optional(),
     }),
   }),
   /** An agent asked the human (ask_user) or proposed a plan (propose_plan). */

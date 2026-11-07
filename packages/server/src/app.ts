@@ -1211,7 +1211,13 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
 
   app.openapi(routes.listPermissions, (c) => c.json(core.approvals.list(owner(c)), 200));
   app.openapi(routes.decidePermission, (c) =>
-    core.approvals.decide(owner(c), c.req.valid("param").id, c.req.valid("json").decision)
+    core.approvals.decide(
+      owner(c),
+      c.req.valid("param").id,
+      c.req.valid("json").decision,
+      undefined,
+      "web",
+    )
       ? c.json({ ok: true as const }, 200)
       : c.json({ error: "No such pending request" }, 404),
   );

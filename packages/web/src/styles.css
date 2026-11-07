@@ -13649,11 +13649,6 @@ button.sub-tab {
 .rq-after-q {
   margin: 16px 0 8px;
 }
-.rq-switches {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
 .rq-never {
   margin: 6px 0 0;
   padding: 0;

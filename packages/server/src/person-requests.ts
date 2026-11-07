@@ -1,12 +1,16 @@
 // What reaches the person (G36.17, the person: «devo poter settare un tempo limite per le richieste
 // a me e anche scegliere di non farmele proprio arrivare. Comunque il classificatore deve [servire]
 // a quello»). Every request for the person (approvals, ask_user, plans, request_tool, credentials,
-// automations) passes here. "ask": it reaches the chosen channels and waits up to the person's
+// automations) passes here. The rule (2026-11-07, the person: «Se le richieste sono attive devono
+// arrivare ovunque, se non sono attive non devono arrivare da nessuna parte. Quelle speciali devono
+// arrivare dovunque»). "ask": every request reaches every channel at once (the page and every
+// linked chat; the first answer decides and the other copies close) and waits up to the person's
 // time; then an approval is a no (CLAUDE.md: never "allow" on a failure or a timeout) unless they
 // chose the classifier for that case, and a question lets the agent go on with its best guess.
 // "classifier": nothing reaches the person; a model they chose decides with the context, and its
-// reason is recorded. Dangers only the person approves are never the classifier's: they stay a no
-// and wait in the review list. A classifier that fails is a no.
+// reason is recorded. Special requests (dangers only the person approves, keychain keys) reach
+// the person everywhere in both modes and are never the classifier's: their time running out is
+// a no. A classifier that fails is a no.
 import { randomUUID } from "node:crypto";
 import type { EventStore, SqlClient } from "@redgiant/events";
 import {
@@ -141,8 +145,6 @@ export interface PersonRequestsOptions {
   /** The classifier's model when the person chose none (the light model). */
   defaultModel: () => ModelSpec | undefined;
   language?: (ownerId: string) => string;
-  /** Tells the person something was blocked and waits for them (the bell). */
-  onReview?: (ownerId: string, d: UnattendedDecision) => void;
   now?: () => Date;
   /** Starts a timer and gives back its cancel (tests: a fake clock). */
   timer?: (fn: () => void, ms: number) => () => void;
@@ -156,9 +158,12 @@ const realTimer = (fn: () => void, ms: number) => {
 /** What a request needs besides the request itself. */
 export interface ApproveOptions {
   kind: RequestKind;
-  /** A danger only the person approves: never the classifier's. */
+  /**
+   * A special request (a danger only the person approves, a keychain key): it reaches the person
+   * in both modes and is never the classifier's.
+   */
   humanOnly: boolean;
-  /** What is asked, in a line (the review list). */
+  /** What is asked, in a line (the list of decisions taken without the person). */
   what: string;
   /** The wait when the person chose no limit (request_tool, credentials have their own). */
   defaultTimeoutMs?: number;
@@ -174,7 +179,7 @@ const SAY = {
     no: "It is a no.",
     planNo: "The plan is not approved.",
     guessed: "The agent went on with its best guess.",
-    onlyYou: "Only you approve this: it is a no, and it waits in «To review».",
+    onlyYou: "Only you approve this: it is a no.",
     failed: "The classifier could not decide ({error}): it is a no.",
     failedQ: "The classifier could not answer ({error}).",
     day: "1 day",
@@ -188,7 +193,7 @@ const SAY = {
     no: "È un no.",
     planNo: "Il piano non è approvato.",
     guessed: "L'agente è andato avanti con la sua ipotesi migliore.",
-    onlyYou: "Questo lo approvi solo tu: è un no, e ti aspetta in «Da rivedere».",
+    onlyYou: "Questo lo approvi solo tu: è un no.",
     failed: "Il classificatore non è riuscito a decidere ({error}): è un no.",
     failedQ: "Il classificatore non è riuscito a rispondere ({error}).",
     day: "1 giorno",
@@ -228,8 +233,6 @@ interface Row {
   by_what: UnattendedDecision["by"];
   reason: string;
   model: string | null;
-  review: boolean;
-  reviewed_at: Date | string | null;
   created_at: Date | string;
 }
 
@@ -247,8 +250,6 @@ const toDecision = (r: Row): UnattendedDecision => ({
   by: r.by_what,
   reason: r.reason,
   model: r.model,
-  review: r.review,
-  reviewedAt: r.reviewed_at ? new Date(r.reviewed_at).toISOString() : null,
   createdAt: new Date(r.created_at).toISOString(),
 });
 
@@ -263,12 +264,6 @@ export class PersonRequests {
     return this.o.now?.() ?? new Date();
   }
 
-  /** Where requests reach the person now: the page, the chats, or nowhere (the classifier). */
-  reaches(ownerId: string, channel: "web" | "chats"): boolean {
-    const s = this.o.settings.get(ownerId);
-    return s.mode === "ask" && s.channels[channel];
-  }
-
   /** An approval: the person's answer, or a decision without them (recorded). */
   async approve(
     req: ApprovalRequest,
@@ -277,13 +272,16 @@ export class PersonRequests {
   ): Promise<HumanAnswer> {
     const owner = req.requester.ownerId;
     const s = this.o.settings.get(owner);
-    if (s.mode === "classifier") return this.decide(req, o, s, undefined);
+    // Off: nothing reaches the person, except the special requests (they reach them everywhere).
+    if (s.mode === "classifier" && !o.humanOnly) return this.decide(req, o, s, undefined);
     const wait = s.timeoutMs ?? o.defaultTimeoutMs;
     const { signal: asked, timedOut, done } = this.timed(signal, wait);
     const answer = await this.o.approvals.ask(req, asked).catch(() => "deny" as const);
     done();
     if (!timedOut() || wait === undefined) return answer;
-    if (s.afterTimeout === "classifier") return this.decide(req, o, s, wait);
+    // A special request is never the classifier's: its time running out is a no.
+    if (s.mode === "ask" && s.afterTimeout === "classifier" && !o.humanOnly)
+      return this.decide(req, o, s, wait);
     const lang = this.lang(owner);
     const reason = `${say(lang, "late", { time: span(lang, wait) })} ${say(lang, "no")}`;
     await this.record(req, o, { decision: "deny", by: "timeout", reason, model: null });
@@ -323,23 +321,15 @@ export class PersonRequests {
     return { by: "timeout", reason };
   }
 
-  /** The decisions taken without the person, newest first; `review` keeps the blocked ones. */
-  async list(ownerId: string, o: { review?: boolean; limit?: number } = {}) {
+  /** The decisions taken without the person, newest first. */
+  async list(ownerId: string, o: { limit?: number } = {}) {
     const rows = await this.o.db.query<Row>(
-      `SELECT * FROM rg_unattended WHERE owner_id = $1${o.review ? " AND review AND reviewed_at IS NULL" : ""}
-       ORDER BY created_at DESC, id DESC LIMIT $2`,
+      `SELECT id, owner_id, request_id, kind, agent_id, agent_name, project_id, session_id, what,
+         danger, decision, by_what, reason, model, created_at
+       FROM rg_unattended WHERE owner_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
       [ownerId, o.limit ?? 100],
     );
     return rows.map(toDecision);
-  }
-
-  /** The person saw a blocked request (it leaves the review list, stays in the history). */
-  async reviewed(ownerId: string, id: string): Promise<boolean> {
-    const rows = await this.o.db.query<{ id: string }>(
-      "UPDATE rg_unattended SET reviewed_at = $3 WHERE id = $1 AND owner_id = $2 RETURNING id",
-      [id, ownerId, this.now().toISOString()],
-    );
-    return rows.length > 0;
   }
 
   /** A signal that also aborts when the person's time runs out. */
@@ -354,7 +344,8 @@ export class PersonRequests {
         ? undefined
         : (this.o.timer ?? realTimer)(() => {
             out = true;
-            ctl.abort();
+            // The copies on the page and the chats say the time ran out (HumanApprovals).
+            ctl.abort("timeout");
           }, wait);
     return {
       signal: ctl.signal,
@@ -386,7 +377,7 @@ export class PersonRequests {
     };
   }
 
-  /** The classifier's yes or no; a danger only the person approves is blocked for review. */
+  /** The classifier's yes or no; never on a special request (a guard: callers never send one). */
   private async decide(
     req: ApprovalRequest,
     o: ApproveOptions,
@@ -397,7 +388,7 @@ export class PersonRequests {
     const late = after === undefined ? "" : `${say(lang, "late", { time: span(lang, after) })} `;
     if (o.humanOnly) {
       const reason = `${late}${say(lang, "onlyYou")}`;
-      await this.record(req, o, { decision: "blocked", by: "classifier", reason, model: null });
+      await this.record(req, o, { decision: "deny", by: "classifier", reason, model: null });
       return { decision: "deny", by: "classifier", reason };
     }
     const input = JSON.stringify(req.call.input);
@@ -521,7 +512,6 @@ export class PersonRequests {
     d: Pick<UnattendedDecision, "decision" | "by" | "reason" | "model">,
   ): Promise<UnattendedDecision> {
     const id = `una_${randomUUID().slice(0, 12)}`;
-    const review = d.decision === "blocked";
     const at = this.now().toISOString();
     await this.o.db.query(
       `INSERT INTO rg_unattended (id, owner_id, request_id, kind, agent_id, agent_name, project_id,
@@ -542,7 +532,8 @@ export class PersonRequests {
         d.by,
         d.reason.slice(0, 2000),
         d.model,
-        review,
+        // The review list is gone (special requests reach the person): kept for older rows.
+        false,
         at,
       ],
     );
@@ -563,7 +554,6 @@ export class PersonRequests {
           by: d.by,
           reason: d.reason.slice(0, 2000),
           ...(d.model && { model: d.model }),
-          review,
         },
       },
     });
@@ -581,11 +571,8 @@ export class PersonRequests {
       by: d.by,
       reason: d.reason.slice(0, 2000),
       model: d.model,
-      review,
-      reviewedAt: null,
       createdAt: at,
     };
-    if (review) this.o.onReview?.(agent.ownerId, out);
     return out;
   }
 }

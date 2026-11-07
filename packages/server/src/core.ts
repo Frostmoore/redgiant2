@@ -807,8 +807,8 @@ export class RedGiantCore implements OrchestrationHost {
               systemFor: (x) => this.systemFor(x),
             })(a, req);
       },
-      // The person's choices (G36.17): their time, or their classifier; never past a danger
-      // only they approve.
+      // The person's choices (G36.17): their time, or their classifier; a danger only they
+      // approve reaches them everywhere, in both modes.
       askHuman: (req, signal) =>
         this.person.approve(req, signal, {
           kind: "approval",
@@ -833,15 +833,6 @@ export class RedGiantCore implements OrchestrationHost {
             })(r),
       defaultModel: () => this.memoryModel,
       language: (ownerId) => this.language(ownerId),
-      // Something blocked for the person's review: a line on their chats, if they want those.
-      onReview: (ownerId, d) => {
-        if (!this.requestSettings.get(ownerId).channels.chats) return;
-        this.alert(ownerId, {
-          kind: "review",
-          title: this.say(ownerId, "review"),
-          message: this.say(ownerId, "reviewBody", { agent: d.agentName, what: d.what }),
-        });
-      },
     });
     // Persisted events reach the followers of their session.
     this.store.subscribe((e: Event) => {
@@ -1535,11 +1526,6 @@ export class RedGiantCore implements OrchestrationHost {
   /** The person's settings kept as configuration (G36.16, G36.17), for the history and undo. */
   ownerSettings(key: "commands" | "requests") {
     return key === "commands" ? this.commandSettings : this.requestSettings;
-  }
-
-  /** Whether requests reach the person on a channel now (G36.17): the page, or the chats. */
-  requestsReach(ownerId: string, channel: "web" | "chats"): boolean {
-    return this.person.reaches(ownerId, channel);
   }
 
   /** What the person chose for each pending request_tool ("this conversation" or "always"). */
@@ -4563,7 +4549,8 @@ export class RedGiantCore implements OrchestrationHost {
         ...(caller.sessionId && { sessionId: caller.sessionId }),
       },
       new AbortController().signal,
-      // A secret is the person's alone: the classifier never says yes to it (G36.17).
+      // A secret is the person's alone: it reaches them everywhere, also with "don't ask me
+      // anything", and the classifier never says yes to it (G36.17).
       {
         kind: "credential",
         humanOnly: true,

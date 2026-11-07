@@ -2,7 +2,7 @@
 // reach the phone even with RedGiant closed. Approvals and questions are not here: the Telegram
 // gateway sends them itself, with buttons.
 
-export type AlertKind = "turn" | "failed" | "budget" | "proposal" | "review";
+export type AlertKind = "turn" | "failed" | "budget" | "proposal";
 
 export interface Alert {
   kind: AlertKind;
@@ -19,9 +19,6 @@ const TEXTS = {
     budgetBody: "${used} of ${limit}",
     proposal: "New extension to review",
     proposalBody: "{kind} {name}, proposed by {author}",
-    review: "Blocked while you were away",
-    reviewBody:
-      "{agent}: {what}. Only you approve this: it was a no. See Settings, Requests to you.",
   },
   it: {
     turn: "{agent} ha finito",
@@ -31,9 +28,6 @@ const TEXTS = {
     budgetBody: "${used} su ${limit}",
     proposal: "Nuova estensione da valutare",
     proposalBody: "{kind} {name}, proposta da {author}",
-    review: "Bloccato mentre non c'eri",
-    reviewBody:
-      "{agent}: {what}. Questo lo approvi solo tu: è stato un no. Lo trovi in Impostazioni, Richieste a te.",
   },
 } as const;
 
