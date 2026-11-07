@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, win32 } from "node:path";
+import { pathToFileURL } from "node:url";
 import { LocalWorkspace } from "@redgiant/tools";
 import { decode as decodePng } from "fast-png";
 import { strFromU8, strToU8, unzipSync } from "fflate";
@@ -435,7 +436,7 @@ describe("outside programs", () => {
         "--nolockcheck",
         "--nodefault",
         "--nofirststartwizard",
-        "-env:UserInstallation=file:///data/lo-profile",
+        `-env:UserInstallation=${pathToFileURL("/data/lo-profile").href}`,
         "--convert-to",
         "odt",
         "--outdir",
