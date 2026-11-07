@@ -63,7 +63,12 @@ export interface OrchestrationHost {
    * working in the parent's (parallel sub-agents must not edit the same files at once).
    */
   isolate?(subagentId: string): void;
+  /** Whether a conversation is working now. */
+  isRunning?(sessionId: string): boolean;
 }
+
+/** How a sub-agent's work ended, as its tab shows it. */
+type SubagentEnd = "done" | "failed" | "stopped";
 
 type Outcome = "verified" | "not_testable" | "abandoned";
 
@@ -319,6 +324,7 @@ export function orchestrationTools(
         ? self.projectId
         : undefined;
     const sid = await host.workSession(to, here);
+    const close = await openTab(ctx, { sessionId: sid, agentId: to.id }, "delegate", title, task);
     const t = await tasks.open(
       to,
       sid,
@@ -333,7 +339,11 @@ export function orchestrationTools(
     // The conversation is named after who gives the work and the latest task, not an id.
     await host.nameSession?.(sid, `${self.name}: ${title}`);
     const { done, queued } = await host.send(self.ownerId, sid, text, { queue: true });
-    done.catch(() => {});
+    // Its tab ends with the turn that works on the task.
+    done.then(
+      async (r) => close(endOf(r), lastAssistantText(await host.store.list({ sessionId: sid }))),
+      (err: Error) => close("failed", err.message),
+    );
     return (
       `Task ${t.id} handed to ${to.name}${queued ? " (it is finishing something else first)" : ""}. ` +
       "You do not need to wait: its report comes to you as a message when the task closes. " +
@@ -341,17 +351,90 @@ export function orchestrationTools(
     );
   };
 
+  /**
+   * A sub-agent at work, recorded in the conversation that started it (p3.3.1: its tab there,
+   * as Officina shows them). Written before the sub-agent's first message: its own part of its
+   * conversation is what comes after. Returns how to record its end.
+   */
+  const openTab = async (
+    ctx: ToolContext | undefined,
+    child: { sessionId: string; agentId: string },
+    via: string,
+    title: string,
+    task: string,
+  ) => {
+    if (!ctx?.sessionId) return async (_status: SubagentEnd, _summary?: string) => {};
+    const base = {
+      ownerId: self.ownerId,
+      projectId: self.projectId ?? null,
+      agentId: self.id,
+      sessionId: ctx.sessionId,
+    };
+    await host.store
+      .append({
+        ...base,
+        body: {
+          type: "subagent.started",
+          payload: {
+            childSessionId: child.sessionId,
+            childAgentId: child.agentId,
+            ...(ctx.callId && { callId: ctx.callId }),
+            via,
+            title: title.slice(0, 200),
+            task: task.slice(0, 20_000),
+          },
+        },
+      })
+      .catch(() => {});
+    let ended = false;
+    return async (status: SubagentEnd, summary?: string) => {
+      if (ended) return;
+      ended = true;
+      await host.store
+        .append({
+          ...base,
+          body: {
+            type: "subagent.ended",
+            payload: {
+              childSessionId: child.sessionId,
+              status,
+              ...(summary && { summary: summary.slice(0, 1000) }),
+            },
+          },
+        })
+        .catch(() => {});
+    };
+  };
+  /** How a sub-agent's turn ended, for its tab. */
+  const endOf = (r: SendResult, outcome?: string): SubagentEnd =>
+    r.stopReason === "aborted"
+      ? "stopped"
+      : outcome === "abandoned" || r.stopReason === "other" || r.stopReason === "refusal"
+        ? "failed"
+        : "done";
+
   /** Hands a task over and waits for its end: for short-lived sub-agents. */
-  const delegate = async (to: AgentRecord, title: string, task: string, sessionId?: string) => {
+  const delegate = async (
+    to: AgentRecord,
+    title: string,
+    task: string,
+    sessionId?: string,
+    ctx?: ToolContext,
+    via = "run_subagent",
+  ) => {
     if (!can(me, "message", to, host.registry.resolve))
       throw new Error(`You cannot assign work to ${to.name}`);
     const sid = sessionId ?? (await host.workSession(to));
+    const close = await openTab(ctx, { sessionId: sid, agentId: to.id }, via, title, task);
     let t = await tasks.open(to, sid, title, undefined, undefined, { brief: task });
     const text =
       `Task from ${self.name}: «${title}»\n\n${task}\n\n` +
       `When it is done, verify the result and call complete_task (taskId "${t.id}").`;
     await host.nameSession?.(sid, `${self.name}: ${title}`);
-    const { done } = await host.send(self.ownerId, sid, text);
+    const { done } = await host.send(self.ownerId, sid, text).catch(async (err: Error) => {
+      await close("failed", err.message);
+      throw err;
+    });
     /** A turn ended: a task it did not close is given up on (and maybe escalated) now. */
     const settle = async (task: typeof t, r: SendResult) => {
       if (!task.outcome)
@@ -377,6 +460,7 @@ export function orchestrationTools(
       await settle(t, r);
     }
     const answer = lastAssistantText(await host.store.list({ sessionId: at }));
+    await close(endOf(r, t.outcome), clip(answer, 1000));
     const outcome = `${t.outcome ?? "still open"}${t.escalatedFrom ? " (by the backup model, after the first one gave up)" : ""}`;
     // The last line lets the chat open the sub-agent's conversation (and the model read it).
     return `Task ${t.id} — ${outcome}${r.stopReason !== "end_turn" ? ` (agent stopped: ${r.stopReason}${r.reason ? `, ${r.reason}` : ""})` : ""}.\nReport from ${to.name}:\n${clip(answer)}\nConversation: ${at} (${to.id})`;
@@ -468,13 +552,25 @@ export function orchestrationTools(
         },
       },
       schema: z.object({ assistant_id: z.string(), request: z.string().min(1) }),
-      async run({ assistant_id, request }: { assistant_id: string; request: string }) {
+      async run(
+        { assistant_id, request }: { assistant_id: string; request: string },
+        ctx: ToolContext,
+      ) {
         const to = target(assistant_id);
         if (to.kind !== "assistant") throw new Error(`${to.name} is not an assistant`);
         if (to.status !== "active") throw new Error(`${to.name} is stopped`);
         if (to.id === self.id || !can(me, "message", to, host.registry.resolve))
           throw new Error(`You cannot ask ${to.name}`);
         const sid = await host.workSession(to);
+        if (host.isRunning?.(sid))
+          return { content: `${to.name} is busy right now; try again later.`, isError: true };
+        const close = await openTab(
+          ctx,
+          { sessionId: sid, agentId: to.id },
+          "ask_assistant",
+          request.split("\n")[0]?.slice(0, 80) || to.name,
+          request,
+        );
         let done: Promise<SendResult>;
         try {
           ({ done } = await host.send(
@@ -483,13 +579,18 @@ export function orchestrationTools(
             `[Request from ${self.name}]\n${request}`,
           ));
         } catch (err) {
+          await close("failed", (err as Error).message);
           // Its conversation is busy (maybe waiting on this very request): never wait in a circle.
           if ((err as Error).name === "SessionBusyError")
             return { content: `${to.name} is busy right now; try again later.`, isError: true };
           throw err;
         }
-        const r = await done;
+        const r = await done.catch(async (err: Error) => {
+          await close("failed", err.message);
+          throw err;
+        });
         const answer = lastAssistantText(await host.store.list({ sessionId: sid }));
+        await close(endOf(r), clip(answer, 1000));
         return `${r.stopReason === "end_turn" ? "" : `(${to.name} stopped: ${r.stopReason})\n`}${clip(answer, 6000) || `${to.name} gave no answer.`}`;
       },
     } as Tool);
@@ -792,14 +893,20 @@ export function orchestrationTools(
         },
       },
       schema: z.object({ title: z.string().min(1), task: z.string().min(1) }),
-      async run({ title, task }) {
+      async run({ title, task }, ctx: ToolContext) {
         const sub = await host.registry.create(me, {
           kind: "subagent",
           parentId: self.id,
           name: `${self.name} › ${title}`.slice(0, 80),
         });
         try {
-          return await delegate(sub, title, task, await host.startSession(self.ownerId, sub.id));
+          return await delegate(
+            sub,
+            title,
+            task,
+            await host.startSession(self.ownerId, sub.id),
+            ctx,
+          );
         } finally {
           await host.registry.stop(me, sub.id, "sub-agent task finished");
         }
@@ -836,7 +943,7 @@ export function orchestrationTools(
           },
         },
         schema: Many,
-        async run({ tasks: list }: z.infer<typeof Many>) {
+        async run({ tasks: list }: z.infer<typeof Many>, ctx: ToolContext) {
           const { root, worktree } = await host.projectWorkspaces(self);
           const mine = await worktree(self.id);
           // What this agent has so far is where every sub-agent starts from.
@@ -865,6 +972,8 @@ export function orchestrationTools(
                     t.title,
                     t.task,
                     await host.startSession(self.ownerId, sub.id),
+                    ctx,
+                    "run_subagents",
                   );
                 } catch (err) {
                   return `${sub.name} failed: ${(err as Error).message}`;

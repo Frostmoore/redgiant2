@@ -8,6 +8,8 @@ export interface ToolContext {
   agentId: string | null;
   sessionId: string;
   signal?: AbortSignal | undefined;
+  /** The model's call being run (sub-agents link their tab to it). */
+  callId?: string | undefined;
 }
 
 export type ToolOutput =

@@ -10,7 +10,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export interface ExecResult {
   stdout: string;
@@ -131,6 +131,26 @@ const AGENT_ENV = [
   "OS",
 ];
 
+/**
+ * The folders of RedGiant's own programs on the agents' PATH (p3.3.1: an agent on Windows found
+ * only a system ffmpeg it could not start). `first` goes before the PATH (ffmpeg's folder holds
+ * only ffmpeg and its tools); `last` after it (LibreOffice's folder also holds a python.exe, which
+ * must not hide the person's own).
+ */
+const programDirs = { first: new Set<string>(), last: new Set<string>() };
+
+/** Puts a program's folder on the PATH of the agents' commands on this computer. */
+export function shareProgramDir(dir: string, where: "first" | "last" = "last"): void {
+  if (!dir || programDirs.first.has(dir) || programDirs.last.has(dir)) return;
+  programDirs[where].add(dir);
+}
+
+/** Tests: forgets the shared folders. */
+export function resetProgramDirs(): void {
+  programDirs.first.clear();
+  programDirs.last.clear();
+}
+
 /** The environment of an agent's commands: the safe part of `from` (the server's own). */
 export function agentEnv(from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = {};
@@ -142,6 +162,17 @@ export function agentEnv(from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessE
       (AGENT_ENV.includes(name) || k.startsWith("LC_") || k.startsWith("XDG_"))
     )
       out[k] = v;
+  }
+  if (programDirs.first.size || programDirs.last.size) {
+    const key =
+      Object.keys(out).find(
+        (k) => (process.platform === "win32" ? k.toUpperCase() : k) === "PATH",
+      ) ?? "PATH";
+    const own = (out[key] ?? "").split(delimiter).filter(Boolean);
+    const seen = new Set<string>();
+    out[key] = [...programDirs.first, ...own, ...programDirs.last]
+      .filter((d) => !seen.has(d) && seen.add(d))
+      .join(delimiter);
   }
   return out;
 }

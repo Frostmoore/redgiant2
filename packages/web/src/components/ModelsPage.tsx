@@ -8,6 +8,7 @@ import { SEARCH_PROVIDERS } from "@redgiant/protocol";
 import { useRef, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
 import { brandOr } from "../brands.js";
+import { localModelName } from "../format.js";
 import { t, tOptional } from "../i18n.js";
 import { IconCrown, IconSearch, IconServer } from "../icons.js";
 import { getApi } from "../state.js";
@@ -99,7 +100,7 @@ export function ModelsPage({ s, reload }: { s: SetupState; reload: () => void })
           <Tile
             on={!!d}
             icon={<IconCrown />}
-            title={d ? (d.model.split("/").pop() ?? d.model) : t("mpNoDefault")}
+            title={d ? localModelName(d.model.split("/").pop() ?? d.model) : t("mpNoDefault")}
             text={
               d
                 ? [providerName(d.provider), tOptional(`effort_${d.effort ?? "medium"}`)]

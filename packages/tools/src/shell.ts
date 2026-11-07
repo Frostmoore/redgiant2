@@ -20,7 +20,8 @@ export function bashTool(
       description: describe(profile, {
         full:
           "Run a shell command in the workspace root and return exit code, stdout and stderr. " +
-          "Default timeout 120 s (max 600 s). Long output keeps its beginning and end.",
+          "Default timeout 120 s (max 600 s). Long output keeps its beginning and end. " +
+          "Run on this computer (not in a container), RedGiant's own ffmpeg, and Blender, LibreOffice and Scribus once downloaded, are on the PATH; ffmpeg's drawtext needs fontfile=.",
         compact: "Run a shell command in the workspace.",
       }),
       inputSchema: {
@@ -35,10 +36,30 @@ export function bashTool(
       const parts = [r.timedOut ? `Timed out after ${timeout_ms} ms.` : `Exit code: ${r.exitCode}`];
       if (r.stdout) parts.push(`stdout:\n${r.stdout}`);
       if (r.stderr) parts.push(`stderr:\n${r.stderr}`);
+      const hint = r.exitCode !== 0 ? ffmpegHint(command, `${r.stdout}\n${r.stderr}`) : undefined;
+      if (hint) parts.push(hint);
       return {
         content: truncateMiddle(parts.join("\n"), maxOutputChars),
         isError: r.timedOut || r.exitCode !== 0,
       };
     },
   };
+}
+
+/** Where a font file is on each system, for ffmpeg's drawtext. */
+export const DRAWTEXT_FONTS =
+  "Windows: fontfile='C\\:/Windows/Fonts/arial.ttf' (the colon escaped); macOS: fontfile=/System/Library/Fonts/Supplemental/Arial.ttf; Linux: fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+
+/**
+ * A line for a failed ffmpeg command (p3.3.1, the agent who tried 3.3.0 on Windows): drawtext
+ * without a font file crashes the static builds (they carry no font configuration), and a
+ * system ffmpeg behind a WinGet link may refuse to start.
+ */
+export function ffmpegHint(command: string, output: string): string | undefined {
+  if (!/\bffmpeg\b/.test(command)) return undefined;
+  if (/drawtext/.test(command) && !/fontfile\s*=/.test(command))
+    return `Hint: ffmpeg's drawtext needs a font file here (there is no font configuration): add ${DRAWTEXT_FONTS}.`;
+  if (/permission denied|cannot execute|attendibile|untrusted mount point/i.test(output))
+    return "Hint: RedGiant's own ffmpeg is the first on your PATH (command -v ffmpeg): call it as plain ffmpeg, not through a WinGet link or another path.";
+  return undefined;
 }

@@ -5,6 +5,7 @@ import { t } from "../i18n.js";
 import {
   IconClose,
   IconFile,
+  IconFileText,
   IconMic,
   IconPaperclip,
   IconSend,
@@ -22,6 +23,8 @@ import { Modal } from "./ui.js";
  */
 export type Attachment =
   | { kind: "text"; name: string; content: string }
+  /** A long text pasted into the box (p3.3.1, as ChatGPT and Claude do): sent as a file. */
+  | { kind: "pasted"; name: string; content: string }
   | { kind: "image"; name: string; mediaType: ImagePart["mediaType"]; data: string; url: string }
   | { kind: "file"; name: string; file: File };
 
@@ -89,6 +92,46 @@ async function classify(f: File): Promise<Attachment> {
   return { kind: "file", name: f.name, file: f };
 }
 
+/** A paste longer than this (characters or lines) becomes a file, not text in the box. */
+export const PASTE_CHARS = 2000;
+export const PASTE_LINES = 40;
+
+/** The kind of text a paste is, for its file's extension: JSON, CSV, Markdown or plain text. */
+export function pastedExt(text: string): "json" | "csv" | "md" | "txt" {
+  const s = text.trim();
+  if (/^[[{]/.test(s)) {
+    try {
+      JSON.parse(s);
+      return "json";
+    } catch {}
+  }
+  const lines = s
+    .split(/\r?\n/)
+    .filter((l) => l.trim())
+    .slice(0, 50);
+  for (const sep of [",", ";", "\t"]) {
+    const counts = lines.map((l) => l.split(sep).length - 1);
+    if (lines.length >= 3 && (counts[0] ?? 0) >= 1 && counts.every((c) => c === counts[0]))
+      return "csv";
+  }
+  const marks = lines.filter((l) => MARKDOWN_LINE.test(l)).length;
+  if (marks >= 2) return "md";
+  return "txt";
+}
+const MARKDOWN_LINE = /^(#{1,6} |```|[-*+] |\d+\. |> |\|.*\|)/;
+
+/**
+ * A pasted text as an attachment when it is long (over PASTE_CHARS characters or PASTE_LINES
+ * lines), named after the moment: pasted-2026-11-07-183012.md. Undefined for a short paste.
+ */
+export function pastedAttachment(text: string, now = new Date()): Attachment | undefined {
+  const lines = text.replace(/\n$/, "").split("\n").length;
+  if (text.length <= PASTE_CHARS && lines <= PASTE_LINES) return undefined;
+  const two = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}${two(now.getSeconds())}`;
+  return { kind: "pasted", name: `pasted-${stamp}.${pastedExt(text)}`, content: text };
+}
+
 /** A name that is safe as a file name inside the workspace. */
 const safeName = (name: string) =>
   name.replace(/[^\p{L}\p{N}._\- ()]+/gu, "_").replace(/^\.+/, "") || "file";
@@ -107,7 +150,21 @@ export async function packMessage(
   const day = new Date().toISOString().slice(0, 10);
   for (const f of files) {
     if (f.kind === "text") out += `\n\n<attachment name="${f.name}">\n${f.content}\n</attachment>`;
-    else if (f.kind === "image")
+    else if (f.kind === "pasted") {
+      // Saved as a file the agent (and the canvas) can open; its text comes along too, unless
+      // it is too long to carry inside the message.
+      let where = "";
+      if (upload) {
+        const path = `.attachments/${day}/${Date.now().toString(36)}-${safeName(f.name)}`;
+        const bytes = new TextEncoder().encode(f.content);
+        await upload(path, await toBase64(new Blob([bytes])));
+        where = ` path="${path}" size="${bytes.length}"`;
+      }
+      out +=
+        f.content.length <= MAX_TEXT || !where
+          ? `\n\n<attachment name="${f.name}"${where} pasted="true">\n${f.content.slice(0, MAX_TEXT)}\n</attachment>`
+          : `\n\n<attachment name="${f.name}"${where} pasted="true" />`;
+    } else if (f.kind === "image")
       images.push({ type: "image", mediaType: f.mediaType, data: f.data, name: f.name });
     else if (upload) {
       const path = `.attachments/${day}/${Date.now().toString(36)}-${safeName(f.name)}`;
@@ -200,6 +257,7 @@ export function Composer({
 }) {
   const [text, setText] = useState("");
   const [files, setFiles] = useState<Attachment[]>([]);
+  const [viewing, setViewing] = useState<Extract<Attachment, { kind: "pasted" }> | null>(null);
   const [drop, setDrop] = useState(false);
   const [recording, setRecording] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
@@ -348,21 +406,45 @@ export function Composer({
       <div class="box">
         {files.length > 0 && (
           <div class="attachments">
-            {files.map((f) => (
-              <span key={f.name} class={`attachment ${f.kind === "image" ? "image" : ""}`}>
-                {f.kind === "image" ? <img src={f.url} alt="" /> : <IconFile size={13} />}
-                <span>{f.name}</span>
-                <button
-                  type="button"
-                  class="icon-button"
-                  title={t("remove")}
-                  onClick={() => setFiles(files.filter((x) => x !== f))}
-                >
-                  <IconClose size={12} />
-                </button>
-              </span>
-            ))}
+            {files.map((f) =>
+              f.kind === "pasted" ? (
+                <PastedCard
+                  key={f.name}
+                  file={f}
+                  open={() => setViewing(f)}
+                  asText={() => {
+                    setFiles(files.filter((x) => x !== f));
+                    setText((now) => `${now}${now && !now.endsWith("\n") ? "\n" : ""}${f.content}`);
+                    area.current?.focus();
+                  }}
+                  remove={() => setFiles(files.filter((x) => x !== f))}
+                />
+              ) : (
+                <span key={f.name} class={`attachment ${f.kind === "image" ? "image" : ""}`}>
+                  {f.kind === "image" ? <img src={f.url} alt="" /> : <IconFile size={13} />}
+                  <span>{f.name}</span>
+                  <button
+                    type="button"
+                    class="icon-button"
+                    title={t("remove")}
+                    onClick={() => setFiles(files.filter((x) => x !== f))}
+                  >
+                    <IconClose size={12} />
+                  </button>
+                </span>
+              ),
+            )}
           </div>
+        )}
+        {viewing && (
+          <Modal title={viewing.name} onClose={() => setViewing(null)}>
+            <pre class="pasted-full">{viewing.content}</pre>
+            <Acts>
+              <button type="button" class="wz-btn" onClick={() => setViewing(null)}>
+                {t("close")}
+              </button>
+            </Acts>
+          </Modal>
         )}
         {problem && <div class="composer-problem">{problem}</div>}
         {(() => {
@@ -404,7 +486,17 @@ export function Composer({
               if (pasted?.length) {
                 e.preventDefault();
                 void add(pasted);
+                return;
               }
+              // A long text becomes a file beside the message (p3.3.1).
+              const long = pastedAttachment(e.clipboardData?.getData("text/plain") ?? "");
+              if (!long) return;
+              e.preventDefault();
+              if (files.length >= MAX_FILES) {
+                setProblem(t("tooMany", { n: String(MAX_FILES) }));
+                return;
+              }
+              setFiles((now) => [...now, long]);
             }}
             onKeyDown={(e) => {
               // On a phone Enter is a new line (as in Officina): the send button sends.
@@ -502,6 +594,46 @@ export function Composer({
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** A pasted text waiting to be sent: its name, size, first lines, and what can be done with it. */
+function PastedCard({
+  file,
+  open,
+  asText,
+  remove,
+}: {
+  file: Extract<Attachment, { kind: "pasted" }>;
+  open: () => void;
+  asText: () => void;
+  remove: () => void;
+}) {
+  const lines = file.content.split("\n");
+  return (
+    <div class="attachment pasted" data-testid="pasted">
+      <button type="button" class="pasted-open" title={t("pastedOpen")} onClick={open}>
+        <span class="pasted-head">
+          <IconFileText size={13} />
+          <span class="pasted-name">{file.name}</span>
+        </span>
+        <span class="pasted-size dim">
+          {t("pastedSize", {
+            lines: String(lines.length),
+            chars: file.content.length.toLocaleString(),
+          })}
+        </span>
+        <span class="pasted-preview">{lines.slice(0, 3).join("\n").slice(0, 240)}</span>
+      </button>
+      <div class="pasted-acts">
+        <button type="button" class="link" onClick={asText}>
+          {t("pastedAsText")}
+        </button>
+        <button type="button" class="icon-button" title={t("remove")} onClick={remove}>
+          <IconClose size={12} />
+        </button>
+      </div>
     </div>
   );
 }

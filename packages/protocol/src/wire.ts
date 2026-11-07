@@ -35,6 +35,12 @@ export const ClientMessage = z.discriminatedUnion("type", [
     clientId: z.string().max(80).optional(),
   }),
   z.object({ type: z.literal("session.interrupt"), sessionId: z.string() }),
+  /** Closes a finished sub-agent's tab in a conversation (p3.3.1): recorded, for every device. */
+  z.object({
+    type: z.literal("subagent.close"),
+    sessionId: z.string(),
+    childSessionId: z.string(),
+  }),
   /** Takes back a message still waiting for the agent (sent while it worked). */
   z.object({ type: z.literal("session.unqueue"), sessionId: z.string(), clientId: z.string() }),
   z.object({ type: z.literal("question.answer"), requestId: z.string(), answers: Answers }),

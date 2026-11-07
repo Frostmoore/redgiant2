@@ -20,12 +20,12 @@
 // offer «Open in…» when no free program can read their files.
 
 import { execFile, spawn } from "node:child_process";
-import { createWriteStream, existsSync, readdirSync, readFileSync } from "node:fs";
+import { createWriteStream, existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { delimiter, join, relative } from "node:path";
+import { delimiter, dirname, join, relative } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { agentEnv } from "@redgiant/tools";
+import { agentEnv, shareProgramDir } from "@redgiant/tools";
 import { ensureFfmpeg, findFfmpeg } from "./ffmpeg.js";
 import type { JobHandle, Jobs } from "./jobs.js";
 
@@ -642,6 +642,22 @@ export class MissingProgramError extends Error {
   }
 }
 
+/**
+ * A program's folder on the agents' PATH, through links (a WinGet link refuses to start from
+ * Git's bash: «Permission denied»). ffmpeg's goes first, so the agents get the one RedGiant
+ * uses; the others go last (LibreOffice's folder also holds a python.exe).
+ */
+function shareProgram(id: ProgramId, exe: string): void {
+  let real = exe;
+  try {
+    real = realpathSync(exe);
+  } catch {}
+  // Already reachable as it is (a system program on the PATH): nothing to add.
+  const path = (process.env.PATH ?? process.env.Path ?? "").split(delimiter);
+  if (real === exe && path.includes(dirname(exe))) return;
+  shareProgramDir(dirname(real), id === "ffmpeg" ? "first" : "last");
+}
+
 /** Finds and, if needed, downloads the programs (one download at a time per program). */
 export class Programs {
   private readonly pending = new Map<ProgramId, Promise<string>>();
@@ -653,15 +669,28 @@ export class Programs {
       /** Tests: what is "on this computer", and the download itself. */
       find?: (id: ProgramId) => string | undefined;
       download?: DownloadDeps;
+      /** Put each program found on the PATH of the agents' commands (the server: p3.3.1). */
+      share?: boolean;
     },
   ) {}
 
   /** The program, without downloading. */
   find(id: ProgramId): string | undefined {
-    if (this.o.find) return this.o.find(id);
-    if (id === "ghostscript") return findGhostscript();
-    if (id === "ffmpeg") return findFfmpeg(this.o.dataDir);
-    return findProgram(id, this.o.dataDir);
+    const p = this.o.find
+      ? this.o.find(id)
+      : id === "ghostscript"
+        ? findGhostscript()
+        : id === "ffmpeg"
+          ? findFfmpeg(this.o.dataDir)
+          : findProgram(id, this.o.dataDir);
+    if (p && this.o.share) shareProgram(id, p);
+    return p;
+  }
+
+  /** Every program already here, on the agents' PATH (at start; downloads add theirs). */
+  shareFound(): void {
+    for (const id of ["ffmpeg", "blender", "libreoffice", "scribus", "ghostscript"] as const)
+      this.find(id);
   }
 
   /** Whether RedGiant can get it by itself on this computer. */
@@ -686,6 +715,7 @@ export class Programs {
     if (id === "ffmpeg")
       return ensureFfmpeg(this.o.jobs, owner, this.o.dataDir).then((p) => {
         if (!p) throw new MissingProgramError("ffmpeg");
+        if (this.o.share) shareProgram(id, p);
         return p;
       });
     if (!DOWNLOADABLE.includes(id) || !this.canDownload(id))
@@ -718,7 +748,12 @@ export class Programs {
       if (end?.state !== "done")
         throw new Error(end?.error?.message ?? `${PROGRAMS[id].name} did not download`);
       return exe;
-    })().finally(() => this.pending.delete(id));
+    })()
+      .then((exe) => {
+        if (this.o.share) shareProgram(id, exe);
+        return exe;
+      })
+      .finally(() => this.pending.delete(id));
     this.pending.set(id, p);
     return p;
   }

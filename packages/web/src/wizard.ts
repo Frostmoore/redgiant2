@@ -3,6 +3,7 @@
 // first models to suggest for each role, the disks for the models and the closing summary.
 import { DANGER_IDS } from "@redgiant/protocol";
 import type { ModelChoice, SetupState } from "./api.js";
+import { localModelName } from "./format.js";
 import { lang, t } from "./i18n.js";
 
 /** The wizard's steps; the advanced installation adds where the code lives (G24.5). */
@@ -326,7 +327,7 @@ export function recap(
       step: "wzLocal",
       icon: "monitor",
       label: t("wzRecapComputer"),
-      value: engine ? engine.model.replace(/\.gguf$/i, "") : t("wzRecapNoLocal"),
+      value: engine ? localModelName(engine.model) : t("wzRecapNoLocal"),
       sub: engine
         ? engine.off
           ? t("lmOff")

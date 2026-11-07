@@ -12745,3 +12745,261 @@ button.vw-archive-row:hover {
 .vw-idml .ui-card-head {
   font-size: 14px;
 }
+
+/* p3.3.1: no name runs out of its box (a local model's file once did, in the agent's card). */
+.chip {
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.agent-tile,
+.agent-tile-name strong,
+.org-node-text,
+.org-node-text strong,
+.agent-panel,
+.agent-panel-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+select {
+  max-width: 100%;
+}
+
+/* A long paste waiting as a file (p3.3.1): name, size, first lines; open, paste as text, remove. */
+.attachment.pasted {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  max-width: 260px;
+  padding: 6px 8px;
+}
+.pasted-open {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pasted-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pasted-name {
+  font-weight: 600;
+}
+.pasted-size {
+  font-size: 12px;
+}
+.pasted-preview {
+  display: block;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--dim);
+  white-space: pre-wrap !important;
+  max-height: 4.1em;
+  overflow: hidden;
+}
+.pasted-acts {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.pasted-full {
+  max-height: 60vh;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bubble .attachment.openable {
+  cursor: pointer;
+}
+
+/* Sub-agents' tabs (p3.3.1, as in Officina): one row per level, sideways on a phone. */
+.chat.sub-host {
+  min-height: 0;
+}
+.sub-rows {
+  flex: none;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.sub-row {
+  display: flex;
+  gap: 4px;
+  padding: 6px 10px 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.sub-row + .sub-row {
+  padding-top: 4px;
+  border-top: 1px dashed var(--line);
+  background: color-mix(in srgb, var(--panel-2) 50%, var(--panel));
+}
+.sub-tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 240px;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--panel-2);
+  color: var(--dim);
+  font-size: 13px;
+}
+.sub-tab.on {
+  background: var(--panel);
+  color: var(--text, inherit);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+button.sub-tab,
+.sub-tab-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+button.sub-tab {
+  border: 1px solid var(--line);
+  border-bottom: 0;
+}
+.sub-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sub-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+.sub-dot.running {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent);
+}
+.sub-dot.done {
+  background: var(--dim);
+}
+.sub-dot.failed,
+.sub-dot.stopped {
+  background: var(--err);
+}
+/* Something new: a ring, never a filled dot (those say the state). */
+.sub-new {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 2px solid var(--text, currentColor);
+  opacity: 0.75;
+}
+.sub-waits {
+  display: inline-flex;
+  color: var(--warn, var(--accent));
+}
+.sub-tab-x {
+  display: inline-flex;
+  padding: 4px 6px 4px 2px;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  cursor: pointer;
+}
+.sub-tab-x:hover {
+  color: var(--err);
+}
+.sub-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--dim);
+  border-top: 1px solid var(--line);
+}
+.sub-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sub-asks-line {
+  margin: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sub-task {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  padding: 10px 12px;
+}
+.sub-task summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  cursor: pointer;
+}
+.sub-task-text {
+  margin-top: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  max-height: 40vh;
+  overflow: auto;
+}
+.sub-bar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 13px;
+}
+.sub-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+@media (max-width: 700px) {
+  .sub-tab {
+    max-width: 180px;
+  }
+  .sub-no-write {
+    display: none;
+  }
+}
+.sub-asks-line .link {
+  white-space: nowrap;
+}

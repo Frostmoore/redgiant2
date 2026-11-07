@@ -1,6 +1,7 @@
 import { keyProvider, OWN_SERVER_ID } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { ModelChoice } from "../api.js";
+import { localModelName } from "../format.js";
 import { t } from "../i18n.js";
 import { attempt, getApi, refreshConversations } from "../state.js";
 
@@ -11,7 +12,7 @@ const AGENTS = "";
 /** A model's name as people say it: claude-opus-5-5 → Opus 5.5; other ids stay as they are. */
 export function modelName(id: string): string {
   const m = id.match(/^claude-([a-z]+)-(\d+)(?:-(\d+))?$/);
-  if (!m) return id;
+  if (!m) return localModelName(id);
   const family = (m[1] ?? "").charAt(0).toUpperCase() + (m[1] ?? "").slice(1);
   return `${family} ${m[2]}${m[3] ? `.${m[3]}` : ""}`;
 }

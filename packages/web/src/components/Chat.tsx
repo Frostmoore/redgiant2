@@ -1,7 +1,7 @@
 import { useComputed } from "@preact/signals";
 import type { AssistantPart, PermissionRequestInfo } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { kTokens } from "../format.js";
+import { duration, kTokens } from "../format.js";
 import { danger, lang, t } from "../i18n.js";
 import {
   IconAlert,
@@ -14,6 +14,7 @@ import {
   IconLayers,
   IconShield,
   IconSpinner,
+  IconStop,
   IconUsers,
 } from "../icons.js";
 import { renderAnswer, renderMarkdown, renderStreamingMarkdown } from "../markdown.js";
@@ -26,15 +27,22 @@ import {
   getApi,
   getLive,
   inheritedModel,
+  markSubSeen,
   openBoard,
   openCanvas,
   openSession,
+  openSubPath,
   openTab,
   questions,
   refresh,
   refreshRooms,
+  type SubTab,
   sessionRows,
   sessionView,
+  subagentTabs,
+  subPath,
+  subSeen,
+  subStatus,
 } from "../state.js";
 import { canvasKind } from "./Canvas.js";
 import { Composer, packMessage } from "./Composer.js";
@@ -177,14 +185,35 @@ function UserItem({
       <div class="bubble user">
         <Images images={item.images} />
         {splitAttachments(item.text).text}
-        {splitAttachments(item.text).names.length > 0 && (
+        {splitAttachments(item.text).files.length > 0 && (
           <div class="attachments">
-            {splitAttachments(item.text).names.map((n) => (
-              <span key={n} class="attachment">
-                <IconFile size={13} />
-                <span>{n}</span>
-              </span>
-            ))}
+            {splitAttachments(item.text).files.map((f) =>
+              f.path ? (
+                // Saved in the workspace (a pasted text, a file): it opens in the canvas.
+                <button
+                  key={f.name}
+                  type="button"
+                  class="attachment openable"
+                  title={t("attachmentOpen")}
+                  onClick={() => {
+                    const projectId = agents.value.find((a) => a.id === agentId)?.projectId;
+                    openCanvas(f.name, {
+                      kind: "file",
+                      scope: projectId ? `project:${projectId}` : "platform",
+                      path: f.path as string,
+                    });
+                  }}
+                >
+                  <IconFile size={13} />
+                  <span>{f.name}</span>
+                </button>
+              ) : (
+                <span key={f.name} class="attachment">
+                  <IconFile size={13} />
+                  <span>{f.name}</span>
+                </span>
+              ),
+            )}
           </div>
         )}
       </div>
@@ -387,12 +416,17 @@ export function PermissionCard({ r }: { r: PermissionRequestInfo }) {
   );
 }
 
-/** The attachments travel inside the text; the bubble shows their names instead. */
-const splitAttachments = (text: string) => {
+/**
+ * The attachments travel inside the text; the bubble shows their names instead, and those saved
+ * in the workspace (`path`) open in the canvas.
+ */
+export const splitAttachments = (text: string) => {
   const cut = text.search(/\n\n<attachment name="/);
-  if (cut < 0) return { text, names: [] as string[] };
-  const names = [...text.slice(cut).matchAll(/<attachment name="([^"]*)"/g)].map((m) => m[1] ?? "");
-  return { text: text.slice(0, cut), names };
+  if (cut < 0) return { text, files: [] as { name: string; path?: string }[] };
+  const files = [
+    ...text.slice(cut).matchAll(/<attachment name="([^"]*)"(?: path="([^"]*)")?/g),
+  ].map((m) => ({ name: m[1] ?? "", ...(m[2] && { path: m[2] }) }));
+  return { text: text.slice(0, cut), files };
 };
 
 /** "The conversation was summarised here" (G24.14): the summary opens; a manual one undoes. */
@@ -614,7 +648,355 @@ const formatBytes = (n: number) =>
       ? `${Math.round(n / 1024)} KB`
       : `${(n / 1048576).toFixed(1)} MB`;
 
+/**
+ * A conversation with its sub-agents (p3.3.1, as Officina shows them): when it started any, a
+ * row of tabs on top, «Main agent» and one per sub-agent; a sub-agent with sub-agents of its own
+ * opens another row under it, and so on. Without sub-agents, just the conversation.
+ */
 export function Chat({ sessionId, agentId }: { sessionId: string; agentId: string }) {
+  const view = sessionView(sessionId);
+  const tabs = useComputed(() => subagentTabs(view.value.events));
+  const path = subPath.value[sessionId] ?? [];
+  if (path.length === 0 && !tabs.value.some((x) => !x.closed))
+    return <MainChat sessionId={sessionId} agentId={agentId} />;
+  // Each level: the conversation whose tabs it shows, and the tab chosen in it. A chosen
+  // sub-agent with sub-agents of its own adds the next level (row) under it.
+  type Level = { session: string; agentId: string; tabs: SubTab[]; chosen?: SubTab };
+  const levels: Level[] = [{ session: sessionId, agentId, tabs: tabs.value }];
+  for (const id of path) {
+    const level = levels.at(-1) as Level;
+    const tab = level.tabs.find((x) => x.childSessionId === id && !x.closed);
+    if (!tab) break;
+    level.chosen = tab;
+    const below = subagentTabs(sessionView(tab.childSessionId).value.events);
+    if (!below.some((x) => !x.closed)) break;
+    levels.push({ session: tab.childSessionId, agentId: tab.childAgentId, tabs: below });
+  }
+  const chosen = levels.filter((l) => l.chosen);
+  const open = chosen.at(-1);
+  return (
+    <div class="chat sub-host">
+      <SubRows root={sessionId} rootAgent={agentId} levels={levels} />
+      {open?.chosen ? (
+        <SubagentView
+          key={open.chosen.childSessionId}
+          tab={open.chosen}
+          parentSession={open.session}
+          parentAgent={open.agentId}
+          depth={chosen.length}
+        />
+      ) : (
+        <MainChat sessionId={sessionId} agentId={agentId} />
+      )}
+    </div>
+  );
+}
+
+/** Follows the conversations behind the visible tabs: their state and their new messages. */
+function useFollowAll(ids: string[]) {
+  const key = ids.join(",");
+  useEffect(() => {
+    const live = getLive();
+    for (const id of ids) live.send({ type: "session.follow", sessionId: id });
+    return () => {
+      for (const id of ids) live.send({ type: "session.unfollow", sessionId: id });
+    };
+  }, [key]);
+}
+
+const agentName = (id: string) => agents.value.find((a) => a.id === id)?.name ?? "";
+/** A request belongs to the sub-agent's conversation (its agent's only when it names none). */
+const asksIn = (tab: SubTab) =>
+  approvals.value.filter((r) =>
+    r.sessionId ? r.sessionId === tab.childSessionId : r.agentId === tab.childAgentId,
+  );
+const asks = (tab: SubTab) => asksIn(tab).length > 0;
+
+/** The rows of tabs, one per level, with the path in words above the conversation shown. */
+function SubRows({
+  root,
+  rootAgent,
+  levels,
+}: {
+  root: string;
+  rootAgent: string;
+  levels: { session: string; agentId: string; tabs: SubTab[]; chosen?: SubTab }[];
+}) {
+  const path = subPath.value[root] ?? [];
+  useFollowAll(levels.flatMap((l) => l.tabs.filter((x) => !x.closed).map((x) => x.childSessionId)));
+  const askers = levels.flatMap((l, i) =>
+    l.tabs
+      .filter((x) => !x.closed && x.childSessionId !== path[i] && asks(x))
+      .map((x) => ({ tab: x, level: i })),
+  );
+  return (
+    <div class="sub-rows">
+      {levels.map((l, i) => (
+        <div class="sub-row" role="tablist" key={l.session} aria-label={t("subRow")}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!l.chosen}
+            class={`sub-tab sub-main ${!l.chosen ? "on" : ""}`}
+            onClick={() => openSubPath(root, path.slice(0, i))}
+          >
+            <span class="sub-tab-title">
+              {i === 0 ? t("subMain") : t("subOwn", { name: agentName(l.agentId) })}
+            </span>
+          </button>
+          {l.tabs
+            .filter((x) => !x.closed)
+            .map((x) => (
+              <SubTabButton
+                key={x.childSessionId}
+                tab={x}
+                parent={l.session}
+                on={l.chosen?.childSessionId === x.childSessionId}
+                select={() => openSubPath(root, [...path.slice(0, i), x.childSessionId])}
+                closed={() => {
+                  if (l.chosen?.childSessionId === x.childSessionId)
+                    openSubPath(root, path.slice(0, i));
+                }}
+              />
+            ))}
+        </div>
+      ))}
+      {path.length > 0 && (
+        <nav class="sub-crumbs" aria-label={t("subPath")}>
+          <button type="button" class="link" onClick={() => openSubPath(root, [])}>
+            {agentName(rootAgent) || t("subMain")}
+          </button>
+          {levels
+            .filter((l) => l.chosen)
+            .map((l, i) => {
+              const tab = l.chosen;
+              return (
+                <span key={tab?.childSessionId} class="sub-crumb">
+                  <IconChevron open={false} size={12} />
+                  <button
+                    type="button"
+                    class="link"
+                    onClick={() => openSubPath(root, path.slice(0, i + 1))}
+                  >
+                    {tab?.title ?? ""}
+                  </button>
+                </span>
+              );
+            })}
+        </nav>
+      )}
+      {askers.map(({ tab, level }) => (
+        <div class="notice warn sub-asks-line" key={tab.childSessionId}>
+          <IconShield size={13} />
+          <span>{t("subAsks", { name: tab.title })}</span>
+          <button
+            type="button"
+            class="link"
+            onClick={() => openSubPath(root, [...path.slice(0, level), tab.childSessionId])}
+          >
+            {t("subOpenTab")}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** One sub-agent's tab: its task, a dot for its state, «new», «waits for your yes», and «x». */
+function SubTabButton({
+  tab,
+  parent,
+  on,
+  select,
+  closed,
+}: {
+  tab: SubTab;
+  parent: string;
+  on: boolean;
+  select: () => void;
+  closed: () => void;
+}) {
+  const child = sessionView(tab.childSessionId).value;
+  const status = subStatus(
+    tab,
+    child.state === "running",
+    sessionView(parent).value.state === "running",
+  );
+  const lastSeq = child.events.at(-1)?.seq ?? 0;
+  const fresh = !on && lastSeq > (subSeen.value[tab.childSessionId] ?? tab.fromSeq);
+  const waiting = asks(tab);
+  const from = agentName(tab.childAgentId);
+  return (
+    <div
+      class={`sub-tab ${on ? "on" : ""} ${status}`}
+      title={`${tab.title}${from ? ` (${from})` : ""} · ${t(`subStatus_${status}`)}`}
+    >
+      <button type="button" role="tab" aria-selected={on} class="sub-tab-main" onClick={select}>
+        <span role="img" class={`sub-dot ${status}`} aria-label={t(`subStatus_${status}`)} />
+        <span class="sub-tab-title">{tab.title}</span>
+        {fresh && (
+          <span role="img" class="sub-new" aria-label={t("subFresh")} title={t("subFresh")} />
+        )}
+        {waiting && (
+          <span role="img" class="sub-waits" title={t("subWaits")} aria-label={t("subWaits")}>
+            <IconShield size={12} />
+          </span>
+        )}
+      </button>
+      {status !== "running" && (
+        <button
+          type="button"
+          class="sub-tab-x"
+          title={t("subClose")}
+          aria-label={t("subClose")}
+          onClick={() => {
+            getLive().send({
+              type: "subagent.close",
+              sessionId: parent,
+              childSessionId: tab.childSessionId,
+            });
+            closed();
+          }}
+        >
+          <IconClose size={11} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A sub-agent's tab: the task it was given, its conversation with the chat's own pieces, and
+ * instead of the composer a bar with its time, tools, tokens and «Stop» (nobody writes to it:
+ * it takes orders from the agent that started it).
+ */
+function SubagentView({
+  tab,
+  parentSession,
+  parentAgent,
+  depth,
+}: {
+  tab: SubTab;
+  parentSession: string;
+  parentAgent: string;
+  depth: number;
+}) {
+  const view = sessionView(tab.childSessionId);
+  const mine = useComputed(() => view.value.events.filter((e) => e.seq > tab.fromSeq));
+  const items = useComputed(() => buildItems(mine.value));
+  const v = view.value;
+  const status = subStatus(
+    tab,
+    v.state === "running",
+    sessionView(parentSession).value.state === "running",
+  );
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (status !== "running") return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [status]);
+  useEffect(() => {
+    const live = getLive();
+    live.send({ type: "session.follow", sessionId: tab.childSessionId });
+    return () => live.send({ type: "session.unfollow", sessionId: tab.childSessionId });
+  }, [tab.childSessionId]);
+  const lastSeq = v.events.at(-1)?.seq ?? 0;
+  useEffect(() => markSubSeen(tab.childSessionId, lastSeq), [lastSeq, tab.childSessionId]);
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scroller.current;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160)
+      el.scrollTop = el.scrollHeight;
+  });
+  const tools = items.value.filter((i) => i.kind === "tool").length;
+  const tokens = mine.value.reduce(
+    (n, e) =>
+      e.type === "message.assistant" && e.payload
+        ? n + e.payload.metrics.inputTokens + e.payload.metrics.outputTokens
+        : n,
+    0,
+  );
+  const end = tab.endedAt ? Date.parse(tab.endedAt) : status === "running" ? now : undefined;
+  const ms = end !== undefined ? end - Date.parse(tab.startedAt) : undefined;
+  const waiting = asksIn(tab);
+  const from = agentName(parentAgent);
+  return (
+    <div class="chat sub-view" data-depth={depth}>
+      <div class="chat-body">
+        <div class="chat-scroll" ref={scroller}>
+          <details class="sub-task" open={tab.task.length < 600}>
+            <summary>
+              <strong>{from ? t("subTaskFrom", { name: from }) : t("subTask")}</strong>
+              <span class="dim">{tab.title}</span>
+            </summary>
+            <div class="sub-task-text">{tab.task}</div>
+          </details>
+          {items.value.map((item) => (
+            <Item
+              key={item.key}
+              item={item}
+              agentId={tab.childAgentId}
+              sessionId={tab.childSessionId}
+            />
+          ))}
+          {status === "running" && v.call && <TurnProgress call={v.call} />}
+          {(v.thinking || v.text) && (
+            <div class="bubble assistant streaming">
+              {v.text ? (
+                <div
+                  class="md"
+                  dangerouslySetInnerHTML={{ __html: renderStreamingMarkdown(v.text) }}
+                />
+              ) : (
+                <div class="dim">{v.thinking.slice(-2000)}</div>
+              )}
+            </div>
+          )}
+          {tab.summary && status !== "running" && (
+            <div class={`notice ${status === "done" ? "ok" : "error"}`}>
+              <IconInfo size={13} />
+              <span>{t(`subEnded_${status}`)}</span>
+            </div>
+          )}
+          {!tab.ended && status === "stopped" && (
+            <div class="notice warn">
+              <IconAlert size={13} />
+              <span>{t("subInterrupted")}</span>
+            </div>
+          )}
+          {waiting.map((r) => (
+            <PermissionCard key={r.requestId} r={r} />
+          ))}
+        </div>
+      </div>
+      <div class="sub-bar" aria-live="polite">
+        <span class={`sub-dot ${status}`} />
+        <strong>{t(`subStatus_${status}`)}</strong>
+        <span class="dim">{t("subTime", { time: duration(ms) })}</span>
+        <span class="dim">{t("subTools", { n: String(tools) })}</span>
+        <span class="dim">{t("subTokens", { n: kTokens(tokens) })}</span>
+        <div class="spacer" />
+        <span class="dim sub-no-write">{t("subNoWrite")}</span>
+        {status === "running" && (
+          <button
+            type="button"
+            class="wz-btn sub-stop"
+            onClick={() =>
+              getLive().send({ type: "session.interrupt", sessionId: tab.childSessionId })
+            }
+          >
+            <IconStop size={13} />
+            {t("subStop")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The conversation itself (the main agent's, or the only one). */
+function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }) {
   const view = sessionView(sessionId);
   const items = useComputed(() => buildItems(view.value.events));
   // Sent while the agent works (2026-11-05, as in Officina): shown at once, until the log has it.

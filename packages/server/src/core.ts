@@ -108,6 +108,7 @@ import { HumanApprovals } from "./approvals.js";
 import type { BackupDeps } from "./backup.js";
 import { type Browsers, browserTools } from "./browser.js";
 import { contentType, inside, lastChange, Previews, type PreviewTarget } from "./canvas.js";
+import { canvasView } from "./canvas-view.js";
 import { CHAT_AGENT_PROMPT, ChatError, DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
 import { FileConverter } from "./convert.js";
@@ -516,7 +517,13 @@ export class RedGiantCore implements OrchestrationHost {
       system: (ownerId) => this.keysElsewhere(ownerId),
     });
     // Conversions (G34.3): programs in the data folder's tools, LibreOffice with its own profile.
-    this.programs = new Programs({ jobs: this.jobs, dataDir: dirname(o.workspacesDir) });
+    // Every program found or downloaded goes on the PATH of the agents' commands (p3.3.1).
+    this.programs = new Programs({
+      jobs: this.jobs,
+      dataDir: dirname(o.workspacesDir),
+      share: true,
+    });
+    this.programs.shareFound();
     this.converter = new FileConverter({
       programs: this.programs,
       profileDir: join(dirname(o.workspacesDir), "tools", "libreoffice-profile"),
@@ -2206,7 +2213,17 @@ export class RedGiantCore implements OrchestrationHost {
       sessionId: ctx.sessionId,
       body: { type: "canvas.show", payload: { title: r.title, target } },
     });
-    return undefined;
+    if (!where)
+      return "It is outside every workspace: the canvas shows it as it is, in the viewer for its kind, and converts nothing.";
+    try {
+      const root = await this.scopeRoot(agent.ownerId, where.scope);
+      return await canvasView(this.converter, root, where.path, {
+        here: this.programs.find("libreoffice") !== undefined,
+        canDownload: this.programs.canDownload("libreoffice"),
+      });
+    } catch {
+      return undefined;
+    }
   }
 
   /** The folder behind a scope on disk. */
@@ -4203,6 +4220,44 @@ export class RedGiantCore implements OrchestrationHost {
 
   isRunning(sessionId: string): boolean {
     return this.live.get(sessionId)?.running != null;
+  }
+
+  /**
+   * Closes a sub-agent's tab in a conversation (p3.3.1): only one that is not working (a working
+   * one is stopped first, with «Stop»). Recorded in the conversation, so it stays closed on every
+   * device, after a reload and after a restart; closing it again records nothing.
+   */
+  async closeSubagent(ownerId: string, sessionId: string, childSessionId: string): Promise<void> {
+    const l = await this.open(ownerId, sessionId);
+    const events = await this.store.list({
+      sessionId,
+      types: ["subagent.started", "subagent.ended", "subagent.closed"],
+    });
+    const mine = events.filter(
+      (e) =>
+        (e.type === "subagent.started" ||
+          e.type === "subagent.ended" ||
+          e.type === "subagent.closed") &&
+        e.payload?.childSessionId === childSessionId,
+    );
+    const started = mine.filter((e) => e.type === "subagent.started");
+    if (started.length === 0) throw new NotFoundError("No such sub-agent in this conversation");
+    const last = mine.at(-1);
+    if (last?.type === "subagent.closed") return;
+    const ended =
+      mine.filter((e) => e.type === "subagent.ended").length >= started.length ||
+      // Started before a restart and never ended: it died with the server's previous run.
+      (!this.isRunning(childSessionId) && l.running == null);
+    if (!ended || this.isRunning(childSessionId))
+      throw new BadRequestError("The sub-agent is still working: stop it first");
+    const agent = this.registry.get(started[0]?.agentId ?? "");
+    await this.store.append({
+      ownerId,
+      projectId: agent?.projectId ?? null,
+      agentId: started[0]?.agentId ?? null,
+      sessionId,
+      body: { type: "subagent.closed", payload: { childSessionId } },
+    });
   }
 
   /**

@@ -236,3 +236,59 @@ describe("the summary's slider (G33.4)", () => {
     expect(r.container.textContent).toContain("tenendo il 12%");
   });
 });
+
+describe("a long paste becomes a file (p3.3.1)", () => {
+  const long = Array.from({ length: 60 }, (_, i) => `# line ${i}\n- item ${i}`).join("\n");
+  const paste = (box: HTMLElement, text: string) =>
+    fireEvent.paste(box, { clipboardData: { files: [], getData: () => text } });
+
+  it("shows a card with its preview, sends it as an attachment, and can go back to text", async () => {
+    const sent: [string, unknown[]][] = [];
+    const r = render(
+      <Composer
+        onSend={async (text, files) => void sent.push([text, files])}
+        running={false}
+        placeholder="Scrivi"
+        lang="it-IT"
+        queues={false}
+      />,
+    );
+    const box = r.container.querySelector("textarea") as HTMLTextAreaElement;
+    // A short paste stays text (the browser puts it in the box).
+    paste(box, "breve");
+    expect(r.container.querySelector("[data-testid=pasted]")).toBeNull();
+    paste(box, long);
+    const card = await waitFor(() => r.getByTestId("pasted"));
+    expect(card.textContent).toMatch(/pasted-\d{4}-\d{2}-\d{2}-\d{6}\.md/);
+    expect(card.textContent).toContain("120 righe");
+    expect(card.textContent).toContain("# line 0");
+    // Opened whole, then closed.
+    fireEvent.click(card.querySelector(".pasted-open") as HTMLElement);
+    await waitFor(() => expect(document.querySelector(".pasted-full")?.textContent).toBe(long));
+    fireEvent.click(r.getByText("Chiudi"));
+    // Paste as text instead: the card goes, the text is in the box.
+    fireEvent.click(r.getByText("Incolla come testo"));
+    expect(r.container.querySelector("[data-testid=pasted]")).toBeNull();
+    expect(box.value).toBe(long);
+    // Pasted again and sent: it travels as an attachment.
+    fireEvent.input(box, { target: { value: "guarda" } });
+    paste(box, long);
+    await waitFor(() => r.getByTestId("pasted"));
+    fireEvent.click(r.container.querySelector("button.send") as HTMLElement);
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.[0]).toBe("guarda");
+    expect(sent[0]?.[1]).toEqual([expect.objectContaining({ kind: "pasted", content: long })]);
+  });
+
+  it("can be removed", async () => {
+    const r = render(
+      <Composer onSend={async () => {}} running={false} placeholder="Scrivi" lang="it-IT" />,
+    );
+    const box = r.container.querySelector("textarea") as HTMLTextAreaElement;
+    paste(box, "x".repeat(2500));
+    const card = await waitFor(() => r.getByTestId("pasted"));
+    expect(card.textContent).toMatch(/\.txt/);
+    fireEvent.click(card.querySelector(".icon-button") as HTMLElement);
+    expect(r.container.querySelector("[data-testid=pasted]")).toBeNull();
+  });
+});

@@ -1,6 +1,7 @@
 import { DANGER_IDS } from "@redgiant/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { SetupState } from "../src/api.js";
+import { localModelName } from "../src/format.js";
 import { lang } from "../src/i18n.js";
 import {
   bigChunksShown,
@@ -240,5 +241,20 @@ describe("the options next to SSD stream (G32.1)", () => {
       gpus: [{ name: "Intel Iris", vramGb: 0, vendor: "nvidia", integrated: true }],
     } as Partial<SetupState["hardware"]>);
     expect(sysmemAdviceDue(laptop, "windows", true, false)).toBe(false);
+  });
+});
+
+describe("local model names (p3.3.1)", () => {
+  it("shows a readable name, never the path", () => {
+    expect(
+      localModelName(
+        "C:\\Users\\Pixel\\AppData\\Local\\RedGiant\\engine\\models\\GLM-4.5-Air-Q4_K_S-00001-of-00002.gguf",
+      ),
+    ).toBe("GLM-4.5 Air Q4_K_S");
+    expect(localModelName("/data/models/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf")).toBe(
+      "Qwen3-30B A3B Instruct-2507 Q4_K_M",
+    );
+    expect(localModelName("gemma-3-12b-it-Q4_K_M.gguf")).toBe("gemma-3-12b it Q4_K_M");
+    expect(localModelName("gpt-5")).toBe("gpt-5");
   });
 });

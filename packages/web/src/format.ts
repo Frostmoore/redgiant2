@@ -38,3 +38,23 @@ export function monthDays(now = new Date()): string[] {
     out.push(`${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(d)}`);
   return out;
 }
+
+/**
+ * A local model's readable name from its file (p3.3.1: the whole path ran out of the agent's
+ * card): no folders, no ".gguf", no split suffix ("-00001-of-00002"); dashes before a word
+ * become spaces, those before a number stay ("GLM-4.5"). `C:\…\GLM-4.5-Air-Q4_K_S-00001-of-00002.gguf` →
+ * "GLM-4.5 Air Q4_K_S". Anything else is returned as it is.
+ */
+export function localModelName(id: string): string {
+  const file = /\.gguf$/i.test(id) || /[\\/]/.test(id) ? (id.split(/[\\/]/).pop() ?? id) : id;
+  if (file === id && !/\.gguf$/i.test(id)) return id;
+  const stem = file.replace(/\.gguf$/i, "").replace(/-\d{5}-of-\d{5}$/i, "");
+  const parts = stem.split("-").filter(Boolean);
+  let out = parts[0] ?? stem;
+  for (let i = 1; i < parts.length; i++) {
+    const cur = parts[i] as string;
+    // A number stays joined ("GLM-4.5", "Qwen3.6-35B"); a word starts a new one.
+    out += (/^\d/.test(cur) ? "-" : " ") + cur;
+  }
+  return out || id;
+}

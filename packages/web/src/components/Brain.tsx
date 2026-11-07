@@ -11,6 +11,7 @@ import { t, tOptional } from "../i18n.js";
 import { IconChat, IconKey, IconMonitor, IconServer, IconSpark } from "../icons.js";
 import { getApi, refreshLimits } from "../state.js";
 import type { Way } from "../wizard.js";
+import { modelName } from "./ModelMenu.js";
 import { Acts } from "./SettingsKit.js";
 import { Field, Pick } from "./ui.js";
 
@@ -545,7 +546,7 @@ export function DefaultModel({ s, onSaved }: { s: SetupState; onSaved: () => voi
                   .filter((m) => m.provider === p)
                   .map((m) => (
                     <option key={m.model} value={`${m.provider}/${m.model}`}>
-                      {m.model}
+                      {modelName(m.model)}
                     </option>
                   ))}
               </optgroup>
@@ -605,7 +606,7 @@ export function wayState(s: SetupState, w: Way): string {
       : t("wzStateLinked");
   if (w === "local")
     return s.config.engine
-      ? t("wzStateLocal", { model: s.config.engine.model.replace(/\.gguf$/i, "") })
+      ? t("wzStateLocal", { model: modelName(s.config.engine.model) })
       : t("wzStateLocalNext");
   return t("wzStateLinked");
 }

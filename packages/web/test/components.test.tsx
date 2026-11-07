@@ -318,3 +318,11 @@ describe("«next layer ahead» (G32.2)", () => {
     expect(seen).toEqual([true]);
   });
 });
+
+describe("model names in the cards (p3.3.1)", () => {
+  it("shows a local model by its readable name, not its path", async () => {
+    const { modelName } = await import("../src/components/ModelMenu.js");
+    expect(modelName("C:\\m\\GLM-4.5-Air-Q4_K_S-00001-of-00002.gguf")).toBe("GLM-4.5 Air Q4_K_S");
+    expect(modelName("claude-opus-4-1")).toBe("Opus 4.1");
+  });
+});

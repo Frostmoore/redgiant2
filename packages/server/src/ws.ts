@@ -196,6 +196,9 @@ export function attachWebSocket(
           case "session.interrupt":
             await core.interrupt(owner, msg.sessionId);
             return;
+          case "subagent.close":
+            await core.closeSubagent(owner, msg.sessionId, msg.childSessionId);
+            return;
           case "permission.resolve": {
             const pending = core.approvals.list(owner).find((r) => r.requestId === msg.requestId);
             if (!core.approvals.decide(owner, msg.requestId, msg.decision, msg.reason))

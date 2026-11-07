@@ -1,5 +1,5 @@
 import type { MessageMetrics } from "@redgiant/protocol";
-import { clock, duration, kTokens, usd } from "../format.js";
+import { clock, duration, kTokens, localModelName, usd } from "../format.js";
 import { t } from "../i18n.js";
 
 /**
@@ -22,7 +22,7 @@ export function MetricsBar({
   const fresh = Math.max(0, m.inputTokens - m.cachedReadTokens);
   const used = Math.round((m.contextUsed / m.contextWindow) * 1000) / 10;
   const title = [
-    model,
+    model && localModelName(model),
     `start ${m.startedAt}`,
     m.firstTokenAt && `first token ${m.firstTokenAt}`,
     m.endedAt && `end ${m.endedAt}`,

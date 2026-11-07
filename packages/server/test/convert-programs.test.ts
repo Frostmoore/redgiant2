@@ -353,6 +353,41 @@ describe("the blender tool", () => {
     expect(existsSync(join(root, ".redgiant-blender"))).toBe(false);
   });
 
+  it("accepts the render values models really send (p3.3.1: «render: Invalid input»)", async () => {
+    const ws = new FakeBlenderWorkspace(root);
+    await writeFile(join(root, "cube.glb"), "glb");
+    const tool = blenderTool(ws, { programs: programs() });
+    // The schema the model sees says render is an object.
+    const props = (tool.def.inputSchema as { properties: Record<string, { type?: string }> })
+      .properties;
+    expect(props.render?.type).toBe("object");
+    const cases: [unknown, string][] = [
+      [true, ".png"],
+      [{ samples: 64 }, ".png"],
+      [{ width: 1280, height: 800, samples: 64 }, ".png"],
+      [{ turntable: true }, ".webm"],
+      // The same, as engines hand them over when they stringify arguments.
+      ["true", ".png"],
+      ['{"samples": 64}', ".png"],
+      ['{"width": "1280", "height": "800", "samples": "64"}', ".png"],
+      ['{"turntable": "true", "frames": 36}', ".webm"],
+      ["turntable", ".webm"],
+      [{ engine: "EEVEE", view: "Front" }, ".png"],
+    ];
+    for (const [render, ext] of cases) {
+      for (const base of [{ script: "import bpy" }, { file: "cube.glb" }]) {
+        const parsed = tool.schema?.safeParse({ ...base, render });
+        expect(parsed?.success, JSON.stringify(render)).toBe(true);
+        const said = text(await tool.run(parsed?.data, ctx));
+        expect(said, JSON.stringify(render)).toContain(`${ext}`);
+      }
+    }
+    expect(tool.schema?.safeParse({ script: "x", render: { samples: 0 } }).success).toBe(false);
+    expect(tool.schema?.safeParse({ script: "x", render: "false" }).data).toMatchObject({
+      render: false,
+    });
+  });
+
   it("refuses what it cannot do and says why Blender stopped", async () => {
     const ws = new FakeBlenderWorkspace(root);
     const tool = blenderTool(ws, { programs: programs() });

@@ -59,6 +59,22 @@ const brain = (req) => {
   const results = last?.role === "user" && last.parts.every((p) => p.type === "tool_result");
   turn++;
   const said = last?.parts.find((p) => p.type === "text")?.text ?? "";
+  // p3.3.1: the sub-agents of DEMO_SUBAGENTS, each with its own answer.
+  if (said.startsWith("Task from God: «Pubblica"))
+    return {
+      text: "Preparo le note di rilascio, poi pubblico.",
+      toolCalls: [
+        { name: "write_file", input: { path: "release-3.3.1.md", content: "# 3.3.1\n" } },
+      ],
+    };
+  if (said.startsWith("Task from God: «Scrive"))
+    return {
+      text: "Non ci riesco: i test di integrazione chiedono un database che qui non c'è.",
+    };
+  if (said.startsWith("Task from "))
+    return {
+      text: "Ho trovato i file da cambiare:\n\n- `packages/server/src/convert-js.ts`\n- `packages/server/src/convert-blender.ts`\n- `packages/web/src/components/Composer.tsx`",
+    };
   // G34: «Mostra il file <path>» → show_file; its result → a short answer.
   const shownResult = last?.parts.find((p) => p.type === "tool_result")?.content;
   if (results && typeof shownResult === "string" && shownResult.startsWith("Opened "))
@@ -509,7 +525,7 @@ const secretary = await core.registry.create(
     connections: ["docs"],
   },
 );
-await core.registry.create(
+const researcher = await core.registry.create(
   { type: "human", ownerId: "local" },
   {
     kind: "assistant",
@@ -727,6 +743,92 @@ await writeFile(join(dir, "models", "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf.part"), "de
   );
 }
 // G34: DEMO_SAMPLES=<folder>: God shows every file of it in the canvas, one message each.
+// p3.3.1, DEMO_SUBAGENTS=1: God's conversation with sub-agents at work (one finished, one failed,
+// one waiting for the person's yes with a sub-agent of its own), and a local model's file as a
+// model (its name, not its path, in the agent's card).
+let subSession;
+if (process.env.DEMO_SUBAGENTS) {
+  await core.registry.configure(me, secretary.id, {
+    model: {
+      provider: "local",
+      model:
+        "C:\\Users\\Pixel\\AppData\\Local\\RedGiant\\engine\\models\\GLM-4.5-Air-Q4_K_S-00001-of-00002.gguf",
+    },
+  });
+  // Asks before every command: the third sub-agent waits for the person's yes.
+  await core.registry.configure(me, researcher.id, { mode: "manual" });
+  subSession = await core.startSession("local", god.id);
+  const at = (sessionId, agentId, body) =>
+    core.store.append({ ownerId: "local", projectId: null, agentId, sessionId, body });
+  await at(subSession, null, {
+    type: "message.user",
+    payload: { text: "Prepara la release 3.3.1: trova cosa cambiare, scrivi i test e pubblica." },
+  });
+  await at(subSession, god.id, {
+    type: "message.assistant",
+    payload: {
+      parts: [{ type: "text", text: "Divido il lavoro fra tre sotto-agenti." }],
+      metrics: {
+        inputTokens: 9000,
+        outputTokens: 300,
+        cachedReadTokens: 8000,
+        contextUsed: 9300,
+        contextWindow: 200000,
+        startedAt: new Date().toISOString(),
+        source: "server",
+      },
+      costUsd: 0.01,
+      model: "claude-opus-5-5",
+      stopReason: "tool_use",
+    },
+  });
+  const work = [
+    ["Cerca i file da cambiare", "Cerca nel progetto i file che la 3.3.1 deve cambiare.", "done"],
+    ["Scrive i test", "Scrivi i test di integrazione della conversione PSD.", "failed"],
+    ["Pubblica il pacchetto", "Pubblica il pacchetto npm della 3.3.1.", null],
+  ];
+  for (const [title, task, end] of work) {
+    const child = await core.startSession("local", researcher.id);
+    await at(subSession, god.id, {
+      type: "subagent.started",
+      payload: {
+        childSessionId: child,
+        childAgentId: researcher.id,
+        via: "ask_assistant",
+        title,
+        task,
+      },
+    });
+    const { done } = await core.send("local", child, `Task from God: «${title}»\n\n${task}`);
+    if (end) {
+      await done;
+      await at(subSession, god.id, {
+        type: "subagent.ended",
+        payload: { childSessionId: child, status: end, summary: title },
+      });
+    } else {
+      done.catch(() => {});
+      // Its own sub-agent, finished.
+      const grand = await core.startSession("local", researcher.id);
+      await at(child, researcher.id, {
+        type: "subagent.started",
+        payload: {
+          childSessionId: grand,
+          childAgentId: researcher.id,
+          via: "run_subagent",
+          title: "Controlla il changelog",
+          task: "Controlla che il changelog della 3.3.1 sia completo.",
+        },
+      });
+      await (await core.send("local", grand, "Task from Ricercatore: «Controlla il changelog»"))
+        .done;
+      await at(child, researcher.id, {
+        type: "subagent.ended",
+        payload: { childSessionId: grand, status: "done", summary: "ok" },
+      });
+    }
+  }
+}
 let viewerSession;
 if (process.env.DEMO_SAMPLES) {
   const { cp, readdir } = await import("node:fs/promises");
@@ -755,5 +857,6 @@ console.log(
     orchestrator: orch.id,
     god: god.id,
     ...(viewerSession && { viewerSession }),
+    ...(subSession && { subSession }),
   }),
 );

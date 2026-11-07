@@ -978,3 +978,93 @@ export async function openAgent(agent: Agent, fresh = false): Promise<void> {
     agentId: agent.id,
   });
 }
+
+// ---------- Sub-agents' tabs (p3.3.1, as Officina shows them) ----------
+
+/** A sub-agent started from a conversation: its tab there. */
+export interface SubTab {
+  childSessionId: string;
+  childAgentId: string;
+  callId?: string | undefined;
+  via: string;
+  title: string;
+  task: string;
+  /** Its part of its conversation: the events after this one (a work conversation is reused). */
+  fromSeq: number;
+  startedAt: string;
+  endedAt?: string | undefined;
+  /** undefined while no end is recorded (working, or died with a restart). */
+  ended?: "done" | "failed" | "stopped" | undefined;
+  summary?: string | undefined;
+  closed: boolean;
+}
+
+/** The tabs of a conversation's sub-agents, from its events (pure). A new task reopens a tab. */
+export function subagentTabs(events: Event[]): SubTab[] {
+  const tabs = new Map<string, SubTab>();
+  for (const e of events) {
+    if (e.payload === null) continue;
+    if (e.type === "subagent.started") {
+      const p = e.payload;
+      // The same conversation given work again (a persistent agent): the tab follows the newest.
+      tabs.delete(p.childSessionId);
+      tabs.set(p.childSessionId, {
+        childSessionId: p.childSessionId,
+        childAgentId: p.childAgentId,
+        callId: p.callId,
+        via: p.via,
+        title: p.title,
+        task: p.task,
+        // A brand-new conversation is all its own; a reused one from this task on.
+        fromSeq: p.via.startsWith("run_subagent") ? 0 : e.seq,
+        startedAt: e.ts,
+        closed: false,
+      });
+    } else if (e.type === "subagent.ended") {
+      const tab = tabs.get(e.payload.childSessionId);
+      if (tab) {
+        tab.ended = e.payload.status;
+        tab.endedAt = e.ts;
+        tab.summary = e.payload.summary;
+      }
+    } else if (e.type === "subagent.closed") {
+      const tab = tabs.get(e.payload.childSessionId);
+      if (tab) tab.closed = true;
+    }
+  }
+  return [...tabs.values()];
+}
+
+/** What a tab's dot says: working, finished, failed, or stopped (also: died with a restart). */
+export function subStatus(
+  tab: SubTab,
+  childRunning: boolean,
+  parentRunning: boolean,
+): "running" | "done" | "failed" | "stopped" {
+  if (tab.ended) return tab.ended;
+  return childRunning || parentRunning ? "running" : "stopped";
+}
+
+/** The last event of each sub-agent's conversation the person has seen (its "new" mark). */
+export const subSeen = signal<Record<string, number>>(
+  (() => {
+    try {
+      return JSON.parse(localStorage.getItem("rg.subSeen") ?? "{}") as Record<string, number>;
+    } catch {
+      return {};
+    }
+  })(),
+);
+export function markSubSeen(childSessionId: string, seq: number): void {
+  if ((subSeen.value[childSessionId] ?? 0) >= seq) return;
+  subSeen.value = { ...subSeen.value, [childSessionId]: seq };
+  try {
+    localStorage.setItem("rg.subSeen", JSON.stringify(subSeen.value));
+  } catch {}
+}
+
+/** Which tab is open in each conversation, level by level (the sub-agents' sessions). */
+export const subPath = signal<Record<string, string[]>>({});
+export function openSubPath(rootSessionId: string, path: string[]): void {
+  subPath.value = { ...subPath.value, [rootSessionId]: path };
+}

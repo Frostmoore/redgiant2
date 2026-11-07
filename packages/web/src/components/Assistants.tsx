@@ -26,6 +26,7 @@ import {
 import { Editor, recipeWhen } from "./Automations.js";
 import { explain, providerName } from "./Brain.js";
 import { CompactionSettings } from "./CompactionSettings.js";
+import { modelName } from "./ModelMenu.js";
 import { NotesEditor } from "./NotesEditor.js";
 import { PromptEditor } from "./PromptEditor.js";
 import { Advanced, Choice, Field, Modal, Toggle } from "./ui.js";
@@ -211,7 +212,7 @@ export function AssistantWizard({ onDone }: { onDone: (a?: Agent) => void }) {
                   .filter((m) => m.provider === p)
                   .map((m) => (
                     <option key={m.model} value={`${m.provider}/${m.model}`}>
-                      {m.model}
+                      {modelName(m.model)}
                     </option>
                   ))}
               </optgroup>

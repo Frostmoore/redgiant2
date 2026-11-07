@@ -7,6 +7,7 @@ import { LocalWorkspace } from "@redgiant/tools";
 import { decode as decodePng } from "fast-png";
 import { strFromU8, strToU8, unzipSync } from "fflate";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { canvasView } from "../src/canvas-view.js";
 import { commands, FileConverter, figmaExport, figmaLink, readManifest } from "../src/convert.js";
 import { detectFormat, knownFormats, needsConversion } from "../src/convert-formats.js";
 import { parseXml, renderOra } from "../src/convert-js.js";
@@ -30,6 +31,7 @@ import {
   idmlSample,
   inddSample,
   pdfSample,
+  pngSample,
   psdSample,
   sketchSample,
 } from "./fixtures/convert-samples.js";
@@ -217,20 +219,20 @@ describe("our own conversions", () => {
     expect((await converter.inspect(root, "p.psd")).converted?.stale).toBe(true);
   });
 
-  it("draws an OpenRaster's layers again (normal blending, opacity, offsets)", async () => {
+  it("draws an OpenRaster's layers again (blend modes, opacity, offsets)", async () => {
     await put("p.psd", psdSample());
     const { converter } = fakeConverter([]);
     await converter.convert(root, "p.psd", { owner: "me" });
     const ora = unzipSync(new Uint8Array(await readFile(join(root, "p.psd.open/p.ora"))));
     const r = renderOra(ora);
-    expect(r.approximated.join()).toMatch(/svg:multiply on «Red»/);
+    expect(r.approximated).toEqual([]); // multiply is drawn as multiply
     const img = decodePng(r.merged);
     expect([img.width, img.height]).toEqual([8, 6]);
     const px = (x: number, y: number) =>
       Array.from(img.data.slice((y * 8 + x) * 4, (y * 8 + x) * 4 + 4));
     expect(px(0, 0)).toEqual([255, 255, 255, 255]); // the background alone
     expect(px(1, 1)).toEqual([0, 0, 0, 255]); // the title on top
-    const pink = px(5, 2); // red at half opacity over white (drawn as normal)
+    const pink = px(5, 2); // red multiplied at half opacity over white
     expect(pink[0]).toBe(255);
     expect(pink[1]).toBeGreaterThan(120);
     expect(pink[1]).toBeLessThan(135);
@@ -460,6 +462,18 @@ describe("outside programs", () => {
       "svg:draw_svg_Export",
     ]);
     expect(args.at(-1)).toBe(join(root, "logo.ai.open/logo.pdf"));
+  });
+
+  it("makes a picture of a PDF's first page with LibreOffice, only when asked (no Ghostscript)", async () => {
+    await put("doc.pdf", pdfSample());
+    const { converter, calls } = fakeConverter(["libreoffice"]);
+    const report = await converter.inspect(root, "doc.pdf");
+    expect(report.targets.find((x) => x.ext === "png")).toMatchObject({ asked: true });
+    const r = await converter.convert(root, "doc.pdf", { owner: "me", to: ["png"] });
+    expect(r.outputs.map((o) => o.path)).toEqual(["doc.pdf.open/doc.png"]);
+    const args = calls[0]?.args ?? [];
+    expect(args).toContain("--infilter=draw_pdf_import");
+    expect(args[args.indexOf("--convert-to") + 1]).toBe("png");
   });
 
   it("turns EPS into PDF with Ghostscript (safe mode, %% in names) and media with ffmpeg", async () => {
@@ -1016,5 +1030,53 @@ describe("the page's API", () => {
     } finally {
       await s.close();
     }
+  });
+});
+
+describe("what the canvas shows (show_file's answer, p3.3.1)", () => {
+  const lo = { here: true, canDownload: true };
+  it("says a video the browser cannot play was not converted, and how to do it", async () => {
+    await put("clips/old.avi", aviSample());
+    const { converter } = fakeConverter();
+    const said = await canvasView(converter, root, "clips/old.avi", lo);
+    expect(said).toMatch(/cannot play AVI/);
+    expect(said).toMatch(/«Convert to see it»/);
+    expect(said).toMatch(/NOT converted automatically/);
+    expect(said).toContain('convert_file with path "clips/old.avi"');
+    // Once converted: the copy is what the canvas shows.
+    await converter.convert(root, "clips/old.avi", { owner: "me", to: ["webm"] });
+    const after = await canvasView(converter, root, "clips/old.avi", lo);
+    expect(after).toMatch(/open copy clips\/old\.avi\.open\/old\.webm, made earlier/);
+    expect(after).toMatch(/Nothing was converted now/);
+  });
+
+  it("says when a paged preview is being prepared, and when it is ready", async () => {
+    await put("docs/letter.docx", docxSample());
+    const { converter } = fakeConverter();
+    expect(await canvasView(converter, root, "docs/letter.docx", lo)).toMatch(
+      /preparing its paged preview now/,
+    );
+    expect(
+      await canvasView(converter, root, "docs/letter.docx", { here: false, canDownload: true }),
+    ).toMatch(/downloaded first, once/);
+    expect(
+      await canvasView(converter, root, "docs/letter.docx", { here: false, canDownload: false }),
+    ).toMatch(/simple reading/);
+    await converter.preview(root, "docs/letter.docx", { owner: "me" });
+    expect(await canvasView(converter, root, "docs/letter.docx", lo)).toMatch(
+      /laid out as pages .*already prepared/,
+    );
+  });
+
+  it("says a closed design file is only offered for conversion, and an open one needs none", async () => {
+    await put("art/p.psd", psdSample());
+    await put("art/ok.png", pngSample());
+    const { converter } = fakeConverter();
+    const psd = await canvasView(converter, root, "art/p.psd", lo);
+    expect(psd).toMatch(/closed format: the canvas shows a box offering/);
+    expect(psd).toMatch(/NOT converted automatically/);
+    expect(await canvasView(converter, root, "art/ok.png", lo)).toMatch(
+      /as it is, in its picture viewer: no conversion is needed/,
+    );
   });
 });
