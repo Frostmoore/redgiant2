@@ -9,8 +9,8 @@ import { bytes } from "../format.js";
 import { lang, t } from "../i18n.js";
 import { IconDownload, IconUpload } from "../icons.js";
 import { attempt, getApi, refresh } from "../state.js";
-import { Acts, Head, SCard, Seg, WzPage } from "./SettingsKit.js";
-import { JobView, Progress, useJob } from "./ui.js";
+import { Acts, Head, SCard, Seg, SwitchRow, WzPage } from "./SettingsKit.js";
+import { Field, JobView, Progress, useJob } from "./ui.js";
 
 /** A transfer the page does itself, with the rate of the last seconds and the time left. */
 function useTransfer() {
@@ -51,9 +51,12 @@ function Export() {
   const job = useJob(jobId);
   const down = useTransfer();
   const [saved, setSaved] = useState(false);
+  // The keychain goes in only sealed with a passphrase of the person's (G33.4).
+  const [withKeys, setWithKeys] = useState(false);
+  const [pass, setPass] = useState("");
   const make = async () => {
     setSaved(false);
-    const j = await attempt(() => getApi().exportBackup());
+    const j = await attempt(() => getApi().exportBackup(withKeys ? pass : undefined));
     if (j) setJobId(j.id);
   };
   const save = async (name: string) => {
@@ -80,6 +83,27 @@ function Export() {
         {job && <JobView job={job} cancellable countSteps={["conversations"]} />}
         {down.progress && <Progress progress={down.progress} />}
         {saved && <p class="notice ok">{t("backupSaved")}</p>}
+        {job?.state !== "running" && (
+          <div class="sb-keys">
+            <SwitchRow
+              title={t("backupKeys")}
+              help={t("backupKeysHelp")}
+              on={withKeys}
+              onChange={setWithKeys}
+            />
+            {withKeys && (
+              <Field label={t("kcPassphrase")} help={t("kcPassphraseHelp")}>
+                <input
+                  class="wz-field"
+                  type="password"
+                  autocomplete="new-password"
+                  value={pass}
+                  onInput={(e) => setPass((e.target as HTMLInputElement).value)}
+                />
+              </Field>
+            )}
+          </div>
+        )}
         <div class="sb-backup-acts">
           {file && !down.progress && (
             <button type="button" class="wz-btn small primary" onClick={() => void save(file)}>
@@ -90,6 +114,7 @@ function Export() {
             <button
               type="button"
               class={`wz-btn small${file ? "" : " primary"}`}
+              disabled={withKeys && pass.length < 8}
               onClick={() => void make()}
             >
               {!file && <IconDownload size={18} />}
@@ -110,6 +135,7 @@ function Import() {
   const [jobId, setJobId] = useState<string>();
   const job = useJob(jobId);
   const [refreshed, setRefreshed] = useState(false);
+  const [pass, setPass] = useState("");
   const pick = async (file: File | undefined) => {
     if (!file) return;
     setFound(undefined);
@@ -130,6 +156,7 @@ function Import() {
         id: found.id,
         ...(names.god && { godName: names.god }),
         ...(names.demigod && { demigodName: names.demigod }),
+        ...(pass && { keychainPassphrase: pass }),
       }),
     );
     if (j) setJobId(j.id);
@@ -215,6 +242,16 @@ function Import() {
                 </div>
               ) : null,
             )}
+            {p.keychain && (
+              <Field label={t("backupKeysIn")} help={t("backupKeysInHelp")}>
+                <input
+                  class="wz-field"
+                  type="password"
+                  value={pass}
+                  onInput={(e) => setPass((e.target as HTMLInputElement).value)}
+                />
+              </Field>
+            )}
             <p class="ui-help">{fresh.length ? t("backupAddsHint") : t("backupNothingNew")}</p>
             <Acts>
               <button type="button" class="wz-btn quiet" onClick={() => setFound(undefined)}>
@@ -234,6 +271,13 @@ function Import() {
               agents: job.vars.agents ?? "0",
               conversations: job.vars.conversations ?? "0",
             })}
+          </p>
+        )}
+        {job?.state === "done" && job.vars.keychain && (
+          <p class={`notice ${job.vars.keychain === "wrong" ? "error" : "ok"}`}>
+            {job.vars.keychain === "wrong"
+              ? t("backupKeysWrong")
+              : t("kcImported", { n: job.vars.keychain })}
           </p>
         )}
         {job && job.state !== "running" && (

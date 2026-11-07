@@ -1,21 +1,9 @@
+import { SECRET_PATTERNS } from "@redgiant/protocol";
+
 /** Replaces secrets in any string inside a value before it is written to the log. */
 export class Redactor {
-  private readonly patterns: { name: string; re: RegExp }[] = [
-    {
-      name: "private-key",
-      re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
-    },
-    // A key starts a word and has digits: "elon-musk-s-2026-political-…" in a URL is not one.
-    { name: "anthropic-key", re: /\bsk-ant-(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}/g },
-    { name: "openai-key", re: /\bsk-(?:proj-)?(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}/g },
-    { name: "github-token", re: /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})/g },
-    { name: "huggingface-token", re: /\bhf_[A-Za-z0-9]{30,}/g },
-    { name: "aws-access-key", re: /\bAKIA[0-9A-Z]{16}\b/g },
-    { name: "google-api-key", re: /\bAIza[0-9A-Za-z_-]{35}\b/g },
-    { name: "slack-token", re: /\bxox[abprs]-[A-Za-z0-9-]{10,}/g },
-    { name: "telegram-bot-token", re: /\b\d{8,10}:[A-Za-z0-9_-]{35}\b/g },
-    { name: "bearer", re: /(?<=\bBearer\s+)[A-Za-z0-9._~+/-]{20,}=*/g },
-  ];
+  // The well-known key formats, shared with the chats' and the memory's recogniser.
+  private readonly patterns = SECRET_PATTERNS;
   private readonly literals = new Map<string, string>();
 
   /** Registers a known secret value (e.g. from configuration); shorter than 6 chars is ignored. */

@@ -4,7 +4,6 @@
 import type { Event } from "@redgiant/protocol";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { lang, t } from "../i18n.js";
-import { IconCheck } from "../icons.js";
 import { getApi, sessionView } from "../state.js";
 
 type Proposed = Extract<Event, { type: "variants.proposed" }>["payload"] & object;
@@ -187,7 +186,7 @@ export function Variants({ sessionId, proposalId }: { sessionId: string; proposa
               <div class="tavola-actions">
                 <div class="row">
                   <button type="button" class="primary" onClick={() => void send(no, true)}>
-                    <IconCheck size={14} /> {isChosen ? t("boardChosen") : t("boardChoose")}
+                    {isChosen ? t("boardChosen") : t("boardChoose")}
                   </button>
                   <button type="button" onClick={() => setFull(no)}>
                     {t("boardFull")}

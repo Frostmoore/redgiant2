@@ -423,16 +423,21 @@ describe("toTelegramHtml", () => {
 
   it("takes photos, documents and voice notes to God, and answers /status, /stop and /new", async () => {
     const seenByGod: CompletionRequest[] = [];
-    await setup((req) => {
-      if (req.system.startsWith("You are Demi-God")) {
-        const r = toolResult(req);
-        return r === undefined
-          ? { toolCalls: [{ name: "ask_god", input: { message: lastText(req) } }] }
-          : { text: r };
-      }
-      seenByGod.push(req);
-      return { text: "seen" };
-    });
+    await setup(
+      (req) => {
+        if (req.system.startsWith("You are Demi-God")) {
+          const r = toolResult(req);
+          return r === undefined
+            ? { toolCalls: [{ name: "ask_god", input: { message: lastText(req) } }] }
+            : { text: r };
+        }
+        seenByGod.push(req);
+        return { text: "seen" };
+        // A real window: God's tools alone fill most of the fake's 8192 tokens.
+      },
+      undefined,
+      { contextWindow: 64_000 },
+    );
     await pair();
     (s as Server).core.setLanguage("it");
     const last = () => String(tg?.sent(USER).at(-1)?.text ?? "");

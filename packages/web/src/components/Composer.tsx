@@ -1,4 +1,4 @@
-import type { ImagePart } from "@redgiant/protocol";
+import { findSecrets, hideSecrets, type ImagePart, type SecretSpan } from "@redgiant/protocol";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n.js";
@@ -12,6 +12,9 @@ import {
   IconStop,
 } from "../icons.js";
 import { getApi, platformInfo } from "../state.js";
+import { CredentialWindow } from "./Keychain.js";
+import { Acts } from "./SettingsKit.js";
+import { Modal } from "./ui.js";
 
 /**
  * What the composer holds: small text files go inside the message, photos go to the model as
@@ -225,11 +228,24 @@ export function Composer({
     });
   };
 
-  const send = async () => {
+  // A secret in the message (G33.4): held back before it leaves the page, with the way to the
+  // keychain; the server blanks any that gets through (Telegram and the other chats).
+  const [held, setHeld] = useState<SecretSpan[] | null>(null);
+  const [vaulting, setVaulting] = useState(false);
+  const send = async (clean?: string) => {
     if ((!text.trim() && files.length === 0) || (running && !queues) || busy) return;
+    if (clean === undefined) {
+      const found = findSecrets(text);
+      if (found.length > 0) {
+        setHeld(found);
+        return;
+      }
+    }
+    setHeld(null);
     setBusy(true);
     try {
-      await onSend(text.trim() ? text : t("seeAttachments"), files);
+      const body = clean ?? text;
+      await onSend(body.trim() ? body : t("seeAttachments"), files);
       for (const f of files) if (f.kind === "image") URL.revokeObjectURL(f.url);
       setText("");
       setFiles([]);
@@ -450,6 +466,42 @@ export function Composer({
           </button>
         </div>
       </div>
+      {held && !vaulting && (
+        <Modal title={t("chSecretTitle")} onClose={() => setHeld(null)}>
+          <div class="wz-panel-in ch-secret">
+            <p class="wz-lead2">{t("chSecretText")}</p>
+            <p class="ch-secret-found">
+              {t("chSecretFound", {
+                list: [...new Set(held.map((h) => t(`chSecretKind_${h.kind}`)))].join(", "),
+              })}
+            </p>
+          </div>
+          <Acts>
+            <button type="button" class="wz-btn quiet" onClick={() => setHeld(null)}>
+              {t("chSecretBack")}
+            </button>
+            <button
+              type="button"
+              class="wz-btn"
+              onClick={() => void send(hideSecrets(text, "[secret removed]").text)}
+            >
+              {t("chSecretSend")}
+            </button>
+            <button type="button" class="wz-btn primary" onClick={() => setVaulting(true)}>
+              {t("chSecretVault")}
+            </button>
+          </Acts>
+        </Modal>
+      )}
+      {held && vaulting && (
+        <CredentialWindow
+          draft={{ value: held[0]?.value ?? "" }}
+          onClose={(saved) => {
+            setVaulting(false);
+            if (saved) void send(hideSecrets(text, "[secret removed: now in the keychain]").text);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -12,6 +12,21 @@ export interface CredentialRoute {
   headers: Record<string, string>;
 }
 
+/**
+ * A keychain credential (G33.4) for extensions' tools: the sandbox calls
+ * `http://<proxy>/vault/<cap>/<host>/<path>`, writing `{{vault:<name>}}` in a header where the
+ * value goes (or nothing: then `inject` says which header). The proxy forwards over HTTPS only to
+ * the credential's hosts, and hides the value in the answer. `cap` is random and never stored in
+ * a sandbox's files: only the tools the person bound to the credential receive it, per run.
+ */
+export interface VaultProxyRoute {
+  cap: string;
+  name: string;
+  value: string;
+  hosts: string[];
+  inject: { header: string; format: string };
+}
+
 export interface EgressPolicy {
   /** Allowed hosts: exact names or `*.example.com` (subdomains only). */
   allow: string[];
@@ -91,6 +106,13 @@ export class EgressProxy {
 
   private extra: Record<string, CredentialRoute> = {};
 
+  /** The keychain's credentials bound to tools (G33.4), by capability. */
+  setVault(routes: VaultProxyRoute[]): void {
+    this.vault = new Map(routes.map((r) => [r.cap, r]));
+  }
+
+  private vault = new Map<string, VaultProxyRoute>();
+
   listen(port: number, host = "0.0.0.0"): Promise<number> {
     return new Promise((ok) =>
       this.server.listen(port, host, () => {
@@ -149,6 +171,7 @@ export class EgressProxy {
     res.on("error", () => {});
     const url = req.url ?? "/";
     if (url.startsWith("/route/")) return this.handleRoute(req, res, url);
+    if (url.startsWith("/vault/")) return this.handleVault(req, res, url);
     let target: URL;
     try {
       target = new URL(url);
@@ -179,7 +202,54 @@ export class EgressProxy {
     this.onDecision({ kind: "route", host: target.hostname, allowed: true });
     forward(req, res, target, route.headers);
   }
+
+  private async handleVault(req: IncomingMessage, res: ServerResponse, url: string) {
+    const [, , cap = "", host = "", ...rest] = url.split("/");
+    const route = this.vault.get(cap);
+    if (!route) {
+      this.onDecision({
+        kind: "route",
+        host: "vault",
+        allowed: false,
+        reason: "unknown credential",
+      });
+      return deny(res, 404, "RedGiant egress: unknown credential");
+    }
+    const name = host.split(":")[0]?.toLowerCase() ?? "";
+    if (!name || !hostAllowed(name, route.hosts)) {
+      this.onDecision({
+        kind: "route",
+        host: name,
+        allowed: false,
+        reason: "not a host of the credential",
+      });
+      return deny(res, 403, `RedGiant egress: ${name} is not a host of credential "${route.name}"`);
+    }
+    const target = new URL(`https://${host}/${rest.join("/")}`);
+    const re = placeholder(route.name);
+    const inject: Record<string, string> = {};
+    let placed = false;
+    for (const [k, v] of Object.entries(req.headers)) {
+      const text = Array.isArray(v) ? v.join(", ") : v;
+      if (text && re.test(text)) {
+        re.lastIndex = 0;
+        inject[k] = text.replace(re, route.value);
+        placed = true;
+      }
+      re.lastIndex = 0;
+    }
+    if (!placed && route.inject.header)
+      inject[route.inject.header] = route.inject.format.includes("{value}")
+        ? route.inject.format.replace("{value}", route.value)
+        : route.value;
+    this.onDecision({ kind: "route", host: name, allowed: true });
+    forward(req, res, target, inject, route.value);
+  }
 }
+
+/** `{{vault:<name>}}` in a header's value. */
+const placeholder = (name: string) =>
+  new RegExp(`\\{\\{\\s*vault:${name.replace(/[^a-z0-9_-]/g, "")}\\s*\\}\\}`, "g");
 
 function deny(res: ServerResponse, status: number, message: string) {
   res.writeHead(status, { "content-type": "text/plain" }).end(`${message}\n`);
@@ -201,6 +271,8 @@ function forward(
   res: ServerResponse,
   target: URL,
   inject: Record<string, string>,
+  /** A keychain value: the answer comes back with it hidden (read whole, then sent). */
+  hide?: string,
 ) {
   const headers: Record<string, string | string[]> = {};
   for (const [k, v] of Object.entries(req.headers)) {
@@ -214,9 +286,27 @@ function forward(
     headers[k] = v;
   }
   const client = target.protocol === "https:" ? https : http;
+  if (hide) headers["accept-encoding"] = "identity";
   const upstream = client.request(target, { method: req.method ?? "GET", headers }, (up) => {
-    res.writeHead(up.statusCode ?? 502, up.headers);
-    up.pipe(res);
+    if (!hide) {
+      res.writeHead(up.statusCode ?? 502, up.headers);
+      up.pipe(res);
+      return;
+    }
+    const parts: Buffer[] = [];
+    up.on("data", (d: Buffer) => parts.push(d));
+    up.on("end", () => {
+      const body = Buffer.from(
+        Buffer.concat(parts)
+          .toString("latin1")
+          .split(Buffer.from(hide).toString("latin1"))
+          .join("[vault]"),
+        "latin1",
+      );
+      const { "content-length": _l, "transfer-encoding": _t, ...rest } = up.headers;
+      res.writeHead(up.statusCode ?? 502, { ...rest, "content-length": String(body.length) });
+      res.end(body);
+    });
   });
   upstream.on("error", (err) => {
     if (!res.headersSent) deny(res, 502, `RedGiant egress: upstream error: ${err.message}`);

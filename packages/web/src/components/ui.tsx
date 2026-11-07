@@ -7,7 +7,7 @@ import { useEffect, useId, useState } from "preact/hooks";
 import qrcode from "qrcode-generator";
 import { bytes } from "../format.js";
 import { t, tOptional } from "../i18n.js";
-import { IconAlert, IconCheck, IconChevron, IconSpinner, IconX } from "../icons.js";
+import { IconAlert, IconChevron, IconSpinner, IconX } from "../icons.js";
 import { attempt, getApi } from "../state.js";
 
 /** One screen of a guided flow: a title, one sentence on what it is for, an optional skip. */
@@ -146,7 +146,6 @@ export function Choice<T extends string>({
               {o.icon}
               <strong>{o.title}</strong>
               {o.badge && <span class="chip ok">{o.badge}</span>}
-              <span class="ui-card-mark">{on && <IconCheck size={14} />}</span>
             </span>
             <span class="ui-help">{o.description}</span>
           </button>
@@ -356,7 +355,6 @@ export function Pick({
       disabled={disabled}
       onClick={() => !disabled && onChange(!on)}
     >
-      <span class="pick-mark">{on && <IconCheck size={small ? 12 : 13} />}</span>
       <span>{children}</span>
     </button>
   );

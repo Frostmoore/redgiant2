@@ -3,7 +3,7 @@
 import { createPortal } from "preact/compat";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n.js";
-import { IconCheck, IconFolder, IconPlus } from "../icons.js";
+import { IconFolder, IconPlus } from "../icons.js";
 
 export function FolderMenu({
   current,
@@ -74,10 +74,16 @@ export function FolderMenu({
           >
             <div class="folder-menu-title">{t("folderMove")}</div>
             {folders.map((f) => (
-              <button key={f} type="button" role="menuitem" onClick={() => pick(f)}>
+              <button
+                key={f}
+                type="button"
+                role="menuitem"
+                class={f === current ? "cur" : undefined}
+                aria-current={f === current ? "true" : undefined}
+                onClick={() => pick(f)}
+              >
                 <IconFolder size={13} />
                 <span>{f}</span>
-                {f === current && <IconCheck size={13} />}
               </button>
             ))}
             {creating ? (

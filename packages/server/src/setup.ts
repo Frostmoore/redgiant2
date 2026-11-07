@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { SqlClient } from "@redgiant/events";
 import type { Platform } from "@redgiant/gateway";
 import { DEFAULT_POLICY } from "@redgiant/hierarchy";
-import type { Job } from "@redgiant/protocol";
+import type { Job, VaultSystemEntry } from "@redgiant/protocol";
 import {
   keyProvider,
   MEDIA_PROVIDERS,
@@ -337,6 +337,23 @@ export interface Locked {
   images?: boolean;
 }
 
+/** How services are written, for the keychain's list. */
+const SERVICE_NAMES: Record<string, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  openrouter: "OpenRouter",
+  deepseek: "DeepSeek",
+  mistral: "Mistral",
+  gemini: "Gemini",
+  google: "Google",
+  elevenlabs: "ElevenLabs",
+  whatsapp: "WhatsApp",
+  brave: "Brave Search",
+  tavily: "Tavily",
+  exa: "Exa",
+  serper: "Serper",
+};
+
 export interface SetupState {
   config: SetupConfig;
   /** Model files inside WSL that the engine on Windows could run instead (2026-11-04). */
@@ -609,6 +626,49 @@ export class SetupService {
     await run("git routes", this.applyGit());
     this.scheduleTokenReminder();
     this.scheduleRetention();
+  }
+
+  /**
+   * The keys kept here, for the keychain's list (G33.4): what each is and where it is managed.
+   * Names only: the values stay in secrets.json, used as before.
+   */
+  keysForVault(): VaultSystemEntry[] {
+    const s = this.secrets;
+    const out: VaultSystemEntry[] = [];
+    const add = (
+      id: string,
+      service: string,
+      section: string,
+      kind: VaultSystemEntry["kind"],
+      what: string,
+      category: VaultSystemEntry["category"] = "api",
+    ) =>
+      out.push({
+        id: `setup:${id}`,
+        service: SERVICE_NAMES[service] ?? service.charAt(0).toUpperCase() + service.slice(1),
+        brand: service.toLowerCase(),
+        section,
+        kind,
+        what,
+        category,
+      });
+    for (const p of Object.keys(s.keys ?? {})) add(`key-${p}`, p, "setup", "provider", "API key");
+    if (s.serverKey) add("server", "OpenAI-compatible server", "setup", "provider", "API key");
+    if (s.claudeSubscriptionToken)
+      add("claude-subscription", "Claude", "subscriptions", "provider", "subscription");
+    for (const p of Object.keys(s.mediaKeys ?? {}))
+      add(`media-${p}`, p, "setup", "provider", "API key");
+    if (s.transcriptionKey) add("transcription", "Transcription", "setup", "other", "API key");
+    if (s.openaiImagesKey) add("images", "OpenAI", "setup", "provider", "images key");
+    if (s.telegramToken) add("telegram", "Telegram", "telegram", "chat", "bot token");
+    for (const p of Object.keys(s.chats ?? {})) add(`chat-${p}`, p, "chats", "chat", "token");
+    if (s.githubToken) add("github", "GitHub", "code", "git", "token", "server");
+    if (s.giteaToken) add("gitea", "Gitea", "code", "git", "token", "server");
+    for (const p of Object.keys(s.searchKeys ?? {}))
+      add(`search-${p}`, p, "setup", "search", "API key");
+    if (s.piholePassword) add("pihole", "Pi-hole", "remote", "other", "password", "server");
+    if (s.cloudflareToken) add("cloudflare", "Cloudflare", "remote", "other", "token", "server");
+    return out;
   }
 
   async state(): Promise<SetupState> {

@@ -18,6 +18,12 @@ packaging/windows/redgiant-rootfs.tar.gz
 # Local secrets: never in git
 wordpress.key
 *.key
+# RedGiant's keychain (G33.4): it refuses to open inside a repository; these are a second guard.
+keychain/
+keychain.enc
+master.dpapi
+*.rgkeychain
+/data/
 
 # What the Windows installer carries, staged by CI (G30.2).
 packaging/windows/server/

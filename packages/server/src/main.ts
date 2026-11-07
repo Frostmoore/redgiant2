@@ -19,6 +19,7 @@ import { Browsers, DockerBrowserLauncher, findBrowser, LocalBrowserLauncher } fr
 import { ChatHub, Outlets } from "./chats.js";
 import { RedGiantCore } from "./core.js";
 import { debugLog } from "./debug-log.js";
+import { localVaultEgress, routesFileEgress } from "./egress-routes.js";
 import { startEmbeddedDatabase } from "./embedded-db.js";
 import { GitHosts } from "./git-hosts.js";
 import { HuggingFace } from "./hf.js";
@@ -148,9 +149,21 @@ const pool =
 // An idle connection the database closes (a restart, the shutdown) must not take the server down.
 pool?.on("error", (err) => console.warn(`database: ${err.message}`));
 const db = pool ? pgPoolClient(pool) : await memoryDb();
+// The keychain (G33.4): beside the data, never inside a git repository; credentials bound to tools
+// reach the sandboxes through the egress proxy (Docker) or a proxy of the server's own (no Docker).
+const vaultEgress =
+  env.REDGIANT_EGRESS_ROUTES && env.REDGIANT_EGRESS_URL
+    ? { egress: routesFileEgress(env.REDGIANT_EGRESS_ROUTES, env.REDGIANT_EGRESS_URL) }
+    : env.REDGIANT_SANDBOX === "docker"
+      ? undefined
+      : await localVaultEgress().catch(() => undefined);
 const core = await RedGiantCore.create({
   db,
   providers,
+  vault: {
+    dir: resolve(env.REDGIANT_VAULT_DIR ?? join(dataDir, "keychain")),
+    ...(vaultEgress && { egress: vaultEgress.egress }),
+  },
   workspacesDir: join(dataDir, "workspaces"),
   platformDir: join(dataDir, "platform"),
   sandbox,
@@ -336,6 +349,9 @@ const setup = new SetupService({
   },
 });
 await setup.applyAtStartup();
+// The keys the setup keeps are listed in the keychain too (names only), so there is one place.
+core.vaultSystem = async () => setup.keysForVault();
+if (vaultEgress && "close" in vaultEgress) shutdownHooks.push(() => vaultEgress.close());
 // Claude on a flat subscription from the environment (the wizard's choice otherwise).
 if (env.REDGIANT_CLAUDE_SUBSCRIPTION_TOKEN)
   await hooks.claudeSubscription?.(env.REDGIANT_CLAUDE_SUBSCRIPTION_TOKEN);

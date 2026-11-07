@@ -1,6 +1,8 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { SqlClient } from "@redgiant/events";
+import { migrateGateway } from "@redgiant/gateway";
 import type { AutomationRun, MagicAutomation, Mailbox as MailboxInfo } from "@redgiant/protocol";
 import type { CompletionRequest } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
@@ -193,7 +195,10 @@ describe("many mailboxes, by category (G33.3)", () => {
 
 describe("chat messages and approvals for automations (G33.3)", () => {
   it("a message starts the automation, which keeps it and asks before it acts", async () => {
-    s = await startServer((req) => ({ text: `Done: ${lastUser(req).split("\n")[0]}` }));
+    // A real window: God's tools alone fill most of the fake's 8192 tokens.
+    s = await startServer((req) => ({ text: `Done: ${lastUser(req).split("\n")[0]}` }), {
+      contextWindow: 64_000,
+    });
     await withGod();
     await s.core.automations.create(
       "me",
@@ -320,13 +325,35 @@ describe("magic automations (G33.3)", () => {
     expect(m?.title).toBe("Revolut, ogni giorno alle 3");
     expect(m?.proposal?.needs).toEqual([
       { kind: "chat", what: "whatsapp", why: "to tell you", ready: false },
-      { kind: "credential", what: "revolut", why: "to read the account" },
+      { kind: "credential", what: "revolut", why: "to read the account", ready: false },
     ]);
     // God's conversation knows its task, and has the tool only there.
     const first = s.provider.requests[0] as CompletionRequest;
     expect(first.system).toContain("This conversation builds an automation");
     expect(first.tools?.some((t) => t.name === "propose_automation")).toBe(true);
     expect(await s.core.automations.list("me")).toHaveLength(0);
+    // Not while something it needs is missing (G33.4): the chat and the credential.
+    const early = await s.api<{ error: string }>(
+      "POST",
+      `/api/magic/${created.body.id}/approve`,
+      {},
+    );
+    expect(early.status).toBe(400);
+    expect(early.body.error).toContain("Still missing: chat whatsapp, credential revolut");
+    // The person links WhatsApp and adds the key to the keychain: read again, all there.
+    const db = (s.core as unknown as { o: { db: SqlClient } }).o.db;
+    await migrateGateway(db);
+    await db.query(
+      "INSERT INTO rg_chat_links (platform, user_id, owner_id, chat_id) VALUES ('whatsapp', 'u1', 'me', 'c1')",
+    );
+    await s.api("POST", "/api/vault", {
+      name: "revolut",
+      service: "Revolut",
+      value: "rk_live_Zq81mXv3PdQw7Tn2LbYc",
+      hosts: ["b2b.revolut.com"],
+    });
+    const fresh = await s.api<MagicAutomation>("GET", `/api/magic/${created.body.id}`);
+    expect(fresh.body.proposal?.needs.map((n) => n.ready)).toEqual([true, true]);
 
     const ok = await s.api<{ automation: { id: string; name: string } }>(
       "POST",

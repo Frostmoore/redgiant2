@@ -185,12 +185,12 @@ describe("plain words", () => {
   it("the history's technical details in sentences, with no red for the normal setup", async () => {
     platformInfo.value = null;
     const r = render(<Platform />);
-    await waitFor(() => expect(r.container.querySelector(".g33-tech")).not.toBeNull());
-    const tech = r.container.querySelector(".g33-tech") as HTMLElement;
+    await waitFor(() => expect(r.container.querySelector(".tech-facts")).not.toBeNull());
+    const tech = r.container.querySelector(".tech-facts") as HTMLElement;
     expect(tech.textContent).toContain("Direttamente su questo computer");
     expect(tech.textContent).toContain("Non devi fare niente");
     expect(tech.textContent).not.toContain("Sandbox");
-    expect(tech.querySelector(".danger, .g33-tech-warn")).toBeNull();
+    expect(tech.querySelector(".danger, .tech-facts-warn")).toBeNull();
   });
 });
 

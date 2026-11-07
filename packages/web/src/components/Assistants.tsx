@@ -7,7 +7,7 @@ import { MCP_CATALOG } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { Agent, McpEntry, McpStatus, ModelChoice } from "../api.js";
 import { roleText, t } from "../i18n.js";
-import { IconChat, IconCheck, IconMonitor, IconPlus } from "../icons.js";
+import { IconChat, IconMonitor, IconPlus } from "../icons.js";
 import {
   agents,
   approvals,

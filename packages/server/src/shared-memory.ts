@@ -12,13 +12,15 @@
 //   - never a secret: passwords, keys, card numbers and the like are refused.
 
 import { randomUUID } from "node:crypto";
-import { type EventStore, Redactor } from "@redgiant/events";
-import type {
-  Event,
-  ModelSpec,
-  SharedMemoryChange,
-  SharedMemoryEntry,
-  SharedMemoryView,
+import type { EventStore, Redactor } from "@redgiant/events";
+import {
+  type Event,
+  hasSecret,
+  hideSecrets,
+  type ModelSpec,
+  type SharedMemoryChange,
+  type SharedMemoryEntry,
+  type SharedMemoryView,
 } from "@redgiant/protocol";
 import { complete, type ProviderRegistry, streamWithFallback } from "@redgiant/providers";
 
@@ -73,100 +75,18 @@ interface State {
 // ---------------------------------------------------------------------------------------------
 // Secrets
 
-const KNOWN = new Redactor();
-
-// Only real secrets are refused (2026-11-07, the person on the first filter: «Decisamente troppo
-// severo»): values that look like keys, valid card numbers and IBANs, and a password or a PIN only
-// when its value is there. Talking about passwords («il password manager è comodo», «uso il PIN
-// sul telefono») is fine.
-
-/** Words that describe a password rather than being one: «la password è lunga». */
-const NOT_A_VALUE = new Set(
-  (
-    "lunga corta sicura forte debole semplice facile difficile complicata comoda scaduta cambiata " +
-    "nuova vecchia salvata segreta giusta sbagliata uguale diversa sempre ancora stata nel nella " +
-    "sul sulla in un una il lo la le gli i di da per con che non " +
-    "long short strong weak secure safe simple easy hard complex expired changed new old saved " +
-    "secret right wrong same different always still in on the a an my your not stored kept"
-  ).split(" "),
-);
-
-/** "password: X", "la password del wifi è X", "my password is X": the keyword, then its value. */
-const PASSWORD =
-  /\b(?:password|passwd|pwd|passcode|passphrase|parola d'ordine)(?:\s+(?:del|della|dello|dell'|di|of|for|per|to|on|su|sul|sulla|al|alla|mio|mia|my)\s+[^\s:=]+){0,2}\s*(?:[:=]\s*|\s(?:is|è|e'|era|sarebbe|vale|=)\s+)["'«]?([^\s"'»,;.]{3,})/giu;
-/** "PIN 1234", "il mio PIN è 12345", "CVV: 123": the number is there. */
-const CODE = /\b(?:pin|puk|otp|cvv|cvc|codice segreto|codice pin)\b[^\d\n]{0,12}(\d{3,8})\b/giu;
-/** "token: …", "api key sk…", "chiave api = …": a long value with letters and digits. */
-const KEY =
-  /\b(?:api[ _-]?key|token|secret|chiave(?: api| segreta)?|access key)\s*(?:[:=]|\s(?:is|è)\s)?\s*["'«]?([A-Za-z0-9_\-./+]{16,})/giu;
-/** JSON web tokens, and long random strings with lower case, upper case and digits mixed. */
-const RANDOM = [
-  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g,
-  /\b(?=[A-Za-z0-9+/_-]*\d)(?=[A-Za-z0-9+/_-]*[a-z])(?=[A-Za-z0-9+/_-]*[A-Z])[A-Za-z0-9+/_-]{24,}\b/g,
-];
-
-function luhn(digits: string): boolean {
-  let sum = 0;
-  for (let i = 0; i < digits.length; i++) {
-    let d = Number(digits[digits.length - 1 - i]);
-    if (i % 2 === 1) {
-      d *= 2;
-      if (d > 9) d -= 9;
-    }
-    sum += d;
-  }
-  return sum % 10 === 0;
-}
-
-function ibanValid(raw: string): boolean {
-  const s = raw.replace(/\s+/g, "").toUpperCase();
-  if (s.length < 15 || s.length > 34) return false;
-  const moved = s.slice(4) + s.slice(0, 4);
-  let rest = 0;
-  for (const ch of moved) {
-    const v = ch >= "A" && ch <= "Z" ? String(ch.charCodeAt(0) - 55) : ch;
-    for (const d of v) rest = (rest * 10 + Number(d)) % 97;
-  }
-  return rest === 1;
-}
-
-/** Where the secrets are in a text: [start, end) of each. */
-function secretSpans(text: string): [number, number][] {
-  const out: [number, number][] = [];
-  const add = (m: RegExpMatchArray) => {
-    const at = m.index ?? 0;
-    out.push([at, at + m[0].length]);
-  };
-  for (const m of text.matchAll(PASSWORD)) if (!NOT_A_VALUE.has((m[1] ?? "").toLowerCase())) add(m);
-  for (const m of text.matchAll(CODE)) add(m);
-  for (const m of text.matchAll(KEY)) if (/\d/.test(m[1] ?? "")) add(m);
-  for (const re of RANDOM) for (const m of text.matchAll(re)) add(m);
-  for (const m of text.matchAll(/\b\d(?:[ -]?\d){12,18}\b/g))
-    if (luhn(m[0].replace(/\D/g, ""))) add(m);
-  for (const m of text.matchAll(/\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){2,7}(?:\s?[A-Z0-9]{1,4})?\b/gi))
-    if (ibanValid(m[0])) add(m);
-  return out;
-}
+// The recogniser is shared with every chat (G33.4, `@redgiant/protocol` secrets.ts); the
+// Redactor adds the values RedGiant itself knows (its keys, the keychain's values).
 
 /** True when the text holds something that must never be remembered. */
 export function looksSecret(text: string, redactor?: Redactor): boolean {
-  if (KNOWN.redactText(text).count > 0) return true;
   if (redactor && redactor.redactText(text).count > 0) return true;
-  return secretSpans(text).length > 0;
+  return hasSecret(text);
 }
 
 /** The person's words with secrets blanked, before a model reads them to learn. */
 function blankSecrets(text: string, redactor?: Redactor): string {
-  let out = KNOWN.redactText(text).text;
-  if (redactor) out = redactor.redactText(out).text;
-  const merged: [number, number][] = [];
-  for (const [a, b] of secretSpans(out).sort((x, y) => x[0] - y[0])) {
-    const last = merged.at(-1);
-    if (last && a <= last[1]) last[1] = Math.max(last[1], b);
-    else merged.push([a, b]);
-  }
-  for (const [a, b] of merged.reverse()) out = `${out.slice(0, a)}[secret]${out.slice(b)}`;
-  return out;
+  return hideSecrets(redactor ? redactor.redactText(text).text : text).text;
 }
 
 // ---------------------------------------------------------------------------------------------

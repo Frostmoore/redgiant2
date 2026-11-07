@@ -270,7 +270,13 @@ export const MagicNeed = z.object({
   /** What exactly ("whatsapp", "revolut-api"…). */
   what: z.string(),
   why: z.string().default(""),
-  /** Whether it is there already (computed by the server for chats and email). */
+  /** A credential's service and host (G33.4): the keychain's form opens with them filled in. */
+  service: z.string().optional(),
+  host: z.string().optional(),
+  /**
+   * Whether it is there already, checked by the server each time the proposal is read (chats,
+   * mailboxes, credentials, extensions); absent when it cannot know ("other").
+   */
   ready: z.boolean().optional(),
 });
 export type MagicNeed = z.infer<typeof MagicNeed>;

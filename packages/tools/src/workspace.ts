@@ -22,6 +22,11 @@ export interface ExecResult {
 export interface ExecOptions {
   timeoutMs: number;
   signal?: AbortSignal | undefined;
+  /**
+   * Extra variables for this run only. Never a secret (CLAUDE.md): the keychain gives a bound
+   * tool the proxy's address for a credential (`REDGIANT_VAULT_<NAME>`), never its value.
+   */
+  env?: Record<string, string> | undefined;
 }
 
 /**
@@ -365,7 +370,7 @@ export class LocalWorkspace implements Workspace {
   private run(
     file: string,
     args: string[],
-    { timeoutMs, signal }: ExecOptions,
+    { timeoutMs, signal, env }: ExecOptions,
     shell?: string,
   ): Promise<ExecResult> {
     return new Promise((done) => {
@@ -375,7 +380,7 @@ export class LocalWorkspace implements Workspace {
       const child = spawn(file, args, {
         cwd: this.root,
         ...(shell && { shell }),
-        env: agentEnv(),
+        env: env ? { ...agentEnv(), ...env } : agentEnv(),
         detached: group,
       });
       const stop = () => {

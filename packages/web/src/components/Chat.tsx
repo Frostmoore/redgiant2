@@ -7,7 +7,6 @@ import {
   IconAlert,
   IconArrowDown,
   IconCanvas,
-  IconCheck,
   IconChevron,
   IconClose,
   IconFile,
@@ -107,7 +106,7 @@ function Todos({ items, running }: { items: ChatItem[]; running: boolean }) {
             <li key={i} class={x.status}>
               <span class="todo-mark">
                 {x.status === "completed" ? (
-                  <IconCheck size={12} />
+                  <i class="todo-dot done" />
                 ) : x.status === "in_progress" ? (
                   <IconSpinner size={12} />
                 ) : (
@@ -234,7 +233,14 @@ function ToolLine({
     <div class={`tool ${state}${item.viaScript ? " via-script" : ""}`}>
       <button type="button" class="tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span class="mark">
-          {state === "running" ? <IconSpinner /> : state === "done" ? <IconCheck /> : <IconClose />}
+          {/* Done is a green dot, failed a red X (no check marks, 2026-11-07). */}
+          {state === "running" ? (
+            <IconSpinner />
+          ) : state === "done" ? (
+            <i class="tool-dot" />
+          ) : (
+            <IconClose />
+          )}
         </span>
         <span class="tname">{item.tool}</span>
         {item.viaScript && <span class="tvia">{t("viaScript")}</span>}

@@ -274,7 +274,10 @@ export class ContainerWorkspace extends LocalWorkspace {
     return this.exec([file, ...args].map(shellQuote).join(" "), options);
   }
 
-  override async exec(command: string, { timeoutMs, signal }: ExecOptions): Promise<ExecResult> {
+  override async exec(
+    command: string,
+    { timeoutMs, signal, env }: ExecOptions,
+  ): Promise<ExecResult> {
     const pidFile = `/tmp/rg-exec-${randomUUID()}.pid`;
     const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
     // `timeout` kills the command (exit 137) when it runs too long; the pid file lets an
@@ -283,6 +286,7 @@ export class ContainerWorkspace extends LocalWorkspace {
     const exec = await this.container.exec({
       Cmd: ["bash", "-c", script],
       WorkingDir: this.containerPath,
+      ...(env && { Env: Object.entries(env).map(([k, v]) => `${k}=${v}`) }),
       AttachStdout: true,
       AttachStderr: true,
     });

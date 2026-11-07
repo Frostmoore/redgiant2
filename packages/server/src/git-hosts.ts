@@ -4,10 +4,11 @@
 // egress proxy holds them as credential routes, and the remotes point at those routes.
 
 import { execFile } from "node:child_process";
-import { mkdir, rename, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import type { CredentialRoute } from "@redgiant/sandbox";
+import { RoutesFile } from "./egress-routes.js";
 
 const run = promisify(execFile);
 
@@ -117,10 +118,8 @@ export class GitHosts {
         upstream: this.giteaUrl,
         headers: { authorization: basic(cfg.gitea.user, s.giteaToken) },
       };
-    await mkdir(dirname(this.o.routesFile), { recursive: true });
-    const tmp = `${this.o.routesFile}.tmp`;
-    await writeFile(tmp, JSON.stringify(routes), { mode: 0o600 });
-    await rename(tmp, this.o.routesFile);
+    // Shared with the keychain's credentials (G33.4): one writer per file.
+    await RoutesFile.for(this.o.routesFile).setGit(routes);
   }
 
   /** A private GitHub repository (an existing one with that name is kept). */

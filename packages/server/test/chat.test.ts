@@ -139,4 +139,14 @@ describe("the Chat as an agent (2026-11-03)", () => {
     await s.api("PUT", "/api/chat/settings", { systemPrompt: "Be brief." });
     expect(s.core.registry.get(a.body.id)?.systemPrompt).toBe("Be brief.");
   });
+
+  it("is born with its description in the person's language (G33.4)", async () => {
+    s = await startServer(() => ({ text: "ok" }));
+    s.core.setLanguage("it");
+    await s.api("POST", "/api/agents", { kind: "god", parentId: null, name: "God" });
+    const a = await s.api<{ role: string }>("GET", "/api/chat/agent");
+    expect(a.body.role).toBe(
+      "L'assistente di tutti i giorni: risponde a tutto, cerca sul web, crea e mostra cose.",
+    );
+  });
 });

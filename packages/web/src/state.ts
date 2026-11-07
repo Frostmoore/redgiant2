@@ -681,6 +681,7 @@ export type SettingsSection =
   | "memory"
   | "automations"
   | "extensions"
+  | "keychain"
   | "telegram"
   | "chats"
   | "budgets"
@@ -748,6 +749,24 @@ export function closeSysmemAdvice(): void {
 export function toggleExplorer(open = !explorerOpen.value): void {
   explorerOpen.value = open;
   localStorage.setItem("rg.explorer", open ? "1" : "0");
+}
+
+/**
+ * A credential waiting to be written in the keychain (G33.4): from a magic automation's need
+ * (service and host filled in) or from a secret the person was about to send in a chat (its value
+ * too, kept only here in the page until saved or dropped).
+ */
+export const vaultDraft = signal<{
+  service?: string;
+  name?: string;
+  hosts?: string[];
+  value?: string;
+} | null>(null);
+
+/** Opens the keychain with a credential to add, already filled in. */
+export function openVaultDraft(d: NonNullable<typeof vaultDraft.value>): void {
+  vaultDraft.value = d;
+  openTab({ id: "settings", type: "settings", title: "", section: "keychain" });
 }
 
 const SECTIONS: Record<string, SettingsSection> = {

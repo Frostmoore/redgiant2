@@ -15,6 +15,10 @@ import {
   type ServerMessage,
   type SharedMemoryEntry,
   type SharedMemoryView,
+  type VaultEntry,
+  type VaultImportPreview,
+  type VaultInput,
+  type VaultView,
 } from "@redgiant/protocol";
 
 export interface ChatSummary {
@@ -748,6 +752,22 @@ export class Api {
   /** Forgets a memory for good: its text goes from every past change too. */
   forgetMemory = (id: string) => this.call("POST", `/api/memory/${encodeURIComponent(id)}/forget`);
   setMemoryAuto = (auto: boolean) => this.call("PUT", "/api/memory/settings", { auto });
+  /** The keychain (G33.4): values go up once and come back only through `revealVault`. */
+  vault = () => this.call<VaultView>("GET", "/api/vault");
+  addVault = (e: VaultInput) => this.call<VaultEntry>("POST", "/api/vault", e);
+  editVault = (id: string, e: VaultInput) =>
+    this.call<VaultEntry>("PUT", `/api/vault/${encodeURIComponent(id)}`, e);
+  removeVault = (id: string) => this.call("DELETE", `/api/vault/${encodeURIComponent(id)}`);
+  revealVault = (id: string) =>
+    this.call<{ value: string }>("POST", `/api/vault/${encodeURIComponent(id)}/reveal`);
+  previewVaultImport = (csv: string) =>
+    this.call<VaultImportPreview>("POST", "/api/vault-import/preview", { csv });
+  confirmVaultImport = (id: string, keep: number[]) =>
+    this.call<{ added: number }>("POST", "/api/vault-import/confirm", { id, keep });
+  exportVault = (passphrase: string) =>
+    this.call<{ file: string }>("POST", "/api/vault-export", { passphrase });
+  importVaultFile = (file: string, passphrase: string) =>
+    this.call<{ added: number }>("POST", "/api/vault-import/sealed", { file, passphrase });
   /** A copy of a conversation up to (not including) one event, to send an edited message. */
   forkSession = (sessionId: string, beforeSeq: number) =>
     this.call<{ sessionId: string }>("POST", `/api/sessions/${sessionId}/fork`, { beforeSeq });
@@ -862,6 +882,12 @@ export class Api {
   cancelJob = (id: string) => this.call("POST", `/api/jobs/${encodeURIComponent(id)}/cancel`);
   platform = () => this.call<PlatformInfo>("GET", "/api/platform");
   platformChanges = () => this.call<PlatformChange[]>("GET", "/api/platform/changes");
+  /** What an agent's summaries do when it sets nothing (12% kept on a local model). */
+  compactionDefaults = (agentId: string) =>
+    this.call<{ at: number; keep: number }>(
+      "GET",
+      `/api/agents/${encodeURIComponent(agentId)}/compaction-defaults`,
+    );
   undoCompaction = (sessionId: string) =>
     this.call("POST", `/api/sessions/${sessionId}/compaction/undo`);
   promoteChange = (id: string) =>
@@ -1115,9 +1141,19 @@ export class Api {
   startSearch = () => this.call<Job>("POST", "/api/setup/searxng");
   stopSearch = () => this.call("DELETE", "/api/setup/searxng");
   /** Backup (2026-11-03): made on the server as a job, then downloaded with its progress. */
-  exportBackup = () => this.call<Job>("POST", "/api/backup/export");
-  importBackup = (b: { id: string; godName?: string; demigodName?: string }) =>
-    this.call<Job>("POST", "/api/backup/import", b);
+  /** With a passphrase, the keychain goes in sealed (G33.4). */
+  exportBackup = (keychainPassphrase?: string) =>
+    this.call<Job>(
+      "POST",
+      "/api/backup/export",
+      keychainPassphrase ? { keychainPassphrase } : undefined,
+    );
+  importBackup = (b: {
+    id: string;
+    godName?: string;
+    demigodName?: string;
+    keychainPassphrase?: string;
+  }) => this.call<Job>("POST", "/api/backup/import", b);
   async downloadBackup(
     name: string,
     progress: (done: number, total: number) => void,

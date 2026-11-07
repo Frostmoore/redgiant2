@@ -3,6 +3,9 @@
 // there: what is already the same (same id, same creation time) is left alone, a project whose
 // name is taken gets a new one, and God and Demi-God stay the ones of this installation, with the
 // name the person chooses. Keys and sign-ins are never in a backup: they belong to this computer.
+// The one exception is the person's choice (G33.4): the keychain, sealed with a passphrase of
+// theirs (the same file as its own export), so the backup carries it without ever holding a value
+// in clear.
 //
 // The file is gzip of: a first line "REDGIANT-BACKUP 1", then entries, each a JSON line
 // {"name","size"} followed by exactly `size` bytes. Entries: "backup.json" (the rows),
@@ -34,6 +37,8 @@ export interface BackupData {
   filesBytes: number;
   events: number;
   tables: Record<string, Row[]>;
+  /** The keychain sealed with the person's passphrase (`Vault.exportSealed`), when chosen. */
+  keychain?: string;
 }
 
 export interface ImportChoices {
@@ -48,6 +53,8 @@ export interface ImportResult {
   conversations: number;
   events: number;
   files: number;
+  /** The sealed keychain the backup carries, for the keychain to open with the passphrase. */
+  keychain?: string;
 }
 
 export interface BackupDeps {
@@ -246,6 +253,8 @@ export async function exportBackup(
   ownerId: string,
   file: string,
   h: JobHandle,
+  /** The sealed keychain to carry (G33.4), when the person chose a passphrase. */
+  keychain?: string,
 ): Promise<void> {
   const { db } = deps;
   h.step("data");
@@ -292,6 +301,7 @@ export async function exportBackup(
     filesBytes,
     events: Number(n),
     tables,
+    ...(keychain && { keychain }),
   };
 
   await mkdir(dirname(file), { recursive: true });
@@ -363,6 +373,7 @@ export async function previewBackup(
     conversations: (t.rg_sessions ?? []).length,
     chats: (t.rg_chats ?? []).length,
     filesBytes: data.filesBytes,
+    keychain: typeof data.keychain === "string",
     names: (["god", "demigod"] as const).flatMap((kind) => {
       const a = (t.rg_agents ?? []).find((x) => x.kind === kind && x.status === "active");
       return a
@@ -454,7 +465,14 @@ export async function importBackup(
       );
       return got.length > 0;
     };
-    const result: ImportResult = { projects: [], agents: 0, conversations: 0, events: 0, files: 0 };
+    const result: ImportResult = {
+      projects: [],
+      agents: 0,
+      conversations: 0,
+      events: 0,
+      files: 0,
+      ...(typeof data.keychain === "string" && { keychain: data.keychain }),
+    };
 
     // Projects: the same one stays, a different one with a taken name gets the next free name.
     const newProjects = new Map<string, string>();

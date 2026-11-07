@@ -1,7 +1,7 @@
 import { type Answers, PLAN_APPROVE, PLAN_REVISE, type Question } from "@redgiant/protocol";
 import { useState } from "preact/hooks";
 import { t } from "../i18n.js";
-import { IconCheck, IconInfo } from "../icons.js";
+import { IconInfo } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
 import { getLive } from "../state.js";
 
@@ -41,7 +41,7 @@ function OneQuestion({
             disabled={disabled}
             onClick={() => onPick(o.label)}
           >
-            <span class="mark">{picked.includes(o.label) && <IconCheck size={12} />}</span>
+            <span class="mark" />
             <span class="option-text">
               <span>{o.label}</span>
               {o.description && <span class="dim">{o.description}</span>}

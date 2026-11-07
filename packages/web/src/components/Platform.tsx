@@ -190,20 +190,20 @@ export function Platform() {
           <Advanced label={t("historyTechnical")}>
             {/* In plain words (2026-11-07): the person could not read «Sandbox: host» in red. Agents
                 on the computer is the normal setup since 2.0; only metal mode is worth a warning. */}
-            <div class="platform-status g33-tech">
+            <div class="platform-status tech-facts">
               <Row
                 title={t("techWhereTitle")}
                 help={
                   <>
                     {tOptional(`techWhere_${info.sandbox}`) ?? info.sandbox}
                     {info.sandbox === "host" && (
-                      <span class="g33-tech-ok">{t("techWhereNormal")}</span>
+                      <span class="tech-facts-ok">{t("techWhereNormal")}</span>
                     )}
                   </>
                 }
               />
               {info.metal && (
-                <div class="g33-tech-warn">
+                <div class="tech-facts-warn">
                   <Row title={t("techMetalTitle")} help={t("techMetal")} />
                 </div>
               )}
@@ -214,7 +214,7 @@ export function Platform() {
                     <>
                       {t("techSupervised")}
                       {info.lastGood && (
-                        <span class="g33-tech-ok">
+                        <span class="tech-facts-ok">
                           {t("techLastGood", { commit: info.lastGood.slice(0, 8) })}
                         </span>
                       )}
@@ -222,7 +222,7 @@ export function Platform() {
                   ) : (
                     <>
                       {t("techNotSupervised")}
-                      <span class="g33-tech-ok">{t("techNotSupervisedMeans")}</span>
+                      <span class="tech-facts-ok">{t("techNotSupervisedMeans")}</span>
                     </>
                   )
                 }

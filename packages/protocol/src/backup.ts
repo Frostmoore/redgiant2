@@ -10,6 +10,8 @@ export interface BackupPreview {
   conversations: number;
   chats: number;
   filesBytes: number;
+  /** It carries the keychain, sealed with a passphrase (G33.4). */
+  keychain?: boolean;
   /** God's and Demi-God's names in the backup and here: the person picks which to keep. */
   names: { kind: "god" | "demigod"; backup: string; here: string | null }[];
 }

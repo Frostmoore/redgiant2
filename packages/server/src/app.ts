@@ -61,6 +61,7 @@ import { SubprojectError } from "./projects.js";
 import { RoomError } from "./rooms.js";
 import type { SetupService } from "./setup.js";
 import { MEMORY_ENTRY_LIMIT, MemoryError } from "./shared-memory.js";
+import { VaultError } from "./vault.js";
 import { MAX_AUDIO_BYTES, TranscriptionError } from "./voice.js";
 
 type Env = { Variables: { principal: Principal } };
@@ -954,6 +955,15 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       200,
     );
   });
+  // What an agent's summaries do by default, for the sliders (G33.4: 12% on a local model).
+  app.get("/api/agents/:id/compaction-defaults", (c) => {
+    try {
+      return c.json(core.compactionDefaults(owner(c), c.req.param("id")), 200);
+    } catch (err) {
+      if (err instanceof NotFoundError) return c.json({ error: err.message }, 404);
+      throw err;
+    }
+  });
   app.openapi(routes.createAgent, async (c) => {
     const body = c.req.valid("json");
     if (body.projectId && !(await core.projects.get(owner(c), body.projectId)))
@@ -1226,6 +1236,16 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   const BACKUP_NAME = /^[a-z0-9-]+\.rgbackup$/;
   app.post("/api/backup/export", async (c) => {
     const o = owner(c);
+    // The keychain goes in only sealed with the person's passphrase (G33.4).
+    const pass = (
+      await c.req.json<{ keychainPassphrase?: string }>().catch(() => ({ keychainPassphrase: "" }))
+    ).keychainPassphrase;
+    let keychain: string | undefined;
+    try {
+      keychain = pass && core.vault.ready ? core.vault.exportSealed(o, pass) : undefined;
+    } catch (err) {
+      return vaultFailed(c, err);
+    }
     const running = core.jobs
       .list(o)
       .find((j) => j.kind === "backup_export" && j.state === "running");
@@ -1241,7 +1261,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         await mkdir(dir, { recursive: true });
         for (const f of await readdir(dir))
           if (f.startsWith("redgiant-backup-")) await removeBackup(join(dir, f));
-        await exportBackup(core.backupDeps, o, join(dir, name), h);
+        await exportBackup(core.backupDeps, o, join(dir, name), h, keychain);
         h.info({ file: name });
       },
       { file: name },
@@ -1279,7 +1299,12 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     }
   });
   app.post("/api/backup/import", async (c) => {
-    const b = await c.req.json<{ id?: string; godName?: string; demigodName?: string }>();
+    const b = await c.req.json<{
+      id?: string;
+      godName?: string;
+      demigodName?: string;
+      keychainPassphrase?: string;
+    }>();
     const name = `${b.id ?? ""}.rgbackup`;
     if (!b.id?.startsWith("import-") || !BACKUP_NAME.test(name))
       return c.json({ error: "No such backup" }, 404);
@@ -1308,6 +1333,15 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
             conversations: String(r.conversations),
             files: String(r.files),
           });
+          // The keychain it carries, opened with the person's passphrase (G33.4); a wrong one
+          // leaves everything else imported and says so.
+          if (r.keychain && b.keychainPassphrase)
+            h.info({
+              keychain: await core.vault
+                .importSealed(o, r.keychain, b.keychainPassphrase)
+                .then(String)
+                .catch(() => "wrong"),
+            });
         } finally {
           // The agents in memory follow what was added.
           await core.registry.load();
@@ -2110,6 +2144,90 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       return c.json({ error: (err as Error).message }, 400);
     }
     return c.json({ ok: true }, 200);
+  });
+  // The keychain (G33.4): the person's credentials, which agents use by name without seeing them.
+  // A value comes back only through «Show» (the person's own request); nothing here logs a body.
+  const vaultFailed = (c: Context<Env>, err: unknown) => {
+    if (err instanceof VaultError) return c.json({ error: err.message, code: err.code }, 400);
+    if (err instanceof z.ZodError)
+      return c.json(
+        { error: err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") },
+        400,
+      );
+    throw err;
+  };
+  const vaultBody = async <T extends z.ZodTypeAny>(c: Context<Env>, schema: T) =>
+    schema.parse(await c.req.json().catch(() => ({}))) as z.output<T>;
+  app.get("/api/vault", async (c) => c.json(await core.vault.view(owner(c)), 200));
+  app.post("/api/vault", async (c) => {
+    try {
+      return c.json(await core.vault.put(owner(c), await c.req.json().catch(() => ({}))), 200);
+    } catch (err) {
+      return vaultFailed(c, err);
+    }
+  });
+  app.put("/api/vault/:id", async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      return c.json(await core.vault.put(owner(c), body, c.req.param("id")), 200);
+    } catch (err) {
+      return vaultFailed(c, err);
+    }
+  });
+  app.delete("/api/vault/:id", async (c) => {
+    try {
+      await core.vault.remove(owner(c), c.req.param("id"));
+      return c.json({ ok: true }, 200);
+    } catch (err) {
+      return vaultFailed(c, err);
+    }
+  });
+  app.post("/api/vault/:id/reveal", (c) => {
+    try {
+      c.header("cache-control", "no-store");
+      return c.json({ value: core.vault.reveal(owner(c), c.req.param("id")) }, 200);
+    } catch (err) {
+      return vaultFailed(c, err);
+    }
+  });
+  app.post("/api/vault-import/preview", async (c) => {
+    try {
+      const b = await vaultBody(c, z.object({ csv: z.string().min(1).max(20_000_000) }));
+      return c.json(core.vault.previewImport(owner(c), b.csv), 200);
+    } catch (err) {
+      return vaultFailed(c, err);
+    }
+  });
+  app.post("/api/vault-import/confirm", async (c) => {
+    try {
+      const b = await vaultBody(
+        c,
+        z.object({ id: z.string(), keep: z.array(z.number().int().min(0)).max(10_000) }),
+      );
+      return c.json({ added: await core.vault.confirmImport(owner(c), b.id, b.keep) }, 200);
+    } catch (err) {
+      return vaultFailed(c, err);
+    }
+  });
+  app.post("/api/vault-export", async (c) => {
+    try {
+      const b = await vaultBody(c, z.object({ passphrase: z.string().max(500) }));
+      c.header("cache-control", "no-store");
+      return c.json({ file: core.vault.exportSealed(owner(c), b.passphrase) }, 200);
+    } catch (err) {
+      return vaultFailed(c, err);
+    }
+  });
+  app.post("/api/vault-import/sealed", async (c) => {
+    try {
+      const b = await vaultBody(
+        c,
+        z.object({ file: z.string().min(1).max(50_000_000), passphrase: z.string().max(500) }),
+      );
+      return c.json({ added: await core.vault.importSealed(owner(c), b.file, b.passphrase) }, 200);
+    } catch (err) {
+      return vaultFailed(c, err);
+    }
   });
   // The shared memory (G33.2): what every agent knows about the person. The person sees, adds,
   // edits, removes and undoes each memory, and turns the learning from the conversations on or off.

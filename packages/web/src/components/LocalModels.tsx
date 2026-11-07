@@ -599,9 +599,16 @@ function FileActions({
             <>
               {/* On or off without deleting it (2026-11-04): off frees its memory and it does
                   not load when RedGiant opens. */}
-              <Pick small on={!off} onChange={(v) => act(() => getApi().setEnginePower(v))}>
-                {off ? t("lmOff") : t("lmOn")}
-              </Pick>
+              {/* A switch, never a check mark (2026-11-07): lit when on, its word beside it. */}
+              <span class={`lm-power${off ? "" : " on"}`}>
+                <Switch
+                  small
+                  on={!off}
+                  label={off ? t("lmOff") : t("lmOn")}
+                  onChange={(v) => act(() => getApi().setEnginePower(v))}
+                />
+                <span>{off ? t("lmOff") : t("lmOn")}</span>
+              </span>
               <button
                 type="button"
                 class="primary"

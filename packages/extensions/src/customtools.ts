@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Tool } from "@redgiant/agent";
+import type { Tool, ToolContext } from "@redgiant/agent";
 import { LocalWorkspace, truncateMiddle, type Workspace } from "@redgiant/tools";
 import { z } from "zod";
 import { NAME_RE } from "./skills.js";
@@ -89,6 +89,7 @@ export async function runCustomTool(
   ws: Workspace,
   input: unknown,
   signal?: AbortSignal,
+  env?: Record<string, string>,
 ) {
   // The name matches NAME_RE (letters, digits, dashes): safe unquoted in every shell (cmd.exe has no '…').
   const base = `.redgiant/tools/${t.spec.name}`;
@@ -99,6 +100,7 @@ export async function runCustomTool(
   return ws.exec(`cd ${base} && ${t.spec.command} ${inputFile}`, {
     timeoutMs: t.spec.timeoutMs ?? 120_000,
     signal,
+    ...(env && Object.keys(env).length > 0 && { env }),
   });
 }
 
@@ -110,7 +112,12 @@ export async function toolFiles(dir: string): Promise<Record<string, string>> {
   return out;
 }
 
-export function customTools(installed: InstalledTool[], ws: Workspace | undefined): Tool[] {
+export function customTools(
+  installed: InstalledTool[],
+  ws: Workspace | undefined,
+  /** The keychain's addresses for this run (G33.4): credentials the person bound to the tool. */
+  envFor?: (tool: string, ctx: ToolContext) => Promise<Record<string, string>>,
+): Tool[] {
   if (!ws) return [];
   return installed.map(
     (t): Tool => ({
@@ -121,6 +128,7 @@ export function customTools(installed: InstalledTool[], ws: Workspace | undefine
           ws,
           input,
           ctx.signal,
+          envFor ? await envFor(t.spec.name, ctx) : undefined,
         );
         const out = truncateMiddle(r.stdout || r.stderr, 30_000);
         return r.exitCode === 0 && !r.timedOut

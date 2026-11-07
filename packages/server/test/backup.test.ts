@@ -141,3 +141,50 @@ describe("backup (2026-11-03)", () => {
     ).toEqual({ projectId: "sito-2", text: "sito", taskIds: ["sito-2"], nested: { id: "sito-2" } });
   });
 });
+
+describe("the keychain in a backup (G33.4)", () => {
+  it("goes in only sealed with the person's passphrase, and comes back with it", async () => {
+    const value = "rk_live_Zq81mXv3PdQw7Tn2LbYc";
+    const a = await start();
+    await a.api("POST", "/api/vault", {
+      name: "revolut_api",
+      service: "Revolut",
+      value,
+      hosts: ["b2b.revolut.com"],
+    });
+    // Without a passphrase: no keychain in the file.
+    const plain = await finished(a, (await a.api<Job>("POST", "/api/backup/export")).body);
+    const get = async (job: Job) =>
+      Buffer.from(
+        await (
+          await fetch(`${a.url}/api/backup/file/${job.vars.file}`, {
+            headers: { authorization: `Bearer ${TOKEN}` },
+          })
+        ).arrayBuffer(),
+      );
+    const b = await start();
+    expect((await upload(b, await get(plain))).body.preview.keychain).toBe(false);
+    // With one: sealed inside, never in clear.
+    const sealed = await finished(
+      a,
+      (await a.api<Job>("POST", "/api/backup/export", { keychainPassphrase: "a long passphrase" }))
+        .body,
+    );
+    const data = await get(sealed);
+    const { gunzipSync } = await import("node:zlib");
+    expect(gunzipSync(data).toString("latin1")).not.toContain(value);
+    const up = await upload(b, data);
+    expect(up.body.preview.keychain).toBe(true);
+    const job = await finished(
+      b,
+      (
+        await b.api<Job>("POST", "/api/backup/import", {
+          id: up.body.id,
+          keychainPassphrase: "a long passphrase",
+        })
+      ).body,
+    );
+    expect(job.vars.keychain).toBe("1");
+    expect(b.core.vault.reveal("me", "revolut_api")).toBe(value);
+  });
+});

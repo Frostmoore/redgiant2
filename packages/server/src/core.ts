@@ -31,6 +31,7 @@ import {
   type McpApp,
   McpConnection,
   McpCredentialStore,
+  type McpSecrets,
   type McpServerConfig,
   migrateExtensions,
   proposeTool,
@@ -62,6 +63,8 @@ import {
   type Recipe,
   type ServerMessage,
   type SharedMemoryView,
+  type VaultEntry,
+  type VaultSystemEntry,
 } from "@redgiant/protocol";
 import {
   complete,
@@ -116,6 +119,7 @@ import {
   MAGIC_PROMPT,
   MagicAutomations,
   type MagicHost,
+  type MagicLinks,
   magicTools,
   migrateMagic,
 } from "./magic.js";
@@ -149,6 +153,14 @@ import { HumanQuestions, questionTools } from "./questions.js";
 import { migrateRooms, Rooms } from "./rooms.js";
 import { scriptTool } from "./script.js";
 import { SharedMemory } from "./shared-memory.js";
+import {
+  blankPastedSecrets,
+  type MasterKeyStore,
+  Vault,
+  type VaultCaller,
+  type VaultEgress,
+  vaultTool,
+} from "./vault.js";
 import { type TranscriptionConfig, transcribe } from "./voice.js";
 
 /** What started an automation's run, in the words the agent reads with its data (G33.3). */
@@ -223,6 +235,17 @@ export interface CoreOptions {
   metal?: boolean;
   /** RedGiant's own source, for God's code changes (G14.2); none ⇒ no code tools. */
   source?: SourceOptions;
+  /**
+   * The keychain (G33.4): its folder (default: beside the workspaces; never inside a git
+   * repository), the egress proxy that gives credentials to the tools bound to them, and the
+   * master key's stores (tests).
+   */
+  vault?: {
+    dir?: string;
+    egress?: VaultEgress;
+    keyStores?: MasterKeyStore[];
+    fetch?: typeof fetch;
+  };
 }
 
 export class SessionBusyError extends Error {
@@ -383,6 +406,10 @@ export class RedGiantCore implements OrchestrationHost {
   readonly files: FileTriggers;
   /** Automations built in a conversation with God (G33.3). */
   readonly magic: MagicAutomations;
+  /** The keychain (G33.4): credentials agents use by name, never seeing them. */
+  readonly vault: Vault;
+  /** The keys kept by the setup (providers, chats, git…), listed in the keychain (set by main). */
+  vaultSystem?: (ownerId: string) => Promise<VaultSystemEntry[]>;
   private readonly magicHost: MagicHost;
   /** Pull requests and issues on a project's repository (G24.14c), when GitHub or Gitea is set. */
   repoActions:
@@ -459,6 +486,15 @@ export class RedGiantCore implements OrchestrationHost {
       },
     });
     this.notes = new Notes((ownerId) => this.notesPath(ownerId), this.sharedMemory);
+    this.vault = new Vault({
+      dir: o.vault?.dir ?? join(dirname(o.workspacesDir), "keychain"),
+      redactor: o.redactor,
+      egress: o.vault?.egress,
+      ...(o.vault?.keyStores && { keyStores: o.vault.keyStores }),
+      ...(o.vault?.fetch && { fetch: o.vault.fetch }),
+      ask: (caller, entry, host, method) => this.askVault(caller, entry, host, method),
+      system: (ownerId) => this.keysElsewhere(ownerId),
+    });
     this.board.followTasks();
     this.extensions = new ExtensionBuilder({
       db: o.db,
@@ -660,6 +696,7 @@ export class RedGiantCore implements OrchestrationHost {
     await o.db.query("DROP TABLE IF EXISTS rg_devices");
     await migrateLogin(o.db);
     const core = new RedGiantCore(o);
+    await core.vault.open();
     await core.registry.load();
     await core.policies.load();
     await core.tasks.rebuild();
@@ -866,6 +903,17 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /**
+   * What an agent's summaries do when it sets nothing (G33.4: the page showed 25% for local models
+   * too): from its model, its ancestors' or the default, as `compactionOptions` decides.
+   */
+  compactionDefaults(ownerId: string, agentId: string): { at: number; keep: number } {
+    const a = this.registry.get(agentId);
+    if (!a || a.ownerId !== ownerId) throw new NotFoundError(`Agent "${agentId}" not found`);
+    const model = this.registry.effectiveModel(agentId) ?? this.o.defaultModel;
+    return { at: 0.8, keep: model ? this.compactionOptions(model).keepRatio : 0.25 };
+  }
+
+  /**
    * How a session summarises itself (G24.14). On a local engine every kept token is computed
    * again once, so less is kept word for word; tool results are cut to fit the model's window.
    */
@@ -1020,7 +1068,16 @@ export class RedGiantCore implements OrchestrationHost {
           ),
         );
       tools.push(
-        ...customTools(await loadCustomTools(roots), ws),
+        // Tools the person bound to a keychain credential reach it through the proxy (G33.4).
+        ...customTools(await loadCustomTools(roots), ws, (tool, ctx) =>
+          this.vault.toolEnv({
+            ownerId,
+            agentId: agent.id,
+            agentName: agent.name,
+            sessionId: ctx.sessionId,
+            tool,
+          }),
+        ),
         ...(await this.mcpTools(
           ownerId,
           agent.projectId,
@@ -1033,6 +1090,8 @@ export class RedGiantCore implements OrchestrationHost {
           () => this.policies.get(agent.ownerId).skills === "auto",
         ),
         memoryTool(this.notes, this.noteOwner(agent, assignedTo)),
+        // The keychain (G33.4): always offered; without credentials it says where to add them.
+        vaultTool(agent, this.vault, (sid) => this.automationOfSession(sid)),
       );
     }
     if (agent.kind === "assistant") tools.push(this.requestConnectionTool(agent));
@@ -2851,7 +2910,11 @@ export class RedGiantCore implements OrchestrationHost {
         kind: "assistant",
         parentId: god.id,
         name: "Chat",
-        role: "The everyday assistant: answers anything, searches the web, makes and shows things.",
+        // Born in the person's language (G33.4); the page shows either in its own (`roleText`).
+        role:
+          this.language(ownerId) === "it"
+            ? "L'assistente di tutti i giorni: risponde a tutto, cerca sul web, crea e mostra cose."
+            : "The everyday assistant: answers anything, searches the web, makes and shows things.",
         systemPrompt: settings.systemPrompt ?? CHAT_AGENT_PROMPT,
         ...(settings.model && { model: settings.model }),
         mode: "auto",
@@ -3318,7 +3381,7 @@ export class RedGiantCore implements OrchestrationHost {
   async send(
     ownerId: string,
     sessionId: string,
-    text: string,
+    raw: string,
     extra: {
       images?: ImagePart[];
       from?: string;
@@ -3337,6 +3400,9 @@ export class RedGiantCore implements OrchestrationHost {
       human?: boolean;
     } = {},
   ): Promise<{ done: Promise<SendResult>; queued?: boolean }> {
+    // A secret the person pasted (G33.4) never reaches the model nor the log: it is blanked here,
+    // and the agent is told so it can point them to the keychain. The page asks first.
+    const text = extra.watch === true || extra.human === true ? blankPastedSecrets(raw) : raw;
     const l = await this.open(ownerId, sessionId);
     const { queue, ...rest } = extra;
     if (l.running || (l.queue?.length ?? 0) > 0) {
@@ -3593,10 +3659,84 @@ export class RedGiantCore implements OrchestrationHost {
     return this.email.update(ownerId, id, i);
   }
 
+  /** The automation whose run a conversation is, if any (the keychain's rules). */
+  async automationOfSession(sessionId: string): Promise<string | null> {
+    const [r] = await this.o.db.query<{ automation_id: string }>(
+      `SELECT automation_id FROM rg_automation_runs WHERE session_id = $1
+       UNION SELECT id AS automation_id FROM rg_automations WHERE session_id = $1 LIMIT 1`,
+      [sessionId],
+    );
+    return r?.automation_id ?? null;
+  }
+
+  /** The person's yes before a credential is used (G33.4): asked like a permission. */
+  private async askVault(
+    caller: VaultCaller,
+    entry: VaultEntry,
+    host: string,
+    method: string,
+  ): Promise<boolean> {
+    const agent = caller.agentId ? this.registry.get(caller.agentId) : undefined;
+    if (!agent) return false;
+    const id = `vault_${randomUUID().slice(0, 12)}`;
+    const answer = await this.approvals.ask(
+      {
+        requestId: id,
+        requester: agent,
+        call: {
+          callId: id,
+          name: "use_credential",
+          input: {
+            credential: entry.name,
+            service: entry.service,
+            host,
+            ...(method !== "TOOL" ? { method } : { tool: caller.tool }),
+          },
+        },
+        reasons: [`Uses "${entry.service}" from your keychain (the agent never sees it)`],
+        danger: [],
+        ...(caller.sessionId && { sessionId: caller.sessionId }),
+      },
+      AbortSignal.timeout(10 * 60_000),
+    );
+    return answer === "allow";
+  }
+
+  /**
+   * Keys RedGiant keeps elsewhere, for the keychain's list (G33.4): the setup's (from main), the
+   * mailboxes' passwords and the MCP services' sign-ins. Names only, never a value.
+   */
+  async keysElsewhere(ownerId: string): Promise<VaultSystemEntry[]> {
+    const out: VaultSystemEntry[] = [
+      ...((await this.vaultSystem?.(ownerId).catch(() => [])) ?? []),
+    ];
+    for (const b of await this.email.boxes(ownerId).catch(() => []))
+      out.push({
+        id: `email:${b.id}`,
+        service: b.name,
+        category: "email",
+        section: "automations",
+        what: b.user,
+        kind: "email",
+      });
+    for (const m of await this.listMcp(ownerId).catch(() => [])) {
+      const sec = await this.mcpCredentials.load(ownerId, m.name).catch(() => ({}) as McpSecrets);
+      if (sec.tokens || sec.headers || sec.env || sec.app?.clientSecret)
+        out.push({
+          id: `mcp:${m.name}`,
+          service: m.name,
+          brand: m.name.toLowerCase(),
+          category: "api",
+          section: "extensions",
+          what: sec.tokens ? "sign-in" : "key",
+          kind: "mcp",
+        });
+    }
+    return out;
+  }
+
   /** The chats and mailboxes the person linked (for magic automations; no secrets). */
-  async automationLinks(
-    ownerId: string,
-  ): Promise<{ chats: string[]; mailboxes: { name: string; category: string }[] }> {
+  async automationLinks(ownerId: string): Promise<MagicLinks> {
     const chats = new Set<string>();
     const rows = await this.o.db
       .query<{ platform: string }>(
@@ -3615,7 +3755,19 @@ export class RedGiantCore implements OrchestrationHost {
       name: b.name,
       category: b.category,
     }));
-    return { chats: [...chats].sort(), mailboxes };
+    // What a proposal may need besides (G33.4): credentials and installed extensions, by name.
+    const roots = [{ dir: this.platformPath(ownerId), scope: "platform" as const }];
+    const extensions = [
+      ...(await loadCustomTools(roots).catch(() => [])).map((t) => t.spec.name),
+      ...(await loadSkills(roots).catch(() => [])).map((k) => k.name),
+      ...(await this.listMcp(ownerId).catch(() => [])).map((m) => m.name),
+    ];
+    return {
+      chats: [...chats].sort(),
+      mailboxes,
+      credentials: this.vault.names(ownerId).map((c) => c.name),
+      extensions: [...new Set(extensions)].sort(),
+    };
   }
 
   /**

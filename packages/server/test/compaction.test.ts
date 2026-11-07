@@ -1,4 +1,4 @@
-import type { CompletionRequest } from "@redgiant/providers";
+import { type CompletionRequest, FakeProvider, ProviderRegistry } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
 import { startServer } from "./helpers.js";
 
@@ -63,5 +63,43 @@ describe("compaction from the chat (G24.14)", () => {
     expect((await s.core.history("me", sid)).some((e) => e.type === "compaction.undone")).toBe(
       true,
     );
+  });
+});
+
+describe("the summary's defaults the page shows (G33.4)", () => {
+  it("are the server's own: 12% kept on a local model, 25% otherwise", async () => {
+    const local = Object.assign(new FakeProvider([{ text: "ok" }], { id: "local" }), {
+      prefill: async () => {},
+    });
+    const cloud = new FakeProvider([{ text: "ok" }], { id: "fake" });
+    const s = await startServer(
+      [{ text: "ok" }],
+      {},
+      {
+        providers: new ProviderRegistry().register(cloud).register(local),
+      },
+    );
+    try {
+      const god = await s.api<{ id: string }>("POST", "/api/agents", {
+        kind: "god",
+        parentId: null,
+        name: "God",
+      });
+      const d = await s.api<{ at: number; keep: number }>(
+        "GET",
+        `/api/agents/${god.body.id}/compaction-defaults`,
+      );
+      expect(d.body).toEqual({ at: 0.8, keep: 0.25 });
+      await s.api("PATCH", `/api/agents/${god.body.id}`, {
+        model: { provider: "local", model: "m" },
+      });
+      const l = await s.api<{ at: number; keep: number }>(
+        "GET",
+        `/api/agents/${god.body.id}/compaction-defaults`,
+      );
+      expect(l.body).toEqual({ at: 0.8, keep: 0.12 });
+    } finally {
+      await s.close();
+    }
   });
 });

@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 // Runs the egress proxy as its own process/container:
 //   redgiant-egress <policy.json> [port] [routes.json]
-// routes.json holds the credential routes the server writes while running (GitHub, Gitea); it is
-// read again whenever it changes.
+// routes.json holds the credential routes the server writes while running (GitHub, Gitea) and,
+// under "$vault", the keychain's credentials bound to tools (G33.4); it is read again whenever it
+// changes.
 import { readFile, stat } from "node:fs/promises";
-import { type CredentialRoute, type EgressPolicy, EgressProxy } from "./egress.js";
+import {
+  type CredentialRoute,
+  type EgressPolicy,
+  EgressProxy,
+  type VaultProxyRoute,
+} from "./egress.js";
 
 const [file, portArg, routesFile] = process.argv.slice(2);
 if (!file) {
@@ -26,14 +32,18 @@ if (routesFile) {
     const mark = st ? `${st.mtimeMs}:${st.size}` : "";
     if (mark === seen) return;
     seen = mark;
-    const routes = st
+    const all = st
       ? ((await readFile(routesFile, "utf8")
-          .then((t) => JSON.parse(t) as Record<string, CredentialRoute>)
+          .then((t) => JSON.parse(t) as Record<string, unknown>)
           .catch(() => null)) ?? {})
       : {};
+    const { $vault, ...routes } = all as Record<string, CredentialRoute> & {
+      $vault?: VaultProxyRoute[];
+    };
     proxy.setRoutes(routes);
+    proxy.setVault(Array.isArray($vault) ? $vault : []);
     console.log(
-      `redgiant-egress: ${Object.keys(routes).length} credential routes from ${routesFile}`,
+      `redgiant-egress: ${Object.keys(routes).length} credential routes, ${Array.isArray($vault) ? $vault.length : 0} keychain credentials from ${routesFile}`,
     );
   };
   await reload();

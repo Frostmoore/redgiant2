@@ -15,6 +15,7 @@ import {
   IconCompass,
   IconDollar,
   IconFolder,
+  IconKey,
   IconLayers,
   IconPuzzle,
   IconSettings,
@@ -31,6 +32,7 @@ import { CodeSettings } from "./CodeSettings.js";
 import { Extensions } from "./Extensions.js";
 import { General } from "./General.js";
 import { Hierarchy } from "./Hierarchy.js";
+import { Keychain } from "./Keychain.js";
 import { Platform } from "./Platform.js";
 import { RemoteSettings } from "./RemoteSettings.js";
 import { Setup } from "./Setup.js";
@@ -57,6 +59,7 @@ const GROUPS: { title: () => string; sections: Section[] }[] = [
       { id: "memory", label: () => t("memSection"), icon: <IconBook size={20} /> },
       { id: "automations", label: () => t("automations"), icon: <IconClock size={20} /> },
       { id: "extensions", label: () => t("extensions"), icon: <IconPuzzle size={20} /> },
+      { id: "keychain", label: () => t("kcSection"), icon: <IconKey size={20} /> },
     ],
   },
   {
@@ -159,6 +162,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "memory" && <SharedMemoryPage />}
         {section === "automations" && <Automations />}
         {section === "extensions" && <Extensions />}
+        {section === "keychain" && <Keychain />}
         {section === "telegram" && <Telegram />}
         {section === "chats" && <ChatPlatforms />}
         {section === "subscriptions" && <Subscriptions />}

@@ -3,13 +3,14 @@
 // top as a preview in words: approve it, change it in the editor first, or say what is wrong.
 // Nothing becomes an automation before the person's yes.
 import type { Automation, MagicAutomation, MagicNeed, Recipe } from "@redgiant/protocol";
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
-import { IconChat, IconKey, IconPuzzle, IconSend, IconSpark } from "../icons.js";
+import { IconAlert, IconChat, IconKey, IconPuzzle, IconSend, IconSpark } from "../icons.js";
 import { attempt, getApi, openTab } from "../state.js";
 import { Editor, fromRecipe, PLATFORM_NAMES, sentence } from "./AutomationEditor.js";
 import { explain } from "./Brain.js";
 import { Chat } from "./Chat.js";
+import { CredentialWindow } from "./Keychain.js";
 import { Acts } from "./SettingsKit.js";
 import { Field, Modal } from "./ui.js";
 
@@ -93,7 +94,7 @@ export function MagicStart({
   );
 }
 
-/** Where to make what is missing. */
+/** Where to make what is missing (a credential opens its window right here instead). */
 function openNeed(n: MagicNeed) {
   const section =
     n.kind === "chat"
@@ -108,14 +109,39 @@ function openNeed(n: MagicNeed) {
 
 const needIcon = (n: MagicNeed) =>
   n.kind === "chat" ? (
-    <IconChat size={16} />
+    <IconChat size={18} />
   ) : n.kind === "email" ? (
-    <IconSend size={16} />
+    <IconSend size={18} />
   ) : n.kind === "credential" ? (
-    <IconKey size={16} />
+    <IconKey size={18} />
   ) : (
-    <IconPuzzle size={16} />
+    <IconPuzzle size={18} />
   );
+
+/** One thing the automation needs: what, why, whether it is there, and the button to make it. */
+function Need({ n, onFix }: { n: MagicNeed; onFix: () => void }) {
+  return (
+    <div class={`mg-need${n.ready ? " ok" : n.ready === false ? " need" : ""}`}>
+      <span class="mg-need-ico">{needIcon(n)}</span>
+      <span class="mg-need-text">
+        <b>
+          {t(`axNeed_${n.kind}` as never, {
+            what: PLATFORM_NAMES[n.what.toLowerCase()] ?? n.service ?? n.what,
+          })}
+        </b>
+        {n.why && <small>{n.why}</small>}
+      </span>
+      <span class="mg-need-state">
+        {n.ready ? t("axNeedReady") : n.ready === false ? t("axNeedMissing") : ""}
+      </span>
+      {n.ready === false && (
+        <button type="button" class="wz-btn small primary" onClick={onFix}>
+          {n.kind === "credential" ? t("axNeedVault") : t("axNeedOpen")}
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** God's proposal as a preview: the automation in words, what it still needs, and the choice. */
 function Proposal({
@@ -132,6 +158,20 @@ function Proposal({
   const p = m.proposal;
   const [why, setWhy] = useState<string | null>(null);
   const [error, setError] = useState<string>();
+  const [credential, setCredential] = useState<MagicNeed | null>(null);
+  const missing = p?.needs.filter((n) => n.ready === false) ?? [];
+  // While something is missing the proposal is read again now and then: what the person makes
+  // elsewhere (a chat linked, a key added) lights up here by itself.
+  useEffect(() => {
+    if (missing.length === 0) return;
+    const again = () => onChange();
+    const timer = setInterval(again, 4000);
+    window.addEventListener("focus", again);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", again);
+    };
+  }, [missing.length]);
   if (!p) return null;
   const recipe = p.recipe as Recipe;
   const said = sentence(fromRecipe(recipe));
@@ -143,6 +183,8 @@ function Proposal({
       setError(explain(err));
     }
   };
+  const fix = (n: MagicNeed) => (n.kind === "credential" ? setCredential(n) : openNeed(n));
+  const others = p.needs.filter((n) => n.ready !== false);
   return (
     <section class="mg-proposal">
       <div class="mg-proposal-head">
@@ -153,6 +195,16 @@ function Proposal({
       </div>
       <h3>{recipe.description || recipe.name}</h3>
       {p.summary && <p class="mg-summary">{p.summary}</p>}
+      {missing.length > 0 && (
+        <div class="mg-missing" role="status">
+          <p class="mg-missing-lead">
+            <IconAlert size={18} /> {t("axMagicMissing")}
+          </p>
+          {missing.map((n) => (
+            <Need key={`${n.kind}:${n.what}`} n={n} onFix={() => fix(n)} />
+          ))}
+        </div>
+      )}
       <div class="ax-says">
         <div class="ax-says-lines">
           {said.map((line, i) => (
@@ -162,32 +214,15 @@ function Proposal({
           ))}
         </div>
       </div>
-      {p.needs.length > 0 && (
+      {others.length > 0 && (
         <div class="mg-needs">
           <span class="wz-lb">{t("axMagicNeeds")}</span>
-          {p.needs.map((n) => (
-            <div key={`${n.kind}:${n.what}`} class={`mg-need${n.ready ? " ok" : " need"}`}>
-              <span class="mg-need-ico">{needIcon(n)}</span>
-              <span class="mg-need-text">
-                <b>
-                  {t(`axNeed_${n.kind}` as never, {
-                    what: PLATFORM_NAMES[n.what.toLowerCase()] ?? n.what,
-                  })}
-                </b>
-                {n.why && <small>{n.why}</small>}
-              </span>
-              <span class="mg-need-state">
-                {n.ready ? t("axNeedReady") : n.ready === false ? t("axNeedMissing") : ""}
-              </span>
-              {!n.ready && (
-                <button type="button" class="wz-btn small" onClick={() => openNeed(n)}>
-                  {t("axNeedOpen")}
-                </button>
-              )}
-            </div>
+          {others.map((n) => (
+            <Need key={`${n.kind}:${n.what}`} n={n} onFix={() => fix(n)} />
           ))}
         </div>
       )}
+      {p.needs.length > 0 && missing.length === 0 && <p class="mg-allset">{t("axMagicAllSet")}</p>}
       {why !== null && (
         <Field label={t("axMagicWhy")}>
           <textarea
@@ -221,15 +256,49 @@ function Proposal({
         <button type="button" class="wz-btn" onClick={onEdit}>
           {t("axMagicEdit")}
         </button>
-        <button type="button" class="wz-btn primary" onClick={() => void approve()}>
+        <button
+          type="button"
+          class="wz-btn primary"
+          disabled={missing.length > 0}
+          title={missing.length > 0 ? t("axMagicMissing") : undefined}
+          onClick={() => void approve()}
+        >
           {t("axMagicApprove")}
         </button>
       </div>
+      {credential && (
+        <CredentialWindow
+          draft={{
+            service: credential.service ?? credential.what,
+            name: credential.what,
+            ...(credential.host && { hosts: [credential.host] }),
+          }}
+          onClose={(changed) => {
+            setCredential(null);
+            if (changed) onChange();
+          }}
+        />
+      )}
     </section>
   );
 }
 
-/** A magic automation's window: God's proposal on top, the conversation with God below. */
+/** Where the conversation stands, in three steps lit by border and background. */
+function Steps({ status }: { status: MagicAutomation["status"] }) {
+  const at = status === "building" ? 2 : status === "ready" ? 3 : 4;
+  return (
+    <ol class="mg-steps">
+      {(["axMagicStep1", "axMagicStep2", "axMagicStep3"] as const).map((k, i) => (
+        <li key={k} class={i + 1 === at ? "cur" : i + 1 < at ? "past" : ""}>
+          <span class="mg-step-n">{i + 1}</span>
+          <span>{t(k)}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** A magic automation's window: God's proposal beside (on a phone above) the conversation. */
 export function MagicChat({
   m,
   onClose,
@@ -270,32 +339,35 @@ export function MagicChat({
       onClose={onClose}
     >
       <div class="mg-chat">
-        {m.status === "ready" && (
-          <Proposal
-            m={m}
-            onChange={onChange}
-            onEdit={() => setEditing(true)}
-            onCreated={onCreated}
-          />
-        )}
-        {m.status === "done" && <p class="notice ok">{t("axMagicDone")}</p>}
-        {m.status === "building" && (
-          <div class="mg-hint">
-            <span>{t("axMagicBuilding")}</span>
-            <button
-              type="button"
-              class="wz-link inl"
-              onClick={() =>
-                void attempt(() => getApi().dismissMagic(m.id)).then(() => {
-                  onChange();
-                  onClose();
-                })
-              }
-            >
-              {t("axMagicDismiss")}
-            </button>
-          </div>
-        )}
+        <aside class="mg-side">
+          <Steps status={m.status} />
+          {m.status === "ready" && (
+            <Proposal
+              m={m}
+              onChange={onChange}
+              onEdit={() => setEditing(true)}
+              onCreated={onCreated}
+            />
+          )}
+          {m.status === "done" && <p class="notice ok">{t("axMagicDone")}</p>}
+          {m.status === "building" && (
+            <div class="mg-hint">
+              <span>{t("axMagicBuilding")}</span>
+              <button
+                type="button"
+                class="wz-link inl"
+                onClick={() =>
+                  void attempt(() => getApi().dismissMagic(m.id)).then(() => {
+                    onChange();
+                    onClose();
+                  })
+                }
+              >
+                {t("axMagicDismiss")}
+              </button>
+            </div>
+          )}
+        </aside>
         <div class="mg-chat-body">
           <Chat sessionId={m.sessionId} agentId={m.agentId} />
         </div>

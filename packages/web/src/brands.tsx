@@ -9,18 +9,24 @@ import {
   type SimpleIcon,
   siAirtable,
   siAnthropic,
+  siApple,
   siAsana,
   siAtlassian,
+  siBinance,
+  siBitwarden,
   siBrave,
   siClaude,
   siClickup,
   siCloudflare,
+  siCoinbase,
   siDeepseek,
   siDiscord,
   siDropbox,
+  siFacebook,
   siGithub,
   siGitlab,
   siGmail,
+  siGoogle,
   siGooglecalendar,
   siGoogledrive,
   siGooglegemini,
@@ -28,20 +34,27 @@ import {
   siHomeassistant,
   siHubspot,
   siHuggingface,
+  siIcloud,
+  siInstagram,
   siIntercom,
   siLinear,
   siMistralai,
+  siN26,
   siNeon,
+  siNetflix,
   siNotion,
   siOllama,
   siOpenrouter,
   siPaypal,
   siPerplexity,
   siPostgresql,
+  siProtonmail,
+  siRevolut,
   siSearxng,
   siSentry,
   siShopify,
   siSignal,
+  siSpotify,
   siSquare,
   siStripe,
   siSupabase,
@@ -49,7 +62,9 @@ import {
   siTodoist,
   siTrello,
   siWhatsapp,
+  siWise,
   siWordpress,
+  siX,
   siZapier,
 } from "simple-icons";
 
@@ -104,7 +119,33 @@ const BRANDS: Record<string, SimpleIcon> = {
   // web search
   searxng: siSearxng,
   brave: siBrave,
+  // the keychain's services (G33.4)
+  apple: siApple,
+  binance: siBinance,
+  bitwarden: siBitwarden,
+  coinbase: siCoinbase,
+  facebook: siFacebook,
+  google: siGoogle,
+  icloud: siIcloud,
+  instagram: siInstagram,
+  n26: siN26,
+  netflix: siNetflix,
+  proton: siProtonmail,
+  revolut: siRevolut,
+  spotify: siSpotify,
+  wise: siWise,
+  x: siX,
 };
+
+/** A service's name or address to one of the logos above ("Revolut Business" → revolut). */
+export function brandFor(service: string, url = ""): string | undefined {
+  const words = `${service} ${url}`.toLowerCase();
+  return Object.keys(BRANDS).find((id) =>
+    id.length <= 2
+      ? new RegExp(`(^|[\\s./])${id}(\\.com)?($|[\\s/])`).test(words)
+      : words.includes(id),
+  );
+}
 
 type Rgb = [number, number, number];
 const rgb = (hex: string): Rgb =>
