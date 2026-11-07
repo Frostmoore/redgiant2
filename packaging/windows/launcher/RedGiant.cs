@@ -8,6 +8,9 @@
 //   RedGiant.exe --background  start without opening the browser (start with Windows)
 //   RedGiant.exe --engine-only only the engine on Windows (G24.3b), without the server
 //   RedGiant.exe --quit        asks the running RedGiant to stop (server and database), and waits
+//   RedGiant.exe --update-now  looks for an update now and installs it without asking (the CI)
+// Started by an update (G36.18): --after-update (the new version, on trial) and
+// --rolled-back <version> (the previous one again); both wait for the RedGiant that is leaving.
 using System;
 using System.Diagnostics;
 using System.Collections.Generic;
@@ -82,7 +85,7 @@ sealed class Launcher : ApplicationContext
     string url;
     readonly StringBuilder log = new StringBuilder();
 
-    public Launcher(bool background)
+    public Launcher(bool background, bool updateNow, string rolledBack)
     {
         this.background = background;
         Icon icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
@@ -136,12 +139,53 @@ sealed class Launcher : ApplicationContext
         // The first start of the day looks for a newer RedGiant (Updates.cs); its questions are
         // asked on the splash's thread, whose handle exists even when the splash stays hidden.
         if (!splash.IsHandleCreated) { var unused = splash.Handle; }
-        Updates.Start(splash);
+        // A differential update (G36.18) stops everything that holds the program's files, then
+        // starts the new RedGiant and leaves.
+        Updates.StopAll = () => { WinEngine.Shutdown(); StopEngine(); StopLeftovers(); };
+        Updates.Exit = () => { tray.Visible = false; ExitThread(); };
+        if (rolledBack != null) Updates.RolledBack(splash, rolledBack);
+        Updates.Start(splash, updateNow);
         Updates.Watch(splash, WinEngine.Dir);
     }
 
+    /**
+     * What may still run from the program's folder once the server was asked to stop: Postgres
+     * stopped the proper way with its own pg_ctl (as the installer does), then anything left
+     * under node\ or server\ is stopped, so the update can move those folders.
+     */
+    static void StopLeftovers()
+    {
+        string pgctl = Path.Combine(AppDir, "server", "node_modules", "@embedded-postgres", "windows-x64", "native", "bin", "pg_ctl.exe");
+        string data = Path.Combine(DataDir(), "postgres");
+        if (File.Exists(pgctl) && Directory.Exists(data))
+        {
+            try
+            {
+                using (var p = Process.Start(new ProcessStartInfo(pgctl, "stop -D \"" + data + "\" -m fast -w -t 30") { UseShellExecute = false, CreateNoWindow = true }))
+                    p.WaitForExit(40000);
+            }
+            catch (Exception) { }
+        }
+        string[] dirs = { Path.Combine(AppDir, "server") + "\\", Path.Combine(AppDir, "node") + "\\" };
+        foreach (var p in Process.GetProcesses())
+        {
+            try
+            {
+                string exe = p.MainModule.FileName;
+                foreach (var d in dirs)
+                    if (exe.StartsWith(d, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Diag.Log("update", "stopping what was left: " + exe);
+                        p.Kill();
+                        p.WaitForExit(10000);
+                    }
+            }
+            catch (Exception) { }
+        }
+    }
+
     /** Where the installer put Node, the server and the web page (next to RedGiant.exe). */
-    static string AppDir { get { return Path.GetDirectoryName(Application.ExecutablePath); } }
+    public static string AppDir { get { return Path.GetDirectoryName(Application.ExecutablePath); } }
     static string NodeExe { get { return Path.Combine(AppDir, "node", "node.exe"); } }
     static string ServerMain { get { return Path.Combine(AppDir, "server", "dist", "main.js"); } }
 
@@ -318,8 +362,9 @@ sealed class Launcher : ApplicationContext
         var self = engine;
         engine.Exited += (s, e) =>
         {
-            // It stops only on failure or when we stop it.
-            if (url == null && engine == self) Ui(() => ShowFailure(""));
+            // It stops only on failure or when we stop it. A new version on trial that stops
+            // before answering is rolled back instead (Updates.Failed).
+            if (url == null && engine == self) Ui(() => { if (!Updates.Failed()) ShowFailure(""); });
         };
         engine.Start();
         engine.BeginOutputReadLine();
@@ -338,6 +383,7 @@ sealed class Launcher : ApplicationContext
                         {
                             Diag.Log("server", "ready after " + (int)(DateTime.Now - startedAt).TotalMilliseconds + " ms");
                             url = "http://localhost:" + port + "/#token=" + token;
+                            Updates.Healthy();
                             Ui(() =>
                             {
                                 splash.Hide();
@@ -350,6 +396,8 @@ sealed class Launcher : ApplicationContext
                 catch (Exception) { }
                 Thread.Sleep(500);
             }
+            // Never answered: a version on trial goes back to the previous one.
+            if (engine == self && url == null) Ui(() => Updates.Failed());
         }) { IsBackground = true };
         t.Start();
     }
@@ -465,18 +513,30 @@ sealed class Launcher : ApplicationContext
             return;
         }
         bool background = Array.IndexOf(args, "--background") >= 0;
+        // Started by an update: the RedGiant that started this one is leaving (G36.18).
+        int back = Array.IndexOf(args, "--rolled-back");
+        string rolledBack = back >= 0 && back + 1 < args.Length ? args[back + 1] : null;
+        bool handover = Array.IndexOf(args, "--after-update") >= 0 || rolledBack != null;
         bool first;
         using (var single = new Mutex(true, "RedGiant.Launcher", out first))
         {
+            if (!first && handover)
+            {
+                try { first = single.WaitOne(90000); }
+                catch (AbandonedMutexException) { first = true; }
+            }
             if (!first)
             {
                 // Already running: the icon just opens the browser through the running one.
                 if (!background) Signal();
                 return;
             }
+            // A swap interrupted halfway, or a new version that already failed to start twice:
+            // the previous version is put back and started instead of this one.
+            if (!Updates.BeforeStart(AppDir)) return;
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            var launcher = new Launcher(background);
+            var launcher = new Launcher(background, Array.IndexOf(args, "--update-now") >= 0, rolledBack);
             ListenForSignals(launcher);
             Application.Run(launcher);
         }

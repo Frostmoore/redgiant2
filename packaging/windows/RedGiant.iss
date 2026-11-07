@@ -80,6 +80,15 @@ Source: "web\*"; DestDir: "{app}\web"; Flags: ignoreversion recursesubdirs creat
 ; An update replaces the server whole: modules removed in the new version must not linger.
 Type: filesandordirs; Name: "{app}\server"
 Type: filesandordirs; Name: "{app}\web"
+; A differential update half done (G36.18): the installer replaces everything anyway.
+Type: filesandordirs; Name: "{app}\update"
+
+[UninstallDelete]
+; Files a differential update brought (G36.18) are not in setup's list: the folders go whole.
+Type: filesandordirs; Name: "{app}\server"
+Type: filesandordirs; Name: "{app}\web"
+Type: filesandordirs; Name: "{app}\node"
+Type: filesandordirs; Name: "{app}\update"
 
 [Icons]
 Name: "{userprograms}\RedGiant"; Filename: "{app}\RedGiant.exe"; IconFilename: "{app}\redgiant.ico"

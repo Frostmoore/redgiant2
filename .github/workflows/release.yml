@@ -185,7 +185,7 @@ jobs:
         shell: pwsh
         working-directory: packaging/windows
         run: |
-          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Management.dll launcher\RedGiant.cs launcher\Updates.cs launcher\Moves.cs launcher\Memory.cs launcher\Diag.cs
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Management.dll /r:System.Web.Extensions.dll launcher\RedGiant.cs launcher\Updates.cs launcher\Moves.cs launcher\Memory.cs launcher\Diag.cs launcher\Delta.cs launcher\UpdateKey.cs
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Build the installer (Inno Setup)
         shell: pwsh
@@ -196,10 +196,49 @@ jobs:
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$version" RedGiant.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-Item dist\RedGiant-Setup.exe | Format-List Name, Length
+      # Differential updates (G36.18): the same files as a zip whose entries the launcher fetches
+      # one by one (HTTP Range), and the manifest of their sizes and sha256. Signed with
+      # UPDATE_SIGNING_KEY when the secret is there; once UpdateKey.cs holds a public key the
+      # secret is required (sign.mjs fails otherwise, and with a key that does not match).
+      - name: Differential update files (manifest, zip, signature)
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { $version = "0.0.0-dispatch" }
+          $app = "$env:RUNNER_TEMP\app"
+          New-Item -ItemType Directory -Force $app | Out-Null
+          foreach ($d in "server", "web", "node") { Copy-Item -Recurse "packaging\windows\$d" "$app\$d" }
+          Copy-Item packaging\windows\RedGiant.exe, packaging\windows\redgiant.ico $app
+          node packaging/update/pack.mjs --tree $app --version $version --platform win-x64 --out packaging/windows/update --installer packaging/windows/dist/RedGiant-Setup.exe
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $keyed = (Get-Content packaging\windows\launcher\UpdateKey.cs -Raw) -notmatch 'PublicKeyXml = ""'
+          if ($env:UPDATE_SIGNING_KEY) {
+            node packaging/update/sign.mjs packaging/windows/update/RedGiant-win-x64.manifest.json
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          } elseif ($keyed) {
+            "UpdateKey.cs holds a public key but the UPDATE_SIGNING_KEY secret is missing: the launchers would refuse this release's manifest"
+            exit 1
+          } else {
+            "::warning::manifest not signed (no UPDATE_SIGNING_KEY): the launcher checks it against GitHub's digest only"
+          }
+          Get-ChildItem packaging/windows/update | Format-Table Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RedGiant-win-x64-update
+          path: packaging/windows/update/*
+          compression-level: 0
+          retention-days: 7
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: packaging/windows/dist/RedGiant-Setup.exe
+          files: |
+            packaging/windows/dist/RedGiant-Setup.exe
+            packaging/windows/update/RedGiant-win-x64.zip
+            packaging/windows/update/RedGiant-win-x64.manifest.json
+            packaging/windows/update/RedGiant-win-x64.manifest.json.sig
+          fail_on_unmatched_files: false
           generate_release_notes: true
 
   # RedGiant for macOS (2026-11-05): signed with the Developer ID and notarized by Apple, so it

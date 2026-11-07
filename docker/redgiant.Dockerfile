@@ -11,7 +11,6 @@ RUN pnpm install --frozen-lockfile && pnpm build
 RUN rm -rf node_modules/.pnpm/@openai+codex@*-linux-* node_modules/.pnpm/@anthropic-ai+claude-agent-sdk-linux-*
 
 FROM node:24-trixie-slim
-ARG REDGIANT_VERSION=dev
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git less procps python3 ripgrep tini util-linux \
     ghostscript libx11-6 libx11-xcb1 libxext6 libxinerama1 libcairo2 libcups2t64 libdbus-1-3 libfontconfig1 \
@@ -36,6 +35,9 @@ RUN apt-get update \
 COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /uvx /usr/local/bin/
 COPY --from=build /opt/redgiant /opt/redgiant
 COPY docker/entrypoint.sh /usr/local/bin/redgiant-entrypoint
+# Declared here, at its only use (G36.18): an ARG before a RUN is in that RUN's environment, so a
+# new version made the apt and uv layers new too (3.3.0 → 3.3.1: 373 of 455 MB to download again).
+ARG REDGIANT_VERSION=dev
 RUN chmod 755 /usr/local/bin/redgiant-entrypoint \
  && echo "${REDGIANT_VERSION}" > /opt/redgiant/.image-version \
  && corepack prepare "$(node -p "require('/opt/redgiant/package.json').packageManager")" --activate \
