@@ -76,6 +76,7 @@ import { modelName } from "./ModelMenu.js";
 import { RemoteAccess } from "./RemoteAccess.js";
 import { Safety } from "./Safety.js";
 import { Acts, Head, Sub, Tile } from "./SettingsKit.js";
+import { ImportFrom } from "./ImportFrom.js";
 import { AssignStep } from "./SetupAssign.js";
 import { PHONE, useMedia, useOnNext, useWz, type Wz, WzCtx } from "./SetupKit.js";
 import { TelegramStep } from "./SetupTelegram.js";
@@ -842,6 +843,16 @@ function Done() {
   );
 }
 
+/** Coming from another agent? (G36.7): optional, nothing to save on «Next». */
+function ImportStep() {
+  return (
+    <div class="wz-inner">
+      <Head q={t("impQ")} lead={t("impLead")} />
+      <ImportFrom compact />
+    </div>
+  );
+}
+
 const VIEWS: Record<StepKey, () => JSX.Element> = {
   wzWelcome: Welcome,
   wzMode: Mode,
@@ -849,6 +860,7 @@ const VIEWS: Record<StepKey, () => JSX.Element> = {
   wzLocal: LocalStep,
   wzNames: Names,
   wzAssign: AssignStep,
+  wzImport: ImportStep,
   wzTelegram: TelegramStep,
   wzCode: CodeStep,
   wzRemote: RemoteStep,

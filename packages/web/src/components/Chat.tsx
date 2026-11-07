@@ -443,12 +443,14 @@ function Item({
       return (
         <div class="bubble assistant">
           <Parts parts={item.parts} />
-          <MetricsBar
-            m={item.metrics}
-            costUsd={item.costUsd}
-            model={item.model}
-            compactAt={agents.value.find((a) => a.id === agentId)?.compaction?.at ?? 0.8}
-          />
+          {!item.imported && (
+            <MetricsBar
+              m={item.metrics}
+              costUsd={item.costUsd}
+              model={item.model}
+              compactAt={agents.value.find((a) => a.id === agentId)?.compaction?.at ?? 0.8}
+            />
+          )}
         </div>
       );
     case "tool":

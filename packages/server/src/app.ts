@@ -16,6 +16,7 @@ import {
   SkillArchiveError,
   SkillExistsError,
 } from "@redgiant/extensions";
+import { teamsAppPackage } from "@redgiant/gateway";
 import { HierarchyError } from "@redgiant/hierarchy";
 import {
   AgentKind,
@@ -42,6 +43,7 @@ import { ChatError } from "./chat.js";
 import { type ChatHub, ChatSettings, PLATFORMS } from "./chats.js";
 import { CodeChangeError } from "./code.js";
 import { convertRoutes } from "./convert-routes.js";
+import { importRoutes } from "./import-routes.js";
 import {
   BadRequestError,
   NoModelError,
@@ -820,6 +822,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       "/api/telegram/webhook",
       // WhatsApp checks its webhook with a token and signs every message (G29.5).
       "/api/chats/whatsapp/webhook",
+      // Teams signs every activity with a Bot Connector token (G36.9).
+      "/api/chats/teams/messages",
       // Signing in with a password (G24.6): the password is the credential.
       "/api/auth/methods",
       "/api/auth/login",
@@ -1234,6 +1238,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
 
   // Closed formats into open ones (G34.3): what a file is, and a conversion as a job.
   convertRoutes(app, core, owner);
+  // Import from other agents (G36.7): previews, the import as a job, undo.
+  importRoutes(app, core, owner, options.setup);
 
   // Backup (2026-11-03): every project, agent and conversation in one file, and back. Outside
   // OpenAPI: the file goes up and down as raw bytes.
@@ -1625,6 +1631,26 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     if (!wa) return c.json({ error: "Forbidden" }, 403);
     const ok = await wa.webhook(await c.req.text(), c.req.header("x-hub-signature-256"));
     return ok ? c.json({ ok: true }, 200) : c.json({ error: "Forbidden" }, 403);
+  });
+
+  // Teams (G36.9): Microsoft posts here, signed; the app package names the bot for Teams.
+  app.post("/api/chats/teams/messages", async (c) => {
+    const teams = options.chats?.teams();
+    if (!teams) return c.json({ error: "Forbidden" }, 403);
+    const r = await teams.webhook(await c.req.text(), c.req.header("authorization"));
+    return r.body === undefined
+      ? c.body(null, r.status as 200)
+      : c.json(r.body as Record<string, unknown>, r.status as 200);
+  });
+  app.get("/api/chats/teams/app.zip", async (c) => {
+    const appId = (await (setup as SetupService | undefined)?.chatSetting("teams", "appId")) ?? "";
+    if (!appId) return c.json({ error: "Teams is not set up" }, 400);
+    const host = (c.req.query("host") ?? "").replace(/[^a-z0-9.:-]/gi, "").split(":")[0];
+    const zip = teamsAppPackage({ appId, ...(host && { host }) });
+    return c.body(new Uint8Array(zip), 200, {
+      "content-type": "application/zip",
+      "content-disposition": 'attachment; filename="redgiant-teams.zip"',
+    });
   });
 
   // The platform (G14): how it runs, its changes, undo, the permission policy.

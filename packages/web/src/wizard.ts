@@ -13,6 +13,8 @@ export type StepKey =
   | "wzLocal"
   | "wzNames"
   | "wzAssign"
+  /** Coming from another agent? (G36.7, optional) */
+  | "wzImport"
   | "wzTelegram"
   | "wzCode"
   | "wzRemote"
@@ -29,6 +31,7 @@ export const stepsFor = (mode: "standard" | "advanced" | undefined): StepKey[] =
   "wzLocal",
   "wzNames",
   "wzAssign",
+  "wzImport",
   "wzTelegram",
   ...(mode === "advanced" ? ADVANCED_STEPS : []),
   "wzSafety",
@@ -36,7 +39,14 @@ export const stepsFor = (mode: "standard" | "advanced" | undefined): StepKey[] =
 ];
 
 /** Steps that may be left for later: everything works without them. */
-const SKIPPABLE: readonly StepKey[] = ["wzBrain", "wzLocal", "wzTelegram", "wzCode", "wzRemote"];
+const SKIPPABLE: readonly StepKey[] = [
+  "wzBrain",
+  "wzLocal",
+  "wzImport",
+  "wzTelegram",
+  "wzCode",
+  "wzRemote",
+];
 export const skippable = (k: StepKey) => SKIPPABLE.includes(k);
 
 /** The step after `from` in a (possibly changed) list: choosing "advanced" adds two. */

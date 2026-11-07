@@ -355,6 +355,9 @@ const SERVICE_NAMES: Record<string, string> = {
   google: "Google",
   elevenlabs: "ElevenLabs",
   whatsapp: "WhatsApp",
+  matrix: "Matrix",
+  teams: "Microsoft Teams",
+  imessage: "iMessage",
   brave: "Brave Search",
   tavily: "Tavily",
   exa: "Exa",
@@ -1811,6 +1814,11 @@ export class SetupService {
     this.o.core.setAgentLanguage(this.config.agentLanguage);
   }
 
+  /** The instructions for every agent as they are now (G36.7 adds imported ones to them). */
+  instructionsText(): string | undefined {
+    return this.config.instructions;
+  }
+
   /** Instructions for every agent (2026-11-05): new conversations start with them. */
   async saveInstructions(text: string): Promise<void> {
     const t = text.trim();
@@ -1829,6 +1837,11 @@ export class SetupService {
     } else delete this.config.backupModel;
     this.o.core.setBackupModel(model ?? undefined);
     await this.save();
+  }
+
+  /** One field of a chat's settings that is not secret (the Teams App ID, G36.9). */
+  chatSetting(platform: Platform, key: "appId"): string | undefined {
+    return this.secrets.chats?.[platform]?.[key];
   }
 
   /** Discord, Slack, Signal, WhatsApp (G29.5): checked by connecting before anything is kept. */

@@ -1,11 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { EventStore, SqlClient } from "@redgiant/events";
 import { LocalWorkspace, type Workspace } from "@redgiant/tools";
 import { z } from "zod";
 import { CustomToolSpec, RESERVED, runCustomTool, ToolTest } from "./customtools.js";
-import { COMPATIBILITY_MAX, DESCRIPTION_MAX, NAME_RE, renderSkillMd } from "./skills.js";
+import {
+  COMPATIBILITY_MAX,
+  DESCRIPTION_MAX,
+  loadSkills,
+  NAME_RE,
+  renderSkillMd,
+  type Skill,
+} from "./skills.js";
 
 export const ProposalInput = z.discriminatedUnion("kind", [
   z.object({
@@ -31,6 +38,13 @@ export const ProposalInput = z.discriminatedUnion("kind", [
     tests: z.array(z.object({ command: z.string().min(1) })).default([]),
     /** Required when there are no tests (RD17): why the skill cannot be tested. */
     untestableReason: z.string().min(20).optional(),
+    /**
+     * G36.8: a short account of where the skill comes from (the problem and what worked), shown
+     * to the person beside the proposal.
+     */
+    summary: z.string().min(1).max(2000).optional(),
+    /** G36.8: this changes the installed skill of the same name instead of adding one. */
+    updates: z.boolean().optional(),
   }),
 ]);
 export type ProposalInput = z.input<typeof ProposalInput>;
@@ -55,6 +69,8 @@ export interface Proposal {
   report: TestResult[];
   createdAt: string;
   decidedBy: string | null;
+  /** G36.8: the installed skill an update would replace, as it is now (for the comparison). */
+  previous: { skillMd: string; files: string[] } | null;
 }
 
 export async function migrateExtensions(db: SqlClient): Promise<void> {
@@ -80,6 +96,8 @@ export async function migrateExtensions(db: SqlClient): Promise<void> {
       transport  jsonb NOT NULL,
       PRIMARY KEY (owner_id, name)
     )`);
+  // G36.8: the installed skill an update replaces, kept for the person's comparison.
+  await db.query("ALTER TABLE rg_proposals ADD COLUMN IF NOT EXISTS previous jsonb");
 }
 
 interface Row {
@@ -94,6 +112,7 @@ interface Row {
   report: unknown;
   created_at: Date | string;
   decided_by: string | null;
+  previous?: unknown;
 }
 const parse = <T>(v: unknown) => (typeof v === "string" ? (JSON.parse(v) as T) : (v as T));
 const fromRow = (r: Row): Proposal => ({
@@ -108,6 +127,7 @@ const fromRow = (r: Row): Proposal => ({
   report: parse(r.report),
   createdAt: new Date(r.created_at).toISOString(),
   decidedBy: r.decided_by,
+  previous: r.previous ? parse(r.previous) : null,
 });
 
 export interface BuilderOptions {
@@ -119,6 +139,14 @@ export interface BuilderOptions {
   ) => Promise<{ workspace: Workspace; dispose: () => Promise<void> }>;
   /** Where approved extensions go: the platform's directory or the project's `.redgiant`. */
   installRoot: (ownerId: string, projectId: string | null) => Promise<string>;
+  /**
+   * G36.8: every folder whose skills an agent of that project sees (the platform's and the
+   * project's), to find a proposal that repeats one. Default: the install root only.
+   */
+  skillRoots?: (
+    ownerId: string,
+    projectId: string | null,
+  ) => Promise<{ dir: string; scope: Skill["scope"] }[]>;
 }
 
 /**
@@ -142,10 +170,40 @@ export class ExtensionBuilder {
     if (input.kind === "skill" && input.tests.length === 0 && !input.untestableReason) {
       throw new Error("A skill without tests needs untestableReason (why it cannot be tested)");
     }
+    // G36.8: an agent's skill that repeats an installed one becomes an update to it, never a twin.
+    let previous: Proposal["previous"] = null;
+    if (input.kind === "skill" && o.author !== "human") {
+      const skills = await this.visibleSkills(o.ownerId, o.projectId);
+      const same = skills.find((s) => s.name === input.name);
+      if (same) previous = await readSkill(same.dir);
+      else if (input.updates)
+        throw new Error(
+          `There is no skill "${input.name}" to update: use the name of an installed skill (skill_search finds it), or leave updates out for a new one.`,
+        );
+      else {
+        const like = similarSkill(input, skills);
+        if (like)
+          throw new Error(
+            `A skill like this is already installed: "${like.name}" (${like.description}). Load it with skill_load and propose an update to it (name "${like.name}", updates true) instead of a new skill; if yours is truly different, give it a name and description that say how.`,
+          );
+      }
+    }
     const id = `prop_${randomUUID().slice(0, 8)}`;
     const report = await this.test(id, input);
     const passed = report.every((r) => r.passed);
-    let status: ProposalStatus = !passed ? "failed" : o.autoInstall ? "installed" : "pending";
+    // Code never installs by itself (G29.4, G36.8): an agent's skill with scripts waits too.
+    const scripts = input.kind === "skill" && o.author !== "human" ? scriptFiles(input.files) : [];
+    let status: ProposalStatus = !passed
+      ? "failed"
+      : o.autoInstall && scripts.length === 0
+        ? "installed"
+        : "pending";
+    if (passed && o.autoInstall && scripts.length > 0)
+      report.push({
+        name: "scripts",
+        passed: true,
+        detail: `It has scripts (${scripts.join(", ")}): code never installs by itself, it waits for the user's approval.`,
+      });
     // An agent's skill installed by itself (G29.4) never replaces one that exists: that waits.
     if (status === "installed" && o.author !== "human" && (await this.exists(o, input))) {
       status = "pending";
@@ -165,7 +223,7 @@ export class ExtensionBuilder {
       }
     }
     await this.o.db.query(
-      "INSERT INTO rg_proposals (id, owner_id, project_id, kind, name, author, input, status, report) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+      "INSERT INTO rg_proposals (id, owner_id, project_id, kind, name, author, input, status, report, previous) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
       [
         id,
         o.ownerId,
@@ -176,8 +234,15 @@ export class ExtensionBuilder {
         JSON.stringify(input),
         status,
         JSON.stringify(report),
+        previous ? JSON.stringify(previous) : null,
       ],
     );
+    // A newer proposal of the same skill takes the place of the one still waiting (G36.8).
+    if (input.kind === "skill" && status !== "failed")
+      await this.o.db.query(
+        "UPDATE rg_proposals SET status = 'rejected', decided_by = $4 WHERE owner_id = $1 AND kind = 'skill' AND name = $2 AND status = 'pending' AND id <> $3 AND author <> 'human'",
+        [o.ownerId, name, id, `superseded:${id}`],
+      );
     await this.o.store.append({
       ownerId: o.ownerId,
       projectId: o.projectId,
@@ -239,6 +304,14 @@ export class ExtensionBuilder {
     }
   }
 
+  /** The skills an agent of that project sees (G36.8). */
+  private async visibleSkills(ownerId: string, projectId: string | null): Promise<Skill[]> {
+    const roots = this.o.skillRoots
+      ? await this.o.skillRoots(ownerId, projectId)
+      : [{ dir: await this.o.installRoot(ownerId, projectId), scope: "platform" as const }];
+    return loadSkills(roots, () => {});
+  }
+
   private async exists(
     o: { ownerId: string; projectId: string | null },
     input: z.output<typeof ProposalInput>,
@@ -259,7 +332,8 @@ export class ExtensionBuilder {
     const root = await this.o.installRoot(ownerId, projectId);
     const name = input.kind === "tool" ? input.spec.name : input.name;
     const dir = join(root, input.kind === "tool" ? "tools" : "skills", name);
-    await rm(dir, { recursive: true, force: true });
+    // An update (G36.8) keeps the files it does not rewrite (its scripts, its references).
+    if (!(input.kind === "skill" && input.updates)) await rm(dir, { recursive: true, force: true });
     const ws = new LocalWorkspace(await mkdir(dir, { recursive: true }).then(() => dir));
     for (const [path, content] of Object.entries(input.files)) await ws.writeText(path, content);
     if (input.kind === "tool")
@@ -305,4 +379,77 @@ export class ExtensionBuilder {
     });
     return (await this.get(ownerId, id)) as Proposal;
   }
+}
+
+/** Files that run as code: by their extension or a `#!` line (G36.8). */
+const SCRIPT_EXT =
+  /\.(sh|bash|zsh|ps1|psm1|bat|cmd|py|js|mjs|cjs|ts|mts|rb|pl|php|lua|exe|dll|so|dylib)$/i;
+export function scriptFiles(files: Record<string, string>): string[] {
+  return Object.entries(files)
+    .filter(([path, content]) => SCRIPT_EXT.test(path) || content.startsWith("#!"))
+    .map(([path]) => path)
+    .sort();
+}
+
+const STOP = new Set(
+  "the and for with that this when what from into your you are use using how not but all any can its one per via about after before over under then than them they their there these those which while where who will would should could may might must does doing done have has had was were been being skill skills".split(
+    " ",
+  ),
+);
+const keyWords = (s: string) =>
+  new Set(
+    s
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((w) => w.length > 2 && !STOP.has(w))
+      .map((w) => (w.length > 4 ? w.replace(/(ing|es|s)$/, "") : w)),
+  );
+
+/**
+ * How alike two skills are, from 0 to 1 (G36.8): the shared words of their names and
+ * descriptions over all their words.
+ */
+export function skillLikeness(
+  a: { name: string; description: string },
+  b: { name: string; description: string },
+): number {
+  const wa = keyWords(`${a.name.replace(/-/g, " ")} ${a.description}`);
+  const wb = keyWords(`${b.name.replace(/-/g, " ")} ${b.description}`);
+  if (wa.size === 0 || wb.size === 0) return 0;
+  let both = 0;
+  for (const w of wa) if (wb.has(w)) both++;
+  const jaccard = both / (wa.size + wb.size - both);
+  const na = keyWords(a.name.replace(/-/g, " "));
+  const nb = keyWords(b.name.replace(/-/g, " "));
+  const sameName = na.size > 0 && [...na].every((w) => nb.has(w)) && na.size === nb.size;
+  return sameName ? Math.max(jaccard, 0.9) : jaccard;
+}
+
+/** The installed skill a new one would repeat, if any (G36.8). */
+export function similarSkill(
+  input: { name: string; description: string },
+  skills: Skill[],
+  threshold = 0.5,
+): Skill | undefined {
+  let best: { skill: Skill; score: number } | undefined;
+  for (const skill of skills) {
+    const score = skillLikeness(input, skill);
+    if (score >= threshold && (!best || score > best.score)) best = { skill, score };
+  }
+  return best?.skill;
+}
+
+/** An installed skill as it is now: its SKILL.md and the names of its other files. */
+async function readSkill(dir: string): Promise<{ skillMd: string; files: string[] }> {
+  const skillMd = await readFile(join(dir, "SKILL.md"), "utf8").catch(() => "");
+  const files: string[] = [];
+  const walk = async (rel: string) => {
+    for (const e of await readdir(join(dir, rel), { withFileTypes: true }).catch(() => [])) {
+      const path = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) await walk(path);
+      else if (path !== "SKILL.md") files.push(path);
+    }
+  };
+  await walk("");
+  return { skillMd, files: files.sort() };
 }

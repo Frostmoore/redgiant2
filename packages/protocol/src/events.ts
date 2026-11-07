@@ -405,6 +405,23 @@ export const EventBody = z.discriminatedUnion("type", [
     type: z.literal("memory.settings"),
     payload: z.object({ auto: z.boolean(), by: z.string() }),
   }),
+  /**
+   * A conversation brought in from another assistant (G36.7, ChatGPT or Claude): the messages
+   * after it are the original ones, in order; the conversation goes on from there.
+   */
+  z.object({
+    type: z.literal("session.imported"),
+    payload: z.object({
+      source: z.string(),
+      title: z.string(),
+      /** The other assistant's id of the conversation: imported twice is noticed. */
+      originalId: z.string().optional(),
+      createdAt: z.string().optional(),
+      updatedAt: z.string().optional(),
+      messages: z.number().int().nonnegative(),
+      importId: z.string().optional(),
+    }),
+  }),
   z.object({
     type: z.literal("redaction"),
     payload: z.object({ targetSeq: z.number().int(), reason: z.string() }),

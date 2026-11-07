@@ -93,17 +93,47 @@ function ProposalView({
       onClose();
     });
   const description = p.input.spec?.description ?? p.input.description ?? "";
+  // G36.8: an agent's skill that changes an installed one, its scripts, why it came.
+  const update = p.kind === "skill" && Boolean(p.previous);
+  const scripts =
+    p.kind === "skill"
+      ? Object.entries(p.input.files ?? {})
+          .filter(
+            ([f, c]) =>
+              /\.(sh|bash|zsh|ps1|bat|cmd|py|js|mjs|cjs|ts|rb|pl|php)$/i.test(f) || c.startsWith("#!"),
+          )
+          .map(([f]) => f)
+      : [];
+  const kept = (p.previous?.files ?? []).filter((f) => !(f in (p.input.files ?? {})));
   return (
     <Modal wide title={p.name} onClose={onClose}>
       <div class="wz-panel-in xw-prop">
         <Facts
           rows={[
-            [t("xwKind"), t(p.kind === "tool" ? "extKindTool" : "extKindSkill")],
+            [t("xwKind"), update ? t("xwUpdates") : t(p.kind === "tool" ? "extKindTool" : "extKindSkill")],
             [t("scope"), scopeLabel(p.projectId)],
             [t("xwAuthor"), who(p.author)],
           ]}
         />
         {description && <p class="wz-lead2">{description}</p>}
+        {p.input.summary && (
+          <div class="wz-card wz-left xw-summary">
+            <b>{t("xwSummary")}</b>
+            <p>{p.input.summary}</p>
+          </div>
+        )}
+        {scripts.length > 0 && p.status === "pending" && p.author !== "human" && (
+          <p class="notice warn">{t("xwScripts", { files: scripts.join(", ") })}</p>
+        )}
+        {update && p.previous && (
+          <div class="xw-compare">
+            <details class="xw-file">
+              <summary>{t("xwPrevious")}</summary>
+              <pre>{p.previous.skillMd}</pre>
+            </details>
+            {kept.length > 0 && <p class="ui-help">{t("xwKeptFiles", { files: kept.join(", ") })}</p>}
+          </div>
+        )}
         {p.input.spec && <code class="xw-cmd">{p.input.spec.command}</code>}
         {p.input.body && (
           <div

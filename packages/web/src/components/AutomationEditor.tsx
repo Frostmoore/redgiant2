@@ -152,13 +152,25 @@ export const STARTS = [
 ] as const;
 export type Start = (typeof STARTS)[number];
 
-export const PLATFORMS = ["telegram", "whatsapp", "discord", "slack", "signal"] as const;
+export const PLATFORMS = [
+  "telegram",
+  "whatsapp",
+  "discord",
+  "slack",
+  "signal",
+  "matrix",
+  "teams",
+  "imessage",
+] as const;
 export const PLATFORM_NAMES: Record<string, string> = {
   telegram: "Telegram",
   whatsapp: "WhatsApp",
   discord: "Discord",
   slack: "Slack",
   signal: "Signal",
+  matrix: "Matrix",
+  teams: "Teams",
+  imessage: "iMessage",
 };
 const REPO_EVENTS = ["push", "pull_request", "issues", "issue_comment", "release"] as const;
 const SCHEDULES = ["daily", "weekdays", "weekly", "monthly", "hours", "minutes", "once"] as const;

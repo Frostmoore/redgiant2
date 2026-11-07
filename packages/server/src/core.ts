@@ -165,6 +165,7 @@ import { HumanQuestions, questionTools } from "./questions.js";
 import { migrateRooms, Rooms } from "./rooms.js";
 import { scriptTool } from "./script.js";
 import { SharedMemory } from "./shared-memory.js";
+import { SKILL_PROMPT, SkillNudge } from "./skill-nudge.js";
 import { dryWorkspace, ToolChoiceStore, toolChars, toolsView } from "./tool-choice.js";
 import {
   blankPastedSecrets,
@@ -423,6 +424,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly magic: MagicAutomations;
   /** The keychain (G33.4): credentials agents use by name, never seeing them. */
   readonly vault: Vault;
+  /** Skills that come by themselves (G36.8): one quiet nudge after a problem solved. */
+  readonly skillNudge = new SkillNudge();
   /** The keys kept by the setup (providers, chats, git…), listed in the keychain (set by main). */
   vaultSystem?: (ownerId: string) => Promise<VaultSystemEntry[]>;
   private readonly magicHost: MagicHost;
@@ -548,6 +551,14 @@ export class RedGiantCore implements OrchestrationHost {
         const p = await this.projects.get(ownerId, projectId);
         if (!p) throw new NotFoundError(`Project "${projectId}" not found`);
         return join(p.path, ".redgiant");
+      },
+      // G36.8: the skills an agent there sees, to turn a repeated skill into an update.
+      skillRoots: async (ownerId, projectId) => {
+        const p = projectId ? await this.projects.get(ownerId, projectId) : undefined;
+        return [
+          { dir: this.platformPath(ownerId), scope: "platform" as const },
+          ...(p ? [{ dir: join(p.path, ".redgiant"), scope: "project" as const }] : []),
+        ];
       },
     });
     const host: AutomationHost = {
@@ -1236,12 +1247,21 @@ export class RedGiantCore implements OrchestrationHost {
         assignedTo
           ? `## Assigned to a project\nIn this conversation you work for the project "${(await this.projects.get(ownerId, assignedTo))?.name ?? assignedTo}", on tasks its orchestrator gives you. Your files here are your own worktree of that project; close each task with complete_task.`
           : "",
+        // Skills that come by themselves (G36.8): when to propose one, for every agent that can.
+        agent.kind !== "demigod" && agent.kind !== "inspector" ? SKILL_PROMPT : "",
         skillsIndex(skills),
       ]
         .filter(Boolean)
         .join("\n\n"),
       tools,
-      ...(receivesTasks && { hooks: { stop: [this.tasks.stopHook(agentId)] } }),
+      ...((receivesTasks || (agent.kind !== "demigod" && agent.kind !== "inspector")) && {
+        hooks: {
+          // G36.8: one quiet nudge to propose a skill after a problem solved.
+          ...(agent.kind !== "demigod" &&
+            agent.kind !== "inspector" && { postToolUse: [this.skillNudge.hook()] }),
+          ...(receivesTasks && { stop: [this.tasks.stopHook(agentId)] }),
+        },
+      }),
       ...(toolsOff.length > 0 && { toolsOff }),
       sessionId,
       ownerId,
@@ -1329,9 +1349,11 @@ export class RedGiantCore implements OrchestrationHost {
       const started = (await this.store.list({ sessionId })).find(
         (e) => e.type === "session.started",
       );
-      return started?.type === "session.started" && started.payload
-        ? (started.payload.toolsOff ?? [])
-        : [];
+      if (started?.type === "session.started" && started.payload)
+        return started.payload.toolsOff ?? [];
+      // An imported conversation (G36.7) has no start of its own: the person's choice now.
+      if (!started) return toolsSwitchedOff(await this.toolChoices.get(ownerId), agentId, names);
+      return [];
     }
     return toolsSwitchedOff(await this.toolChoices.get(ownerId), agentId, names);
   }
@@ -1992,6 +2014,16 @@ export class RedGiantCore implements OrchestrationHost {
 
   get defaultModel(): ModelSpec | undefined {
     return this.o.defaultModel;
+  }
+
+  /** The log's redactor (G36.7: imported memories are checked for secrets with it). */
+  get redactor() {
+    return this.o.redactor;
+  }
+
+  /** The light model that learns the shared memory (G36.7 reuses it for imported chats). */
+  get memoryModel(): ModelSpec | undefined {
+    return this.o.memory?.model ?? this.o.boardModel ?? this.o.defaultModel;
   }
 
   /** The setup wizard changes these while the server runs; new sessions use them. */
@@ -3305,6 +3337,133 @@ export class RedGiantCore implements OrchestrationHost {
     return id;
   }
 
+  /**
+   * A conversation from another assistant (G36.7, ChatGPT or Claude) as a conversation of
+   * `agentId`: a `session.imported` event, then the original messages in order. Nothing is built
+   * now; the first message the person sends resumes it from the log like any other.
+   */
+  async importConversation(
+    ownerId: string,
+    agentId: string,
+    c: {
+      source: string;
+      title: string;
+      originalId?: string | undefined;
+      createdAt?: string | undefined;
+      updatedAt?: string | undefined;
+      model?: string | undefined;
+      messages: { role: "user" | "assistant"; text: string; at?: string | undefined }[];
+    },
+    importId?: string,
+  ): Promise<string> {
+    const agent = this.registry.get(agentId);
+    if (!agent || agent.ownerId !== ownerId)
+      throw new NotFoundError(`Agent "${agentId}" not found`);
+    const id = `sess_${randomUUID().slice(0, 12)}`;
+    const last = c.updatedAt ?? c.messages.at(-1)?.at ?? c.createdAt;
+    await this.o.db.query(
+      "INSERT INTO rg_sessions (id, owner_id, agent_id, project_id, title, last_at) VALUES ($1, $2, $3, $4, $5, $6)",
+      [
+        id,
+        ownerId,
+        agentId,
+        agent.projectId,
+        c.title.slice(0, 200) || null,
+        last && !Number.isNaN(Date.parse(last)) ? new Date(last).toISOString() : null,
+      ],
+    );
+    const at = { ownerId, projectId: agent.projectId, agentId, sessionId: id };
+    await this.store.append({
+      ...at,
+      body: {
+        type: "session.imported",
+        payload: {
+          source: c.source,
+          title: c.title,
+          ...(c.originalId && { originalId: c.originalId }),
+          ...(c.createdAt && { createdAt: c.createdAt }),
+          ...(c.updatedAt && { updatedAt: c.updatedAt }),
+          messages: c.messages.length,
+          ...(importId && { importId }),
+        },
+      },
+    });
+    const now = new Date().toISOString();
+    for (const m of c.messages) {
+      if (m.role === "user")
+        await this.store.append({ ...at, body: { type: "message.user", payload: { text: m.text } } });
+      else
+        await this.store.append({
+          ...at,
+          body: {
+            type: "message.assistant",
+            payload: {
+              parts: [{ type: "text", text: m.text }],
+              stopReason: "end_turn",
+              provider: `import:${c.source}`,
+              model: c.model ?? c.source,
+              metrics: {
+                startedAt: m.at && !Number.isNaN(Date.parse(m.at)) ? new Date(m.at).toISOString() : now,
+                inputTokens: 0,
+                cachedReadTokens: 0,
+                cacheWriteTokens: 0,
+                outputTokens: 0,
+                contextUsed: 0,
+                contextWindow: 1,
+                source: "client",
+              },
+              costUsd: 0,
+            },
+          },
+        });
+    }
+    return id;
+  }
+
+  /**
+   * Takes an imported conversation back (G36.7, undo): its messages are erased from the log (the
+   * chain stays verifiable, one `redaction` says so) and it leaves the list.
+   */
+  async removeImportedConversation(ownerId: string, sessionId: string): Promise<boolean> {
+    const [row] = await this.o.db.query<{ id: string }>(
+      "SELECT id FROM rg_sessions WHERE id = $1 AND owner_id = $2",
+      [sessionId, ownerId],
+    );
+    if (!row) return false;
+    if (this.live.get(sessionId)?.running) throw new SessionBusyError();
+    this.live.delete(sessionId);
+    const rows = await this.o.db.query<{ seq: string | number }>(
+      "UPDATE rg_events SET payload = NULL, erased = true WHERE session_id = $1 AND owner_id = $2 AND NOT erased AND type <> 'redaction' RETURNING seq",
+      [sessionId, ownerId],
+    );
+    if (rows.length > 0)
+      await this.store.append({
+        ownerId,
+        sessionId,
+        body: {
+          type: "redaction",
+          payload: {
+            targetSeq: Math.max(...rows.map((r) => Number(r.seq))),
+            reason: `imported conversation taken back (${rows.length} events)`,
+          },
+        },
+      });
+    await this.o.db.query("DELETE FROM rg_sessions WHERE id = $1 AND owner_id = $2", [
+      sessionId,
+      ownerId,
+    ]);
+    return true;
+  }
+
+  /** The other assistants' ids of the conversations imported already (G36.7). */
+  async importedOriginals(ownerId: string): Promise<Set<string>> {
+    const out = new Set<string>();
+    for (const e of await this.store.list({ types: ["session.imported"] }))
+      if (e.ownerId === ownerId && e.type === "session.imported" && e.payload?.originalId)
+        out.add(e.payload.originalId);
+    return out;
+  }
+
   async startSession(
     ownerId: string,
     agentId: string,
@@ -3748,6 +3907,7 @@ export class RedGiantCore implements OrchestrationHost {
     // may write in it (G33.2): automations, webhooks, emails and other agents never do.
     const human = extra.watch === true || extra.human === true;
     this.sharedMemory.turnStarted(sessionId, human);
+    this.skillNudge.turnStarted(sessionId);
     if (human) this.sharedMemory.heard(ownerId, sessionId, l.agentId, text);
     const notify = (state: "idle" | "running") => {
       for (const f of l.listeners) f({ type: "session.state", sessionId, state });

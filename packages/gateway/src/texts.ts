@@ -40,6 +40,8 @@ const en = {
   waiting: "Waiting for you: {approvals} approvals, {questions} questions.",
   spent: "Spent: ${spent}.",
   spentOf: "Spent: ${spent} of ${limit}.",
+  encrypted:
+    "This room is end-to-end encrypted and I cannot read it. Write to me in a room without encryption, or put a Pantalaimon proxy in front of the homeserver (RedGiant, Settings, Other chats, Matrix).",
 } as const;
 
 export type TextKey = keyof typeof en;
@@ -82,6 +84,8 @@ const it: Record<TextKey, string> = {
   waiting: "Ti aspettano: {approvals} approvazioni, {questions} domande.",
   spent: "Speso: ${spent}.",
   spentOf: "Speso: ${spent} su ${limit}.",
+  encrypted:
+    "Questa stanza è cifrata end-to-end e non riesco a leggerla. Scrivimi in una stanza senza cifratura, oppure metti un proxy Pantalaimon davanti all'homeserver (RedGiant, Impostazioni, Altre chat, Matrix).",
 };
 
 export type Language = "it" | "en";

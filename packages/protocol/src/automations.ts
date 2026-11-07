@@ -4,7 +4,16 @@ import { Effort } from "./agents.js";
 export const RECIPE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 /** The chat platforms a person can link (G29.5). */
-export const ChatPlatform = z.enum(["telegram", "discord", "slack", "signal", "whatsapp"]);
+export const ChatPlatform = z.enum([
+  "telegram",
+  "discord",
+  "slack",
+  "signal",
+  "whatsapp",
+  "matrix",
+  "teams",
+  "imessage",
+]);
 export type ChatPlatform = z.infer<typeof ChatPlatform>;
 
 /**
@@ -17,6 +26,9 @@ export const NotifyTarget = z.enum([
   "slack",
   "signal",
   "whatsapp",
+  "matrix",
+  "teams",
+  "imessage",
   "web",
   "email",
 ]);
@@ -101,7 +113,7 @@ export const Recipe = z
           .optional(),
         /**
          * A message on a linked chat (G33.3): the person (or someone linked to them) writes on
-         * Telegram, WhatsApp, Discord, Slack or Signal. The message reaches the agent as data.
+         * Telegram, WhatsApp, Discord, Slack, Signal, Matrix, Teams or iMessage. The message reaches the agent as data.
          */
         message: z
           .object({

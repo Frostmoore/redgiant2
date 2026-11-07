@@ -1,4 +1,5 @@
-// The chat platforms besides Telegram (G29.5): Discord, Slack, Signal, WhatsApp. One bridge per
+// The chat platforms besides Telegram (G29.5): Discord, Slack, Signal, WhatsApp, and since G36.9
+// Matrix, Microsoft Teams and iMessage (through BlueBubbles on a Mac). One bridge per
 // platform the person set up; what the core sends to "the phone" (notifications, pictures,
 // files) goes to every linked chat, Telegram included.
 
@@ -7,16 +8,29 @@ import {
   ChatBridge,
   DiscordTransport,
   type GatewayHost,
+  IMessageTransport,
+  MatrixTransport,
   type Platform,
   SignalTransport,
   SlackTransport,
+  TeamsTransport,
   type Transport,
   WhatsAppTransport,
 } from "@redgiant/gateway";
 import { z } from "zod";
 import type { RedGiantCore } from "./core.js";
 
-export const PLATFORMS = ["discord", "slack", "signal", "whatsapp"] as const;
+export const PLATFORMS = [
+  "discord",
+  "slack",
+  "signal",
+  "whatsapp",
+  "matrix",
+  "teams",
+  "imessage",
+] as const;
+
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** What each platform needs; the secrets are kept with the other secrets, never in the config. */
 export const ChatSettings = {
@@ -32,6 +46,20 @@ export const ChatSettings = {
     appSecret: z.string().min(8),
     verifyToken: z.string().min(8),
   }),
+  matrix: z.object({
+    homeserver: z.url().refine((u) => /^https?:\/\//.test(u), "an http(s) address"),
+    accessToken: z.string().min(16),
+  }),
+  teams: z.object({
+    appId: z.string().trim().regex(GUID, "the App ID is a GUID"),
+    appPassword: z.string().min(8),
+    tenantId: z.string().trim().regex(GUID, "the tenant ID is a GUID"),
+  }),
+  imessage: z.object({
+    url: z.url().refine((u) => /^https?:\/\//.test(u), "an http(s) address"),
+    password: z.string().min(1),
+    privateApi: z.enum(["on", "off"]).optional(),
+  }),
 } as const;
 export type ChatSettings = { [P in Platform]?: z.infer<(typeof ChatSettings)[P]> };
 
@@ -46,6 +74,12 @@ export function transportFor<P extends Platform>(
       return new SlackTransport(s as z.infer<typeof ChatSettings.slack>);
     case "signal":
       return new SignalTransport(s as z.infer<typeof ChatSettings.signal>);
+    case "matrix":
+      return new MatrixTransport(s as z.infer<typeof ChatSettings.matrix>);
+    case "teams":
+      return new TeamsTransport(s as z.infer<typeof ChatSettings.teams>);
+    case "imessage":
+      return new IMessageTransport(s as z.infer<typeof ChatSettings.imessage>);
     default:
       return new WhatsAppTransport(s as z.infer<typeof ChatSettings.whatsapp>);
   }
@@ -158,6 +192,12 @@ export class ChatHub {
   whatsapp(): WhatsAppTransport | undefined {
     const b = this.bridges.get("whatsapp");
     return b ? (b.transport as WhatsAppTransport) : undefined;
+  }
+
+  /** Teams' webhook (G36.9): Microsoft posts every activity, signed. */
+  teams(): TeamsTransport | undefined {
+    const b = this.bridges.get("teams");
+    return b ? (b.transport as TeamsTransport) : undefined;
   }
 
   async stop(): Promise<void> {

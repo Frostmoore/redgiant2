@@ -22,6 +22,8 @@ export function proposeTool(
     tests: z.array(z.record(z.string(), z.unknown())).optional(),
     body: z.string().optional(),
     untestable_reason: z.string().optional(),
+    summary: z.string().optional(),
+    updates: z.boolean().optional(),
   });
   return {
     def: {
@@ -29,8 +31,9 @@ export function proposeTool(
       description:
         "Propose a new tool or skill for this project. A tool: input_schema, command (run in the tool's folder with the path of a " +
         "JSON file of arguments as last argument; print the result) and files, plus tests [{input, expectExitCode?, " +
-        "expectStdoutContains?}]. A skill: body (instructions) and files, plus tests [{command}] or untestable_reason. " +
-        "It is tested in a sandbox and becomes available only after the user approves it.",
+        "expectStdoutContains?}]. A skill: body (instructions) and files, plus tests [{command}] or untestable_reason, " +
+        "and summary (the problem and what worked, two or three lines). To change an installed skill use its name " +
+        "with updates: true (files you leave out stay). It is tested in a sandbox and waits for the user's approval.",
       inputSchema: {
         type: "object",
         properties: {
@@ -43,6 +46,8 @@ export function proposeTool(
           tests: { type: "array", items: { type: "object" } },
           body: { type: "string" },
           untestable_reason: { type: "string" },
+          summary: { type: "string" },
+          updates: { type: "boolean" },
         },
         required: ["kind", "name", "description"],
       },
@@ -70,6 +75,8 @@ export function proposeTool(
               files: i.files ?? {},
               tests: (i.tests ?? []) as { command: string }[],
               ...(i.untestable_reason && { untestableReason: i.untestable_reason }),
+              ...(i.summary?.trim() && { summary: i.summary.trim().slice(0, 2000) }),
+              ...(i.updates && { updates: true }),
             };
       let p: Awaited<ReturnType<ExtensionBuilder["propose"]>>;
       try {
@@ -98,6 +105,8 @@ export function proposeTool(
         };
       if (p.status === "installed")
         return `Skill "${i.name}" passed its tests and is installed: every agent finds it from its next conversation.\n${lines.join("\n")}`;
+      if (p.previous)
+        return `Proposal ${p.id} (an update of the skill "${i.name}") passed its tests and waits for the user's approval:\n${lines.join("\n")}`;
       return `Proposal ${p.id} passed its tests and waits for the user's approval:\n${lines.join("\n")}`;
     },
   } as Tool;

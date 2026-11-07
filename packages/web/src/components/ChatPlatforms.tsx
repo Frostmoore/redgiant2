@@ -1,4 +1,5 @@
-// Demi-God on Discord, Slack, Signal and WhatsApp (G29.5), drawn as the wizard (2026-11-06): one
+// Demi-God on Discord, Slack, Signal and WhatsApp (G29.5), Matrix, Microsoft Teams and iMessage
+// (G36.9), drawn as the wizard (2026-11-06): one
 // big square per platform, lit when it is on (never a check mark), each opening a window (a sheet
 // from below on phones) with what it needs, then a pairing code to send from the chat. The
 // conversation is the same everywhere: begun on Telegram, it goes on here, and on the web.
@@ -6,15 +7,17 @@ import { useEffect, useState } from "preact/hooks";
 import type { ChatPlatform, SetupState } from "../api.js";
 import { brandOr } from "../brands.js";
 import { type Key, t } from "../i18n.js";
-import { IconChat, IconPhone, IconUsers } from "../icons.js";
+import { IconChat, IconDownload, IconGrid, IconPhone, IconUsers } from "../icons.js";
 import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
-import { Acts, Head, Tile, WzPage } from "./SettingsKit.js";
+import { Acts, Head, SwitchRow, Tile, WzPage } from "./SettingsKit.js";
 import { Modal } from "./ui.js";
 
 type Link = { userId: string; username: string | null; linkedAt: string };
 
-const FIELDS: Record<ChatPlatform, { id: string; label: Key; secret?: boolean }[]> = {
+type Field = { id: string; label: Key; secret?: boolean; kind?: "switch" };
+
+const FIELDS: Record<ChatPlatform, Field[]> = {
   discord: [{ id: "token", label: "chatDiscordToken", secret: true }],
   slack: [
     { id: "botToken", label: "chatSlackBot", secret: true },
@@ -30,13 +33,62 @@ const FIELDS: Record<ChatPlatform, { id: string; label: Key; secret?: boolean }[
     { id: "appSecret", label: "chatWaSecret", secret: true },
     { id: "verifyToken", label: "chatWaVerify", secret: true },
   ],
+  matrix: [
+    { id: "homeserver", label: "chatMatrixHomeserver" },
+    { id: "accessToken", label: "chatMatrixToken", secret: true },
+  ],
+  teams: [
+    { id: "appId", label: "chatTeamsAppId" },
+    { id: "tenantId", label: "chatTeamsTenant" },
+    { id: "appPassword", label: "chatTeamsSecret", secret: true },
+  ],
+  imessage: [
+    { id: "url", label: "chatImUrl" },
+    { id: "password", label: "chatImPassword", secret: true },
+    { id: "privateApi", label: "chatImPrivate", kind: "switch" },
+  ],
 };
+
+/** Numbered steps for the platforms that need more than a token (G36.9). */
+const STEPS: Partial<Record<ChatPlatform, Key[]>> = {
+  matrix: ["chatMatrixStep1", "chatMatrixStep2", "chatMatrixStep3", "chatMatrixStep4"],
+  teams: [
+    "chatTeamsStep1",
+    "chatTeamsStep2",
+    "chatTeamsStep3",
+    "chatTeamsStep4",
+    "chatTeamsStep5",
+    "chatTeamsStep6",
+  ],
+  imessage: ["chatImStep1", "chatImStep2", "chatImStep3", "chatImStep4", "chatImStep5"],
+};
+
+/** What to know besides, under the steps and once on. */
+const NOTE: Partial<Record<ChatPlatform, Key>> = {
+  matrix: "chatMatrixE2ee",
+  teams: "chatTeamsFiles",
+  imessage: "chatImLimits",
+};
+
+const teamsEndpoint = () => `${location.origin}/api/chats/teams/messages`;
+
+async function downloadTeamsApp() {
+  const blob = await getApi().teamsApp(location.host);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "redgiant-teams.zip";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+}
 
 const NAMES: Record<ChatPlatform, string> = {
   discord: "Discord",
   slack: "Slack",
   signal: "Signal",
   whatsapp: "WhatsApp",
+  matrix: "Matrix",
+  teams: "Microsoft Teams",
+  imessage: "iMessage",
 };
 
 const HOW: Record<ChatPlatform, Key> = {
@@ -44,6 +96,9 @@ const HOW: Record<ChatPlatform, Key> = {
   slack: "chatSlackHow",
   signal: "chatSignalHow",
   whatsapp: "chatWaHow",
+  matrix: "chatMatrixHow",
+  teams: "chatTeamsHow",
+  imessage: "chatImHow",
 };
 
 const TEXT: Record<ChatPlatform, Key> = {
@@ -51,14 +106,21 @@ const TEXT: Record<ChatPlatform, Key> = {
   slack: "sbChatSlackText",
   signal: "sbChatSignalText",
   whatsapp: "sbChatWaText",
+  matrix: "sbChatMatrixText",
+  teams: "sbChatTeamsText",
+  imessage: "sbChatImText",
 };
 
-// Their own logos where simple-icons has them (2026-11-07); Slack's was withdrawn there.
+// Their own logos where simple-icons has them (2026-11-07); Slack's and Microsoft's were withdrawn
+// there.
 const ICON = {
   discord: brandOr("discord", <IconChat size={26} />, 26),
   slack: <IconUsers size={26} />,
   signal: brandOr("signal", <IconPhone size={26} />, 26),
   whatsapp: brandOr("whatsapp", <IconPhone size={26} />, 26),
+  matrix: brandOr("matrix", <IconChat size={26} />, 26),
+  teams: <IconGrid size={26} />,
+  imessage: brandOr("imessage", <IconPhone size={26} />, 26),
 } satisfies Record<ChatPlatform, preact.JSX.Element>;
 
 const linksOf = (p: ChatPlatform) =>
@@ -119,7 +181,9 @@ function Panel({
     }
     setBusy(false);
   };
-  const complete = FIELDS[p].every((f) => (values[f.id] ?? "").trim().length > 0);
+  const complete = FIELDS[p].every(
+    (f) => f.kind === "switch" || (values[f.id] ?? "").trim().length > 0,
+  );
   if (set && !changing)
     return (
       <div class="wz-panel-in sb-chat">
@@ -145,6 +209,21 @@ function Panel({
             ))}
           </div>
         )}
+        {/* Teams: the app first, then the code is sent from it. */}
+        {p === "teams" && (
+          <div class="sb-teams">
+            <p class="ui-help">{t("chatTeamsEndpoint", { url: teamsEndpoint() })}</p>
+            <button
+              type="button"
+              class="wz-btn"
+              onClick={() => void downloadTeamsApp().catch((e: unknown) => setError(explain(e)))}
+            >
+              <IconDownload size={18} />
+              {t("chatTeamsDownload")}
+            </button>
+            <p class="ui-help">{t("chatTeamsUpload")}</p>
+          </div>
+        )}
         {code && (
           <div class="sb-pair">
             <p>{t("chatSendCode")}</p>
@@ -157,6 +236,7 @@ function Panel({
             {t("chatWaWebhook", { url: `${location.origin}/api/chats/whatsapp/webhook` })}
           </p>
         )}
+        {NOTE[p] && <p class="ui-help">{t(NOTE[p] as Key)}</p>}
         {error && <p class="notice error">{error}</p>}
         <Acts>
           <button
@@ -181,40 +261,67 @@ function Panel({
       class="wz-panel-in sb-chat"
       onSubmit={(e) => {
         e.preventDefault();
-        void save(Object.fromEntries(FIELDS[p].map((f) => [f.id, (values[f.id] ?? "").trim()])));
+        void save(
+          Object.fromEntries(
+            FIELDS[p].map((f) => [
+              f.id,
+              f.kind === "switch" ? (values[f.id] ?? "off") : (values[f.id] ?? "").trim(),
+            ]),
+          ),
+        );
       }}
     >
       <p class="wz-lead2">{t(HOW[p])}</p>
-      {FIELDS[p].map((f) => (
-        // biome-ignore lint/a11y/noLabelWithoutControl: the input is inside, in either branch.
-        <label key={f.id} class="sb-field">
-          <span>{t(f.label)}</span>
-          {f.secret ? (
-            <input
-              class="wz-field mono"
-              type="password"
-              autocomplete="off"
-              spellcheck={false}
-              value={values[f.id] ?? ""}
-              onInput={(e) =>
-                setValues({ ...values, [f.id]: (e.target as HTMLInputElement).value })
-              }
-            />
-          ) : (
-            <input
-              class="wz-field"
-              type="text"
-              autocomplete="off"
-              autocapitalize="off"
-              spellcheck={false}
-              value={values[f.id] ?? ""}
-              onInput={(e) =>
-                setValues({ ...values, [f.id]: (e.target as HTMLInputElement).value })
-              }
-            />
-          )}
-        </label>
-      ))}
+      {STEPS[p] && (
+        <div class="sb-steps">
+          <h4>{t("chatSteps")}</h4>
+          <ol>
+            {STEPS[p]?.map((k) => (
+              <li key={k}>{t(k, { url: teamsEndpoint() })}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {FIELDS[p].map((f) =>
+        f.kind === "switch" ? (
+          <SwitchRow
+            key={f.id}
+            title={t(f.label)}
+            on={values[f.id] === "on"}
+            onChange={(v) => setValues({ ...values, [f.id]: v ? "on" : "off" })}
+          />
+        ) : (
+          // biome-ignore lint/a11y/noLabelWithoutControl: the input is inside, in either branch.
+          <label key={f.id} class="sb-field">
+            <span>{t(f.label)}</span>
+            {f.secret ? (
+              <input
+                class="wz-field mono"
+                type="password"
+                autocomplete="off"
+                spellcheck={false}
+                value={values[f.id] ?? ""}
+                onInput={(e) =>
+                  setValues({ ...values, [f.id]: (e.target as HTMLInputElement).value })
+                }
+              />
+            ) : (
+              <input
+                class="wz-field"
+                type="text"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck={false}
+                value={values[f.id] ?? ""}
+                onInput={(e) =>
+                  setValues({ ...values, [f.id]: (e.target as HTMLInputElement).value })
+                }
+              />
+            )}
+          </label>
+        ),
+      )}
+      {NOTE[p] && <p class="ui-help">{t(NOTE[p] as Key)}</p>}
       {error && <p class="notice error">{error}</p>}
       <Acts>
         <button

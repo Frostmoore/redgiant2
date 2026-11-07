@@ -19,13 +19,23 @@ import {
 } from "@redgiant/protocol";
 import { type Language, say, type TextKey } from "./texts.js";
 
-export type Platform = "discord" | "slack" | "signal" | "whatsapp";
+export type Platform =
+  | "discord"
+  | "slack"
+  | "signal"
+  | "whatsapp"
+  | "matrix"
+  | "teams"
+  | "imessage";
 
 export const PLATFORM_NAMES: Record<Platform, string> = {
   discord: "Discord",
   slack: "Slack",
   signal: "Signal",
   whatsapp: "WhatsApp",
+  matrix: "Matrix",
+  teams: "Microsoft Teams",
+  imessage: "iMessage",
 };
 
 export interface Button {
@@ -43,6 +53,8 @@ export interface Incoming {
   button?: string;
   audio?: { data: Uint8Array; mime: string };
   files?: { name: string; data: Buffer; mime: string }[];
+  /** Something arrived that cannot be read here (an encrypted Matrix message, G36.9). */
+  unreadable?: "encrypted";
 }
 
 /** One platform: how messages arrive and how they leave. */
@@ -314,6 +326,11 @@ export class ChatBridge {
       return;
     }
     const owner = await this.ownerOf(m.userId);
+    // Even the pairing code may be inside: the person is told why nothing happens.
+    if (m.unreadable) {
+      await this.reply(m.chatId, this.say(owner, "encrypted"));
+      return;
+    }
     if (!owner) {
       await this.reply(
         m.chatId,

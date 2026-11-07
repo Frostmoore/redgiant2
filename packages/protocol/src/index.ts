@@ -3,6 +3,7 @@ export * from "./automations.js";
 export * from "./backup.js";
 export * from "./dangers.js";
 export * from "./events.js";
+export * from "./imports.js";
 export * from "./jobs.js";
 export * from "./languages.js";
 export * from "./local-models.js";

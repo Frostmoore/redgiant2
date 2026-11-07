@@ -40,6 +40,8 @@ export type ChatItem =
       costUsd: number;
       model: string;
       stopReason: string;
+      /** Brought in from another assistant (G36.7): no figures to show. */
+      imported?: boolean;
     }
   | {
       kind: "tool";
@@ -150,8 +152,24 @@ export function buildItems(events: Event[]): ChatItem[] {
           costUsd: e.payload.costUsd,
           model: e.payload.model,
           stopReason: e.payload.stopReason,
+          ...(e.payload.provider.startsWith("import:") && { imported: true }),
         });
         break;
+      // A conversation brought in from ChatGPT or Claude (G36.7): said once, at its top.
+      case "session.imported": {
+        const source = e.payload.source === "chatgpt" ? "ChatGPT" : e.payload.source === "claude" ? "Claude" : e.payload.source;
+        const at = e.payload.updatedAt ?? e.payload.createdAt;
+        items.push({
+          kind: "notice",
+          key,
+          tone: "info",
+          text: t("impChatNotice", {
+            source,
+            date: at && !Number.isNaN(Date.parse(at)) ? ` (${new Date(at).toLocaleDateString()})` : "",
+          }),
+        });
+        break;
+      }
       case "tool.call": {
         if (QUESTION_TOOLS.has(e.payload.tool)) break;
         const item = {
@@ -691,7 +709,9 @@ export type SettingsSection =
   | "backup"
   | "platform"
   /** The common tools, switched on and off (G34.5). */
-  | "tools";
+  | "tools"
+  /** Import from other agents (G36.7). */
+  | "import";
 
 /** Older ways to open things, still used by the views: they land in the new places. */
 export type OpenRequest =

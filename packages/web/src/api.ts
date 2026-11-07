@@ -4,6 +4,9 @@ import {
   type BackupPreview,
   type ClientMessage,
   type Event,
+  type ImportApply,
+  type ImportPreview,
+  type ImportRecord,
   type Job,
   type LocalModel,
   type MagicAutomation,
@@ -238,7 +241,14 @@ export interface SubscriptionProgram {
 }
 
 /** Chat platforms besides Telegram (G29.5). */
-export type ChatPlatform = "discord" | "slack" | "signal" | "whatsapp";
+export type ChatPlatform =
+  | "discord"
+  | "slack"
+  | "signal"
+  | "whatsapp"
+  | "matrix"
+  | "teams"
+  | "imessage";
 
 export interface PlatformInfo {
   sandbox: "host" | "docker";
@@ -396,7 +406,14 @@ export interface Proposal {
     spec?: { description: string; command: string };
     body?: string;
     files?: Record<string, string>;
+    /** G36.8: the problem and what worked, in the agent's words. */
+    summary?: string;
+    /** G36.8: it changes the installed skill of the same name. */
+    updates?: boolean;
   };
+  /** G36.8: the installed skill an update replaces, as it is now. */
+  previous?: { skillMd: string; files: string[] } | null;
+  decidedBy?: string | null;
 }
 
 export interface Installed {
@@ -824,6 +841,46 @@ export class Api {
     this.call<{ file: string }>("POST", "/api/vault-export", { passphrase });
   importVaultFile = (file: string, passphrase: string) =>
     this.call<{ added: number }>("POST", "/api/vault-import/sealed", { file, passphrase });
+  // Import from other agents (G36.7).
+  importScan = (places: { home?: boolean; projects?: boolean; folder?: string }) =>
+    this.call<ImportPreview>("POST", "/api/import/scan", places);
+  importUpload = () => this.call<{ id: string }>("POST", "/api/import/upload");
+  importPreview = (id: string) =>
+    this.call<ImportPreview>("POST", `/api/import/upload/${encodeURIComponent(id)}/preview`);
+  importApply = (body: ImportApply) => this.call<Job>("POST", "/api/import/apply", body);
+  importHistory = () => this.call<ImportRecord[]>("GET", "/api/import/history");
+  importUndo = (id: string) =>
+    this.call<ImportRecord>("POST", `/api/import/${encodeURIComponent(id)}/undo`);
+  importMemories = (id: string) =>
+    this.call<ImportPreview>("POST", `/api/import/${encodeURIComponent(id)}/memories`);
+  /** One picked file into an upload (a .zip is opened there), with its progress. */
+  importFile(
+    id: string,
+    path: string,
+    file: Blob,
+    progress: (done: number, total: number) => void,
+  ): Promise<{ added: number }> {
+    return new Promise((ok, ko) => {
+      const x = new XMLHttpRequest();
+      x.open(
+        "PUT",
+        `/api/import/upload/${encodeURIComponent(id)}?path=${encodeURIComponent(path)}`,
+      );
+      x.setRequestHeader("authorization", `Bearer ${this.token}`);
+      x.setRequestHeader("content-type", "application/octet-stream");
+      x.upload.onprogress = (e) => progress(e.loaded, e.total || file.size);
+      x.onerror = () => ko(new ApiError(0, "Network error"));
+      x.onload = () => {
+        let data: { error?: string; added?: number } = {};
+        try {
+          data = JSON.parse(x.responseText) as typeof data;
+        } catch {}
+        if (x.status >= 400) ko(new ApiError(x.status, data.error ?? x.statusText));
+        else ok({ added: data.added ?? 0 });
+      };
+      x.send(file);
+    });
+  }
   /** A copy of a conversation up to (not including) one event, to send an edited message. */
   forkSession = (sessionId: string, beforeSeq: number) =>
     this.call<{ sessionId: string }>("POST", `/api/sessions/${sessionId}/fork`, { beforeSeq });
@@ -1073,6 +1130,14 @@ export class Api {
       "GET",
       `/api/chats/${p}/links`,
     );
+  /** The app package to upload in Teams (G36.9), naming RedGiant's public host. */
+  async teamsApp(host: string): Promise<Blob> {
+    const r = await fetch(`/api/chats/teams/app.zip?host=${encodeURIComponent(host)}`, {
+      headers: { authorization: `Bearer ${this.token}` },
+    });
+    if (!r.ok) throw new ApiError(r.status, `HTTP ${r.status}`);
+    return r.blob();
+  }
   chatUnlink = (p: ChatPlatform, userId: string) =>
     this.call("DELETE", `/api/chats/${p}/links/${encodeURIComponent(userId)}`);
   verify = () =>

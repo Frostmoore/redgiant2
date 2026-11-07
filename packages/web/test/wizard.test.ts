@@ -51,7 +51,9 @@ describe("the wizard's steps (2026-11-06)", () => {
     expect(stepAfter(advanced, "wzTelegram")).toBe("wzCode");
     expect(stepAfter(standard, "wzTelegram")).toBe("wzSafety");
     expect(stepAfter(standard, "wzDone")).toBe("wzDone");
-    expect(standard.filter(skippable)).toEqual(["wzBrain", "wzLocal", "wzTelegram"]);
+    expect(standard.filter(skippable)).toEqual(["wzBrain", "wzLocal", "wzImport", "wzTelegram"]);
+    // Coming from another agent? (G36.7): optional, right after the agents are named.
+    expect(stepAfter(standard, "wzAssign")).toBe("wzImport");
     expect(skippable("wzSafety")).toBe(false);
   });
 

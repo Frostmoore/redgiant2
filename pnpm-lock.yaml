@@ -500,6 +500,9 @@ importers:
       playwright-core:
         specifier: 1.64.1
         version: 1.64.1
+      smol-toml:
+        specifier: ^1.9.1
+        version: 1.9.1
       ws:
         specifier: ^8.22.1
         version: 8.22.1
@@ -2878,6 +2881,10 @@ packages:
   smart-buffer@4.2.0:
     resolution: {integrity: sha512-94hK0Hh8rPqQl2xXc3HsaBoOXKV20MToPkcXvwbISWLEs+64sBq5kFgn2kJDHb1Pry9yrP0dxrCI9RRci7RXKg==}
     engines: {node: '>= 6.0.0', npm: '>= 3.0.0'}
+
+  smol-toml@1.9.1:
+    resolution: {integrity: sha512-j7WyPdf0CJoutMzMoPLF/bVXHtKZIT9Rb4eGeEbWw8X2t5oirjPgpL+OpaENZrILYaXqYwnVH+qgUwVbl+pUJQ==}
+    engines: {node: '>= 18'}
 
   socks@2.8.10:
     resolution: {integrity: sha512-e0VyvkVTwVYViNovRkZ9aodhxVlyoMn7eJhVUPxZ+eK9P/7CBkxvvsBOHqFPEH416726W8tLXXXjKwqgTErrCQ==}
@@ -5501,6 +5508,8 @@ snapshots:
   simple-yenc@1.0.4: {}
 
   smart-buffer@4.2.0: {}
+
+  smol-toml@1.9.1: {}
 
   socks@2.8.10:
     dependencies:

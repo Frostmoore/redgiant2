@@ -23,6 +23,7 @@ import {
   IconTelegram,
   IconTool,
   IconTree,
+  IconUpload,
 } from "../icons.js";
 import { openTab, type SettingsSection } from "../state.js";
 import { Automations } from "./Automations.js";
@@ -32,6 +33,7 @@ import { ChatPlatforms } from "./ChatPlatforms.js";
 import { CodeSettings } from "./CodeSettings.js";
 import { Extensions } from "./Extensions.js";
 import { General } from "./General.js";
+import { ImportFrom } from "./ImportFrom.js";
 import { Hierarchy } from "./Hierarchy.js";
 import { Keychain } from "./Keychain.js";
 import { Platform } from "./Platform.js";
@@ -52,6 +54,7 @@ const GROUPS: { title: () => string; sections: Section[] }[] = [
     sections: [
       { id: "general", label: () => t("general"), icon: <IconSettings size={20} /> },
       { id: "setup", label: () => t("setupWizard"), icon: <IconCompass size={20} /> },
+      { id: "import", label: () => t("impSection"), icon: <IconUpload size={20} /> },
     ],
   },
   {
@@ -161,6 +164,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
       <div class="settings-body">
         {section === "general" && <General />}
         {section === "setup" && <Setup />}
+        {section === "import" && <ImportFrom />}
         {section === "agents" && <Hierarchy />}
         {section === "memory" && <SharedMemoryPage />}
         {section === "automations" && <Automations />}
