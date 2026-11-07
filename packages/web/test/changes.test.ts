@@ -46,7 +46,7 @@ describe("the history in sentences", () => {
       say("agent:a1", { mode: "auto" }, { mode: "readonly", model: { provider: "x", model: "m" } }),
     ).toEqual([
       "A-a1 ora pensa con x/m (prima quello predefinito)",
-      "A-a1 ora lavora in modo «Solo guarda» (prima «Da solo»)",
+      "A-a1 ora lavora in modo «Sola lettura» (prima «In autonomia»)",
     ]);
     const policy = say(
       "policy",

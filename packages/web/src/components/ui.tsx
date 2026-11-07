@@ -371,12 +371,23 @@ export function Modal({
   onClose,
   children,
   wide,
+  icon,
+  sub,
+  foot,
+  class: cls,
 }: {
   title: string;
   onClose: () => void;
   children: ComponentChildren;
   /** A wider window, for a model's details (2026-11-06). */
   wide?: boolean | undefined;
+  /** A picture before the title (an agent's avatar, 2026-11-07). */
+  icon?: ComponentChildren;
+  /** A line under the title. */
+  sub?: ComponentChildren;
+  /** The window's buttons in a bar that stays at the bottom while the body scrolls. */
+  foot?: ComponentChildren;
+  class?: string | undefined;
 }) {
   const [me] = useState(() => ({}));
   useEffect(() => {
@@ -396,19 +407,29 @@ export function Modal({
     <div class="ui-modal-back">
       <button type="button" class="ui-modal-veil" aria-label={t("close")} onClick={onClose} />
       <div
-        class={`ui-modal${wide ? " wide" : ""}`}
+        class={`ui-modal${wide ? " wide" : ""}${foot ? " with-foot" : ""}${cls ? ` ${cls}` : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
       >
+        {/* Title and X centred on one line in every window (2026-11-07). */}
         <header>
-          <strong>{title}</strong>
+          {icon && <span class="ui-modal-ico">{icon}</span>}
+          {sub ? (
+            <span class="ui-modal-title">
+              <strong>{title}</strong>
+              <span class="ui-modal-sub">{sub}</span>
+            </span>
+          ) : (
+            <strong>{title}</strong>
+          )}
           {/* An X to close, as on phones (2026-11-04). */}
           <button type="button" class="ui-modal-x" aria-label={t("close")} onClick={onClose}>
             <IconX size={18} />
           </button>
         </header>
         <div class="ui-modal-body">{children}</div>
+        {foot && <footer class="ui-modal-foot wz-acts">{foot}</footer>}
       </div>
     </div>
   );

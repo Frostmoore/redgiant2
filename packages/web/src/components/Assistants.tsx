@@ -6,7 +6,7 @@ import type { Automation } from "@redgiant/protocol";
 import { MCP_CATALOG } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { Agent, McpEntry, McpStatus, ModelChoice } from "../api.js";
-import { t } from "../i18n.js";
+import { roleText, t } from "../i18n.js";
 import { IconChat, IconCheck, IconMonitor, IconPlus } from "../icons.js";
 import {
   agents,
@@ -292,13 +292,13 @@ export function AssistantPage({ agentId }: { agentId: string | null }) {
   const [creating, setCreating] = useState(agentId === null);
   const [id, setId] = useState(agentId);
   const a = agents.value.find((x) => x.id === id);
-  const [role, setRole] = useState(a?.role ?? "");
+  const [role, setRole] = useState(roleText(a?.role) ?? "");
   const [connections, setConnections] = useState<string[]>(a?.connections ?? []);
   const [routines, setRoutines] = useState<Automation[]>([]);
   const [newRoutine, setNewRoutine] = useState(false);
   const [saved, setSaved] = useState(false);
   useEffect(() => {
-    setRole(a?.role ?? "");
+    setRole(roleText(a?.role) ?? "");
     setConnections(a?.connections ?? []);
     setSaved(false);
   }, [a?.id]);
@@ -333,7 +333,7 @@ export function AssistantPage({ agentId }: { agentId: string | null }) {
     }
   };
   const changed =
-    role.trim() !== (a.role ?? "") ||
+    role.trim() !== (roleText(a.role) ?? "") ||
     JSON.stringify([...connections].sort()) !== JSON.stringify([...(a.connections ?? [])].sort());
   return (
     <div class="asst-page">

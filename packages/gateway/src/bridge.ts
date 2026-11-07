@@ -81,6 +81,15 @@ export interface GatewayHost {
       onQueued?: () => void;
     },
   ): Promise<string>;
+  /**
+   * A message from a linked person, before Demi-God reads it (G33.3): automations waiting for
+   * one like it start; `taken` when one keeps it, then Demi-God does not answer it and the chat
+   * is told which automation took it.
+   */
+  chatMessage?(
+    ownerId: string,
+    m: { platform: string; userId: string; from: string; chatId: string; text: string },
+  ): Promise<{ taken: boolean; names: string[] }>;
   transcribe?(audio: Uint8Array, mime: string, language?: string): Promise<string>;
   readonly transcription?: unknown;
   newConversation?(ownerId: string): void;
@@ -347,7 +356,25 @@ export class ChatBridge {
       );
       return;
     }
-    if (text) this.background(this.relay(owner, m.chatId, text));
+    if (text) {
+      const auto = await this.o.host
+        .chatMessage?.(owner, {
+          platform: this.platform,
+          userId: m.userId,
+          from: m.username ?? "",
+          chatId: m.chatId,
+          text,
+        })
+        .catch(() => undefined);
+      if (auto?.taken) {
+        await this.reply(
+          m.chatId,
+          this.say(owner, "automationTook", { names: auto.names.join(", ") }),
+        );
+        return;
+      }
+      this.background(this.relay(owner, m.chatId, text));
+    }
   }
 
   private async pair(m: Incoming, code: string) {

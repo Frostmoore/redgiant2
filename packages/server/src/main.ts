@@ -367,6 +367,8 @@ void ensureGit(core.jobs, owner, dataDir).catch((err) =>
 );
 core.inspector.start();
 core.email.start();
+// Routines on files that change in a project's folder (G33.3).
+core.files.start();
 // What the supervisor does (promotions, rollbacks) goes into the log and reaches the owner.
 core.code?.watch();
 /** At most `ms` waiting for `p`; then the stop goes on without it. */

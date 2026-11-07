@@ -10,6 +10,7 @@ const en = {
   error: "Error: {error}",
   fileTooBig: "I could not send {name} here (Telegram takes up to 50 MB): open it in RedGiant.",
   queued: "Got it. I am still answering your previous message: I will read this one right after.",
+  automationTook: "Passed to the automation: {names}.",
   noModel:
     "No model is chosen yet. Open RedGiant, Settings, Models and subscriptions, connect one (a subscription, a key or a local model) and write to me again.",
   approvalNeeded: "Approval needed: {agent}{project} wants {tool}",
@@ -62,6 +63,7 @@ const it: Record<TextKey, string> = {
   fileTooBig:
     "Non sono riuscito a mandarti {name} qui (Telegram accetta fino a 50 MB): aprilo in RedGiant.",
   queued: "Ricevuto. Sto ancora rispondendo al messaggio di prima: leggo questo subito dopo.",
+  automationTook: "Lo passo all'automazione: {names}.",
   noModel:
     "Non hai ancora scelto un modello. Apri RedGiant, Impostazioni, Modelli e abbonamenti, collegane uno (un abbonamento, una chiave o un modello locale) e poi scrivimi di nuovo.",
   approvalNeeded: "Serve un'approvazione: {agent}{project} vuole usare {tool}",

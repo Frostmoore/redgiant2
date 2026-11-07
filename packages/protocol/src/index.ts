@@ -7,6 +7,7 @@ export * from "./jobs.js";
 export * from "./local-models.js";
 export * from "./mcp-catalog.js";
 export * from "./media.js";
+export * from "./memory.js";
 export * from "./messages.js";
 export * from "./metrics.js";
 export * from "./providers.js";

@@ -9,6 +9,7 @@ const en = {
     "This chat is not linked to RedGiant. Open RedGiant, Settings, Chats, {platform}, Pair, then send /start <code>.",
   error: "Error: {error}",
   queued: "Got it. I am still answering your previous message: I will read this one right after.",
+  automationTook: "Passed to the automation: {names}.",
   noModel:
     "No model is chosen yet. Open RedGiant, Settings, Models and subscriptions, connect one and write to me again.",
   approvalNeeded: "Approval needed: {agent}{project} wants {tool}",
@@ -50,6 +51,7 @@ const it: Record<TextKey, string> = {
     "Questa chat non è collegata a RedGiant. Apri RedGiant, Impostazioni, Chat, {platform}, Abbina, poi manda /start <codice>.",
   error: "Errore: {error}",
   queued: "Ricevuto. Sto ancora rispondendo al messaggio di prima: leggo questo subito dopo.",
+  automationTook: "Lo passo all'automazione: {names}.",
   noModel:
     "Non hai ancora scelto un modello. Apri RedGiant, Impostazioni, Modelli e abbonamenti, collegane uno e poi scrivimi di nuovo.",
   approvalNeeded: "Serve un'approvazione: {agent}{project} vuole usare {tool}",

@@ -5,6 +5,7 @@
 // opens a window and the windows' buttons. What is chosen is lit by border and background, never
 // by a check mark. The wizard's context (`useWz`, `PHONE`) stays in SetupKit.
 import type { ComponentChildren, JSX } from "preact";
+import { useId } from "preact/hooks";
 import { t } from "../i18n.js";
 
 /** A Settings page in the wizard's look: its content centred, its windows after it. */
@@ -337,3 +338,70 @@ export const Done = ({ onClick }: { onClick: () => void }) => (
     </button>
   </Acts>
 );
+
+/**
+ * A slider that moves in steps (2026-11-07, the person: «un bel punto rosso che puoi effettivamente
+ * trascinare, a step»): a big red dot on a track filled up to it, a notch for every step, the value
+ * written beside the name. A native range underneath, so arrows, Home/End and the finger all work.
+ */
+export function Slider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  format = String,
+  help,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+  /** The value in words ("80%", "at 80%"), beside the name and under the notches' ends. */
+  format?: (v: number) => string;
+  help?: ComponentChildren;
+}) {
+  const id = useId();
+  const count = Math.round((max - min) / step);
+  const frac = (v: number) => (max === min ? 0 : (v - min) / (max - min));
+  const notches = Array.from({ length: count + 1 }, (_, i) => min + i * step);
+  return (
+    <div class="kit-slider">
+      <div class="kit-slider-hd">
+        <label for={id}>{label}</label>
+        <output for={id} class="kit-slider-val">
+          {format(value)}
+        </output>
+      </div>
+      <div class="kit-slider-track" style={{ "--pct": String(frac(value)) }}>
+        <span class="kit-slider-rail" aria-hidden="true">
+          {notches.map((n) => (
+            <span
+              key={n}
+              class={`kit-slider-notch${n <= value ? " on" : ""}`}
+              style={{ "--at": String(frac(n)) }}
+            />
+          ))}
+        </span>
+        <input
+          id={id}
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          aria-valuetext={format(value)}
+          onInput={(e) => onChange(Number((e.target as HTMLInputElement).value))}
+        />
+      </div>
+      <div class="kit-slider-ends" aria-hidden="true">
+        <span>{format(min)}</span>
+        <span>{format(max)}</span>
+      </div>
+      {help && <p class="kit-slider-help">{help}</p>}
+    </div>
+  );
+}

@@ -691,6 +691,30 @@ await writeFile(join(dir, "models", "my-model-Q4_K_M.gguf"), "demo");
 await writeFile(join(dir, "models", "huge-model-Q8_0.gguf"), "demo");
 // A download paused halfway (2026-11-05): the «Downloaded models» card lists it too.
 await writeFile(join(dir, "models", "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf.part"), "demo-part");
+// The shared memory (G33.2): some facts learned from a conversation, one written by hand, and the
+// secretary's own memory.
+{
+  const from = { by: "auto", sessionId: sid, agentId: orch.id };
+  await core.sharedMemory.add("local", "Si chiama Severino e scrive in italiano", from);
+  await core.sharedMemory.add(
+    "local",
+    "Preferisce risposte brevi, con un elenco quando serve",
+    from,
+  );
+  await core.sharedMemory.add("local", "Lavora su RedGiant, un monorepo TypeScript con pnpm", from);
+  await core.sharedMemory.add("local", "Ha un PC fisso con Windows chiamato Rig", {
+    by: secretary.id,
+    agentId: secretary.id,
+  });
+  await core.sharedMemory.add("local", "Il lunedì mattina non fissare appuntamenti", {
+    by: "human",
+  });
+  await core.notes.set(
+    { ownerId: "local", agentId: secretary.id },
+    "self",
+    "- Il punto della giornata alle 8, in tre righe\n- Le riunioni del giovedì sono con lo studio Bianchi",
+  );
+}
 await debugLog.configure({ dir: join(dir, "logs") });
 await setup.applyAtStartup();
 // DEMO_FRESH=1: a fresh install, the setup wizard takes the whole page (2026-11-06).

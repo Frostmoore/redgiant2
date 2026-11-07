@@ -1,11 +1,17 @@
-// Routines on email (G24.14c): the person's mailbox, read over IMAP every few minutes. Only mail
-// that arrived after the mailbox was set is looked at; nothing is marked as read or changed. A
-// message that matches a routine starts it, the message given to the agent as data. The
-// password stays in a private file, never in the database.
+// Routines on email (G24.14c): the person's mailboxes, read over IMAP every few minutes. Only mail
+// that arrived after a mailbox was set is looked at; nothing is marked as read or changed. A
+// message that matches a routine starts it, the message given to the agent as data. Passwords
+// stay in private files, never in the database.
+//
+// Many mailboxes (G33.3, the person: "infiniti indirizzi email… divisi per categoria"): each has
+// a name, a category (work, personal, social, other or the person's own), its own last UID and
+// its own password file. The one mailbox of older versions becomes the first of the list.
+import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AutomationService } from "@redgiant/automations";
 import type { SqlClient } from "@redgiant/events";
+import type { Mailbox as MailboxInfo } from "@redgiant/protocol";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 
@@ -16,6 +22,8 @@ export interface EmailAccount {
   secure: boolean;
   user: string;
   password: string;
+  /** Where it sends from (G33.3), when the person wants messages by email. */
+  smtp?: { host: string; port: number; secure: boolean };
 }
 
 export interface Mail {
@@ -30,6 +38,11 @@ export interface Mail {
 export interface Mailbox {
   /** The highest UID now (to start from it), and the messages above `after`. */
   newer(account: EmailAccount, after: number | null): Promise<{ last: number; mails: Mail[] }>;
+}
+
+/** How a message leaves: SMTP for real, a fake in tests (G33.3). */
+export interface MailSender {
+  send(account: EmailAccount, mail: { to: string; subject: string; text: string }): Promise<void>;
 }
 
 const safe = (s: string) => s.replace(/[^\w.-]+/g, "_");
@@ -74,9 +87,50 @@ export const imapMailbox: Mailbox = {
   },
 };
 
+/** SMTP through nodemailer, with the mailbox's own user and password. */
+export const smtpSender: MailSender = {
+  async send(a, mail) {
+    const smtp = a.smtp ?? smtpFor(a);
+    const { createTransport } = (await import("nodemailer")) as unknown as {
+      createTransport(o: unknown): {
+        sendMail(m: unknown): Promise<unknown>;
+        close(): void;
+      };
+    };
+    const t = createTransport({
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      auth: { user: a.user, pass: a.password },
+    });
+    try {
+      await t.sendMail({ from: a.user, to: mail.to, subject: mail.subject, text: mail.text });
+    } finally {
+      t.close();
+    }
+  },
+};
+
+/** The usual sending server of a mailbox: imap.x → smtp.x, TLS on 465. */
+export function smtpFor(a: Pick<EmailAccount, "host">): {
+  host: string;
+  port: number;
+  secure: boolean;
+} {
+  return { host: a.host.replace(/^imap\./i, "smtp."), port: 465, secure: true };
+}
+
+/** What the person writes for a mailbox: the account and how they call and file it. */
+export type MailboxInput = EmailAccount & { name: string; category: string };
+
+/** What is kept in the database about a mailbox (no password). */
+type Stored = Omit<MailboxInfo, "smtp"> & { smtp?: EmailAccount["smtp"] };
+
 export class EmailWatcher {
   private timer: NodeJS.Timeout | undefined;
   private running = false;
+  /** Owners whose mailbox of an older version was looked for. */
+  private readonly migrated = new Set<string>();
 
   constructor(
     private readonly o: {
@@ -84,50 +138,259 @@ export class EmailWatcher {
       db: SqlClient;
       automations: AutomationService;
       mailbox?: Mailbox;
+      sender?: MailSender;
       /** Owners whose routines may wait for email. */
       owners: () => Promise<string[]>;
     },
   ) {}
 
-  private file(ownerId: string) {
+  /** The single mailbox of older versions. */
+  private oldFile(ownerId: string) {
     return join(this.o.dir, `${safe(ownerId)}.json`);
   }
 
-  async account(ownerId: string): Promise<EmailAccount | undefined> {
-    return readFile(this.file(ownerId), "utf8")
+  private secretFile(ownerId: string, id: string) {
+    return join(this.o.dir, safe(ownerId), `${safe(id)}.json`);
+  }
+
+  private async setting<T>(ownerId: string, key: string): Promise<T | undefined> {
+    const [r] = await this.o.db.query<{ value: unknown }>(
+      "SELECT value FROM rg_settings WHERE owner_id = $1 AND key = $2",
+      [ownerId, key],
+    );
+    if (!r) return undefined;
+    return (typeof r.value === "string" ? JSON.parse(r.value) : r.value) as T;
+  }
+
+  private async setSetting(ownerId: string, key: string, value: unknown): Promise<void> {
+    await this.o.db.query(
+      `INSERT INTO rg_settings (owner_id, key, value) VALUES ($1, $2, $3)
+       ON CONFLICT (owner_id, key) DO UPDATE SET value = EXCLUDED.value`,
+      [ownerId, key, JSON.stringify(value)],
+    );
+  }
+
+  private async dropSetting(ownerId: string, key: string): Promise<void> {
+    await this.o.db.query("DELETE FROM rg_settings WHERE owner_id = $1 AND key = $2", [
+      ownerId,
+      key,
+    ]);
+  }
+
+  /**
+   * The mailbox of an older version (one file, one `email_last_uid`) becomes the first of the
+   * list, with its own password file and last UID; nothing of it is lost.
+   */
+  private async migrate(ownerId: string): Promise<void> {
+    if (this.migrated.has(ownerId)) return;
+    const old = await readFile(this.oldFile(ownerId), "utf8")
       .then((t) => JSON.parse(t) as EmailAccount)
+      .catch(() => undefined);
+    if (old) {
+      const list = (await this.setting<Stored[]>(ownerId, "email_boxes")) ?? [];
+      const id = `box_${randomUUID().slice(0, 8)}`;
+      const last = await this.setting<number>(ownerId, "email_last_uid");
+      await this.writeSecret(ownerId, id, old.password);
+      await this.setSetting(ownerId, "email_boxes", [
+        {
+          id,
+          name: old.user,
+          category: "personal",
+          host: old.host,
+          port: old.port,
+          secure: old.secure,
+          user: old.user,
+          createdAt: new Date().toISOString(),
+        },
+        ...list,
+      ]);
+      if (typeof last === "number") await this.setLast(id, ownerId, last);
+      await this.dropSetting(ownerId, "email_last_uid");
+      await rm(this.oldFile(ownerId), { force: true });
+    }
+    this.migrated.add(ownerId);
+  }
+
+  private async writeSecret(ownerId: string, id: string, password: string) {
+    const dir = join(this.o.dir, safe(ownerId));
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    const file = this.secretFile(ownerId, id);
+    await writeFile(file, JSON.stringify({ password }), { mode: 0o600 });
+    await chmod(file, 0o600);
+  }
+
+  private async password(ownerId: string, id: string): Promise<string | undefined> {
+    return readFile(this.secretFile(ownerId, id), "utf8")
+      .then((t) => (JSON.parse(t) as { password?: string }).password)
       .catch(() => undefined);
   }
 
-  /** Saves the mailbox (after a test connection) and starts from the mail there is now. */
-  async set(ownerId: string, a: EmailAccount): Promise<void> {
-    const { last } = await (this.o.mailbox ?? imapMailbox).newer(a, null);
-    await mkdir(this.o.dir, { recursive: true, mode: 0o700 });
-    await writeFile(this.file(ownerId), JSON.stringify(a), { mode: 0o600 });
-    await chmod(this.file(ownerId), 0o600);
-    await this.setLast(ownerId, last);
+  /** Every mailbox of the person, oldest first. */
+  async boxes(ownerId: string): Promise<MailboxInfo[]> {
+    await this.migrate(ownerId);
+    return (await this.setting<Stored[]>(ownerId, "email_boxes")) ?? [];
   }
 
-  async remove(ownerId: string): Promise<void> {
-    await rm(this.file(ownerId), { force: true });
+  /** A mailbox with its password, for reading or sending. */
+  async accountOf(ownerId: string, id: string): Promise<EmailAccount | undefined> {
+    const box = (await this.boxes(ownerId)).find((b) => b.id === id);
+    if (!box) return undefined;
+    const password = await this.password(ownerId, id);
+    if (password === undefined) return undefined;
+    return {
+      host: box.host,
+      port: box.port,
+      secure: box.secure,
+      user: box.user,
+      password,
+      ...(box.smtp && { smtp: box.smtp }),
+    };
   }
 
-  private async last(ownerId: string): Promise<number | null> {
-    const [r] = await this.o.db.query<{ value: unknown }>(
-      "SELECT value FROM rg_settings WHERE owner_id = $1 AND key = 'email_last_uid'",
-      [ownerId],
+  /** The first mailbox (what older versions called "the mailbox"). */
+  async account(ownerId: string): Promise<EmailAccount | undefined> {
+    const [first] = await this.boxes(ownerId);
+    return first ? this.accountOf(ownerId, first.id) : undefined;
+  }
+
+  /**
+   * Adds a mailbox after a test connection; it starts from the mail there is now. Its password
+   * goes to a private file.
+   */
+  async add(ownerId: string, i: MailboxInput): Promise<MailboxInfo> {
+    const list = await this.boxes(ownerId);
+    const { last } = await (this.o.mailbox ?? imapMailbox).newer(i, null);
+    const id = `box_${randomUUID().slice(0, 8)}`;
+    const box: Stored = {
+      id,
+      name: i.name.trim() || i.user,
+      category: i.category.trim() || "other",
+      host: i.host,
+      port: i.port,
+      secure: i.secure,
+      user: i.user,
+      ...(i.smtp && { smtp: i.smtp }),
+      createdAt: new Date().toISOString(),
+    };
+    await this.writeSecret(ownerId, id, i.password);
+    await this.setSetting(ownerId, "email_boxes", [...list, box]);
+    await this.setLast(id, ownerId, last);
+    return box;
+  }
+
+  /**
+   * Changes a mailbox. A new server, user or password is tried first (the password stays when
+   * none is given); its name and category change at once.
+   */
+  async update(
+    ownerId: string,
+    id: string,
+    i: Partial<MailboxInput> & { smtp?: EmailAccount["smtp"] | null },
+  ): Promise<MailboxInfo> {
+    const list = await this.boxes(ownerId);
+    const box = list.find((b) => b.id === id);
+    if (!box) throw new MailboxNotFoundError(`Mailbox "${id}" not found`);
+    const password = i.password ?? (await this.password(ownerId, id)) ?? "";
+    const account: EmailAccount = {
+      host: i.host ?? box.host,
+      port: i.port ?? box.port,
+      secure: i.secure ?? box.secure,
+      user: i.user ?? box.user,
+      password,
+    };
+    const moved =
+      account.host !== box.host ||
+      account.port !== box.port ||
+      account.user !== box.user ||
+      i.password !== undefined;
+    if (moved) {
+      const { last } = await (this.o.mailbox ?? imapMailbox).newer(account, null);
+      if (i.password !== undefined) await this.writeSecret(ownerId, id, i.password);
+      // Another mailbox (or the same one moved): its UIDs start again from now.
+      if (account.host !== box.host || account.user !== box.user)
+        await this.setLast(id, ownerId, last);
+    }
+    const { smtp: _old, ...rest } = box;
+    const smtp = i.smtp === null ? undefined : (i.smtp ?? box.smtp);
+    const next: Stored = {
+      ...rest,
+      host: account.host,
+      port: account.port,
+      secure: account.secure,
+      user: account.user,
+      ...(i.name !== undefined && { name: i.name.trim() || account.user }),
+      ...(i.category !== undefined && { category: i.category.trim() || "other" }),
+      ...(smtp && { smtp }),
+    };
+    await this.setSetting(
+      ownerId,
+      "email_boxes",
+      list.map((b) => (b.id === id ? next : b)),
     );
-    if (!r) return null;
-    const v = typeof r.value === "string" ? JSON.parse(r.value) : r.value;
+    return next;
+  }
+
+  /** Removes one mailbox, its password file and its last UID. */
+  async removeBox(ownerId: string, id: string): Promise<void> {
+    const list = await this.boxes(ownerId);
+    if (!list.some((b) => b.id === id)) throw new MailboxNotFoundError(`Mailbox "${id}" not found`);
+    await this.setSetting(
+      ownerId,
+      "email_boxes",
+      list.filter((b) => b.id !== id),
+    );
+    await rm(this.secretFile(ownerId, id), { force: true });
+    await this.dropSetting(ownerId, `email_last_uid:${id}`);
+  }
+
+  /** Older versions' "set the mailbox": the first one changes, or becomes the first. */
+  async set(ownerId: string, a: EmailAccount): Promise<void> {
+    const [first] = await this.boxes(ownerId);
+    if (first) await this.update(ownerId, first.id, a);
+    else await this.add(ownerId, { ...a, name: a.user, category: "personal" });
+  }
+
+  /** Older versions' "remove the mailbox": the first one goes. */
+  async remove(ownerId: string): Promise<void> {
+    const [first] = await this.boxes(ownerId);
+    if (first) await this.removeBox(ownerId, first.id);
+  }
+
+  /** The categories in use and the default ones, for the editor. */
+  async categories(ownerId: string): Promise<string[]> {
+    const used = (await this.boxes(ownerId)).map((b) => b.category);
+    return [...new Set(["work", "personal", "social", "other", ...used])];
+  }
+
+  private async last(id: string, ownerId: string): Promise<number | null> {
+    const v = await this.setting<unknown>(ownerId, `email_last_uid:${id}`);
     return typeof v === "number" ? v : null;
   }
 
-  private async setLast(ownerId: string, uid: number): Promise<void> {
-    await this.o.db.query(
-      `INSERT INTO rg_settings (owner_id, key, value) VALUES ($1, 'email_last_uid', $2)
-       ON CONFLICT (owner_id, key) DO UPDATE SET value = EXCLUDED.value`,
-      [ownerId, JSON.stringify(uid)],
-    );
+  private async setLast(id: string, ownerId: string, uid: number): Promise<void> {
+    await this.setSetting(ownerId, `email_last_uid:${id}`, uid);
+  }
+
+  /**
+   * Sends a run's message by email (G33.3): from the chosen mailbox (or the first one), to the
+   * given address (or the mailbox's own). Returns the address.
+   */
+  async send(
+    ownerId: string,
+    mail: { subject: string; text: string; to?: string; box?: string },
+  ): Promise<string> {
+    const boxes = await this.boxes(ownerId);
+    const box = mail.box ? boxes.find((b) => b.id === mail.box) : boxes[0];
+    if (!box) throw new Error(mail.box ? `no mailbox "${mail.box}"` : "no mailbox connected");
+    const account = await this.accountOf(ownerId, box.id);
+    if (!account) throw new Error(`the password of ${box.name} is missing`);
+    const to = mail.to ?? box.user;
+    await (this.o.sender ?? smtpSender).send(account, {
+      to,
+      subject: mail.subject,
+      text: mail.text,
+    });
+    return to;
   }
 
   /** One look at every mailbox; new mail starts the routines it matches. */
@@ -137,33 +400,48 @@ export class EmailWatcher {
     let started = 0;
     try {
       for (const owner of await this.o.owners()) {
-        const a = await this.account(owner);
-        if (!a) continue;
+        const boxes = await this.boxes(owner);
+        if (boxes.length === 0) continue;
         const waiting = (await this.o.automations.list(owner)).filter(
           (x) => x.enabled && x.recipe.on.email,
         );
         if (waiting.length === 0) continue;
-        const after = await this.last(owner);
-        const { last, mails } = await (this.o.mailbox ?? imapMailbox)
-          .newer(a, after)
-          .catch((err) => {
-            console.warn(`email for ${owner}: ${(err as Error).message}`);
-            return { last: after ?? 0, mails: [] as Mail[] };
+        for (const box of boxes) {
+          // Only the mailboxes some routine watches are read.
+          const watched = waiting.filter((x) => {
+            const f = x.recipe.on.email;
+            if (!f?.boxes && !f?.categories) return true;
+            return (
+              (f.boxes?.includes(box.id) ?? false) ||
+              (f.categories?.includes(box.category) ?? false)
+            );
           });
-        for (const m of mails)
-          for (const r of waiting) {
-            const run = await this.o.automations.email(owner, r.id, {
-              from: m.from,
-              subject: m.subject,
-              date: m.date,
-              text: m.text,
+          if (watched.length === 0) continue;
+          const a = await this.accountOf(owner, box.id);
+          if (!a) continue;
+          const after = await this.last(box.id, owner);
+          const { last, mails } = await (this.o.mailbox ?? imapMailbox)
+            .newer(a, after)
+            .catch((err) => {
+              console.warn(`email ${box.name} for ${owner}: ${(err as Error).message}`);
+              return { last: after ?? 0, mails: [] as Mail[] };
             });
-            if (run) {
-              started++;
-              run.done.catch(() => {});
+          for (const m of mails)
+            for (const r of watched) {
+              const run = await this.o.automations.email(owner, r.id, {
+                from: m.from,
+                subject: m.subject,
+                date: m.date,
+                text: m.text,
+                box: { id: box.id, name: box.name, category: box.category },
+              });
+              if (run) {
+                started++;
+                run.done.catch(() => {});
+              }
             }
-          }
-        if (after === null || last > after) await this.setLast(owner, last);
+          if (after === null || last > after) await this.setLast(box.id, owner, last);
+        }
       }
     } finally {
       this.running = false;
@@ -180,3 +458,5 @@ export class EmailWatcher {
     if (this.timer) clearInterval(this.timer);
   }
 }
+
+export class MailboxNotFoundError extends Error {}

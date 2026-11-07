@@ -1,23 +1,21 @@
 // The agents page (2026-11-03, chosen on the board "RedGiant: la pagina degli agenti"): two views
 // the person switches between, a tree (an org chart: God on top, the personal agents, each
 // project in its own frame) and cards grouped by where they work. Clicking an agent opens all
-// its settings in a panel: docked on the right beside the tree, a drawer over the cards; on a
-// phone always a drawer that slides away with the finger. Drawn as the wizard since 2026-11-06
+// its settings in a centred window like every other (2026-11-07; a sheet from below on a
+// phone; before, a panel docked on the right or a drawer). Drawn as the wizard since 2026-11-06
 // (the person: «tutte le pagine delle impostazioni con lo stesso stile del wizard»): a big
 // heading, segments, a switch, nodes and cards lit by border and background (never a check
 // mark), and the forms to create an agent in the wizard's windows.
-import { useRef, useState } from "preact/hooks";
+import { useState } from "preact/hooks";
 import type { Agent, Budget } from "../api.js";
-import { t, tOptional } from "../i18n.js";
-import { IconClose, IconPlus } from "../icons.js";
+import { roleText, t, tOptional } from "../i18n.js";
+import { IconPlus } from "../icons.js";
 import { agents, attempt, budgets, getApi, openAgent, projects, refresh } from "../state.js";
-import { useSwipeAway } from "../swipe.js";
+import { AgentMemory } from "./AgentMemory.js";
 import { AgentWizard } from "./AgentWizard.js";
 import { LimitEditor } from "./Budgets.js";
-import { CompactionSettings } from "./CompactionSettings.js";
 import { modelName } from "./ModelMenu.js";
 import { ModelSelect, useModels } from "./ModelSelect.js";
-import { NotesEditor } from "./NotesEditor.js";
 import { PromptEditor } from "./PromptEditor.js";
 import { Acts, Head, Seg, Switch } from "./SettingsKit.js";
 import { Modal } from "./ui.js";
@@ -168,14 +166,16 @@ function NewAgentForm({ parent, onDone }: { parent: Agent | null; onDone: () => 
 /** Name and what it does; for working agents, the projects it also works for. */
 function GeneralTab({ agent }: { agent: Agent }) {
   const [name, setName] = useState(agent.name);
-  const [role, setRole] = useState(agent.role ?? "");
+  // A built-in description is shown, and kept, in the interface's language.
+  const shownRole = roleText(agent.role) ?? "";
+  const [role, setRole] = useState(shownRole);
   const [saved, setSaved] = useState(false);
-  const changed = name.trim() !== agent.name || role.trim() !== (agent.role ?? "");
+  const changed = name.trim() !== agent.name || role.trim() !== shownRole;
   const save = async () => {
     const ok = await attempt(() =>
       getApi().configureAgent(agent.id, {
         ...(name.trim() && name.trim() !== agent.name && { name: name.trim() }),
-        ...(role.trim() && role.trim() !== (agent.role ?? "") && { role: role.trim() }),
+        ...(role.trim() && role.trim() !== shownRole && { role: role.trim() }),
       }),
     );
     if (ok) {
@@ -331,129 +331,98 @@ function BehaviourTab({ agent }: { agent: Agent }) {
   );
 }
 
-/** Everything that can change in an agent, in tabs; docked beside the tree or as a drawer. */
+/**
+ * Everything that can change in an agent, in tabs, in a centred window like every other (2026-11-07,
+ * the person: «facci una modale, e uniforma l'interfaccia col resto delle modali»); a sheet from
+ * below on a phone. Its buttons stay in the window's bottom bar.
+ */
 function AgentPanel({
   agent,
-  overlay,
   onClose,
   onAdd,
 }: {
   agent: Agent;
-  overlay: boolean;
   onClose: () => void;
   /** Opens the window to add an agent under this one. */
   onAdd: (a: Agent) => void;
 }) {
   const [tab, setTab] = useState<PanelTab>("general");
-  const ref = useRef<HTMLElement>(null);
-  useSwipeAway(ref, "right", onClose);
   const active = agent.status === "active";
   const tabs: PanelTab[] =
     agent.kind === "demigod"
       ? ["general", "model", "limits", "behaviour"]
       : ["general", "model", "limits", "behaviour", "memory"];
-  return (
+  const foot = active ? (
     <>
+      {agent.kind !== "god" && (
+        <button
+          type="button"
+          class="wz-btn quiet st-danger"
+          onClick={() => {
+            if (confirm(t("agentStopConfirm", { name: agent.name })))
+              void attempt(() => getApi().stopAgent(agent.id)).then(refresh);
+          }}
+        >
+          {t("stop")}
+        </button>
+      )}
+      <span class="spacer" />
+      {canAddUnder(agent) && (
+        <button type="button" class="wz-btn" onClick={() => onAdd(agent)}>
+          <IconPlus size={16} /> {t("agentAddShort")}
+        </button>
+      )}
       <button
         type="button"
-        class={`agents-veil ${overlay ? "" : "docked"}`}
-        aria-label={t("close")}
-        onClick={onClose}
-      />
-      <aside
-        ref={ref}
-        class={`agent-panel ${overlay ? "overlay" : ""}`}
+        class="wz-btn primary"
+        onClick={() => void attempt(() => openAgent(agent))}
+      >
+        {t("agentOpenChat")}
+      </button>
+    </>
+  ) : undefined;
+  return (
+    <Modal
+      wide
+      class="agent-panel-modal"
+      title={agent.name}
+      icon={<span class={`agent-avatar ${agent.kind}`}>{initials(agent.name)}</span>}
+      sub={
+        <>
+          {t(`kind_${agent.kind}`)}
+          {agent.projectId ? ` · ${projectName(agent.projectId)}` : ""}
+          {!active && <span class="chip muted">{t("stopped")}</span>}
+        </>
+      }
+      onClose={onClose}
+      foot={foot}
+    >
+      <div
+        class="agent-panel-tabs wz-seg st-tabs"
+        role="tablist"
         aria-label={t("agentSettingsOf", { name: agent.name })}
       >
-        <header class="agent-panel-head">
-          <span class={`agent-avatar ${agent.kind}`}>{initials(agent.name)}</span>
-          <div class="agent-panel-title">
-            <strong>{agent.name}</strong>
-            <span class="dim">
-              {t(`kind_${agent.kind}`)}
-              {agent.projectId ? ` · ${projectName(agent.projectId)}` : ""}
-            </span>
-          </div>
-          {!active && <span class="chip muted">{t("stopped")}</span>}
-          <button type="button" class="ui-modal-x" aria-label={t("close")} onClick={onClose}>
-            <IconClose />
+        {tabs.map((x) => (
+          <button
+            type="button"
+            role="tab"
+            key={x}
+            aria-selected={tab === x}
+            class={tab === x ? "on" : ""}
+            onClick={() => setTab(x)}
+          >
+            {t(`agentTab_${x}`)}
           </button>
-        </header>
-        <div class="agent-panel-tabs wz-seg st-tabs" role="tablist">
-          {tabs.map((x) => (
-            <button
-              type="button"
-              role="tab"
-              key={x}
-              aria-selected={tab === x}
-              class={tab === x ? "on" : ""}
-              onClick={() => setTab(x)}
-            >
-              {t(`agentTab_${x}`)}
-            </button>
-          ))}
-        </div>
-        <div class="agent-panel-body" key={`${agent.id}-${tab}`}>
-          {tab === "general" && <GeneralTab agent={agent} />}
-          {tab === "model" && <ModelTab agent={agent} />}
-          {tab === "limits" && <LimitsTab agent={agent} />}
-          {tab === "behaviour" && <BehaviourTab agent={agent} />}
-          {tab === "memory" && (
-            <div class="st-form">
-              {/* What the agent remembers between conversations (2026-11-05), editable here. */}
-              {agent.kind !== "demigod" && agent.kind !== "inspector" && (
-                <NotesEditor
-                  scope="self"
-                  agentId={agent.id}
-                  label={t("notesOwn", { name: agent.name })}
-                  help={t("notesOwnHelp")}
-                />
-              )}
-              {agent.projectId && (
-                <NotesEditor
-                  scope="project"
-                  agentId={agent.id}
-                  projectId={agent.projectId}
-                  label={t("notesProject")}
-                  help={t("notesProjectHelp")}
-                />
-              )}
-              <p class="ui-help">{t("compactExplain")}</p>
-              <CompactionSettings agent={agent} />
-            </div>
-          )}
-        </div>
-        {active && (
-          <footer class="agent-panel-foot">
-            <button
-              type="button"
-              class="wz-btn small primary"
-              onClick={() => void attempt(() => openAgent(agent))}
-            >
-              {t("agentOpenChat")}
-            </button>
-            {canAddUnder(agent) && (
-              <button type="button" class="wz-btn small" onClick={() => onAdd(agent)}>
-                <IconPlus size={16} /> {t("agentAddShort")}
-              </button>
-            )}
-            <span class="spacer" />
-            {agent.kind !== "god" && (
-              <button
-                type="button"
-                class="wz-btn small quiet st-danger"
-                onClick={() => {
-                  if (confirm(t("agentStopConfirm", { name: agent.name })))
-                    void attempt(() => getApi().stopAgent(agent.id)).then(refresh);
-                }}
-              >
-                {t("stop")}
-              </button>
-            )}
-          </footer>
-        )}
-      </aside>
-    </>
+        ))}
+      </div>
+      <div class="agent-panel-body" key={`${agent.id}-${tab}`}>
+        {tab === "general" && <GeneralTab agent={agent} />}
+        {tab === "model" && <ModelTab agent={agent} />}
+        {tab === "limits" && <LimitsTab agent={agent} />}
+        {tab === "behaviour" && <BehaviourTab agent={agent} />}
+        {tab === "memory" && <AgentMemory agent={agent} />}
+      </div>
+    </Modal>
   );
 }
 
@@ -474,13 +443,14 @@ function OrgNode({
       type="button"
       class={`org-node ${agent.kind} ${agent.status} ${selected === agent.id ? "selected" : ""} ${assigned ? "assigned" : ""}`}
       aria-pressed={selected === agent.id}
+      title={roleText(agent.role)}
       onClick={() => select(agent)}
     >
       <span class={`agent-avatar ${agent.kind}`}>{initials(agent.name)}</span>
       <span class="org-node-text">
         <strong>{agent.name}</strong>
         <span class="dim">
-          {assigned ? t("assignedChip") : agent.role || t(`kind_${agent.kind}`)}
+          {assigned ? t("assignedChip") : roleText(agent.role) || t(`kind_${agent.kind}`)}
         </span>
       </span>
     </button>
@@ -675,6 +645,7 @@ function Card({
     <button
       type="button"
       class={`agent-tile ${agent.status} ${selected === agent.id ? "selected" : ""} ${assigned ? "assigned" : ""}`}
+      title={roleText(agent.role)}
       onClick={() => select(agent)}
     >
       <span class="agent-tile-head">
@@ -684,7 +655,7 @@ function Card({
           <span class="dim">{assigned ? t("assignedChip") : t(`kind_${agent.kind}`)}</span>
         </span>
       </span>
-      {agent.role && <span class="agent-tile-role">{agent.role}</span>}
+      {agent.role && <span class="agent-tile-role">{roleText(agent.role)}</span>}
       <span class="agent-tile-chips">
         <span class="chip">{agent.model ? modelName(agent.model.model) : t("agentModelNone")}</span>
         <span class="chip">{tOptional(`agentMode_${agent.mode ?? "auto"}`) ?? agent.mode}</span>
@@ -820,6 +791,15 @@ function AgentsPage({ projectId = null }: { projectId?: string | null }) {
           )}
         </div>
       </header>
+      {/* Before the other windows: «Agent under it» opens on top of it. */}
+      {selected && (
+        <AgentPanel
+          key={selected.id}
+          agent={selected}
+          onClose={() => setSelectedId(null)}
+          onAdd={setAddUnder}
+        />
+      )}
       {wizard && (
         <Modal wide title={t("agentNew")} onClose={() => setWizard(false)}>
           <div class="wz-panel-in st-agent-wizard">
@@ -852,7 +832,7 @@ function AgentsPage({ projectId = null }: { projectId?: string | null }) {
           </div>
         </Modal>
       )}
-      <div class={`agents-layout ${view === "tree" && selected ? "with-panel" : ""}`}>
+      <div class="agents-layout">
         <div class="agents-main">
           {projectId && !list.some((a) => a.kind === "orchestrator") && (
             <p class="wz-center dim">{t("noOrchestrator")}</p>
@@ -869,15 +849,6 @@ function AgentsPage({ projectId = null }: { projectId?: string | null }) {
             <CardsView list={list} projectId={scope} selected={selectedId} select={select} />
           )}
         </div>
-        {selected && (
-          <AgentPanel
-            key={selected.id}
-            agent={selected}
-            overlay={view === "cards"}
-            onClose={() => setSelectedId(null)}
-            onAdd={setAddUnder}
-          />
-        )}
       </div>
     </div>
   );

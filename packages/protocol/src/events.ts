@@ -368,6 +368,37 @@ export const EventBody = z.discriminatedUnion("type", [
       change: z.enum(["added", "removed"]),
     }),
   }),
+  /**
+   * The shared memory about the person (G33.2): one entry added, edited or removed. The envelope's
+   * session and agent say where it came from; `undoOf` is the change it takes back.
+   */
+  z.object({
+    type: z.literal("memory.changed"),
+    payload: z.object({
+      memoryId: z.string(),
+      action: z.enum(["added", "edited", "removed"]),
+      /** The entry's text after the change (for `removed`, the text that went). */
+      text: z.string(),
+      /** The text before an edit. */
+      before: z.string().optional(),
+      /** "human", "auto" (learned from a conversation), "import" or the agent's id. */
+      by: z.string(),
+      undoOf: z.number().int().optional(),
+    }),
+  }),
+  /**
+   * A memory forgotten for good (G33.2): the text of its `memory.changed` events was erased; this
+   * event keeps no text.
+   */
+  z.object({
+    type: z.literal("memory.forgotten"),
+    payload: z.object({ memoryId: z.string(), by: z.string() }),
+  }),
+  /** The shared memory learns by itself from the conversations, or not (G33.2). */
+  z.object({
+    type: z.literal("memory.settings"),
+    payload: z.object({ auto: z.boolean(), by: z.string() }),
+  }),
   z.object({
     type: z.literal("redaction"),
     payload: z.object({ targetSeq: z.number().int(), reason: z.string() }),

@@ -4,7 +4,7 @@ import type { Event } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Agent } from "../api.js";
 import { usd } from "../format.js";
-import { lang, t } from "../i18n.js";
+import { lang, roleText, t } from "../i18n.js";
 import { IconClose, IconCrown, IconEye, IconPlus, IconTree, IconUser } from "../icons.js";
 import { renderAnswer } from "../markdown.js";
 import { agents, attempt, getApi, projects, refreshRooms, rooms, roomsVersion } from "../state.js";
@@ -148,7 +148,7 @@ export function RoomView({ roomId }: { roomId: string }) {
         {members.map(
           (a, i) =>
             a && (
-              <span key={a.id} class="chip room-member" title={a.role ?? ""}>
+              <span key={a.id} class="chip room-member" title={roleText(a.role) ?? ""}>
                 {kindIcon(a)} {a.name}
                 {i === 0 && <span class="dim"> · {t("roomFirst")}</span>}
                 {(() => {

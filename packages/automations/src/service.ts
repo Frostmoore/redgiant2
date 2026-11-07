@@ -9,7 +9,16 @@ import type {
   NotifyReport,
   Recipe,
 } from "@redgiant/protocol";
-import { nextRun, parseRecipe, RecipeError } from "./recipe.js";
+import {
+  type EventFacts,
+  factsAllowed,
+  localTime,
+  nextRun,
+  nextRuns,
+  parseRecipe,
+  RecipeError,
+  timeAllowed,
+} from "./recipe.js";
 
 /** What the service needs from the RedGiant core. */
 export interface AutomationHost {
@@ -26,6 +35,47 @@ export interface AutomationHost {
   notify?(ownerId: string, text: string, to?: string[]): Promise<NotifyReport | void>;
   /** Shows a run's message in the web app (recipes with `notify.to: [web]`). */
   notice?(ownerId: string, text: string, info: NoticeInfo): Promise<void> | void;
+  /**
+   * Asks the person whether a run may go on (`approve: true`, G33.3). Only a clear yes is true:
+   * a failure, no answer or the signal ending must give false (or throw).
+   */
+  approve?(
+    ownerId: string,
+    recipe: Recipe,
+    ask: ApprovalAsk,
+    signal: AbortSignal,
+  ): Promise<boolean>;
+  /** Sends a run's message by email (`notify.to: [email]`); returns the address it went to. */
+  sendEmail?(
+    ownerId: string,
+    mail: { subject: string; text: string; to?: string; box?: string },
+  ): Promise<string>;
+}
+
+/** What the person is asked before a run goes on. */
+export interface ApprovalAsk {
+  automationId: string;
+  runId: string;
+  trigger: AutomationTrigger;
+  /** What started it, in a line (an email's sender and subject, a message…). */
+  about: string;
+}
+
+/** A message on a linked chat (G33.3), as the gateway hands it over. */
+export interface ChatMessage {
+  platform: string;
+  /** The writer's id on the platform. */
+  userId: string;
+  /** Their name or username, when the platform says. */
+  from: string;
+  chatId: string;
+  text: string;
+}
+
+/** A file that changed in a watched folder (G33.3), relative to the project. */
+export interface FileChange {
+  path: string;
+  change: "added" | "changed" | "removed";
 }
 
 /** Which run a web notice is about. */
@@ -45,6 +95,11 @@ export interface RunContext {
   sessionId: string | null;
   /** Called as soon as the session exists, so the run links to it while it works. */
   onSession(sessionId: string): void;
+  /**
+   * What the run has spent so far, in dollars (the host calls it as the agent works): past the
+   * recipe's `budgetUsd` the run is stopped (G33.3).
+   */
+  spent(usd: number): void;
   signal: AbortSignal;
 }
 
@@ -98,6 +153,9 @@ export async function migrateAutomations(db: SqlClient): Promise<void> {
       finished_at   timestamptz
     )`);
   await db.query("ALTER TABLE rg_automation_runs ADD COLUMN IF NOT EXISTS delivery jsonb");
+  // A failed run tried again later (G33.3): when, and how many tries are left after that one.
+  await db.query("ALTER TABLE rg_automations ADD COLUMN IF NOT EXISTS retry_at timestamptz");
+  await db.query("ALTER TABLE rg_automations ADD COLUMN IF NOT EXISTS retry_left integer");
   await db.query(
     "CREATE INDEX IF NOT EXISTS rg_automation_runs_recent ON rg_automation_runs (automation_id, started_at DESC)",
   );
@@ -112,6 +170,8 @@ interface Row {
   webhook_secret_hash: string | null;
   session_id: string | null;
   next_run_at: Date | string | null;
+  retry_at?: Date | string | null;
+  retry_left?: number | null;
   created_at: Date | string;
   updated_at: Date | string;
 }
@@ -170,9 +230,26 @@ export class AutomationService {
     { controller: AbortController; done: Promise<void> }
   >();
   private readonly listeners = new Set<(ownerId: string, automationId: string) => void>();
+  /** A run waiting for the one in progress (`overlap: queue`): one at most per automation. */
+  private readonly queued = new Map<
+    string,
+    { slot: { controller: AbortController; done: Promise<void> }; go: () => void }
+  >();
+  /** Task titles seen in the log, for the runs on a task's end. */
+  private readonly taskTitles = new Map<string, string>();
+  private unfollow: (() => void) | undefined;
+  /** What starts once a run has freed its place: the automations that follow it. */
+  private readonly afterRun = new Map<string, () => Promise<void>>();
+  /** Followers being started, so `idle` waits for them too. */
+  private readonly starting = new Set<Promise<void>>();
 
   constructor(private readonly o: AutomationServiceOptions) {
     this.now = o.now ?? (() => new Date());
+  }
+
+  /** Tells the listeners something about an automation changed (magic automations too). */
+  touch(ownerId: string, id: string): void {
+    this.changed(ownerId, id);
   }
 
   onChange(l: (ownerId: string, automationId: string) => void): () => void {
@@ -348,9 +425,35 @@ export class AutomationService {
 
   // ---- Triggers ------------------------------------------------------------------------------
 
-  /** Runs a recipe now, whatever its schedule; `done` resolves when the run is over. */
+  /** Reads and checks a recipe as saving would, without saving it (G33.3: magic proposals). */
+  async check(ownerId: string, yaml: string): Promise<Recipe> {
+    return this.checked(ownerId, yaml);
+  }
+
+  /**
+   * What the editor shows while the person writes (G33.3): the recipe as the server reads it,
+   * or why it does not read, and its next scheduled times.
+   */
+  async preview(
+    ownerId: string,
+    yaml: string,
+    count = 5,
+  ): Promise<{ recipe: Recipe | null; error: string | null; next: string[] }> {
+    try {
+      const recipe = await this.checked(ownerId, yaml);
+      return {
+        recipe,
+        error: null,
+        next: nextRuns(recipe, this.now(), count).map((d) => d.toISOString()),
+      };
+    } catch (err) {
+      return { recipe: null, error: message(err), next: [] };
+    }
+  }
+
+  /** Runs a recipe now, whatever its schedule and conditions; `done` resolves when it is over. */
   async runNow(ownerId: string, id: string): Promise<{ run: AutomationRun; done: Promise<void> }> {
-    return this.trigger(await this.row(ownerId, id), "manual");
+    return this.trigger(await this.row(ownerId, id), "manual") as Promise<Started>;
   }
 
   /** A webhook call: the recipe's secret, compared in constant time. */
@@ -360,7 +463,7 @@ export class AutomationService {
     payload: unknown,
     /** The event a GitHub or Gitea webhook says it carries. */
     event?: string,
-  ): Promise<{ run: AutomationRun; done: Promise<void> } | null> {
+  ): Promise<Started | null> {
     const row = await this.row(null, id).catch(() => undefined);
     const expected = row?.webhook_secret_hash;
     const ok =
@@ -373,44 +476,226 @@ export class AutomationService {
     // A repository's webhook sends every event it was given: only the recipe's run it.
     const events = parseRecipe(row.yaml).on.events;
     if (events && event && !events.includes(event)) return null;
-    return this.trigger(row, "webhook", event ? { event, body: payload } : payload);
+    const text = typeof payload === "string" ? payload : JSON.stringify(payload ?? "");
+    return this.trigger(row, "webhook", event ? { event, body: payload } : payload, { text });
   }
 
   /**
    * A new email that matches the recipe's filter (G24.14c): a run, the email as data (never
-   * instructions). Ignored when the automation is off or no longer waits for email.
+   * instructions). Ignored when the automation is off or no longer waits for email, when the
+   * mailbox is not one it watches (G33.3) or when its conditions say no.
    */
   async email(
     ownerId: string,
     id: string,
-    mail: { from: string; subject: string; date: string; text: string },
-  ): Promise<{ run: AutomationRun; done: Promise<void> } | null> {
+    mail: {
+      from: string;
+      subject: string;
+      date: string;
+      text: string;
+      box?: { id: string; name: string; category: string };
+    },
+  ): Promise<Started | null> {
     const row = await this.row(ownerId, id).catch(() => undefined);
     if (!row?.enabled) return null;
     const f = parseRecipe(row.yaml).on.email;
     if (!f) return null;
+    if (!watches(f, mail.box)) return null;
     const has = (where: string, what?: string) =>
       !what || where.toLowerCase().includes(what.toLowerCase());
-    if (!has(mail.from, f.from) || !has(mail.subject, f.subject)) return null;
-    return this.trigger(row, "email", { email: mail });
+    if (!has(mail.from, f.from) || !has(mail.subject, f.subject) || !has(mail.text, f.text))
+      return null;
+    return this.trigger(
+      row,
+      "email",
+      { email: mail },
+      { from: mail.from, text: `${mail.subject}\n${mail.text}` },
+    );
   }
 
+  /**
+   * A message on a linked chat (G33.3): every automation waiting for one that matches starts,
+   * the message as data. `taken` when one of them keeps it (`handle: true`): then Demi-God does
+   * not answer it.
+   */
+  async message(ownerId: string, m: ChatMessage): Promise<{ taken: boolean; started: Started[] }> {
+    const rows = await this.o.db.query<Row>(
+      "SELECT * FROM rg_automations WHERE owner_id = $1 AND enabled ORDER BY name",
+      [ownerId],
+    );
+    let taken = false;
+    const started: Started[] = [];
+    const text = m.text.toLowerCase();
+    for (const row of rows) {
+      const f = safeRecipe(row.yaml)?.on.message;
+      if (!f) continue;
+      if (f.platforms && !f.platforms.includes(m.platform as never)) continue;
+      if (f.chat && f.chat !== m.chatId) continue;
+      if (f.from && !`${m.from} ${m.userId}`.toLowerCase().includes(f.from.toLowerCase())) continue;
+      if (f.words && !f.words.some((w) => text.includes(w.toLowerCase()))) continue;
+      const run = await this.trigger(
+        row,
+        "message",
+        { message: m },
+        { from: `${m.from} ${m.userId}`, text: m.text, replyTo: m.platform },
+      ).catch((err) => {
+        this.fail(`automation ${row.id}: message`, err);
+        return null;
+      });
+      if (!run) continue;
+      started.push(run);
+      if (f.handle) taken = true;
+    }
+    return { taken, started };
+  }
+
+  /** Files that changed in the folder an automation watches (G33.3): one run, the list as data. */
+  async filesChanged(ownerId: string, id: string, changes: FileChange[]): Promise<Started | null> {
+    const row = await this.row(ownerId, id).catch(() => undefined);
+    if (!row?.enabled || changes.length === 0) return null;
+    const f = parseRecipe(row.yaml).on.files;
+    if (!f) return null;
+    const wanted = changes.filter((c) => !f.changes || f.changes.includes(c.change));
+    if (wanted.length === 0) return null;
+    return this.trigger(
+      row,
+      "files",
+      { files: wanted.slice(0, 200) },
+      { text: wanted.map((c) => c.path).join("\n") },
+    );
+  }
+
+  /** The automations of an owner that watch files (for the server's watcher). */
+  async watchingFiles(): Promise<{ ownerId: string; id: string; recipe: Recipe }[]> {
+    const rows = await this.o.db.query<Row>("SELECT * FROM rg_automations WHERE enabled", []);
+    return rows.flatMap((r) => {
+      const recipe = safeRecipe(r.yaml);
+      return recipe?.on.files ? [{ ownerId: r.owner_id, id: r.id, recipe }] : [];
+    });
+  }
+
+  /** A task closed (G33.3): the automations waiting for one like it start. */
+  private async taskClosed(
+    ownerId: string,
+    projectId: string | null,
+    task: { id: string; outcome: string; title: string },
+  ) {
+    const rows = await this.o.db.query<Row>(
+      "SELECT * FROM rg_automations WHERE owner_id = $1 AND enabled ORDER BY name",
+      [ownerId],
+    );
+    for (const row of rows) {
+      const f = safeRecipe(row.yaml)?.on.task;
+      if (!f) continue;
+      if (f.project && f.project !== projectId) continue;
+      if (f.outcome && !f.outcome.includes(task.outcome as never)) continue;
+      await this.trigger(
+        row,
+        "task",
+        { task: { ...task, project: projectId } },
+        { text: task.title },
+      ).then(
+        (r) => r?.done.catch(() => {}),
+        (err) => this.recordFailure(row, "task", err),
+      );
+    }
+  }
+
+  /** The automations that follow one that just ended (`on.after`), and its `onFailure.run`. */
+  private async followers(
+    row: Row,
+    recipe: Recipe,
+    status: AutomationRunStatus,
+    summary: string,
+    depth: number,
+  ) {
+    // A chain that loops (A after B, B after A) stops here.
+    if (depth >= MAX_CHAIN) return;
+    const rows = await this.o.db.query<Row>(
+      "SELECT * FROM rg_automations WHERE owner_id = $1 AND enabled AND id <> $2 ORDER BY name",
+      [row.owner_id, row.id],
+    );
+    const data = { after: { automation: recipe.name, status, summary: summary.slice(0, 4000) } };
+    for (const other of rows) {
+      const r = safeRecipe(other.yaml);
+      if (!r) continue;
+      const f = r.on.after;
+      const follows =
+        f &&
+        (f.automation === recipe.name || f.automation === row.id) &&
+        (f.status ?? ["ok", "failed", "timeout"]).includes(status as never);
+      const fallback = status !== "ok" && recipe.onFailure?.run === r.name;
+      if (!follows && !fallback) continue;
+      await this.trigger(other, "after", data, { text: summary, depth: depth + 1 }).then(
+        (x) => void x?.done.catch(() => {}),
+        (err) => this.recordFailure(other, "after", err),
+      );
+    }
+  }
+
+  /**
+   * Whether an automatic start may happen now (G33.3): the recipe's hours, days, dates,
+   * senders and words, its runs a day and its pause between runs.
+   */
+  private async allowed(row: Row, recipe: Recipe, facts: EventFacts): Promise<boolean> {
+    const only = recipe.only;
+    if (!only) return true;
+    const now = this.now();
+    if (!timeAllowed(recipe, now) || !factsAllowed(recipe, facts)) return false;
+    if (only.cooldownMinutes) {
+      const since = new Date(now.getTime() - only.cooldownMinutes * 60_000);
+      const [r] = await this.o.db.query<{ n: number | string }>(
+        `SELECT count(*) AS n FROM rg_automation_runs WHERE automation_id = $1 AND trigger <> 'manual'
+         AND status NOT IN ('skipped', 'queued') AND started_at > $2`,
+        [row.id, since],
+      );
+      if (Number(r?.n ?? 0) > 0) return false;
+    }
+    if (only.maxPerDay) {
+      const t = localTime(now, recipe.on.timezone);
+      const dayStart = new Date(
+        now.getTime() - t.minute * 60_000 - now.getUTCSeconds() * 1000 - now.getUTCMilliseconds(),
+      );
+      const [r] = await this.o.db.query<{ n: number | string }>(
+        `SELECT count(*) AS n FROM rg_automation_runs WHERE automation_id = $1 AND trigger <> 'manual'
+         AND status NOT IN ('skipped', 'queued') AND started_at >= $2`,
+        [row.id, dayStart],
+      );
+      if (Number(r?.n ?? 0) >= only.maxPerDay) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Starts a run (or records why it could not). Null when the recipe's conditions say no:
+   * nothing is recorded then, so a busy mailbox does not fill the history.
+   */
   private async trigger(
     row: Row,
     trigger: AutomationTrigger,
     payload?: unknown,
-  ): Promise<{ run: AutomationRun; done: Promise<void> }> {
+    opts: EventFacts & { depth?: number; replyTo?: string } = {},
+  ): Promise<Started | null> {
     const recipe = parseRecipe(row.yaml);
+    if (trigger !== "manual" && trigger !== "retry" && !(await this.allowed(row, recipe, opts)))
+      return null;
     const runId = `run_${randomUUID().slice(0, 12)}`;
     // Reserved before any await: two triggers at the same moment cannot both start.
     const busy = this.running.has(row.id);
+    const queue = busy && recipe.overlap === "queue" && !this.queued.has(row.id);
     const controller = new AbortController();
     let release = () => {};
     const finished = new Promise<void>((r) => {
       release = r;
     });
-    if (!busy) this.running.set(row.id, { controller, done: finished });
-    const status: AutomationRunStatus = busy ? "skipped" : "running";
+    let go = () => {};
+    const turn = new Promise<void>((r) => {
+      go = r;
+    });
+    const slot = { controller, done: finished };
+    if (!busy) this.running.set(row.id, slot);
+    if (queue) this.queued.set(row.id, { slot, go });
+    const status: AutomationRunStatus = queue ? "queued" : busy ? "skipped" : "running";
     const startedAt = this.now();
     let inserted = false;
     try {
@@ -423,9 +708,13 @@ export class AutomationService {
           row.owner_id,
           trigger,
           status,
-          busy ? "The previous run was still going." : "",
+          queue
+            ? "Waiting for the previous run to end."
+            : busy
+              ? "The previous run was still going."
+              : "",
           startedAt,
-          busy ? startedAt : null,
+          busy && !queue ? startedAt : null,
         ],
       );
       inserted = true;
@@ -435,6 +724,7 @@ export class AutomationService {
         this.running.delete(row.id);
         release();
       }
+      if (queue) this.queued.delete(row.id);
       // A run row left "running" would stay so until the next restart: close it with the reason.
       const recorded =
         inserted &&
@@ -452,16 +742,73 @@ export class AutomationService {
     }
     this.changed(row.owner_id, row.id);
     const run = await this.getRun(runId);
-    if (busy) return { run, done: Promise.resolve() };
+    if (busy && !queue) return { run, done: Promise.resolve() };
+    const end = { depth: opts.depth ?? 0, ...(opts.replyTo && { replyTo: opts.replyTo }) };
 
-    const timeout = setTimeout(
-      () => controller.abort(new TimeoutError()),
-      recipe.timeoutMinutes * (this.o.minuteMs ?? 60_000),
-    );
     let sessionId: string | null = null;
     const done = (async () => {
+      if (queue) {
+        // Its turn comes when the run in progress ends (or never, when the server stops).
+        await turn;
+        if (controller.signal.aborted) {
+          await this.finish(
+            row,
+            recipe,
+            runId,
+            trigger,
+            aborted(controller.signal, recipe),
+            null,
+            end,
+          );
+          return;
+        }
+        await this.o.db
+          .query(
+            "UPDATE rg_automation_runs SET status = 'running', summary = '', started_at = $2 WHERE id = $1",
+            [runId, this.now()],
+          )
+          .catch(() => {});
+        await this.log(row, recipe, runId, trigger, "running", null).catch(() => {});
+        this.changed(row.owner_id, row.id);
+      }
+      const timeout = setTimeout(
+        () => controller.abort(new TimeoutError()),
+        recipe.timeoutMinutes * (this.o.minuteMs ?? 60_000),
+      );
       let outcome: { status: AutomationRunStatus; summary: string };
       try {
+        // Asked first when the recipe says so; only a clear yes goes on (G33.3).
+        if (recipe.approve && trigger !== "manual") {
+          await this.o.db
+            .query("UPDATE rg_automation_runs SET summary = $2 WHERE id = $1", [
+              runId,
+              "Waiting for your yes.",
+            ])
+            .then(() => this.changed(row.owner_id, row.id))
+            .catch(() => {});
+          const yes = this.o.host.approve
+            ? await this.o.host
+                .approve(
+                  row.owner_id,
+                  recipe,
+                  { automationId: row.id, runId, trigger, about: about(trigger, payload) },
+                  controller.signal,
+                )
+                .catch(() => false)
+            : false;
+          if (yes !== true) {
+            await this.finish(
+              row,
+              recipe,
+              runId,
+              trigger,
+              { status: "skipped", summary: "Not approved: it did not run." },
+              null,
+              { ...end, quiet: true },
+            );
+            return;
+          }
+        }
         // A reminder is its own message: no agent, no model.
         const r =
           recipe.reminder !== undefined
@@ -487,6 +834,10 @@ export class AutomationService {
                       ])
                       .catch(() => {});
                 },
+                spent: (usd) => {
+                  if (recipe.budgetUsd !== undefined && usd > recipe.budgetUsd)
+                    controller.abort(new BudgetError(recipe.budgetUsd, usd));
+                },
                 signal: controller.signal,
               });
         outcome = controller.signal.aborted
@@ -499,11 +850,25 @@ export class AutomationService {
       } finally {
         clearTimeout(timeout);
       }
-      await this.finish(row, recipe, runId, trigger, outcome, sessionId);
+      await this.finish(row, recipe, runId, trigger, outcome, sessionId, end);
     })().finally(() => {
-      this.running.delete(row.id);
+      if (this.running.get(row.id) === slot) this.running.delete(row.id);
       release();
+      // The queued run takes the place of this one, before anything else can.
+      const next = this.queued.get(row.id);
+      if (next) {
+        this.queued.delete(row.id);
+        this.running.set(row.id, next.slot);
+        next.go();
+      }
+      const follow = this.afterRun.get(runId);
+      if (follow) {
+        this.afterRun.delete(runId);
+        const p = follow().finally(() => this.starting.delete(p));
+        this.starting.add(p);
+      }
     });
+    if (!queue) go();
     return { run, done };
   }
 
@@ -514,6 +879,11 @@ export class AutomationService {
     trigger: AutomationTrigger,
     outcome: { status: AutomationRunStatus; summary: string },
     sessionId: string | null,
+    /**
+     * `depth`: how many automations led here (a chain stops at MAX_CHAIN); `replyTo`: the chat
+     * platform that started it; `quiet`: not approved, nothing to tell or to try again.
+     */
+    end: { depth: number; replyTo?: string; quiet?: boolean },
   ) {
     const summary = outcome.summary.slice(0, MAX_SUMMARY);
     await this.o.db
@@ -524,8 +894,13 @@ export class AutomationService {
       .catch(() => {});
     await this.log(row, recipe, runId, trigger, outcome.status, sessionId).catch(() => {});
     this.changed(row.owner_id, row.id);
+    if (end.quiet) return;
+    const failed = outcome.status === "failed" || outcome.status === "timeout";
+    // Tried again later when the recipe says so (G33.3); the person hears of the last try only.
+    const retrying = failed && (await this.planRetry(row, recipe, trigger));
+    if (!failed) await this.clearRetry(row);
     const when = recipe.notify.when;
-    if (when === "always" || (when === "failure" && outcome.status !== "ok")) {
+    if (!retrying && (when === "always" || (when === "failure" && outcome.status !== "ok"))) {
       const head = `Automation ${recipe.name}: ${outcome.status === "ok" ? "done" : outcome.status}`;
       // A reminder is sent as written: it is the message.
       const text =
@@ -534,13 +909,24 @@ export class AutomationService {
           : summary
             ? `${head}\n\n${summary}`
             : head;
-      const delivery = await this.deliver(row.owner_id, text, recipe.notify.to, {
-        automationId: row.id,
-        name: recipe.name,
-        runId,
-        status: outcome.status,
-        sessionId,
-      });
+      // A run started by a chat message answers on that platform, unless the recipe says where.
+      const delivery = await this.deliver(
+        row.owner_id,
+        text,
+        recipe.notify.to ?? (end.replyTo ? [end.replyTo] : undefined),
+        {
+          automationId: row.id,
+          name: recipe.name,
+          runId,
+          status: outcome.status,
+          sessionId,
+        },
+        {
+          subject: head,
+          ...(recipe.notify.email && { to: recipe.notify.email }),
+          ...(recipe.notify.box && { box: recipe.notify.box }),
+        },
+      );
       await this.o.db
         .query("UPDATE rg_automation_runs SET delivery = $2::jsonb WHERE id = $1", [
           runId,
@@ -549,6 +935,44 @@ export class AutomationService {
         .then(() => this.changed(row.owner_id, row.id))
         .catch((err) => this.fail(`run ${runId}: delivery not recorded`, err));
     }
+    // Started once this run has freed its place (a loop back to it must not be skipped).
+    if (!retrying && outcome.status !== "skipped")
+      this.afterRun.set(runId, () =>
+        this.followers(row, recipe, outcome.status, summary, end.depth).catch((err) =>
+          this.fail(`automation ${row.id}: followers`, err),
+        ),
+      );
+  }
+
+  /** A failed run with tries left: the next one is due later. True when one was planned. */
+  private async planRetry(row: Row, recipe: Recipe, trigger: AutomationTrigger): Promise<boolean> {
+    const retries = recipe.onFailure?.retries ?? 0;
+    if (retries === 0) return false;
+    const [fresh] = await this.o.db
+      .query<Row>("SELECT * FROM rg_automations WHERE id = $1", [row.id])
+      .catch(() => [] as Row[]);
+    if (!fresh) return false;
+    const left = trigger === "retry" ? (fresh.retry_left ?? 0) : retries;
+    if (left <= 0) {
+      await this.clearRetry(row);
+      return false;
+    }
+    const at = new Date(this.now().getTime() + (recipe.onFailure?.retryMinutes ?? 5) * 60_000);
+    await this.o.db.query(
+      "UPDATE rg_automations SET retry_at = $2, retry_left = $3 WHERE id = $1",
+      [row.id, at, left - 1],
+    );
+    this.rearm();
+    return true;
+  }
+
+  private async clearRetry(row: Row) {
+    await this.o.db
+      .query(
+        "UPDATE rg_automations SET retry_at = NULL, retry_left = NULL WHERE id = $1 AND retry_at IS NOT NULL",
+        [row.id],
+      )
+      .catch(() => {});
   }
 
   /** Sends a run's message where the recipe says and tells where it arrived. Never throws. */
@@ -557,6 +981,7 @@ export class AutomationService {
     text: string,
     to: string[] | undefined,
     info: NoticeInfo,
+    mail: { subject: string; to?: string; box?: string } = { subject: info.name },
   ): Promise<AutomationDelivery> {
     const delivered: string[] = [];
     const failed: string[] = [];
@@ -571,7 +996,15 @@ export class AutomationService {
             (err) => failed.push(`web: ${message(err)}`),
           );
     }
-    const chats = to?.filter((c) => c !== "web");
+    if (to?.includes("email")) {
+      if (!this.o.host.sendEmail) failed.push("email: not available");
+      else
+        await this.o.host.sendEmail(ownerId, { ...mail, text }).then(
+          (address) => delivered.push(`email ${address}`),
+          (err) => failed.push(`email: ${message(err)}`),
+        );
+    }
+    const chats = to?.filter((c) => c !== "web" && c !== "email");
     if (!chats || chats.length > 0) {
       if (!this.o.host.notify) noChat = true;
       else {
@@ -654,15 +1087,17 @@ export class AutomationService {
 
   /**
    * Starts the schedule. Runs left `running` by a crash are closed; runs missed while the
-   * server was down happen once now if the recipe says `missed: run`.
+   * server was down happen once now if the recipe says `missed: run`; recipes on startup run;
+   * the ends of tasks are followed (G33.3).
    */
   async start(): Promise<void> {
     let failed = false;
+    this.followTasks();
     try {
       await this.o.db
         .query(
           `UPDATE rg_automation_runs SET status = 'failed', summary = 'Interrupted: the server stopped during the run.', finished_at = $1
-       WHERE status = 'running'`,
+       WHERE status IN ('running', 'queued')`,
           [this.now()],
         )
         .catch((err) => this.fail("closing interrupted runs", err));
@@ -672,6 +1107,19 @@ export class AutomationService {
         [now],
       );
       for (const row of late) if (!(await this.due(row, now, "missed"))) failed = true;
+      const all = await this.o.db.query<Row>(
+        "SELECT * FROM rg_automations WHERE enabled ORDER BY name",
+        [],
+      );
+      for (const row of all)
+        if (safeRecipe(row.yaml)?.on.startup)
+          await this.trigger(row, "startup").then(
+            (r) => r?.done.catch(() => {}),
+            async (err) => {
+              failed = true;
+              await this.recordFailure(row, "startup", err);
+            },
+          );
     } catch (err) {
       failed = true;
       this.fail("start", err);
@@ -680,6 +1128,29 @@ export class AutomationService {
       this.started = true;
       this.rearm(failed);
     }
+  }
+
+  /** The ends of tasks, from the log: the recipes with `on.task` start on them. */
+  private followTasks() {
+    if (this.unfollow) return;
+    this.unfollow = this.o.store.subscribe((e) => {
+      if (e.type === "task.opened" && e.payload) {
+        const p = e.payload as { taskId: string; title?: string };
+        this.taskTitles.set(p.taskId, p.title ?? "");
+        if (this.taskTitles.size > 5000) {
+          const first = this.taskTitles.keys().next().value;
+          if (first !== undefined) this.taskTitles.delete(first);
+        }
+      }
+      if (e.type !== "task.closed" || !e.payload) return;
+      const p = e.payload as { taskId: string; outcome: string };
+      const title = this.taskTitles.get(p.taskId) ?? "";
+      void this.taskClosed(e.ownerId, e.projectId ?? null, {
+        id: p.taskId,
+        outcome: p.outcome,
+        title,
+      }).catch((err) => this.fail("task closed", err));
+    });
   }
 
   /** Runs every recipe that is due at `now`, then points the timer at the next one. */
@@ -692,6 +1163,21 @@ export class AutomationService {
         [now],
       );
       for (const row of due) if (!(await this.due(row, now, "cron"))) failed = true;
+      // Failed runs tried again (G33.3).
+      const again = await this.o.db.query<Row>(
+        "SELECT * FROM rg_automations WHERE enabled AND retry_at IS NOT NULL AND retry_at <= $1 ORDER BY retry_at",
+        [now],
+      );
+      for (const row of again) {
+        await this.o.db.query("UPDATE rg_automations SET retry_at = NULL WHERE id = $1", [row.id]);
+        await this.trigger(row, "retry").then(
+          (r) => r?.done.catch(() => {}),
+          async (err) => {
+            failed = true;
+            await this.recordFailure(row, "retry", err);
+          },
+        );
+      }
     } catch (err) {
       failed = true;
       this.fail("tick", err);
@@ -749,7 +1235,10 @@ export class AutomationService {
     };
     void this.o.db
       .query<{ next: Date | string | null }>(
-        "SELECT min(next_run_at) AS next FROM rg_automations WHERE enabled AND next_run_at IS NOT NULL",
+        `SELECT min(t) AS next FROM (
+           SELECT next_run_at AS t FROM rg_automations WHERE enabled AND next_run_at IS NOT NULL
+           UNION ALL SELECT retry_at AS t FROM rg_automations WHERE enabled AND retry_at IS NOT NULL
+         ) due`,
       )
       .then(
         ([r]) => arm(r?.next ? new Date(r.next).getTime() - this.now().getTime() : max),
@@ -760,22 +1249,84 @@ export class AutomationService {
       );
   }
 
-  /** Every run that is going right now has finished. */
+  /** Every run that is going right now (or waits for its turn) has finished. */
   async idle(): Promise<void> {
-    while (this.running.size > 0)
-      await Promise.allSettled([...this.running.values()].map((r) => r.done));
+    while (this.running.size > 0 || this.queued.size > 0 || this.starting.size > 0)
+      await Promise.allSettled([
+        ...[...this.running.values(), ...[...this.queued.values()].map((q) => q.slot)].map(
+          (r) => r.done,
+        ),
+        ...this.starting,
+      ]);
   }
 
   /** Stops the timer and the runs in progress (they are recorded as failed). */
   async stop(): Promise<void> {
     this.started = false;
     clearTimeout(this.timer);
+    this.unfollow?.();
+    this.unfollow = undefined;
     for (const r of this.running.values()) r.controller.abort(new Error("The server is stopping"));
+    for (const q of this.queued.values())
+      q.slot.controller.abort(new Error("The server is stopping"));
     await this.idle();
   }
 }
 
 class TimeoutError extends Error {}
+
+/** A run past its recipe's spending limit (G33.3). */
+class BudgetError extends Error {
+  constructor(limit: number, spent: number) {
+    super(
+      `Stopped: it spent $${spent.toFixed(2)}, over the limit of $${limit.toFixed(2)} for one run.`,
+    );
+  }
+}
+
+/** A run that started, and its end. */
+export type Started = { run: AutomationRun; done: Promise<void> };
+
+/** How many automations may start one another in a row (A after B after C…). */
+const MAX_CHAIN = 5;
+
+/** A recipe, or undefined when it no longer reads (it is reported where it is due). */
+function safeRecipe(yaml: string): Recipe | undefined {
+  try {
+    return parseRecipe(yaml);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether an email trigger watches this mailbox: all, these ids, or these categories. */
+function watches(
+  f: NonNullable<Recipe["on"]["email"]>,
+  box: { id: string; category: string } | undefined,
+): boolean {
+  if (!f.boxes && !f.categories) return true;
+  if (!box) return false;
+  return (f.boxes?.includes(box.id) ?? false) || (f.categories?.includes(box.category) ?? false);
+}
+
+/** What started a run, in a line, for the person asked to approve it. */
+function about(trigger: AutomationTrigger, payload: unknown): string {
+  const p = (payload ?? {}) as {
+    email?: { from: string; subject: string };
+    message?: { platform: string; from: string; text: string };
+    files?: { path: string }[];
+    after?: { automation: string; status: string };
+    task?: { title: string; outcome: string };
+  };
+  const cut = (x: string) => (x.length > 160 ? `${x.slice(0, 160)}…` : x);
+  if (p.email) return cut(`Email from ${p.email.from}: ${p.email.subject}`);
+  if (p.message)
+    return cut(`Message on ${p.message.platform} from ${p.message.from}: ${p.message.text}`);
+  if (p.files) return cut(`Files changed: ${p.files.map((f) => f.path).join(", ")}`);
+  if (p.after) return `Automation ${p.after.automation} ended: ${p.after.status}`;
+  if (p.task) return cut(`Task ended (${p.task.outcome}): ${p.task.title}`);
+  return trigger;
+}
 
 function aborted(
   signal: AbortSignal,

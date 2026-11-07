@@ -24,6 +24,7 @@ import {
   type Proposal,
   type SetupState,
 } from "../api.js";
+import { brandOr } from "../brands.js";
 import { lang, t } from "../i18n.js";
 import {
   IconBell,
@@ -423,7 +424,7 @@ function AddForm({
 const CATEGORIES = (
   ["code", "docs", "web", "data", "work", "design", "cloud", "home"] as McpCategory[]
 ).filter((c) => MCP_CATALOG.some((e) => e.category === c));
-/** Drawn icons by kind of service: never the services' own logos. */
+/** Drawn icons by kind of service, for services without a logo of their own (brands.tsx). */
 const CATEGORY_ICON = {
   code: IconTerminal,
   docs: IconFile,
@@ -438,6 +439,9 @@ const catIcon = (c: McpCategory) => {
   const Icon = CATEGORY_ICON[c];
   return <Icon />;
 };
+/** A catalog service's own logo (2026-11-07), or its kind's drawn icon. */
+const serviceIcon = (e: { id: string; category: McpCategory }) =>
+  brandOr(e.id, catIcon(e.category), 26);
 
 /**
  * The catalog: a search, the kinds as chips, one square per service; each opens its window. On a
@@ -498,7 +502,7 @@ function Catalog({
           <Tile
             key={e.id}
             on={added.has(e.id)}
-            icon={catIcon(e.category)}
+            icon={serviceIcon(e)}
             title={e.name}
             badge={e.official ? t("extOfficial") : undefined}
             text={e.description[lang.value]}
@@ -596,7 +600,7 @@ function Connected({
             <Tile
               key={x.name}
               on={st?.state === "connected"}
-              icon={e ? catIcon(e.category) : <IconServer />}
+              icon={e ? serviceIcon(e) : <IconServer />}
               title={e?.name ?? x.name}
               badge={st?.state === "error" ? t("extBroken") : undefined}
               text={scopeLabel(x.project_id)}

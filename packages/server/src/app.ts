@@ -49,15 +49,18 @@ import {
   SessionBusyError,
 } from "./core.js";
 import { debugLog } from "./debug-log.js";
+import { MailboxNotFoundError } from "./email.js";
 import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
 import { HuggingFace } from "./hf.js";
 import { localModelChoices } from "./local-models.js";
 import { LoginError } from "./login.js";
+import { MagicNotFoundError, MagicStateError } from "./magic.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
 import { SubprojectError } from "./projects.js";
 import { RoomError } from "./rooms.js";
 import type { SetupService } from "./setup.js";
+import { MEMORY_ENTRY_LIMIT, MemoryError } from "./shared-memory.js";
 import { MAX_AUDIO_BYTES, TranscriptionError } from "./voice.js";
 
 type Env = { Variables: { principal: Principal } };
@@ -834,8 +837,14 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   });
 
   app.onError((err, c) => {
-    if (err instanceof NotFoundError || err instanceof AutomationNotFoundError)
+    if (
+      err instanceof NotFoundError ||
+      err instanceof AutomationNotFoundError ||
+      err instanceof MailboxNotFoundError ||
+      err instanceof MagicNotFoundError
+    )
       return c.json({ error: err.message }, 404);
+    if (err instanceof MagicStateError) return c.json({ error: err.message }, 400);
     if (err instanceof RecipeError) return c.json({ error: err.message }, 400);
     if (err instanceof SessionBusyError) return c.json({ error: err.message }, 409);
     if (err instanceof NoModelError) return c.json({ error: err.message, code: err.code }, 400);
@@ -2102,6 +2111,77 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     }
     return c.json({ ok: true }, 200);
   });
+  // The shared memory (G33.2): what every agent knows about the person. The person sees, adds,
+  // edits, removes and undoes each memory, and turns the learning from the conversations on or off.
+  const memoryFailed = (c: Context<Env>, err: unknown) => {
+    if (err instanceof MemoryError) return c.json({ error: err.message, code: err.code }, 400);
+    throw err;
+  };
+  const MemoryText = z.object({
+    text: z
+      .string()
+      .min(1)
+      .max(MEMORY_ENTRY_LIMIT * 2),
+  });
+  const byPerson = { by: "human" } as const;
+  app.get("/api/memory", async (c) => c.json(await core.sharedMemoryView(owner(c)), 200));
+  app.post("/api/memory", async (c) => {
+    const b = MemoryText.safeParse(await c.req.json().catch(() => undefined));
+    if (!b.success) return c.json({ error: "text is required" }, 400);
+    try {
+      const r = await core.sharedMemory.add(owner(c), b.data.text, byPerson);
+      return c.json(r, 200);
+    } catch (err) {
+      return memoryFailed(c, err);
+    }
+  });
+  app.put("/api/memory/settings", async (c) => {
+    const b = z.object({ auto: z.boolean() }).safeParse(await c.req.json().catch(() => undefined));
+    if (!b.success) return c.json({ error: "auto is required" }, 400);
+    await core.sharedMemory.setAuto(owner(c), b.data.auto, "human");
+    return c.json({ ok: true }, 200);
+  });
+  app.post("/api/memory/undo", async (c) => {
+    const b = z
+      .object({ seq: z.number().int() })
+      .safeParse(await c.req.json().catch(() => undefined));
+    if (!b.success) return c.json({ error: "seq is required" }, 400);
+    try {
+      await core.sharedMemory.undo(owner(c), b.data.seq, byPerson);
+      return c.json({ ok: true }, 200);
+    } catch (err) {
+      return memoryFailed(c, err);
+    }
+  });
+  app.put("/api/memory/:id", async (c) => {
+    const b = MemoryText.safeParse(await c.req.json().catch(() => undefined));
+    if (!b.success) return c.json({ error: "text is required" }, 400);
+    try {
+      return c.json(
+        await core.sharedMemory.edit(owner(c), c.req.param("id"), b.data.text, byPerson),
+        200,
+      );
+    } catch (err) {
+      return memoryFailed(c, err);
+    }
+  });
+  // Forgotten for good: the memory and its text in every past event (not undoable).
+  app.post("/api/memory/:id/forget", async (c) => {
+    try {
+      await core.sharedMemory.forget(owner(c), c.req.param("id"), byPerson);
+      return c.json({ ok: true }, 200);
+    } catch (err) {
+      return memoryFailed(c, err);
+    }
+  });
+  app.delete("/api/memory/:id", async (c) => {
+    try {
+      await core.sharedMemory.remove(owner(c), c.req.param("id"), byPerson);
+      return c.json({ ok: true }, 200);
+    } catch (err) {
+      return memoryFailed(c, err);
+    }
+  });
   // Edit a message and send it again (2026-11-05): a copy of the conversation up to it.
   app.post("/api/sessions/:id/fork", async (c) => {
     const body = await c.req
@@ -2374,6 +2454,109 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   });
   app.delete("/api/settings/email", async (c) => {
     await core.email.remove(owner(c));
+    return c.json({ ok: true }, 200);
+  });
+  // Many mailboxes, each with its name and category (G33.3); passwords are never sent back.
+  const MailboxBody = z.object({
+    name: z.string().max(80).default(""),
+    category: z.string().max(40).default("other"),
+    host: z.string().min(1).max(200),
+    port: z.number().int().min(1).max(65535).default(993),
+    secure: z.boolean().default(true),
+    user: z.string().min(1).max(320),
+    password: z.string().min(1).max(500),
+    smtp: z
+      .object({
+        host: z.string().min(1).max(200),
+        port: z.number().int().min(1).max(65535),
+        secure: z.boolean(),
+      })
+      .optional(),
+  });
+  app.get("/api/settings/mailboxes", async (c) =>
+    c.json(
+      {
+        boxes: await core.email.boxes(owner(c)),
+        categories: await core.email.categories(owner(c)),
+      },
+      200,
+    ),
+  );
+  app.post("/api/settings/mailboxes", async (c) => {
+    const b = MailboxBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "Server, user and password are needed" }, 400);
+    try {
+      const { smtp, ...rest } = b.data;
+      return c.json(await core.addMailbox(owner(c), { ...rest, ...(smtp && { smtp }) }), 201);
+    } catch (err) {
+      return c.json(
+        { error: `The mailbox did not answer: ${(err as Error).message}`, code: "email_failed" },
+        400,
+      );
+    }
+  });
+  app.put("/api/settings/mailboxes/:id", async (c) => {
+    const b = MailboxBody.partial()
+      .extend({ smtp: MailboxBody.shape.smtp.unwrap().nullable().optional() })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: b.error.issues[0]?.message ?? "Bad mailbox" }, 400);
+    const patch = Object.fromEntries(
+      Object.entries(b.data).filter(([, v]) => v !== undefined),
+    ) as Parameters<typeof core.updateMailbox>[2];
+    try {
+      return c.json(await core.updateMailbox(owner(c), c.req.param("id"), patch), 200);
+    } catch (err) {
+      if (err instanceof MailboxNotFoundError) throw err;
+      return c.json(
+        { error: `The mailbox did not answer: ${(err as Error).message}`, code: "email_failed" },
+        400,
+      );
+    }
+  });
+  app.delete("/api/settings/mailboxes/:id", async (c) => {
+    await core.email.removeBox(owner(c), c.req.param("id"));
+    return c.json({ ok: true }, 200);
+  });
+  // What the editor shows while the person writes (G33.3): the recipe read, or why not, and
+  // its next times.
+  app.post("/api/automations/preview", async (c) => {
+    const b = z
+      .object({ yaml: z.string().max(100_000), count: z.number().int().min(1).max(20).optional() })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "yaml is needed" }, 400);
+    return c.json(await core.automations.preview(owner(c), b.data.yaml, b.data.count ?? 5), 200);
+  });
+  // Magic automations (G33.3): a conversation with God that ends in a proposal; only the
+  // person's yes makes it an automation.
+  app.get("/api/magic", async (c) => c.json(await core.magic.list(owner(c)), 200));
+  app.post("/api/magic", async (c) => {
+    const b = z
+      .object({ request: z.string().trim().min(1).max(20_000) })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "Write what the automation should do" }, 400);
+    return c.json(await core.magic.create(owner(c), b.data.request), 201);
+  });
+  app.get("/api/magic/:id", async (c) =>
+    c.json(await core.magic.get(owner(c), c.req.param("id")), 200),
+  );
+  app.post("/api/magic/:id/approve", async (c) => {
+    const b = z
+      .object({ yaml: z.string().min(1).max(100_000).optional() })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "Bad recipe" }, 400);
+    return c.json(await core.magic.approve(owner(c), c.req.param("id"), b.data.yaml), 200);
+  });
+  app.post("/api/magic/:id/reject", async (c) => {
+    const b = z
+      .object({ reason: z.string().max(4000).optional() })
+      .safeParse(await c.req.json().catch(() => ({})));
+    return c.json(
+      await core.magic.reject(owner(c), c.req.param("id"), b.success ? b.data.reason : undefined),
+      200,
+    );
+  });
+  app.delete("/api/magic/:id", async (c) => {
+    await core.magic.dismiss(owner(c), c.req.param("id"));
     return c.json({ ok: true }, 200);
   });
   // A routine on a project's repository events (G24.14c): the webhook is added on Gitea or GitHub.

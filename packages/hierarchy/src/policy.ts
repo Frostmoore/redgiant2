@@ -205,6 +205,8 @@ export const READ_ONLY_TOOLS = new Set([
   "memory",
   // The agent's list of steps (2026-11-05): shown to the person, changes nothing.
   "update_todos",
+  // Magic automations (G33.3): a proposal the person approves (or the list of links).
+  "propose_automation",
 ]);
 
 const toolMatches = (pattern: string, tool: string) =>

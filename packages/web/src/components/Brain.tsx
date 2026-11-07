@@ -6,6 +6,7 @@ import { KEY_PROVIDERS, OWN_SERVER_ID } from "@redgiant/protocol";
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { ApiError, type ClaudeAccount, type SetupState, type SubscriptionProgram } from "../api.js";
+import { BrandIcon, brandOr, hasBrand } from "../brands.js";
 import { t, tOptional } from "../i18n.js";
 import { IconChat, IconKey, IconMonitor, IconServer, IconSpark } from "../icons.js";
 import { getApi, refreshLimits } from "../state.js";
@@ -390,6 +391,7 @@ export function KeysForm({
               setResult(undefined);
             }}
           >
+            {hasBrand(x.id) && <BrandIcon id={x.id} size={16} />}
             {x.name}
           </button>
         ))}
@@ -582,7 +584,7 @@ export function providerName(id: string): string {
 /** The ways of thinking as the wizard's squares (2026-11-06): the wizard and Settings show them. */
 export function wayTiles(): [Way, JSX.Element, string, string][] {
   return [
-    ["claude", <IconSpark key="c" />, t("brainClaude"), t("wzBrainClaude")],
+    ["claude", brandOr("claude", <IconSpark key="c" />), t("brainClaude"), t("wzBrainClaude")],
     ["chatgpt", <IconChat key="g" size={22} />, t("brainChatgpt"), t("wzBrainChatgpt")],
     ["keys", <IconKey key="k" />, t("wzBrainKeysTitle"), t("wzBrainKeys")],
     ["server", <IconServer key="s" />, t("brainServer"), t("wzBrainServer")],

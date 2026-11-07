@@ -4,6 +4,7 @@
 // conversation is the same everywhere: begun on Telegram, it goes on here, and on the web.
 import { useEffect, useState } from "preact/hooks";
 import type { ChatPlatform, SetupState } from "../api.js";
+import { brandOr } from "../brands.js";
 import { type Key, t } from "../i18n.js";
 import { IconChat, IconPhone, IconUsers } from "../icons.js";
 import { getApi } from "../state.js";
@@ -52,11 +53,12 @@ const TEXT: Record<ChatPlatform, Key> = {
   whatsapp: "sbChatWaText",
 };
 
+// Their own logos where simple-icons has them (2026-11-07); Slack's was withdrawn there.
 const ICON = {
-  discord: <IconChat size={26} />,
+  discord: brandOr("discord", <IconChat size={26} />, 26),
   slack: <IconUsers size={26} />,
-  signal: <IconPhone size={26} />,
-  whatsapp: <IconPhone size={26} />,
+  signal: brandOr("signal", <IconPhone size={26} />, 26),
+  whatsapp: brandOr("whatsapp", <IconPhone size={26} />, 26),
 } satisfies Record<ChatPlatform, preact.JSX.Element>;
 
 const linksOf = (p: ChatPlatform) =>

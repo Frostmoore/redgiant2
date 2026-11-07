@@ -78,7 +78,12 @@ export function SearchSettings({
         <div class="search-how">
           <strong>{t("searchHowTitle", { name: info.name })}</strong>
           <ol>
-            {t(`searchHow_${info.id}`)
+            {/* RedGiant's own SearXNG has its button only where it can run (2026-11-07). */}
+            {t(
+              info.id === "searxng" && !s.canRunSearch
+                ? "searchHow_searxng_own"
+                : `searchHow_${info.id}`,
+            )
               .split("\n")
               .map((step) => (
                 <li key={step}>{step}</li>

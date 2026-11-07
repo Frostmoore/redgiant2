@@ -28,6 +28,15 @@ export interface TelegramHost {
       onQueued?: () => void;
     },
   ): Promise<string>;
+  /**
+   * A message from a linked person, before Demi-God reads it (G33.3): automations waiting for
+   * one like it start; `taken` when one keeps it, then Demi-God does not answer it and the chat
+   * is told which automation took it.
+   */
+  chatMessage?(
+    ownerId: string,
+    m: { platform: string; userId: string; from: string; chatId: string; text: string },
+  ): Promise<{ taken: boolean; names: string[] }>;
   /** Voice notes to text (the server's transcription service), when one is set. */
   transcribe?(audio: Uint8Array, mime: string, language?: string): Promise<string>;
   readonly transcription?: unknown;
@@ -274,6 +283,23 @@ export class TelegramGateway {
     const replyTo = ctx.message?.reply_to_message?.message_id;
     if (replyTo !== undefined && (await this.answerByText(owner, ctx.chat.id, replyTo, text)))
       return;
+    const auto = await this.o.host
+      .chatMessage?.(owner, {
+        platform: "telegram",
+        userId: String(ctx.from?.id ?? ""),
+        from: [ctx.from?.first_name, ctx.from?.last_name, ctx.from?.username]
+          .filter(Boolean)
+          .join(" "),
+        chatId: String(ctx.chat.id),
+        text,
+      })
+      .catch(() => undefined);
+    if (auto?.taken) {
+      await ctx
+        .reply(this.say(owner, "automationTook", { names: auto.names.join(", ") }))
+        .catch(() => {});
+      return;
+    }
     this.background(this.relay(owner, ctx.chat.id, text));
   }
 

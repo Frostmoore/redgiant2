@@ -678,6 +678,7 @@ export type SettingsSection =
   | "general"
   | "setup"
   | "agents"
+  | "memory"
   | "automations"
   | "extensions"
   | "telegram"

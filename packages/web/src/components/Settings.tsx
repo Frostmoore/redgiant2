@@ -7,6 +7,7 @@ import { useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import {
   IconArchive,
+  IconBook,
   IconCard,
   IconChat,
   IconChevronDown,
@@ -33,6 +34,7 @@ import { Hierarchy } from "./Hierarchy.js";
 import { Platform } from "./Platform.js";
 import { RemoteSettings } from "./RemoteSettings.js";
 import { Setup } from "./Setup.js";
+import { SharedMemoryPage } from "./SharedMemory.js";
 import { Subscriptions } from "./Subscriptions.js";
 import { Telegram } from "./Telegram.js";
 import { Modal } from "./ui.js";
@@ -52,6 +54,7 @@ const GROUPS: { title: () => string; sections: Section[] }[] = [
     title: () => t("stGrpWho"),
     sections: [
       { id: "agents", label: () => t("agents"), icon: <IconTree size={20} /> },
+      { id: "memory", label: () => t("memSection"), icon: <IconBook size={20} /> },
       { id: "automations", label: () => t("automations"), icon: <IconClock size={20} /> },
       { id: "extensions", label: () => t("extensions"), icon: <IconPuzzle size={20} /> },
     ],
@@ -153,6 +156,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "general" && <General />}
         {section === "setup" && <Setup />}
         {section === "agents" && <Hierarchy />}
+        {section === "memory" && <SharedMemoryPage />}
         {section === "automations" && <Automations />}
         {section === "extensions" && <Extensions />}
         {section === "telegram" && <Telegram />}

@@ -3,8 +3,8 @@
 // linked account, each with Unlink.
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
+import { BrandIcon } from "../brands.js";
 import { t } from "../i18n.js";
-import { IconTelegram } from "../icons.js";
 import { getApi } from "../state.js";
 import { Box, Row, Sub } from "./SettingsKit.js";
 import { PHONE, useMedia, type Wz, WzCtx } from "./SetupKit.js";
@@ -35,7 +35,8 @@ function Accounts({ onUnlinked }: { onUnlinked: () => void }) {
             key={l.userId}
             title={
               <span class="st-acct">
-                <IconTelegram size={18} /> {l.username ? `@${l.username}` : String(l.userId)}
+                <BrandIcon id="telegram" size={18} />{" "}
+                {l.username ? `@${l.username}` : String(l.userId)}
               </span>
             }
             help={t("tgLinked", { who: l.username ? `@${l.username}` : String(l.userId) })}

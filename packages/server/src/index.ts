@@ -30,6 +30,7 @@ export * from "./remote.js";
 export * from "./rooms.js";
 export * from "./serve.js";
 export * from "./setup.js";
+export * from "./shared-memory.js";
 export * from "./terminal.js";
 export * from "./voice.js";
 export * from "./win-engine.js";

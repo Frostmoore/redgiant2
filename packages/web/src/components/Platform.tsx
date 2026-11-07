@@ -5,10 +5,10 @@
 import { useEffect, useState } from "preact/hooks";
 import type { PlatformChange } from "../api.js";
 import { codeStageText, describeChange, type Names } from "../changes.js";
-import { t } from "../i18n.js";
+import { t, tOptional } from "../i18n.js";
 import { IconGit, IconSettings } from "../icons.js";
 import { agents, attempt, getApi, platformInfo, platformVersion, projects } from "../state.js";
-import { Acts, Head, Sub, WzPage } from "./SettingsKit.js";
+import { Acts, Head, Row, Sub, WzPage } from "./SettingsKit.js";
 import { Advanced, Modal } from "./ui.js";
 
 const names: Names = {
@@ -137,7 +137,7 @@ function CodeChange({
           </Acts>
         </Modal>
       )}
-      {c.stage === "tested" && !supervised && <p class="ui-help">{t("notSupervised")}</p>}
+      {c.stage === "tested" && !supervised && <p class="ui-help">{t("techNotSupervised")}</p>}
       {c.detail && (
         <Advanced label={t("historyTechnical")}>
           <pre>{c.detail}</pre>
@@ -188,19 +188,45 @@ export function Platform() {
       {info && (
         <div class="sb-list sb-tech">
           <Advanced label={t("historyTechnical")}>
-            <div class="platform-status">
-              <span class={`chip ${info.sandbox === "host" ? "danger" : ""}`}>
-                {t("sandbox")}: {info.sandbox}
-              </span>
-              {info.metal && <span class="chip danger">{t("metal")}</span>}
-              <span class={`chip ${info.supervised ? "" : "muted"}`}>
-                {info.supervised ? t("supervised") : t("notSupervised")}
-              </span>
-              {info.lastGood && (
-                <span class="chip muted">
-                  {t("lastGood")}: <code>{info.lastGood.slice(0, 8)}</code>
-                </span>
+            {/* In plain words (2026-11-07): the person could not read «Sandbox: host» in red. Agents
+                on the computer is the normal setup since 2.0; only metal mode is worth a warning. */}
+            <div class="platform-status g33-tech">
+              <Row
+                title={t("techWhereTitle")}
+                help={
+                  <>
+                    {tOptional(`techWhere_${info.sandbox}`) ?? info.sandbox}
+                    {info.sandbox === "host" && (
+                      <span class="g33-tech-ok">{t("techWhereNormal")}</span>
+                    )}
+                  </>
+                }
+              />
+              {info.metal && (
+                <div class="g33-tech-warn">
+                  <Row title={t("techMetalTitle")} help={t("techMetal")} />
+                </div>
               )}
+              <Row
+                title={t("techCodeTitle")}
+                help={
+                  info.supervised ? (
+                    <>
+                      {t("techSupervised")}
+                      {info.lastGood && (
+                        <span class="g33-tech-ok">
+                          {t("techLastGood", { commit: info.lastGood.slice(0, 8) })}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {t("techNotSupervised")}
+                      <span class="g33-tech-ok">{t("techNotSupervisedMeans")}</span>
+                    </>
+                  )
+                }
+              />
             </div>
             {info.releases.length > 0 && (
               <>

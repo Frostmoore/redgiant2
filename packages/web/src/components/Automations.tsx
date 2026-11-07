@@ -1,38 +1,71 @@
-// Automations (G24.8), drawn as the wizard (2026-11-06): two big squares to make one (an
-// automation or a reminder), the automations as squares lit when switched on, each opening a
-// window (a sheet from below on phones) with its switch, its webhook, its runs and the buttons to
-// run it, change it or delete it; making and changing happen in a window too, in words, with the
-// YAML for experts.
-import type { Automation, AutomationRun } from "@redgiant/protocol";
+// Automations (G24.8), drawn as the wizard (2026-11-06): big squares to make one (an automation,
+// a reminder, or a magic one built with God, G33.3), the automations as squares lit when switched
+// on, each opening a window (a sheet from below on phones) with its switch, its webhook, its runs
+// and the buttons to run it, change it or delete it. Making and changing happen in the editor of
+// AutomationEditor.tsx; the mailboxes, by category, sit under «Connections».
+import type { Automation, AutomationRun, MagicAutomation } from "@redgiant/protocol";
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import {
   IconBell,
+  IconChat,
   IconClock,
+  IconFolder,
   IconGit,
   IconGlobe,
+  IconLayers,
   IconPencil,
   IconPlay,
   IconPlus,
   IconRefresh,
   IconSend,
+  IconSpark,
+  IconZap,
 } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
-import { agents, attempt, automationsVersion, getApi, openTab, projects } from "../state.js";
+import { agents, attempt, automationsVersion, getApi, openTab } from "../state.js";
+import { Editor, fromOn, fromRecipe, sentence, whenWords } from "./AutomationEditor.js";
 import { explain } from "./Brain.js";
-import { MailboxNeed, MailboxWindow, useMailbox } from "./EmailSettings.js";
-import { Acts, Chips, Facts, Head, Sub, SwitchRow, Tile, WzPage } from "./SettingsKit.js";
-import { Advanced, Field, Modal } from "./ui.js";
+import { Mailboxes } from "./EmailSettings.js";
+import { MagicChat, MagicStart } from "./MagicAutomation.js";
+import { Acts, Facts, Head, Sub, SwitchRow, Tile, WzPage } from "./SettingsKit.js";
+import { Field, Modal } from "./ui.js";
+
+// The editor and its words live in AutomationEditor.tsx; these names stay importable from here.
+export {
+  type Draft,
+  Editor,
+  fromCron,
+  fromOn,
+  fromRecipe,
+  sentence,
+  toCron,
+  toYaml,
+  type When,
+  whenWords,
+} from "./AutomationEditor.js";
 
 const STATUSES: AutomationRun["status"][] = ["running", "ok", "failed", "timeout", "skipped"];
 const TRIGGERS: AutomationRun["trigger"][] = ["cron", "webhook", "manual", "missed"];
+/** The triggers added later (G33.3), with their own words. */
+const MORE_TRIGGERS: AutomationRun["trigger"][] = [
+  "email",
+  "message",
+  "files",
+  "after",
+  "task",
+  "startup",
+  "retry",
+];
 const statusLabel = (s: AutomationRun["status"]) =>
-  t("runStatus").split(",")[STATUSES.indexOf(s)] ?? s;
+  s === "queued" ? t("axRunQueued") : (t("runStatus").split(",")[STATUSES.indexOf(s)] ?? s);
 const triggerLabel = (s: AutomationRun["trigger"]) =>
-  t("runTriggers").split(",")[TRIGGERS.indexOf(s)] ?? s;
+  TRIGGERS.includes(s)
+    ? (t("runTriggers").split(",")[TRIGGERS.indexOf(s)] ?? s)
+    : (t("axRunTriggers").split(",")[MORE_TRIGGERS.indexOf(s)] ?? s);
 const runClass = (s: AutomationRun["status"]) =>
-  s === "ok" ? "ok" : s === "running" || s === "skipped" ? "" : "bad";
+  s === "ok" ? "ok" : s === "running" || s === "skipped" || s === "queued" ? "" : "bad";
 const when = (iso: string) => new Date(iso).toLocaleString();
 
 /** Whether a run's message reached the person (Telegram, the web…), in words. */
@@ -112,504 +145,18 @@ function Runs({ a }: { a: Automation }) {
   );
 }
 
-// --- When it runs, in words (G24.8): the choices people make, and the cron they become -------
-
-type When =
-  | { kind: "daily" | "weekdays"; time: string }
-  | { kind: "weekly"; time: string; days: number[] }
-  | { kind: "hours"; every: number }
-  | { kind: "monthly"; time: string; day: number }
-  | { kind: "webhook" }
-  /** On events of a project's repository (G24.14c): its webhook is added by RedGiant. */
-  | { kind: "repo"; project: string; events: string[] }
-  /** On new email in the person's mailbox that matches (G24.14c). */
-  | { kind: "email"; from: string; subject: string }
-  | { kind: "custom"; cron: string };
-
-const pad = (n: number) => String(n).padStart(2, "0");
-const hm = (time: string) => {
-  const [h = "8", m = "0"] = time.split(":");
-  return { h: Number(h), m: Number(m) };
-};
-
-/** The cron expression of a choice (null: no schedule, only the webhook). */
-export function toCron(w: When): string | null {
-  if (w.kind === "webhook" || w.kind === "repo" || w.kind === "email") return null;
-  if (w.kind === "custom") return w.cron;
-  if (w.kind === "hours") return `0 */${Math.max(1, Math.min(23, w.every))} * * *`;
-  const { h, m } = hm(w.time);
-  if (w.kind === "daily") return `${m} ${h} * * *`;
-  if (w.kind === "weekdays") return `${m} ${h} * * 1-5`;
-  if (w.kind === "monthly") return `${m} ${h} ${w.day} * *`;
-  if (w.kind === "weekly") return `${m} ${h} * * ${[...w.days].sort().join(",") || "1"}`;
-  return `${m} ${h} * * *`;
-}
-
-/** The choice a recipe's `on` came from: repository events and email first, then the cron. */
-export function fromOn(on: Automation["recipe"]["on"], project: string | null): When {
-  if (on.email)
-    return { kind: "email", from: on.email.from ?? "", subject: on.email.subject ?? "" };
-  if (on.events && !on.cron) return { kind: "repo", project: project ?? "", events: on.events };
-  return fromCron(on.cron, on.webhook);
-}
-
-/** The choice a cron expression came from, when it is one of ours; otherwise "custom". */
-export function fromCron(cron: string | undefined, webhook: boolean): When {
-  if (!cron) return webhook ? { kind: "webhook" } : { kind: "daily", time: "08:00" };
-  const f = cron.trim().split(/\s+/);
-  const [m, h, dom, mon, dow] = f;
-  const num = (x: string | undefined) => (x !== undefined && /^\d+$/.test(x) ? Number(x) : null);
-  const every = h?.match(/^\*\/(\d+)$/);
-  if (f.length === 5 && m === "0" && every && dom === "*" && mon === "*" && dow === "*")
-    return { kind: "hours", every: Number(every[1]) };
-  const mm = num(m);
-  const hh = num(h);
-  if (f.length !== 5 || mm === null || hh === null || mon !== "*") return { kind: "custom", cron };
-  const time = `${pad(hh)}:${pad(mm)}`;
-  if (dom === "*" && dow === "*") return { kind: "daily", time };
-  if (dom === "*" && dow === "1-5") return { kind: "weekdays", time };
-  if (dom === "*" && dow && /^[0-6](,[0-6])*$/.test(dow))
-    return { kind: "weekly", time, days: dow.split(",").map(Number) };
-  if (num(dom) !== null && dow === "*") return { kind: "monthly", time, day: Number(dom) };
-  return { kind: "custom", cron };
-}
-
-const DAYS = [1, 2, 3, 4, 5, 6, 0];
-const dayName = (d: number) => t(`day_${d}` as never);
-
-/** A sentence for people: "Every weekday at 08:00". */
-export function whenWords(w: When): string {
-  switch (w.kind) {
-    case "daily":
-      return t("whenDaily", { time: w.time });
-    case "weekdays":
-      return t("whenWeekdays", { time: w.time });
-    case "weekly":
-      return t("whenWeekly", { days: w.days.map(dayName).join(", "), time: w.time });
-    case "hours":
-      return t("whenHours", { n: String(w.every) });
-    case "monthly":
-      return t("whenMonthly", { day: String(w.day), time: w.time });
-    case "webhook":
-      return t("whenWebhook");
-    case "repo":
-      return t("whenRepo", { events: w.events.join(", ") });
-    case "email":
-      return t("whenEmail", {
-        filter:
-          [w.from && `${t("emailFrom")} ${w.from}`, w.subject && `«${w.subject}»`]
-            .filter(Boolean)
-            .join(" · ") || t("emailAny"),
-      });
-    default:
-      return t("whenCustom", { cron: w.cron });
-  }
-}
-
 /** When an automation runs, in words (a date for reminders). */
 export function recipeWhen(a: Automation): string {
   const on = a.recipe.on;
   if (on.at) return t("whenAt", { at: new Date(on.at).toLocaleString() });
-  const words = whenWords(fromOn(on, a.recipe.project));
-  return on.cron && on.webhook ? `${words} ${t("whenAlsoWebhook")}` : words;
+  if (a.error) return whenWords(fromOn(on, a.recipe.project));
+  return sentence(fromRecipe(a.recipe))[0] ?? "";
 }
 
 const quote = (s: string) => JSON.stringify(s);
 const tz = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-const slug = (s: string) =>
-  s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 50) || "automation";
-
-/** The recipe as YAML (strings quoted as JSON, which YAML reads too). */
-function recipeYaml(o: {
-  name: string;
-  title: string;
-  when: When;
-  agent: { agent: string; project: string | null };
-  instructions: string;
-}): string {
-  const cron = toCron(o.when);
-  return [
-    `name: ${o.name}`,
-    `description: ${quote(o.title)}`,
-    "on:",
-    ...(cron ? [`  cron: ${quote(cron)}`, `  timezone: ${tz()}`] : []),
-    `  webhook: ${o.when.kind === "webhook" || o.when.kind === "repo"}`,
-    ...(o.when.kind === "repo" ? [`  events: ${JSON.stringify(o.when.events)}`] : []),
-    ...(o.when.kind === "email"
-      ? [
-          "  email:",
-          ...(o.when.from ? [`    from: ${quote(o.when.from)}`] : []),
-          ...(o.when.subject ? [`    subject: ${quote(o.when.subject)}`] : []),
-          ...(!o.when.from && !o.when.subject ? ["    {}"] : []),
-        ]
-      : []),
-    `agent: ${quote(o.agent.agent)}`,
-    ...(o.agent.project ? [`project: ${quote(o.agent.project)}`] : []),
-    `instructions: ${quote(o.instructions)}`,
-    "",
-  ].join("\n");
-}
-
-/** Who can be asked: God, each project's lead, the project agents. */
-function whoOptions(): { key: string; label: string; agent: string; project: string | null }[] {
-  const out: { key: string; label: string; agent: string; project: string | null }[] = [];
-  const god = agents.value.find((a) => a.kind === "god");
-  if (god) out.push({ key: "god", label: god.name, agent: "god", project: null });
-  // Personal assistants (G24.11): a routine belongs to one of them.
-  for (const a of agents.value)
-    if (a.kind === "assistant" && a.status === "active")
-      out.push({ key: `p:${a.id}`, label: a.name, agent: a.id, project: null });
-  for (const a of agents.value) {
-    if (a.status !== "active" || !a.projectId) continue;
-    if (a.kind === "orchestrator")
-      out.push({
-        key: `o:${a.projectId}`,
-        label: t("whoLead", { project: a.projectId }),
-        agent: "orchestrator",
-        project: a.projectId,
-      });
-    else if (a.kind === "agent")
-      out.push({
-        key: `a:${a.id}`,
-        label: `${a.name} (${a.projectId})`,
-        agent: a.name,
-        project: a.projectId,
-      });
-  }
-  return out;
-}
-
-const TEMPLATES = ["morning", "weekly", "spending"] as const;
-type Template = (typeof TEMPLATES)[number] | "blank";
-const templateWhen: Record<(typeof TEMPLATES)[number], When> = {
-  morning: { kind: "weekdays", time: "08:00" },
-  weekly: { kind: "weekly", time: "17:00", days: [5] },
-  spending: { kind: "monthly", time: "09:00", day: 1 },
-};
-
-/** What making or changing an automation keeps while the person writes, and its saving. */
-function useDraft(
-  current: Automation | undefined,
-  preset: string | undefined,
-  onSaved: (a: Automation, secret?: string) => void,
-) {
-  const r = current?.recipe;
-  const who = whoOptions();
-  const [tpl, setTpl] = useState<Template>(current ? "blank" : "morning");
-  const [title, setTitle] = useState(
-    r?.description || (current ? current.name : t("tplTitle_morning")),
-  );
-  const [when, setWhen] = useState<When>(r ? fromOn(r.on, r.project) : templateWhen.morning);
-  const [whoKey, setWhoKey] = useState(() => {
-    if (!r) return preset ?? "god";
-    if (r.agent === "god") return "god";
-    if (r.agent === "orchestrator") return `o:${r.project}`;
-    return who.find((x) => x.agent === r.agent && x.project === r.project)?.key ?? "god";
-  });
-  const [instructions, setInstructions] = useState(r?.instructions ?? t("tplText_morning"));
-  const [yaml, setYaml] = useState<string | null>(null);
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  const pickTemplate = (x: Template) => {
-    setTpl(x);
-    if (x === "blank") {
-      setTitle("");
-      setInstructions("");
-      setWhen({ kind: "daily", time: "09:00" });
-      return;
-    }
-    setTitle(t(`tplTitle_${x}`));
-    setInstructions(t(`tplText_${x}`));
-    setWhen(templateWhen[x]);
-  };
-  const agent = who.find((x) => x.key === whoKey) ?? who[0];
-  const generated = recipeYaml({
-    name: current?.name ?? `${slug(title)}-${Date.now().toString(36).slice(-4)}`,
-    title: title.trim(),
-    when,
-    agent: agent ?? { agent: "god", project: null },
-    instructions: instructions.trim(),
-  });
-  const save = async () => {
-    setError(undefined);
-    setBusy(true);
-    try {
-      const text = yaml ?? generated;
-      const res = current
-        ? await getApi().updateAutomation(current.id, text)
-        : await getApi().createAutomation(text);
-      // A routine on repository events: its webhook goes on Gitea or GitHub now, with the
-      // secret that is shown only this once (G24.14c).
-      if (when.kind === "repo" && res.webhookSecret)
-        await getApi().repoHook(res.automation.id, res.webhookSecret, when.project);
-      onSaved(res.automation, res.webhookSecret);
-    } catch (err) {
-      setError(explain(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const ready = yaml !== null || (title.trim() !== "" && instructions.trim() !== "");
-  return {
-    who,
-    tpl,
-    pickTemplate,
-    title,
-    setTitle,
-    when,
-    setWhen,
-    whoKey,
-    setWhoKey,
-    instructions,
-    setInstructions,
-    yaml,
-    setYaml,
-    generated,
-    error,
-    busy,
-    ready,
-    save,
-  };
-}
-
-const WHEN_KINDS = [
-  "daily",
-  "weekdays",
-  "weekly",
-  "monthly",
-  "hours",
-  "repo",
-  "email",
-  "webhook",
-] as const;
-type WhenKind = (typeof WHEN_KINDS)[number];
-
-/** The choice of a kind, keeping the time already written. */
-function whenOf(kind: WhenKind, current: When): When {
-  const time = "time" in current ? current.time : "08:00";
-  if (kind === "repo")
-    return { kind, project: projects.value[0]?.id ?? "", events: ["pull_request"] };
-  if (kind === "email") return { kind, from: "", subject: "" };
-  if (kind === "weekly") return { kind, time, days: [5] };
-  if (kind === "monthly") return { kind, time, day: 1 };
-  if (kind === "hours") return { kind, every: 3 };
-  if (kind === "webhook") return { kind };
-  return { kind, time };
-}
-
-const REPO_EVENTS = ["push", "pull_request", "issues", "issue_comment", "release"] as const;
-
+const pad = (n: number) => String(n).padStart(2, "0");
 const value = (e: Event) => (e.target as HTMLInputElement).value;
-
-/** When it runs, as the wizard asks it: chips for the kind, then only what that kind needs. */
-function WzWhen({ when, onChange }: { when: When; onChange: (w: When) => void }) {
-  return (
-    <div class="aw-when">
-      <Chips<WhenKind | "custom">
-        options={[
-          ...WHEN_KINDS.map((k) => ({ id: k, label: t(`whenKind_${k}`) })),
-          // A schedule written by hand stays visible as what it is.
-          ...(when.kind === "custom" ? [{ id: "custom" as const, label: when.cron }] : []),
-        ]}
-        value={[when.kind]}
-        onChange={([k]) => k && k !== "custom" && onChange(whenOf(k, when))}
-      />
-      {(when.kind === "monthly" || when.kind === "hours" || "time" in when) && (
-        <div class="aw-when-row">
-          {"time" in when && (
-            <Field label={t("whenAtTime")}>
-              <input
-                class="wz-field"
-                type="time"
-                value={when.time}
-                onInput={(e) => onChange({ ...when, time: value(e) })}
-              />
-            </Field>
-          )}
-          {when.kind === "monthly" && (
-            <Field label={t("whenDayOfMonth")}>
-              <input
-                class="wz-field"
-                type="number"
-                min={1}
-                max={28}
-                value={when.day}
-                onInput={(e) => onChange({ ...when, day: Number(value(e)) || 1 })}
-              />
-            </Field>
-          )}
-          {when.kind === "hours" && (
-            <Field label={t("whenEveryHours")}>
-              <input
-                class="wz-field"
-                type="number"
-                min={1}
-                max={23}
-                value={when.every}
-                onInput={(e) => onChange({ ...when, every: Number(value(e)) || 1 })}
-              />
-            </Field>
-          )}
-        </div>
-      )}
-      {when.kind === "weekly" && (
-        <Chips<number>
-          multiple
-          options={DAYS.map((d) => ({ id: d, label: dayName(d) }))}
-          value={when.days}
-          onChange={(days) => onChange({ ...when, days })}
-        />
-      )}
-      {when.kind === "webhook" && <p class="ui-help">{t("whenWebhookHelp")}</p>}
-      {when.kind === "repo" && (
-        <>
-          <Field label={t("projects")}>
-            <select
-              class="wz-field"
-              value={when.project}
-              onChange={(e) => onChange({ ...when, project: value(e) })}
-            >
-              {projects.value.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Chips<string>
-            multiple
-            options={REPO_EVENTS.map((ev) => ({ id: ev, label: t(`repoEvent_${ev}`) }))}
-            value={when.events}
-            onChange={(events) => onChange({ ...when, events })}
-          />
-          <p class="ui-help">{t("whenRepoHelp")}</p>
-        </>
-      )}
-      {when.kind === "email" && (
-        <>
-          <div class="aw-when-row">
-            <Field label={t("emailFrom")}>
-              <input
-                class="wz-field"
-                placeholder={t("emailFromPlaceholder")}
-                value={when.from}
-                onInput={(e) => onChange({ ...when, from: value(e) })}
-              />
-            </Field>
-            <Field label={t("emailSubject")}>
-              <input
-                class="wz-field"
-                placeholder={t("emailSubjectPlaceholder")}
-                value={when.subject}
-                onInput={(e) => onChange({ ...when, subject: value(e) })}
-              />
-            </Field>
-          </div>
-          <MailboxNeed />
-          <p class="ui-help">{t("whenEmailHelp")}</p>
-        </>
-      )}
-    </div>
-  );
-}
-
-/**
- * Making or changing an automation in a window: where to start, who, when, what; the YAML. The
- * Automations page and an assistant's routines (with `who` chosen beforehand) both use it.
- */
-export function Editor({
-  current,
-  onSaved,
-  onCancel,
-  who: preset,
-}: {
-  current: Automation | undefined;
-  onSaved: (a: Automation, secret?: string) => void;
-  onCancel: () => void;
-  /** Who does it, chosen beforehand (an assistant's own routine). */
-  who?: string;
-}) {
-  const d = useDraft(current, preset, onSaved);
-  return (
-    <form
-      class="aw-editor"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void d.save();
-      }}
-    >
-      {!current && (
-        <>
-          <span class="wz-lb">{t("autoStart")}</span>
-          <div class="wz-opt aw-tpl">
-            {[...TEMPLATES, "blank" as const].map((x) => (
-              <button
-                key={x}
-                type="button"
-                class={d.tpl === x ? "on" : ""}
-                aria-pressed={d.tpl === x}
-                onClick={() => d.pickTemplate(x)}
-              >
-                <b>{t(`tplTitle_${x}`)}</b>
-                <small>{t(`tplDesc_${x}`)}</small>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-      <Field label={t("autoTitle")} help={t("autoTitleHelp")}>
-        <input class="wz-field" value={d.title} onInput={(e) => d.setTitle(value(e))} />
-      </Field>
-      <Field label={t("autoWho")} help={t("autoWhoHelp")}>
-        <select class="wz-field" value={d.whoKey} onChange={(e) => d.setWhoKey(value(e))}>
-          {d.who.map((x) => (
-            <option key={x.key} value={x.key}>
-              {x.label}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <span class="wz-lb">{t("autoWhen")}</span>
-      <WzWhen when={d.when} onChange={d.setWhen} />
-      <p class="aw-says">
-        <IconClock size={18} /> {whenWords(d.when)}
-      </p>
-      <Field label={t("autoWhat")} help={t("autoWhatHelp")}>
-        <textarea
-          class="wz-field"
-          rows={5}
-          value={d.instructions}
-          onInput={(e) => d.setInstructions(value(e))}
-        />
-      </Field>
-      <Advanced label={t("autoYaml")}>
-        <p class="ui-help">{t("autoYamlHint")}</p>
-        <textarea
-          class="wz-field mono aw-yaml"
-          spellcheck={false}
-          rows={12}
-          value={d.yaml ?? d.generated}
-          onInput={(e) => d.setYaml(value(e))}
-        />
-      </Advanced>
-      {d.error && <p class="notice error">{d.error}</p>}
-      <Acts>
-        <button type="button" class="wz-btn quiet" onClick={onCancel}>
-          {t("cancel")}
-        </button>
-        <button type="submit" class="wz-btn primary" disabled={d.busy || !d.ready}>
-          {current ? t("save") : t("create")}
-        </button>
-      </Acts>
-    </form>
-  );
-}
 
 /** A reminder: what, which day, what time; sent as written, no agent. */
 function ReminderForm({
@@ -686,6 +233,11 @@ function iconOf(a: Automation): JSX.Element {
   const on = a.recipe.on;
   if (on.at) return <IconBell />;
   if (on.email) return <IconSend />;
+  if (on.message) return <IconChat />;
+  if (on.files) return <IconFolder />;
+  if (on.after) return <IconLayers />;
+  if (on.task) return <IconPlay />;
+  if (on.startup && !on.cron) return <IconZap />;
   if (on.events && !on.cron) return <IconGit />;
   if (on.webhook && !on.cron) return <IconGlobe />;
   return <IconClock />;
@@ -786,20 +338,35 @@ function AutoView({
   );
 }
 
-/** What is open: a new automation, a new reminder, one automation, or one being changed. */
-type Open = "new" | "reminder" | "mailbox" | { id: string; edit?: boolean };
+/** What is open: a new automation, a reminder, a magic one, one automation, or one being changed. */
+type Open = "new" | "reminder" | "magic" | { magic: string } | { id: string; edit?: boolean };
+
+/** The words for where a magic automation stands. */
+const magicState = (m: MagicAutomation) => t(`axMagicState_${m.status}` as never);
 
 /** Automations (G24.8): squares made and changed with words; the YAML for experts. */
 export function Automations() {
   const [list, setList] = useState<Automation[]>([]);
+  const [magic, setMagic] = useState<MagicAutomation[]>([]);
   const [open, setOpen] = useState<Open | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
-  const mailbox = useMailbox();
   const version = automationsVersion.value;
-  const openId = typeof open === "object" && open ? open.id : undefined;
+  const openId = typeof open === "object" && open && "id" in open ? open.id : undefined;
   const current = list.find((a) => a.id === openId);
+  const openMagic =
+    typeof open === "object" && open && "magic" in open
+      ? magic.find((m) => m.id === open.magic)
+      : undefined;
 
-  const reload = () => void attempt(() => getApi().automations()).then((l) => l && setList(l));
+  const reload = () => {
+    void attempt(() => getApi().automations()).then((l) => l && setList(l));
+    void getApi()
+      .magicAutomations()
+      .then(
+        (l) => setMagic(Array.isArray(l) ? l : []),
+        () => setMagic([]),
+      );
+  };
   useEffect(reload, [version]);
   useEffect(() => setSecret(null), [openId]);
   const saved = (a: Automation, s?: string) => {
@@ -816,6 +383,7 @@ export function Automations() {
     ]
       .filter(Boolean)
       .join(" · ");
+  const building = magic.filter((m) => m.status === "building" || m.status === "ready");
 
   return (
     <WzPage
@@ -827,22 +395,31 @@ export function Automations() {
               <Editor current={undefined} onSaved={saved} onCancel={close} />
             </Modal>
           )}
-          {open === "mailbox" && (
-            <MailboxWindow
-              onClose={() => {
-                close();
-                mailbox.reload();
-              }}
-            />
-          )}
           {open === "reminder" && (
             <Modal title={t("newReminder")} onClose={close}>
               <ReminderForm onSaved={(a) => saved(a)} onCancel={close} />
             </Modal>
           )}
+          {open === "magic" && (
+            <MagicStart
+              onClose={close}
+              onStarted={(m) => {
+                setMagic((l) => [m, ...l.filter((x) => x.id !== m.id)]);
+                setOpen({ magic: m.id });
+              }}
+            />
+          )}
+          {openMagic && (
+            <MagicChat
+              m={openMagic}
+              onClose={close}
+              onChange={reload}
+              onCreated={(a) => saved(a)}
+            />
+          )}
           {/* The window starts once the automation it shows is known (after a save, the list
           arrives a moment later). */}
-          {current && typeof open === "object" && open?.edit && (
+          {current && typeof open === "object" && open && "id" in open && open.edit && (
             <Modal wide title={current.recipe.description || current.name} onClose={close}>
               <Editor
                 key={current.id}
@@ -852,7 +429,7 @@ export function Automations() {
               />
             </Modal>
           )}
-          {current && typeof open === "object" && !open?.edit && (
+          {current && typeof open === "object" && open && "id" in open && !open.edit && (
             <AutoView
               a={current}
               secret={secret}
@@ -870,6 +447,16 @@ export function Automations() {
       }
     >
       <Head eyebrow={t("automations")} q={t("awQ")} lead={t("awLead")} />
+      {/* The magic button (G33.3): a look of its own, God builds the automation with you. */}
+      <button type="button" class="mg-cta" onClick={() => setOpen("magic")}>
+        <span class="mg-orb big">
+          <IconSpark size={26} />
+        </span>
+        <span class="mg-cta-text">
+          <b>{t("axMagic")}</b>
+          <span>{t("axMagicTile")}</span>
+        </span>
+      </button>
       <div class="wz-brain aw-make">
         <Tile
           on={open === "new"}
@@ -886,6 +473,26 @@ export function Automations() {
           onClick={() => setOpen("reminder")}
         />
       </div>
+
+      {building.length > 0 && (
+        <>
+          <Sub title={t("axMagicListTitle")} lead={t("axMagicListLead")} />
+          <div class="wz-brain aw-list mg-list">
+            {building.map((m) => (
+              <Tile
+                key={m.id}
+                on={m.status === "ready"}
+                icon={<IconSpark />}
+                title={`${t("axMagic")}: ${m.title}`}
+                badge={m.status === "ready" ? t("axMagicReadyBadge") : undefined}
+                text={m.request}
+                state={magicState(m)}
+                onClick={() => setOpen({ magic: m.id })}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       <Sub title={t("awListTitle")} lead={list.length > 0 ? t("awListLead") : undefined} />
       {list.length === 0 ? (
@@ -908,16 +515,7 @@ export function Automations() {
       )}
 
       <Sub title={t("awSourcesTitle")} lead={t("awSourcesLead")} />
-      <div class="wz-brain aw-make aw-sources">
-        <Tile
-          on={!!mailbox.box?.configured}
-          icon={<IconSend />}
-          title={t("emailTitle")}
-          text={t("emailTileText")}
-          state={mailbox.box?.configured ? mailbox.box.user : t("emailNotConnected")}
-          onClick={() => setOpen("mailbox")}
-        />
-      </div>
+      <Mailboxes />
     </WzPage>
   );
 }

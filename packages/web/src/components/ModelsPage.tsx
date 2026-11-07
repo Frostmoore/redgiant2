@@ -7,6 +7,7 @@
 import { SEARCH_PROVIDERS } from "@redgiant/protocol";
 import { useRef, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
+import { brandOr } from "../brands.js";
 import { t, tOptional } from "../i18n.js";
 import { IconCrown, IconSearch, IconServer } from "../icons.js";
 import { getApi } from "../state.js";
@@ -117,7 +118,7 @@ export function ModelsPage({ s, reload }: { s: SetupState; reload: () => void })
             <Tile
               key={p.id}
               on={searchNow === p.id}
-              icon={p.id === "searxng" ? <IconServer /> : <IconSearch size={22} />}
+              icon={brandOr(p.id, p.id === "searxng" ? <IconServer /> : <IconSearch size={22} />)}
               title={p.name}
               text={t(`searchCard_${p.id}`)}
               state={searchNow === p.id ? t("searchInUse") : undefined}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Agent } from "../api.js";
-import { t } from "../i18n.js";
+import { roleText, t } from "../i18n.js";
 import {
   IconArchive,
   IconBoard,
@@ -241,7 +241,7 @@ function Assistants({ open, toggle }: { open: Set<string>; toggle: (key: string)
                 class="bar-item"
                 onClick={() => toggle(key)}
                 aria-expanded={open.has(key)}
-                title={a.role ?? ""}
+                title={roleText(a.role) ?? ""}
               >
                 <IconChevron open={open.has(key)} />
                 <IconUser size={14} />

@@ -6,10 +6,15 @@ import {
   type Event,
   type Job,
   type LocalModel,
+  type MagicAutomation,
+  type Mailbox as MailboxInfo,
   type PermissionRequestInfo,
   PROTOCOL_VERSION,
+  type Recipe,
   type SearchProviderId,
   type ServerMessage,
+  type SharedMemoryEntry,
+  type SharedMemoryView,
 } from "@redgiant/protocol";
 
 export interface ChatSummary {
@@ -732,6 +737,17 @@ export class Api {
     this.call<{ text: string }>("GET", `/api/notes?${new URLSearchParams(q)}`);
   setNotes = (q: { scope: string; agentId?: string; projectId?: string }, text: string) =>
     this.call("PUT", `/api/notes?${new URLSearchParams(q)}`, { text });
+  /** The shared memory (G33.2): what every agent knows about the person. */
+  sharedMemory = () => this.call<SharedMemoryView>("GET", "/api/memory");
+  addMemory = (text: string) =>
+    this.call<{ entry: SharedMemoryEntry; duplicate: boolean }>("POST", "/api/memory", { text });
+  editMemory = (id: string, text: string) =>
+    this.call<SharedMemoryEntry>("PUT", `/api/memory/${encodeURIComponent(id)}`, { text });
+  removeMemory = (id: string) => this.call("DELETE", `/api/memory/${encodeURIComponent(id)}`);
+  undoMemory = (seq: number) => this.call("POST", "/api/memory/undo", { seq });
+  /** Forgets a memory for good: its text goes from every past change too. */
+  forgetMemory = (id: string) => this.call("POST", `/api/memory/${encodeURIComponent(id)}/forget`);
+  setMemoryAuto = (auto: boolean) => this.call("PUT", "/api/memory/settings", { auto });
   /** A copy of a conversation up to (not including) one event, to send an edited message. */
   forkSession = (sessionId: string, beforeSeq: number) =>
     this.call<{ sessionId: string }>("POST", `/api/sessions/${sessionId}/fork`, { beforeSeq });
@@ -887,6 +903,54 @@ export class Api {
     password: string;
   }) => this.call("PUT", "/api/settings/email", a);
   removeEmailSettings = () => this.call("DELETE", "/api/settings/email");
+  /** Many mailboxes, by category (G33.3); passwords never come back. */
+  mailboxes = () =>
+    this.call<{ boxes: MailboxInfo[]; categories: string[] }>("GET", "/api/settings/mailboxes");
+  addMailbox = (b: {
+    name: string;
+    category: string;
+    host: string;
+    port: number;
+    secure: boolean;
+    user: string;
+    password: string;
+    smtp?: { host: string; port: number; secure: boolean };
+  }) => this.call<MailboxInfo>("POST", "/api/settings/mailboxes", b);
+  updateMailbox = (
+    id: string,
+    b: Partial<{
+      name: string;
+      category: string;
+      host: string;
+      port: number;
+      secure: boolean;
+      user: string;
+      password: string;
+      smtp: { host: string; port: number; secure: boolean } | null;
+    }>,
+  ) => this.call<MailboxInfo>("PUT", `/api/settings/mailboxes/${encodeURIComponent(id)}`, b);
+  removeMailbox = (id: string) =>
+    this.call("DELETE", `/api/settings/mailboxes/${encodeURIComponent(id)}`);
+  /** The recipe as the server reads it, or why not, and its next times (G33.3). */
+  previewAutomation = (yaml: string, count = 5) =>
+    this.call<{ recipe: Recipe | null; error: string | null; next: string[] }>(
+      "POST",
+      "/api/automations/preview",
+      { yaml, count },
+    );
+  /** Magic automations (G33.3): a conversation with God that ends in a proposal. */
+  magicAutomations = () => this.call<MagicAutomation[]>("GET", "/api/magic");
+  magicAutomation = (id: string) => this.call<MagicAutomation>("GET", `/api/magic/${id}`);
+  startMagic = (request: string) => this.call<MagicAutomation>("POST", "/api/magic", { request });
+  approveMagic = (id: string, yaml?: string) =>
+    this.call<{ magic: MagicAutomation; automation: Automation; webhookSecret?: string }>(
+      "POST",
+      `/api/magic/${id}/approve`,
+      yaml ? { yaml } : {},
+    );
+  rejectMagic = (id: string, reason?: string) =>
+    this.call<MagicAutomation>("POST", `/api/magic/${id}/reject`, reason ? { reason } : {});
+  dismissMagic = (id: string) => this.call("DELETE", `/api/magic/${id}`);
   /** Adds the routine's webhook to the project's repository (Gitea or GitHub). */
   repoHook = (id: string, secret: string, project: string) =>
     this.call("POST", `/api/automations/${id}/repo-hook`, { secret, project });
