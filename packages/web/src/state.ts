@@ -727,9 +727,45 @@ const loadTabs = (): { tabs: Tab[]; active: string | null } => {
 const initialTabs = loadTabs();
 export const tabs = signal<Tab[]>(initialTabs.tabs);
 export const activeTab = signal<string | null>(initialTabs.active);
+/**
+ * What the canvas showed survives a reload (G34.1): its tabs are kept in the page's storage
+ * (titles and targets only; the files are read again through their links).
+ */
+const loadCanvas = (): { views: SideView[]; active: string | null } => {
+  try {
+    const saved = JSON.parse(localStorage.getItem("rg.canvas") ?? "") as {
+      views: SideView[];
+      active: string | null;
+    };
+    const views = Array.isArray(saved.views) ? saved.views.filter((v) => v.type === "canvas") : [];
+    return { views, active: views.some((v) => v.id === saved.active) ? saved.active : null };
+  } catch {
+    return { views: [], active: null };
+  }
+};
+const initialCanvas = loadCanvas();
 /** Files and terminals open on the right (terminals never survive a reload: their shells are gone). */
-export const sideViews = signal<SideView[]>([]);
-export const activeSide = signal<string | null>(null);
+export const sideViews = signal<SideView[]>(initialCanvas.views);
+export const activeSide = signal<string | null>(
+  initialCanvas.active ?? initialCanvas.views[0]?.id ?? null,
+);
+/** On a phone the area on the right covers the chat: put aside (not closed) to see the chat. */
+export const sideAside = signal(initialCanvas.views.length > 0);
+
+function persistCanvas(): void {
+  const views = sideViews.value.filter((v) => v.type === "canvas");
+  try {
+    localStorage.setItem(
+      "rg.canvas",
+      JSON.stringify({
+        views: views.slice(-12),
+        active: views.some((v) => v.id === activeSide.value) ? activeSide.value : null,
+      }),
+    );
+  } catch {
+    // A full storage only loses the reopening.
+  }
+}
 /** The project's file explorer on the right. */
 export const explorerOpen = signal(localStorage.getItem("rg.explorer") === "1");
 /** The phone's drawer with the left bar. */
@@ -785,6 +821,7 @@ export function openTab(req: OpenRequest): void {
   if (req.type === "editor" || req.type === "terminal" || req.type === "screen") {
     if (!sideViews.value.some((v) => v.id === req.id)) sideViews.value = [...sideViews.value, req];
     activeSide.value = req.id;
+    sideAside.value = false;
     return;
   }
   if (req.type === "files") {
@@ -825,6 +862,7 @@ export function closeSide(id: string): void {
   sideViews.value = sideViews.value.filter((x) => x.id !== id);
   if (activeSide.value === id)
     activeSide.value = sideViews.value[Math.min(index, sideViews.value.length - 1)]?.id ?? null;
+  persistCanvas();
 }
 
 /** Opens (or brings forward) what an agent showed, in the area on the right (G25.1). */
@@ -838,6 +876,8 @@ export function openCanvas(title: string, target: CanvasTarget): void {
     ? sideViews.value.map((v) => (v.id === id ? view : v))
     : [...sideViews.value, view];
   activeSide.value = id;
+  sideAside.value = false;
+  persistCanvas();
 }
 
 /** Opens a board of variants as a page of its own (G25.4). */

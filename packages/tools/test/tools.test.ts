@@ -54,6 +54,7 @@ describe("baseTools", () => {
       "glob",
       "grep",
       "read_file",
+      "show_file",
       "update_todos",
       "view_image",
       "web_search",

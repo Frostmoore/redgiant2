@@ -93,6 +93,7 @@ import {
   baseTools,
   LocalWorkspace,
   type ModelProfile,
+  type ShowFileRequest,
   SubprojectWorkspace,
   type WebSearchProvider,
   type Workspace,
@@ -117,6 +118,9 @@ import { FileTriggers } from "./file-triggers.js";
 import type { GitHosts } from "./git-hosts.js";
 import { IMAGE_MODEL, imageFileName } from "./images.js";
 import { Inspector } from "./inspector.js";
+import { FileConverter } from "./convert.js";
+import { Programs } from "./convert-programs.js";
+import { convertTools, vaultFigma } from "./convert-tools.js";
 import { Jobs } from "./jobs.js";
 import { LoginStore, migrateLogin } from "./login.js";
 import {
@@ -423,6 +427,10 @@ export class RedGiantCore implements OrchestrationHost {
   browsers: Browsers | undefined;
   /** Long actions the user follows (downloads, the local engine, links). */
   readonly jobs = new Jobs();
+  /** Outside programs for conversions (G34.3): found here, or downloaded when needed. */
+  readonly programs: Programs;
+  /** Closed formats into open ones, beside the original (G34.3). */
+  readonly converter: FileConverter;
   /** Backups made or being imported (2026-11-03): next to the workspaces, in the data volume. */
   get backupsDir(): string {
     return join(dirname(this.o.workspacesDir), "backups");
@@ -499,6 +507,13 @@ export class RedGiantCore implements OrchestrationHost {
       ...(o.vault?.fetch && { fetch: o.vault.fetch }),
       ask: (caller, entry, host, method) => this.askVault(caller, entry, host, method),
       system: (ownerId) => this.keysElsewhere(ownerId),
+    });
+    // Conversions (G34.3): programs in the data folder's tools, LibreOffice with its own profile.
+    this.programs = new Programs({ jobs: this.jobs, dataDir: dirname(o.workspacesDir) });
+    this.converter = new FileConverter({
+      programs: this.programs,
+      profileDir: join(dirname(o.workspacesDir), "tools", "libreoffice-profile"),
+      previewDir: join(dirname(o.workspacesDir), "cache", "previews"),
     });
     this.board.followTasks();
     this.extensions = new ExtensionBuilder({
@@ -1000,8 +1015,29 @@ export class RedGiantCore implements OrchestrationHost {
           workspace: ws,
           profile: this.o.profileFor?.(model) ?? "full",
           ...(this.o.search && { search: this.o.search }),
+          // show_file (G34.1): what it opens becomes an event the page follows.
+          show: (r, ctx) => this.showFile(agent, r, ctx),
         })
       : [];
+    // Closed formats into open ones, and the open packages' insides (G34.3): every workspace.
+    if (ws)
+      tools.push(
+        ...convertTools(ws, {
+          converter: this.converter,
+          figma: (ctx, credential) => async (url) =>
+            vaultFigma(
+              this.vault,
+              {
+                ownerId,
+                agentId: agent.id,
+                agentName: agent.name,
+                sessionId: ctx.sessionId,
+                automationId: await this.automationOfSession(ctx.sessionId),
+              },
+              credential,
+            )(url),
+        }),
+      );
     tools.push(
       ...orchestrationTools(agent, this, this.tasks),
       ...boardTools(agent, this.board),
@@ -1985,6 +2021,59 @@ export class RedGiantCore implements OrchestrationHost {
     throw new BadRequestError("That file is outside every workspace");
   }
 
+  /**
+   * Files shown from outside every workspace (G34.1), per owner: only these can be opened with
+   * the "outside" scope. Read once from the log (the guardian's approval happened there).
+   */
+  private readonly outsideShown = new Map<string, Promise<Set<string>>>();
+
+  private shownOutside(ownerId: string): Promise<Set<string>> {
+    let known = this.outsideShown.get(ownerId);
+    if (!known) {
+      known = this.store.list({ types: ["canvas.show"] }).then(
+        (events) =>
+          new Set(
+            events.flatMap((e) =>
+              e.ownerId === ownerId &&
+              e.type === "canvas.show" &&
+              e.payload?.target.kind === "file" &&
+              e.payload.target.scope === "outside"
+                ? [e.payload.target.path]
+                : [],
+            ),
+          ),
+      );
+      this.outsideShown.set(ownerId, known);
+    }
+    return known;
+  }
+
+  /** An "outside" file the person may open: one an agent showed them, still there. */
+  private async outsideFile(ownerId: string, path: string): Promise<string> {
+    if (!(await this.shownOutside(ownerId)).has(path))
+      throw new BadRequestError("That file was never shown here");
+    return path;
+  }
+
+  /** show_file's host (G34.1): the file's scope, recorded as what the canvas shows. */
+  private async showFile(
+    agent: AgentRecord,
+    r: ShowFileRequest,
+    ctx: ToolContext,
+  ): Promise<string | undefined> {
+    const where = await this.scopeOf(agent.ownerId, r.abs).catch(() => undefined);
+    const target = { kind: "file" as const, ...(where ?? { scope: "outside", path: r.abs }) };
+    if (!where) (await this.shownOutside(agent.ownerId)).add(r.abs);
+    await this.store.append({
+      ownerId: agent.ownerId,
+      projectId: agent.projectId,
+      agentId: agent.id,
+      sessionId: ctx.sessionId,
+      body: { type: "canvas.show", payload: { title: r.title, target } },
+    });
+    return undefined;
+  }
+
   /** The folder behind a scope on disk. */
   private async scopeRoot(ownerId: string, scope: string): Promise<string> {
     if (scope === "assistants") return this.assistantsPath(ownerId);
@@ -2020,7 +2109,13 @@ export class RedGiantCore implements OrchestrationHost {
   ): Promise<{ url: string }> {
     let t: PreviewTarget;
     let entry: string;
-    if (target.kind === "file") {
+    if (target.kind === "file" && target.scope === "outside") {
+      const abs = await this.outsideFile(ownerId, target.path);
+      const st = await stat(abs).catch(() => undefined);
+      if (!st?.isFile()) throw new NotFoundError(`No such file "${basename(abs)}"`);
+      t = { kind: "file", path: abs };
+      entry = basename(abs);
+    } else if (target.kind === "file") {
       const root = await this.scopeRoot(ownerId, target.scope);
       const abs = join(root, target.path);
       if (inside(root, abs) === undefined) throw new BadRequestError("Outside the workspace");
@@ -2039,11 +2134,22 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /** When what the canvas shows last changed (ms): the page reloads it when this moves. */
-  async canvasVersion(ownerId: string, scope: string, path: string): Promise<number> {
+  async canvasVersion(
+    ownerId: string,
+    scope: string,
+    path: string,
+    /** A viewer's file (G34.2): its own change only, not the whole folder around it. */
+    fileOnly = false,
+  ): Promise<number> {
+    if (scope === "outside") {
+      const st = await stat(await this.outsideFile(ownerId, path)).catch(() => undefined);
+      return Math.floor(st?.mtimeMs ?? 0);
+    }
     const root = await this.scopeRoot(ownerId, scope);
     const abs = join(root, path);
     if (inside(root, abs) === undefined) throw new BadRequestError("Outside the workspace");
     const st = await stat(abs).catch(() => undefined);
+    if (fileOnly) return Math.floor(st?.mtimeMs ?? 0);
     // A file in a folder: the site around it counts (its styles, its scripts).
     return lastChange(st && !st.isDirectory() ? dirname(abs) : abs);
   }
@@ -2329,7 +2435,7 @@ export class RedGiantCore implements OrchestrationHost {
       def: {
         name: "show",
         description:
-          "Show the person what you made, in the canvas next to the chat: a site (an HTML file or its folder), a picture, a video, a sound, a PDF, a sheet (CSV, XLSX), a 3D model (GLB, GLTF, STL, OBJ), Markdown or code (give path), or a program you started that serves on a port of your computer (give port, and url_path if not /). It updates by itself when the files change. Use it whenever the person should see the result, instead of describing it.",
+          "Show the person what you made, in the canvas next to the chat: a site (an HTML file or its folder), a picture, a video, a sound, a PDF, a sheet (CSV, XLSX), a 3D model (GLB, GLTF, STL, OBJ), Markdown or code (give path), or a program you started that serves on a port of your computer (give port, and url_path if not /). It updates by itself when the files change. Use it whenever the person should see the result, instead of describing it. For one file, show_file opens it in a viewer made for its kind.",
         inputSchema: {
           type: "object",
           properties: {

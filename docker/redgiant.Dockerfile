@@ -14,10 +14,15 @@ FROM node:24-trixie-slim
 ARG REDGIANT_VERSION=dev
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git less procps python3 ripgrep tini util-linux \
+    ghostscript libx11-6 libx11-xcb1 libxext6 libxinerama1 libcairo2 libcups2t64 libdbus-1-3 libfontconfig1 \
+    libfreetype6 libglib2.0-0t64 libgssapi-krb5-2 libnss3 fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/* \
  && corepack enable \
  && git config --system init.defaultBranch live \
  && git config --system safe.directory '*'
+# Conversions into open formats (G34.3): Ghostscript (AGPL-3.0, Debian's own package, a separate
+# program) for EPS and PostScript; the libraries LibreOffice's AppImage needs without a desktop
+# (LibreOffice itself, ~300 MB, comes down into the data volume only when a conversion needs it).
 # RedGiant 2.0 (2026-11-04): agents run their commands here, no container of their own: the
 # tools the sandbox image had (curl, less, procps, ripgrep) are here too.
 # uv, for the catalog's MCP servers published on PyPI (uvx), G24.14c.

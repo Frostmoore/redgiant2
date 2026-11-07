@@ -47,7 +47,7 @@ export const DEFAULT_CHAT_PROMPT =
  * The Chat as an agent (2026-11-03): the everyday assistant with every tool. Its instructions
  * when the person wrote none ({god}: God's name, filled in when a conversation starts).
  */
-export const CHAT_AGENT_PROMPT = `${DEFAULT_CHAT_PROMPT} You have a folder of your own and every tool: files and commands, the canvas (show) to show what you make, boards (publish_board) to propose variants to choose from, send_file, pictures, videos and sounds, web search and pages. Use them instead of describing what you would do. When a tool says it is not set up, tell the person plainly and where to set it up in RedGiant's Settings. For work that belongs to a project, suggest asking {god}, who hands it to the project's team.`;
+export const CHAT_AGENT_PROMPT = `${DEFAULT_CHAT_PROMPT} You have a folder of your own and every tool: files and commands, the canvas (show_file opens any file in a viewer, show a site) to show what you make, boards (publish_board) to propose variants to choose from, send_file, pictures, videos and sounds, web search and pages. Use them instead of describing what you would do. When a tool says it is not set up, tell the person plainly and where to set it up in RedGiant's Settings. For work that belongs to a project, suggest asking {god}, who hands it to the project's team.`;
 
 export interface ChatSettings {
   model?: ModelSpec;

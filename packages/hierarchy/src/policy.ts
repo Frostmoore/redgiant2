@@ -1,5 +1,5 @@
 import type { ToolCallInfo } from "@redgiant/agent";
-import { outsideWrites } from "./guardian.js";
+import { outsideShows, outsideWrites } from "./guardian.js";
 
 /** The guardian's danger: writing outside the agent's folders (only the human approves it). */
 export const OUTSIDE_PROJECT = "outside-project";
@@ -205,6 +205,8 @@ export const READ_ONLY_TOOLS = new Set([
   "memory",
   // The agent's list of steps (2026-11-05): shown to the person, changes nothing.
   "update_todos",
+  // Opens a file in the person's canvas (G34.1); outside the folders the guardian asks.
+  "show_file",
   // Magic automations (G33.3): a proposal the person approves (or the list of links).
   "propose_automation",
 ]);
@@ -276,6 +278,16 @@ export function evaluate(mode: PermissionMode, call: ToolCallInfo, s: PolicySett
   );
   for (const d of ["deny", "ask", "allow"] as const) {
     if (rules.some((r) => r.decision === d)) return out(d, `rule: ${d} ${call.name}`);
+  }
+  // The guardian for what is shown (G34.1): a file outside the folders is the human's call.
+  if (s.guardian !== "auto" && s.roots?.length) {
+    const shown = outsideShows(call, { roots: s.roots, ...(s.home && { home: s.home }) });
+    if (shown.length > 0)
+      return {
+        decision: "ask",
+        reasons: [`shows a file outside the project: ${shown.slice(0, 3).join(", ")}`],
+        danger: [...danger, OUTSIDE_PROJECT],
+      };
   }
   if (readOnly) return out("allow");
   // The guardian: writing outside the agent's folders is the human's call (unless "auto").

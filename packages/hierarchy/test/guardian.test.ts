@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bashOutsideWrites, outsideWrites } from "../src/guardian.js";
+import { bashOutsideWrites, outsideShows, outsideWrites } from "../src/guardian.js";
+import { DEFAULT_POLICY, evaluate, OUTSIDE_PROJECT } from "../src/policy.js";
 
 const ctx = { roots: ["/data/projects/demo", "/data/worktrees/agent-1"], home: "/root" };
 
@@ -78,5 +79,58 @@ describe("the guardian (2026-11-04)", () => {
     expect(
       outsideWrites({ callId: "1", name: "bash", input: { command: "rm -rf /x" } }, { roots: [] }),
     ).toEqual([]);
+  });
+});
+
+// show_file (G34.1): showing a file outside the folders asks, as writing there does.
+const SHOWN: [string, string[]][] = [
+  ["report.pdf", []],
+  ["/data/projects/demo/out/video.mp4", []],
+  ["/data/worktrees/agent-1/model.glb", []],
+  ["/tmp/scratch.png", []],
+  ["/etc/passwd", ["/etc/passwd"]],
+  ["../other-project/secret.pdf", ["/data/projects/other-project/secret.pdf"]],
+  ["~/photo.jpg", ["/root/photo.jpg"]],
+  ["$SOMEWHERE/x.png", ["$SOMEWHERE/x.png"]],
+];
+
+describe("the guardian and show_file (G34.1)", () => {
+  for (const [path, want] of SHOWN)
+    it(`show_file: ${path}`, () => {
+      expect(outsideShows({ callId: "1", name: "show_file", input: { path } }, ctx)).toEqual(want);
+    });
+
+  it("other tools are not its business; no folders, no check", () => {
+    expect(
+      outsideShows({ callId: "1", name: "read_file", input: { path: "/etc/passwd" } }, ctx),
+    ).toEqual([]);
+    expect(
+      outsideShows(
+        { callId: "1", name: "show_file", input: { path: "/etc/passwd" } },
+        { roots: [] },
+      ),
+    ).toEqual([]);
+  });
+
+  it("the policy: inside allowed in every mode, outside asks the human, auto lets it be", () => {
+    const s = { ...DEFAULT_POLICY, roots: ctx.roots, home: ctx.home };
+    const call = (path: string) => ({ callId: "1", name: "show_file", input: { path } });
+    expect(evaluate("auto", call("a.pdf"), s).decision).toBe("allow");
+    expect(evaluate("readonly", call("a.pdf"), s).decision).toBe("allow");
+    expect(evaluate("plan", call("a.pdf"), s).decision).toBe("allow");
+    const out = evaluate("readonly", call("/home/someone/x.pdf"), s);
+    expect(out.decision).toBe("ask");
+    expect(out.danger).toContain(OUTSIDE_PROJECT);
+    expect(s.humanOnly).toContain(OUTSIDE_PROJECT);
+    expect(evaluate("auto", call("/home/someone/x.pdf"), { ...s, guardian: "auto" }).decision).toBe(
+      "allow",
+    );
+    // A rule of the person's still comes first.
+    expect(
+      evaluate("auto", call("/etc/passwd"), {
+        ...s,
+        rules: [{ tool: "show_file", decision: "deny" }],
+      }).decision,
+    ).toBe("deny");
   });
 });

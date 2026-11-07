@@ -473,6 +473,13 @@ export const IconCloud = ({ size = 20 }: P) => (
   </Svg>
 );
 
+// g34: viewer
+export const IconMinus = ({ size = 14 }: P) => (
+  <Svg size={size}>
+    <path d="M5 12h14" />
+  </Svg>
+);
+
 /** The RedGiant mark, drawn: a red giant star with its glow. */
 /** RedGiant's icon (the user's, 2026-11-01): the red giant with its orbits and network. */
 export const Logo = ({ size = 22 }: P) => (

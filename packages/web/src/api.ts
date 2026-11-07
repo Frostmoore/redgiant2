@@ -1125,10 +1125,10 @@ export class Api {
       | { kind: "port"; agentId: string; port: number; path?: string | undefined },
   ) => this.call<{ url: string }>("POST", "/api/canvas/link", target);
   /** When what the canvas shows last changed (ms). */
-  canvasVersion = (scope: string, path: string) =>
+  canvasVersion = (scope: string, path: string, fileOnly = false) =>
     this.call<{ version: number }>(
       "GET",
-      `/api/canvas/version?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+      `/api/canvas/version?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}${fileOnly ? "&only=file" : ""}`,
     );
 
   /** A web search service tried before it is saved: how many results, the first's title. */

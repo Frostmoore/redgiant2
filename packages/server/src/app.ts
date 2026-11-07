@@ -1,7 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readdir, readFile, stat, statfs } from "node:fs/promises";
-import { extname, join, resolve, sep } from "node:path";
+import { basename, extname, join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
@@ -37,7 +37,7 @@ import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { type AuthProvider, bearer, type Principal } from "./auth.js";
 import { BackupError, exportBackup, importBackup, previewBackup, removeBackup } from "./backup.js";
-import { bridge, PREVIEW_HEADERS, serveFile } from "./canvas.js";
+import { bridge, PREVIEW_HEADERS, serveFile, serveRaw } from "./canvas.js";
 import { ChatError } from "./chat.js";
 import { type ChatHub, ChatSettings, PLATFORMS } from "./chats.js";
 import { CodeChangeError } from "./code.js";
@@ -51,6 +51,7 @@ import {
 import { debugLog } from "./debug-log.js";
 import { MailboxNotFoundError } from "./email.js";
 import { sessionMarkdown } from "./export.js";
+import { convertRoutes } from "./convert-routes.js";
 import { ConflictError, FileService } from "./files.js";
 import { HuggingFace } from "./hf.js";
 import { localModelChoices } from "./local-models.js";
@@ -1231,6 +1232,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     });
   });
 
+  // Closed formats into open ones (G34.3): what a file is, and a conversion as a job.
+  convertRoutes(app, core, owner);
+
   // Backup (2026-11-03): every project, agent and conversation in one file, and back. Outside
   // OpenAPI: the file goes up and down as raw bytes.
   const BACKUP_NAME = /^[a-z0-9-]+\.rgbackup$/;
@@ -2068,7 +2072,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     const scope = c.req.query("scope");
     const path = c.req.query("path");
     if (!scope || path === undefined) return c.json({ error: "scope and path are needed" }, 400);
-    return c.json({ version: await core.canvasVersion(owner(c), scope, path) }, 200);
+    const fileOnly = c.req.query("only") === "file";
+    return c.json({ version: await core.canvasVersion(owner(c), scope, path, fileOnly) }, 200);
   });
   // A board's answer (G25.4): the person chose a variant or commented on one.
   app.post("/api/sessions/:id/variants", async (c) => {
@@ -2099,8 +2104,18 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     if (t.kind === "port") return bridge(t, rest, c.req.raw, prefix);
     if (c.req.method !== "GET" && c.req.method !== "HEAD")
       return c.text("A folder preview only reads", 405, PREVIEW_HEADERS);
-    const f = await serveFile(t.root, rest, prefix);
-    return c.body(f.body as never, f.status as 200, { ...PREVIEW_HEADERS, "Content-Type": f.type });
+    // One file shown from outside every workspace (G34.1): that file, nothing around it.
+    const f =
+      t.kind === "file"
+        ? decodeURIComponent(rest) === basename(t.path)
+          ? await serveRaw(t.path, c.req.header("range"))
+          : { status: 403, body: "Outside the preview", type: "text/plain" }
+        : await serveFile(t.root, rest, prefix, c.req.header("range"));
+    return c.body(f.body as never, f.status as 200, {
+      ...PREVIEW_HEADERS,
+      ...f.headers,
+      "Content-Type": f.type,
+    });
   });
   // Undo a summary asked by hand (G24.14): the whole history comes back from the log.
   // The conversation an agent works in for the chats (Telegram, Discord…): the web and the CLI

@@ -59,6 +59,17 @@ const brain = (req) => {
   const results = last?.role === "user" && last.parts.every((p) => p.type === "tool_result");
   turn++;
   const said = last?.parts.find((p) => p.type === "text")?.text ?? "";
+  // G34: «Mostra il file <path>» → show_file; its result → a short answer.
+  const shownResult = last?.parts.find((p) => p.type === "tool_result")?.content;
+  if (results && typeof shownResult === "string" && shownResult.startsWith("Opened "))
+    return { text: "Eccolo nel Canvas, qui accanto." };
+  if (said.startsWith("Mostra il file "))
+    return {
+      text: "Te lo apro nel Canvas.",
+      toolCalls: [
+        { name: "show_file", input: { path: said.slice("Mostra il file ".length).trim() } },
+      ],
+    };
   // An answer with its sources (2026-11-06): the [n] become links named after their site.
   if (said.includes("Chi ha vinto le midterm")) {
     return {
@@ -715,6 +726,16 @@ await writeFile(join(dir, "models", "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf.part"), "de
     "- Il punto della giornata alle 8, in tre righe\n- Le riunioni del giovedì sono con lo studio Bianchi",
   );
 }
+// G34: DEMO_SAMPLES=<folder>: God shows every file of it in the canvas, one message each.
+let viewerSession;
+if (process.env.DEMO_SAMPLES) {
+  const { cp, readdir } = await import("node:fs/promises");
+  const into = join(core.platformPath("local"), "campioni");
+  await cp(process.env.DEMO_SAMPLES, into, { recursive: true });
+  viewerSession = await core.startSession("local", god.id);
+  for (const f of (await readdir(into)).sort())
+    await (await core.send("local", viewerSession, `Mostra il file campioni/${f}`)).done;
+}
 await debugLog.configure({ dir: join(dir, "logs") });
 await setup.applyAtStartup();
 // DEMO_FRESH=1: a fresh install, the setup wizard takes the whole page (2026-11-06).
@@ -732,5 +753,7 @@ console.log(
     token,
     session: sid,
     orchestrator: orch.id,
+    god: god.id,
+    ...(viewerSession && { viewerSession }),
   }),
 );

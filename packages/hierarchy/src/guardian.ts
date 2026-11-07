@@ -213,3 +213,20 @@ export function outsideWrites(call: ToolCallInfo, ctx: GuardianContext): string[
     return bashOutsideWrites(input.command, ctx);
   return [];
 }
+
+/**
+ * What a call would show the person from outside the agent's folders (G34.1): the path of a
+ * show_file call, nothing for any other tool. Showing only reads, but it puts a file of the
+ * computer in front of the person, so the guardian asks first.
+ */
+export function outsideShows(call: ToolCallInfo, ctx: GuardianContext): string[] {
+  if (ctx.roots.length === 0 || call.name !== "show_file") return [];
+  const input = (call.input ?? {}) as Record<string, unknown>;
+  const p =
+    typeof input.path === "string"
+      ? resolvePath(input.path, ctx.roots[0] as string, ctx)
+      : undefined;
+  return p && (p === "$unknown" || !inside(p, ctx.roots))
+    ? [p === "$unknown" ? String(input.path) : p]
+    : [];
+}

@@ -1,8 +1,8 @@
 import { h, type JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
-import { IconCanvas, IconClose, IconFile, IconMonitor, IconTerminal } from "../icons.js";
-import { activeSide, closeSide, sideViews } from "../state.js";
+import { IconCanvas, IconChat, IconClose, IconFile, IconMonitor, IconTerminal } from "../icons.js";
+import { activeSide, closeSide, sideAside, sideViews } from "../state.js";
 
 /**
  * Loads a heavy view (CodeMirror, xterm.js) the first time it is shown, not with the page:
@@ -42,8 +42,22 @@ export function SideArea() {
   const views = sideViews.value;
   if (views.length === 0) return null;
   return (
-    <section class="side-area">
+    <section class={`side-area ${sideAside.value ? "aside" : ""}`}>
+      {/* On a phone the area covers the chat: this brings it back (G34.2). */}
+      <button type="button" class="side-pill" onClick={() => (sideAside.value = false)}>
+        <IconCanvas size={16} />
+        {t("vwCanvasBack", { n: String(views.length) })}
+      </button>
       <div class="side-tabs" role="tablist">
+        <button
+          type="button"
+          class="side-to-chat"
+          title={t("vwToChat")}
+          onClick={() => (sideAside.value = true)}
+        >
+          <IconChat size={15} />
+          <span>{t("vwToChat")}</span>
+        </button>
         {views.map((v) => (
           <div key={v.id} class={`side-tab ${activeSide.value === v.id ? "active" : ""}`}>
             <button

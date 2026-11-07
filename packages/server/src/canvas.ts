@@ -4,13 +4,17 @@
 // signed by the server and valid for a while, a sandboxed frame and a `sandbox` policy, so it
 // can never read the person's access to RedGiant.
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, join, relative, resolve, sep } from "node:path";
+import { Readable } from "node:stream";
 
 /** What a preview link opens: a folder of files, or a port in an agent's container. */
 export type PreviewTarget =
   | { kind: "dir"; root: string }
-  | { kind: "port"; host: string; port: number };
+  | { kind: "port"; host: string; port: number }
+  /** One file and nothing around it (G34.1: a file outside every workspace, approved). */
+  | { kind: "file"; path: string };
 
 interface Signed {
   o: string;
@@ -86,6 +90,23 @@ const TYPES: Record<string, string> = {
   ".xml": "application/xml",
   ".glb": "model/gltf-binary",
   ".gltf": "model/gltf+json",
+  // The canvas's viewers (G34.2).
+  ".mov": "video/quicktime",
+  ".m4v": "video/mp4",
+  ".ogv": "video/ogg",
+  ".mkv": "video/x-matroska",
+  ".avi": "video/x-msvideo",
+  ".oga": "audio/ogg",
+  ".opus": "audio/ogg",
+  ".flac": "audio/flac",
+  ".aac": "audio/aac",
+  ".bmp": "image/bmp",
+  ".tsv": "text/tab-separated-values; charset=utf-8",
+  ".yaml": "text/yaml; charset=utf-8",
+  ".yml": "text/yaml; charset=utf-8",
+  ".zip": "application/zip",
+  ".stl": "model/stl",
+  ".obj": "model/obj",
 };
 
 export const contentType = (path: string) =>
@@ -132,18 +153,73 @@ export function rewrite(body: string, type: string, prefix: string): string {
 
 const REWRITTEN = /^(text\/html|text\/css|text\/javascript)/;
 
+/** The most a single answer to a range request carries: a video plays on in parts. */
+const MAX_RANGE = 8 * 1024 * 1024;
+
+/** What a preview answers with. */
+export interface Served {
+  status: number;
+  body: Uint8Array | string | ReadableStream;
+  type: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * A file as it is, streamed, with ranges (G34.2: players seek, a large video is never read
+ * whole into memory). `range` is the request's Range header.
+ */
+export async function serveRaw(abs: string, range?: string | null): Promise<Served> {
+  const st = await stat(abs).catch(() => undefined);
+  if (!st?.isFile()) return { status: 404, body: "Not found", type: "text/plain" };
+  const type = contentType(abs);
+  const size = st.size;
+  const m = range?.match(/^bytes=(\d*)-(\d*)$/);
+  if (m && (m[1] || m[2])) {
+    let start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+    let end = m[1] && m[2] ? Number(m[2]) : size - 1;
+    if (start >= size || start > end)
+      return {
+        status: 416,
+        body: "",
+        type,
+        headers: { "Content-Range": `bytes */${size}`, "Accept-Ranges": "bytes" },
+      };
+    end = Math.min(end, size - 1, start + MAX_RANGE - 1);
+    start = Math.max(0, start);
+    return {
+      status: 206,
+      body: Readable.toWeb(createReadStream(abs, { start, end })) as ReadableStream,
+      type,
+      headers: {
+        "Accept-Ranges": "bytes",
+        "Content-Range": `bytes ${start}-${end}/${size}`,
+        "Content-Length": String(end - start + 1),
+      },
+    };
+  }
+  return {
+    status: 200,
+    body: size === 0 ? "" : (Readable.toWeb(createReadStream(abs)) as ReadableStream),
+    type,
+    headers: { "Accept-Ranges": "bytes", "Content-Length": String(size) },
+  };
+}
+
 /** A file of a folder preview, confined to the folder; a folder gives its index.html. */
 export async function serveFile(
   root: string,
   path: string,
   prefix: string,
-): Promise<{ status: number; body: Uint8Array | string; type: string }> {
+  range?: string | null,
+): Promise<Served> {
   const base = resolve(root);
   let abs = resolve(base, `.${sep}${decodeURIComponent(path)}`);
   if (abs !== base && !abs.startsWith(base + sep))
     return { status: 403, body: "Outside the preview", type: "text/plain" };
   const st = await stat(abs).catch(() => undefined);
   if (st?.isDirectory()) abs = join(abs, "index.html");
+  // Pictures, videos, documents: as they are, in ranges.
+  if (!REWRITTEN.test(contentType(abs))) return serveRaw(abs, range);
   const data = await readFile(abs).catch(() => undefined);
   if (!data) return { status: 404, body: "Not found", type: "text/plain" };
   const type = contentType(abs);

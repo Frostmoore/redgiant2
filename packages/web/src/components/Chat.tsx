@@ -495,21 +495,25 @@ function Item({
           </span>
         </button>
       );
-    case "canvas":
+    case "canvas": {
+      // A line in the agent's message (G34.1): «Opened <file> in the canvas», pressed to see it again.
+      const [before, after] = t("canvasOpened", { name: "\u0000" }).split("\u0000");
       return (
         <button
           type="button"
-          class="canvas-card"
-          title={t("canvasOpen")}
+          class="canvas-line"
+          title={t("canvasShown")}
           onClick={() => openCanvas(item.title, item.target)}
         >
-          <IconCanvas size={16} />
+          <IconCanvas size={15} />
           <span>
+            {before}
             <strong>{item.title}</strong>
-            <span class="dim">{t("canvasShown")}</span>
+            {after}
           </span>
         </button>
       );
+    }
     case "notice":
       return (
         <div class={`notice ${item.tone}`}>
