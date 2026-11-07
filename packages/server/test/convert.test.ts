@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, win32 } from "node:path";
 import { LocalWorkspace } from "@redgiant/tools";
 import { decode as decodePng } from "fast-png";
 import { strFromU8, strToU8, unzipSync } from "fflate";
@@ -70,7 +70,7 @@ function fakeConverter(
       const outDir = args[args.indexOf("--outdir") + 1] as string;
       const input = args.at(-1) as string;
       const ext = (args[args.indexOf("--convert-to") + 1] as string).split(":")[0];
-      const stem = (input.split("/").pop() as string).replace(/\.[^.]+$/, "");
+      const stem = basename(input).replace(/\.[^.]+$/, "");
       await writeFile(join(outDir, `${stem}.${ext}`), `made by soffice from ${input}`);
     } else if (file === "/bin/gs") {
       const out = (args.find((a) => a.startsWith("-sOutputFile=")) as string).slice(13);
@@ -540,9 +540,9 @@ describe("outside programs", () => {
         "/d",
         { PATH: "", ProgramFiles: "C:\\Program Files" },
         "win32",
-        has(join("C:\\Program Files", "LibreOffice", "program", "soffice.com")),
+        has(win32.join("C:\\Program Files", "LibreOffice", "program", "soffice.com")),
       ),
-    ).toBe(join("C:\\Program Files", "LibreOffice", "program", "soffice.com"));
+    ).toBe(win32.join("C:\\Program Files", "LibreOffice", "program", "soffice.com"));
     expect(
       findLibreOffice(
         "/d",
@@ -558,10 +558,10 @@ describe("outside programs", () => {
       findGhostscript(
         { PATH: "", ProgramFiles: "C:\\PF" },
         "win32",
-        has(join("C:\\PF", "gs", "gs10.08.0", "bin", "gswin64c.exe")),
+        has(win32.join("C:\\PF", "gs", "gs10.08.0", "bin", "gswin64c.exe")),
         () => ["gs10.04.0", "gs10.08.0"],
       ),
-    ).toBe(join("C:\\PF", "gs", "gs10.08.0", "bin", "gswin64c.exe"));
+    ).toBe(win32.join("C:\\PF", "gs", "gs10.08.0", "bin", "gswin64c.exe"));
     expect(findGhostscript({ PATH: "" }, "darwin", has("/opt/homebrew/bin/gs"))).toBe(
       "/opt/homebrew/bin/gs",
     );

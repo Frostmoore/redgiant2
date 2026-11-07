@@ -370,7 +370,7 @@ export class FileConverter {
         size: p.size,
         here: this.o.programs.find(id) !== undefined,
         canDownload: this.o.programs.canDownload(id),
-        install: p.install[process.platform] ?? p.install.linux ?? "",
+        install: p.install[this.o.programs.platform] ?? p.install.linux ?? "",
       },
     };
   }

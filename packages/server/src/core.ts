@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -675,8 +675,9 @@ export class RedGiantCore implements OrchestrationHost {
       god: (ownerId) =>
         this.registry.list({ ownerId, activeOnly: true }).find((a) => a.kind === "god"),
       startSession: (ownerId, agentId, before) => this.startSession(ownerId, agentId, { before }),
+      // God may still be finishing the turn that made the proposal: the message waits in line.
       send: async (ownerId, sessionId, text) => {
-        const { done } = await this.send(ownerId, sessionId, text);
+        const { done } = await this.send(ownerId, sessionId, text, { queue: true });
         done.catch(() => {});
       },
       links: (ownerId) => this.automationLinks(ownerId),
@@ -2205,19 +2206,25 @@ export class RedGiantCore implements OrchestrationHost {
   /** Signed links to what agents show (G25.1). */
   readonly previews = new Previews();
 
-  /** The workspace scope ("platform", "assistants", "project:<id>") and path of a file on disk. */
+  /**
+   * The workspace scope ("platform", "assistants", "project:<id>") and path of a file on disk.
+   * `abs` may be a real path (links followed): each root is tried as written and as its real path
+   * (macOS's /var is /private/var, Windows' RUNNER~1 is the long name).
+   */
   private async scopeOf(ownerId: string, abs: string): Promise<{ scope: string; path: string }> {
-    for (const [scope, root] of [
+    const roots: [string, string][] = [
       ["assistants", this.assistantsPath(ownerId)],
       ["platform", this.platformPath(ownerId)],
-    ] as const) {
-      const path = inside(root, abs);
-      if (path !== undefined) return { scope, path };
-    }
-    for (const p of await this.projects.list(ownerId)) {
-      const path = inside(p.path, abs);
-      if (path !== undefined) return { scope: `project:${p.id}`, path };
-    }
+      ...(await this.projects.list(ownerId)).map((p): [string, string] => [
+        `project:${p.id}`,
+        p.path,
+      ]),
+    ];
+    for (const [scope, root] of roots)
+      for (const r of [root, await realpath(root).catch(() => root)]) {
+        const path = inside(r, abs);
+        if (path !== undefined) return { scope, path };
+      }
     throw new BadRequestError("That file is outside every workspace");
   }
 
