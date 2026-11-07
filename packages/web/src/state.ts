@@ -157,7 +157,12 @@ export function buildItems(events: Event[]): ChatItem[] {
         break;
       // A conversation brought in from ChatGPT or Claude (G36.7): said once, at its top.
       case "session.imported": {
-        const source = e.payload.source === "chatgpt" ? "ChatGPT" : e.payload.source === "claude" ? "Claude" : e.payload.source;
+        const source =
+          e.payload.source === "chatgpt"
+            ? "ChatGPT"
+            : e.payload.source === "claude"
+              ? "Claude"
+              : e.payload.source;
         const at = e.payload.updatedAt ?? e.payload.createdAt;
         items.push({
           kind: "notice",
@@ -165,7 +170,8 @@ export function buildItems(events: Event[]): ChatItem[] {
           tone: "info",
           text: t("impChatNotice", {
             source,
-            date: at && !Number.isNaN(Date.parse(at)) ? ` (${new Date(at).toLocaleDateString()})` : "",
+            date:
+              at && !Number.isNaN(Date.parse(at)) ? ` (${new Date(at).toLocaleDateString()})` : "",
           }),
         });
         break;

@@ -3391,7 +3391,10 @@ export class RedGiantCore implements OrchestrationHost {
     const now = new Date().toISOString();
     for (const m of c.messages) {
       if (m.role === "user")
-        await this.store.append({ ...at, body: { type: "message.user", payload: { text: m.text } } });
+        await this.store.append({
+          ...at,
+          body: { type: "message.user", payload: { text: m.text } },
+        });
       else
         await this.store.append({
           ...at,
@@ -3403,7 +3406,8 @@ export class RedGiantCore implements OrchestrationHost {
               provider: `import:${c.source}`,
               model: c.model ?? c.source,
               metrics: {
-                startedAt: m.at && !Number.isNaN(Date.parse(m.at)) ? new Date(m.at).toISOString() : now,
+                startedAt:
+                  m.at && !Number.isNaN(Date.parse(m.at)) ? new Date(m.at).toISOString() : now,
                 inputTokens: 0,
                 cachedReadTokens: 0,
                 cacheWriteTokens: 0,

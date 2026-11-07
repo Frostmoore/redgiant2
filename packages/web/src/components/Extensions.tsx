@@ -100,7 +100,8 @@ function ProposalView({
       ? Object.entries(p.input.files ?? {})
           .filter(
             ([f, c]) =>
-              /\.(sh|bash|zsh|ps1|bat|cmd|py|js|mjs|cjs|ts|rb|pl|php)$/i.test(f) || c.startsWith("#!"),
+              /\.(sh|bash|zsh|ps1|bat|cmd|py|js|mjs|cjs|ts|rb|pl|php)$/i.test(f) ||
+              c.startsWith("#!"),
           )
           .map(([f]) => f)
       : [];
@@ -110,7 +111,10 @@ function ProposalView({
       <div class="wz-panel-in xw-prop">
         <Facts
           rows={[
-            [t("xwKind"), update ? t("xwUpdates") : t(p.kind === "tool" ? "extKindTool" : "extKindSkill")],
+            [
+              t("xwKind"),
+              update ? t("xwUpdates") : t(p.kind === "tool" ? "extKindTool" : "extKindSkill"),
+            ],
             [t("scope"), scopeLabel(p.projectId)],
             [t("xwAuthor"), who(p.author)],
           ]}
@@ -131,7 +135,9 @@ function ProposalView({
               <summary>{t("xwPrevious")}</summary>
               <pre>{p.previous.skillMd}</pre>
             </details>
-            {kept.length > 0 && <p class="ui-help">{t("xwKeptFiles", { files: kept.join(", ") })}</p>}
+            {kept.length > 0 && (
+              <p class="ui-help">{t("xwKeptFiles", { files: kept.join(", ") })}</p>
+            )}
           </div>
         )}
         {p.input.spec && <code class="xw-cmd">{p.input.spec.command}</code>}

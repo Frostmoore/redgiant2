@@ -70,13 +70,13 @@ import {
   wayTiles,
 } from "./Brain.js";
 import { GitTiles } from "./GitCode.js";
+import { ImportFrom } from "./ImportFrom.js";
 import { AgentLanguagePicker } from "./LanguagePicker.js";
 import { hardwareText, LocalModels } from "./LocalModels.js";
 import { modelName } from "./ModelMenu.js";
 import { RemoteAccess } from "./RemoteAccess.js";
 import { Safety } from "./Safety.js";
 import { Acts, Head, Sub, Tile } from "./SettingsKit.js";
-import { ImportFrom } from "./ImportFrom.js";
 import { AssignStep } from "./SetupAssign.js";
 import { PHONE, useMedia, useOnNext, useWz, type Wz, WzCtx } from "./SetupKit.js";
 import { TelegramStep } from "./SetupTelegram.js";

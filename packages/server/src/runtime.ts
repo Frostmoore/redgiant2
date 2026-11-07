@@ -393,8 +393,8 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
     async chat(platform, settings) {
       if (!o.chats) throw new Error("Chat platforms are not available here");
       // Its tokens are hidden from what agents and logs show (G29.5).
+      // G36.9: Teams' appPassword and BlueBubbles' password too.
       for (const [k, v] of Object.entries(settings ?? {}))
-        // G36.9: Teams' appPassword and BlueBubbles' password too.
         if (/token|secret|password/i.test(k)) o.redactor.addSecret(`${platform}-${k}`, v);
       await o.chats.set(platform, settings as never);
     },

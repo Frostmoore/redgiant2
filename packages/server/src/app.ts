@@ -43,7 +43,6 @@ import { ChatError } from "./chat.js";
 import { type ChatHub, ChatSettings, PLATFORMS } from "./chats.js";
 import { CodeChangeError } from "./code.js";
 import { convertRoutes } from "./convert-routes.js";
-import { importRoutes } from "./import-routes.js";
 import {
   BadRequestError,
   NoModelError,
@@ -56,6 +55,7 @@ import { MailboxNotFoundError } from "./email.js";
 import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
 import { HuggingFace } from "./hf.js";
+import { importRoutes } from "./import-routes.js";
 import { localModelChoices } from "./local-models.js";
 import { LoginError } from "./login.js";
 import { MagicNotFoundError, MagicStateError } from "./magic.js";

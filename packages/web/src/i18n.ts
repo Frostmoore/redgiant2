@@ -34,31 +34,41 @@ const en = {
   wzImport: "Coming from another agent?",
   impEyebrow: "Import",
   impQ: "Coming from another agent?",
-  impLead: "Bring here the instructions, skills, connected services and memories of Claude Code, Codex, Cursor, Gemini, opencode or Hermes, and your ChatGPT and Claude conversations. You see everything first, then you choose; nothing is overwritten and you can take it all back.",
+  impLead:
+    "Bring here the instructions, skills, connected services and memories of Claude Code, Codex, Cursor, Gemini, opencode or Hermes, and your ChatGPT and Claude conversations. You see everything first, then you choose; nothing is overwritten and you can take it all back.",
   impWayScan: "Look on my computer",
-  impWayScanText: "RedGiant looks only in the folders those agents use (.claude, .codex, .cursor, .gemini…) and in your projects, after you say yes.",
+  impWayScanText:
+    "RedGiant looks only in the folders those agents use (.claude, .codex, .cursor, .gemini…) and in your projects, after you say yes.",
   impWayFolder: "Pick a folder",
   impWayFolderText: "A folder such as .claude or a project's: only the files that matter are read.",
   impWayExport: "Upload an export",
-  impWayExportText: "The .zip ChatGPT or Claude sent you, or single files (CLAUDE.md, AGENTS.md, mcp.json…).",
+  impWayExportText:
+    "The .zip ChatGPT or Claude sent you, or single files (CLAUDE.md, AGENTS.md, mcp.json…).",
   impHowExport: "How do I get my ChatGPT or Claude export?",
-  impHowChatgpt: "ChatGPT: Settings, Data controls, Export data. An email brings a link to a .zip: upload it here as it is.",
-  impHowClaude: "Claude: Settings, Privacy, Export data. The email's link lasts 24 hours: upload the .zip here as it is.",
+  impHowChatgpt:
+    "ChatGPT: Settings, Data controls, Export data. An email brings a link to a .zip: upload it here as it is.",
+  impHowClaude:
+    "Claude: Settings, Privacy, Export data. The email's link lasts 24 hours: upload the .zip here as it is.",
   impScanTitle: "Look on this computer",
-  impScanLead: "RedGiant will read only the files other agents keep for you, on the computer where RedGiant runs. Nothing changes until you choose.",
+  impScanLead:
+    "RedGiant will read only the files other agents keep for you, on the computer where RedGiant runs. Nothing changes until you choose.",
   impScanHome: "My agents' folders",
-  impScanHomeHelp: "~/.claude, ~/.codex, ~/.agents, ~/.cursor, ~/.gemini, ~/.config/opencode and ~/.hermes. Claude Code's transcripts are never read.",
+  impScanHomeHelp:
+    "~/.claude, ~/.codex, ~/.agents, ~/.cursor, ~/.gemini, ~/.config/opencode and ~/.hermes. Claude Code's transcripts are never read.",
   impScanProjects: "My projects in RedGiant",
-  impScanProjectsHelp: "CLAUDE.md, AGENTS.md, .cursor, .mcp.json and the like in each project's folder.",
+  impScanProjectsHelp:
+    "CLAUDE.md, AGENTS.md, .cursor, .mcp.json and the like in each project's folder.",
   impScanFolder: "Another folder (optional)",
   impScanFolderHelp: "Its full path on this computer, e.g. a project not yet in RedGiant.",
-  impScanPromise: "Keys found in these files are never shown: they go with their service, in RedGiant's private credentials.",
+  impScanPromise:
+    "Keys found in these files are never shown: they go with their service, in RedGiant's private credentials.",
   impScanGo: "Look",
   impLooking: "Looking…",
   impUploading: "Sending the files",
   impFoundTitle: "What I found",
   impFoundSub: "{n} things in {files} files",
-  impFoundLead: "Switch on what you want to bring in. What is already here, or needs a look, starts off.",
+  impFoundLead:
+    "Switch on what you want to bring in. What is already here, or needs a look, starts off.",
   impNothing: "Nothing to bring in here. Try another folder, or the .zip of an export.",
   impAll: "Everything",
   impSearch: "Search",
@@ -84,10 +94,12 @@ const en = {
   impSkip: "Skip",
   impReplace: "Replace (the old one is kept for undo)",
   impKeepBoth: "Keep both",
-  impScripts: "It brings scripts ({files}): they run only when an agent uses the skill, in its sandbox.",
+  impScripts:
+    "It brings scripts ({files}): they run only when an agent uses the skill, in its sandbox.",
   impHeld: "Keys found and kept private: {names}",
   impKeyFor: "Key {name}",
-  impKeyHelp: "Kept with the service, never shown again. Leave it empty to add it later in Extensions.",
+  impKeyHelp:
+    "Kept with the service, never shown again. Leave it empty to add it later in Extensions.",
   impConvTo: "Conversations go to",
   impConvHelp: "They open as conversations you can read and go on with.",
   impConvChat: "The Chat",
@@ -116,7 +128,8 @@ const en = {
   impNotDone: "Not brought in",
   impUndo: "Take it back",
   impMemOfferTitle: "Learn from these conversations?",
-  impMemOfferText: "A light model reads only what you wrote there and proposes facts to remember. You choose them one by one.",
+  impMemOfferText:
+    "A light model reads only what you wrote there and proposes facts to remember. You choose them one by one.",
   impMemOfferBtn: "Propose memories",
   impHistory: "Imports done",
   impHistoryLead: "Each one can be taken back.",
@@ -3252,31 +3265,43 @@ const it: Record<Key, string> = {
   wzImport: "Vieni da un altro agente?",
   impEyebrow: "Importa",
   impQ: "Vieni da un altro agente?",
-  impLead: "Porta qui le istruzioni, le skill, i servizi collegati e i ricordi di Claude Code, Codex, Cursor, Gemini, opencode o Hermes, e le tue conversazioni di ChatGPT e Claude. Prima vedi tutto, poi scegli; niente viene sovrascritto e puoi annullare tutto.",
+  impLead:
+    "Porta qui le istruzioni, le skill, i servizi collegati e i ricordi di Claude Code, Codex, Cursor, Gemini, opencode o Hermes, e le tue conversazioni di ChatGPT e Claude. Prima vedi tutto, poi scegli; niente viene sovrascritto e puoi annullare tutto.",
   impWayScan: "Cerca sul mio computer",
-  impWayScanText: "RedGiant guarda solo nelle cartelle che usano quegli agenti (.claude, .codex, .cursor, .gemini…) e nei tuoi progetti, dopo il tuo sì.",
+  impWayScanText:
+    "RedGiant guarda solo nelle cartelle che usano quegli agenti (.claude, .codex, .cursor, .gemini…) e nei tuoi progetti, dopo il tuo sì.",
   impWayFolder: "Scegli una cartella",
-  impWayFolderText: "Una cartella come .claude o quella di un progetto: si leggono solo i file che servono.",
+  impWayFolderText:
+    "Una cartella come .claude o quella di un progetto: si leggono solo i file che servono.",
   impWayExport: "Carica un export",
-  impWayExportText: "Lo .zip che ti hanno mandato ChatGPT o Claude, o file singoli (CLAUDE.md, AGENTS.md, mcp.json…).",
+  impWayExportText:
+    "Lo .zip che ti hanno mandato ChatGPT o Claude, o file singoli (CLAUDE.md, AGENTS.md, mcp.json…).",
   impHowExport: "Come ottengo l'export di ChatGPT o di Claude?",
-  impHowChatgpt: "ChatGPT: Impostazioni, Controllo dati, Esporta dati. Una email porta il link a uno .zip: caricalo qui così com'è.",
-  impHowClaude: "Claude: Impostazioni, Privacy, Esporta dati. Il link dell'email dura 24 ore: carica qui lo .zip così com'è.",
+  impHowChatgpt:
+    "ChatGPT: Impostazioni, Controllo dati, Esporta dati. Una email porta il link a uno .zip: caricalo qui così com'è.",
+  impHowClaude:
+    "Claude: Impostazioni, Privacy, Esporta dati. Il link dell'email dura 24 ore: carica qui lo .zip così com'è.",
   impScanTitle: "Cerca su questo computer",
-  impScanLead: "RedGiant leggerà solo i file che gli altri agenti tengono per te, sul computer dove gira RedGiant. Non cambia niente finché non scegli.",
+  impScanLead:
+    "RedGiant leggerà solo i file che gli altri agenti tengono per te, sul computer dove gira RedGiant. Non cambia niente finché non scegli.",
   impScanHome: "Le cartelle dei miei agenti",
-  impScanHomeHelp: "~/.claude, ~/.codex, ~/.agents, ~/.cursor, ~/.gemini, ~/.config/opencode e ~/.hermes. Le trascrizioni di Claude Code non si leggono mai.",
+  impScanHomeHelp:
+    "~/.claude, ~/.codex, ~/.agents, ~/.cursor, ~/.gemini, ~/.config/opencode e ~/.hermes. Le trascrizioni di Claude Code non si leggono mai.",
   impScanProjects: "I miei progetti in RedGiant",
-  impScanProjectsHelp: "CLAUDE.md, AGENTS.md, .cursor, .mcp.json e simili nella cartella di ogni progetto.",
+  impScanProjectsHelp:
+    "CLAUDE.md, AGENTS.md, .cursor, .mcp.json e simili nella cartella di ogni progetto.",
   impScanFolder: "Un'altra cartella (facoltativa)",
-  impScanFolderHelp: "Il suo percorso completo su questo computer, per esempio un progetto non ancora in RedGiant.",
-  impScanPromise: "Le chiavi trovate in questi file non si mostrano mai: vanno con il loro servizio, nelle credenziali private di RedGiant.",
+  impScanFolderHelp:
+    "Il suo percorso completo su questo computer, per esempio un progetto non ancora in RedGiant.",
+  impScanPromise:
+    "Le chiavi trovate in questi file non si mostrano mai: vanno con il loro servizio, nelle credenziali private di RedGiant.",
   impScanGo: "Cerca",
   impLooking: "Cerco…",
   impUploading: "Invio dei file",
   impFoundTitle: "Cosa ho trovato",
   impFoundSub: "{n} cose in {files} file",
-  impFoundLead: "Accendi quello che vuoi portare qui. Quello che c'è già, o che va guardato, parte spento.",
+  impFoundLead:
+    "Accendi quello che vuoi portare qui. Quello che c'è già, o che va guardato, parte spento.",
   impNothing: "Qui non c'è niente da portare. Prova un'altra cartella, o lo .zip di un export.",
   impAll: "Tutto",
   impSearch: "Cerca",
@@ -3302,24 +3327,29 @@ const it: Record<Key, string> = {
   impSkip: "Salta",
   impReplace: "Sostituisci (la vecchia resta per l'annullamento)",
   impKeepBoth: "Tienile tutte e due",
-  impScripts: "Porta degli script ({files}): girano solo quando un agente usa la skill, nella sua sandbox.",
+  impScripts:
+    "Porta degli script ({files}): girano solo quando un agente usa la skill, nella sua sandbox.",
   impHeld: "Chiavi trovate e tenute private: {names}",
   impKeyFor: "Chiave {name}",
-  impKeyHelp: "Resta con il servizio e non si mostra più. Lasciala vuota per aggiungerla dopo in Estensioni.",
+  impKeyHelp:
+    "Resta con il servizio e non si mostra più. Lasciala vuota per aggiungerla dopo in Estensioni.",
   impConvTo: "Le conversazioni vanno a",
   impConvHelp: "Si aprono come conversazioni da leggere e da continuare.",
   impConvChat: "La Chat",
   impLeftTitle: "Cosa resta fuori",
-  impLeftLead: "Trovato ma non portato: per queste cose RedGiant ha il suo modo, nelle Impostazioni.",
+  impLeftLead:
+    "Trovato ma non portato: per queste cose RedGiant ha il suo modo, nelle Impostazioni.",
   impUnreadable: "non si legge",
   "impNote_only-paths": "Valeva solo per alcuni file: qui vale per tutto.",
-  "impNote_tools-dropped": "Nominava gli strumenti che poteva usare: gli agenti di RedGiant tengono i loro.",
+  "impNote_tools-dropped":
+    "Nominava gli strumenti che poteva usare: gli agenti di RedGiant tengono i loro.",
   "impNote_model-dropped": "Sceglieva un suo modello: gli agenti di RedGiant usano il loro.",
   "impNote_hooks-dropped": "Gli hook e le righe di shell non si portano.",
   impNote_arguments: "I suoi argomenti diventano la richiesta che fai.",
   "impNote_as-skill": "Là era un comando o un agente aiutante, qui una skill.",
   "impNote_binary-left": "I suoi file che non sono testo (immagini, programmi) restano fuori.",
-  impNote_sse: "Un collegamento di tipo vecchio (SSE): quasi tutti i servizi parlano anche quello nuovo.",
+  impNote_sse:
+    "Un collegamento di tipo vecchio (SSE): quasi tutti i servizi parlano anche quello nuovo.",
   impNote_disabled: "Là era spento.",
   "impNote_needs-keys": "Servono delle chiavi: {arg}.",
   impNote_shortened: "Accorciato a {arg} caratteri.",
@@ -3334,7 +3364,8 @@ const it: Record<Key, string> = {
   impNotDone: "Non portati",
   impUndo: "Annulla l'import",
   impMemOfferTitle: "Imparare da queste conversazioni?",
-  impMemOfferText: "Un modello leggero legge solo quello che hai scritto tu e propone fatti da ricordare. Li scegli uno per uno.",
+  impMemOfferText:
+    "Un modello leggero legge solo quello che hai scritto tu e propone fatti da ricordare. Li scegli uno per uno.",
   impMemOfferBtn: "Proponi ricordi",
   impHistory: "Import fatti",
   impHistoryLead: "Ognuno si può annullare.",

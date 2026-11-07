@@ -2,8 +2,8 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import type { Incoming } from "../src/bridge.js";
-import { teamsAppPackage, teamsManifest } from "../src/teams-app.js";
 import { type TeamsActivity, TeamsTransport, teamsText } from "../src/teams.js";
+import { teamsAppPackage, teamsManifest } from "../src/teams-app.js";
 
 // ---------- Microsoft, simulated: sign-in, the Bot Connector's keys, the conversations API ----------
 

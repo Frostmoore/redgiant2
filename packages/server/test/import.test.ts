@@ -4,10 +4,10 @@ import { join } from "node:path";
 import type { ImportPreview, ImportRecord, Job } from "@redgiant/protocol";
 import type { CompletionRequest } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
+import { Importer, parseFacts } from "../src/import.js";
 import { readChatExports } from "../src/import-chats.js";
 import { type FoundFile, parseJsonc, readAgentFiles, skillName } from "../src/import-readers.js";
-import { Importer, parseFacts } from "../src/import.js";
-import { SetupService, type SetupHooks } from "../src/index.js";
+import { type SetupHooks, SetupService } from "../src/index.js";
 import { startServer, TOKEN } from "./helpers.js";
 import {
   CLAUDE_MEMORIES,
