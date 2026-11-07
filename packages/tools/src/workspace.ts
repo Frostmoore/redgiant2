@@ -10,7 +10,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export interface ExecResult {
   stdout: string;
@@ -20,6 +20,7 @@ export interface ExecResult {
 }
 
 export interface ExecOptions {
+  /** Infinity: no time limit (a background command the person lets run, G36.16). */
   timeoutMs: number;
   signal?: AbortSignal | undefined;
   /**
@@ -27,6 +28,38 @@ export interface ExecOptions {
    * tool the proxy's address for a credential (`REDGIANT_VAULT_<NAME>`), never its value.
    */
   env?: Record<string, string> | undefined;
+  /**
+   * Background commands (p3.3.1): the output as it comes, instead of collected (the result's
+   * stdout and stderr are then empty), and the process's id once it starts.
+   */
+  onOutput?: ((text: string, stream: "out" | "err") => void) | undefined;
+  onSpawn?: ((pid: number) => void) | undefined;
+}
+
+/**
+ * Stops a process and everything it started (p3.3.1). Windows: `taskkill /PID <pid> /T /F` (the
+ * tree; killing the shell alone left its children running); elsewhere the process group, which
+ * every command gets of its own.
+ */
+export function killTree(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+  run: (file: string, args: string[]) => void = (file, args) => {
+    spawn(file, args, { stdio: "ignore", windowsHide: true }).on("error", () => {});
+  },
+  kill: (pid: number, signal: NodeJS.Signals) => void = process.kill,
+): void {
+  if (platform === "win32") {
+    run("taskkill", ["/PID", String(pid), "/T", "/F"]);
+    return;
+  }
+  try {
+    kill(-pid, "SIGKILL");
+  } catch {
+    try {
+      kill(pid, "SIGKILL");
+    } catch {}
+  }
 }
 
 /**
@@ -131,6 +164,26 @@ const AGENT_ENV = [
   "OS",
 ];
 
+/**
+ * The folders of RedGiant's own programs on the agents' PATH (p3.3.1: an agent on Windows found
+ * only a system ffmpeg it could not start). `first` goes before the PATH (ffmpeg's folder holds
+ * only ffmpeg and its tools); `last` after it (LibreOffice's folder also holds a python.exe, which
+ * must not hide the person's own).
+ */
+const programDirs = { first: new Set<string>(), last: new Set<string>() };
+
+/** Puts a program's folder on the PATH of the agents' commands on this computer. */
+export function shareProgramDir(dir: string, where: "first" | "last" = "last"): void {
+  if (!dir || programDirs.first.has(dir) || programDirs.last.has(dir)) return;
+  programDirs[where].add(dir);
+}
+
+/** Tests: forgets the shared folders. */
+export function resetProgramDirs(): void {
+  programDirs.first.clear();
+  programDirs.last.clear();
+}
+
 /** The environment of an agent's commands: the safe part of `from` (the server's own). */
 export function agentEnv(from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = {};
@@ -142,6 +195,17 @@ export function agentEnv(from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessE
       (AGENT_ENV.includes(name) || k.startsWith("LC_") || k.startsWith("XDG_"))
     )
       out[k] = v;
+  }
+  if (programDirs.first.size || programDirs.last.size) {
+    const key =
+      Object.keys(out).find(
+        (k) => (process.platform === "win32" ? k.toUpperCase() : k) === "PATH",
+      ) ?? "PATH";
+    const own = (out[key] ?? "").split(delimiter).filter(Boolean);
+    const seen = new Set<string>();
+    out[key] = [...programDirs.first, ...own, ...programDirs.last]
+      .filter((d) => !seen.has(d) && seen.add(d))
+      .join(delimiter);
   }
   return out;
 }
@@ -370,7 +434,7 @@ export class LocalWorkspace implements Workspace {
   private run(
     file: string,
     args: string[],
-    { timeoutMs, signal, env }: ExecOptions,
+    { timeoutMs, signal, env, onOutput, onSpawn }: ExecOptions,
     shell?: string,
   ): Promise<ExecResult> {
     return new Promise((done) => {
@@ -383,26 +447,34 @@ export class LocalWorkspace implements Workspace {
         env: env ? { ...agentEnv(), ...env } : agentEnv(),
         detached: group,
       });
+      if (child.pid) onSpawn?.(child.pid);
+      // The whole tree: on Windows the shell's children too (taskkill with its tree flag).
       const stop = () => {
         try {
-          if (group && child.pid) process.kill(-child.pid, "SIGKILL");
+          if (child.pid) killTree(child.pid);
           else child.kill("SIGKILL");
         } catch {}
       };
       let stdout = "";
       let stderr = "";
       let timedOut = false;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        stop();
-      }, timeoutMs);
+      // Past what a timer can hold (about 24 days) there is no limit at all.
+      const timer =
+        Number.isFinite(timeoutMs) && timeoutMs <= MAX_TIMER_MS
+          ? setTimeout(() => {
+              timedOut = true;
+              stop();
+            }, timeoutMs)
+          : undefined;
       if (signal?.aborted) stop();
       signal?.addEventListener("abort", stop, { once: true });
       child.stdout.on("data", (d: Buffer) => {
-        stdout += d.toString();
+        if (onOutput) onOutput(d.toString(), "out");
+        else stdout += d.toString();
       });
       child.stderr.on("data", (d: Buffer) => {
-        stderr += d.toString();
+        if (onOutput) onOutput(d.toString(), "err");
+        else stderr += d.toString();
       });
       child.on("error", (err) => {
         stderr += err.message;
@@ -415,6 +487,9 @@ export class LocalWorkspace implements Workspace {
     });
   }
 }
+
+/** The longest delay setTimeout keeps (a longer one fires at once). */
+const MAX_TIMER_MS = 2 ** 31 - 1;
 
 const inside = (root: string, abs: string) => {
   const rel = relative(root, abs);

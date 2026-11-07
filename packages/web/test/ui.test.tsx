@@ -2,7 +2,7 @@
 import type { Event } from "@redgiant/protocol";
 import { render } from "@testing-library/preact";
 import { beforeEach, describe, expect, it } from "vitest";
-import { packMessage } from "../src/components/Composer.js";
+import { packMessage, pastedAttachment, pastedExt } from "../src/components/Composer.js";
 import { MetricsBar } from "../src/components/MetricsBar.js";
 import { QuestionCard } from "../src/components/QuestionCard.js";
 import { dictionaries, lang, t } from "../src/i18n.js";
@@ -242,5 +242,42 @@ describe("packMessage", () => {
     expect(msg.text).toBe(
       `look\n\n<attachment name="a.txt">\nAAA\n</attachment>\n\n<attachment name="My report.pdf" path="${path}" size="4" />`,
     );
+  });
+});
+
+describe("long pastes (p3.3.1)", () => {
+  it("become files past 2,000 characters or 40 lines, named and typed by their content", () => {
+    const at = new Date(2026, 10, 7, 18, 30, 12);
+    expect(pastedAttachment("a".repeat(2000), at)).toBeUndefined();
+    expect(pastedAttachment("a\n".repeat(40), at)).toBeUndefined();
+    expect(pastedAttachment("a".repeat(2001), at)).toMatchObject({
+      kind: "pasted",
+      name: "pasted-2026-11-07-183012.txt",
+    });
+    expect(pastedExt('{"a": [1, 2]}')).toBe("json");
+    expect(pastedExt("a,b,c\n1,2,3\n4,5,6")).toBe("csv");
+    expect(pastedExt("# Title\n\n- one\n- two")).toBe("md");
+    expect(pastedExt("just words\nand more")).toBe("txt");
+    expect(pastedExt("{not json")).toBe("txt");
+  });
+
+  it("are saved in .attachments and travel with their text", async () => {
+    const uploads: [string, string][] = [];
+    const content = "x".repeat(3000);
+    const msg = await packMessage(
+      "see",
+      [{ kind: "pasted", name: "pasted-2026-11-07-183012.txt", content }],
+      async (path, data) => void uploads.push([path, data]),
+    );
+    expect(uploads[0]?.[0]).toMatch(
+      /^\.attachments\/\d{4}-\d{2}-\d{2}\/[a-z0-9]+-pasted-2026-11-07-183012\.txt$/,
+    );
+    expect(atob(uploads[0]?.[1] ?? "")).toBe(content);
+    expect(msg.text).toContain(
+      `path="${uploads[0]?.[0]}" size="3000" pasted="true">\n${content}\n</attachment>`,
+    );
+    // Without a workspace (a room): inline only.
+    const room = await packMessage("see", [{ kind: "pasted", name: "p.txt", content }]);
+    expect(room.text).toContain(`<attachment name="p.txt" pasted="true">\n${content}`);
   });
 });

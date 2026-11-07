@@ -44,6 +44,9 @@ stage="$work/$name"
 mkdir -p "$stage/lib" "$stage/share/extension"
 cp vector.so "$stage/lib/"
 cp vector.control sql/vector--*.sql "$stage/share/extension/"
+# CREATE EXTENSION needs the install script make wrote, for the version the control file names.
+test -f "$stage/share/extension/vector--$PGVECTOR_VERSION.sql" || { echo "vector--$PGVECTOR_VERSION.sql missing" >&2; exit 1; }
+grep -q "default_version = '$PGVECTOR_VERSION'" "$stage/share/extension/vector.control" || { echo "vector.control is not $PGVECTOR_VERSION" >&2; exit 1; }
 echo "glibc needed: $(objdump -T vector.so | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
 echo "built against: $(/opt/pg/bin/pg_config --version)"
 rm -f "$out/$name.zip"

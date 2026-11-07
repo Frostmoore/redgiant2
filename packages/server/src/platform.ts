@@ -293,7 +293,21 @@ export interface ConfigHost {
   removeMcp(ownerId: string, name: string): Promise<void>;
   /** The tools the person switched off (G34.5). */
   toolChoices?: ToolChoiceStore;
+  /** The person's own settings kept as configuration (G36.16 commands, G36.17 requests). */
+  ownerSettings?(key: PersonSettingsKey): PersonSettingsStore | undefined;
 }
+
+/** The settings only the person changes, kept with history and undo. */
+export type PersonSettingsKey = "commands" | "requests";
+export interface PersonSettingsStore {
+  get(ownerId: string): unknown;
+  set(ownerId: string, value: unknown): Promise<unknown>;
+}
+
+const SETTINGS_NAMES: Record<PersonSettingsKey, string> = {
+  commands: "Background commands and bash limits",
+  requests: "Requests to the person",
+};
 
 type McpTransport = { transport: ReturnType<typeof catalogConfig>["transport"] };
 type McpRow = { name: string; project_id: string | null; transport: unknown };
@@ -589,6 +603,41 @@ export class PlatformConfig {
     return { change, ignored };
   }
 
+  /**
+   * The person's limits for commands (G36.16) or their choices for requests (G36.17): validated
+   * by the schema, applied at once, kept with what they replaced. Only the person changes them.
+   */
+  async setPersonSettings(
+    ownerId: string,
+    by: string,
+    key: PersonSettingsKey,
+    value: unknown,
+  ): Promise<PlatformChange> {
+    const store = this.h.ownerSettings?.(key);
+    if (!store) throw new ConfigError(`Settings "${key}" are not available`);
+    if (by !== "human") throw new ConfigError("Only the person changes these settings");
+    const before = store.get(ownerId);
+    let after: unknown;
+    try {
+      after = await store.set(ownerId, value);
+    } catch (err) {
+      const issues = (err as { issues?: { path: PropertyKey[]; message: string }[] }).issues;
+      throw new ConfigError(
+        issues?.map((i) => `${i.path.map(String).join(".") || key}: ${i.message}`).join("; ") ??
+          (err as Error).message,
+      );
+    }
+    return this.h.changes.record(ownerId, {
+      kind: "config",
+      change: SETTINGS_NAMES[key],
+      stage: "promoted",
+      target: `settings:${key}`,
+      before,
+      after,
+      by,
+    });
+  }
+
   /** Puts back what a configuration change replaced; recorded as a change of its own. */
   async undo(ownerId: string, by: string, changeId: string): Promise<PlatformChange> {
     const c = await this.h.changes.get(ownerId, changeId);
@@ -615,6 +664,13 @@ export class PlatformConfig {
       done = await this.putMcp(ownerId, by, name, current, c.before as McpSaved | null);
     } else if (type === "policy") {
       done = await this.setPolicy(ownerId, by, c.before as PlatformPolicy);
+    } else if (type === "settings") {
+      done = await this.setPersonSettings(
+        ownerId,
+        "human",
+        rest.join(":") as PersonSettingsKey,
+        c.before,
+      );
     } else if (type === "tools") {
       // Only the part the change touched comes back: the rule for everyone, or one agent's.
       const id = rest.join(":");

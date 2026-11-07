@@ -170,8 +170,10 @@ const FORMATS: Record<string, Entry> = {
         "each page becomes an editable drawing; complex text runs and some fonts can shift",
       ),
       t("svg", "libreoffice", "only the first page; some fonts and effects can shift"),
+      // A picture of a PDF without Ghostscript (p3.3.1): made only when asked for.
+      { ...t("png", "libreoffice", "only the first page"), asked: true },
     ],
-    note: "Open (ISO 32000). To edit its text and shapes, convert it to ODG (or SVG for one page).",
+    note: 'Open (ISO 32000). To edit its text and shapes, convert it to ODG (or SVG for one page); to: "png" gives a picture of its first page.',
   },
   odt: {
     exts: ["odt", "ott", "fodt"],

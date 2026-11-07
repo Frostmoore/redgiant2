@@ -1013,6 +1013,32 @@ export class Api {
       "GET",
       `/api/tools${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ""}`,
     );
+  /** Background commands' and bash's limits (G36.16, Settings > Commands). */
+  commandSettings = () =>
+    this.call<{
+      settings: import("@redgiant/protocol").CommandSettings;
+      defaults: import("@redgiant/protocol").CommandSettings;
+    }>("GET", "/api/settings/commands");
+  setCommandSettings = (s: import("@redgiant/protocol").CommandSettings) =>
+    this.call<PlatformChange>("PUT", "/api/settings/commands", s);
+  /** What reaches the person and what their classifier decides (G36.17, Settings > Requests). */
+  requestSettings = () =>
+    this.call<{
+      settings: import("@redgiant/protocol").RequestSettings;
+      defaults: import("@redgiant/protocol").RequestSettings;
+      defaultModel: { provider: string; model: string } | null;
+      humanOnly: string[];
+    }>("GET", "/api/settings/requests");
+  setRequestSettings = (s: import("@redgiant/protocol").RequestSettings) =>
+    this.call<PlatformChange>("PUT", "/api/settings/requests", s);
+  /** Requests decided without the person; `review`: only the blocked ones not seen yet. */
+  unattended = (review = false) =>
+    this.call<import("@redgiant/protocol").UnattendedDecision[]>(
+      "GET",
+      `/api/unattended${review ? "?review=1" : ""}`,
+    );
+  unattendedSeen = (id: string) =>
+    this.call<{ ok: boolean }>("POST", `/api/unattended/${encodeURIComponent(id)}/reviewed`);
   /** Tools off for every agent (the essential ones are refused). */
   setToolsOff = (off: string[]) => this.call<PlatformChange>("PUT", "/api/tools", { off });
   /** One agent's own choice: always on, off, or as for every agent ("default"). */
@@ -1025,6 +1051,16 @@ export class Api {
     this.call<{ at: number; keep: number }>(
       "GET",
       `/api/agents/${encodeURIComponent(agentId)}/compaction-defaults`,
+    );
+  /** A background command's log (p3.3.1): the last lines, or from a line on. */
+  commandOutput = (sessionId: string, id: string, from?: number) =>
+    this.call<{
+      log: { started?: string; folder?: string; by?: string; command?: string; dropped: number };
+      lines: { n: number; clock: string; at: number; stream: "out" | "err"; text: string }[];
+      running: boolean;
+    }>(
+      "GET",
+      `/api/sessions/${encodeURIComponent(sessionId)}/commands/${encodeURIComponent(id)}/output${from ? `?from=${from}` : ""}`,
     );
   undoCompaction = (sessionId: string) =>
     this.call("POST", `/api/sessions/${sessionId}/compaction/undo`);

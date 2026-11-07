@@ -127,6 +127,8 @@ export interface GatewayHost {
     answer(ownerId: string, requestId: string, answers: Answers): boolean;
   };
   language?(ownerId: string): Language;
+  /** Whether the person wants requests in the chats now (G36.17, Settings > Requests). */
+  requestsReach?(ownerId: string, channel: "chats"): boolean;
 }
 
 export interface ChatLink {
@@ -232,7 +234,9 @@ export class ChatBridge {
       };
     h.approvals.on(
       "request",
-      guard((owner: string, info: PermissionRequestInfo) => this.sendApproval(owner, info)),
+      guard(async (owner: string, info: PermissionRequestInfo) => {
+        if (h.requestsReach?.(owner, "chats") !== false) await this.sendApproval(owner, info);
+      }),
     );
     h.approvals.on(
       "closed",
@@ -240,7 +244,9 @@ export class ChatBridge {
     );
     h.questions?.on(
       "request",
-      guard((owner: string, info: QuestionRequestInfo) => this.sendQuestion(owner, info)),
+      guard(async (owner: string, info: QuestionRequestInfo) => {
+        if (h.requestsReach?.(owner, "chats") !== false) await this.sendQuestion(owner, info);
+      }),
     );
     h.questions?.on(
       "closed",

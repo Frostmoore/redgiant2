@@ -6,7 +6,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { extname, join, relative, resolve, sep } from "node:path";
+import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 
 /** What a preview link opens: a folder of files, or a port in an agent's container. */
@@ -294,9 +294,12 @@ export async function lastChange(path: string, limit = 3000): Promise<number> {
   return Math.floor(latest);
 }
 
-/** A path inside a root, as the root's relative path ("" for the root), or undefined. */
+/**
+ * A path inside a root, as the root's relative path ("" for the root), or undefined. On Windows a
+ * path on another drive comes back from `relative` absolute ("D:\\x"): that is outside too.
+ */
 export function inside(root: string, abs: string): string | undefined {
   const r = relative(resolve(root), resolve(abs));
-  if (r.startsWith("..") || resolve(root, r) !== resolve(abs)) return undefined;
+  if (r.startsWith("..") || isAbsolute(r) || resolve(root, r) !== resolve(abs)) return undefined;
   return r.split(sep).join("/");
 }

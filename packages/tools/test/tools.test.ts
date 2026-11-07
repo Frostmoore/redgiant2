@@ -7,10 +7,13 @@ import {
   agentEnv,
   applyEdit,
   baseTools,
+  ffmpegHint,
   htmlToText,
   LocalWorkspace,
   PathOutsideWorkspaceError,
+  resetProgramDirs,
   SearxngSearch,
+  shareProgramDir,
   truncateMiddle,
   webSearchTool,
 } from "../src/index.js";
@@ -49,6 +52,7 @@ describe("baseTools", () => {
   it("gives every agent the same tools in canonical order", () => {
     expect(tools().map((t) => t.def.name)).toEqual([
       "bash",
+      "bash_output",
       "edit_file",
       "fetch",
       "glob",
@@ -260,6 +264,34 @@ describe.skipIf(process.platform === "win32")("bash", () => {
       PATH: "/bin",
       LC_ALL: "C",
     });
+  });
+
+  it("puts RedGiant's own programs on the agents' PATH: ffmpeg first, the others last (p3.3.1)", async () => {
+    try {
+      shareProgramDir("/rg/tools/ffmpeg", "first");
+      shareProgramDir("/rg/tools/libreoffice/program");
+      shareProgramDir("/rg/tools/ffmpeg"); // once is enough
+      expect(agentEnv({ PATH: "/usr/bin:/bin" }).PATH).toBe(
+        "/rg/tools/ffmpeg:/usr/bin:/bin:/rg/tools/libreoffice/program",
+      );
+      expect(agentEnv({}).PATH).toBe("/rg/tools/ffmpeg:/rg/tools/libreoffice/program");
+      const env = (await run("bash", { command: "echo $PATH" })).content;
+      expect(env).toMatch(/\/rg\/tools\/ffmpeg:/);
+    } finally {
+      resetProgramDirs();
+    }
+    expect(agentEnv({ PATH: "/bin" }).PATH).toBe("/bin");
+  });
+
+  it("tells the agent how to give drawtext a font, and which ffmpeg to call", () => {
+    expect(ffmpegHint("ffmpeg -i a.mp4 -vf drawtext=text=Hi out.mp4", "")).toMatch(
+      /C\\:\/Windows\/Fonts\/arial\.ttf/,
+    );
+    expect(ffmpegHint("ffmpeg -vf drawtext=fontfile=/x.ttf:text=Hi o.mp4", "")).toBeUndefined();
+    expect(ffmpegHint("/c/x/ffmpeg.exe -i a b", "bash: Permission denied")).toMatch(
+      /command -v ffmpeg/,
+    );
+    expect(ffmpegHint("ls", "Permission denied")).toBeUndefined();
   });
 });
 

@@ -1,6 +1,7 @@
 import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { strToU8, zipSync } from "fflate";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chunkDocument } from "../src/knowledge/chunk.js";
@@ -15,7 +16,8 @@ import {
 import type { Extracted } from "../src/knowledge/types.js";
 
 const fixtures = new URL("./fixtures/knowledge/", import.meta.url);
-const fixture = (name: string) => new URL(name, fixtures).pathname;
+// fileURLToPath, not .pathname: on Windows the URL's path is "/D:/a/..." (CI: "D:\\D:\\a\\...").
+const fixture = (name: string) => fileURLToPath(new URL(name, fixtures));
 
 let dir: string;
 beforeAll(async () => {

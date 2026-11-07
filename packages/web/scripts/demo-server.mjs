@@ -59,6 +59,18 @@ const brain = (req) => {
   const results = last?.role === "user" && last.parts.every((p) => p.type === "tool_result");
   turn++;
   const said = last?.parts.find((p) => p.type === "text")?.text ?? "";
+  // G36.17: the person's classifier (DEMO_REQUESTS): yes to installing, no to deleting, an answer.
+  if (typeof req.system === "string" && req.system.startsWith("You decide for a person")) {
+    if (said.includes("Answer each question"))
+      return {
+        text: '{"answers": [["SQLite"]], "reason": "Per una prova basta un file: niente server da installare."}',
+      };
+    return {
+      text: said.includes("rm -rf")
+        ? '{"decision": "deny", "reason": "Cancella cartelle intere e il compito era solo aggiornare i test."}'
+        : '{"decision": "allow", "reason": "Installa le dipendenze del progetto: serve al compito ed è sicuro."}',
+    };
+  }
   // G36.15: an agent asks for a switched-off tool (the person answers from the bell).
   if (said.includes("Mi serve Blender") && !results)
     return {
@@ -69,6 +81,62 @@ const brain = (req) => {
           input: { tool: "blender", why: "Per fare il modello 3D del logo che mi hai chiesto." },
         },
       ],
+    };
+  // p3.3.1: background commands (DEMO_SUBAGENTS): a server that keeps writing, tests, a build.
+  if (said.startsWith("Avvia il server di prova"))
+    return {
+      text: "Avvio il server di prova e, intanto, i test e la build.",
+      toolCalls: [
+        {
+          name: "bash",
+          input: {
+            command:
+              'echo "> vite --port 5173"; for i in $(seq 1 900); do echo "[vite] GET /api/stato 200 in $((i % 40 + 3)) ms"; sleep 1; done',
+            background: true,
+          },
+        },
+        {
+          name: "bash",
+          input: {
+            command:
+              "echo 'RUN v5.0.5'; sleep 1; echo 'warning: test lento (2.3 s)' >&2; echo 'Tests 42 passed (42)'",
+            background: true,
+          },
+        },
+        {
+          name: "bash",
+          input: {
+            command:
+              "echo 'tsc -b'; sleep 1; echo 'src/app.ts(12,5): error TS2322: Type string is not assignable to type number.' >&2; exit 2",
+            background: true,
+          },
+        },
+      ],
+    };
+  if (
+    results &&
+    last?.parts.some(
+      (p) => p.type === "tool_result" && p.content.startsWith("Started in the background"),
+    )
+  )
+    return {
+      text: "Il server gira; i test sono passati, la build ha un errore di tipo in `src/app.ts`.",
+    };
+  // p3.3.1: the sub-agents of DEMO_SUBAGENTS, each with its own answer.
+  if (said.startsWith("Task from God: «Pubblica"))
+    return {
+      text: "Preparo le note di rilascio, poi pubblico.",
+      toolCalls: [
+        { name: "write_file", input: { path: "release-3.3.1.md", content: "# 3.3.1\n" } },
+      ],
+    };
+  if (said.startsWith("Task from God: «Scrive"))
+    return {
+      text: "Non ci riesco: i test di integrazione chiedono un database che qui non c'è.",
+    };
+  if (said.startsWith("Task from "))
+    return {
+      text: "Ho trovato i file da cambiare:\n\n- `packages/server/src/convert-js.ts`\n- `packages/server/src/convert-blender.ts`\n- `packages/web/src/components/Composer.tsx`",
     };
   // G34: «Mostra il file <path>» → show_file; its result → a short answer.
   const shownResult = last?.parts.find((p) => p.type === "tool_result")?.content;
@@ -520,7 +588,7 @@ const secretary = await core.registry.create(
     connections: ["docs"],
   },
 );
-await core.registry.create(
+const researcher = await core.registry.create(
   { type: "human", ownerId: "local" },
   {
     kind: "assistant",
@@ -738,6 +806,151 @@ await writeFile(join(dir, "models", "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf.part"), "de
   );
 }
 // G34: DEMO_SAMPLES=<folder>: God shows every file of it in the canvas, one message each.
+// p3.3.1, DEMO_SUBAGENTS=1: God's conversation with sub-agents at work (one finished, one failed,
+// one waiting for the person's yes with a sub-agent of its own), and a local model's file as a
+// model (its name, not its path, in the agent's card).
+let subSession;
+if (process.env.DEMO_SUBAGENTS) {
+  await core.registry.configure(me, secretary.id, {
+    model: {
+      provider: "local",
+      model:
+        "C:\\Users\\Pixel\\AppData\\Local\\RedGiant\\engine\\models\\GLM-4.5-Air-Q4_K_S-00001-of-00002.gguf",
+    },
+  });
+  // Asks before every command: the third sub-agent waits for the person's yes.
+  await core.registry.configure(me, researcher.id, { mode: "manual" });
+  subSession = await core.startSession("local", god.id);
+  const at = (sessionId, agentId, body) =>
+    core.store.append({ ownerId: "local", projectId: null, agentId, sessionId, body });
+  await at(subSession, null, {
+    type: "message.user",
+    payload: { text: "Prepara la release 3.3.1: trova cosa cambiare, scrivi i test e pubblica." },
+  });
+  await at(subSession, god.id, {
+    type: "message.assistant",
+    payload: {
+      parts: [{ type: "text", text: "Divido il lavoro fra tre sotto-agenti." }],
+      metrics: {
+        inputTokens: 9000,
+        outputTokens: 300,
+        cachedReadTokens: 8000,
+        contextUsed: 9300,
+        contextWindow: 200000,
+        startedAt: new Date().toISOString(),
+        source: "server",
+      },
+      costUsd: 0.01,
+      model: "claude-opus-5-5",
+      stopReason: "tool_use",
+    },
+  });
+  const work = [
+    ["Cerca i file da cambiare", "Cerca nel progetto i file che la 3.3.1 deve cambiare.", "done"],
+    ["Scrive i test", "Scrivi i test di integrazione della conversione PSD.", "failed"],
+    ["Pubblica il pacchetto", "Pubblica il pacchetto npm della 3.3.1.", null],
+  ];
+  for (const [title, task, end] of work) {
+    const child = await core.startSession("local", researcher.id);
+    await at(subSession, god.id, {
+      type: "subagent.started",
+      payload: {
+        childSessionId: child,
+        childAgentId: researcher.id,
+        via: "ask_assistant",
+        title,
+        task,
+      },
+    });
+    const { done } = await core.send("local", child, `Task from God: «${title}»\n\n${task}`);
+    if (end) {
+      await done;
+      await at(subSession, god.id, {
+        type: "subagent.ended",
+        payload: { childSessionId: child, status: end, summary: title },
+      });
+    } else {
+      done.catch(() => {});
+      // Its own sub-agent, finished.
+      const grand = await core.startSession("local", researcher.id);
+      await at(child, researcher.id, {
+        type: "subagent.started",
+        payload: {
+          childSessionId: grand,
+          childAgentId: researcher.id,
+          via: "run_subagent",
+          title: "Controlla il changelog",
+          task: "Controlla che il changelog della 3.3.1 sia completo.",
+        },
+      });
+      await (await core.send("local", grand, "Task from Ricercatore: «Controlla il changelog»"))
+        .done;
+      await at(child, researcher.id, {
+        type: "subagent.ended",
+        payload: { childSessionId: grand, status: "done", summary: "ok" },
+      });
+    }
+  }
+}
+if (subSession)
+  await (await core.send("local", subSession, "Avvia il server di prova, i test e la build.")).done;
+// G36.16, G36.17, DEMO_REQUESTS=1: background commands without a time limit, and «Non chiedermi
+// niente»: the classifier said yes to an install, no to a deletion, answered a question, and a
+// push (only the person approves it) waits in «Da rivedere».
+if (process.env.DEMO_REQUESTS) {
+  await core.config.setPersonSettings("local", "human", "commands", {
+    maxPerSession: 8,
+    maxMs: null,
+    maxLogBytes: 64 * 1024 * 1024,
+    bashMaxMs: 600_000,
+  });
+  await core.config.setPersonSettings("local", "human", "requests", { mode: "classifier" });
+  const sid = await core.startSession("local", researcher.id);
+  await core.store.append({
+    ownerId: "local",
+    projectId: null,
+    agentId: researcher.id,
+    sessionId: sid,
+    body: { type: "message.user", payload: { text: "Aggiorna i test del modulo di login." } },
+  });
+  let n = 0;
+  const ask = (command, danger, humanOnly) =>
+    core.person.approve(
+      {
+        requestId: `demo_${++n}`,
+        requester: core.registry.get(researcher.id),
+        call: { callId: `c${n}`, name: "bash", input: { command } },
+        reasons: ["Runs a command"],
+        danger,
+        sessionId: sid,
+      },
+      new AbortController().signal,
+      { kind: "approval", humanOnly, what: `bash: ${command}` },
+    );
+  await ask("npm install", [], false);
+  await core.person.ask(
+    core.registry.get(god.id),
+    {
+      requestId: "demo_q",
+      sessionId: sid,
+      agentId: god.id,
+      agentName: "God",
+      projectId: null,
+      questions: [
+        {
+          question: "Quale database per la prova?",
+          options: [{ label: "Postgres" }, { label: "SQLite" }],
+          multiSelect: false,
+        },
+      ],
+      createdAt: new Date().toISOString(),
+    },
+    undefined,
+    "question",
+  );
+  await ask("rm -rf build/ dist/ node_modules/", [], false);
+  await ask("git push --force origin main", ["git-push", "git-history"], true);
+}
 let viewerSession;
 if (process.env.DEMO_SAMPLES) {
   const { cp, readdir } = await import("node:fs/promises");
@@ -766,5 +979,6 @@ console.log(
     orchestrator: orch.id,
     god: god.id,
     ...(viewerSession && { viewerSession }),
+    ...(subSession && { subSession }),
   }),
 );

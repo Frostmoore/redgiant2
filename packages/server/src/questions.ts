@@ -11,6 +11,7 @@ import {
   type QuestionRequestInfo,
 } from "@redgiant/protocol";
 import { z } from "zod";
+import type { QuestionOutcome } from "./person-requests.js";
 
 interface Pending {
   info: QuestionRequestInfo;
@@ -76,6 +77,16 @@ export interface QuestionHost {
   /** The human approved the plan: the agent leaves plan mode (recorded, undoable). */
   leavePlanMode(ownerId: string, agentId: string): Promise<void>;
   modeOf(agentId: string): string;
+  /**
+   * The person's choices (G36.17): their time limit, or their classifier instead of them. Absent:
+   * the question waits for the person as long as the turn lasts.
+   */
+  ask?(
+    agent: AgentRecord,
+    info: QuestionRequestInfo,
+    signal: AbortSignal | undefined,
+    kind: "question" | "plan",
+  ): Promise<QuestionOutcome>;
 }
 
 /** Asks, records the question and its answer in the session, and waits. */
@@ -85,7 +96,7 @@ async function askHuman(
   ctx: { ownerId: string; sessionId: string; signal?: AbortSignal | undefined },
   questions: Question[],
   plan?: string,
-): Promise<Answers | null> {
+): Promise<QuestionOutcome> {
   const info: QuestionRequestInfo = {
     requestId: randomUUID(),
     sessionId: ctx.sessionId,
@@ -109,15 +120,33 @@ async function askHuman(
       payload: { requestId: info.requestId, questions, ...(plan !== undefined && { plan }) },
     },
   });
-  const answers = await host.questions.ask(ctx.ownerId, info, ctx.signal);
+  const outcome: QuestionOutcome = host.ask
+    ? await host.ask(agent, info, ctx.signal, plan !== undefined ? "plan" : "question")
+    : await host.questions
+        .ask(ctx.ownerId, info, ctx.signal)
+        .then((answers) =>
+          answers ? { by: "human" as const, answers } : { by: "nobody" as const },
+        );
   await host.store.append({
     ...where,
     body: {
       type: "question.answered",
-      payload: { requestId: info.requestId, answers, by: answers ? "human" : "nobody" },
+      payload: {
+        requestId: info.requestId,
+        answers: "answers" in outcome ? outcome.answers : null,
+        by: outcome.by,
+      },
     },
   });
-  return answers;
+  return outcome;
+}
+
+/** What the agent reads when the person did not answer themself (G36.17). */
+function unanswered(outcome: QuestionOutcome): string | undefined {
+  if (outcome.by === "nobody") return "The human did not answer (the turn was interrupted).";
+  if (outcome.by === "timeout")
+    return `The person did not answer (${outcome.reason}). Carry on with your best guess, and say plainly in your reply which guess you made so they can correct it.`;
+  return undefined;
 }
 
 const AskInput = z.object({
@@ -194,10 +223,16 @@ export function questionTools(agent: AgentRecord, host: QuestionHost): Tool[] {
           multiSelect: q.multi_select ?? false,
         }),
       );
-      const answers = await askHuman(host, agent, ctx, qs);
-      if (!answers)
-        return { content: "The human did not answer (the turn was interrupted).", isError: true };
-      return qs.map((q, i) => `${q.question}\n-> ${(answers[i] ?? []).join("; ")}`).join("\n\n");
+      const outcome = await askHuman(host, agent, ctx, qs);
+      const missing = unanswered(outcome);
+      if (missing) return { content: missing, isError: outcome.by === "nobody" };
+      const answers = (outcome as { answers: Answers }).answers;
+      const text = qs
+        .map((q, i) => `${q.question}\n-> ${(answers[i] ?? []).join("; ")}`)
+        .join("\n\n");
+      return outcome.by === "classifier"
+        ? `The person is not taking questions now: their classifier answered for them (${outcome.reason}). Treat these as reasonable defaults, not the person's own choice, and mention them in your reply.\n\n${text}`
+        : text;
     },
   };
   const propose: Tool<z.infer<typeof PlanInput>> = {
@@ -228,13 +263,23 @@ export function questionTools(agent: AgentRecord, host: QuestionHost): Tool[] {
         ],
         plan,
       );
-      const answer = answers?.[0]?.[0];
+      if (answers.by === "nobody")
+        return { content: "The human did not answer (the turn was interrupted).", isError: true };
+      // An approval nobody gave is a no (CLAUDE.md): the plan stays a plan.
+      if (answers.by === "timeout")
+        return `The person did not answer (${answers.reason}): the plan is not approved. Stay in plan mode; you may refine it or wait for them.`;
+      const answer = answers.answers[0]?.[0];
       if (!answer)
         return { content: "The human did not answer (the turn was interrupted).", isError: true };
+      const byClassifier = answers.by === "classifier";
       if (answer === PLAN_APPROVE) {
         await host.leavePlanMode(ctx.ownerId, agent.id);
-        return "The human approved the plan. You are now in auto mode: carry it out.";
+        return byClassifier
+          ? `The person's classifier approved the plan for them (${answers.reason}). You are now in auto mode: carry it out, and tell the person it was approved without them.`
+          : "The human approved the plan. You are now in auto mode: carry it out.";
       }
+      if (byClassifier)
+        return `The person's classifier did not approve the plan (${answers.reason}). Stay in plan mode and revise it.`;
       return answer === PLAN_REVISE
         ? "The human wants a different plan. Ask what to change if it is not clear."
         : `The human did not approve the plan yet. Their feedback: ${answer}`;

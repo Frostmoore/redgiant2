@@ -7,6 +7,7 @@ import { useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import {
   IconArchive,
+  IconBell,
   IconBook,
   IconCard,
   IconChat,
@@ -21,6 +22,7 @@ import {
   IconSettings,
   IconShield,
   IconTelegram,
+  IconTerminal,
   IconTool,
   IconTree,
   IconUpload,
@@ -31,6 +33,7 @@ import { Backup } from "./Backup.js";
 import { Budgets } from "./Budgets.js";
 import { ChatPlatforms } from "./ChatPlatforms.js";
 import { CodeSettings } from "./CodeSettings.js";
+import { CommandLimits } from "./CommandLimits.js";
 import { Extensions } from "./Extensions.js";
 import { General } from "./General.js";
 import { Hierarchy } from "./Hierarchy.js";
@@ -38,6 +41,7 @@ import { ImportFrom } from "./ImportFrom.js";
 import { Keychain } from "./Keychain.js";
 import { Platform } from "./Platform.js";
 import { RemoteSettings } from "./RemoteSettings.js";
+import { RequestsPage } from "./RequestsPage.js";
 import { Setup } from "./Setup.js";
 import { SharedMemoryPage } from "./SharedMemory.js";
 import { Subscriptions } from "./Subscriptions.js";
@@ -65,6 +69,8 @@ const GROUPS: { title: () => string; sections: Section[] }[] = [
       { id: "automations", label: () => t("automations"), icon: <IconClock size={20} /> },
       { id: "extensions", label: () => t("extensions"), icon: <IconPuzzle size={20} /> },
       { id: "tools", label: () => t("toolsSection"), icon: <IconTool size={20} /> },
+      { id: "commands", label: () => t("cmdSection"), icon: <IconTerminal size={20} /> },
+      { id: "requests", label: () => t("rqSection"), icon: <IconBell size={20} /> },
       { id: "keychain", label: () => t("kcSection"), icon: <IconKey size={20} /> },
     ],
   },
@@ -170,6 +176,8 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "automations" && <Automations />}
         {section === "extensions" && <Extensions />}
         {section === "tools" && <ToolsPage />}
+        {section === "commands" && <CommandLimits />}
+        {section === "requests" && <RequestsPage />}
         {section === "keychain" && <Keychain />}
         {section === "telegram" && <Telegram />}
         {section === "chats" && <ChatPlatforms />}

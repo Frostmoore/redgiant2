@@ -244,23 +244,72 @@ export const commands = {
   },
 };
 
+/** A number the model may write as a string ("960"). */
+const num = (min: number, max: number) =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : v),
+    z.number().int().min(min).max(max),
+  );
+const flag = z.preprocess((v) => (v === "true" ? true : v === "false" ? false : v), z.boolean());
+
 const Render = z.object({
-  turntable: z.boolean().optional(),
-  view: z.enum(["front", "side", "top", "iso"]).optional(),
-  width: z.number().int().min(16).max(1920).optional(),
-  height: z.number().int().min(16).max(1920).optional(),
-  samples: z.number().int().min(1).max(512).optional(),
-  frames: z.number().int().min(2).max(120).optional(),
-  engine: z.enum(["cycles", "eevee"]).optional(),
+  turntable: flag.optional(),
+  view: z
+    .preprocess(
+      (v) => (typeof v === "string" ? v.toLowerCase() : v),
+      z.enum(["front", "side", "top", "iso"]),
+    )
+    .optional(),
+  width: num(16, 3840).optional(),
+  height: num(16, 3840).optional(),
+  samples: num(1, 4096).optional(),
+  frames: num(2, 240).optional(),
+  engine: z
+    .preprocess(
+      (v) =>
+        typeof v === "string"
+          ? v
+              .toLowerCase()
+              .replace(/^blender_/, "")
+              .replace(/_next$/, "")
+          : v,
+      z.enum(["cycles", "eevee"]),
+    )
+    .optional(),
 });
+
+/**
+ * What models really send for `render` (p3.3.1, «Invalid input» for every value): true, an
+ * object, but often the same as a string ("true", '{"samples": 64}') when the schema had no
+ * type, or a word ("png", "turntable"). All of them mean the same render.
+ */
+export function renderValue(v: unknown): unknown {
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (/^[{[]/.test(t)) {
+      try {
+        return renderValue(JSON.parse(t));
+      } catch {
+        return v;
+      }
+    }
+    const w = t.toLowerCase();
+    if (["", "false", "no", "none", "0"].includes(w)) return false;
+    if (["true", "yes", "1", "png", "still", "image"].includes(w)) return true;
+    if (["turntable", "360", "webm", "video", "turn"].includes(w)) return { turntable: true };
+    return v;
+  }
+  if (v === null) return false;
+  return v;
+}
 
 const BlenderInput = z.object({
   script: z.string().max(200_000).optional(),
   file: z.string().min(1).optional(),
   out: z.string().min(1).optional(),
-  render: z.union([z.boolean(), Render]).optional(),
-  show: z.boolean().optional(),
-  timeout_s: z.number().int().min(10).max(1800).optional(),
+  render: z.preprocess(renderValue, z.union([z.boolean(), Render])).optional(),
+  show: flag.optional(),
+  timeout_s: num(10, 1800).optional(),
 });
 
 export interface BlenderToolDeps {
@@ -287,7 +336,18 @@ export function blenderTool(ws: Workspace, d: BlenderToolDeps): Tool {
           file: { type: "string" },
           out: { type: "string", description: "Output path without extension" },
           render: {
-            description: "true, or {turntable, view, width, height, samples, frames, engine}",
+            type: "object",
+            description:
+              "Render too: {} for a still PNG (or true), {turntable: true} for a 360° WebM. All optional.",
+            properties: {
+              turntable: { type: "boolean" },
+              view: { type: "string", enum: ["front", "side", "top", "iso"] },
+              width: { type: "integer", description: "pixels, default 960" },
+              height: { type: "integer", description: "pixels, default 720" },
+              samples: { type: "integer", description: "Cycles samples, default 32" },
+              frames: { type: "integer", description: "turntable frames, default 48" },
+              engine: { type: "string", enum: ["cycles", "eevee"] },
+            },
           },
           show: { type: "boolean" },
           timeout_s: { type: "number" },

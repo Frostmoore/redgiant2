@@ -39,6 +39,7 @@ async function god(server: Server) {
 describe("show_file (G34.1)", () => {
   it("opens a workspace file as an event, served in ranges for the players", async () => {
     const bytes = "0123456789".repeat(100);
+    let answer = "";
     s = await startServer((req) => {
       const r = resultOf(req);
       if (r === undefined)
@@ -47,10 +48,13 @@ describe("show_file (G34.1)", () => {
         };
       if (!r.startsWith("Opened"))
         return { toolCalls: [{ name: "show_file", input: { path: "out/clip.mp4" } }] };
+      answer = r;
       return { text: "It is in the canvas." };
     }, ROOM);
     const sessionId = await god(s);
     await (await s.core.send("me", sessionId, "Show me the clip")).done;
+    // The agent is told what the person sees (p3.3.1).
+    expect(answer).toMatch(/in its video player: no conversion is needed/);
     const events = (await s.api<Event[]>("GET", `/api/sessions/${sessionId}/events`)).body;
     const shown = events.find((e) => e.type === "canvas.show");
     expect(shown?.payload).toEqual({

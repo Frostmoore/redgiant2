@@ -76,6 +76,8 @@ New-Item -ItemType Directory -Force "$stage\lib", "$stage\share\extension" | Out
 Copy-Item "$src\vector.dll" "$stage\lib\"
 Copy-Item "$src\vector.control" "$stage\share\extension\"
 Copy-Item "$src\sql\vector--*.sql" "$stage\share\extension\"
+# CREATE EXTENSION needs the install script nmake wrote, for the version the control file names.
+if (-not (Test-Path "$stage\share\extension\vector--$pv.sql")) { throw "vector--$pv.sql missing" }
 $zipPath = Join-Path $Out "$name.zip"
 Remove-Item -Force $zipPath -ErrorAction SilentlyContinue
 # Windows' own bsdtar writes zip entries with forward slashes.

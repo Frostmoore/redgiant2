@@ -15,8 +15,29 @@ export interface ApprovalRequest {
   sessionId?: string;
 }
 
+/**
+ * A request decided without the person (G36.17): by the classifier they chose, or because their
+ * time ran out. Only an explicit classifier's yes allows; a failure or a timeout is a no.
+ */
+export interface UnattendedAnswer {
+  decision: "allow" | "deny";
+  by: "classifier" | "timeout";
+  reason: string;
+}
+
 /** The person's answer: yes, no, or no with words the agent reads (2026-11-05). */
-export type HumanAnswer = "allow" | "deny" | { deny: string };
+export type HumanAnswer = "allow" | "deny" | { deny: string } | UnattendedAnswer;
+
+/** Whether an answer is a yes (the person's, or their classifier's explicit one). */
+export function allows(answer: HumanAnswer): boolean {
+  if (answer === "allow") return true;
+  return (
+    typeof answer === "object" &&
+    "by" in answer &&
+    answer.by === "classifier" &&
+    answer.decision === "allow"
+  );
+}
 
 export type AgentAnswer = "allow" | "deny" | "escalate";
 
@@ -82,6 +103,25 @@ export class PermissionBroker {
       const answer = approver
         ? await this.o.askAgent(approver, request).catch(() => "escalate" as const)
         : await this.human(request, settings);
+      if (typeof answer === "object" && "by" in answer) {
+        const yes = allows(answer);
+        await this.log(agent, sessionId, {
+          type: "permission.resolved",
+          payload: {
+            requestId: request.requestId,
+            decision: yes ? "allow" : "deny",
+            by: answer.by,
+          },
+        });
+        if (yes) return { allow: true };
+        return {
+          allow: false,
+          reason:
+            answer.by === "classifier"
+              ? `denied by the person's classifier (they are not taking requests now): ${answer.reason}`
+              : `nobody answered in time: ${answer.reason}`,
+        };
+      }
       const said = typeof answer === "object" ? answer.deny : undefined;
       await this.log(agent, sessionId, {
         type: "permission.resolved",

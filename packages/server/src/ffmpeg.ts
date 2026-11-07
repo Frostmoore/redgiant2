@@ -4,7 +4,7 @@
 // with its bar, like Git and whisper.cpp. Builds: the ffmpeg-static project's releases, one
 // gzip-compressed program per system (REDGIANT_FFMPEG_RELEASES for a mirror, or a fake in tests).
 
-import { createWriteStream, existsSync } from "node:fs";
+import { createWriteStream, existsSync, realpathSync } from "node:fs";
 import { chmod, mkdir, rename, rm } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { Readable } from "node:stream";
@@ -35,11 +35,20 @@ export function ffmpegAsset(
 export const ffmpegPath = (dataDir: string, platform: string = process.platform) =>
   join(dataDir, "tools", "ffmpeg", exe(platform));
 
-/** An ffmpeg on the PATH (the person's own). */
+/**
+ * An ffmpeg on the PATH (the person's own), as its real file: WinGet puts a link on the PATH that
+ * Windows may refuse to start from another program («untrusted mount point», p3.3.1).
+ */
 function onPath(path = process.env.PATH ?? process.env.Path ?? ""): string | undefined {
   for (const d of path.split(delimiter)) {
     const p = d && join(d, exe(process.platform));
-    if (p && existsSync(p)) return p;
+    if (p && existsSync(p)) {
+      try {
+        return realpathSync(p);
+      } catch {
+        return p;
+      }
+    }
   }
   return undefined;
 }

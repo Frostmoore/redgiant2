@@ -22,7 +22,10 @@ export interface ShowFileRequest {
   size: number;
 }
 
-/** Records what is shown (the server appends a `canvas.show` event); a line for the model back. */
+/**
+ * Records what is shown (the server appends a `canvas.show` event); returns what the person
+ * sees there (viewer, conversion, preview), added to the tool's answer.
+ */
 export type ShowFileHost = (req: ShowFileRequest, ctx: ToolContext) => Promise<string | undefined>;
 
 const ShowInput = z.object({
@@ -104,10 +107,9 @@ export function showFileTool(
       if (!host)
         return { content: "The canvas is not available in this conversation.", isError: true };
       const said = await host({ abs, path: i.path, outside, title, size: st.size }, ctx);
-      return (
-        said ??
-        `Opened ${title} (${size(st.size)}) in the canvas next to the chat: the person sees it now.`
-      );
+      // The host adds what the person sees (viewer, conversion, paged preview).
+      const opened = `Opened ${title} (${size(st.size)}) in the canvas next to the chat: the person sees it now.`;
+      return said ? `${opened}\n${said}` : opened;
     },
   };
 }

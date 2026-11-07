@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -45,7 +45,10 @@ describe("ffmpeg for voice notes (2026-11-05)", () => {
       await writeFile(ffmpegPath(data), "");
       expect(findFfmpeg(data, "/nowhere")).toBe(ffmpegPath(data));
       await writeFile(join(bin, name), "");
-      expect(findFfmpeg(data, ["/nowhere", bin].join(delimiter))).toBe(join(bin, name));
+      // The PATH's is taken through its links (a WinGet link): its real path (macOS: /private/var).
+      expect(findFfmpeg(data, ["/nowhere", bin].join(delimiter))).toBe(
+        realpathSync(join(bin, name)),
+      );
       await writeFile(join(dir, "own"), "");
       process.env.REDGIANT_FFMPEG = join(dir, "own");
       expect(findFfmpeg(data, bin)).toBe(join(dir, "own"));

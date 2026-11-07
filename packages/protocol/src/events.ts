@@ -116,6 +116,24 @@ export const EventBody = z.discriminatedUnion("type", [
       by: z.string(),
     }),
   }),
+  /**
+   * A request decided without the person (G36.17): by their classifier, or because the time ran
+   * out. `review`: a danger only the person approves, blocked and waiting in their review list.
+   */
+  z.object({
+    type: z.literal("request.unattended"),
+    payload: z.object({
+      decisionId: z.string(),
+      requestId: z.string(),
+      kind: z.string(),
+      what: z.string(),
+      decision: z.enum(["allow", "deny", "answered", "blocked"]),
+      by: z.enum(["classifier", "timeout"]),
+      reason: z.string(),
+      model: z.string().optional(),
+      review: z.boolean(),
+    }),
+  }),
   /** An agent asked the human (ask_user) or proposed a plan (propose_plan). */
   z.object({
     type: z.literal("question.asked"),
@@ -167,6 +185,67 @@ export const EventBody = z.discriminatedUnion("type", [
    * Something an agent made, shown in the canvas (G25.1): a file or folder of a workspace, or a
    * program serving on a port of the agent's container. Not part of the model's history.
    */
+  /**
+   * A sub-agent at work for this conversation (p3.3.1, as Officina shows them: a tab per
+   * sub-agent): run_subagent(s), delegate, ask_assistant. Written in the PARENT session; the
+   * sub-agent's own conversation is `childSessionId`, its part of it the events after this one.
+   */
+  z.object({
+    type: z.literal("subagent.started"),
+    payload: z.object({
+      childSessionId: z.string(),
+      childAgentId: z.string(),
+      /** The tool call that started it. */
+      callId: z.string().optional(),
+      via: z.string(),
+      title: z.string(),
+      /** The task it was given (cut at 20,000 characters). */
+      task: z.string(),
+    }),
+  }),
+  z.object({
+    type: z.literal("subagent.ended"),
+    payload: z.object({
+      childSessionId: z.string(),
+      status: z.enum(["done", "failed", "stopped"]),
+      summary: z.string().optional(),
+    }),
+  }),
+  /**
+   * A background command (p3.3.1): started by bash with background, in the conversation that
+   * started it. `file` is its log on the server (every line with its time and stream).
+   */
+  z.object({
+    type: z.literal("command.started"),
+    payload: z.object({
+      id: z.string(),
+      command: z.string(),
+      file: z.string(),
+      path: z.string(),
+      cwd: z.string(),
+      by: z.string(),
+      callId: z.string().optional(),
+      pid: z.number().int().optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal("command.ended"),
+    payload: z.object({
+      id: z.string(),
+      status: z.enum(["done", "failed", "stopped", "interrupted"]),
+      exitCode: z.number().int().nullable(),
+    }),
+  }),
+  /** Taken off the strip by the person: stays off on every device and after a restart. */
+  z.object({
+    type: z.literal("command.closed"),
+    payload: z.object({ id: z.string() }),
+  }),
+  /** The person closed its tab: closed stays closed (reloads, other devices, restarts). */
+  z.object({
+    type: z.literal("subagent.closed"),
+    payload: z.object({ childSessionId: z.string() }),
+  }),
   z.object({
     type: z.literal("canvas.show"),
     payload: z.object({

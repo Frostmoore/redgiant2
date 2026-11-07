@@ -158,7 +158,8 @@ export function buildItems(events: Event[]): ChatItem[] {
           costUsd: e.payload.costUsd,
           model: e.payload.model,
           stopReason: e.payload.stopReason,
-          ...(e.payload.provider.startsWith("import:") && { imported: true }),
+          // Older or hand-made events may lack the provider.
+          ...((e.payload.provider ?? "").startsWith("import:") && { imported: true }),
         });
         break;
       // A conversation brought in from ChatGPT or Claude (G36.7): said once, at its top.
@@ -723,7 +724,11 @@ export type SettingsSection =
   /** The common tools, switched on and off (G34.5). */
   | "tools"
   /** Import from other agents (G36.7). */
-  | "import";
+  | "import"
+  /** Background commands' and bash's limits (G36.16). */
+  | "commands"
+  /** What reaches the person, their classifier and its decisions (G36.17). */
+  | "requests";
 
 /** Older ways to open things, still used by the views: they land in the new places. */
 export type OpenRequest =
@@ -1029,4 +1034,150 @@ export const promptRewriteOffer = signal<Record<string, true>>({});
 export function offerPromptRewrite(agentId: string, on: boolean): void {
   const { [agentId]: _was, ...rest } = promptRewriteOffer.value;
   promptRewriteOffer.value = on ? { ...rest, [agentId]: true } : rest;
+}
+
+// ---------- Sub-agents' tabs (p3.3.1, as Officina shows them) ----------
+
+/** A sub-agent started from a conversation: its tab there. */
+export interface SubTab {
+  childSessionId: string;
+  childAgentId: string;
+  callId?: string | undefined;
+  via: string;
+  title: string;
+  task: string;
+  /** Its part of its conversation: the events after this one (a work conversation is reused). */
+  fromSeq: number;
+  startedAt: string;
+  endedAt?: string | undefined;
+  /** undefined while no end is recorded (working, or died with a restart). */
+  ended?: "done" | "failed" | "stopped" | undefined;
+  summary?: string | undefined;
+  closed: boolean;
+}
+
+/** The tabs of a conversation's sub-agents, from its events (pure). A new task reopens a tab. */
+export function subagentTabs(events: Event[]): SubTab[] {
+  const tabs = new Map<string, SubTab>();
+  for (const e of events) {
+    if (e.payload === null) continue;
+    if (e.type === "subagent.started") {
+      const p = e.payload;
+      // The same conversation given work again (a persistent agent): the tab follows the newest.
+      tabs.delete(p.childSessionId);
+      tabs.set(p.childSessionId, {
+        childSessionId: p.childSessionId,
+        childAgentId: p.childAgentId,
+        callId: p.callId,
+        via: p.via,
+        title: p.title,
+        task: p.task,
+        // A brand-new conversation is all its own; a reused one from this task on.
+        fromSeq: p.via.startsWith("run_subagent") ? 0 : e.seq,
+        startedAt: e.ts,
+        closed: false,
+      });
+    } else if (e.type === "subagent.ended") {
+      const tab = tabs.get(e.payload.childSessionId);
+      if (tab) {
+        tab.ended = e.payload.status;
+        tab.endedAt = e.ts;
+        tab.summary = e.payload.summary;
+      }
+    } else if (e.type === "subagent.closed") {
+      const tab = tabs.get(e.payload.childSessionId);
+      if (tab) tab.closed = true;
+    }
+  }
+  return [...tabs.values()];
+}
+
+/** What a tab's dot says: working, finished, failed, or stopped (also: died with a restart). */
+export function subStatus(
+  tab: SubTab,
+  childRunning: boolean,
+  parentRunning: boolean,
+): "running" | "done" | "failed" | "stopped" {
+  if (tab.ended) return tab.ended;
+  return childRunning || parentRunning ? "running" : "stopped";
+}
+
+/** The last event of each sub-agent's conversation the person has seen (its "new" mark). */
+export const subSeen = signal<Record<string, number>>(
+  (() => {
+    try {
+      return JSON.parse(localStorage.getItem("rg.subSeen") ?? "{}") as Record<string, number>;
+    } catch {
+      return {};
+    }
+  })(),
+);
+export function markSubSeen(childSessionId: string, seq: number): void {
+  if ((subSeen.value[childSessionId] ?? 0) >= seq) return;
+  subSeen.value = { ...subSeen.value, [childSessionId]: seq };
+  try {
+    localStorage.setItem("rg.subSeen", JSON.stringify(subSeen.value));
+  } catch {}
+}
+
+/** Which tab is open in each conversation, level by level (the sub-agents' sessions). */
+export const subPath = signal<Record<string, string[]>>({});
+export function openSubPath(rootSessionId: string, path: string[]): void {
+  subPath.value = { ...subPath.value, [rootSessionId]: path };
+}
+
+// ---------- Background commands (p3.3.1) ----------
+
+/** A background command as the strip shows it. */
+export interface CommandRow {
+  id: string;
+  command: string;
+  by: string;
+  cwd: string;
+  path: string;
+  startedAt: string;
+  endedAt?: string | undefined;
+  status: "running" | "done" | "failed" | "stopped" | "interrupted";
+  exitCode: number | null;
+  closed: boolean;
+}
+
+/** The background commands of a conversation, from its events (pure). */
+export function commandRows(events: Event[]): CommandRow[] {
+  const rows = new Map<string, CommandRow>();
+  for (const e of events) {
+    if (e.payload === null) continue;
+    if (e.type === "command.started")
+      rows.set(e.payload.id, {
+        id: e.payload.id,
+        command: e.payload.command,
+        by: e.payload.by,
+        cwd: e.payload.cwd,
+        path: e.payload.path,
+        startedAt: e.ts,
+        status: "running",
+        exitCode: null,
+        closed: false,
+      });
+    else if (e.type === "command.ended") {
+      const r = rows.get(e.payload.id);
+      if (r)
+        Object.assign(r, { status: e.payload.status, exitCode: e.payload.exitCode, endedAt: e.ts });
+    } else if (e.type === "command.closed") {
+      const r = rows.get(e.payload.id);
+      if (r) r.closed = true;
+    }
+  }
+  return [...rows.values()];
+}
+
+/** The strip reduced to one line, or open (remembered on this device). */
+export const commandStripMin = signal(
+  typeof localStorage !== "undefined" && localStorage.getItem("rg.cmdStrip") === "min",
+);
+export function setCommandStripMin(min: boolean): void {
+  commandStripMin.value = min;
+  try {
+    localStorage.setItem("rg.cmdStrip", min ? "min" : "open");
+  } catch {}
 }

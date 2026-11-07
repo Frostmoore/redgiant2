@@ -177,6 +177,61 @@ describe("orchestration", () => {
       "verified",
     ]);
     expect((await s.core.store.verify()).ok).toBe(true);
+    // Every level's sub-agent has a tab in the conversation that started it (p3.3.1), linked to
+    // the call and to its own conversation: God › Orch › Coder › its sub-agent.
+    type Started = {
+      childSessionId: string;
+      childAgentId: string;
+      callId?: string;
+      via: string;
+      title: string;
+      task: string;
+    };
+    const started = of("subagent.started").map((e) => ({
+      at: e.sessionId,
+      ...(e.payload as Started),
+    }));
+    expect(started.map((x) => [x.via, x.title])).toEqual([
+      ["delegate", "Greeting"],
+      ["delegate", "Write greeting"],
+      ["run_subagent", "write file"],
+    ]);
+    expect(started[0]?.at).toBe(body.sessionId);
+    expect(started[1]?.at).toBe(started[0]?.childSessionId);
+    expect(started[2]?.at).toBe(started[1]?.childSessionId);
+    expect(started[2]?.task).toBe("Create greeting.txt with Hello");
+    for (const x of started) {
+      const call = of("tool.call").find(
+        (e) => (e.payload as { callId: string }).callId === x.callId,
+      );
+      expect(call?.sessionId).toBe(x.at);
+    }
+    // Its conversation's own part comes after the tab was opened.
+    const firstOfSub = events.find(
+      (e) => e.sessionId === started[2]?.childSessionId && e.type === "message.user",
+    );
+    const openedAt = of("subagent.started")[2]?.seq ?? 0;
+    expect(firstOfSub?.seq).toBeGreaterThan(openedAt);
+    expect(of("subagent.ended").map((e) => (e.payload as { status: string }).status)).toEqual([
+      "done",
+      "done",
+      "done",
+    ]);
+    // Closed by the person: recorded once, in the conversation that started it.
+    const parent = started[2]?.at as string;
+    const child = started[2]?.childSessionId as string;
+    const w = await wsClient(s.url);
+    w.send({ type: "subagent.close", sessionId: parent, childSessionId: child });
+    await expect
+      .poll(async () => (await s?.core.store.list({ types: ["subagent.closed"] }))?.length)
+      .toBe(1);
+    await s.core.closeSubagent("me", parent, child);
+    w.close();
+    const closed = await s.core.store.list({ types: ["subagent.closed"] });
+    expect(
+      closed.map((e) => [e.sessionId, (e.payload as { childSessionId: string }).childSessionId]),
+    ).toEqual([[parent, child]]);
+    await expect(s.core.closeSubagent("me", parent, "nope")).rejects.toThrow(/No such sub-agent/);
     // The parent's report names the sub-agent's conversation, so the chat can open it.
     const sub = agents.find((a) => a.kind === "subagent")?.id ?? "";
     const subSession = of("task.opened").find((e) => e.agentId === sub)?.sessionId ?? "";
@@ -810,5 +865,49 @@ describe("tasks after a restart", () => {
     expect(await tracker.rebuild()).toBe(1);
     expect(tracker.openFor("agent_1", "sess_1")?.title).toBe("Open");
     expect(tracker.get("t2")).toBeUndefined();
+  });
+});
+
+describe("sub-agent tabs (p3.3.1)", () => {
+  it("closes a tab whose sub-agent died with a restart, once, and never one still working", async () => {
+    s = await startServer(() => ({ text: "ok" }));
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const { body } = await s.api<{ sessionId: string }>("POST", "/api/sessions", {
+      agentId: god.body.id,
+    });
+    const child = await s.api<{ sessionId: string }>("POST", "/api/sessions", {
+      agentId: god.body.id,
+    });
+    // Started before a restart, never ended: nothing works on it now.
+    await s.core.store.append({
+      ownerId: "me",
+      agentId: god.body.id,
+      sessionId: body.sessionId,
+      body: {
+        type: "subagent.started",
+        payload: {
+          childSessionId: child.body.sessionId,
+          childAgentId: god.body.id,
+          via: "ask_assistant",
+          title: "Old",
+          task: "Something",
+        },
+      },
+    });
+    // Working: refused.
+    const running = s.core as unknown as { isRunning(id: string): boolean };
+    const real = running.isRunning.bind(s.core);
+    running.isRunning = (id) => id === child.body.sessionId || real(id);
+    await expect(s.core.closeSubagent("me", body.sessionId, child.body.sessionId)).rejects.toThrow(
+      /still working/,
+    );
+    running.isRunning = real;
+    await s.core.closeSubagent("me", body.sessionId, child.body.sessionId);
+    await s.core.closeSubagent("me", body.sessionId, child.body.sessionId);
+    expect(await s.core.store.list({ types: ["subagent.closed"] })).toHaveLength(1);
   });
 });

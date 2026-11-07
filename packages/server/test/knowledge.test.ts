@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventStore, migrate, pgPoolClient, type SqlClient } from "@redgiant/events";
@@ -115,7 +115,8 @@ async function folder(files: Record<string, string>) {
     await mkdir(join(root, p, ".."), { recursive: true });
     await writeFile(join(root, p), text);
   }
-  return root;
+  // The citation gives the real path (macOS: /var is /private/var; Windows: no short names).
+  return realpath(root);
 }
 
 describe("knowledge: schema, indexing and search", () => {

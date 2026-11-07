@@ -48,9 +48,13 @@ export const LOSS_TEMPLATES = {
   psd_smart_object: "smart object kept only as its pixels: «{layer}»",
   psd_text_pixels: "text layer kept as pixels (its words are in layers.json): «{layer}»",
   psd_effects: "layer effects (shadows, strokes, glows…) not applied: {names}",
-  psd_masks: "masks and clipping not applied: {names}",
+  psd_masks: "layer masks applied to the layers' own pixels in the .ora: {names}",
+  psd_clipping:
+    "clipping masks drawn only in the flat PNG (the .ora shows those layers whole): {names}",
   psd_blend: "blend modes OpenRaster does not have, drawn as normal: {names}",
-  psd_no_flat: "the file had no flat picture: it was drawn from the layers (normal blending only)",
+  psd_no_flat:
+    "the file had no real flat picture (saved without «Maximize compatibility»): it was drawn from the layers",
+  psd_blend_flat: "blend modes drawn as normal in the flat PNG: {names}",
 
   // IDML as text only (convert-js.ts, idmlToOdt).
   idml_odt_layout:

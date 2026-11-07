@@ -68,6 +68,8 @@ export interface TelegramHost {
   };
   /** What its texts are written in: the agents' language if translated, else the interface's. */
   language?(ownerId: string): Language;
+  /** Whether the person wants requests in the chats now (G36.17, Settings > Requests). */
+  requestsReach?(ownerId: string, channel: "chats"): boolean;
 }
 
 /** A question being answered on Telegram: one message per question. */
@@ -172,19 +174,19 @@ export class TelegramGateway {
     this.bot.on(["message:voice", "message:audio"], (ctx) => this.onVoice(ctx));
     this.bot.on("callback_query:data", (ctx) => this.onButton(ctx));
     this.bot.catch((err) => console.error("telegram:", err.message));
-    o.host.approvals.on(
-      "request",
-      (ownerId, info) => void this.sendApproval(ownerId, info).catch(() => {}),
-    );
+    o.host.approvals.on("request", (ownerId, info) => {
+      if (o.host.requestsReach?.(ownerId, "chats") === false) return;
+      void this.sendApproval(ownerId, info).catch(() => {});
+    });
     o.host.approvals.on(
       "closed",
       (_ownerId, requestId, decision) =>
         void this.closeApproval(requestId, decision).catch(() => {}),
     );
-    o.host.questions?.on(
-      "request",
-      (ownerId, info) => void this.sendQuestion(ownerId, info).catch(() => {}),
-    );
+    o.host.questions?.on("request", (ownerId, info) => {
+      if (o.host.requestsReach?.(ownerId, "chats") === false) return;
+      void this.sendQuestion(ownerId, info).catch(() => {});
+    });
     o.host.questions?.on(
       "closed",
       (_ownerId, requestId) => void this.closeQuestion(requestId).catch(() => {}),

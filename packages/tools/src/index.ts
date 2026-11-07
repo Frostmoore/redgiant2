@@ -1,4 +1,5 @@
 import { canonicalTools, type Tool } from "@redgiant/agent";
+import { type BackgroundCommands, bashOutputTool } from "./background.js";
 import { editFileTool, readFileTool, writeFileTool } from "./files.js";
 import { viewImageTool } from "./image.js";
 import type { ModelProfile } from "./profiles.js";
@@ -8,6 +9,7 @@ import { type ShowFileHost, showFileTool } from "./show.js";
 import { fetchTool, type ResolveHost, type WebSearchProvider, webSearchTool } from "./web.js";
 import type { Workspace } from "./workspace.js";
 
+export * from "./background.js";
 export * from "./edit.js";
 export * from "./files.js";
 export * from "./image.js";
@@ -30,6 +32,10 @@ export interface BaseToolsOptions {
   lookup?: ResolveHost;
   /** Where show_file records what it opens in the canvas (G34.1); unavailable without one. */
   show?: ShowFileHost;
+  /** Background commands (p3.3.1): `bash` with background, and `bash_output`. */
+  background?: BackgroundCommands;
+  /** The longest an ordinary bash call waits, per owner (G36.16, Settings > Commands). */
+  bashMaxMs?: (ownerId: string) => number;
 }
 
 /** The base tools every agent has (RD29), in canonical order. */
@@ -43,7 +49,8 @@ export function baseTools(o: BaseToolsOptions): Tool[] {
     editFileTool(o.workspace, p),
     globTool(o.workspace, p),
     grepTool(o.workspace, p),
-    bashTool(o.workspace, p),
+    bashTool(o.workspace, p, 30_000, o.background, o.bashMaxMs),
+    bashOutputTool(o.background, p),
     fetchTool(p, o.fetch, o.lookup ? { lookup: o.lookup } : {}),
     webSearchTool(o.search, p),
     todosTool(),

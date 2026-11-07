@@ -6,7 +6,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { type ExecOptions, type ExecResult, LocalWorkspace } from "@redgiant/tools";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { blenderTool, commands } from "../src/convert-blender.js";
@@ -212,10 +212,10 @@ describe("what to download", () => {
         "/d",
         { PATH: "", ProgramFiles: pf },
         "win32",
-        has(join(pf, "Scribus 1.6.7", "Scribus.exe")),
+        has(win32.join(pf, "Scribus 1.6.7", "Scribus.exe")),
         (d) => (d === pf ? ["Scribus 1.6.5", "Scribus 1.6.7", "Other"] : []),
       ),
-    ).toBe(join(pf, "Scribus 1.6.7", "Scribus.exe"));
+    ).toBe(win32.join(pf, "Scribus 1.6.7", "Scribus.exe"));
     expect(
       findProgram(
         "blender",
@@ -231,9 +231,9 @@ describe("what to download", () => {
         "affinity",
         "win32",
         { ProgramFiles: pf },
-        has(join(pf, "Affinity", "Affinity", "Affinity.exe")),
+        has(win32.join(pf, "Affinity", "Affinity", "Affinity.exe")),
       ),
-    ).toBe(join(pf, "Affinity", "Affinity", "Affinity.exe"));
+    ).toBe(win32.join(pf, "Affinity", "Affinity", "Affinity.exe"));
     expect(
       findDesktopApp("affinity", "darwin", {}, has("/Applications/Affinity Designer 2.app"), () => [
         "Affinity Designer 2.app",
@@ -245,10 +245,10 @@ describe("what to download", () => {
         "indesign",
         "win32",
         { ProgramFiles: pf },
-        has(join(pf, "Adobe", "Adobe InDesign 2026", "InDesign.exe")),
+        has(win32.join(pf, "Adobe", "Adobe InDesign 2026", "InDesign.exe")),
         () => ["Adobe InDesign 2025", "Adobe InDesign 2026"],
       ),
-    ).toBe(join(pf, "Adobe", "Adobe InDesign 2026", "InDesign.exe"));
+    ).toBe(win32.join(pf, "Adobe", "Adobe InDesign 2026", "InDesign.exe"));
     expect(findDesktopApp("affinity", "linux")).toBeUndefined();
     const launched: string[][] = [];
     openInApp("/Applications/Affinity.app", "/w/a.afdesign", "darwin", (f, a) =>
@@ -351,6 +351,41 @@ describe("the blender tool", () => {
     expect(shown).toEqual(["blender/chair.webm"]);
     // The script and spec are gone afterwards.
     expect(existsSync(join(root, ".redgiant-blender"))).toBe(false);
+  });
+
+  it("accepts the render values models really send (p3.3.1: «render: Invalid input»)", async () => {
+    const ws = new FakeBlenderWorkspace(root);
+    await writeFile(join(root, "cube.glb"), "glb");
+    const tool = blenderTool(ws, { programs: programs() });
+    // The schema the model sees says render is an object.
+    const props = (tool.def.inputSchema as { properties: Record<string, { type?: string }> })
+      .properties;
+    expect(props.render?.type).toBe("object");
+    const cases: [unknown, string][] = [
+      [true, ".png"],
+      [{ samples: 64 }, ".png"],
+      [{ width: 1280, height: 800, samples: 64 }, ".png"],
+      [{ turntable: true }, ".webm"],
+      // The same, as engines hand them over when they stringify arguments.
+      ["true", ".png"],
+      ['{"samples": 64}', ".png"],
+      ['{"width": "1280", "height": "800", "samples": "64"}', ".png"],
+      ['{"turntable": "true", "frames": 36}', ".webm"],
+      ["turntable", ".webm"],
+      [{ engine: "EEVEE", view: "Front" }, ".png"],
+    ];
+    for (const [render, ext] of cases) {
+      for (const base of [{ script: "import bpy" }, { file: "cube.glb" }]) {
+        const parsed = tool.schema?.safeParse({ ...base, render });
+        expect(parsed?.success, JSON.stringify(render)).toBe(true);
+        const said = text(await tool.run(parsed?.data, ctx));
+        expect(said, JSON.stringify(render)).toContain(`${ext}`);
+      }
+    }
+    expect(tool.schema?.safeParse({ script: "x", render: { samples: 0 } }).success).toBe(false);
+    expect(tool.schema?.safeParse({ script: "x", render: "false" }).data).toMatchObject({
+      render: false,
+    });
   });
 
   it("refuses what it cannot do and says why Blender stopped", async () => {

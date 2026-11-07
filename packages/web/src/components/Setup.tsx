@@ -324,7 +324,7 @@ function BrainStep() {
                 <p>{hardwareText(s.hardware)}</p>
                 <p>
                   {s.config.engine
-                    ? t("wzLocalInUse", { model: s.config.engine.model })
+                    ? t("wzLocalInUse", { model: modelName(s.config.engine.model) })
                     : t("wzLocalNextStep")}
                 </p>
               </>

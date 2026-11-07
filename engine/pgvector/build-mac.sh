@@ -49,8 +49,12 @@ lipo -info "$stage/lib/vector.dylib"
 for a in arm64 x86_64; do
   echo "$a minos: $(otool -arch "$a" -l "$stage/lib/vector.dylib" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
 done
-src="pgvector-$PGVECTOR_VERSION"
+# The install script (vector--<ver>.sql) is made by make from sql/vector.sql: it exists only in the
+# built copies, not in the untouched source (the CI's mac-app: "no installation script").
+src="build-arm64"
 cp "$src/vector.control" "$src"/sql/vector--*.sql "$stage/share/extension/"
+test -f "$stage/share/extension/vector--$PGVECTOR_VERSION.sql" || { echo "vector--$PGVECTOR_VERSION.sql missing" >&2; exit 1; }
+grep -q "default_version = '$PGVECTOR_VERSION'" "$stage/share/extension/vector.control" || { echo "vector.control is not $PGVECTOR_VERSION" >&2; exit 1; }
 rm -f "$out/$name.zip"
 (cd "$stage" && zip -q -X -r "$out/$name.zip" lib share)
 (cd "$out" && shasum -a 256 "$name.zip" | tee "$name.zip.sha256")

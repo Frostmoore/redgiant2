@@ -20,12 +20,12 @@
 // offer «Open in…» when no free program can read their files.
 
 import { execFile, spawn } from "node:child_process";
-import { createWriteStream, existsSync, readdirSync, readFileSync } from "node:fs";
+import { createWriteStream, existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { delimiter, join, relative } from "node:path";
+import { delimiter, dirname, join, posix, relative, win32 } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { agentEnv } from "@redgiant/tools";
+import { agentEnv, shareProgramDir } from "@redgiant/tools";
 import { ensureFfmpeg, findFfmpeg } from "./ffmpeg.js";
 import type { JobHandle, Jobs } from "./jobs.js";
 
@@ -175,15 +175,15 @@ function usualPlaces(
         .filter((n) => n.startsWith(prefix))
         .sort()
         .reverse()
-        .flatMap((n) => exe.map((e) => join(root, n, e))),
+        .flatMap((n) => exe.map((e) => win32.join(root, n, e))),
     );
   if (id === "libreoffice")
     return {
       names: isWin(platform) ? ["soffice.com", "soffice.exe"] : ["soffice", "libreoffice"],
       usual: isWin(platform)
         ? pf.flatMap((d) => [
-            join(d, "LibreOffice", "program", "soffice.com"),
-            join(d, "LibreOffice", "program", "soffice.exe"),
+            win32.join(d, "LibreOffice", "program", "soffice.com"),
+            win32.join(d, "LibreOffice", "program", "soffice.exe"),
           ])
         : platform === "darwin"
           ? ["/Applications/LibreOffice.app/Contents/MacOS/soffice"]
@@ -206,10 +206,10 @@ function usualPlaces(
     names: isWin(platform) ? ["blender.exe"] : ["blender"],
     usual: isWin(platform)
       ? pf.flatMap((root) =>
-          list(join(root, "Blender Foundation"))
+          list(win32.join(root, "Blender Foundation"))
             .sort()
             .reverse()
-            .map((n) => join(root, "Blender Foundation", n, "blender.exe")),
+            .map((n) => win32.join(root, "Blender Foundation", n, "blender.exe")),
         )
       : platform === "darwin"
         ? ["/Applications/Blender.app/Contents/MacOS/Blender"]
@@ -278,9 +278,9 @@ export function findGhostscript(
     for (const root of [env.ProgramFiles ?? "C:\\Program Files", env["ProgramFiles(x86)"] ?? ""]) {
       if (!root) continue;
       // C:\Program Files\gs\gs10.08.0\bin\gswin64c.exe — the newest first.
-      for (const v of list(join(root, "gs")).sort().reverse())
+      for (const v of list(win32.join(root, "gs")).sort().reverse())
         for (const n of names) {
-          const p = join(root, "gs", v, "bin", n);
+          const p = win32.join(root, "gs", v, "bin", n);
           if (exists(p)) return p;
         }
     }
@@ -642,6 +642,22 @@ export class MissingProgramError extends Error {
   }
 }
 
+/**
+ * A program's folder on the agents' PATH, through links (a WinGet link refuses to start from
+ * Git's bash: «Permission denied»). ffmpeg's goes first, so the agents get the one RedGiant
+ * uses; the others go last (LibreOffice's folder also holds a python.exe).
+ */
+function shareProgram(id: ProgramId, exe: string): void {
+  let real = exe;
+  try {
+    real = realpathSync(exe);
+  } catch {}
+  // Already reachable as it is (a system program on the PATH): nothing to add.
+  const path = (process.env.PATH ?? process.env.Path ?? "").split(delimiter);
+  if (real === exe && path.includes(dirname(exe))) return;
+  shareProgramDir(dirname(real), id === "ffmpeg" ? "first" : "last");
+}
+
 /** Finds and, if needed, downloads the programs (one download at a time per program). */
 export class Programs {
   private readonly pending = new Map<ProgramId, Promise<string>>();
@@ -653,22 +669,40 @@ export class Programs {
       /** Tests: what is "on this computer", and the download itself. */
       find?: (id: ProgramId) => string | undefined;
       download?: DownloadDeps;
+      /** Put each program found on the PATH of the agents' commands (the server: p3.3.1). */
+      share?: boolean;
     },
   ) {}
 
   /** The program, without downloading. */
   find(id: ProgramId): string | undefined {
-    if (this.o.find) return this.o.find(id);
-    if (id === "ghostscript") return findGhostscript();
-    if (id === "ffmpeg") return findFfmpeg(this.o.dataDir);
-    return findProgram(id, this.o.dataDir);
+    const p = this.o.find
+      ? this.o.find(id)
+      : id === "ghostscript"
+        ? findGhostscript()
+        : id === "ffmpeg"
+          ? findFfmpeg(this.o.dataDir)
+          : findProgram(id, this.o.dataDir);
+    if (p && this.o.share) shareProgram(id, p);
+    return p;
+  }
+
+  /** Every program already here, on the agents' PATH (at start; downloads add theirs). */
+  shareFound(): void {
+    for (const id of ["ffmpeg", "blender", "libreoffice", "scribus", "ghostscript"] as const)
+      this.find(id);
   }
 
   /** Whether RedGiant can get it by itself on this computer. */
+  /** The system the programs are for (tests: the download's). */
+  get platform(): string {
+    return this.o.download?.platform ?? process.platform;
+  }
+
   canDownload(id: ProgramId): boolean {
     if (id === "ghostscript") return false;
     if (id === "ffmpeg") return true;
-    const platform = this.o.download?.platform ?? process.platform;
+    const platform = this.platform;
     const arch = this.o.download?.arch ?? process.arch;
     if (id === "libreoffice") return libreOfficeAsset("0", platform, arch) !== undefined;
     if (id === "scribus") return scribusAsset("0", platform, arch) !== undefined;
@@ -682,14 +716,16 @@ export class Programs {
   ensure(owner: string, id: ProgramId, into?: JobHandle): Promise<string> {
     const here = this.find(id);
     if (here) return Promise.resolve(here);
-    if (id === "ghostscript") return Promise.reject(new MissingProgramError("ghostscript"));
+    if (id === "ghostscript")
+      return Promise.reject(new MissingProgramError("ghostscript", this.platform));
     if (id === "ffmpeg")
       return ensureFfmpeg(this.o.jobs, owner, this.o.dataDir).then((p) => {
-        if (!p) throw new MissingProgramError("ffmpeg");
+        if (!p) throw new MissingProgramError("ffmpeg", this.platform);
+        if (this.o.share) shareProgram(id, p);
         return p;
       });
     if (!DOWNLOADABLE.includes(id) || !this.canDownload(id))
-      return Promise.reject(new MissingProgramError(id));
+      return Promise.reject(new MissingProgramError(id, this.platform));
     const running = this.pending.get(id);
     if (running) return running;
     const fetchInto = async (h: JobHandle) => {
@@ -718,7 +754,12 @@ export class Programs {
       if (end?.state !== "done")
         throw new Error(end?.error?.message ?? `${PROGRAMS[id].name} did not download`);
       return exe;
-    })().finally(() => this.pending.delete(id));
+    })()
+      .then((exe) => {
+        if (this.o.share) shareProgram(id, exe);
+        return exe;
+      })
+      .finally(() => this.pending.delete(id));
     this.pending.set(id, p);
     return p;
   }
@@ -752,25 +793,25 @@ export function findDesktopApp(
             .filter((n) => /^Adobe InDesign/.test(n))
             .sort()
             .reverse()
-            .map((d) => join(d, `${d.replace(/\.app$/, "")}.app`));
-    return names.map((n) => join("/Applications", n)).find((p) => exists(p));
+            .map((d) => posix.join(d, `${d.replace(/\.app$/, "")}.app`));
+    return names.map((n) => posix.join("/Applications", n)).find((p) => exists(p));
   }
   if (!isWin(platform)) return undefined;
   const pf = env.ProgramFiles ?? env.PROGRAMFILES ?? "C:\\Program Files";
   if (app === "affinity") {
     const candidates = [
-      join(pf, "Affinity", "Affinity", "Affinity.exe"),
+      win32.join(pf, "Affinity", "Affinity", "Affinity.exe"),
       ...["Designer 2", "Photo 2", "Publisher 2", "Designer", "Photo", "Publisher"].map((n) =>
-        join(pf, "Affinity", n, `${n.split(" ")[0]}.exe`),
+        win32.join(pf, "Affinity", n, `${n.split(" ")[0]}.exe`),
       ),
     ];
     return candidates.find((p) => exists(p));
   }
-  return list(join(pf, "Adobe"))
+  return list(win32.join(pf, "Adobe"))
     .filter((n) => /^Adobe InDesign/.test(n))
     .sort()
     .reverse()
-    .map((n) => join(pf, "Adobe", n, "InDesign.exe"))
+    .map((n) => win32.join(pf, "Adobe", n, "InDesign.exe"))
     .find((p) => exists(p));
 }
 

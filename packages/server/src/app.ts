@@ -61,6 +61,7 @@ import { knowledgeRoutes } from "./knowledge/routes.js";
 import { localModelChoices } from "./local-models.js";
 import { LoginError } from "./login.js";
 import { MagicNotFoundError, MagicStateError } from "./magic.js";
+import { personRoutes } from "./person-routes.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
 import { SubprojectError } from "./projects.js";
 import { RefineError } from "./prompt-refiner.js";
@@ -1264,6 +1265,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   convertRoutes(app, core, owner);
   // Import from other agents (G36.7): previews, the import as a job, undo.
   importRoutes(app, core, owner, options.setup);
+  // Commands' limits and requests to the person (G36.16, G36.17).
+  personRoutes(app, core, owner);
   // The knowledge (G36, the RAG): collections, sources, models, search, citations.
   knowledgeRoutes(app, () => core.knowledge, owner);
 
@@ -2415,6 +2418,15 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     if (!body) return c.json({ error: "beforeSeq is required" }, 400);
     const sessionId = await core.forkSession(owner(c), c.req.param("id"), body.beforeSeq);
     return c.json({ sessionId }, 201);
+  });
+  // A background command's log (p3.3.1): every line with its time and stream; the last 2000, or
+  // from a line on (the page follows a running one).
+  app.get("/api/sessions/:id/commands/:cmd/output", async (c) => {
+    const from = Number(c.req.query("from"));
+    const r = await core.commandOutput(owner(c), c.req.param("id"), c.req.param("cmd"), {
+      ...(Number.isInteger(from) && from > 0 && { from }),
+    });
+    return c.json(r, 200);
   });
   app.post("/api/sessions/:id/compaction/undo", async (c) => {
     try {

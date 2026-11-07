@@ -8,7 +8,7 @@
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
-import { bytes } from "../format.js";
+import { bytes, localModelName } from "../format.js";
 import { lang, setLang, t } from "../i18n.js";
 import {
   IconBook,
@@ -388,7 +388,7 @@ export function General() {
           !!backup,
           <IconCrown />,
           t("stGenBackupText"),
-          backup ? (backup.model.split("/").pop() ?? backup.model) : undefined,
+          backup ? localModelName(backup.model.split("/").pop() ?? backup.model) : undefined,
         )}
       </Tiles>
 

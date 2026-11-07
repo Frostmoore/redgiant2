@@ -276,13 +276,16 @@ export class ContainerWorkspace extends LocalWorkspace {
 
   override async exec(
     command: string,
-    { timeoutMs, signal, env }: ExecOptions,
+    { timeoutMs, signal, env, onOutput }: ExecOptions,
   ): Promise<ExecResult> {
     const pidFile = `/tmp/rg-exec-${randomUUID()}.pid`;
+    const limited = Number.isFinite(timeoutMs);
     const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
     // `timeout` kills the command (exit 137) when it runs too long; the pid file lets an
-    // abort kill it from outside.
-    const script = `echo $$ > ${pidFile}; exec timeout -s KILL ${seconds} bash -c ${shellQuote(command)}`;
+    // abort kill it from outside. No limit (G36.16): the command runs until it is stopped.
+    const script = limited
+      ? `echo $$ > ${pidFile}; exec timeout -s KILL ${seconds} bash -c ${shellQuote(command)}`
+      : `echo $$ > ${pidFile}; exec bash -c ${shellQuote(command)}`;
     const exec = await this.container.exec({
       Cmd: ["bash", "-c", script],
       WorkingDir: this.containerPath,
@@ -296,10 +299,12 @@ export class ContainerWorkspace extends LocalWorkspace {
     let stdout = "";
     let stderr = "";
     out.on("data", (d: Buffer) => {
-      stdout += d.toString();
+      if (onOutput) onOutput(d.toString(), "out");
+      else stdout += d.toString();
     });
     err.on("data", (d: Buffer) => {
-      stderr += d.toString();
+      if (onOutput) onOutput(d.toString(), "err");
+      else stderr += d.toString();
     });
     this.container.modem.demuxStream(stream, out, err);
 
@@ -320,7 +325,7 @@ export class ContainerWorkspace extends LocalWorkspace {
     signal?.removeEventListener("abort", onAbort);
     const info = await exec.inspect();
     const exitCode = info.ExitCode ?? null;
-    return { stdout, stderr, exitCode, timedOut: exitCode === 137 && !signal?.aborted };
+    return { stdout, stderr, exitCode, timedOut: limited && exitCode === 137 && !signal?.aborted };
   }
 }
 

@@ -755,7 +755,8 @@ export class AgentSession {
     return parts;
   }
 
-  private async runOne(call: ToolCallInfo, rawInput: string, ctx: ToolContext) {
+  private async runOne(call: ToolCallInfo, rawInput: string, base: ToolContext) {
+    const ctx: ToolContext = { ...base, callId: call.callId };
     const fail = (content: string) => ({ content, isError: true });
     const tool = this.tools.find((t) => t.def.name === call.name);
     if (!tool) return fail(`Unknown tool "${call.name}".`);
@@ -779,7 +780,14 @@ export class AgentSession {
       if (r.action === "modify") input = r.input;
     }
     if (tool.schema) {
-      const parsed = tool.schema.safeParse(input);
+      let parsed = tool.schema.safeParse(input);
+      // Some engines hand over an object, array, number or boolean argument as its JSON text
+      // (p3.3.1: blender's render). Read such strings once and try again.
+      const decoded = parsed.success ? undefined : decodeJsonStrings(input);
+      if (decoded !== undefined) {
+        const again = tool.schema.safeParse(decoded);
+        if (again.success) parsed = again;
+      }
       if (!parsed.success) {
         return fail(
           `Invalid arguments: ${parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ")}`,
@@ -1009,4 +1017,30 @@ export class AgentSession {
   async end(reason: string): Promise<void> {
     await this.record({ type: "session.ended", payload: { reason } });
   }
+}
+
+/**
+ * The input with its top-level string values that are JSON objects, arrays, numbers or
+ * booleans read as such; undefined when there is none.
+ */
+export function decodeJsonStrings(input: unknown): Record<string, unknown> | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  let changed = false;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    out[k] = v;
+    if (typeof v !== "string") continue;
+    const t = v.trim();
+    if (!/^([{[]|-?\d|true$|false$)/.test(t)) continue;
+    try {
+      const parsed: unknown = JSON.parse(t);
+      if (typeof parsed !== "string") {
+        out[k] = parsed;
+        changed = true;
+      }
+    } catch {
+      // Not JSON: left as it is.
+    }
+  }
+  return changed ? out : undefined;
 }

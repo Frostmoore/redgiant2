@@ -68,8 +68,116 @@ export function rgbaOf(png: Uint8Array): Rgba {
   return { width: p.width, height: p.height, data: out };
 }
 
-/** `src` drawn over `dst` at (x, y) with an opacity (normal blending, straight alpha). */
-export function drawOver(dst: Rgba, src: Rgba, x: number, y: number, opacity = 1): void {
+// ---------------------------------------------------------------- Blending (W3C compositing)
+
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+type Rgb = [number, number, number];
+
+/** Photoshop's separable blend modes, channel by channel (backdrop b, source s, both 0…1). */
+const SEPARABLE: Record<string, (b: number, s: number) => number> = {
+  normal: (_b, s) => s,
+  dissolve: (_b, s) => s,
+  multiply: (b, s) => b * s,
+  screen: (b, s) => b + s - b * s,
+  overlay: (b, s) => (b <= 0.5 ? 2 * b * s : 1 - 2 * (1 - b) * (1 - s)),
+  darken: Math.min,
+  lighten: Math.max,
+  "color dodge": (b, s) => (b === 0 ? 0 : s >= 1 ? 1 : Math.min(1, b / (1 - s))),
+  "color burn": (b, s) => (b >= 1 ? 1 : s <= 0 ? 0 : 1 - Math.min(1, (1 - b) / s)),
+  "hard light": (b, s) => (s <= 0.5 ? 2 * b * s : 1 - 2 * (1 - b) * (1 - s)),
+  "soft light": (b, s) => {
+    if (s <= 0.5) return b - (1 - 2 * s) * b * (1 - b);
+    const d = b <= 0.25 ? ((16 * b - 12) * b + 4) * b : Math.sqrt(b);
+    return b + (2 * s - 1) * (d - b);
+  },
+  difference: (b, s) => Math.abs(b - s),
+  exclusion: (b, s) => b + s - 2 * b * s,
+  "linear dodge": (b, s) => Math.min(1, b + s),
+  "linear burn": (b, s) => Math.max(0, b + s - 1),
+  "vivid light": (b, s) =>
+    s <= 0.5
+      ? s <= 0
+        ? b >= 1
+          ? 1
+          : 0
+        : 1 - Math.min(1, (1 - b) / (2 * s))
+      : s >= 1
+        ? b > 0
+          ? 1
+          : 0
+        : Math.min(1, b / (2 * (1 - s))),
+  "linear light": (b, s) => clamp01(b + 2 * s - 1),
+  "pin light": (b, s) => (s <= 0.5 ? Math.min(b, 2 * s) : Math.max(b, 2 * s - 1)),
+  "hard mix": (b, s) => (b + s >= 1 ? 1 : 0),
+  subtract: (b, s) => Math.max(0, b - s),
+  divide: (b, s) => (s <= 0 ? (b > 0 ? 1 : 0) : Math.min(1, b / s)),
+};
+
+const lum = (c: Rgb) => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+function clipColor(c: Rgb): Rgb {
+  const l = lum(c);
+  const n = Math.min(...c);
+  const x = Math.max(...c);
+  let out = c;
+  if (n < 0) out = out.map((v) => l + ((v - l) * l) / (l - n)) as Rgb;
+  if (x > 1) out = out.map((v) => l + ((v - l) * (1 - l)) / (x - l)) as Rgb;
+  return out;
+}
+const setLum = (c: Rgb, l: number) => {
+  const d = l - lum(c);
+  return clipColor([c[0] + d, c[1] + d, c[2] + d]);
+};
+const sat = (c: Rgb) => Math.max(...c) - Math.min(...c);
+function setSat(c: Rgb, s: number): Rgb {
+  const x = Math.max(...c);
+  const n = Math.min(...c);
+  if (x === n) return [0, 0, 0];
+  return c.map((v) => ((v - n) * s) / (x - n)) as Rgb;
+}
+
+/** The non-separable modes, and the two that pick a whole colour. */
+const NON_SEPARABLE: Record<string, (b: Rgb, s: Rgb) => Rgb> = {
+  hue: (b, s) => setLum(setSat(s, sat(b)), lum(b)),
+  saturation: (b, s) => setLum(setSat(b, sat(s)), lum(b)),
+  color: (b, s) => setLum(s, lum(b)),
+  luminosity: (b, s) => setLum(b, lum(s)),
+  "darker color": (b, s) => (lum(s) < lum(b) ? s : b),
+  "lighter color": (b, s) => (lum(s) > lum(b) ? s : b),
+};
+
+/** True when RedGiant draws this Photoshop blend mode itself. */
+export const knownBlend = (mode: string) =>
+  mode === "pass through" || mode in SEPARABLE || mode in NON_SEPARABLE;
+
+/** A mask on the document: grey 0…255 in its red channel, `outside` beyond its rectangle. */
+export interface Mask {
+  img: Rgba;
+  x: number;
+  y: number;
+  outside: number;
+}
+
+const maskAt = (m: Mask, dx: number, dy: number) => {
+  const mx = dx - m.x;
+  const my = dy - m.y;
+  if (mx < 0 || my < 0 || mx >= m.img.width || my >= m.img.height) return m.outside / 255;
+  return (m.img.data[(my * m.img.width + mx) * 4] as number) / 255;
+};
+
+export interface BlendOptions {
+  opacity?: number;
+  mode?: string;
+  mask?: Mask;
+  /** Per document pixel (0…255): the clipping base's coverage, for clipped layers. */
+  clip?: Uint8Array;
+}
+
+/** `src` composited over `dst` at (x, y): blend mode, opacity, mask, clipping (straight alpha). */
+export function blendOver(dst: Rgba, src: Rgba, x: number, y: number, o: BlendOptions = {}): void {
+  const opacity = o.opacity ?? 1;
+  const mode = o.mode ?? "normal";
+  const sep = SEPARABLE[mode];
+  const non = sep ? undefined : NON_SEPARABLE[mode];
   for (let sy = 0; sy < src.height; sy++) {
     const dy = y + sy;
     if (dy < 0 || dy >= dst.height) continue;
@@ -78,18 +186,40 @@ export function drawOver(dst: Rgba, src: Rgba, x: number, y: number, opacity = 1
       if (dx < 0 || dx >= dst.width) continue;
       const s = (sy * src.width + sx) * 4;
       const d = (dy * dst.width + dx) * 4;
-      const sa = ((src.data[s + 3] as number) / 255) * opacity;
+      let sa = ((src.data[s + 3] as number) / 255) * opacity;
+      if (o.mask) sa *= maskAt(o.mask, dx, dy);
+      if (o.clip) sa *= (o.clip[dy * dst.width + dx] as number) / 255;
       if (sa <= 0) continue;
       const da = (dst.data[d + 3] as number) / 255;
-      const oa = sa + da * (1 - sa);
-      for (let c = 0; c < 3; c++) {
-        const sc = src.data[s + c] as number;
-        const dc = dst.data[d + c] as number;
-        dst.data[d + c] = Math.round((sc * sa + dc * da * (1 - sa)) / oa);
+      const cs: Rgb = [
+        (src.data[s] as number) / 255,
+        (src.data[s + 1] as number) / 255,
+        (src.data[s + 2] as number) / 255,
+      ];
+      const cb: Rgb = [
+        (dst.data[d] as number) / 255,
+        (dst.data[d + 1] as number) / 255,
+        (dst.data[d + 2] as number) / 255,
+      ];
+      let mixed: Rgb = cs;
+      if (da > 0 && mode !== "normal") {
+        const b = sep ? (cb.map((v, i) => sep(v, cs[i] as number)) as Rgb) : non?.(cb, cs);
+        // Over a partly transparent backdrop the source shows through (W3C: (1 - ab)·Cs + ab·B).
+        if (b) mixed = cs.map((v, i) => (1 - da) * v + da * (b[i] as number)) as Rgb;
       }
+      const oa = sa + da * (1 - sa);
+      for (let c = 0; c < 3; c++)
+        dst.data[d + c] = Math.round(
+          (((mixed[c] as number) * sa + (cb[c] as number) * da * (1 - sa)) / oa) * 255,
+        );
       dst.data[d + 3] = Math.round(oa * 255);
     }
   }
+}
+
+/** `src` drawn over `dst` at (x, y) with an opacity (normal blending, straight alpha). */
+export function drawOver(dst: Rgba, src: Rgba, x: number, y: number, opacity = 1): void {
+  blendOver(dst, src, x, y, { opacity });
 }
 
 const blank = (width: number, height: number): Rgba => ({
@@ -270,7 +400,12 @@ export function psdToOra(bytes: Uint8Array, stem: string): Converted {
   const infos: LayerInfo[] = [];
   let n = 0;
   const named = (what: string, l: Layer) => `${what}: «${l.name ?? "layer"}»`;
-  const lost = { effects: [] as string[], masks: [] as string[], blend: [] as string[] };
+  const lost = {
+    effects: [] as string[],
+    masks: [] as string[],
+    clipping: [] as string[],
+    blend: [] as string[],
+  };
   const xmlOf = (layers: Layer[], depth: string, path: string): string => {
     // OpenRaster lists the topmost first; Photoshop's children go bottom to top.
     return [...layers]
@@ -285,7 +420,8 @@ export function psdToOra(bytes: Uint8Array, stem: string): Converted {
         if (!op) lost.blend.push(`${blend} on «${name}»`);
         if (l.effects && Object.values(l.effects).some((e) => e !== undefined && e !== true))
           lost.effects.push(name);
-        if (l.mask?.imageData || l.vectorMask || l.clipping) lost.masks.push(name);
+        if (l.mask?.imageData && !l.mask.disabled) lost.masks.push(name);
+        if (l.clipping) lost.clipping.push(name);
         if (l.adjustment) losses.add(named("adjustment layer dropped", l));
         if (l.placedLayer) losses.add(named("smart object kept only as its pixels", l));
         if (l.text)
@@ -332,7 +468,10 @@ export function psdToOra(bytes: Uint8Array, stem: string): Converted {
           return "";
         }
         const src = `data/layer${n++}.png`;
-        data[src] = pngOf(img as Rgba);
+        // OpenRaster has no masks: a layer's mask is applied to its own pixels.
+        const mask = maskOf(l);
+        const pixels = to8(img as Rgba);
+        data[src] = pngOf(mask ? masked(pixels, l.left ?? 0, l.top ?? 0, mask) : pixels);
         infos.push({ ...info, src, width: img.width, height: img.height });
         return `${depth}<layer ${common} src="${src}" x="${l.left ?? 0}" y="${l.top ?? 0}"/>\n`;
       })
@@ -344,17 +483,39 @@ export function psdToOra(bytes: Uint8Array, stem: string): Converted {
       `layer effects (shadows, strokes, glows…) not applied: ${lost.effects.slice(0, 8).join(", ")}`,
     );
   if (lost.masks.length)
-    losses.add(`masks and clipping not applied: ${lost.masks.slice(0, 8).join(", ")}`);
+    losses.add(
+      `layer masks applied to the layers' own pixels in the .ora: ${lost.masks.slice(0, 8).join(", ")}`,
+    );
+  if (lost.clipping.length)
+    losses.add(
+      `clipping masks drawn only in the flat PNG (the .ora shows those layers whole): ${lost.clipping.slice(0, 8).join(", ")}`,
+    );
   if (lost.blend.length)
     losses.add(
       `blend modes OpenRaster does not have, drawn as normal: ${lost.blend.slice(0, 8).join(", ")}`,
     );
-  // The picture Photoshop saved ("maximize compatibility"), or our own drawing of the layers.
+  // The picture Photoshop saved, when it is real: without "Maximize compatibility" the file
+  // says so (versionInfo) and holds a stand-in (often just the background), so the layers
+  // are drawn here instead.
+  const children = psd.children ?? [];
+  const unknownBlend: string[] = [];
+  const drawn = () => composite(psd.width, psd.height, children, unknownBlend);
+  const stored = psd.imageData ? to8(psd.imageData as Rgba) : undefined;
+  const real = psd.imageResources?.versionInfo?.hasRealMergedData;
   let merged: Rgba;
-  if (psd.imageData) merged = psd.imageData as Rgba;
+  if (stored && (real === true || (real === undefined && !standIn(stored, children))))
+    merged = stored;
   else {
-    merged = composite(psd.width, psd.height, psd.children ?? []);
-    losses.add("the file had no flat picture: it was drawn from the layers (normal blending only)");
+    merged = children.length ? drawn() : (stored ?? blank(psd.width, psd.height));
+    if (children.length) {
+      losses.add(
+        "the file had no real flat picture (saved without «Maximize compatibility»): it was drawn from the layers",
+      );
+      if (unknownBlend.length)
+        losses.add(
+          `blend modes drawn as normal in the flat PNG: ${[...new Set(unknownBlend)].slice(0, 8).join(", ")}`,
+        );
+    }
   }
   const mergedPng = pngOf(merged);
   const stack = `<?xml version="1.0" encoding="UTF-8"?>\n<image version="0.0.5" w="${psd.width}" h="${psd.height}" xres="72" yres="72">\n <stack>\n${body} </stack>\n</image>\n`;
@@ -374,20 +535,124 @@ export function psdToOra(bytes: Uint8Array, stem: string): Converted {
   };
 }
 
-function composite(w: number, h: number, layers: Layer[]): Rgba {
-  const out = blank(w, h);
-  for (const l of layers) {
-    if (l.hidden) continue;
-    if (l.children) {
-      drawOver(out, composite(w, h, l.children), 0, 0, l.opacity ?? 1);
-      continue;
+/** Any ag-psd pixels (8, 16 or 32 bits per channel) as 8-bit RGBA. */
+function to8(img: Rgba | { width: number; height: number; data: ArrayLike<number> }): Rgba {
+  const d = img.data;
+  if (d instanceof Uint8Array || d instanceof Uint8ClampedArray) return img as Rgba;
+  const k = d instanceof Uint16Array ? 1 / 257 : 255;
+  const out = new Uint8Array(d.length);
+  for (let i = 0; i < d.length; i++)
+    out[i] = Math.max(0, Math.min(255, Math.round((d[i] as number) * k)));
+  return { width: img.width, height: img.height, data: out };
+}
+
+/** A layer's own mask (not disabled), on document coordinates. */
+function maskOf(l: Layer): Mask | undefined {
+  const m = l.mask;
+  if (!m || m.disabled) return undefined;
+  if (!m.imageData)
+    return m.defaultColor === 0 ? { img: blank(0, 0), x: 0, y: 0, outside: 0 } : undefined;
+  return {
+    img: to8(m.imageData as Rgba),
+    x: m.left ?? 0,
+    y: m.top ?? 0,
+    outside: m.defaultColor ?? 0,
+  };
+}
+
+/** A copy of a layer's pixels with its mask multiplied into their alpha. */
+function masked(img: Rgba, x: number, y: number, mask: Mask): Rgba {
+  const out = { width: img.width, height: img.height, data: new Uint8Array(img.data) };
+  for (let py = 0; py < img.height; py++)
+    for (let px = 0; px < img.width; px++) {
+      const i = (py * img.width + px) * 4 + 3;
+      out.data[i] = Math.round((out.data[i] as number) * maskAt(mask, x + px, y + py));
     }
-    if (l.imageData) drawOver(out, l.imageData as Rgba, l.left ?? 0, l.top ?? 0, l.opacity ?? 1);
+  return out;
+}
+
+/** How much of each document pixel a layer covers (its alpha times its mask), 0…255. */
+function coverage(w: number, h: number, img: Rgba | undefined, x: number, y: number, mask?: Mask) {
+  const out = new Uint8Array(w * h);
+  if (!img) return out;
+  for (let py = 0; py < img.height; py++) {
+    const dy = y + py;
+    if (dy < 0 || dy >= h) continue;
+    for (let px = 0; px < img.width; px++) {
+      const dx = x + px;
+      if (dx < 0 || dx >= w) continue;
+      const a = img.data[(py * img.width + px) * 4 + 3] as number;
+      out[dy * w + dx] = mask ? Math.round(a * maskAt(mask, dx, dy)) : a;
+    }
   }
   return out;
 }
 
-/** An OpenRaster file's layers drawn again (normal blending), for mergedimage.png. */
+/**
+ * The layers drawn as Photoshop does, bottom to top: visibility, position, opacity and fill,
+ * blend modes, layer masks, clipping masks and groups (pass-through groups drawn isolated).
+ */
+function composite(w: number, h: number, layers: Layer[], unknown: string[]): Rgba {
+  const out = blank(w, h);
+  // The clipping base's coverage: clipped layers above it show only where it does.
+  let clip = new Uint8Array(w * h);
+  for (const l of layers) {
+    const base = !l.clipping;
+    if (l.hidden) {
+      if (base) clip = new Uint8Array(w * h);
+      continue;
+    }
+    const mode = l.blendMode ?? "normal";
+    if (!knownBlend(mode)) unknown.push(`${mode} on «${l.name ?? "layer"}»`);
+    const mask = maskOf(l);
+    let img: Rgba | undefined;
+    let x = 0;
+    let y = 0;
+    if (l.children) img = composite(w, h, l.children, unknown);
+    else if (l.imageData && l.imageData.width > 0 && l.imageData.height > 0) {
+      img = to8(l.imageData as Rgba);
+      x = l.left ?? 0;
+      y = l.top ?? 0;
+    }
+    if (base) clip = coverage(w, h, img, x, y, mask);
+    if (!img) continue;
+    const fill = l.children ? 1 : (l.fillOpacity ?? 1);
+    blendOver(out, img, x, y, {
+      opacity: (l.opacity ?? 1) * fill,
+      mode: mode === "pass through" || !knownBlend(mode) ? "normal" : mode,
+      ...(mask && { mask }),
+      ...(!base && { clip }),
+    });
+  }
+  return out;
+}
+
+/**
+ * True when the stored picture is only the bottom layer while other visible layers have
+ * pixels: the stand-in of a file saved without "Maximize compatibility" and without the
+ * version record that says so.
+ */
+function standIn(stored: Rgba, layers: Layer[]): boolean {
+  const [bottom, ...rest] = layers;
+  const px = bottom?.imageData;
+  if (!bottom || !px || bottom.left || bottom.top) return false;
+  if (px.width !== stored.width || px.height !== stored.height) return false;
+  if (!rest.some((l) => !l.hidden && (l.children?.length || (l.imageData?.width ?? 0) > 0)))
+    return false;
+  const a = to8(px as Rgba).data;
+  const b = stored.data;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** OpenRaster's composite-op → the blend mode drawn (svg:src-atop and others: as normal). */
+const ORA_BLEND: Record<string, string> = Object.fromEntries([
+  ...Object.entries(BLEND)
+    .filter(([k]) => k !== "pass through")
+    .map(([k, v]) => [v, k]),
+]);
+
+/** An OpenRaster file's layers drawn again (with their blend modes), for mergedimage.png. */
 export function renderOra(entries: Record<string, Uint8Array>): {
   merged: Uint8Array;
   thumbnail: Uint8Array;
@@ -407,12 +672,14 @@ export function renderOra(entries: Record<string, Uint8Array>): {
       if (e.attrs.visibility === "hidden") continue;
       const opacity = e.attrs.opacity === undefined ? 1 : Number(e.attrs.opacity);
       const op = e.attrs["composite-op"] ?? "svg:src-over";
-      if (op !== "svg:src-over") approximated.push(`${op} on «${e.attrs.name ?? "layer"}»`);
-      if (e.name === "stack") drawOver(out, draw(e), 0, 0, opacity);
+      const mode = ORA_BLEND[op];
+      if (!mode) approximated.push(`${op} on «${e.attrs.name ?? "layer"}»`);
+      const o = { opacity, mode: mode ?? "normal" };
+      if (e.name === "stack") blendOver(out, draw(e), 0, 0, o);
       else if (e.name === "layer" && e.attrs.src) {
         const png = entries[e.attrs.src];
         if (!png) throw new Error(`stack.xml names ${e.attrs.src}, which is not in the file`);
-        drawOver(out, rgbaOf(png), Number(e.attrs.x ?? 0), Number(e.attrs.y ?? 0), opacity);
+        blendOver(out, rgbaOf(png), Number(e.attrs.x ?? 0), Number(e.attrs.y ?? 0), o);
       }
     }
     return out;

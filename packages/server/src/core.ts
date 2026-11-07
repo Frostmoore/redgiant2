@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -44,6 +44,7 @@ import {
   type AgentRecord,
   AgentRegistry,
   type ApprovalRequest,
+  allows,
   budgetKeys,
   can,
   hierarchyGuards,
@@ -55,6 +56,9 @@ import {
 } from "@redgiant/hierarchy";
 import {
   agentLanguage,
+  CommandSettings,
+  DEFAULT_COMMAND_SETTINGS,
+  DEFAULT_REQUEST_SETTINGS,
   type Event,
   type ImagePart,
   MCP_CATALOG,
@@ -66,6 +70,7 @@ import {
   type RefineEstimate,
   type RefineRequest,
   type RefineResult,
+  RequestSettings,
   replyLanguageLine,
   type ServerMessage,
   type SharedMemoryView,
@@ -97,9 +102,15 @@ import {
 } from "@redgiant/sandbox";
 import { readRelease } from "@redgiant/supervisor";
 import {
+  BackgroundCommands,
   baseTools,
   LocalWorkspace,
+  type LogLine,
+  type LogQuery,
   type ModelProfile,
+  type ParsedLog,
+  parseLog,
+  queryLog,
   type ShowFileRequest,
   SubprojectWorkspace,
   type WebSearchProvider,
@@ -108,9 +119,11 @@ import {
 import { z } from "zod";
 import { type Alert, type AlertText, alertText } from "./alerts.js";
 import { HumanApprovals } from "./approvals.js";
+import { type ReapDeps, reapOrphan } from "./background-reap.js";
 import type { BackupDeps } from "./backup.js";
 import { type Browsers, browserTools } from "./browser.js";
 import { contentType, inside, lastChange, Previews, type PreviewTarget } from "./canvas.js";
+import { canvasView } from "./canvas-view.js";
 import { CHAT_AGENT_PROMPT, ChatError, DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
 import { FileConverter } from "./convert.js";
@@ -149,6 +162,13 @@ import {
   type Task,
   TaskTracker,
 } from "./orchestration.js";
+import {
+  type Classifier,
+  migratePersonRequests,
+  modelClassifier,
+  OwnerSettings,
+  PersonRequests,
+} from "./person-requests.js";
 import {
   migratePlatform,
   PlatformChanges,
@@ -240,6 +260,8 @@ export interface CoreOptions {
   policyFor?: (agent: AgentRecord) => PolicySettings;
   /** How a parent agent answers a child's request; default: the parent's own model decides. */
   askAgent?: (approver: AgentRecord, request: ApprovalRequest) => Promise<AgentAnswer>;
+  /** The person's classifier (G36.17); tests give a scripted one. Default: the model's. */
+  classify?: Classifier;
   search?: WebSearchProvider;
   /** Speech to text for voice messages (G20.2). */
   transcription?: TranscriptionConfig;
@@ -407,6 +429,11 @@ export class RedGiantCore implements OrchestrationHost {
   readonly projects: ProjectStore;
   readonly approvals = new HumanApprovals();
   readonly questions = new HumanQuestions();
+  /** Background commands' and bash's limits, per person (G36.16, Settings > Commands). */
+  readonly commandSettings: OwnerSettings<CommandSettings>;
+  /** What reaches the person and what their classifier decides (G36.17, Settings > Requests). */
+  readonly requestSettings: OwnerSettings<RequestSettings>;
+  readonly person: PersonRequests;
   /** Phones and browsers paired by QR code, each with its own revocable token. */
   /** Signing in with a password (G24.6). */
   readonly logins: LoginStore;
@@ -455,6 +482,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly programs: Programs;
   /** Closed formats into open ones, beside the original (G34.3). */
   readonly converter: FileConverter;
+  /** Background commands of every conversation (p3.3.1): bash with background, bash_output. */
+  readonly commands: BackgroundCommands;
   /** Backups made or being imported (2026-11-03): next to the workspaces, in the data volume. */
   get backupsDir(): string {
     return join(dirname(this.o.workspacesDir), "backups");
@@ -533,7 +562,79 @@ export class RedGiantCore implements OrchestrationHost {
       system: (ownerId) => this.keysElsewhere(ownerId),
     });
     // Conversions (G34.3): programs in the data folder's tools, LibreOffice with its own profile.
-    this.programs = new Programs({ jobs: this.jobs, dataDir: dirname(o.workspacesDir) });
+    // Every program found or downloaded goes on the PATH of the agents' commands (p3.3.1).
+    this.programs = new Programs({
+      jobs: this.jobs,
+      dataDir: dirname(o.workspacesDir),
+      share: true,
+    });
+    this.programs.shareFound();
+    // The person's limits for commands (G36.16) and their choices for requests (G36.17).
+    this.commandSettings = new OwnerSettings(
+      o.db,
+      "commands",
+      CommandSettings,
+      DEFAULT_COMMAND_SETTINGS,
+    );
+    this.requestSettings = new OwnerSettings(
+      o.db,
+      "requests",
+      RequestSettings,
+      DEFAULT_REQUEST_SETTINGS,
+    );
+    // Background commands (p3.3.1): their start and end are events of the conversation that
+    // started them; the page draws the strip from those and a restart marks them interrupted.
+    this.commands = new BackgroundCommands({
+      limits: (ownerId) => {
+        const c = this.commandSettings.get(ownerId);
+        return { maxPerSession: c.maxPerSession, maxMs: c.maxMs, maxBytes: c.maxLogBytes };
+      },
+      who: (ctx) => {
+        const a = ctx.agentId ? this.registry.get(ctx.agentId) : undefined;
+        return `${a?.name ?? "?"} (${a?.kind ?? "agent"} ${ctx.agentId ?? "-"}), conversation ${ctx.sessionId}`;
+      },
+      events: {
+        started: (c, ctx) =>
+          this.store
+            .append({
+              ownerId: ctx.ownerId,
+              projectId: ctx.projectId,
+              agentId: ctx.agentId,
+              sessionId: ctx.sessionId,
+              body: {
+                type: "command.started",
+                payload: {
+                  id: c.id,
+                  command: c.command,
+                  file: c.file,
+                  path: c.path,
+                  cwd: c.cwd,
+                  by: c.by,
+                  ...(c.callId && { callId: c.callId }),
+                  ...(c.pid && { pid: c.pid }),
+                },
+              },
+            })
+            .then(() => {}),
+        ended: (c, ctx) =>
+          this.store
+            .append({
+              ownerId: ctx.ownerId,
+              projectId: ctx.projectId,
+              agentId: ctx.agentId,
+              sessionId: ctx.sessionId,
+              body: {
+                type: "command.ended",
+                payload: {
+                  id: c.id,
+                  status: c.status === "running" ? "stopped" : c.status,
+                  exitCode: c.exitCode,
+                },
+              },
+            })
+            .then(() => {}),
+      },
+    });
     this.converter = new FileConverter({
       programs: this.programs,
       profileDir: join(dirname(o.workspacesDir), "tools", "libreoffice-profile"),
@@ -635,8 +736,9 @@ export class RedGiantCore implements OrchestrationHost {
       god: (ownerId) =>
         this.registry.list({ ownerId, activeOnly: true }).find((a) => a.kind === "god"),
       startSession: (ownerId, agentId, before) => this.startSession(ownerId, agentId, { before }),
+      // God may still be finishing the turn that made the proposal: the message waits in line.
       send: async (ownerId, sessionId, text) => {
-        const { done } = await this.send(ownerId, sessionId, text);
+        const { done } = await this.send(ownerId, sessionId, text, { queue: true });
         done.catch(() => {});
       },
       links: (ownerId) => this.automationLinks(ownerId),
@@ -705,7 +807,41 @@ export class RedGiantCore implements OrchestrationHost {
               systemFor: (x) => this.systemFor(x),
             })(a, req);
       },
-      askHuman: (req, signal) => this.approvals.ask(req, signal),
+      // The person's choices (G36.17): their time, or their classifier; never past a danger
+      // only they approve.
+      askHuman: (req, signal) =>
+        this.person.approve(req, signal, {
+          kind: "approval",
+          humanOnly: this.humanOnly(req),
+          what: `${req.call.name}: ${req.reasons.join("; ") || "needs a yes"}`,
+        }),
+    });
+    this.person = new PersonRequests({
+      db: o.db,
+      store: this.store,
+      approvals: this.approvals,
+      questions: this.questions,
+      settings: this.requestSettings,
+      classify: (r) =>
+        o.classify
+          ? o.classify(r)
+          : modelClassifier({
+              providers: o.providers,
+              budget: this.budget,
+              registry: this.registry,
+              store: this.store,
+            })(r),
+      defaultModel: () => this.memoryModel,
+      language: (ownerId) => this.language(ownerId),
+      // Something blocked for the person's review: a line on their chats, if they want those.
+      onReview: (ownerId, d) => {
+        if (!this.requestSettings.get(ownerId).channels.chats) return;
+        this.alert(ownerId, {
+          kind: "review",
+          title: this.say(ownerId, "review"),
+          message: this.say(ownerId, "reviewBody", { agent: d.agentName, what: d.what }),
+        });
+      },
     });
     // Persisted events reach the followers of their session.
     this.store.subscribe((e: Event) => {
@@ -744,6 +880,7 @@ export class RedGiantCore implements OrchestrationHost {
     await migrateAutomations(o.db);
     await migrateMagic(o.db);
     await migratePlatform(o.db);
+    await migratePersonRequests(o.db);
     await migrateRooms(o.db);
     await migrateChat(o.db);
     // Paired devices are gone (G24.7): their tokens stop working with their table.
@@ -753,7 +890,10 @@ export class RedGiantCore implements OrchestrationHost {
     await core.vault.open();
     await core.registry.load();
     await core.policies.load();
+    await core.commandSettings.load();
+    await core.requestSettings.load();
     await core.tasks.rebuild();
+    await core.reapCommands();
     return core;
   }
 
@@ -1063,6 +1203,8 @@ export class RedGiantCore implements OrchestrationHost {
           ...(this.o.search && { search: this.o.search }),
           // show_file (G34.1): what it opens becomes an event the page follows.
           show: (r, ctx) => this.showFile(agent, r, ctx),
+          background: this.commands,
+          bashMaxMs: (ownerId) => this.commandSettings.get(ownerId).bashMaxMs,
         })
       : [];
     // Closed formats into open ones, and the open packages' insides (G34.3): every workspace.
@@ -1100,6 +1242,7 @@ export class RedGiantCore implements OrchestrationHost {
         modeOf: (id) => this.registry.get(id)?.mode ?? "auto",
         leavePlanMode: async (owner, id) =>
           void (await this.config.configureAgent(owner, "human", id, { mode: "auto" })),
+        ask: (a, info, signal, kind) => this.person.ask(a, info, signal, kind),
       }),
     );
     // God asks a project's inspector (RD30): outside the chain of command, read-only.
@@ -1381,6 +1524,24 @@ export class RedGiantCore implements OrchestrationHost {
     return out;
   }
 
+  /** Whether a request carries a danger only the person approves (never the classifier's). */
+  private humanOnly(req: ApprovalRequest): boolean {
+    const agent = this.registry.get(req.requester.id);
+    if (!agent) return true;
+    const s = this.o.policyFor?.(agent) ?? this.policies.settingsFor(agent, this.o.metal === true);
+    return req.danger.some((d) => s.humanOnly.includes(d));
+  }
+
+  /** The person's settings kept as configuration (G36.16, G36.17), for the history and undo. */
+  ownerSettings(key: "commands" | "requests") {
+    return key === "commands" ? this.commandSettings : this.requestSettings;
+  }
+
+  /** Whether requests reach the person on a channel now (G36.17): the page, or the chats. */
+  requestsReach(ownerId: string, channel: "web" | "chats"): boolean {
+    return this.person.reaches(ownerId, channel);
+  }
+
   /** What the person chose for each pending request_tool ("this conversation" or "always"). */
   private readonly toolRequestScopes = new Map<string, "session" | "agent">();
   /** How long a request_tool waits for the person (tests make it short). */
@@ -1396,11 +1557,8 @@ export class RedGiantCore implements OrchestrationHost {
     return requestTool(aside, {
       ask: async (input, ctx) => {
         const id = `tool_${randomUUID().slice(0, 12)}`;
-        const signals = [AbortSignal.timeout(this.requestToolTimeoutMs), ctx.signal].filter(
-          (x): x is AbortSignal => x !== undefined,
-        );
         try {
-          const answer = await this.approvals.ask(
+          const answer = await this.person.approve(
             {
               requestId: id,
               requester: agent,
@@ -1415,11 +1573,26 @@ export class RedGiantCore implements OrchestrationHost {
               danger: [],
               sessionId: ctx.sessionId,
             },
-            AbortSignal.any(signals),
+            ctx.signal ?? new AbortController().signal,
+            {
+              kind: "tool",
+              humanOnly: false,
+              what: `Switch on ${input.entry}: ${input.why}`,
+              defaultTimeoutMs: this.requestToolTimeoutMs,
+            },
           );
-          if (answer === "allow")
-            return { allow: true, scope: this.toolRequestScopes.get(id) ?? "session" };
-          return { allow: false, ...(typeof answer === "object" && { reason: answer.deny }) };
+          // The classifier's yes is for this conversation only: "always" is the person's.
+          if (allows(answer))
+            return {
+              allow: true,
+              scope: answer === "allow" ? (this.toolRequestScopes.get(id) ?? "session") : "session",
+            };
+          return {
+            allow: false,
+            ...(typeof answer === "object" && {
+              reason: "deny" in answer ? answer.deny : answer.reason,
+            }),
+          };
         } finally {
           this.toolRequestScopes.delete(id);
         }
@@ -2401,19 +2574,25 @@ export class RedGiantCore implements OrchestrationHost {
   /** Signed links to what agents show (G25.1). */
   readonly previews = new Previews();
 
-  /** The workspace scope ("platform", "assistants", "project:<id>") and path of a file on disk. */
+  /**
+   * The workspace scope ("platform", "assistants", "project:<id>") and path of a file on disk.
+   * `abs` may be a real path (links followed): each root is tried as written and as its real path
+   * (macOS's /var is /private/var, Windows' RUNNER~1 is the long name).
+   */
   private async scopeOf(ownerId: string, abs: string): Promise<{ scope: string; path: string }> {
-    for (const [scope, root] of [
+    const roots: [string, string][] = [
       ["assistants", this.assistantsPath(ownerId)],
       ["platform", this.platformPath(ownerId)],
-    ] as const) {
-      const path = inside(root, abs);
-      if (path !== undefined) return { scope, path };
-    }
-    for (const p of await this.projects.list(ownerId)) {
-      const path = inside(p.path, abs);
-      if (path !== undefined) return { scope: `project:${p.id}`, path };
-    }
+      ...(await this.projects.list(ownerId)).map((p): [string, string] => [
+        `project:${p.id}`,
+        p.path,
+      ]),
+    ];
+    for (const [scope, root] of roots)
+      for (const r of [root, await realpath(root).catch(() => root)]) {
+        const path = inside(r, abs);
+        if (path !== undefined) return { scope, path };
+      }
     throw new BadRequestError("That file is outside every workspace");
   }
 
@@ -2473,7 +2652,17 @@ export class RedGiantCore implements OrchestrationHost {
       sessionId: ctx.sessionId,
       body: { type: "canvas.show", payload: { title: r.title, target } },
     });
-    return undefined;
+    if (!where)
+      return "It is outside every workspace: the canvas shows it as it is, in the viewer for its kind, and converts nothing.";
+    try {
+      const root = await this.scopeRoot(agent.ownerId, where.scope);
+      return await canvasView(this.converter, root, where.path, {
+        here: this.programs.find("libreoffice") !== undefined,
+        canDownload: this.programs.canDownload("libreoffice"),
+      });
+    } catch {
+      return undefined;
+    }
   }
 
   /** The folder behind a scope on disk (the knowledge's workspace sources, G36.3). */
@@ -4355,7 +4544,7 @@ export class RedGiantCore implements OrchestrationHost {
     const agent = caller.agentId ? this.registry.get(caller.agentId) : undefined;
     if (!agent) return false;
     const id = `vault_${randomUUID().slice(0, 12)}`;
-    const answer = await this.approvals.ask(
+    const answer = await this.person.approve(
       {
         requestId: id,
         requester: agent,
@@ -4373,9 +4562,16 @@ export class RedGiantCore implements OrchestrationHost {
         danger: [],
         ...(caller.sessionId && { sessionId: caller.sessionId }),
       },
-      AbortSignal.timeout(10 * 60_000),
+      new AbortController().signal,
+      // A secret is the person's alone: the classifier never says yes to it (G36.17).
+      {
+        kind: "credential",
+        humanOnly: true,
+        what: `Use "${entry.service}" from the keychain on ${host}`,
+        defaultTimeoutMs: 10 * 60_000,
+      },
     );
-    return answer === "allow";
+    return allows(answer);
   }
 
   /**
@@ -4479,7 +4675,7 @@ export class RedGiantCore implements OrchestrationHost {
         ? this.registry.list({ ownerId, activeOnly: true }).find((a) => a.kind === "god")
         : this.automationAgent(ownerId, recipe);
     if (!agent) return false;
-    const answer = await this.approvals.ask(
+    const answer = await this.person.approve(
       {
         requestId: `auto_${ask.runId}`,
         requester: agent,
@@ -4496,8 +4692,13 @@ export class RedGiantCore implements OrchestrationHost {
         danger: [],
       },
       signal,
+      {
+        kind: "automation",
+        humanOnly: false,
+        what: `Run the automation "${recipe.description || recipe.name}" (${ask.about})`,
+      },
     );
-    return answer === "allow";
+    return allows(answer);
   }
 
   /** Undoes the summary the person asked for, while nothing was said since (G24.14). */
@@ -4610,6 +4811,138 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /**
+   * Background commands still running in the log when RedGiant starts (p3.3.1): left by a run
+   * that ended without stopping them. Each is stopped if its process is still there, and
+   * marked interrupted.
+   */
+  async reapCommands(deps?: ReapDeps): Promise<void> {
+    const events = await this.store.list({ types: ["command.started", "command.ended"] });
+    const ended = new Set(
+      events.flatMap((e) => (e.type === "command.ended" && e.payload ? [e.payload.id] : [])),
+    );
+    for (const e of events) {
+      if (e.type !== "command.started" || !e.payload || ended.has(e.payload.id)) continue;
+      if (this.commands.get(e.payload.id)) continue;
+      await reapOrphan({ id: e.payload.id, pid: e.payload.pid, startedAt: e.ts }, deps).catch(
+        () => false,
+      );
+      await this.store.append({
+        ownerId: e.ownerId,
+        projectId: e.projectId,
+        agentId: e.agentId,
+        sessionId: e.sessionId,
+        body: {
+          type: "command.ended",
+          payload: { id: e.payload.id, status: "interrupted", exitCode: null },
+        },
+      });
+    }
+  }
+
+  /** A background command of a conversation, as the log has it. */
+  private async commandOf(ownerId: string, sessionId: string, id: string) {
+    await this.open(ownerId, sessionId).catch((err) => {
+      if (!(err instanceof NoModelError)) throw err;
+    });
+    const events = await this.store.list({
+      sessionId,
+      types: ["command.started", "command.ended", "command.closed"],
+    });
+    const mine = events.filter((e) => (e.payload as { id?: string } | null)?.id === id);
+    const started = mine.find((e) => e.type === "command.started");
+    if (!started || started.type !== "command.started" || !started.payload)
+      throw new NotFoundError(`No background command "${id}" in this conversation`);
+    const end = mine.find((e) => e.type === "command.ended");
+    return {
+      started,
+      file: started.payload.file,
+      ended: end?.type === "command.ended" ? end.payload : undefined,
+      closed: mine.some((e) => e.type === "command.closed"),
+    };
+  }
+
+  /** Stops a conversation's background command (the person's «Stop», no confirmation). */
+  async stopCommand(ownerId: string, sessionId: string, id: string): Promise<void> {
+    await this.commandOf(ownerId, sessionId, id);
+    if (this.commands.get(id)?.sessionId === sessionId) await this.commands.stop(id);
+  }
+
+  /** Takes a finished command off the strip: recorded once, for every device. */
+  async closeCommand(ownerId: string, sessionId: string, id: string): Promise<void> {
+    const c = await this.commandOf(ownerId, sessionId, id);
+    if (c.closed) return;
+    if (this.commands.get(id)?.status === "running")
+      throw new BadRequestError("The command is still running: stop it first");
+    await this.store.append({
+      ownerId,
+      projectId: c.started.projectId,
+      agentId: c.started.agentId,
+      sessionId,
+      body: { type: "command.closed", payload: { id } },
+    });
+  }
+
+  /** A command's log for the page: lines with their times (the last ones, or from a line). */
+  async commandOutput(
+    ownerId: string,
+    sessionId: string,
+    id: string,
+    q: LogQuery = {},
+  ): Promise<{ log: ParsedLog; lines: LogLine[]; running: boolean }> {
+    const c = await this.commandOf(ownerId, sessionId, id);
+    const text = await readFile(c.file, "utf8").catch(() => "");
+    const log = parseLog(text);
+    return {
+      log,
+      lines: queryLog(log, { lines: 2000, tail: q.from === undefined, ...q }),
+      running: this.commands.get(id)?.status === "running",
+    };
+  }
+
+  /** Stops the background commands of a conversation (its sub-agent's work ended). */
+  stopCommands(sessionId: string): Promise<void> {
+    return this.commands.stopSession(sessionId);
+  }
+
+  /**
+   * Closes a sub-agent's tab in a conversation (p3.3.1): only one that is not working (a working
+   * one is stopped first, with «Stop»). Recorded in the conversation, so it stays closed on every
+   * device, after a reload and after a restart; closing it again records nothing.
+   */
+  async closeSubagent(ownerId: string, sessionId: string, childSessionId: string): Promise<void> {
+    const l = await this.open(ownerId, sessionId);
+    const events = await this.store.list({
+      sessionId,
+      types: ["subagent.started", "subagent.ended", "subagent.closed"],
+    });
+    const mine = events.filter(
+      (e) =>
+        (e.type === "subagent.started" ||
+          e.type === "subagent.ended" ||
+          e.type === "subagent.closed") &&
+        e.payload?.childSessionId === childSessionId,
+    );
+    const started = mine.filter((e) => e.type === "subagent.started");
+    if (started.length === 0) throw new NotFoundError("No such sub-agent in this conversation");
+    const last = mine.at(-1);
+    if (last?.type === "subagent.closed") return;
+    const ended =
+      mine.filter((e) => e.type === "subagent.ended").length >= started.length ||
+      // Started before a restart and never ended: it died with the server's previous run.
+      (!this.isRunning(childSessionId) && l.running == null);
+    if (!ended || this.isRunning(childSessionId))
+      throw new BadRequestError("The sub-agent is still working: stop it first");
+    const agent = this.registry.get(started[0]?.agentId ?? "");
+    await this.store.append({
+      ownerId,
+      projectId: agent?.projectId ?? null,
+      agentId: started[0]?.agentId ?? null,
+      sessionId,
+      body: { type: "subagent.closed", payload: { childSessionId } },
+    });
+  }
+
+  /**
    * Follows a session: the stored history first, then everything live. The listener sees
    * no gap and no duplicate, whatever is written while the history is being read.
    */
@@ -4665,6 +4998,8 @@ export class RedGiantCore implements OrchestrationHost {
     this.inspector.stop();
     this.code?.unwatch();
     for (const l of this.live.values()) l.running?.abort();
+    // Background commands stop with their whole tree (p3.3.1): nothing is left running.
+    await this.commands.stopAll();
     this.approvals.denyAll();
     this.questions.closeAll();
     for (const sb of this.sandboxes.values()) await (await sb.catch(() => undefined))?.destroy();

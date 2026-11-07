@@ -52,13 +52,15 @@ export function attachWebSocket(
       ownerId: string,
       info: Parameters<Parameters<typeof core.approvals.on<"request">>[1]>[1],
     ) => {
-      if (principal?.ownerId === ownerId) send({ type: "permission.request", request: info });
+      if (principal?.ownerId === ownerId && core.requestsReach(ownerId, "web"))
+        send({ type: "permission.request", request: info });
     };
     const onClosed = (ownerId: string, requestId: string, decision: "allow" | "deny") => {
       if (principal?.ownerId === ownerId) send({ type: "permission.closed", requestId, decision });
     };
     const onQuestion = (ownerId: string, request: QuestionRequestInfo) => {
-      if (principal?.ownerId === ownerId) send({ type: "question.request", request });
+      if (principal?.ownerId === ownerId && core.requestsReach(ownerId, "web"))
+        send({ type: "question.request", request });
     };
     const onQuestionClosed = (ownerId: string, requestId: string) => {
       if (principal?.ownerId === ownerId) send({ type: "question.closed", requestId });
@@ -122,10 +124,13 @@ export function attachWebSocket(
           offPlatform = core.changes.onChange(onPlatform);
           offRooms = core.rooms.onChange(onRoom);
           send({ type: "welcome", protocolVersion: PROTOCOL_VERSION, ownerId: principal.ownerId });
-          for (const r of core.approvals.list(principal.ownerId))
-            send({ type: "permission.request", request: r });
-          for (const q of core.questions.list(principal.ownerId))
-            send({ type: "question.request", request: q });
+          // Requests reach the page only if the person wants them there (G36.17).
+          if (core.requestsReach(principal.ownerId, "web")) {
+            for (const r of core.approvals.list(principal.ownerId))
+              send({ type: "permission.request", request: r });
+            for (const q of core.questions.list(principal.ownerId))
+              send({ type: "question.request", request: q });
+          }
           return;
         }
         const owner = principal.ownerId;
@@ -195,6 +200,15 @@ export function attachWebSocket(
             return;
           case "session.interrupt":
             await core.interrupt(owner, msg.sessionId);
+            return;
+          case "command.stop":
+            await core.stopCommand(owner, msg.sessionId, msg.id);
+            return;
+          case "command.close":
+            await core.closeCommand(owner, msg.sessionId, msg.id);
+            return;
+          case "subagent.close":
+            await core.closeSubagent(owner, msg.sessionId, msg.childSessionId);
             return;
           case "permission.resolve": {
             const pending = core.approvals.list(owner).find((r) => r.requestId === msg.requestId);
