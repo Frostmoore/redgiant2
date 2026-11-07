@@ -106,7 +106,8 @@ describe("redgiant CLI", () => {
   });
 
   it("sends a message, streams the answer and prints the metrics bar", async () => {
-    s = await startServer([{ text: "Hello from the CLI test" }]);
+    // The window fixed here: the bar below prints it.
+    s = await startServer([{ text: "Hello from the CLI test" }], { contextWindow: 8192 });
     const { session } = await setupAgents();
     const r = await run(["send", session, "hi"]);
     expect(r.code).toBe(0);

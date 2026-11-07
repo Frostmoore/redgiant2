@@ -16,6 +16,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git less procps python3 ripgrep tini util-linux \
     ghostscript libx11-6 libx11-xcb1 libxext6 libxinerama1 libcairo2 libcups2t64 libdbus-1-3 libfontconfig1 \
     libfreetype6 libglib2.0-0t64 libgssapi-krb5-2 libnss3 fonts-dejavu-core \
+    xvfb xauth xz-utils libxfixes3 libxi6 libxkbcommon0 \
  && rm -rf /var/lib/apt/lists/* \
  && corepack enable \
  && git config --system init.defaultBranch live \
@@ -23,6 +24,9 @@ RUN apt-get update \
 # Conversions into open formats (G34.3): Ghostscript (AGPL-3.0, Debian's own package, a separate
 # program) for EPS and PostScript; the libraries LibreOffice's AppImage needs without a desktop
 # (LibreOffice itself, ~300 MB, comes down into the data volume only when a conversion needs it).
+# Scribus's AppImage (IDML with its layout) needs a display: Xvfb and xauth (55 MB download,
+# ~230 MB installed, Mesa included). Blender's tar.xz needs xz, and Blender three X libraries
+# (libxfixes3, libxi6, libxkbcommon0; under 1 MB). Both programs come down only when needed.
 # RedGiant 2.0 (2026-11-04): agents run their commands here, no container of their own: the
 # tools the sandbox image had (curl, less, procps, ripgrep) are here too.
 # uv, for the catalog's MCP servers published on PyPI (uvx), G24.14c.

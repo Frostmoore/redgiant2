@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { writePsdBuffer } from "ag-psd";
 import { encode as encodePng } from "fast-png";
 import { strToU8, zipSync } from "fflate";
+import { idmlSample } from "./idml-sample.js";
 
 const W = 8;
 const H = 6;
@@ -76,29 +77,8 @@ export const epsSample = () =>
     "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 10 10\nnewpath 0 0 moveto 10 10 lineto stroke\n%%EOF\n",
   );
 
-/** An IDML: one story with a heading and a body paragraph, a placed image on the spread. */
-export function idmlSample(): Uint8Array {
-  const story = `<?xml version="1.0" encoding="UTF-8"?>
-<idPkg:Story xmlns:idPkg="http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging"><Story Self="u1">
-<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/Heading 1"><CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]"><Content>Spring &amp; Summer</Content><Br/></CharacterStyleRange></ParagraphStyleRange>
-<ParagraphStyleRange AppliedParagraphStyle="ParagraphStyle/Body" Justification="CenterAlign"><CharacterStyleRange AppliedCharacterStyle="CharacterStyle/Emphasis" FontStyle="Bold" PointSize="11"><Content>New colours</Content></CharacterStyleRange><CharacterStyleRange AppliedCharacterStyle="CharacterStyle/$ID/[No character style]"><Content> for everyone.</Content></CharacterStyleRange></ParagraphStyleRange>
-</Story></idPkg:Story>`;
-  const styles = `<?xml version="1.0" encoding="UTF-8"?>
-<idPkg:Styles xmlns:idPkg="http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging"><RootParagraphStyleGroup>
-<ParagraphStyle Self="ParagraphStyle/Heading 1" Name="Heading 1" PointSize="24" FontStyle="Bold"><Properties><AppliedFont type="string">Minion Pro</AppliedFont></Properties></ParagraphStyle>
-<ParagraphStyle Self="ParagraphStyle/Body" Name="Body" PointSize="10"/>
-</RootParagraphStyleGroup><RootCharacterStyleGroup><CharacterStyle Self="CharacterStyle/Emphasis" Name="Emphasis" FontStyle="Italic"/></RootCharacterStyleGroup></idPkg:Styles>`;
-  const design = `<?xml version="1.0" encoding="UTF-8"?>
-<Document xmlns:idPkg="http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging"><idPkg:Styles src="Resources/Styles.xml"/><idPkg:Spread src="Spreads/Spread_a.xml"/><idPkg:Story src="Stories/Story_u1.xml"/></Document>`;
-  const spread = `<?xml version="1.0" encoding="UTF-8"?><idPkg:Spread xmlns:idPkg="x"><Spread><Rectangle><Image><Link LinkResourceURI="file:/photos/beach.jpg"/></Image></Rectangle></Spread></idPkg:Spread>`;
-  return zipSync({
-    mimetype: [strToU8("application/vnd.adobe.indesign-idml-package"), { level: 0 }],
-    "designmap.xml": strToU8(design),
-    "Resources/Styles.xml": strToU8(styles),
-    "Spreads/Spread_a.xml": strToU8(spread),
-    "Stories/Story_u1.xml": strToU8(story),
-  });
-}
+/** A realistic IDML (pages, frames, styles, threaded text, pictures): see idml-sample.ts. */
+export { idmlSample };
 
 /** An INDD: InDesign's GUID, some bytes, and an XMP packet with a JPEG thumbnail. */
 export function inddSample(): Uint8Array {
@@ -128,27 +108,170 @@ export function affinitySample(): Uint8Array {
   ]);
 }
 
-/** A Sketch file: a zip with the document, one page with an artboard and a text, a preview. */
+/**
+ * A Sketch file: a zip with the document, one page with an artboard (at 100, 50 on the canvas)
+ * holding a text, a rounded rectangle, a rotated oval, a triangle with a curve and a group;
+ * a symbol on its own page used once; a bitmap; a preview.
+ */
 export function sketchSample(): Uint8Array {
+  const rgba = (red: number, green: number, blue: number, alpha = 1) => ({
+    _class: "color",
+    red,
+    green,
+    blue,
+    alpha,
+  });
+  const fill = (c: ReturnType<typeof rgba>) => ({
+    style: { fills: [{ _class: "fill", isEnabled: true, fillType: 0, color: c }] },
+  });
+  const pt = (x: number, y: number, extra: Record<string, unknown> = {}) => ({
+    _class: "curvePoint",
+    point: `{${x}, ${y}}`,
+    curveFrom: `{${x}, ${y}}`,
+    curveTo: `{${x}, ${y}}`,
+    hasCurveFrom: false,
+    hasCurveTo: false,
+    ...extra,
+  });
   const page = {
     _class: "page",
+    do_objectID: "ABC",
     name: "Home",
+    frame: { x: 0, y: 0, width: 0, height: 0 },
     layers: [
       {
         _class: "artboard",
         name: "Desktop",
-        frame: { width: 1440, height: 900 },
+        frame: { x: 100, y: 50, width: 1440, height: 900 },
+        hasBackgroundColor: true,
+        backgroundColor: rgba(0.95, 0.95, 0.95),
         layers: [
-          { _class: "text", name: "Title", attributedString: { string: "Welcome\nhome" } },
-          { _class: "rectangle", name: "Card" },
+          {
+            _class: "text",
+            name: "Title",
+            frame: { x: 40, y: 30, width: 400, height: 80 },
+            attributedString: {
+              string: "Welcome\nhome",
+              attributes: [
+                {
+                  location: 0,
+                  length: 12,
+                  attributes: {
+                    MSAttributedStringFontAttribute: {
+                      attributes: { name: "Inter-Bold", size: 32 },
+                    },
+                    MSAttributedStringColorAttribute: rgba(0.1, 0.2, 0.3),
+                    paragraphStyle: { alignment: 0, maximumLineHeight: 40 },
+                  },
+                },
+              ],
+            },
+          },
+          {
+            _class: "rectangle",
+            name: "Card",
+            frame: { x: 40, y: 200, width: 300, height: 180 },
+            fixedRadius: 12,
+            style: {
+              fills: [{ isEnabled: true, fillType: 0, color: rgba(1, 1, 1) }],
+              borders: [{ isEnabled: true, color: rgba(0, 0, 0, 0.5), thickness: 2, position: 0 }],
+              shadows: [{ isEnabled: true }],
+            },
+          },
+          {
+            _class: "oval",
+            name: "Dot",
+            frame: { x: 500, y: 200, width: 100, height: 50 },
+            rotation: 45,
+            ...fill(rgba(1, 0, 0)),
+          },
+          {
+            _class: "shapePath",
+            name: "Arrow",
+            frame: { x: 700, y: 200, width: 120, height: 80 },
+            isClosed: true,
+            points: [
+              pt(0, 1),
+              pt(0.5, 0, {
+                hasCurveFrom: true,
+                hasCurveTo: true,
+                curveTo: "{0.25, -0.25}",
+                curveFrom: "{0.75, -0.25}",
+              }),
+              pt(1, 1),
+            ],
+            ...fill(rgba(0, 0.4, 0.6)),
+          },
+          {
+            _class: "group",
+            name: "Badges",
+            frame: { x: 40, y: 500, width: 200, height: 50 },
+            layers: [
+              {
+                _class: "rectangle",
+                name: "B1",
+                frame: { x: 0, y: 0, width: 50, height: 50 },
+                ...fill(rgba(0, 1, 0)),
+              },
+              {
+                _class: "rectangle",
+                name: "B2",
+                frame: { x: 70, y: 0, width: 50, height: 50 },
+                ...fill(rgba(0, 0, 1)),
+              },
+              {
+                _class: "rectangle",
+                name: "Hidden",
+                isVisible: false,
+                frame: { x: 0, y: 0, width: 5, height: 5 },
+              },
+            ],
+          },
+          {
+            _class: "symbolInstance",
+            name: "Logo",
+            symbolID: "SYM1",
+            frame: { x: 1200, y: 30, width: 200, height: 100 },
+          },
+          {
+            _class: "bitmap",
+            name: "Photo",
+            frame: { x: 1000, y: 400, width: 300, height: 200 },
+            image: { _class: "MSJSONFileReference", _ref: "images/photo.png" },
+          },
+        ],
+      },
+    ],
+  };
+  const symbols = {
+    _class: "page",
+    do_objectID: "SYMS",
+    name: "Symbols",
+    layers: [
+      {
+        _class: "symbolMaster",
+        symbolID: "SYM1",
+        name: "Logo",
+        frame: { x: 0, y: 0, width: 100, height: 50 },
+        layers: [
+          {
+            _class: "oval",
+            name: "Mark",
+            frame: { x: 0, y: 0, width: 100, height: 50 },
+            ...fill(rgba(1, 0.5, 0)),
+          },
         ],
       },
     ],
   };
   return zipSync({
-    "document.json": strToU8("{}"),
+    "document.json": strToU8(
+      JSON.stringify({ pages: [{ _ref: "pages/ABC" }, { _ref: "pages/SYMS" }] }),
+    ),
     "meta.json": strToU8('{"app":"com.bohemiancoding.sketch3"}'),
     "pages/ABC.json": strToU8(JSON.stringify(page)),
+    "pages/SYMS.json": strToU8(JSON.stringify(symbols)),
+    "images/photo.png": pngSample(5, 6, 7, 3, 2),
     "previews/preview.png": pngSample(1, 2, 3, 4, 4),
   });
 }
@@ -191,6 +314,7 @@ export const SAMPLES: Record<string, () => Uint8Array> = {
   "app.fig": figSample,
   "letter.docx": docxSample,
   "clip.avi": aviSample,
+  "chair.fbx": () => strToU8("Kaydara FBX Binary  \0"),
 };
 
 /** Writes every sample into `dir` (to look at them by hand). */

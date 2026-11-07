@@ -19,6 +19,7 @@ export type ViewerKind =
   | "font"
   | "tree"
   | "site"
+  | "layers"
   | "unknown";
 
 export interface ViewerChoice {
@@ -50,6 +51,8 @@ put("archive", "zip tar tgz gz jar apk");
 put("font", "ttf otf woff woff2");
 put("tree", "json jsonc json5 geojson yaml yml xml plist");
 put("site", "html htm xhtml");
+// OpenRaster (G34.4): the open copy of a PSD, its layers one by one.
+put("layers", "ora");
 
 /** Files known by their whole name (no extension). */
 const BY_NAME: Record<string, ViewerChoice> = {
@@ -135,6 +138,7 @@ function sniffText(head: Uint8Array): ViewerChoice | undefined {
 
 /** Formats inside a ZIP that are documents of their own (by name: the bytes say only "zip"). */
 const ZIPPED = new Set([
+  "ora",
   "docx",
   "xlsx",
   "xlsm",
@@ -241,4 +245,83 @@ export function playable(format: string, canPlayType?: (type: string) => string)
 /** The language CodeMirror is asked for: by file name (its language-data matches names). */
 export function codeLanguageName(name: string): string {
   return name.split(/[\\/]/).pop() ?? name;
+}
+
+/**
+ * Office files the canvas shows laid out as on paper (G34.4, decision of 2026-11-07): LibreOffice
+ * turns them into a PDF on the server (`/api/files/preview`). The same formats as the server's
+ * `PREVIEWABLE`, by extension; the kind says which viewer the person may also want (the table).
+ */
+const PAGED: Record<string, "document" | "sheet" | "slides" | "drawing"> = {};
+const paged = (kind: (typeof PAGED)[string], exts: string) => {
+  for (const e of exts.split(" ")) PAGED[e] = kind;
+};
+paged("document", "docx docm dotx dotm doc dot rtf wpd wps odt ott fodt pages");
+paged("sheet", "xlsx xlsm xltx xls xlsb xlt ods ots fods numbers");
+paged("slides", "pptx pptm potx ppsx ppt pps pot odp otp fodp key");
+paged("drawing", "odg otg fodg vsd vsdx vsdm vdx pub");
+
+/** The kind of a file the canvas lays out as pages, or undefined. */
+export function pagedKind(name: string): (typeof PAGED)[string] | undefined {
+  return PAGED[extensionOf(name)];
+}
+
+/** What the canvas's tabs draw for a file (G34.4): one icon per family. */
+export type TabIcon =
+  | "video"
+  | "audio"
+  | "image"
+  | "pdf"
+  | "document"
+  | "sheet"
+  | "slides"
+  | "model"
+  | "archive"
+  | "code"
+  | "font"
+  | "data"
+  | "design"
+  | "site"
+  | "file";
+
+/** Closed design and layout formats (they open through their open copy). */
+const DESIGN = new Set(
+  "psd psb ai eps indd idml sketch fig xd afdesign afphoto afpub cdr cmx ora kra xcf sla".split(
+    " ",
+  ),
+);
+
+/** The tab icon of a file, from its name. */
+export function tabIconFor(name: string): TabIcon {
+  const ext = extensionOf(name);
+  if (DESIGN.has(ext)) return "design";
+  const p = PAGED[ext];
+  if (p) return p === "drawing" ? "design" : p;
+  const kind = viewerFor(name).kind;
+  switch (kind) {
+    case "video":
+    case "audio":
+    case "image":
+    case "pdf":
+    case "document":
+    case "sheet":
+    case "slides":
+    case "model":
+    case "archive":
+    case "code":
+    case "font":
+    case "site":
+      return kind;
+    case "layers":
+      return "design";
+    case "table":
+      return "sheet";
+    case "tree":
+      return "data";
+    case "markdown":
+    case "text":
+      return "document";
+    default:
+      return "file";
+  }
 }

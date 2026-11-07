@@ -492,3 +492,92 @@ export const Logo = ({ size = 22 }: P) => (
     class="logo"
   />
 );
+
+// G34.4: the canvas's tabs, one drawn icon per kind of file.
+const FILE_OUTLINE = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z";
+export const IconFilm = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <rect x="2" y="5" width="14" height="14" rx="2" />
+    <path d="M16 10l6-4v12l-6-4" />
+  </Svg>
+);
+export const IconMusic = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
+  </Svg>
+);
+export const IconImage = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="8.5" cy="8.5" r="1.5" />
+    <path d="M21 15l-5-5L5 21" />
+  </Svg>
+);
+export const IconFilePdf = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d={FILE_OUTLINE} />
+    <path d="M14 2v6h6" />
+    <rect x="7" y="12" width="10" height="6" rx="1" />
+  </Svg>
+);
+export const IconFileText = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d={FILE_OUTLINE} />
+    <path d="M14 2v6h6M8 13h8M8 17h8M8 9h2" />
+  </Svg>
+);
+export const IconGrid = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M3 9h18M3 15h18M9 3v18" />
+  </Svg>
+);
+export const IconPresentation = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d="M2 3h20M4 3v11a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V3M12 15v4M8 21l4-2 4 2" />
+  </Svg>
+);
+export const IconCube = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d="M12 2l9 5v10l-9 5-9-5V7z" />
+    <path d="M3 7l9 5 9-5M12 12v10" />
+  </Svg>
+);
+export const IconFileZip = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d={FILE_OUTLINE} />
+    <path d="M10 2v2M10 6v2M10 10v2M8 15h4v4H8z" />
+  </Svg>
+);
+export const IconCode = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" />
+  </Svg>
+);
+export const IconType = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d="M4 7V4h16v3M9 20h6M12 4v16" />
+  </Svg>
+);
+export const IconBraces = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d="M8 3H7a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h1" />
+    <path d="M16 3h1a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2 2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-1" />
+  </Svg>
+);
+export const IconPenTool = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d="M12 19l7-7 3 3-7 7-3-3z" />
+    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5zM2 2l7.6 7.6" />
+    <circle cx="11" cy="11" r="2" />
+  </Svg>
+);
+/** Opens elsewhere: another app on the computer, or a site in a new tab. */
+export const IconExternal = ({ size = 16 }: P) => (
+  <Svg size={size}>
+    <path d="M14 4h6v6M20 4l-9 9" />
+    <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+  </Svg>
+);

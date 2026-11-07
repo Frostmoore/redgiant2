@@ -11,31 +11,40 @@ import { basename, dirname, join, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LocalWorkspace } from "@redgiant/tools";
 import { unzipSync } from "fflate";
+import { BLENDER_CONVERT_SCRIPT, commands as blenderCommands } from "./convert-blender.js";
 import {
   detectFormat,
   extOf,
   type FormatInfo,
+  type Needs,
   needsConversion,
   suggestConversion,
   type Target,
   type Via,
 } from "./convert-formats.js";
+import { idmlLinks, idmlToOdg, linkName, relinkIdml } from "./convert-idml.js";
 import {
+  type Converted,
   embeddedPreview,
   idmlToOdt,
   psdToOra,
+  rezip,
   sketchOutline,
   unzip,
   zipPreview,
-  type Converted,
 } from "./convert-js.js";
+import { type LossCode, lossCodes as lossCodesOf } from "./convert-losses.js";
 import {
+  type DesktopApp,
   execRunner,
+  findDesktopApp,
+  findXvfbRun,
   PROGRAMS,
   type ProgramId,
   type Programs,
   type Runner,
 } from "./convert-programs.js";
+import { sketchToSvg } from "./convert-sketch.js";
 
 /**
  * What LibreOffice's AppImage needs from a system without a desktop (checked in
@@ -43,6 +52,50 @@ import {
  */
 export const LIBREOFFICE_LIBS =
   "libx11-6 libx11-xcb1 libxext6 libxinerama1 libcairo2 libcups2t64 libdbus-1-3 libfontconfig1 libfreetype6 libglib2.0-0t64 libgssapi-krb5-2 libnss3 fonts-dejavu-core";
+
+/**
+ * What Scribus's AppImage needs on a Linux without a desktop: a display (Xvfb, through
+ * xvfb-run) and one font (checked in node:24-trixie-slim, 2026-11-07; the image installs them).
+ */
+export const SCRIBUS_LIBS = "xvfb xauth fonts-dejavu-core";
+
+/**
+ * The script Scribus runs (`-py`, arguments in sys.argv): opens what it can import (IDML),
+ * saves it as .sla and prints a PDF. Written by RedGiant, never by a model; paths are arguments.
+ */
+export const SCRIBUS_SCRIPT = `# RedGiant: open a document Scribus can import (IDML...), save it as .sla and print a PDF.
+import os
+import sys
+import traceback
+
+
+def main():
+    import scribus
+
+    src, sla = sys.argv[1], sys.argv[2]
+    pdf = sys.argv[3] if len(sys.argv) > 3 else ""
+    if not scribus.openDoc(src):
+        raise RuntimeError("Scribus could not open " + src)
+    print("REDGIANT pages=%d" % scribus.pageCount(), flush=True)
+    scribus.saveDocAs(sla)
+    if pdf:
+        p = scribus.PDFfile()
+        p.file = pdf
+        p.save()
+    scribus.closeDoc()
+
+
+code = 0
+try:
+    main()
+    print("REDGIANT done", flush=True)
+except Exception:
+    traceback.print_exc()
+    code = 1
+sys.stdout.flush()
+sys.stderr.flush()
+os._exit(code)
+`;
 
 /** Where the open copies of `path` go. */
 export const openDirOf = (path: string) => `${path}.open`;
@@ -57,9 +110,15 @@ export interface Manifest {
   losses: string[];
   via: Via[];
   convertedAt: string;
+  /** Only the stored preview could be taken: not a conversion. */
+  previewOnly?: boolean;
+  /** The closed app the file needs, and what to export from it (see `Needs`). */
+  needs?: Needs;
 }
 
 export interface TargetView extends Target {
+  /** `losses` as stable codes for the page (same order), the English stays for the agents. */
+  lossCodes: LossCode[];
   /** The program it needs (none for our own code), and whether it is here or can come down. */
   program?: {
     id: ProgramId;
@@ -82,7 +141,8 @@ export interface FileReport {
   suggested: boolean;
   targets: TargetView[];
   /** The last conversion, if any; `stale` when the original changed since. */
-  converted: (Manifest & { stale: boolean }) | null;
+  converted: (Manifest & { stale: boolean; lossCodes: LossCode[] }) | null;
+  needs?: NeedsView;
 }
 
 export interface ConvertResult {
@@ -90,8 +150,16 @@ export interface ConvertResult {
   dir: string;
   outputs: { path: string; ext: string }[];
   losses: string[];
+  lossCodes: LossCode[];
   /** Targets asked for that could not be made now, and why. */
   skipped: { ext: string; reason: string }[];
+  previewOnly?: boolean;
+  needs?: NeedsView;
+}
+
+/** `Needs` with whether the app is on this computer (for «Open in…»). */
+export interface NeedsView extends Needs {
+  installed: boolean;
 }
 
 export class ConvertError extends Error {}
@@ -177,6 +245,29 @@ export const commands = {
       input,
     ];
   },
+  /**
+   * Scribus with its script, without a window. On Linux without a display it runs inside
+   * xvfb-run (its AppImage carries only the X11 platform plugin).
+   */
+  scribus(
+    program: string,
+    script: string,
+    input: string,
+    sla: string,
+    pdf: string,
+    o: { platform?: string; display?: string | undefined; xvfbRun?: string | undefined } = {},
+  ): { file: string; args: string[] } {
+    const args = ["-g", "-ns", "-py", script, input, sla, pdf];
+    const platform = o.platform ?? process.platform;
+    if (platform === "linux" && !o.display) {
+      if (!o.xvfbRun)
+        throw new ConvertError(
+          `Scribus needs a display, and this Linux has none: sudo apt install ${SCRIBUS_LIBS} (the Docker image has them)`,
+        );
+      return { file: o.xvfbRun, args: ["-a", program, ...args] };
+    }
+    return { file: program, args };
+  },
   ffmpeg(input: string, output: string, ext: string) {
     const head = ["-hide_banner", "-nostdin", "-y", "-i", input];
     if (ext === "webm")
@@ -199,6 +290,11 @@ export interface ConverterOptions {
   now?: () => Date;
   /** Where the canvas's paged previews (PDF) are kept; never beside the original. */
   previewDir?: string;
+  /** Tests: the system, its display and xvfb-run, and which closed apps are installed. */
+  platform?: string;
+  display?: string;
+  xvfbRun?: string | null;
+  desktopApp?: (app: DesktopApp) => string | undefined;
 }
 
 /**
@@ -238,21 +334,35 @@ export class FileConverter {
     args: string[],
     timeoutMs: number,
     signal?: AbortSignal,
+    cwd?: string,
   ) {
     let q = this.queues.get(id);
     if (!q) {
       q = new Queue();
       this.queues.set(id, q);
     }
-    return q.run(() => (this.o.run ?? execRunner)(file, args, { timeoutMs, signal }));
+    return q.run(() =>
+      (this.o.run ?? execRunner)(file, args, { timeoutMs, signal, ...(cwd && { cwd }) }),
+    );
+  }
+
+  /** A closed app's needs, with whether it is installed here. */
+  needsOf(f: FormatInfo | undefined): NeedsView | undefined {
+    if (!f?.needs) return undefined;
+    const app = f.needs.app;
+    const find = this.o.desktopApp ?? ((a: DesktopApp) => findDesktopApp(a));
+    const installed = app === "affinity" || app === "indesign" ? find(app) !== undefined : false;
+    return { ...f.needs, installed };
   }
 
   private view(t: Target): TargetView {
-    if (t.via === "js") return t;
+    const lossCodes = lossCodesOf(t.losses);
+    if (t.via === "js") return { ...t, lossCodes };
     const id = t.via;
     const p = PROGRAMS[id];
     return {
       ...t,
+      lossCodes,
       program: {
         id,
         name: p.name,
@@ -273,7 +383,9 @@ export class FileConverter {
     const f = await formatOfFile(abs);
     const manifest = await readManifest(root, path);
     const { targets, ...format } = f ?? ({} as FormatInfo);
+    const needs = this.needsOf(f);
     return {
+      ...(needs && { needs }),
       path,
       format: f ? format : null,
       needsConversion: f ? needsConversion(f) : false,
@@ -282,6 +394,7 @@ export class FileConverter {
       converted: manifest
         ? {
             ...manifest,
+            lossCodes: lossCodesOf(manifest.losses),
             stale:
               manifest.sourceSize !== st.size ||
               manifest.sourceModifiedAt !== st.mtime.toISOString(),
@@ -313,10 +426,7 @@ export class FileConverter {
     if (!f) throw new ConvertError(`RedGiant does not know the format of ${basename(path)}`);
     if (f.targets.length === 0)
       throw new ConvertError(`${basename(path)} is ${f.name}, an open format: use it as it is.`);
-    const wanted = o.to?.map((x) => x.toLowerCase().replace(/^\./, ""));
-    // Illustrator and PostScript reach SVG and ODG through their PDF copy.
-    if (wanted && ["ai-pdf", "ai-ps", "eps"].includes(f.id) && !wanted.includes("pdf"))
-      if (wanted.some((x) => x === "svg" || x === "odg")) wanted.unshift("pdf");
+    const wanted = wantedOf(f, o.to);
     if (wanted) {
       const bad = wanted.filter((x) => !f.targets.some((t) => t.ext === x));
       if (bad.length)
@@ -340,19 +450,23 @@ export class FileConverter {
         await mkdir(dirname(out), { recursive: true });
         await writeFile(`${out}.part`, data);
         await rename(`${out}.part`, out);
-        made.set(extOf(name) || name, out);
+        // One entry per extension (later steps look them up); more files of one kind by name.
+        const ext = extOf(name) || name;
+        made.set(made.has(ext) && made.get(ext) !== out ? name : ext, out);
       }
     };
     try {
       for (const t of this.chosen(f, wanted)) {
         if (made.has(t.ext)) continue;
+        // The fallback of a better target that was made (IDML: the ODG when Scribus made the SLA).
+        if (!wanted && t.unless && made.has(t.unless)) continue;
         o.signal?.throwIfAborted();
         try {
           if (t.via === "js") {
-            const c = await this.js(f, abs, stem, st.size);
+            const c = await this.js(f, t, ws, abs, stem, st.size);
             await save(c.files);
             for (const l of c.losses) losses.add(l);
-          } else await this.external(f, t, abs, stem, work, made, o);
+          } else await this.external(f, t, ws, abs, stem, work, made, o);
           if (t.via !== "js" && !made.has(t.ext))
             throw new ConvertError(`${PROGRAMS[t.via].name} made no ${t.ext.toUpperCase()}`);
           via.add(t.via);
@@ -369,10 +483,12 @@ export class FileConverter {
       throw new ConvertError(
         `Nothing could be made from ${basename(path)}: ${skipped.map((s) => `${s.ext}: ${s.reason}`).join("; ")}`,
       );
-    const outputs = [...made.entries()].map(([ext, p]) => ({
+    const outputs = [...made.values()].map((p) => ({
       path: toPosix(relative(root, p)),
-      ext,
+      ext: extOf(p),
     }));
+    const previewOnly = f.targets.filter((t) => made.has(t.ext)).every((t) => t.preview);
+    const needs = this.needsOf(f);
     const before = await readManifest(root, path);
     const fresh =
       before && before.sourceSize === st.size && before.sourceModifiedAt === st.mtime.toISOString();
@@ -387,9 +503,20 @@ export class FileConverter {
       losses: fresh ? [...new Set([...before.losses, ...losses])] : [...losses],
       via: fresh ? [...new Set([...before.via, ...via])] : [...via],
       convertedAt: (this.o.now?.() ?? new Date()).toISOString(),
+      ...(previewOnly && { previewOnly }),
+      ...(f.needs && { needs: f.needs }),
     };
     await writeFile(join(dir, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);
-    return { path, dir: toPosix(relDir), outputs, losses: [...losses], skipped };
+    return {
+      path,
+      dir: toPosix(relDir),
+      outputs,
+      losses: [...losses],
+      lossCodes: lossCodesOf([...losses]),
+      skipped,
+      ...(previewOnly && { previewOnly }),
+      ...(needs && { needs }),
+    };
   }
 
   /**
@@ -400,7 +527,7 @@ export class FileConverter {
     return f.targets.filter((t, i) =>
       wanted
         ? wanted.includes(t.ext)
-        : i === 0 || t.via === "js" || this.o.programs.find(t.via) !== undefined,
+        : !t.asked && (i === 0 || t.via === "js" || this.o.programs.find(t.via) !== undefined),
     );
   }
 
@@ -409,9 +536,7 @@ export class FileConverter {
     const abs = await new LocalWorkspace(root).resolve(path);
     const f = await formatOfFile(abs);
     if (!f) return [];
-    const wanted = to?.map((x) => x.toLowerCase().replace(/^\./, ""));
-    if (wanted && ["ai-pdf", "ai-ps", "eps"].includes(f.id) && !wanted.includes("pdf"))
-      if (wanted.some((x) => x === "svg" || x === "odg")) wanted.unshift("pdf");
+    const wanted = wantedOf(f, to);
     return [
       ...new Set(
         this.chosen(f, wanted)
@@ -422,7 +547,14 @@ export class FileConverter {
   }
 
   /** Our own conversions: everything they make at once (an ORA comes with its PNG). */
-  private async js(f: FormatInfo, abs: string, stem: string, size: number): Promise<Converted> {
+  private async js(
+    f: FormatInfo,
+    t: Target,
+    ws: LocalWorkspace,
+    abs: string,
+    stem: string,
+    size: number,
+  ): Promise<Converted> {
     if (size > MAX_JS_BYTES)
       throw new ConvertError(`${basename(abs)} is larger than 1 GB: too big to convert here`);
     const bytes = new Uint8Array(await readFile(abs));
@@ -439,19 +571,24 @@ export class FileConverter {
       case "idml": {
         const z = unzip(bytes);
         if (!z) throw new ConvertError("This IDML is not a valid zip");
-        return idmlToOdt(z, stem);
+        if (t.ext === "odt") return idmlToOdt(z, stem);
+        const found = await this.idmlPictures(ws, abs, z);
+        const pictures: Record<string, Uint8Array> = {};
+        for (const [uri, p] of Object.entries(found))
+          pictures[uri] = new Uint8Array(await readFile(p));
+        const { files, losses } = idmlToOdg(z, stem, pictures);
+        return { files, losses };
       }
       case "sketch": {
         const z = unzip(bytes);
         if (!z) throw new ConvertError("This Sketch file is not a valid zip (Sketch 43 or newer)");
-        const p = zipPreview(z);
-        return {
-          files: {
-            ...(p && { [`${stem}.preview.${p.ext}`]: p.data }),
-            [`${stem}.outline.txt`]: new TextEncoder().encode(sketchOutline(z)),
-          },
-          losses: p ? [] : ["the file had no preview picture"],
-        };
+        if (t.ext === "svg") return sketchToSvg(z, stem);
+        if (t.ext === "txt")
+          return {
+            files: { [`${stem}.outline.txt`]: new TextEncoder().encode(sketchOutline(z)) },
+            losses: [],
+          };
+        return preview(zipPreview(z), "picture");
       }
       case "fig":
       case "xd": {
@@ -466,10 +603,42 @@ export class FileConverter {
     }
   }
 
+  /**
+   * The pictures an IDML links to, found beside it (or in a Links folder there), inside the
+   * workspace only: link → absolute path.
+   */
+  private async idmlPictures(
+    ws: LocalWorkspace,
+    abs: string,
+    entries: Record<string, Uint8Array>,
+  ): Promise<Record<string, string>> {
+    const rel = toPosix(relative(ws.root, dirname(abs)));
+    const out: Record<string, string> = {};
+    for (const uri of idmlLinks(entries)) {
+      const name = linkName(uri);
+      if (!name || name.includes("..")) continue;
+      for (const sub of ["", "Links/", "links/"]) {
+        const p = await ws.resolve(`${rel ? `${rel}/` : ""}${sub}${name}`).catch(() => undefined);
+        if (
+          p &&
+          (await stat(p).then(
+            (x) => x.isFile(),
+            () => false,
+          ))
+        ) {
+          out[uri] = p;
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
   /** LibreOffice, Ghostscript or ffmpeg, each with its own arguments. */
   private async external(
     f: FormatInfo,
     t: Target,
+    ws: LocalWorkspace,
     abs: string,
     stem: string,
     work: string,
@@ -513,6 +682,63 @@ export class FileConverter {
       await into(out, "pdf");
       return;
     }
+    if (id === "scribus") {
+      // The links pointed at the pictures found here, the script beside it; the SLA is saved
+      // where it stays (Scribus writes the pictures' paths relative to it).
+      const z = unzip(new Uint8Array(await readFile(abs)));
+      if (!z) throw new ConvertError("This IDML is not a valid zip");
+      const input = join(work, `${stem}.idml`);
+      await writeFile(input, rezip(relinkIdml(z, await this.idmlPictures(ws, abs, z))));
+      const script = join(work, "redgiant_scribus.py");
+      await writeFile(script, SCRIBUS_SCRIPT);
+      const sla = join(dir, `${stem}.sla`);
+      const pdf = join(work, `${stem}.pdf`);
+      const xvfb = this.o.xvfbRun === null ? undefined : (this.o.xvfbRun ?? findXvfbRun());
+      const cmd = commands.scribus(program, script, input, sla, pdf, {
+        platform: this.o.platform ?? process.platform,
+        display: this.o.display ?? process.env.DISPLAY,
+        xvfbRun: xvfb,
+      });
+      const r = await this.run(id, cmd.file, cmd.args, 10 * 60_000, o.signal, work);
+      if (/no fonts found/i.test(`${r.stdout}${r.stderr}`))
+        throw new ConvertError(
+          `Scribus found no fonts on this computer: sudo apt install ${SCRIBUS_LIBS}`,
+        );
+      check(r);
+      if (
+        !(await stat(sla).then(
+          () => true,
+          () => false,
+        ))
+      )
+        throw new ConvertError(`Scribus made no SLA: ${(r.stderr || r.stdout).slice(-300)}`);
+      made.set("sla", sla);
+      if (
+        await stat(pdf).then(
+          () => true,
+          () => false,
+        )
+      )
+        await into(pdf, "pdf");
+      return;
+    }
+    if (id === "blender") {
+      const script = join(work, "redgiant_blender_convert.py");
+      await writeFile(script, BLENDER_CONVERT_SCRIPT);
+      const out = join(work, `${stem}.${t.ext}`);
+      check(
+        await this.run(
+          id,
+          program,
+          blenderCommands.script(script, [abs, out]),
+          20 * 60_000,
+          o.signal,
+          work,
+        ),
+      );
+      await into(out, t.ext);
+      return;
+    }
     if (id === "ffmpeg") {
       const out = join(work, `${stem}.${t.ext}`);
       check(await this.run(id, program, commands.ffmpeg(abs, out, t.ext), 60 * 60_000, o.signal));
@@ -527,6 +753,12 @@ export class FileConverter {
       if (!pdf) throw new ConvertError("the PDF copy is needed first (ask for pdf too)");
       input = pdf;
       fromPdf = true;
+    }
+    // IDML: the PDF is printed from our ODG.
+    if (f.id === "idml") {
+      const odg = made.get("odg");
+      if (!odg) throw new ConvertError("the ODG copy is needed first (ask for odg too)");
+      input = odg;
     }
     const outDir = join(work, "lo");
     await mkdir(outDir, { recursive: true });
@@ -607,6 +839,25 @@ export class FileConverter {
       await rm(work, { recursive: true, force: true });
     }
   }
+}
+
+/**
+ * The targets asked for, with the steps they need first: Illustrator and PostScript reach SVG
+ * and ODG through their PDF copy; an IDML's PDF is printed from its ODG (unless Scribus makes it).
+ */
+function wantedOf(f: FormatInfo, to: string[] | undefined): string[] | undefined {
+  const wanted = to?.map((x) => x.toLowerCase().replace(/^\./, ""));
+  if (!wanted) return undefined;
+  if (["ai-pdf", "ai-ps", "eps"].includes(f.id) && !wanted.includes("pdf"))
+    if (wanted.some((x) => x === "svg" || x === "odg")) wanted.unshift("pdf");
+  if (
+    f.id === "idml" &&
+    wanted.includes("pdf") &&
+    !wanted.includes("sla") &&
+    !wanted.includes("odg")
+  )
+    wanted.unshift("odg");
+  return wanted;
 }
 
 export async function readManifest(root: string, path: string): Promise<Manifest | null> {

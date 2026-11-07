@@ -15,6 +15,8 @@ export interface ViewerProps {
   src: ViewerSource;
   /** Opens another file in the same place (a file inside an archive). */
   open?: (name: string, bytes: Uint8Array) => void;
+  /** Makes an open copy the browser can show (G34.4: a video or sound it cannot play). */
+  convert?: () => void;
 }
 
 /** The first bytes of a URL and its size, read without downloading the rest. */

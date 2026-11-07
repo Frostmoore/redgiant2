@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { startServer, wsClient } from "./helpers.js";
 
 type Server = Awaited<ReturnType<typeof startServer>>;
-// Room for every tool's description: the fake model's 8192 tokens would summarise mid-turn.
+// Room for every tool's description, fixed here so that no summary starts mid-turn.
 const ROOM = { contextWindow: 65_536 };
 let s: Server | undefined;
 afterEach(async () => {

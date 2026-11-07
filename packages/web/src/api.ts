@@ -453,6 +453,56 @@ export class ApiError extends Error {
   }
 }
 
+/** A loss as a stable code (`loss_<code>` in i18n) with its values; null code: only the English. */
+export interface LossCode {
+  code: string | null;
+  vars?: Record<string, string>;
+}
+
+/** The closed app a file needs when no free program can read it (INDD, Affinity, XD, .fig). */
+export interface FileNeeds {
+  app: "affinity" | "indesign" | "figma" | "xd";
+  name: string;
+  url?: string;
+  /** The open format another program can make from it instead (INDD: the IDML). */
+  alt?: string;
+  /** What to export from the app, beside the file. */
+  export: string[];
+  /** For the agents, in English. */
+  message: string;
+  /** The app is on this computer: «Open in…» works. */
+  installed: boolean;
+}
+
+/** The converter's report on a file (G34.3, `GET /api/files/convert`). */
+export interface FileReport {
+  path: string;
+  format: { id: string; name: string; kind: string; open: boolean; browser: boolean } | null;
+  needsConversion: boolean;
+  suggested: boolean;
+  targets: {
+    ext: string;
+    via: string;
+    /** In English, for the agents; `lossCodes` says the same for the page. */
+    losses: string[];
+    lossCodes?: LossCode[];
+    asked?: boolean;
+    unless?: string;
+    preview?: boolean;
+    program?: { id: string; name: string; here: boolean; canDownload: boolean; size: string };
+  }[];
+  converted: {
+    outputs: { path: string; ext: string }[];
+    losses: string[];
+    lossCodes?: LossCode[];
+    convertedAt: string;
+    stale: boolean;
+    /** Only the picture stored inside the file: not a conversion. */
+    previewOnly?: boolean;
+  } | null;
+  needs?: FileNeeds;
+}
+
 /** HTTP calls with the bearer token. */
 export class Api {
   constructor(private readonly token: string) {}
@@ -888,6 +938,19 @@ export class Api {
   cancelJob = (id: string) => this.call("POST", `/api/jobs/${encodeURIComponent(id)}/cancel`);
   platform = () => this.call<PlatformInfo>("GET", "/api/platform");
   platformChanges = () => this.call<PlatformChange[]>("GET", "/api/platform/changes");
+  /** The tools page (G34.5): every common tool and its weight, for every agent or for one. */
+  toolsView = (agentId?: string) =>
+    this.call<import("@redgiant/protocol").ToolsView>(
+      "GET",
+      `/api/tools${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ""}`,
+    );
+  /** Tools off for every agent (the essential ones are refused). */
+  setToolsOff = (off: string[]) => this.call<PlatformChange>("PUT", "/api/tools", { off });
+  /** One agent's own choice: always on, off, or as for every agent ("default"). */
+  setAgentTools = (agentId: string, tools: Record<string, "on" | "off" | "default">) =>
+    this.call<PlatformChange>("PUT", `/api/agents/${encodeURIComponent(agentId)}/tools`, {
+      tools,
+    });
   /** What an agent's summaries do when it sets nothing (12% kept on a local model). */
   compactionDefaults = (agentId: string) =>
     this.call<{ at: number; keep: number }>(
@@ -1130,6 +1193,37 @@ export class Api {
       "GET",
       `/api/canvas/version?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}${fileOnly ? "&only=file" : ""}`,
     );
+
+  /** What a file is and what it can become (G34.3): the converter's report. */
+  fileReport = (scope: string, path: string) =>
+    this.call<FileReport>(
+      "GET",
+      `/api/files/convert?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+    );
+  /** Converts a file into open formats beside it: a job to follow (G34.3). */
+  convertFile = (scope: string, path: string, to?: string[]) =>
+    this.call<Job>("POST", "/api/files/convert", { scope, path, ...(to && { to }) });
+  /** The formats the converter knows and its outside programs (here, can come down). */
+  fileFormats = () =>
+    this.call<{ programs: { id: string; name: string; here: boolean; canDownload: boolean }[] }>(
+      "GET",
+      "/api/files/formats",
+    );
+  /** Opens a file no free program reads in the closed app on this computer (Affinity, InDesign). */
+  openWith = (scope: string, path: string) =>
+    this.call<{ opened: boolean; app: string }>("POST", "/api/files/open-with", { scope, path });
+  /** The paged preview of an office file (LibreOffice): ready now, or a job to follow. */
+  startFilePreview = (scope: string, path: string) =>
+    this.call<{ ready: boolean; job?: Job }>("POST", "/api/files/preview", { scope, path });
+  /** The paged preview as a PDF, once ready. */
+  async filePreview(scope: string, path: string): Promise<Blob> {
+    const r = await fetch(
+      `/api/files/preview?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+      { headers: { authorization: `Bearer ${this.token}` } },
+    );
+    if (!r.ok) throw new ApiError(r.status, `HTTP ${r.status}`);
+    return r.blob();
+  }
 
   /** A web search service tried before it is saved: how many results, the first's title. */
   trySearch = (c: { provider: SearchProviderId; url?: string; key?: string }) =>

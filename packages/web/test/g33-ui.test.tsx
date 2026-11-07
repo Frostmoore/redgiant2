@@ -80,7 +80,14 @@ describe("the agent's window", () => {
     expect(win.querySelector(":scope > header .ui-modal-x")).not.toBeNull();
     // Every tab, and every button the side panel had.
     const tabs = [...win.querySelectorAll("[role=tab]")].map((x) => x.textContent);
-    expect(tabs).toEqual(["Generale", "Modello", "Limiti", "Comportamento", "Memoria"]);
+    expect(tabs).toEqual([
+      "Generale",
+      "Modello",
+      "Limiti",
+      "Comportamento",
+      "Memoria",
+      "Strumenti",
+    ]);
     const foot = win.querySelector(":scope > .ui-modal-foot") as HTMLElement;
     expect(foot.textContent).toContain("Apri la sua conversazione");
     expect(foot.textContent).toContain("Ferma");

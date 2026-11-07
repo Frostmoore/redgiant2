@@ -11,7 +11,10 @@
   rebuilt with `rebuildHistory`. Tests use an in-process Postgres (PGlite, see `test/pglite.ts`).
 - Keep the prompt prefix stable: tools are sorted by name (`canonicalTools`), the system prompt never
   changes inside a session, history is append-only (compaction is an explicit event).
-- Every agent gets every base tool (`baseTools`); model profiles change descriptions only, never the tool set.
+- Every agent gets every base tool (`baseTools`) except those the person switched off (for every agent or for one,
+  Settings > Tools, G34.5); essential tools (`TOOL_CATALOG`, `essential`) never switch off. The set is computed when a
+  conversation starts and stays fixed for the session (`session.started.toolsOff`); model profiles change
+  descriptions only, never the tool set.
 - Cache discipline: reasoning is always sent back (Anthropic native blocks; `reasoning_content` for local servers),
   effort/thinking stay fixed for a session (only the human changes the model or effort, from the composer: `setSessionModel`), and compaction reuses the exact same request plus one message.
 - Sandboxes: file tools work on the shared directory, commands run in the container (`ContainerWorkspace`).

@@ -5,12 +5,20 @@
 
 import { readFile, rename, stat, writeFile } from "node:fs/promises";
 import type { Tool, ToolContext } from "@redgiant/agent";
-import { applyEdit, LocalWorkspace, type Workspace } from "@redgiant/tools";
+import { applyEdit, LocalWorkspace, type ShowFileHost, type Workspace } from "@redgiant/tools";
 import { strFromU8, strToU8 } from "fflate";
 import { z } from "zod";
+import {
+  ConvertError,
+  type FigmaGet,
+  type FileConverter,
+  figmaExport,
+  type NeedsView,
+} from "./convert.js";
+import { blenderTool } from "./convert-blender.js";
 import { extOf } from "./convert-formats.js";
 import { renderOra, rezip, unzip } from "./convert-js.js";
-import { ConvertError, type FigmaGet, type FileConverter, figmaExport } from "./convert.js";
+import type { Programs } from "./convert-programs.js";
 import type { Vault, VaultCaller } from "./vault.js";
 
 export interface ConvertToolDeps {
@@ -20,7 +28,19 @@ export interface ConvertToolDeps {
    * it cannot be used. Absent: there is no keychain.
    */
   figma?: (ctx: ToolContext, credential: string | undefined) => FigmaGet;
+  /** Blender for the `blender` tool (downloaded once when first used). */
+  programs?: Programs;
+  /** The canvas (show_file's host): `blender` opens its result there when asked. */
+  show?: ShowFileHost;
 }
+
+/** What the person must do when no free program can read the file (for the agent to say). */
+const needsLines = (n: NeedsView | undefined) =>
+  n
+    ? [
+        `${n.message}${n.installed ? ` ${n.name} is installed on this computer: the person can open the file in it from the canvas.` : n.url ? ` (${n.url})` : ""}`,
+      ]
+    : [];
 
 const fail = (content: string) => ({ content, isError: true });
 
@@ -118,7 +138,7 @@ export function convertFileTool(ws: Workspace, d: ConvertToolDeps): Tool {
       }
       if (!i.path)
         return fail(
-          "Give path (a file in your workspace) or url (a Figma or Canva link). What it makes: PSD -> OpenRaster .ora (layers) + PNG + layers.json (texts, fonts); AI, EPS -> PDF + SVG/ODG; Word/Excel/PowerPoint, Pages/Numbers/Keynote, Visio, Publisher, CorelDRAW -> ODT/ODS/ODP/ODG; IDML -> ODT (texts, styles); INDD, Affinity, .fig, XD -> their stored preview; Sketch -> preview + outline; PDF -> ODG or SVG; video/audio the browser cannot play -> WebM/Opus/FLAC. Some need a free program downloaded once (LibreOffice, about 300 MB, with a bar for the person).",
+          'Give path (a file in your workspace) or url (a Figma or Canva link). What it makes, keeping the layout: PSD -> OpenRaster .ora (layers at their place) + PNG + layers.json (texts, fonts); AI, EPS -> PDF + SVG/ODG; Word/Excel/PowerPoint, Pages/Numbers/Keynote, Visio, Publisher, CorelDRAW -> ODT/ODS/ODP/ODG; IDML -> Scribus .sla + PDF (to: "sla"), or an ODG with every frame at its place (to: "odg"); text only: to: "odt"; Sketch -> SVG per page (shapes, text, images); PDF -> ODG or SVG; .blend, FBX, USD, Alembic -> glTF .glb; video/audio the browser cannot play -> WebM/Opus/FLAC. INDD, Affinity, XD, .fig: no free program reads them, only their stored preview; the person must export IDML/PDF/SVG from the app. Some need a free program downloaded once (LibreOffice, Scribus, Blender; with a bar for the person).',
         );
       if (!(await fileIn(ws, i.path).catch(() => undefined)))
         return fail(`There is no file "${i.path}" in your workspace.`);
@@ -129,9 +149,10 @@ export function convertFileTool(ws: Workspace, d: ConvertToolDeps): Tool {
           return [
             `${i.path}: ${r.format.name}, ${r.format.open ? "open" : "closed"} format${r.format.browser ? "" : ", not shown by a browser as it is"}.`,
             r.format.note,
+            ...needsLines(r.needs),
             ...r.targets.map(
               (t) =>
-                `- can become ${t.ext.toUpperCase()}${t.program ? ` with ${t.program.name} (${t.program.license}; ${t.program.here ? "on this computer" : t.program.canDownload ? `downloads once, ${t.program.size}` : `not here: ${t.program.install}`})` : ""}${t.losses.length ? `; loses: ${t.losses.join("; ")}` : ""}`,
+                `- ${t.preview ? "only its preview" : "can become"} ${t.ext.toUpperCase()}${t.program ? ` with ${t.program.name} (${t.program.license}; ${t.program.here ? "on this computer" : t.program.canDownload ? `downloads once, ${t.program.size}` : `not here: ${t.program.install}`})` : ""}${t.losses.length ? `; loses: ${t.losses.join("; ")}` : ""}`,
             ),
             ...(r.converted
               ? [
@@ -153,6 +174,13 @@ export function convertFileTool(ws: Workspace, d: ConvertToolDeps): Tool {
           to,
           signal: ctx.signal,
         });
+        if (r.previewOnly)
+          return [
+            `${i.path} could NOT be converted: no free program can read it. Only the preview picture it carries was taken, in ${r.dir}/ (the original is unchanged):`,
+            ...r.outputs.map((o) => `- ${o.path}`),
+            ...needsLines(r.needs),
+            "Tell the person this, and work on what they export.",
+          ].join("\n");
         return [
           `Converted ${i.path} into open files in ${r.dir}/ (the original is unchanged):`,
           ...r.outputs.map((o) => `- ${o.path}`),
@@ -373,5 +401,11 @@ export function editPackageTool(ws: Workspace): Tool {
 
 /** Both tools, for every agent with a workspace. */
 export function convertTools(ws: Workspace, d: ConvertToolDeps): Tool[] {
-  return [convertFileTool(ws, d), editPackageTool(ws)];
+  return [
+    ...(d.programs
+      ? [blenderTool(ws, { programs: d.programs, ...(d.show && { show: d.show }) })]
+      : []),
+    convertFileTool(ws, d),
+    editPackageTool(ws),
+  ];
 }

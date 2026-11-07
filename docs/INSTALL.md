@@ -119,6 +119,29 @@ there. The main settings:
   internet: the token is the only lock.
 - **What sandboxes may reach**: `docker/egress.json` (package registries, GitHub, Hugging Face…).
 
+## Programs downloaded when needed
+
+Some file conversions need a free program. RedGiant never bundles them: each one is downloaded the
+first time a conversion asks for it, with a progress bar, and only unpacked into RedGiant's data folder
+(`tools/`), never installed system-wide. If the program is already on the computer, RedGiant uses it.
+The Docker image for Linux carries the system libraries they need.
+
+| Program                     | Licence                        | Download size                                                      | Used for                                                       |
+| --------------------------- | ------------------------------ | ------------------------------------------------------------------ | -------------------------------------------------------------- |
+| LibreOffice                 | MPL-2.0                        | Linux AppImage ~290 MB; Windows MSI ~360-380 MB; macOS DMG ~300 MB | Office files laid out in the Canvas, conversions into ODF, PDF |
+| Scribus 1.6                 | GPL-2.0-or-later               | Linux AppImage ~135 MB; Windows ~125 MB; macOS DMG ~180-190 MB     | IDML (InDesign) into Scribus `.sla` with its layout, and PDF   |
+| 7-Zip 25 (Windows only)     | LGPL-2.1 (+ BSD, unRAR clause) | ~2 MB                                                              | Unpacking Scribus's Windows installer without installing it    |
+| Blender 5.2 (Intel Mac 4.5) | GPL-2.0-or-later               | Linux ~385 MB; Windows ~275-405 MB; macOS DMG ~340-350 MB          | 3D formats into glTF, the agents' `blender` tool, renders      |
+| ffmpeg (static build)       | GPL-3.0                        | ~30-80 MB                                                          | Voice messages, video and audio the browser cannot play        |
+
+Unpacked, LibreOffice takes about 1 GB and Blender about 1.2 GB. On a Linux server without a display,
+Scribus runs under Xvfb (`sudo apt install xvfb xauth fonts-dejavu-core`, already in the Docker image).
+
+**Ghostscript** (AGPL-3.0, 20-65 MB) is never downloaded by RedGiant: install it yourself if you want EPS
+files converted (`winget install ArtifexSoftware.GhostScript` on Windows, `brew install ghostscript` on
+the Mac, `sudo apt install ghostscript` on Linux; the Docker image has it). Without it an EPS does not
+become a PDF; LibreOffice can still make an SVG of its first page.
+
 ## Updating
 
 Run the installer again: it keeps your `.env`, downloads the new images and restarts. The new

@@ -65,14 +65,14 @@ describe("Settings drawn as the wizard", () => {
   it("lists every section in groups, the current one lit, and the same list in a sheet", async () => {
     const r = render(<Settings section="telegram" />);
     const nav = r.container.querySelector(".settings-nav") as HTMLElement;
-    // 15 with Shared memory (G33.2) and the Keychain (G33.4).
-    expect(nav.querySelectorAll(".st-nav-item")).toHaveLength(15);
+    // 16 with Shared memory (G33.2), the Keychain (G33.4) and Tools (G34.5).
+    expect(nav.querySelectorAll(".st-nav-item")).toHaveLength(16);
     expect(nav.querySelectorAll(".wz-grp")).toHaveLength(5);
     expect(nav.querySelector(".st-nav-item.cur")?.textContent).toBe("Telegram");
     expect(r.container.querySelector(".st-pick")?.textContent).toContain("Telegram");
     fireEvent.click(r.container.querySelector(".st-pick") as HTMLElement);
     const sheet = r.container.querySelector(".ui-modal") as HTMLElement;
-    expect(sheet.querySelectorAll(".st-nav-item")).toHaveLength(15);
+    expect(sheet.querySelectorAll(".st-nav-item")).toHaveLength(16);
   });
 
   it("General: theme and language in segments, and a window for each square", async () => {

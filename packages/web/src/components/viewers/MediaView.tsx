@@ -1,9 +1,9 @@
 // Videos and sounds (G34.2): the browser's own player, with the speed and the time in words. A
-// format the browser cannot play says so plainly (a converter to an open format comes with
-// G34.3) and offers the file.
+// format the browser cannot play says so plainly and offers an open copy it can play (G34.4:
+// WebM or Opus, made beside the original), or the file itself.
 import { useRef, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
-import { IconAlert, IconDownload, IconMic } from "../../icons.js";
+import { IconAlert, IconDownload, IconMic, IconRefresh } from "../../icons.js";
 import { playable } from "../../viewers/kind.js";
 import { download, type ViewerProps } from "../../viewers/source.js";
 
@@ -19,7 +19,7 @@ export function clock(seconds: number): string {
   return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${m}:${two(s)}`;
 }
 
-export function MediaView({ src }: ViewerProps) {
+export function MediaView({ src, convert }: ViewerProps) {
   const video = src.kind === "video";
   const ref = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   const [failed, setFailed] = useState(
@@ -39,11 +39,19 @@ export function MediaView({ src }: ViewerProps) {
       <div class="vw-empty">
         <IconAlert size={28} />
         <strong>{t("vwMediaNo", { format: src.format.toUpperCase() || "?" })}</strong>
-        <p class="dim">{t("vwMediaConvert")}</p>
-        <button type="button" class="vw-btn" onClick={() => download(src.url, src.name)}>
-          <IconDownload size={16} />
-          {t("vwDownload")}
-        </button>
+        <p class="dim">{t(convert ? "vwMediaConvertNow" : "vwMediaConvert")}</p>
+        <div class="vw-row">
+          {convert && (
+            <button type="button" class="vw-btn primary" onClick={convert}>
+              <IconRefresh size={16} />
+              {t("vwConvertToSee")}
+            </button>
+          )}
+          <button type="button" class="vw-btn" onClick={() => download(src.url, src.name)}>
+            <IconDownload size={16} />
+            {t("vwDownload")}
+          </button>
+        </div>
       </div>
     );
   const events = {

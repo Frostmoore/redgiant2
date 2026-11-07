@@ -5,7 +5,7 @@
 // what a file is (from its name and first bytes) and what it can become. Pure, no I/O.
 
 /** The program that makes a target: our own code, or one downloaded when needed. */
-export type Via = "js" | "libreoffice" | "ghostscript" | "ffmpeg";
+export type Via = "js" | "libreoffice" | "scribus" | "blender" | "ghostscript" | "ffmpeg";
 
 export interface Target {
   /** The open format's extension (`ora`, `odt`, `webm`…). */
@@ -13,6 +13,28 @@ export interface Target {
   via: Via;
   /** What this conversion leaves behind, in plain words for the agent and the person. */
   losses: string[];
+  /** Made only when asked for by name (e.g. IDML → ODT, text only). */
+  asked?: boolean;
+  /** Left out by default when this other target was made (the fallback of a better one). */
+  unless?: string;
+  /** Not a conversion: only the picture the file carries (said as such, never passed off as one). */
+  preview?: boolean;
+}
+
+/**
+ * When no free program can read a format: the closed app that can, and what to export from it
+ * so the agents can work without losing the layout (the UI shows the link and «Open in…»).
+ */
+export interface Needs {
+  app: "affinity" | "indesign" | "figma" | "xd";
+  name: string;
+  /** Where to get it (free for Affinity). */
+  url?: string;
+  /** The open format another program can make from it instead (INDD: the IDML). */
+  alt?: string;
+  /** What to export from the app, beside the file. */
+  export: string[];
+  message: string;
 }
 
 export type FormatKind =
@@ -26,6 +48,7 @@ export type FormatKind =
   | "drawing"
   | "video"
   | "audio"
+  | "3d"
   | "data"
   | "archive";
 
@@ -43,9 +66,28 @@ export interface FormatInfo {
   targets: Target[];
   /** One line for the agent: what it can do with the file (the closed ones say convert first). */
   note: string;
+  needs?: Needs;
 }
 
 const t = (ext: string, via: Via, ...losses: string[]): Target => ({ ext, via, losses });
+const PREVIEW_ONLY =
+  "this is NOT a conversion: only the small preview picture stored inside the file (layers, text and layout cannot be read by any free program)";
+const preview = (ext: string, ...losses: string[]): Target => ({
+  ext,
+  via: "js",
+  losses: [PREVIEW_ONLY, ...losses],
+  preview: true,
+});
+const MODEL_LOSS =
+  "Blender's glTF export: meshes, materials (PBR), textures, cameras, lights and animations are kept; procedural shaders, modifiers not applied, particles and simulations are baked or left out";
+const viaBlender = (open: boolean, name: string, exts: string[], asked = false): Entry => ({
+  exts,
+  name,
+  kind: "3d",
+  open,
+  browser: false,
+  targets: [{ ...t("glb", "blender", MODEL_LOSS), ...(asked && { asked }) }],
+});
 
 const OFFICE_LOSS =
   "LibreOffice keeps text, styles, tables, images and most layout; macros, some fonts (replaced by similar ones) and a few advanced effects can differ";
@@ -437,11 +479,29 @@ const FORMATS: Record<string, Entry> = {
     browser: false,
     targets: [
       t(
-        "odt",
-        "js",
-        "the page layout (frame positions, master pages, images, colours) is not carried over: only the stories' text with their paragraph and character styles",
+        "sla",
+        "scribus",
+        "Scribus's own IDML import: pages, master pages, layers, frames at their place, text flowing through linked frames, styles, colours and images; tints, page-number markers, some crops of pictures and effects can differ (the PDF beside it shows how it came out)",
       ),
+      {
+        ...t(
+          "odg",
+          "js",
+          "RedGiant's own import (when Scribus cannot be had): pages, frames, shapes and pictures at their exact place and size, text with its formatting, colours, layers",
+        ),
+        unless: "sla",
+      },
+      t("pdf", "libreoffice", "printed from the ODG (Scribus makes its own PDF with the SLA)"),
+      {
+        ...t(
+          "odt",
+          "js",
+          "text only: the page layout (frames, positions, master pages, images) is not carried over, only the stories with their paragraph and character styles",
+        ),
+        asked: true,
+      },
     ],
+    note: "Closed: convert it (Scribus .sla, or an ODG with the same layout) and work on the copy.",
   },
   indd: {
     exts: ["indd", "indt"],
@@ -449,13 +509,16 @@ const FORMATS: Record<string, Entry> = {
     kind: "layout",
     open: false,
     browser: false,
-    targets: [
-      t(
-        "jpg",
-        "js",
-        "only the small preview InDesign stores inside (often just the first page): the text and layout cannot be read from an INDD. Ask for an IDML (InDesign: File > Export > InDesign Markup) or a PDF",
-      ),
-    ],
+    targets: [preview("jpg", "often just the first page")],
+    needs: {
+      app: "indesign",
+      name: "Adobe InDesign",
+      alt: "idml",
+      export: ["idml", "pdf"],
+      message:
+        "No free program can read an INDD. It needs InDesign, or the IDML exported by whoever sent it (InDesign: File > Export > InDesign Markup); with the IDML, RedGiant keeps the layout (Scribus or ODG).",
+    },
+    note: "Closed and unreadable by free programs: only its stored preview. Ask for the IDML (or a PDF).",
   },
   sketch: {
     exts: ["sketch"],
@@ -465,10 +528,11 @@ const FORMATS: Record<string, Entry> = {
     browser: false,
     targets: [
       t(
-        "png",
+        "svg",
         "js",
-        "the preview Sketch stores (the last page you saw), not every artboard; vectors become pixels",
+        "RedGiant's own reading of the Sketch file: every artboard at its size, shapes, paths, text, colours, borders, opacity and images at their place; shadows, blurs, gradients beyond their first colour and symbol overrides are simplified",
       ),
+      preview("png", "the last page you looked at in Sketch"),
       t("txt", "js", "only the pages, artboards, layer names and texts: no shapes or styles"),
     ],
   },
@@ -478,13 +542,15 @@ const FORMATS: Record<string, Entry> = {
     kind: "design",
     open: false,
     browser: false,
-    targets: [
-      t(
-        "png",
-        "js",
-        "only the thumbnail the file carries; for real SVG or PDF, export it from Figma with its link (convert_file with figma_url)",
-      ),
-    ],
+    targets: [preview("png")],
+    needs: {
+      app: "figma",
+      name: "Figma",
+      url: "https://www.figma.com",
+      export: ["svg", "pdf"],
+      message:
+        "A .fig copy cannot be read. Give its Figma link (convert_file with url): RedGiant exports every frame as SVG or PDF through Figma's API, with a token from the Keychain.",
+    },
   },
   xd: {
     exts: ["xd"],
@@ -492,7 +558,13 @@ const FORMATS: Record<string, Entry> = {
     kind: "design",
     open: false,
     browser: false,
-    targets: [t("png", "js", "only the preview the file carries")],
+    targets: [preview("png")],
+    needs: {
+      app: "xd",
+      name: "Adobe XD",
+      export: ["svg", "pdf"],
+      message: "No free program can read XD files: export SVG or PDF from Adobe XD beside it.",
+    },
   },
   affinity: {
     exts: ["afdesign", "afphoto", "afpub", "af"],
@@ -500,14 +572,35 @@ const FORMATS: Record<string, Entry> = {
     kind: "design",
     open: false,
     browser: false,
-    targets: [
-      t(
-        "png",
-        "js",
-        "only the preview Affinity stores inside: layers and vectors cannot be read; export SVG, PDF or PSD from Affinity for more",
-      ),
-    ],
+    targets: [preview("png")],
+    needs: {
+      app: "affinity",
+      name: "Affinity",
+      url: "https://www.affinity.studio",
+      export: ["pdf", "svg"],
+      message:
+        "To work on it you need Affinity (free, affinity.studio): open it and export PDF or SVG beside the file; the agents then work on that without losses.",
+    },
+    note: "Closed and unreadable by free programs: only its stored preview. Export PDF or SVG from Affinity.",
   },
+
+  // 3D: glTF is the open one (the canvas shows glb, gltf, obj, stl, ply and fbx as they are).
+  gltf: {
+    exts: ["glb", "gltf"],
+    name: "glTF",
+    kind: "3d",
+    open: true,
+    browser: true,
+    targets: [],
+    note: "Open 3D (Khronos): use it as it is; the blender tool changes or renders it.",
+  },
+  obj: { ...viaBlender(true, "Wavefront OBJ", ["obj"], true), browser: true },
+  stl: { ...viaBlender(true, "STL", ["stl"], true), browser: true },
+  ply: { ...viaBlender(true, "PLY", ["ply"], true), browser: true },
+  fbx: { ...viaBlender(false, "Autodesk FBX", ["fbx"]), browser: true },
+  blend: viaBlender(true, "Blender", ["blend"]),
+  usd: viaBlender(true, "Universal Scene Description", ["usd", "usda", "usdc", "usdz"]),
+  abc: viaBlender(true, "Alembic", ["abc"]),
 };
 
 const BY_EXT = new Map<string, string>();
@@ -603,4 +696,4 @@ export const needsConversion = (f: FormatInfo) => !f.open && f.targets.length > 
  */
 export const suggestConversion = (f: FormatInfo) =>
   needsConversion(f) ||
-  (!f.browser && f.targets.length > 0 && ["image", "video", "audio"].includes(f.kind));
+  (!f.browser && f.targets.length > 0 && ["image", "video", "audio", "3d"].includes(f.kind));

@@ -11,10 +11,11 @@
 import { createReadStream } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { LocalWorkspace } from "@redgiant/tools";
 import type { Context, Hono } from "hono";
-import { knownFormats } from "./convert-formats.js";
-import { PROGRAMS, type ProgramId } from "./convert-programs.js";
 import { ConvertError } from "./convert.js";
+import { knownFormats } from "./convert-formats.js";
+import { findDesktopApp, openInApp, PROGRAMS, type ProgramId } from "./convert-programs.js";
 import { BadRequestError, NotFoundError, type RedGiantCore } from "./core.js";
 import { parseScope } from "./files.js";
 
@@ -117,6 +118,27 @@ export function convertRoutes<E extends { Variables: any }>(
         "cache-control": "private, max-age=3600",
       },
     });
+  });
+
+  // «Open in Affinity / InDesign» (G34.3): a file no free program reads, opened in the closed
+  // app installed on this computer, so the person can export an open format beside it.
+  app.post("/api/files/open-with", async (c) => {
+    const b = await c.req
+      .json<{ scope?: string; path?: string }>()
+      .catch(() => ({}) as { scope?: string; path?: string });
+    if (!b.path || !b.scope) throw new BadRequestError("Give scope and path");
+    const root = await rootOf(core, owner(c), b.scope);
+    const report = await core.converter.inspect(root, b.path).catch((err) => {
+      throw asBadRequest(err);
+    });
+    const app = report.needs?.app;
+    if (app !== "affinity" && app !== "indesign")
+      throw new BadRequestError(`${b.path} does not need a desktop app`);
+    const exe = findDesktopApp(app);
+    if (!exe)
+      throw new NotFoundError(`${report.needs?.name ?? app} is not installed on this computer`);
+    openInApp(exe, await new LocalWorkspace(root).resolve(b.path));
+    return c.json({ opened: true, app }, 200);
   });
 
   app.post("/api/files/convert", async (c) => {

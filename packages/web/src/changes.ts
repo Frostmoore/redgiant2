@@ -114,6 +114,33 @@ function mcp(id: string, before: Mcp, after: Mcp, n: Names) {
   return [t("chgMcpChanged", { name, where: where(after) })];
 }
 
+type Tools = { off?: string[]; agents?: Record<string, Record<string, "on" | "off">> };
+const toolList = (ids: string[]) => ids.map((id) => tOptional(`tool_${id}`) ?? id).join(", ");
+
+/** The tools page (G34.5): switched off or back on for everyone, or one agent's exceptions. */
+function tools(agentId: string, before: Tools, after: Tools, n: Names) {
+  const out: string[] = [];
+  if (!agentId) {
+    const b = before.off ?? [];
+    const a = after.off ?? [];
+    const off = a.filter((x) => !b.includes(x));
+    const on = b.filter((x) => !a.includes(x));
+    if (off.length) out.push(t("chgToolsOff", { list: toolList(off) }));
+    if (on.length) out.push(t("chgToolsOn", { list: toolList(on) }));
+    return out.length > 0 ? out : [t("chgToolsSame")];
+  }
+  const name = n.agent(agentId);
+  const b = before.agents?.[agentId] ?? {};
+  const a = after.agents?.[agentId] ?? {};
+  const ids = [...new Set([...Object.keys(b), ...Object.keys(a)])].filter((id) => b[id] !== a[id]);
+  const of = (v: "on" | "off" | undefined) => ids.filter((id) => a[id] === v);
+  if (of("on").length) out.push(t("chgToolsAgentOn", { name, list: toolList(of("on")) }));
+  if (of("off").length) out.push(t("chgToolsAgentOff", { name, list: toolList(of("off")) }));
+  if (of(undefined).length)
+    out.push(t("chgToolsAgentDefault", { name, list: toolList(of(undefined)) }));
+  return out.length > 0 ? out : [t("chgToolsSame")];
+}
+
 /** What a change did, in one or more sentences. */
 export function describeChange(c: PlatformChange, n: Names): string[] {
   if (c.kind === "code") return [t("chgCode", { what: c.change })];
@@ -127,6 +154,7 @@ export function describeChange(c: PlatformChange, n: Names): string[] {
   if (type === "automation")
     return automation((c.before ?? null) as Automation, (c.after ?? null) as Automation);
   if (type === "mcp") return mcp(id, (c.before ?? null) as Mcp, (c.after ?? null) as Mcp, n);
+  if (type === "tools") return tools(id, (c.before ?? {}) as Tools, (c.after ?? {}) as Tools, n);
   return [c.change];
 }
 

@@ -15,12 +15,15 @@ import {
 import {
   catalogConfig,
   Effort,
+  invalidToolIds,
   MCP_CATALOG,
   type ModelSpec,
   needsInput,
   PermissionMode,
+  ToolChoice,
 } from "@redgiant/protocol";
 import { z } from "zod";
+import type { ToolChoiceStore } from "./tool-choice.js";
 
 /** The part of the permission policy the user (or God, with the user's approval) can change. */
 export const PlatformPolicy = z.object({
@@ -286,6 +289,8 @@ export interface ConfigHost {
     config: { name: string; projectId: string | null } & McpTransport,
   ): Promise<void>;
   removeMcp(ownerId: string, name: string): Promise<void>;
+  /** The tools the person switched off (G34.5). */
+  toolChoices?: ToolChoiceStore;
 }
 
 type McpTransport = { transport: ReturnType<typeof catalogConfig>["transport"] };
@@ -487,6 +492,59 @@ export class PlatformConfig {
     });
   }
 
+  /**
+   * The tools switched off for every agent and each agent's exceptions (G34.5). Only the person
+   * chooses them; essential tools never switch off, and unknown ones are refused. New
+   * conversations get the new set; open ones keep theirs.
+   */
+  async setTools(
+    ownerId: string,
+    by: string,
+    next: ToolChoice,
+    /** What the change is about, for the history: every agent, or one agent. */
+    about?: { agentId: string },
+  ): Promise<PlatformChange> {
+    const store = this.h.toolChoices;
+    if (!store) throw new ConfigError("Tool choices are not available");
+    if (by !== "human") throw new ConfigError("Only the person chooses the agents' tools");
+    const parsed = ToolChoice.safeParse(next);
+    if (!parsed.success) throw new ConfigError(parsed.error.message);
+    const choice = parsed.data;
+    const own = Object.values(choice.agents).flatMap((m) => Object.keys(m));
+    const offOwn = Object.values(choice.agents).flatMap((m) =>
+      Object.entries(m).flatMap(([id, v]) => (v === "off" ? [id] : [])),
+    );
+    const bad = invalidToolIds([...choice.off, ...own]);
+    if (bad.unknown.length > 0)
+      throw new ConfigError(`Unknown tools: ${[...new Set(bad.unknown)].join(", ")}`);
+    const essential = invalidToolIds([...choice.off, ...offOwn]).essential;
+    if (essential.length > 0)
+      throw new ConfigError(
+        `These tools are essential and cannot be switched off: ${[...new Set(essential)].join(", ")}`,
+      );
+    const mine = (id: string) => this.h.registry.get(id)?.ownerId === ownerId;
+    if (about && !mine(about.agentId)) throw new ConfigError(`Unknown agent "${about.agentId}"`);
+    // Empty exceptions, and those of agents that are gone, are not kept.
+    const clean: ToolChoice = {
+      off: [...new Set(choice.off)].sort(),
+      agents: Object.fromEntries(
+        Object.entries(choice.agents).filter(([id, m]) => mine(id) && Object.keys(m).length > 0),
+      ),
+    };
+    const before = await store.get(ownerId);
+    await store.set(ownerId, clean);
+    const name = about ? (this.h.registry.get(about.agentId)?.name ?? about.agentId) : undefined;
+    return this.h.changes.record(ownerId, {
+      kind: "config",
+      change: name ? `Tools of ${name}` : "Tools for every agent",
+      stage: "promoted",
+      target: about ? `tools:${about.agentId}` : "tools",
+      before,
+      after: clean,
+      by,
+    });
+  }
+
   /** Puts back what a configuration change replaced; recorded as a change of its own. */
   async undo(ownerId: string, by: string, changeId: string): Promise<PlatformChange> {
     const c = await this.h.changes.get(ownerId, changeId);
@@ -513,6 +571,19 @@ export class PlatformConfig {
       done = await this.putMcp(ownerId, by, name, current, c.before as McpSaved | null);
     } else if (type === "policy") {
       done = await this.setPolicy(ownerId, by, c.before as PlatformPolicy);
+    } else if (type === "tools") {
+      // Only the part the change touched comes back: the rule for everyone, or one agent's.
+      const id = rest.join(":");
+      const before = ToolChoice.parse(c.before ?? {});
+      const now = (await this.h.toolChoices?.get(ownerId)) ?? { off: [], agents: {} };
+      done = id
+        ? await this.setTools(
+            ownerId,
+            by,
+            { off: now.off, agents: { ...now.agents, [id]: before.agents[id] ?? {} } },
+            { agentId: id },
+          )
+        : await this.setTools(ownerId, by, { off: before.off, agents: now.agents });
     } else if (type === "automation") {
       const id = rest.join(":");
       const before = c.before as { yaml: string; enabled: boolean } | null;

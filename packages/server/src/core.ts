@@ -45,6 +45,7 @@ import {
   AgentRegistry,
   type ApprovalRequest,
   budgetKeys,
+  can,
   hierarchyGuards,
   migrateHierarchy,
   PermissionBroker,
@@ -65,7 +66,10 @@ import {
   replyLanguageLine,
   type ServerMessage,
   type SharedMemoryView,
+  type ToolChoice,
+  type ToolsView,
   textLanguage,
+  toolsSwitchedOff,
   type UiLanguage,
   type VaultEntry,
   type VaultSystemEntry,
@@ -106,6 +110,9 @@ import { type Browsers, browserTools } from "./browser.js";
 import { contentType, inside, lastChange, Previews, type PreviewTarget } from "./canvas.js";
 import { CHAT_AGENT_PROMPT, ChatError, DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
+import { FileConverter } from "./convert.js";
+import { Programs } from "./convert-programs.js";
+import { convertTools, vaultFigma } from "./convert-tools.js";
 import { debugLog } from "./debug-log.js";
 import {
   type EmailAccount,
@@ -118,9 +125,6 @@ import { FileTriggers } from "./file-triggers.js";
 import type { GitHosts } from "./git-hosts.js";
 import { IMAGE_MODEL, imageFileName } from "./images.js";
 import { Inspector } from "./inspector.js";
-import { FileConverter } from "./convert.js";
-import { Programs } from "./convert-programs.js";
-import { convertTools, vaultFigma } from "./convert-tools.js";
 import { Jobs } from "./jobs.js";
 import { LoginStore, migrateLogin } from "./login.js";
 import {
@@ -161,6 +165,7 @@ import { HumanQuestions, questionTools } from "./questions.js";
 import { migrateRooms, Rooms } from "./rooms.js";
 import { scriptTool } from "./script.js";
 import { SharedMemory } from "./shared-memory.js";
+import { dryWorkspace, ToolChoiceStore, toolChars, toolsView } from "./tool-choice.js";
 import {
   blankPastedSecrets,
   type MasterKeyStore,
@@ -403,6 +408,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly policies: PolicyStore;
   readonly changes: PlatformChanges;
   readonly config: PlatformConfig;
+  /** The tools the person switched off, for everyone or agent by agent (G34.5). */
+  readonly toolChoices: ToolChoiceStore;
   readonly code: CodeChanges | undefined;
   readonly chat: DailyChat;
   readonly inspector: Inspector;
@@ -570,6 +577,7 @@ export class RedGiantCore implements OrchestrationHost {
     this.automations = new AutomationService({ db: o.db, store: this.store, host });
     this.policies = new PolicyStore(o.db);
     this.changes = new PlatformChanges(o.db, this.store);
+    this.toolChoices = new ToolChoiceStore(o.db);
     this.config = new PlatformConfig(this);
     this.chat = new DailyChat({
       db: o.db,
@@ -981,8 +989,11 @@ export class RedGiantCore implements OrchestrationHost {
     sessionModel?: ModelSpec,
     /** The project the conversation works in, when not the agent's own (an assignment). */
     workProject?: string | null,
-    /** Built to look at, never recorded (`prefillStarts`). */
-    preview = false,
+    /**
+     * Built to look at, never recorded (`prefillStarts`); "dry": only to weigh its tools (G34.5),
+     * with a workspace that does nothing, no MCP servers and nothing switched off.
+     */
+    preview: boolean | "dry" = false,
   ): Promise<Live> {
     const record = this.registry.get(agentId);
     if (!record || record.ownerId !== ownerId)
@@ -994,17 +1005,27 @@ export class RedGiantCore implements OrchestrationHost {
         ? workProject
         : undefined;
     const agent = record;
-    if (agent.status !== "active") throw new Error(`Agent "${agent.name}" is stopped`);
-    const model = sessionModel ?? this.registry.effectiveModel(agentId) ?? this.o.defaultModel;
+    if (agent.status !== "active" && preview !== "dry")
+      throw new Error(`Agent "${agent.name}" is stopped`);
+    const model =
+      sessionModel ??
+      this.registry.effectiveModel(agentId) ??
+      this.o.defaultModel ??
+      (preview === "dry" ? { provider: "none", model: "none" } : undefined);
     if (!model) throw new NoModelError(`No model configured for "${agent.name}" or its ancestors`);
-    const ws = assignedTo
-      ? await this.workspaceFor({
-          ...agent,
-          kind: "agent",
-          projectId: assignedTo,
-          subprojectId: undefined,
-        } as AgentRecord)
-      : await this.workspaceFor(agent);
+    const ws =
+      preview === "dry"
+        ? agent.kind === "demigod"
+          ? undefined
+          : dryWorkspace()
+        : assignedTo
+          ? await this.workspaceFor({
+              ...agent,
+              kind: "agent",
+              projectId: assignedTo,
+              subprojectId: undefined,
+            } as AgentRecord)
+          : await this.workspaceFor(agent);
     // A magic automation's conversation (G33.3): God builds one automation with the person.
     const magicSession =
       agent.kind === "god"
@@ -1024,6 +1045,9 @@ export class RedGiantCore implements OrchestrationHost {
       tools.push(
         ...convertTools(ws, {
           converter: this.converter,
+          // The blender tool (G34.3): Blender downloaded once; its result opens in the canvas.
+          programs: this.programs,
+          show: (r, ctx) => this.showFile(agent, r, ctx),
           figma: (ctx, credential) => async (url) =>
             vaultFigma(
               this.vault,
@@ -1083,7 +1107,7 @@ export class RedGiantCore implements OrchestrationHost {
         : (await loadSkills(roots)).filter((s) => !agent.skills || agent.skills.includes(s.name));
     tools.push(...skillTools(skills));
     if (agent.kind !== "demigod" && agent.kind !== "inspector") {
-      // Always offered (the tool list never depends on settings); without a key it says so.
+      // Always offered (only the person's tools page takes tools away, G34.5); without a key it says so.
       if (ws)
         tools.push(
           ...this.mediaTools(agent, ws),
@@ -1120,12 +1144,14 @@ export class RedGiantCore implements OrchestrationHost {
             tool,
           }),
         ),
-        ...(await this.mcpTools(
-          ownerId,
-          agent.projectId,
-          // An assistant uses only the services it was given (G24.11).
-          agent.kind === "assistant" ? (agent.connections ?? []) : undefined,
-        )),
+        ...(preview === "dry"
+          ? []
+          : await this.mcpTools(
+              ownerId,
+              agent.projectId,
+              // An assistant uses only the services it was given (G24.11).
+              agent.kind === "assistant" ? (agent.connections ?? []) : undefined,
+            )),
         proposeTool(
           agent,
           this.extensions,
@@ -1159,6 +1185,24 @@ export class RedGiantCore implements OrchestrationHost {
     const receivesTasks =
       assignedTo !== undefined || ["orchestrator", "agent", "subagent"].includes(agent.kind);
     if (receivesTasks) tools.push(completeTaskTool(agent, ws, this.broker, this.tasks));
+    // The tools the person switched off (G34.5), fixed for the whole conversation: chosen when it
+    // starts, read back from its start when it resumes. Essential ones never go. In place, so
+    // run_script sees the same list.
+    const toolsOff =
+      preview === "dry"
+        ? []
+        : await this.toolsOffFor(
+            ownerId,
+            agentId,
+            sessionId,
+            resume,
+            tools.map((t) => t.def.name),
+          );
+    if (toolsOff.length > 0) {
+      const off = new Set(toolsOff);
+      for (let i = tools.length - 1; i >= 0; i--)
+        if (off.has((tools[i] as Tool).def.name)) tools.splice(i, 1);
+    }
     const listeners = new Set<(m: ServerMessage) => void>();
     // A flat subscription's engine runs the turns (G21); everything else stays the same.
     const found = this.o.providers.has(model.provider)
@@ -1179,6 +1223,9 @@ export class RedGiantCore implements OrchestrationHost {
         this.instructions
           ? `## The person's instructions for every agent\n${this.instructions}`
           : "",
+        toolsOff.length > 0
+          ? `## Tools switched off\nThe person switched these tools off for you: ${toolsOff.join(", ")}. They are not available in this conversation; if the work needs one, say so.`
+          : "",
         // Every agent that works remembers (G29.3); read once, the prefix stays the same.
         agent.kind !== "demigod" && agent.kind !== "inspector"
           ? await this.notes.prompt(this.noteOwner(agent, assignedTo))
@@ -1195,6 +1242,7 @@ export class RedGiantCore implements OrchestrationHost {
         .join("\n\n"),
       tools,
       ...(receivesTasks && { hooks: { stop: [this.tasks.stopHook(agentId)] } }),
+      ...(toolsOff.length > 0 && { toolsOff }),
       sessionId,
       ownerId,
       projectId: assignedTo ?? agent.projectId,
@@ -1267,6 +1315,91 @@ export class RedGiantCore implements OrchestrationHost {
       ownModel: sessionModel !== undefined,
       usedAt: Date.now(),
     };
+  }
+
+  /** What a conversation leaves out (G34.5): its start's record when resumed, the choice now otherwise. */
+  private async toolsOffFor(
+    ownerId: string,
+    agentId: string,
+    sessionId: string,
+    resume: boolean,
+    names: string[],
+  ): Promise<string[]> {
+    if (resume) {
+      const started = (await this.store.list({ sessionId })).find(
+        (e) => e.type === "session.started",
+      );
+      return started?.type === "session.started" && started.payload
+        ? (started.payload.toolsOff ?? [])
+        : [];
+    }
+    return toolsSwitchedOff(await this.toolChoices.get(ownerId), agentId, names);
+  }
+
+  /** Each tool of an agent and its characters, nothing switched off (a dry build, G34.5). */
+  private async measureTools(agent: AgentRecord): Promise<Map<string, number>> {
+    const l = await this.build(
+      agent.ownerId,
+      agent.id,
+      `tools_${agent.id}`,
+      false,
+      undefined,
+      undefined,
+      "dry",
+    );
+    return new Map(l.session.toolDefs.map((def) => [def.name, toolChars({ def })]));
+  }
+
+  /**
+   * The tools page (G34.5): every common tool with its weight and whether it is on, for every
+   * agent (weights: the heaviest among the agents that have it) or for one agent (its own model).
+   */
+  async toolsView(ownerId: string, agentId?: string): Promise<ToolsView> {
+    const choice = await this.toolChoices.get(ownerId);
+    if (agentId) {
+      const agent = this.registry.get(agentId);
+      if (!agent || agent.ownerId !== ownerId)
+        throw new NotFoundError(`Agent "${agentId}" not found`);
+      return toolsView(choice, await this.measureTools(agent), agentId);
+    }
+    const measured = new Map<string, number>();
+    for (const a of this.registry.list({ ownerId, activeOnly: true })) {
+      const m = await this.measureTools(a).catch(() => new Map<string, number>());
+      for (const [name, chars] of m) measured.set(name, Math.max(chars, measured.get(name) ?? 0));
+    }
+    return toolsView(choice, measured, null);
+  }
+
+  /** Switches tools off (or back on) for every agent; essential ones are refused (G34.5). */
+  async setToolsOff(ownerId: string, off: string[]) {
+    const now = await this.toolChoices.get(ownerId);
+    return this.config.setTools(ownerId, "human", { off, agents: now.agents });
+  }
+
+  /**
+   * One agent's exceptions (G34.5): "on" or "off" whatever the rule for everyone, "default" to
+   * follow it again. Only the person, for their own agents (scope `tools`).
+   */
+  async setAgentTools(
+    ownerId: string,
+    agentId: string,
+    states: Record<string, "on" | "off" | "default">,
+  ) {
+    const agent = this.registry.get(agentId);
+    if (!agent || !can({ type: "human", ownerId }, "tools", agent, this.registry.resolve))
+      throw new NotFoundError(`Agent "${agentId}" not found`);
+    const now: ToolChoice = await this.toolChoices.get(ownerId);
+    const own = { ...(now.agents[agentId] ?? {}) };
+    for (const [id, v] of Object.entries(states)) {
+      if (v === "default") delete own[id];
+      else own[id] = v;
+    }
+    return this.config.setTools(
+      ownerId,
+      "human",
+      { off: now.off, agents: { ...now.agents, [agentId]: own } },
+      { agentId },
+    );
   }
 
   /**
@@ -2030,19 +2163,21 @@ export class RedGiantCore implements OrchestrationHost {
   private shownOutside(ownerId: string): Promise<Set<string>> {
     let known = this.outsideShown.get(ownerId);
     if (!known) {
-      known = this.store.list({ types: ["canvas.show"] }).then(
-        (events) =>
-          new Set(
-            events.flatMap((e) =>
-              e.ownerId === ownerId &&
-              e.type === "canvas.show" &&
-              e.payload?.target.kind === "file" &&
-              e.payload.target.scope === "outside"
-                ? [e.payload.target.path]
-                : [],
+      known = this.store
+        .list({ types: ["canvas.show"] })
+        .then(
+          (events) =>
+            new Set(
+              events.flatMap((e) =>
+                e.ownerId === ownerId &&
+                e.type === "canvas.show" &&
+                e.payload?.target.kind === "file" &&
+                e.payload.target.scope === "outside"
+                  ? [e.payload.target.path]
+                  : [],
+              ),
             ),
-          ),
-      );
+        );
       this.outsideShown.set(ownerId, known);
     }
     return known;

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LocalWorkspace } from "@redgiant/tools";
 import { decode as decodePng } from "fast-png";
-import { strFromU8, unzipSync } from "fflate";
+import { strFromU8, strToU8, unzipSync } from "fflate";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { commands, FileConverter, figmaExport, figmaLink, readManifest } from "../src/convert.js";
 import { detectFormat, knownFormats, needsConversion } from "../src/convert-formats.js";
@@ -33,6 +33,7 @@ import {
   psdSample,
   sketchSample,
 } from "./fixtures/convert-samples.js";
+import { beachPng } from "./fixtures/idml-sample.js";
 
 const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 const ctx = { ownerId: "me", projectId: null, agentId: "a", sessionId: "s" } as never;
@@ -47,10 +48,21 @@ afterEach(async () => {
 });
 
 /** A converter whose outside programs are fakes that record their arguments. */
-function fakeConverter(present: ProgramId[] = ["libreoffice", "ghostscript", "ffmpeg"]) {
-  const calls: { file: string; args: string[] }[] = [];
-  const run: Runner = async (file, args) => {
-    calls.push({ file, args });
+function fakeConverter(
+  present: ProgramId[] = ["libreoffice", "ghostscript", "ffmpeg"],
+  extra: { platform?: string; display?: string; xvfbRun?: string | null } = {},
+) {
+  const calls: { file: string; args: string[]; cwd?: string | undefined }[] = [];
+  const run: Runner = async (file, args, o) => {
+    calls.push({ file, args, cwd: o.cwd });
+    // Scribus (straight or through xvfb-run): the SLA and the PDF its script would save.
+    const py = args.indexOf("-py");
+    if (py >= 0) {
+      const [, , sla, pdf] = args.slice(py + 1);
+      await writeFile(sla as string, "<SCRIBUSUTF8NEW/>");
+      await writeFile(pdf as string, "%PDF-1.4 from scribus");
+    }
+    if (file === "/bin/blender") await writeFile(args.at(-1) as string, "glTF");
     // Each fake writes what the real program would.
     if (file === "/bin/soffice") {
       const outDir = args[args.indexOf("--outdir") + 1] as string;
@@ -68,6 +80,8 @@ function fakeConverter(present: ProgramId[] = ["libreoffice", "ghostscript", "ff
     libreoffice: "/bin/soffice",
     ghostscript: "/bin/gs",
     ffmpeg: "/bin/ffmpeg",
+    scribus: "/opt/scribus/AppRun",
+    blender: "/bin/blender",
   };
   const programs = new Programs({
     jobs: new Jobs(),
@@ -80,6 +94,10 @@ function fakeConverter(present: ProgramId[] = ["libreoffice", "ghostscript", "ff
     profileDir: "/data/lo-profile",
     run,
     previewDir: join(root, ".data", "previews"),
+    platform: extra.platform ?? "linux",
+    xvfbRun: extra.xvfbRun === undefined ? "/usr/bin/xvfb-run" : extra.xvfbRun,
+    ...(extra.display && { display: extra.display }),
+    desktopApp: (app) => (app === "affinity" ? "/Applications/Affinity.app" : undefined),
   });
   return { converter, calls, programs };
 }
@@ -191,6 +209,10 @@ describe("our own conversions", () => {
       suggested: true,
       converted: { stale: false },
     });
+    // The losses also as stable codes for the page, in the same order as the English.
+    expect(before.converted?.lossCodes).toHaveLength(before.converted?.losses.length ?? -1);
+    expect(before.converted?.lossCodes.every((c) => c.code !== null)).toBe(true);
+    for (const t of before.targets) expect(t.lossCodes.map((c) => c.code)).not.toContain(null);
     await utimes(join(root, "p.psd"), new Date(), new Date(Date.now() + 5000));
     expect((await converter.inspect(root, "p.psd")).converted?.stale).toBe(true);
   });
@@ -214,17 +236,65 @@ describe("our own conversions", () => {
     expect(pink[1]).toBeLessThan(135);
   });
 
-  it("turns an IDML's stories into an ODT with their styles", async () => {
+  it("keeps an IDML's layout: Scribus when it can be had, our own ODG otherwise", async () => {
+    await put("b.idml", idmlSample());
+    await put("Links/beach.png", beachPng());
+    // Scribus here: the SLA (saved where it stays) and its PDF, through xvfb-run (no display).
+    const withScribus = fakeConverter(["scribus"]);
+    const r = await withScribus.converter.convert(root, "b.idml", { owner: "me" });
+    expect(r.outputs.map((o) => o.path).sort()).toEqual(["b.idml.open/b.pdf", "b.idml.open/b.sla"]);
+    const call = withScribus.calls[0] as { file: string; args: string[]; cwd?: string };
+    expect(call.file).toBe("/usr/bin/xvfb-run");
+    expect(call.args.slice(0, 5)).toEqual(["-a", "/opt/scribus/AppRun", "-g", "-ns", "-py"]);
+    const [script, input, sla, pdf] = call.args.slice(5);
+    expect(script).toMatch(/\.work[\\/]redgiant_scribus\.py$/);
+    expect(input).toMatch(/\.work[\\/]b\.idml$/);
+    expect(sla).toBe(join(root, "b.idml.open", "b.sla"));
+    expect(pdf).toMatch(/\.work[\\/]b\.pdf$/);
+    expect(call.cwd).toMatch(/\.work$/);
+    expect(r.losses.join("\n")).toMatch(/Scribus's own IDML import/);
+    const manifest = await readManifest(root, "b.idml");
+    expect(manifest?.via).toEqual(["scribus"]);
+    // With a display, Scribus starts straight; without xvfb-run it says what to install.
+    const shown = fakeConverter(["scribus"], { display: ":0" });
+    await shown.converter.convert(root, "b.idml", { owner: "me", to: ["sla"] });
+    expect(shown.calls[0]?.file).toBe("/opt/scribus/AppRun");
+    const bare = fakeConverter(["scribus"], { xvfbRun: null });
+    const noX = await bare.converter.convert(root, "b.idml", { owner: "me" });
+    expect(noX.skipped[0]?.reason).toMatch(/apt install xvfb xauth fonts-dejavu-core/);
+    expect(noX.outputs.map((o) => o.path)).toEqual(["b.idml.open/b.odg"]);
+    // On Windows and macOS: no xvfb.
+    const win = fakeConverter(["scribus"], { platform: "win32", xvfbRun: null });
+    await win.converter.convert(root, "b.idml", { owner: "me", to: ["sla"] });
+    expect(win.calls[0]?.args.slice(0, 3)).toEqual(["-g", "-ns", "-py"]);
+
+    // No Scribus and none to download (this fake computer): our ODG, with the linked picture.
+    const { converter, calls } = fakeConverter([]);
+    const odg = await converter.convert(root, "b.idml", { owner: "me" });
+    expect(odg.outputs.map((o) => o.path)).toEqual(["b.idml.open/b.odg"]);
+    expect(odg.skipped[0]?.ext).toBe("sla");
+    expect(calls).toHaveLength(0);
+    const z = unzipSync(new Uint8Array(await readFile(join(root, "b.idml.open/b.odg"))));
+    expect(z["Pictures/image1.png"]).toBeDefined();
+    expect(odg.losses.join("\n")).not.toMatch(/linked image\(s\) were not found/);
+    // The PDF of the ODG through LibreOffice when asked; ODT (text only) only when asked.
+    const lo = fakeConverter(["libreoffice"]);
+    const both = await lo.converter.convert(root, "b.idml", { owner: "me", to: ["pdf"] });
+    expect(both.outputs.map((o) => o.ext).sort()).toEqual(["odg", "pdf"]);
+    expect(lo.calls[0]?.args.at(-1)).toBe(join(root, "b.idml.open", "b.odg"));
+  });
+
+  it("still turns an IDML's stories into an ODT with their styles, when asked", async () => {
     await put("b.idml", idmlSample());
     const { converter } = fakeConverter([]);
-    const r = await converter.convert(root, "b.idml", { owner: "me" });
+    const r = await converter.convert(root, "b.idml", { owner: "me", to: ["odt"] });
     expect(r.outputs.map((o) => o.path)).toEqual(["b.idml.open/b.odt"]);
     const odt = unzipSync(new Uint8Array(await readFile(join(root, "b.idml.open/b.odt"))));
     expect(strFromU8(odt.mimetype as Uint8Array)).toBe("application/vnd.oasis.opendocument.text");
     const content = strFromU8(odt["content.xml"] as Uint8Array);
     const styles = strFromU8(odt["styles.xml"] as Uint8Array);
     expect(content).toContain("Spring &amp; Summer");
-    expect(content).toContain('text:bookmark text:name="Story_u1"');
+    expect(content).toContain('text:bookmark text:name="Story_u10"');
     expect(content).toContain('text:style-name="P_Heading_20_1"');
     expect(content).toMatch(/fo:text-align="center"/);
     expect(content).toMatch(/fo:font-weight="bold"/);
@@ -235,32 +305,103 @@ describe("our own conversions", () => {
     );
     expect(xmlProblem(content)).toBeUndefined();
     expect(xmlProblem(styles)).toBeUndefined();
-    expect(r.losses.join("\n")).toMatch(/1 placed image.*beach\.jpg/);
-    expect(r.losses.join("\n")).toMatch(/page layout/);
+    expect(r.losses.join("\n")).toMatch(/1 placed image.*beach\.png/);
+    expect(r.losses.join("\n")).toMatch(/text only/);
   });
 
-  it("takes the previews stored in INDD, Affinity, Sketch and Figma files", async () => {
+  it("says plainly when only a preview could be taken, and what the file needs", async () => {
     const { converter } = fakeConverter([]);
     await put("b.indd", inddSample());
     const indd = await converter.convert(root, "b.indd", { owner: "me" });
     expect(indd.outputs[0]?.path).toBe("b.indd.open/b.preview.jpg");
     expect((await readFile(join(root, "b.indd.open/b.preview.jpg")))[0]).toBe(0xff);
-    expect(indd.losses.join()).toMatch(/IDML/);
+    expect(indd.previewOnly).toBe(true);
+    expect(indd.losses[0]).toMatch(/NOT a conversion/);
+    expect(indd.needs).toMatchObject({ app: "indesign", alt: "idml", installed: false });
+    expect((await readManifest(root, "b.indd"))?.needs?.message).toMatch(/IDML/);
     await put("c.afdesign", affinitySample());
     const af = await converter.convert(root, "c.afdesign", { owner: "me" });
     expect(decodePng(await readFile(join(root, af.outputs[0]?.path as string))).width).toBe(3);
-    await put("s.sketch", sketchSample());
-    const sk = await converter.convert(root, "s.sketch", { owner: "me" });
-    expect(sk.outputs.map((o) => o.path).sort()).toEqual([
-      "s.sketch.open/s.outline.txt",
-      "s.sketch.open/s.preview.png",
-    ]);
-    const outline = await readFile(join(root, "s.sketch.open/s.outline.txt"), "utf8");
-    expect(outline).toContain("artboard «Desktop» (1440 x 900)");
-    expect(outline).toContain("text «Title»: Welcome home");
+    expect(af.needs).toMatchObject({
+      app: "affinity",
+      url: "https://www.affinity.studio",
+      export: ["pdf", "svg"],
+      installed: true,
+    });
+    const report = await converter.inspect(root, "c.afdesign");
+    expect(report.needs?.installed).toBe(true);
+    expect(report.targets[0]?.preview).toBe(true);
+    // The tool says it to the agent.
+    const tool = convertFileTool(new LocalWorkspace(root), { converter });
+    const said = text(await tool.run({ path: "c.afdesign" }, ctx));
+    expect(said).toMatch(/could NOT be converted/);
+    expect(said).toMatch(/Affinity \(free, affinity\.studio\)/);
+    expect(said).toMatch(/installed on this computer/);
     await put("f.fig", figSample());
     const fig = await converter.convert(root, "f.fig", { owner: "me" });
     expect(decodePng(await readFile(join(root, fig.outputs[0]?.path as string))).width).toBe(5);
+    expect(fig.needs?.app).toBe("figma");
+  });
+
+  it("draws a Sketch file's pages as real SVG: artboards, shapes, text, symbols, images", async () => {
+    const { converter } = fakeConverter([]);
+    await put("s.sketch", sketchSample());
+    const sk = await converter.convert(root, "s.sketch", { owner: "me" });
+    expect(sk.outputs.map((o) => o.path).sort()).toEqual([
+      "s.sketch.open/s.Symbols.svg",
+      "s.sketch.open/s.outline.txt",
+      "s.sketch.open/s.preview.png",
+      "s.sketch.open/s.svg",
+    ]);
+    const svg = await readFile(join(root, "s.sketch.open/s.svg"), "utf8");
+    expect(xmlProblem(svg.replace(/^<\?xml[^>]*>/, ""))).toBeUndefined();
+    expect(svg).toContain('viewBox="100 50 1440 900"');
+    expect(svg).toMatch(/<g id="ab1" transform="translate\(100 50\)"><title>Desktop<\/title>/);
+    expect(svg).toContain('fill="#f2f2f2"');
+    expect(svg).toMatch(
+      /<rect transform="translate\(40 200\)" width="300" height="180" rx="12" fill="#ffffff" stroke="#000000" stroke-width="2" stroke-opacity="0\.5">/,
+    );
+    expect(svg).toMatch(
+      /<ellipse transform="translate\(500 200\) rotate\(-45 50 25\)" cx="50" cy="25"/,
+    );
+    expect(svg).toContain('d="M 0 80 C 0 80 30 -20 60 0 C 90 -20 120 80 120 80 L 0 80 Z"');
+    expect(svg).toMatch(/font-family="Inter" font-size="32" font-weight="bold" fill="#1a334d"/);
+    expect(svg).toContain(
+      '<tspan x="0" y="29.6">Welcome</tspan><tspan x="0" y="69.6">home</tspan>',
+    );
+    expect(svg).toMatch(/<g transform="translate\(70 0\)"|<rect transform="translate\(70 0\)"/);
+    expect(svg).not.toContain("Hidden");
+    expect(svg).toMatch(
+      /<g transform="translate\(1200 30\)"><title>Logo<\/title><g transform="scale\(2 2\)">/,
+    );
+    expect(svg).toContain('href="data:image/png;base64,');
+    expect(sk.losses.join("\n")).toMatch(/shadows and blurs/);
+    const outline = await readFile(join(root, "s.sketch.open/s.outline.txt"), "utf8");
+    expect(outline).toContain("artboard «Desktop» (1440 x 900)");
+    expect(outline).toContain("text «Title» (400 x 80): Welcome home");
+  });
+
+  it("turns 3D files into glTF with Blender, without a window and with a thread limit", async () => {
+    await put("chair.fbx", strToU8("Kaydara FBX Binary  \0"));
+    const { converter, calls } = fakeConverter(["blender"]);
+    const r = await converter.convert(root, "chair.fbx", { owner: "me" });
+    expect(r.outputs.map((o) => o.path)).toEqual(["chair.fbx.open/chair.glb"]);
+    const [b] = calls;
+    expect(b?.file).toBe("/bin/blender");
+    expect(b?.args.slice(0, 4)).toEqual(["-b", "--factory-startup", "-noaudio", "-t"]);
+    expect(b?.args.slice(5, 7)[0]).toBe("-P");
+    expect(b?.args.slice(-3)).toEqual([
+      "--",
+      join(root, "chair.fbx"),
+      expect.stringMatching(/chair\.glb$/),
+    ]);
+    // OBJ is shown as it is; glTF only when asked.
+    await put("m.obj", strToU8("v 0 0 0\n"));
+    await expect(converter.inspect(root, "m.obj")).resolves.toMatchObject({
+      needsConversion: false,
+    });
+    const asked = await converter.convert(root, "m.obj", { owner: "me", to: ["glb"] });
+    expect(asked.outputs[0]?.ext).toBe("glb");
   });
 
   it("refuses open formats and targets a format cannot become", async () => {
@@ -737,7 +878,7 @@ describe("the agents' tools", () => {
   it("edit_package changes an ODT's text", async () => {
     await put("b.idml", idmlSample());
     const { converter } = fakeConverter([]);
-    await converter.convert(root, "b.idml", { owner: "me" });
+    await converter.convert(root, "b.idml", { owner: "me", to: ["odt"] });
     const pkg = editPackageTool(new LocalWorkspace(root));
     const odt = "b.idml.open/b.odt";
     expect(

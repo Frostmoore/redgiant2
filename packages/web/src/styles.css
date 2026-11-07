@@ -11374,7 +11374,21 @@ html[data-theme="dark"] {
 }
 
 /* Every viewer fills the canvas: bar on top, content scrolling below. */
-:is(.vw-media, .vw-image, .vw-pdf, .vw-text, .vw-grid, .vw-book, .vw-doc, .vw-slides, .vw-model, .vw-archive, .vw-font, .vw-tree, .vw-inner) {
+:is(
+  .vw-media,
+  .vw-image,
+  .vw-pdf,
+  .vw-text,
+  .vw-grid,
+  .vw-book,
+  .vw-doc,
+  .vw-slides,
+  .vw-model,
+  .vw-archive,
+  .vw-font,
+  .vw-tree,
+  .vw-inner
+) {
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -12195,4 +12209,539 @@ button.vw-archive-row:hover {
   .vw-font-big {
     font-size: 56px;
   }
+}
+
+/* g34: integra — laid-out office files, open copies, layers, file icons (G34.4) */
+.vw-paged,
+.vw-open,
+.vw-paged-simple {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.vw-paged-body,
+.vw-open-body,
+.vw-paged-simple > :last-child {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.vw-paged-body > *,
+.vw-open-body > * {
+  flex: 1;
+  min-height: 0;
+}
+.vw-paged-simple > .notice {
+  margin: 10px 12px 0;
+}
+.vw-paged-hint {
+  font-size: 12px;
+}
+.vw-open-card {
+  max-width: 480px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.vw-paged-wait > strong {
+  font-size: 16px;
+}
+.vw-open-card .ui-progress,
+.vw-open-box .ui-progress {
+  width: 100%;
+}
+.vw-open-detail {
+  font-size: 12px;
+  max-height: 6em;
+  overflow: auto;
+}
+.vw-job {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+}
+.vw-job-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+.vw-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+/* The box that says what the conversion did. */
+.vw-open-box {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.vw-open-box.done {
+  border-left-color: var(--ok);
+}
+.vw-open.no-copy {
+  justify-content: center;
+}
+.vw-open.no-copy .vw-open-box {
+  align-self: center;
+  max-width: 520px;
+  width: calc(100% - 24px);
+  box-sizing: border-box;
+}
+.vw-open-box p {
+  margin: 0;
+}
+.vw-open-box .vw-row {
+  justify-content: flex-start;
+}
+.vw-open-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+.vw-open-line strong {
+  font-size: 14px;
+  min-width: 0;
+}
+.vw-open-line .spacer {
+  flex: 1;
+}
+.vw-open-losses {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.vw-open-losses ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--dim);
+}
+.vw-open-error {
+  margin: 0;
+}
+.vw-open > .vw-open-error {
+  margin: 10px 12px 0;
+}
+/* OpenRaster: the picture from its layers, the layers beside it. */
+.vw-ora {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+}
+.vw-ora-stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow: auto;
+  background-color: var(--panel-2);
+  background-image:
+    linear-gradient(45deg, var(--line) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--line) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--line) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--line) 75%);
+  background-size: 18px 18px;
+  background-position:
+    0 0,
+    0 9px,
+    9px -9px,
+    -9px 0;
+}
+.vw-ora-picture {
+  position: relative;
+  max-width: 100%;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 0.18);
+  isolation: isolate;
+}
+.vw-ora-picture img {
+  position: absolute;
+  max-width: none;
+}
+.vw-ora-layers {
+  flex: none;
+  width: 240px;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.vw-ora-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.vw-ora-head .dim {
+  font-size: 12px;
+}
+.vw-ora-layers ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow: auto;
+}
+.vw-ora-layer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px 6px 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.vw-ora-layer:hover {
+  background: var(--panel-2);
+}
+.vw-ora-layer.off {
+  color: var(--dim);
+}
+.vw-ora-layer.off img {
+  opacity: 0.35;
+}
+.vw-ora-eye {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  flex: none;
+}
+.vw-ora-layer.on .vw-ora-eye {
+  border-color: var(--accent-dim);
+  background: var(--accent-soft);
+  color: var(--accent-text, var(--accent));
+}
+.vw-ora-layer.off .vw-ora-eye {
+  opacity: 0.6;
+}
+.vw-ora-layer img {
+  width: 32px;
+  height: 24px;
+  object-fit: contain;
+  flex: none;
+  border-radius: 4px;
+  background: var(--panel-2);
+}
+.vw-ora-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vw-ora-blend {
+  font-size: 11px;
+  flex: none;
+}
+@media (max-width: 760px) {
+  .vw-ora {
+    flex-direction: column;
+  }
+  .vw-ora-stage {
+    padding: 10px;
+  }
+  .vw-ora-layers {
+    width: auto;
+    max-height: 38%;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+/* A file's family, drawn: each one its own colour in the tabs and in the chat. */
+.file-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--dim);
+}
+.file-icon.fi-video,
+.file-icon.fi-audio {
+  color: #8a5cd1;
+}
+.file-icon.fi-image,
+.file-icon.fi-design {
+  color: #c2588f;
+}
+.file-icon.fi-pdf {
+  color: var(--err);
+}
+.file-icon.fi-document {
+  color: #3b78c4;
+}
+.file-icon.fi-sheet {
+  color: var(--ok);
+}
+.file-icon.fi-slides {
+  color: #d07a1f;
+}
+.file-icon.fi-model,
+.file-icon.fi-code,
+.file-icon.fi-data {
+  color: #2b9a9a;
+}
+.canvas-line .file-icon .icon {
+  color: inherit;
+}
+.vw-open-original {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.vw-open-original[hidden] {
+  display: none;
+}
+.vw-open.no-copy > .vw-open-body:has(> .vw-open-original[hidden]) {
+  display: none;
+}
+
+/* g34: strumenti (G34.5) — the tools page and an agent's Tools tab */
+.tl-sum {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  max-width: 860px;
+  margin: 8px auto 0;
+}
+.tl-sum-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 20px;
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  min-width: 0;
+}
+.tl-sum-box.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.tl-sum-box b {
+  font-size: 18px;
+  line-height: 1.3;
+}
+.tl-sum-box span {
+  color: var(--dim);
+  font-size: 14.5px;
+}
+.tl-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 860px;
+  margin: 14px auto 0;
+  color: var(--dim);
+  font-size: 14.5px;
+  line-height: 1.45;
+}
+.tl-note svg {
+  flex: none;
+  margin-top: 1px;
+}
+.tl-section {
+  max-width: 860px;
+  margin: 26px auto 0;
+}
+.tl-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tl-group-ico {
+  display: inline-flex;
+  color: var(--accent);
+}
+.tl-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+.tl-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 20px;
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  transition:
+    border-color 0.2s,
+    background 0.2s;
+  min-width: 0;
+}
+.tl-row.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.tl-row.locked {
+  border-style: dashed;
+}
+.tl-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.tl-text b {
+  font-size: 17px;
+}
+.tl-text span {
+  color: var(--dim);
+  font-size: 14.5px;
+  line-height: 1.4;
+}
+.tl-weight {
+  color: var(--dim);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.tl-needed {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--text);
+}
+.tl-needed svg {
+  flex: none;
+  margin-top: 2px;
+}
+.tl-locked {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  color: var(--dim);
+  font-weight: 600;
+  font-size: 14.5px;
+}
+.tl-pick {
+  flex: none;
+  width: min(380px, 48%);
+}
+.tl-pick.busy {
+  opacity: 0.7;
+}
+:is(.wz, .wz-look) .tl-pick .wz-seg button {
+  font-size: 14px;
+  padding: 8px 8px;
+}
+.tl-lead {
+  margin: 0 0 4px;
+  color: var(--dim);
+  line-height: 1.45;
+}
+.tl-agent .tl-sum {
+  margin-top: 10px;
+}
+.tl-agent .tl-note,
+.tl-agent .tl-section,
+.tl-agent .tl-sum {
+  max-width: none;
+}
+.tl-all {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tl-error {
+  color: var(--warn);
+  max-width: 860px;
+  margin: 12px auto 0;
+}
+.tl-loading {
+  color: var(--dim);
+  max-width: 860px;
+  margin: 12px auto 0;
+}
+/* The page's column is centred: the rows and boxes read from the left. */
+.tl-sum-box,
+.tl-row,
+.tl-note,
+.tl-group {
+  text-align: left;
+}
+@media (max-width: 720px) {
+  .tl-row {
+    padding: 14px 16px;
+  }
+  .tl-row-agent {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .tl-row-agent .tl-pick {
+    width: 100%;
+  }
+}
+/* Six tabs in the agent's window (Tools is the sixth): three and three on a phone. */
+@media (max-width: 640px) {
+  .st-agents .agent-panel-modal .agent-panel-tabs.st-tabs:has(> :nth-child(6)) button:nth-child(n) {
+    grid-column: span 2;
+  }
+}
+
+/* g34: final — what a closed app needs, the two ways of an IDML (3.3.0) */
+.vw-needs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.vw-needs .vw-row {
+  justify-content: flex-start;
+}
+.vw-needs .vw-row:empty {
+  display: none;
+}
+.vw-needs a.vw-btn {
+  text-decoration: none;
+}
+.vw-needs-export strong {
+  font-weight: 600;
+}
+.vw-idml .ui-choice {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+.vw-idml button.ui-card {
+  font-size: 13px;
+}
+.vw-idml .ui-card-head {
+  font-size: 14px;
 }

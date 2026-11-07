@@ -41,6 +41,7 @@ import { bridge, PREVIEW_HEADERS, serveFile, serveRaw } from "./canvas.js";
 import { ChatError } from "./chat.js";
 import { type ChatHub, ChatSettings, PLATFORMS } from "./chats.js";
 import { CodeChangeError } from "./code.js";
+import { convertRoutes } from "./convert-routes.js";
 import {
   BadRequestError,
   NoModelError,
@@ -51,7 +52,6 @@ import {
 import { debugLog } from "./debug-log.js";
 import { MailboxNotFoundError } from "./email.js";
 import { sessionMarkdown } from "./export.js";
-import { convertRoutes } from "./convert-routes.js";
 import { ConflictError, FileService } from "./files.js";
 import { HuggingFace } from "./hf.js";
 import { localModelChoices } from "./local-models.js";
@@ -1670,6 +1670,45 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       return c.json(await core.code.discard(owner(c), "human", c.req.param("id")), 200);
     } catch (err) {
       if (err instanceof CodeChangeError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
+  // The tools page (G34.5): the common tools, their weight, and what the person switched off for
+  // every agent or for one; new conversations get the new set. Essential tools refuse to go (400).
+  app.get("/api/tools", async (c) =>
+    c.json(await core.toolsView(owner(c), c.req.query("agentId") || undefined), 200),
+  );
+  app.put("/api/tools", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { off?: unknown } | null;
+    if (!Array.isArray(body?.off) || !body.off.every((x) => typeof x === "string"))
+      return c.json({ error: "off must be a list of tool ids" }, 400);
+    try {
+      return c.json(await core.setToolsOff(owner(c), body.off as string[]), 200);
+    } catch (err) {
+      if (err instanceof ConfigError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
+  app.put("/api/agents/:id/tools", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { tools?: unknown } | null;
+    const tools = body?.tools;
+    if (
+      !tools ||
+      typeof tools !== "object" ||
+      !Object.values(tools).every((v) => v === "on" || v === "off" || v === "default")
+    )
+      return c.json({ error: 'tools: { <id>: "on" | "off" | "default" }' }, 400);
+    try {
+      return c.json(
+        await core.setAgentTools(
+          owner(c),
+          c.req.param("id"),
+          tools as Record<string, "on" | "off" | "default">,
+        ),
+        200,
+      );
+    } catch (err) {
+      if (err instanceof ConfigError) return c.json({ error: err.message }, 400);
       throw err;
     }
   });

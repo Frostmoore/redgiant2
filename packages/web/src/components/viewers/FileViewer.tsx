@@ -37,6 +37,7 @@ export const VIEWERS: Record<ViewerKind, () => Promise<View>> = {
   archive: () => import("./ArchiveView.js").then((m) => m.ArchiveView),
   font: () => import("./FontView.js").then((m) => m.FontView),
   tree: () => import("./TreeView.js").then((m) => m.TreeView),
+  layers: () => import("./OraView.js").then((m) => m.OraView),
   unknown: async () => UnknownView,
 };
 
@@ -64,7 +65,7 @@ export function UnknownView({ src }: ViewerProps) {
 }
 
 /** The chosen viewer, once its code is here. */
-function Loaded({ src, open }: ViewerProps) {
+function Loaded({ src, open, convert }: ViewerProps) {
   const [view, setView] = useState<{ v: View }>();
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -77,7 +78,7 @@ function Loaded({ src, open }: ViewerProps) {
   if (error) return <UnknownView src={src} />;
   if (!view) return <div class="vw-empty dim">{t("loading")}</div>;
   const V = view.v;
-  return <V src={src} {...(open && { open })} />;
+  return <V src={src} {...(open && { open })} {...(convert && { convert })} />;
 }
 
 /** A file taken out of an archive, held as a blob URL while it is shown. */
@@ -91,9 +92,12 @@ export function FileViewer({
   name,
   url,
   onKind,
+  convert,
 }: {
   name: string;
   url: string;
+  /** Offered where a viewer cannot show the file as it is (G34.4). */
+  convert?: () => void;
   /** Told which viewer was chosen (the canvas's bar shows it). */
   onKind?: (src: ViewerSource) => void;
 }) {
@@ -159,6 +163,7 @@ export function FileViewer({
   return (
     <Loaded
       src={src}
+      {...(convert && { convert })}
       open={(innerName, bytes) => {
         const format = viewerFor(innerName, bytes.subarray(0, 512)).format;
         const blob = new Blob([bytes as BlobPart], { type: blobType(format) });

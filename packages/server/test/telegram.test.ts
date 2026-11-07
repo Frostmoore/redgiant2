@@ -433,7 +433,7 @@ describe("toTelegramHtml", () => {
         }
         seenByGod.push(req);
         return { text: "seen" };
-        // A real window: God's tools alone fill most of the fake's 8192 tokens.
+        // A real window, fixed here: God's tools alone take ~7k tokens.
       },
       undefined,
       { contextWindow: 64_000 },

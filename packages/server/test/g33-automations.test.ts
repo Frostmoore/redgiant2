@@ -195,7 +195,7 @@ describe("many mailboxes, by category (G33.3)", () => {
 
 describe("chat messages and approvals for automations (G33.3)", () => {
   it("a message starts the automation, which keeps it and asks before it acts", async () => {
-    // A real window: God's tools alone fill most of the fake's 8192 tokens.
+    // A real window, fixed here: God's tools alone take ~7k tokens.
     s = await startServer((req) => ({ text: `Done: ${lastUser(req).split("\n")[0]}` }), {
       contextWindow: 64_000,
     });

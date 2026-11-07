@@ -5,10 +5,10 @@ import { fireEvent, render, waitFor } from "@testing-library/preact";
 import { strToU8, zipSync } from "fflate";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { canvasKind, fileName } from "../src/components/Canvas.js";
+import { readArchive } from "../src/components/viewers/ArchiveView.js";
 import { FileViewer, UnknownView, VIEWERS } from "../src/components/viewers/FileViewer.js";
 import { zoomStep } from "../src/components/viewers/ImageView.js";
 import { clock } from "../src/components/viewers/MediaView.js";
-import { readArchive } from "../src/components/viewers/ArchiveView.js";
 import {
   filterRows,
   Grid,

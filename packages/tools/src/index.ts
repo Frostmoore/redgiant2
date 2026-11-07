@@ -3,8 +3,8 @@ import { editFileTool, readFileTool, writeFileTool } from "./files.js";
 import { viewImageTool } from "./image.js";
 import type { ModelProfile } from "./profiles.js";
 import { globTool, grepTool } from "./search.js";
-import { type ShowFileHost, showFileTool } from "./show.js";
 import { bashTool } from "./shell.js";
+import { type ShowFileHost, showFileTool } from "./show.js";
 import { fetchTool, type ResolveHost, type WebSearchProvider, webSearchTool } from "./web.js";
 import type { Workspace } from "./workspace.js";
 

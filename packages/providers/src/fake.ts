@@ -49,7 +49,9 @@ export class FakeProvider implements Provider {
     private readonly options: FakeProviderOptions = {},
   ) {
     this.id = options.id ?? "fake";
-    this.contextWindow = options.contextWindow ?? 8192;
+    // A realistic window: God's tools alone take ~7k tokens. Tests that exercise compaction set
+    // their own small window explicitly.
+    this.contextWindow = options.contextWindow ?? 65536;
   }
 
   async models(): Promise<string[]> {

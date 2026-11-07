@@ -44,6 +44,7 @@ import { ModelMenu } from "./ModelMenu.js";
 import { WorkspaceImage } from "./Preview.js";
 import { QuestionCard } from "./QuestionCard.js";
 import { TurnProgress } from "./TurnProgress.js";
+import { FileIcon } from "./viewers/FileIcon.js";
 
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -505,7 +506,11 @@ function Item({
           title={t("canvasShown")}
           onClick={() => openCanvas(item.title, item.target)}
         >
-          <IconCanvas size={15} />
+          {item.target.kind === "file" ? (
+            <FileIcon name={item.target.path} size={15} />
+          ) : (
+            <IconCanvas size={15} />
+          )}
           <span>
             {before}
             <strong>{item.title}</strong>

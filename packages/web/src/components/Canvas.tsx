@@ -2,13 +2,14 @@
 // frame on a signed link (it cannot reach the person's access to RedGiant); any other file opens
 // in the viewer made for its kind (components/viewers: video and audio players, pictures, PDF,
 // documents, sheets, slides, 3D, archives, fonts, trees, code), everything drawn in the page. It
-// reloads by itself when the file changes.
+// reloads by itself when the file changes. Office files are laid out by LibreOffice and closed
+// formats are seen through their open copy (viewers/OpenCopy.tsx, G34.4).
 import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import { IconDownload, IconRefresh } from "../icons.js";
 import { type CanvasTarget, getApi } from "../state.js";
 import { bytesText, download, type ViewerSource } from "../viewers/source.js";
-import { FileViewer } from "./viewers/FileViewer.js";
+import { CanvasFile } from "./viewers/OpenCopy.js";
 
 export { parseDelimited } from "../viewers/delimited.js";
 
@@ -139,7 +140,14 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
             allow="fullscreen; autoplay; clipboard-write"
           />
         ) : (
-          <FileViewer key={url} name={name} url={url} onKind={setShown} />
+          <CanvasFile
+            key={url}
+            scope={target.kind === "file" ? target.scope : "outside"}
+            path={target.kind === "file" ? target.path : name}
+            name={name}
+            url={url}
+            onKind={setShown}
+          />
         )}
       </div>
     </div>

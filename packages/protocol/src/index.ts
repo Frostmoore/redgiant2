@@ -15,5 +15,6 @@ export * from "./providers.js";
 export * from "./questions.js";
 export * from "./search.js";
 export * from "./secrets.js";
+export * from "./tools.js";
 export * from "./vault.js";
 export * from "./wire.js";

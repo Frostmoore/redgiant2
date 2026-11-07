@@ -1,8 +1,9 @@
 // 3D models (G34.2) with three.js (MIT, loaded only for a model): GLB/GLTF, OBJ, STL, FBX and
 // PLY, framed whatever their size, turned with the mouse or a finger, zoomed with the wheel or
 // two fingers, on a neutral ground with soft lights. Animations in the file play.
-import type * as THREE_NS from "three";
+
 import { useEffect, useRef, useState } from "preact/hooks";
+import type * as THREE_NS from "three";
 import { t } from "../../i18n.js";
 import { IconRefresh, IconSun } from "../../icons.js";
 import type { ViewerProps } from "../../viewers/source.js";

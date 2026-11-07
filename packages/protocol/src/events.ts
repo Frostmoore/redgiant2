@@ -17,7 +17,13 @@ const text = z.object({ text: z.string() });
 export const EventBody = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("session.started"),
-    payload: z.object({ sessionId: z.string(), system: z.string(), tools: z.array(z.string()) }),
+    payload: z.object({
+      sessionId: z.string(),
+      system: z.string(),
+      tools: z.array(z.string()),
+      /** Tools the person had switched off when it started (G34.5): resuming keeps them off. */
+      toolsOff: z.array(z.string()).optional(),
+    }),
   }),
   /** A flat-subscription engine's own conversation id (G21): resuming continues it. */
   z.object({

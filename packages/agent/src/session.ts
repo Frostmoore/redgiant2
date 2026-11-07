@@ -77,6 +77,11 @@ export interface AgentSessionOptions {
   maxResultChars?: number;
   /** Reading back one's own conversation (default on; Demi-God only relays, RD8). */
   historyTool?: boolean;
+  /**
+   * Tools the person switched off, already left out of `tools` (G34.5): recorded when the
+   * session starts, so a resumed one keeps the same set (the cached prefix does not move).
+   */
+  toolsOff?: readonly string[];
   /** A summary is being made in the foreground (the chat says so) or done. */
   onCompacting?: (busy: boolean) => void;
   /** Maximum model calls per `send` (default 50). */
@@ -221,6 +226,7 @@ export class AgentSession {
         sessionId: options.sessionId,
         system: options.system,
         tools: s.tools.map((t) => t.def.name),
+        ...(options.toolsOff?.length && { toolsOff: [...options.toolsOff] }),
       },
     });
     for (const h of options.hooks?.sessionStart ?? []) await h(s.ctx);
@@ -255,6 +261,11 @@ export class AgentSession {
 
   private get maxResultChars(): number {
     return this.o.maxResultChars ?? 100_000;
+  }
+
+  /** The tools as the model receives them, in order (the tools page weighs them, G34.5). */
+  get toolDefs(): Tool["def"][] {
+    return this.tools.map((t) => t.def);
   }
 
   get messages(): ChatMessage[] {

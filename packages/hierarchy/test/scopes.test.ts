@@ -62,6 +62,7 @@ G  join      A1 no  | O1 join     A1 no  | P1 join   P2 no  | I1 join    I1 no  
 G  configure P1 yes | G  stop     P1 yes | O1 message P1 no  | O1 read   P1 no  | I1 read P1 no | A1 message P1 no | D message P1 no
 O1 read      P3 yes | O1 message  P3 yes | O1 stop    P3 no  | O1 configure P3 no | O1 spawn P3 no | O2 message P3 no | I1 read P3 yes | A1 message P3 no
 O1 message   A6 yes | O1 read     A6 yes | O1 stop    A6 no  | O2 message A6 yes | O2 stop A6 yes | I1 read A6 yes | A1 message A6 no
+G  tools     A1 no  | G  tools     G  no  | G  tools    P1 no  | O1 tools   A1 no  | O1 tools O1 no | A1 tools S1 no | P1 tools P1 no | I1 tools A1 no | D tools G no
 `
   .trim()
   .split(/\s*[|\n]\s*/)
@@ -80,6 +81,13 @@ describe("scope table", () => {
       expect(can(me, "join", byId.get(id) as AgentNode, resolve)).toBe(true);
     for (const id of ["D", "S1", "X"])
       expect(can(me, "join", byId.get(id) as AgentNode, resolve)).toBe(false);
+  });
+
+  it("lets only the human choose an agent's tools (G34.5), and only for their own agents", () => {
+    const me = { type: "human" as const, ownerId: "me" };
+    for (const id of ["G", "D", "O1", "A1", "S1", "I1", "P1"])
+      expect(can(me, "tools", byId.get(id) as AgentNode, resolve)).toBe(true);
+    expect(can(me, "tools", byId.get("X") as AgentNode, resolve)).toBe(false);
   });
 
   it("lets the human do everything on their own agents only", () => {

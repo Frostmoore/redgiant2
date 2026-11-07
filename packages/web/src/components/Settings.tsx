@@ -21,6 +21,7 @@ import {
   IconSettings,
   IconShield,
   IconTelegram,
+  IconTool,
   IconTree,
 } from "../icons.js";
 import { openTab, type SettingsSection } from "../state.js";
@@ -39,6 +40,7 @@ import { Setup } from "./Setup.js";
 import { SharedMemoryPage } from "./SharedMemory.js";
 import { Subscriptions } from "./Subscriptions.js";
 import { Telegram } from "./Telegram.js";
+import { ToolsPage } from "./ToolsPage.js";
 import { Modal } from "./ui.js";
 
 type Section = { id: SettingsSection; label: () => string; icon: ComponentChildren };
@@ -59,6 +61,7 @@ const GROUPS: { title: () => string; sections: Section[] }[] = [
       { id: "memory", label: () => t("memSection"), icon: <IconBook size={20} /> },
       { id: "automations", label: () => t("automations"), icon: <IconClock size={20} /> },
       { id: "extensions", label: () => t("extensions"), icon: <IconPuzzle size={20} /> },
+      { id: "tools", label: () => t("toolsSection"), icon: <IconTool size={20} /> },
       { id: "keychain", label: () => t("kcSection"), icon: <IconKey size={20} /> },
     ],
   },
@@ -162,6 +165,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "memory" && <SharedMemoryPage />}
         {section === "automations" && <Automations />}
         {section === "extensions" && <Extensions />}
+        {section === "tools" && <ToolsPage />}
         {section === "keychain" && <Keychain />}
         {section === "telegram" && <Telegram />}
         {section === "chats" && <ChatPlatforms />}

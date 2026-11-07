@@ -387,7 +387,7 @@ export function CredentialWindow({
             <input
               class="wz-field"
               value={f.service}
-              placeholder="Revolut Business"
+              placeholder={t("kcServiceExample")}
               onInput={(e) => {
                 const v = (e.target as HTMLInputElement).value;
                 set({ service: v, ...(!f.nameTouched && { name: vaultName(v) }) });

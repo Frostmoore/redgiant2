@@ -689,7 +689,9 @@ export type SettingsSection =
   | "code"
   | "remote"
   | "backup"
-  | "platform";
+  | "platform"
+  /** The common tools, switched on and off (G34.5). */
+  | "tools";
 
 /** Older ways to open things, still used by the views: they land in the new places. */
 export type OpenRequest =

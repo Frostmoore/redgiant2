@@ -26,6 +26,7 @@ function lazy<P extends object>(load: () => Promise<(props: P) => JSX.Element | 
 import { Canvas } from "./Canvas.js";
 import { Preview, previewKind } from "./Preview.js";
 import { Screen } from "./Screen.js";
+import { FileIcon } from "./viewers/FileIcon.js";
 
 const Editor = lazy<{ scope: string; path: string }>(() =>
   import("./Editor.js").then((m) => m.Editor),
@@ -73,7 +74,11 @@ export function SideArea() {
               ) : v.type === "screen" ? (
                 <IconMonitor size={13} />
               ) : v.type === "canvas" ? (
-                <IconCanvas size={13} />
+                v.target.kind === "file" ? (
+                  <FileIcon name={v.target.path} />
+                ) : (
+                  <IconCanvas size={13} />
+                )
               ) : (
                 <IconFile size={13} />
               )}

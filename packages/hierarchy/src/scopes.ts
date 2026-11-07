@@ -37,7 +37,12 @@ export type Action =
    * spokesperson) or a sub-agent (it lives for one task). Joining gives no new access: what
    * the others write reaches it as data.
    */
-  | "join";
+  | "join"
+  /**
+   * Choose which tools the target gets (G34.5): switching them off or on. Only the human does it,
+   * for their own agents; no agent, not even God, chooses another's tools (nor its own).
+   */
+  | "tools";
 
 /** Lookup used to walk up the tree. */
 export type Resolve = (id: string) => AgentNode | undefined;
@@ -84,7 +89,7 @@ export function can(
       (action !== "join" || (target.kind !== "demigod" && target.kind !== "subagent"))
     );
   const a = actor.agent;
-  if (action === "join") return false;
+  if (action === "join" || action === "tools") return false;
   if (a.ownerId !== target.ownerId) return false;
   const self = a.id === target.id;
 

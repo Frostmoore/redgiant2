@@ -3,8 +3,8 @@
 import { useEffect, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
 import { IconChevron } from "../../icons.js";
-import { countNodes, parseTree, type TreeNode } from "../../viewers/tree.js";
 import { useText, type ViewerProps } from "../../viewers/source.js";
+import { countNodes, parseTree, type TreeNode } from "../../viewers/tree.js";
 
 const MAX_CHILDREN = 500;
 

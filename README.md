@@ -45,6 +45,22 @@ seeing them. You keep the data and the final say.
 - Questions from agents arrive as cards you answer with a click; on Telegram, approvals and questions
   come with buttons.
 
+**Any file, in open formats**
+
+- Ask an agent to show you a file and it opens in the Canvas beside the chat: video and audio with a
+  player, PDF, Word, Excel and PowerPoint laid out as they print (sheets also as a sortable table), 3D
+  models to turn and zoom, archives, fonts, code and data. Nothing leaves your computer.
+- Agents work only on open formats. Closed files are converted beside the original, which stays
+  untouched, keeping the layout: IDML into Scribus (or an ODG with every frame in place), Sketch into
+  SVG, PSD into OpenRaster with its layers, Office files into ODF. Each copy says what it could not keep;
+  for InDesign and Affinity files, which no free program reads, RedGiant says what to export and opens
+  the app when it is installed. The free programs this needs are downloaded the first time
+  ([which ones](docs/INSTALL.md#programs-downloaded-when-needed)).
+- Blender for the agents: build or change 3D models with a Python script, convert them to glTF, render
+  a picture or a turntable video, shown in the Canvas.
+- A Tools page: every tool the agents get, what it does and how many tokens it adds to each request.
+  Switch tools off for every agent or one by one; tools a feature depends on stay on, and say why.
+
 **Any model**
 
 - Flat subscriptions: **Claude** (through Anthropic's Claude Agent SDK) and **ChatGPT** (through OpenAI's
