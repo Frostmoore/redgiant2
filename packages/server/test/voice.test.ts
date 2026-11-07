@@ -164,6 +164,10 @@ describe("voice messages through the server", () => {
       expect.objectContaining({ auth: "Bearer whisper-secret", bytes: expect.any(Number) }),
     ]);
     expect(got[0]?.url).toMatch(/^\/asr\?.*language=it/);
+    // The person speaks to the agents in the agents' language (G33.5), not the interface's.
+    s.core.setAgentLanguage("zh-Hant");
+    await post();
+    expect(got[1]?.url).toMatch(/^\/asr\?.*language=zh(&|$)/);
     // The key is in the secrets file only, never in the readable configuration.
     expect(await readFile(join(dataDir, "secrets.json"), "utf8")).toContain("whisper-secret");
     expect(await readFile(join(dataDir, "redgiant.yaml"), "utf8")).not.toContain("whisper-secret");

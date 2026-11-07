@@ -2688,12 +2688,17 @@ export class RedGiantCore implements OrchestrationHost {
     else delete this.o.transcription;
   }
 
-  /** A voice message as text; the language helps the service (it, en…). */
+  /**
+   * A voice message as text. The person speaks to the agents in the agents' language (G33.5), not
+   * necessarily the interface's: that is the hint given to the service (its two letters, «zh» for
+   * «zh-Hant»); without one, the language the caller passed.
+   */
   async transcribe(audio: Uint8Array, mime: string, language?: string): Promise<string> {
     if (!this.o.transcription)
       throw new BadRequestError("No transcription service: set one in the configuration");
+    const spoken = this.agentLang?.split("-")[0] ?? language;
     return transcribe(audio, mime, this.o.transcription, {
-      ...(language && { language }),
+      ...(spoken && { language: spoken }),
       ...(this.ffmpeg && { ffmpeg: this.ffmpeg }),
     });
   }

@@ -1469,6 +1469,18 @@ const en = {
   telegram: "Telegram",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  news323Keychain: "The Keychain",
+  news323KeychainText:
+    "A safe place for your passwords and keys, encrypted and never in a project or on git. Agents use a credential by name: the value is added only on the way out, only towards the sites you allow, and never shown to them or written in chat. Search, categories, a password generator, import from Bitwarden, 1Password and the browsers.",
+  news323Memory: "A memory shared by every agent",
+  news323MemoryText:
+    "What RedGiant knows about you, learned by itself while you talk and used by every agent, as in the apps of Claude and ChatGPT. You see, change, delete or forget for ever each memory. Each agent keeps a memory of its own too.",
+  news323Automations: "Automations without limits, and magic ones",
+  news323AutomationsText:
+    "New triggers (a message on a chat, files changing, another automation ending), conditions like working hours, approval, a budget and retries. With «Magic automation» you describe what you want and God builds it with you; it starts only when you approve it. As many mailboxes as you like, by category.",
+  news323More: "And more",
+  news323MoreText:
+    "The language the agents speak is chosen apart from the interface's, among 76. Every agent's instructions are visible and editable. Agents open in a window; services show their own logos.",
   news321Settings: "Settings in the setup's style",
   news321SettingsText:
     "Every page of Settings now looks like the setup: big titles, tiles lit when something is on, details in windows in the middle, sections in five groups and, on a phone, a bar that opens their list. Nothing was taken away.",
@@ -4089,6 +4101,18 @@ const it: Record<Key, string> = {
   telegram: "Telegram",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  news323Keychain: "Il Portachiavi",
+  news323KeychainText:
+    "Un posto sicuro per password e chiavi, cifrato e mai dentro un progetto o su git. Gli agenti usano una credenziale per nome: il valore viene aggiunto solo all'uscita, solo verso i siti che permetti, e non lo vedono mai né lo scrivono in chat. Ricerca, categorie, generatore di password, importazione da Bitwarden, 1Password e dai browser.",
+  news323Memory: "Una memoria condivisa da tutti gli agenti",
+  news323MemoryText:
+    "Quello che RedGiant sa di te, imparato da solo mentre parli e usato da tutti gli agenti, come nelle app di Claude e ChatGPT. Ogni ricordo lo vedi, lo cambi, lo cancelli o lo dimentichi per sempre. Ogni agente ha anche una memoria tutta sua.",
+  news323Automations: "Automazioni senza limiti, e quelle magiche",
+  news323AutomationsText:
+    "Inneschi nuovi (un messaggio su una chat, file che cambiano, un'altra automazione che finisce), condizioni come l'orario di lavoro, approvazione, limite di spesa e nuovi tentativi. Con «Automazione magica» descrivi cosa vuoi e God la costruisce con te; parte solo quando la approvi. Caselle email quante vuoi, per categoria.",
+  news323More: "E poi",
+  news323MoreText:
+    "La lingua in cui parlano gli agenti si sceglie a parte da quella dell'interfaccia, tra 76. Le istruzioni di ogni agente si vedono e si cambiano. Gli agenti si aprono in una finestra; i servizi hanno i loro loghi.",
   news321Settings: "Le Impostazioni nello stile della configurazione",
   news321SettingsText:
     "Tutte le pagine delle Impostazioni ora sono come la configurazione: titoli grandi, riquadri accesi quando qualcosa è attivo, dettagli in finestre al centro, sezioni in cinque gruppi e, sul telefono, una barra che ne apre l'elenco. Non è stato tolto niente.",
