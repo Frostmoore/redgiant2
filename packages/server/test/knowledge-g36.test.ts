@@ -3,7 +3,7 @@
 // and the knowledge in a backup.
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix, win32 } from "node:path";
 import { deflateSync, inflateSync } from "node:zlib";
 import { EventStore, migrate, type SqlClient } from "@redgiant/events";
 import { type Job, KnowledgeSourceInput } from "@redgiant/protocol";
@@ -21,6 +21,7 @@ import {
   KnowledgeService,
   type MailSource,
   type OcrEngine,
+  within,
 } from "../src/knowledge/service.js";
 import {
   citationLabel,
@@ -400,6 +401,15 @@ describe("agents and the knowledge (G36.5)", () => {
     expect(section).toContain("- Manuali: Come si usa");
     expect(section).toContain("(#kb:123)");
     expect(knowledgeSection([])).toBe("");
+  });
+
+  it("tells a folder inside another, also across Windows drives", () => {
+    expect(within("C:\\RedGiant\\data", "C:\\RedGiant\\data\\x", win32)).toBe(true);
+    expect(within("C:\\RedGiant\\data", "C:\\RedGiant\\data", win32)).toBe(true);
+    expect(within("C:\\RedGiant\\data", "D:\\a\\docs", win32)).toBe(false);
+    expect(within("D:\\a\\docs", "C:\\RedGiant\\data", win32)).toBe(false);
+    expect(within("/data", "/data2", posix)).toBe(false);
+    expect(within("/", "/data", posix)).toBe(true);
   });
 
   it("names citations by page, lines, mail and conversation", () => {

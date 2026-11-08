@@ -207,6 +207,22 @@ const DEFAULT_SETTINGS: KnowledgeSettings = {
 
 const parseJson = <T>(v: unknown): T => (typeof v === "string" ? (JSON.parse(v) as T) : (v as T));
 
+/**
+ * Whether `child` is `parent` or inside it. On Windows two drives have no relative path
+ * (`relative` gives the other's absolute one): not inside (G36.6, seen in CI with C: and D:).
+ */
+export function within(
+  parent: string,
+  child: string,
+  p: { relative(a: string, b: string): string; isAbsolute(a: string): boolean } = {
+    relative,
+    isAbsolute,
+  },
+): boolean {
+  const rel = p.relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !p.isAbsolute(rel));
+}
+
 /** Whether a collection's scope alone lets an agent read it. */
 function byScope(r: CollectionRow, asker: Extract<KnowledgeAsker, { kind: "agent" }>): boolean {
   if (r.scope_kind === "all") return true;
@@ -707,10 +723,7 @@ export class KnowledgeService {
     if (!real) throw new KnowledgeError("bad_source", `No such folder or file: ${path}`);
     for (const f of [this.deps.dataDir, ...(this.deps.forbidden ?? [])]) {
       const keep = await realpath(resolve(f)).catch(() => resolve(f));
-      const rel = relative(keep, real);
-      const inside = rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-      const contains = !relative(real, keep).startsWith("..");
-      if (inside || contains)
+      if (within(keep, real) || within(real, keep))
         throw new KnowledgeError("bad_source", "That folder holds RedGiant's own data");
     }
     return real;
