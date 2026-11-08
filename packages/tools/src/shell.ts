@@ -34,12 +34,12 @@ export function bashTool(
         full:
           "Run a shell command in the workspace root and return exit code, stdout and stderr. " +
           "Every call is a new shell that starts in the workspace root: cd and variables (also $OLDPWD) do not carry over. " +
-          "Stay in the project: never search a whole disk (find /, ls -R /, grep -r /, Get-ChildItem C:\\ -Recurse); use glob and grep, or a narrow folder you know. " +
+          "Stay in the project: never search a whole disk (find /, ls -R /, grep -r /, Get-ChildItem C:\\ -Recurse); inside the project use glob and grep, and to find files or programs elsewhere on this computer use find_files. " +
           "Default timeout 120 s; a longer timeout_ms is cut to the person's maximum (10 min unless they changed it). Long output keeps its beginning and end. " +
           "background: true for servers, watchers, long builds: returns an id at once; read it with bash_output. Keep commands verbose (no -q/--silent, no >/dev/null): every line is logged with its time. " +
           "Run on this computer (not in a container), RedGiant's own ffmpeg, and Blender, LibreOffice and Scribus once downloaded, are on the PATH; ffmpeg's drawtext needs fontfile=.",
         compact:
-          "Run a shell command in the workspace root (a new shell each call). Never search a whole disk (find /). background: true returns an id (bash_output); keep it verbose.",
+          "Run a shell command in the workspace root (a new shell each call). Never search a whole disk (find /): use find_files. background: true returns an id (bash_output); keep it verbose.",
       }),
       inputSchema: {
         type: "object",
@@ -97,6 +97,7 @@ export function diskWideRefusal(ws: Workspace): string {
   return [
     "Not run: this command searches a whole disk (find /, ls -R /, grep -r /, Get-ChildItem C:\\ -Recurse…). On this computer that takes many minutes and finds other projects' files.",
     `Your project is ${shellPath(startFolder(ws))} and every command starts there (a new shell each call, so name this folder in full when you need it again).`,
+    'To find a file or a program elsewhere on this computer use find_files (name "*.jar", path "*date_time*", executable: true for the PATH): it asks the system\'s index or walks the likely places first, within a short time limit.',
     'Search the project with glob and grep, or a narrow folder you know (/usr/include, "/c/Program Files"…); a find from the root with -maxdepth 3 or less runs.',
   ].join("\n");
 }

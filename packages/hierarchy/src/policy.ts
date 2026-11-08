@@ -188,6 +188,8 @@ export const READ_ONLY_TOOLS = new Set([
   "read_file",
   "glob",
   "grep",
+  // Names and paths anywhere on the computer, never contents (p3.4.0): like ls or find in bash.
+  "find_files",
   "web_search",
   "fetch",
   "view_image",

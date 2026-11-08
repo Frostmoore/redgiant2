@@ -44,6 +44,8 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   one("bash_output", "files", true),
   one("glob", "files"),
   one("grep", "files"),
+  // Finding files and programs on the computer (p3.4.0): not essential, like glob and grep.
+  one("find_files", "files"),
   one("update_todos", "files"),
   one("run_script", "files"),
   one("convert_file", "files"),
