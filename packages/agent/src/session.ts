@@ -35,7 +35,7 @@ import { sessionLog } from "./forks.js";
 import type { Hooks, ToolCallInfo } from "./hooks.js";
 import { type HistoryEntry, rebuildHistory, summaryMessage } from "./rebuild.js";
 import { repairJson } from "./repair.js";
-import { canonicalTools, type Tool, type ToolContext } from "./tools.js";
+import { canonicalTools, type Tool, type ToolContext, type ToolOutput } from "./tools.js";
 
 export interface PermissionDecision {
   allow: boolean;
@@ -53,6 +53,13 @@ export interface AgentSessionOptions {
    * run together; every other call runs alone, in the order the model gave.
    */
   readOnlyTools?: ReadonlySet<string>;
+  /**
+   * After the person stops the turn, how long a tool still running may take to end (p3.4.0,
+   * default 10 s). Past it the call is answered as cancelled and the turn ends: a tool that
+   * never comes back (a command whose output something keeps open) must not hold the
+   * conversation, and the messages waiting after it, forever.
+   */
+  stopGraceMs?: number;
   store: EventStore;
   providers: ProviderRegistry;
   model: ModelSpec;
@@ -827,6 +834,31 @@ export class AgentSession {
     return parts;
   }
 
+  /** A tool's run, cut short `stopGraceMs` after the turn is stopped (p3.4.0). */
+  private untilStopped(
+    run: Promise<ToolOutput>,
+    signal: AbortSignal | undefined,
+  ): Promise<ToolOutput> {
+    if (!signal) return run;
+    const cancelled: ToolOutput = {
+      content:
+        "Cancelled: the person stopped the turn, and this call had not finished; what it did so far is not known.",
+      isError: true,
+    };
+    return new Promise((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const onAbort = () => {
+        timer = setTimeout(() => resolve(cancelled), this.o.stopGraceMs ?? 10_000);
+      };
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+      run.then(resolve, reject).finally(() => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+      });
+    });
+  }
+
   private async runOne(call: ToolCallInfo, rawInput: string, base: ToolContext) {
     const ctx: ToolContext = { ...base, callId: call.callId };
     const fail = (content: string) => ({ content, isError: true });
@@ -875,7 +907,7 @@ export class AgentSession {
     let result: { content: string; isError: boolean };
     let images: ImagePart[] = [];
     try {
-      const out = await tool.run(input, ctx);
+      const out = await this.untilStopped(tool.run(input, ctx), ctx.signal);
       result =
         typeof out === "string"
           ? { content: out, isError: false }

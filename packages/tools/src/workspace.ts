@@ -315,6 +315,22 @@ export function shellKind(shell: string = defaultShell()): "cmd" | "powershell" 
   return "posix";
 }
 
+/**
+ * A folder as the agents' shell writes it (p3.4.0): Git's bash on Windows says /c/Users/… for
+ * C:\\Users\\…; every other shell takes the path as it is.
+ */
+export function shellPath(
+  path: string,
+  platform: NodeJS.Platform = process.platform,
+  shell: string = defaultShell(),
+): string {
+  if (platform !== "win32" || shellKind(shell) !== "posix") return path;
+  const m = /^([A-Za-z]):[\\/]*(.*)$/.exec(path);
+  if (!m) return path.replaceAll("\\", "/");
+  const rest = (m[2] ?? "").replaceAll("\\", "/").replace(/\/+$/, "");
+  return `/${(m[1] as string).toLowerCase()}${rest ? `/${rest}` : ""}`;
+}
+
 /** Directories never walked by glob/grep. */
 export const IGNORED_DIRS = [
   ".git",
@@ -338,6 +354,8 @@ export class LocalWorkspace implements Workspace {
      * command to cmd.exe verbatim; escaping it ourselves breaks commands with quotes).
      */
     private readonly shell: string = defaultShell(),
+    /** How long a stopped command may keep its output open before it is let go (p3.4.0). */
+    private readonly stopGraceMs = 5_000,
   ) {
     this.root = resolve(root);
   }
@@ -521,18 +539,48 @@ export class LocalWorkspace implements Workspace {
         ...(shell && { shell }),
         env: env ? { ...agentEnv(), ...env } : agentEnv(),
         detached: group,
+        // No input (p3.4.0, the benchmark on Windows): a program that waits for it, such as a
+        // `cmd.exe` that opened interactively, reads end-of-file and ends instead of hanging.
+        stdio: ["ignore", "pipe", "pipe"],
       });
       if (child.pid) onSpawn?.(child.pid);
-      // The whole tree: on Windows the shell's true descendants too (`killTree`).
+      let stdout = "";
+      let stderr = "";
+      let timedOut = false;
+      let settled = false;
+      let exited = false;
+      let exitCode: number | null = null;
+      let grace: ReturnType<typeof setTimeout> | undefined;
+      const finish = (code: number | null, note?: string) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        clearTimeout(grace);
+        signal?.removeEventListener("abort", stop);
+        if (note) stderr += `${stderr && !stderr.endsWith("\n") ? "\n" : ""}${note}\n`;
+        done({ stdout, stderr, exitCode: code, timedOut });
+      };
+      // The whole tree: on Windows the shell's true descendants too (`killTree`). Once stopped,
+      // the result comes back within `stopGraceMs` even when a process that could not be
+      // stopped (outside the tree, or stuck in the system on a disk or a pipe: the benchmark's
+      // `find /` in Git's bash, 2026-11-08) still holds the output open: the streams are let go.
       const stop = () => {
         try {
           if (child.pid) void killTree(child.pid);
           else child.kill("SIGKILL");
         } catch {}
+        if (grace || settled) return;
+        grace = setTimeout(() => {
+          child.stdout.destroy();
+          child.stderr.destroy();
+          finish(
+            exited ? exitCode : null,
+            exited
+              ? "[RedGiant: the command was stopped; something it started still held its output open and was left behind.]"
+              : `[RedGiant: the command was stopped but did not end (process ${child.pid ?? "unknown"}); it may still be running.]`,
+          );
+        }, this.stopGraceMs);
       };
-      let stdout = "";
-      let stderr = "";
-      let timedOut = false;
       // Past what a timer can hold (about 24 days) there is no limit at all.
       const timer =
         Number.isFinite(timeoutMs) && timeoutMs <= MAX_TIMER_MS
@@ -554,11 +602,11 @@ export class LocalWorkspace implements Workspace {
       child.on("error", (err) => {
         stderr += err.message;
       });
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        signal?.removeEventListener("abort", stop);
-        done({ stdout, stderr, exitCode: code, timedOut });
+      child.on("exit", (code) => {
+        exited = true;
+        exitCode = code;
       });
+      child.on("close", (code) => finish(code));
     });
   }
 }

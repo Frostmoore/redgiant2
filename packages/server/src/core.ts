@@ -119,6 +119,8 @@ import {
   queryLog,
   type ShowFileRequest,
   SubprojectWorkspace,
+  shellPath,
+  startFolder,
   type WebSearchProvider,
   type Workspace,
 } from "@redgiant/tools";
@@ -441,6 +443,18 @@ function whereYouRun(model: ModelSpec): string {
         ? `through the person's ${model.provider.replace("-subscription", "")} subscription`
         : `through ${model.provider}'s API`;
   return `## Where you run\nYou are the model "${model.model}", running ${where}. When asked what or where you are, say this; do not guess from your training.`;
+}
+
+/**
+ * Where the agent's files are, on this computer (p3.4.0, the benchmark on Windows: an agent that
+ * had moved away with cd could not find its project again and searched the whole disk). Set when
+ * the conversation starts, like the rest of the system prompt.
+ */
+export function yourFolder(ws: Workspace): string {
+  const native = startFolder(ws);
+  const shell = shellPath(native);
+  const both = shell === native ? shell : `${shell} (${native} for Windows programs)`;
+  return `## Your folder\nYour project is ${both}. Every bash call is a new shell that starts there: cd and variables, $OLDPWD too, do not carry over, so write this folder in full when you need it again. Stay in it: never search a whole disk (find /, grep -r /); use glob and grep, or a narrow folder you know.`;
 }
 
 export class RedGiantCore implements OrchestrationHost {
@@ -1293,6 +1307,7 @@ export class RedGiantCore implements OrchestrationHost {
           show: (r, ctx) => this.showFile(agent, r, ctx),
           background: this.commands,
           bashMaxMs: (ownerId) => this.commandSettings.get(ownerId).bashMaxMs,
+          host: this.sandbox.kind === "host",
         })
       : [];
     // Closed formats into open ones, and the open packages' insides (G34.3): every workspace.
@@ -1490,6 +1505,8 @@ export class RedGiantCore implements OrchestrationHost {
       system: [
         this.systemFor(agent),
         whereYouRun(model),
+        // On this computer only: in a container the folder is the container's own.
+        ws && this.sandbox.kind === "host" && preview !== "dry" ? yourFolder(ws) : "",
         // The language the person chose for the agents (G33.5); fixed for the conversation.
         replyLanguageLine(this.agentLang),
         this.instructions
