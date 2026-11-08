@@ -454,7 +454,7 @@ export function yourFolder(ws: Workspace): string {
   const native = startFolder(ws);
   const shell = shellPath(native);
   const both = shell === native ? shell : `${shell} (${native} for Windows programs)`;
-  return `## Your folder\nYour project is ${both}. Every bash call is a new shell that starts there: cd and variables, $OLDPWD too, do not carry over, so write this folder in full when you need it again. Stay in it: never search a whole disk (find /, grep -r /); use glob and grep, or a narrow folder you know.`;
+  return `## Your folder\nYour project is ${both}. Every bash call is a new shell that starts there: cd and variables, $OLDPWD too, do not carry over, so write this folder in full when you need it again. Stay in it: never search a whole disk (find /, grep -r /); use glob and grep inside it, and find_files for files or programs elsewhere on this computer.`;
 }
 
 export class RedGiantCore implements OrchestrationHost {
