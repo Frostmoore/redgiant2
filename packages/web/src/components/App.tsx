@@ -116,14 +116,18 @@ function Limits() {
     ].sort((a, b) => (a.id === "5h" ? -1 : b.id === "5h" ? 1 : 0));
     return (
       <div class="limits">
-        {windows.map((w) => (
-          <Bar
-            key={w.id}
-            name={w.label}
-            pct={w.usedPct}
-            title={`${w.label}: ${w.usedPct === null ? "–" : `${w.usedPct}%`}${w.resetsAt ? ` · reset ${resetAt(w.resetsAt)}` : ""}`}
-          />
-        ))}
+        {windows.map((w) => {
+          // The week's short name follows the page's language, whatever the provider sent.
+          const name = w.id === "7d" ? t("limitWeekShort") : w.label;
+          return (
+            <Bar
+              key={w.id}
+              name={name}
+              pct={w.usedPct}
+              title={`${name}: ${w.usedPct === null ? "–" : `${w.usedPct}%`}${w.resetsAt ? ` · reset ${resetAt(w.resetsAt)}` : ""}`}
+            />
+          );
+        })}
       </div>
     );
   }
