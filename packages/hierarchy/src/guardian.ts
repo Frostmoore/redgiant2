@@ -219,8 +219,11 @@ export function outsideWrites(call: ToolCallInfo, ctx: GuardianContext): string[
  * show_file call, nothing for any other tool. Showing only reads, but it puts a file of the
  * computer in front of the person, so the guardian asks first.
  */
+/** Tools that show or look at a file by its path (G34.1, G36.12): outside the folders, the person decides. */
+export const SHOWING_TOOLS = new Set(["show_file", "canvas_look", "canvas_act"]);
+
 export function outsideShows(call: ToolCallInfo, ctx: GuardianContext): string[] {
-  if (ctx.roots.length === 0 || call.name !== "show_file") return [];
+  if (ctx.roots.length === 0 || !SHOWING_TOOLS.has(call.name)) return [];
   const input = (call.input ?? {}) as Record<string, unknown>;
   const p =
     typeof input.path === "string"

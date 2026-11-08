@@ -112,6 +112,26 @@ describe("the guardian and show_file (G34.1)", () => {
     ).toEqual([]);
   });
 
+  // G36.12: looking at the canvas and leafing through it follow the same rule, by path.
+  for (const name of ["canvas_look", "canvas_act"])
+    it(`${name}: inside free, outside the person's call, no path no check`, () => {
+      const s = { ...DEFAULT_POLICY, roots: ctx.roots, home: ctx.home };
+      expect(outsideShows({ callId: "1", name, input: { path: "/etc/passwd" } }, ctx)).toEqual([
+        "/etc/passwd",
+      ]);
+      expect(outsideShows({ callId: "1", name, input: { page: 3 } }, ctx)).toEqual([]);
+      expect(evaluate("plan", { callId: "1", name, input: { path: "a.pdf" } }, s).decision).toBe(
+        "allow",
+      );
+      expect(evaluate("readonly", { callId: "1", name, input: {} }, s).decision).toBe("allow");
+      const out = evaluate("auto", { callId: "1", name, input: { path: "/etc/passwd" } }, s);
+      expect(out.decision).toBe("ask");
+      expect(out.danger).toContain(OUTSIDE_PROJECT);
+      expect(out.reasons[0]).toMatch(
+        name === "canvas_look" ? /^looks at a file outside/ : /^shows a file outside/,
+      );
+    });
+
   it("the policy: inside allowed in every mode, outside asks the human, auto lets it be", () => {
     const s = { ...DEFAULT_POLICY, roots: ctx.roots, home: ctx.home };
     const call = (path: string) => ({ callId: "1", name: "show_file", input: { path } });

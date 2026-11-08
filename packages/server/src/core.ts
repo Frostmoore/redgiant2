@@ -129,6 +129,9 @@ import { type ReapDeps, reapOrphan } from "./background-reap.js";
 import type { BackupDeps } from "./backup.js";
 import { type Browsers, browserTools } from "./browser.js";
 import { contentType, inside, lastChange, Previews, type PreviewTarget } from "./canvas.js";
+import { CanvasLive } from "./canvas-live.js";
+import { lookAt } from "./canvas-look.js";
+import { type CanvasToolsHost, canvasTools } from "./canvas-tools.js";
 import { canvasView } from "./canvas-view.js";
 import { CHAT_AGENT_PROMPT, ChatError, DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
@@ -504,6 +507,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly programs: Programs;
   /** Closed formats into open ones, beside the original (G34.3). */
   readonly converter: FileConverter;
+  /** What the person's canvas shows, asked of their pages when an agent looks (G36.12). */
+  readonly canvasLive = new CanvasLive();
   /** Background commands of every conversation (p3.3.1): bash with background, bash_output. */
   readonly commands: BackgroundCommands;
   /** Mandatory and breaking updates (G36.19), set by main: while one is mandatory no new turn starts. */
@@ -1352,6 +1357,8 @@ export class RedGiantCore implements OrchestrationHost {
         tools.push(
           ...this.mediaTools(agent, ws),
           this.showTool(agent, ws),
+          // The canvas seen and moved by the agent (G36.12).
+          ...canvasTools(agent, ws, this.canvasHost(agent)),
           this.sendFileTool(agent, ws),
           this.variantsTool(agent, ws),
           // Chains of tool calls that do not fill the context (G29.7).
@@ -2728,6 +2735,44 @@ export class RedGiantCore implements OrchestrationHost {
     } catch {
       return undefined;
     }
+  }
+
+  /** canvas_look and canvas_act's host (G36.12): the page's state, the files, the events. */
+  private canvasHost(agent: AgentRecord): CanvasToolsHost {
+    const data = dirname(this.o.workspacesDir);
+    return {
+      state: (ownerId) => this.canvasLive.ask(ownerId),
+      targetOf: async (ownerId, abs) => {
+        const where = await this.scopeOf(ownerId, abs).catch(() => undefined);
+        if (where) return { kind: "file", ...where };
+        // Reached only through the guardian, as show_file: the link may serve it now.
+        (await this.shownOutside(ownerId)).add(abs);
+        return { kind: "file", scope: "outside", path: abs };
+      },
+      fileOf: async (ownerId, t) =>
+        t.scope === "outside"
+          ? t.path
+          : new LocalWorkspace(await this.scopeRoot(ownerId, t.scope)).resolve(t.path),
+      look: (abs, ask, ctx) =>
+        lookAt(abs, ask, {
+          owner: agent.ownerId,
+          programs: this.programs,
+          converter: this.converter,
+          // Its own profile: the converter's LibreOffice runs one at a time on the other.
+          profileDir: join(data, "tools", "libreoffice-profile-look"),
+          tmpDir: join(data, "cache", "look"),
+          signal: ctx.signal,
+        }),
+      act: async (ctx, title, target, d) => {
+        await this.store.append({
+          ownerId: agent.ownerId,
+          projectId: agent.projectId,
+          agentId: agent.id,
+          sessionId: ctx.sessionId,
+          body: { type: "canvas.act", payload: { title, target, do: d } },
+        });
+      },
+    };
   }
 
   /** The folder behind a scope on disk (the knowledge's workspace sources, G36.3). */

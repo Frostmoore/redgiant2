@@ -43,6 +43,7 @@ export function attachWebSocket(
     let offNotices: (() => void) | undefined;
     let offPlatform: (() => void) | undefined;
     let offRooms: (() => void) | undefined;
+    let offCanvas: (() => void) | undefined;
     let offScreen: (() => void) | undefined;
     const follows = new Map<string, () => void>();
     const send = (m: ServerMessage) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
@@ -129,6 +130,12 @@ export function attachWebSocket(
           });
           offPlatform = core.changes.onChange(onPlatform);
           offRooms = core.rooms.onChange(onRoom);
+          // The canvas is asked for only when an agent looks (G36.12).
+          offCanvas = core.canvasLive.onQuery((ownerId, requestId) => {
+            if (principal?.ownerId !== ownerId || ws.readyState !== ws.OPEN) return false;
+            send({ type: "canvas.query", requestId });
+            return true;
+          });
           send({ type: "welcome", protocolVersion: PROTOCOL_VERSION, ownerId: principal.ownerId });
           for (const r of core.approvals.list(principal.ownerId))
             send({ type: "permission.request", request: r });
@@ -202,6 +209,9 @@ export function attachWebSocket(
           case "browser.input":
             await core.browsers?.get(owner).input(msg.event);
             return;
+          case "canvas.state":
+            core.canvasLive.answer(owner, msg.requestId, msg.state);
+            return;
           case "session.interrupt":
             await core.interrupt(owner, msg.sessionId);
             return;
@@ -270,6 +280,7 @@ export function attachWebSocket(
       offNotices?.();
       offPlatform?.();
       offRooms?.();
+      offCanvas?.();
       offScreen?.();
     });
   }

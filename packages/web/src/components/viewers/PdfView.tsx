@@ -4,6 +4,7 @@ import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
 import { IconChevronDown, IconMinus, IconPlus, IconSearch } from "../../icons.js";
+import { useOrders, useReport } from "../../viewers/live.js";
 import type { ViewerProps } from "../../viewers/source.js";
 import { zoomStep } from "./ImageView.js";
 
@@ -170,16 +171,41 @@ export function PdfView({ src }: ViewerProps) {
   }, [doc, startPage, width > 0]);
   const fit = width > 80 ? Math.min(3, (width - 32) / base.w) : 1;
   const scale = zoom ?? fit;
+  // Where the person is (G36.12), and an agent's moves: a page, a zoom, words to find.
+  const report = useReport();
+  useEffect(() => {
+    if (doc)
+      report({
+        page: current,
+        pages: doc.numPages,
+        zoom: zoom === null ? undefined : Math.round(scale * 100),
+      });
+  }, [doc, current, zoom, scale]);
+  useOrders(
+    (d) => {
+      if (!doc || (!d.page && d.zoom === undefined && !d.find)) return false;
+      if (d.zoom !== undefined) setZoom(d.zoom === "fit" ? null : d.zoom / 100);
+      if (d.find) {
+        setTyped(d.find);
+        void search(d.find);
+      } else if (d.page) {
+        const n = Math.max(1, Math.min(doc.numPages, d.page));
+        requestAnimationFrame(() => requestAnimationFrame(() => go(n)));
+      }
+      return true;
+    },
+    !!doc && width > 0,
+  );
   const go = (n: number) => {
     const el = scroller.current?.querySelector(`[data-page="${n}"]`);
     el?.scrollIntoView({ block: "start" });
     setCurrent(n);
   };
-  const search = async () => {
+  const search = async (words = typed) => {
     if (!doc) return;
-    setQuery(typed);
-    const found = await findPages(doc, typed);
-    setHits(typed.trim() ? found : null);
+    setQuery(words);
+    const found = await findPages(doc, words);
+    setHits(words.trim() ? found : null);
     setHit(0);
     if (found[0]) go(found[0]);
   };

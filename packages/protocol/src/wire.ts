@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CanvasState } from "./canvas.js";
 import { MAX_QUOTES, MessageQuote } from "./chat-tools.js";
 import { Event } from "./events.js";
 import { ImagePart } from "./messages.js";
@@ -60,6 +61,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
     /** Denied with words the agent reads ("not that file, the other one"). */
     reason: z.string().max(1000).optional(),
   }),
+  /** The canvas as the page shows it (G36.12), answering a `canvas.query`. */
+  z.object({ type: z.literal("canvas.state"), requestId: z.string().max(80), state: CanvasState }),
   // The personal agents' browser (G24.14b): its screen, and the person's hands on it.
   z.object({ type: z.literal("browser.watch") }),
   z.object({ type: z.literal("browser.unwatch") }),
@@ -190,6 +193,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("room.changed"), roomId: z.string() }),
   /** A platform change was recorded or moved to another stage. */
   z.object({ type: z.literal("platform.changed"), changeId: z.string() }),
+  /** An agent asks what the person's canvas shows (G36.12): the page answers `canvas.state`. */
+  z.object({ type: z.literal("canvas.query"), requestId: z.string() }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

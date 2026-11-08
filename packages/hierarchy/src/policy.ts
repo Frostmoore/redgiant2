@@ -209,6 +209,10 @@ export const READ_ONLY_TOOLS = new Set([
   "propose_plan",
   // The agent's own notes (G29.3): no workspace, no project file.
   "memory",
+  // The person's canvas (G36.12): looking and leafing through change no file (a path outside the
+  // folders is the guardian's, above).
+  "canvas_look",
+  "canvas_act",
   // The agent's list of steps (2026-11-05): shown to the person, changes nothing.
   "update_todos",
   // Reads or stops the conversation's own background command (p3.3.1): starting it was a bash
@@ -324,7 +328,9 @@ function evaluateRules(mode: PermissionMode, call: ToolCallInfo, s: PolicySettin
     if (shown.length > 0)
       return {
         decision: "ask",
-        reasons: [`shows a file outside the project: ${shown.slice(0, 3).join(", ")}`],
+        reasons: [
+          `${call.name === "canvas_look" ? "looks at" : "shows"} a file outside the project: ${shown.slice(0, 3).join(", ")}`,
+        ],
         danger: [...danger, OUTSIDE_PROJECT],
         critical: [],
       };
