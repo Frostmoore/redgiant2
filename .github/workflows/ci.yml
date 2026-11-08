@@ -258,7 +258,7 @@ jobs:
             for ($i = 0; $i -lt 150 -and (Get-ItemProperty HKCU:\Software\RedGiant).UpdateBroken -ne "0.0.2"; $i++) { Start-Sleep 2 }
             if ((Get-ItemProperty HKCU:\Software\RedGiant).UpdateBroken -ne "0.0.2") { "the failed 0.0.2 was not rolled back"; Get-Content "$app\engine\launcher-*.log" -ErrorAction SilentlyContinue | Select-Object -Last 40; exit 1 }
             if (-not (Wait-Version "0.0.1")) { "0.0.1 did not come back after the failed 0.0.2"; exit 1 }
-            if ((Get-Content "$app\server\dist\main.js" -Raw) -match "process.exit") { "the broken server stayed"; exit 1 }
+            if ((Get-Content "$app\server\dist\main.js" -Raw).Trim() -eq "process.exit(1);") { "the broken server stayed"; exit 1 }
             "0.0.2 failed on trial and 0.0.1 came back"
             Stop-Process $srv -Force
             # G36.19: 0.0.3 is signed "breaking": RedGiant.exe must not touch the installed files,

@@ -3,7 +3,7 @@
 // words next to it, a long action shows its steps and progress, and errors say what to do.
 import type { Job, JobProgress } from "@redgiant/protocol";
 import type { ComponentChildren, JSX } from "preact";
-import { useEffect, useId, useState } from "preact/hooks";
+import { useEffect, useId, useRef, useState } from "preact/hooks";
 import qrcode from "qrcode-generator";
 import { bytes } from "../format.js";
 import { t, tOptional } from "../i18n.js";
@@ -391,6 +391,8 @@ export function Modal({
   locked?: boolean | undefined;
 }) {
   const [me] = useState(() => ({}));
+  const lockedRef = useRef(locked);
+  lockedRef.current = locked;
   useEffect(() => {
     stack.push(me);
     return () => {
@@ -401,10 +403,10 @@ export function Modal({
     // Only the window on top closes: Escape in the mailbox's window, opened from an automation
     // being written, must not throw the draft away.
     const esc = (e: KeyboardEvent) =>
-      e.key === "Escape" && !locked && stack.at(-1) === me && onClose();
+      e.key === "Escape" && !lockedRef.current && stack.at(-1) === me && onClose();
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
-  }, [onClose, locked]);
+  }, [onClose]);
   return (
     <div class="ui-modal-back">
       {locked ? (
