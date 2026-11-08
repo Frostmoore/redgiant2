@@ -17,8 +17,10 @@ import {
 } from "../icons.js";
 import { type CanvasTarget, canvasViewId, getApi } from "../state.js";
 import { CanvasTab, lastMove, report, setTabKind } from "../viewers/live.js";
+import { hasOfficeCopy, isOfficeFile } from "../viewers/office-bridge.js";
 import { bytesText, download, type ViewerSource } from "../viewers/source.js";
 import { DocEditor, editableInCanvas } from "./viewers/DocEditor.js";
+import { EditCopyButton } from "./viewers/OfficeEditor.js";
 import { CanvasFile } from "./viewers/OpenCopy.js";
 
 export { parseDelimited } from "../viewers/delimited.js";
@@ -120,7 +122,19 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
     return () => document.removeEventListener("selectionchange", change);
   }, [id]);
   useEffect(
-    () => setTabKind(id, site ? "site" : editable ? "text" : shown?.kind),
+    () =>
+      setTabKind(
+        id,
+        site
+          ? "site"
+          : editable && target.kind === "file" && isOfficeFile(target.path)
+            ? /\.odp$/i.test(target.path)
+              ? "slides"
+              : "document"
+            : editable
+              ? "text"
+              : shown?.kind,
+      ),
     [id, site, editable, shown?.kind],
   );
   // The agent's move, said for a few seconds in the head.
@@ -175,6 +189,9 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
           )}
         </span>
         <div class="spacer" />
+        {target.kind === "file" && target.scope !== "outside" && hasOfficeCopy(target.path) && (
+          <EditCopyButton scope={target.scope} path={target.path} />
+        )}
         {move && moveShown === move.n && (
           <span class="canvas-agent" role="status" title={moveText(move.do)}>
             {moveText(move.do)}

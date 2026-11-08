@@ -15053,3 +15053,152 @@ button.doc-change-what {
     display: inline;
   }
 }
+
+/* Documents and presentations (G37.4): LibreOffice's isolated frame inside the editor's shell. */
+.doc-main > .doc-office {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.doc-office-strip {
+  gap: 6px 12px;
+  font-size: 12px;
+  flex-wrap: nowrap;
+  padding: 5px 12px;
+}
+.doc-office-strip > * {
+  min-width: 0;
+}
+.doc-office-copy {
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.doc-office-back {
+  flex: 0 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+.doc-office-saving {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.doc-office-export {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--dim);
+}
+.doc-office-export select {
+  font-size: 12px;
+}
+.doc-office-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  /* LibreOffice draws its own white page area, in both themes. */
+  background: #fff;
+}
+.doc-office-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+.doc-office-frame.waiting {
+  visibility: hidden;
+}
+.doc-office-wait {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: var(--panel);
+  gap: 10px;
+}
+.doc-office-wait .ui-progress {
+  width: min(420px, 90%);
+}
+.doc-office-wait p {
+  max-width: 460px;
+  text-align: center;
+  margin: 0;
+}
+.doc-office-note {
+  position: absolute;
+  top: 44px;
+  right: 12px;
+  z-index: 2;
+  max-width: min(520px, 80%);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+  animation: canvas-agent-in 0.2s ease-out;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-office-fallback {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.doc-office-why {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 8px 10px 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.doc-office-why > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.doc-office-replace {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.doc-office-replace input {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.doc-office-pages {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.doc-office-pages > .vw-paged {
+  flex: 1;
+  min-height: 0;
+}
+.canvas-edit-copy {
+  flex: none;
+}
+@media (max-width: 760px) {
+  .canvas-edit-copy > span {
+    display: none;
+  }
+}

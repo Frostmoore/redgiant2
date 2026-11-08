@@ -1464,6 +1464,72 @@ export class Api {
     return r.blob();
   }
 
+  // ---- documents and presentations in the editor (G37.4) ----
+  /** Whether the full editor (ZetaOffice) is here, and what it weighs the first time. */
+  officeState = () =>
+    this.call<import("@redgiant/protocol").OfficeEngineState>("GET", "/api/editor/office");
+  /** Its download on the server, as a job with the bar. */
+  officePrepare = () =>
+    this.call<{ ready: boolean; job?: string }>("POST", "/api/editor/office/prepare");
+  private async bytes(method: string, path: string, body?: BodyInit): Promise<Uint8Array> {
+    const r = await fetch(path, {
+      method,
+      headers: { authorization: `Bearer ${this.token}` },
+      ...(body !== undefined && { body }),
+    });
+    if (!r.ok) {
+      const data = (await r.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
+    }
+    return new Uint8Array(await r.arrayBuffer());
+  }
+  /** The bytes a document opens from (the file, or a page's saved one). */
+  officeFile = (scope: string, path: string, hash: string) =>
+    this.bytes(
+      "GET",
+      `/api/editor/office/file?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}&hash=${hash}`,
+    );
+  /** A picture an action puts in a document. */
+  officeBlob = (hash: string) => this.bytes("GET", `/api/editor/blobs/${hash}`);
+  /** The file the page's editor saved: kept, and the items it changed since `base`. */
+  async officeUpload(scope: string, path: string, base: number, bytes: Uint8Array) {
+    const r = await fetch(
+      `/api/editor/office/upload?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}&base=${base}`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${this.token}` },
+        body: bytes as BodyInit,
+      },
+    );
+    const data = (await r.json().catch(() => ({}))) as {
+      error?: string;
+      blob: string;
+      size: number;
+      hunks: import("@redgiant/protocol").OfficeHunk[];
+    };
+    if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
+    return data;
+  }
+  /** The person's find and replace, applied by LibreOffice on the server. */
+  officeReplace = (b: { scope: string; path: string; find: string; text: string; all: boolean }) =>
+    this.call<{ revision: number }>("POST", "/api/editor/office/replace", b);
+  /** The open copy of a DOCX/PPTX (made with its bar when missing). */
+  officeCopy = (scope: string, path: string) =>
+    this.call<{ path: string; job?: string }>("POST", "/api/editor/office/copy", { scope, path });
+  /** «Esporta come…»: the document in another format. */
+  async officeExport(scope: string, path: string, to: string): Promise<Blob> {
+    const r = await fetch("/api/editor/office/export", {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ scope, path, to }),
+    });
+    if (!r.ok) {
+      const data = (await r.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
+    }
+    return r.blob();
+  }
+
   /** A web search service tried before it is saved: how many results, the first's title. */
   trySearch = (c: { provider: SearchProviderId; url?: string; key?: string }) =>
     this.call<{ results: number; first?: string }>("POST", "/api/setup/search/try", c);

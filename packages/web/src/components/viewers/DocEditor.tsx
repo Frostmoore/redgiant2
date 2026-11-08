@@ -25,11 +25,13 @@ import { IconCheck, IconClock, IconList, IconUndo, IconUser, IconX } from "../..
 import { agents, attempt, docView, openDoc, sendDoc, setDocMode } from "../../state.js";
 import { TextCollab } from "../../viewers/collab.js";
 import { useReport } from "../../viewers/live.js";
+import { isOfficeFile } from "../../viewers/office-bridge.js";
+import { OfficeEditor } from "./OfficeEditor.js";
 
 /** The plain text files the page edits (G37.1); code, Markdown and the rest come with G37.2. */
 export const EDITABLE = /\.(txt|text|log)$/i;
 export const editableInCanvas = (file: { scope: string; path: string }) =>
-  file.scope !== "outside" && EDITABLE.test(file.path);
+  file.scope !== "outside" && (EDITABLE.test(file.path) || isOfficeFile(file.path));
 
 /** A pause in typing longer than this starts another gesture (another line of the panel). */
 const GESTURE_MS = 2000;
@@ -83,6 +85,35 @@ const classes = HighlightStyle.define([{ tag: [tags.heading], class: "cmv-head" 
 
 /** A change in the person's words: «Ada ha inserito 2 righe alla riga 5». */
 export function changeText(s: DocSummary): string {
+  // Documents and presentations (G37.4) count paragraphs and slides.
+  if (s.unit === "paragraph" || s.unit === "slide") {
+    const para = s.unit === "paragraph";
+    const span = s.lines && s.lines > 1;
+    const where =
+      s.line === undefined
+        ? ""
+        : span
+          ? t(para ? "docAtParas" : "docAtSlides", {
+              from: String(s.line),
+              to: String(s.line + (s.lines ?? 1) - 1),
+            })
+          : t(para ? "docAtPara" : "docAtSlide", { n: String(s.line) });
+    const what =
+      s.kind === "undo"
+        ? t("docUndid")
+        : s.kind === "replaced"
+          ? t("docReplaced")
+          : s.count && s.count > 1
+            ? t("docEdits", { n: String(s.count) })
+            : s.kind === "insert"
+              ? t("docOfficeInsert")
+              : s.kind === "delete"
+                ? t("docOfficeDelete")
+                : s.kind === "replace"
+                  ? t("docOfficeReplace")
+                  : t("docOfficeEdit");
+    return where ? `${what} ${where}` : what;
+  }
   const where =
     s.line === undefined
       ? ""
@@ -394,7 +425,11 @@ export function DocEditor({ file }: { file: DocFile }) {
               : t("loading")}
           </div>
         )}
-        <TextEditor file={file} onReady={(e) => (view.current = e)} />
+        {isOfficeFile(file.path) ? (
+          <OfficeEditor file={file} />
+        ) : (
+          <TextEditor file={file} onReady={(e) => (view.current = e)} />
+        )}
         {panel && (
           <aside class="doc-panel" id="doc-changes" aria-label={t("docChanges")}>
             {v.proposals.length > 0 && (

@@ -1,7 +1,14 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "files": {
-    "includes": ["**", "!**/dist", "!**/node_modules", "!memory", "!**/*.tsbuildinfo"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/node_modules",
+      "!memory",
+      "!**/*.tsbuildinfo",
+      "!packages/web/public/zeta/zeta.js"
+    ]
   },
   "formatter": {
     "indentStyle": "space",

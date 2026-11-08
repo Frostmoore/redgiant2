@@ -295,9 +295,9 @@ describe("documents in the editor (G37.4)", () => {
       ),
     );
     const sv = s as Server;
-    const cur = await sv.api<Record<string, unknown>>("GET", "/api/settings/editor");
+    const cur = await sv.api<{ settings: Record<string, unknown> }>("GET", "/api/settings/editor");
     await sv.api("PUT", "/api/settings/editor", {
-      ...cur.body,
+      ...cur.body.settings,
       reexport: { [docKey(copy)]: true },
     });
     await (await sv.core.send("me", sessionId, "Correggi il nome")).done;

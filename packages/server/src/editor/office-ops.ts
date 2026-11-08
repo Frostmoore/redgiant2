@@ -1227,7 +1227,7 @@ Text documents (items are paragraphs ¶ and tables T):
 Presentations (slides from 1; shapes as structure numbers them on each slide):
 - add_slide {after?: N (0 = before the first; default: at the end), layout?: title | title_content | two_content | title_only | blank, title?, text? (bullets: one per line)}
 - set_slide_text {slide: N, shape?: "title" | "body" | "subtitle" | M, text}
-- delete_slide {slide: N}
+- delete_slide {slide: N} (undoing it brings back its texts and simple shapes, not pictures, charts or tables it had)
 - replace_text {find, text, all?}
 - insert_image {slide: N, path, x_mm?, y_mm?, width_mm?}
 The person sees each change at once and can undo it; while they type in the document your edits wait a few seconds. Macros never run.`;

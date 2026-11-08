@@ -221,6 +221,13 @@ const brain = (req) => {
   if (results && typeof toolOut === "string" && toolOut.startsWith("Done: the person's canvas"))
     return { text: "Fatto: guarda nel Canvas, qui accanto." };
   // G37.1 (DEMO_CANVAS): the agent edits the note open in the canvas, with canvas_edit.
+  // G37.4 (DEMO_CANVAS): the agent edits the report and the slides, in the document editor.
+  if (results && typeof toolOut === "string" && toolOut.startsWith("Applied as revision") && toolOut.includes("relazione"))
+    return {
+      text: "Fatto: ho aggiornato i totali della tabella, la nota sull'acciaio e aggiunto il nuovo fornitore. Le modifiche sono nel pannello Modifiche, ognuna si annulla da sola.",
+    };
+  if (results && typeof toolOut === "string" && toolOut.startsWith("Applied as revision") && toolOut.includes("piano"))
+    return { text: "Fatto: c'è la diapositiva «Prossimi passi» e la data nuova in copertina." };
   if (results && typeof toolOut === "string" && toolOut.startsWith("Applied as revision"))
     return {
       text: "Fatto: ho aggiunto le due voci e corretto l'orario. Le vedi evidenziate nel Canvas; dal pannello Modifiche puoi annullarle.",
@@ -241,6 +248,40 @@ const brain = (req) => {
         ops: [
           { op: "insert", line: 4, text: "- caffè in grani\n- limoni\n" },
           { op: "replace", find: "alle 18", text: "alle 18:30" },
+        ],
+      },
+    ],
+    [
+      "Aggiorna la relazione",
+      "canvas_edit",
+      {
+        path: "canvas/relazione.docx",
+        ops: [
+          { op: "set_cell", table: 9, cell: "B6", text: "123.500" },
+          { op: "set_cell", table: 9, cell: "C6", text: "94.700" },
+          {
+            op: "replace_text",
+            find: "Ritardi sulle forniture di acciaio.",
+            text: "Ritardi sulle forniture di acciaio, rientrati a fine ottobre.",
+          },
+          { op: "insert_paragraph", after: 7, text: "Nuovo fornitore di acciaio da gennaio 2027.", style: "List 1" },
+        ],
+      },
+    ],
+    [
+      "Aggiungi i prossimi passi",
+      "canvas_edit",
+      {
+        path: "canvas/piano.pptx",
+        ops: [
+          {
+            op: "add_slide",
+            after: 4,
+            layout: "title_content",
+            title: "Prossimi passi",
+            text: "Gara per l'acciaio entro dicembre\nSquadra Sud operativa a febbraio\nCollaudo del cantiere Nord a marzo",
+          },
+          { op: "set_slide_text", slide: 1, shape: "subtitle", text: "Riunione di direzione - 19 novembre 2026" },
         ],
       },
     ],
@@ -1195,6 +1236,19 @@ if (process.env.DEMO_CANVAS) {
   );
   canvasSession = await core.startSession("local", god.id);
   await (await core.send("local", canvasSession, "Mostra il file canvas/spesa.txt")).done;
+  // G37.4: a realistic report (DOCX) and slides (PPTX), edited on their open copies.
+  const { copyFile, cp: copyDir } = await import("node:fs/promises");
+  for (const f of ["relazione.docx", "piano.pptx"])
+    await copyFile(new URL(`./demo-files/${f}`, import.meta.url), join(into, f));
+  for (const f of ["relazione.docx", "piano.pptx"]) {
+    const s = await core.startSession("local", god.id);
+    await (await core.send("local", s, `Mostra il file canvas/${f}`)).done;
+  }
+  // DEMO_ZETA: the engine's files already here (the folder of a G37.0 copy), no download.
+  if (process.env.DEMO_ZETA)
+    await copyDir(process.env.DEMO_ZETA, join(dir, "tools", "zetaoffice", "zeta-24-2-2025-05-13"), {
+      recursive: true,
+    });
 }
 if (process.env.DEMO_SAMPLES) {
   const { cp, readdir } = await import("node:fs/promises");
