@@ -1087,6 +1087,17 @@ export class Api {
     );
   setEditorSettings = (s: import("@redgiant/protocol").EditorSettings) =>
     this.call<PlatformChange>("PUT", "/api/settings/editor", s);
+  /** A file before and after a change, a turn or a proposal (G37.2: the difference view). */
+  editorDiff = (
+    file: import("@redgiant/protocol").DocFile,
+    what: { revision?: number; groupId?: string; proposalId?: string },
+  ) =>
+    this.call<{
+      before: import("@redgiant/protocol").DocSnapshot;
+      after: import("@redgiant/protocol").DocSnapshot;
+      from: number;
+      to: number;
+    }>("POST", "/api/editor/diff", { file, ...what });
   /** Requests decided without the person (the classifier, or the time running out). */
   unattended = () =>
     this.call<import("@redgiant/protocol").UnattendedDecision[]>("GET", "/api/unattended");

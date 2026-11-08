@@ -124,7 +124,7 @@ describe("canvas_edit and the editor over the WebSocket (G37.1)", () => {
     expect(seen[1]).toMatch(/todo\.txt: revision 0\. Plain text, 4 lines/);
     expect(seen[1]).toContain("2| call Ann");
     expect(seen[2]).toMatch(
-      /^Dry run on revision 0 \(nothing changed\): it would have inserted 9 characters at line 2/,
+      /^Dry run on revision 0 \(nothing changed\): it would have added 1 line at line 2/,
     );
     expect(seen[2]).toContain("2| pay rent");
     expect(seen[3]).toMatch(/^Applied as revision 1: .*undo_id 1/);
@@ -189,6 +189,19 @@ describe("canvas_edit and the editor over the WebSocket (G37.1)", () => {
     expect(await a.waitFor("doc.rejected", (m) => m.clientId === "u2")).toMatchObject({
       code: "nothing",
     });
+    // The difference view (G37.2): a revision before and after, over HTTP; a bad ask says why.
+    const diff = await (s as Server).api<{ before: { text: string }; after: { text: string } }>(
+      "POST",
+      "/api/editor/diff",
+      { file, revision: 1 },
+    );
+    expect(diff.status).toBe(200);
+    expect([diff.body.before.text, diff.body.after.text]).toEqual([TEXT, `A${TEXT}`]);
+    const bad = await (s as Server).api<{ error: string }>("POST", "/api/editor/diff", {
+      file: { scope: "outside", path: "/etc/hosts" },
+      revision: 1,
+    });
+    expect(bad.status).toBe(400);
     // A file outside every workspace is not opened.
     a.send({ type: "doc.open", file: { scope: "outside", path: "/etc/hosts" } });
     expect(

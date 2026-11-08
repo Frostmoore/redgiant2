@@ -222,15 +222,29 @@ const brain = (req) => {
     return { text: "Fatto: guarda nel Canvas, qui accanto." };
   // G37.1 (DEMO_CANVAS): the agent edits the note open in the canvas, with canvas_edit.
   // G37.4 (DEMO_CANVAS): the agent edits the report and the slides, in the document editor.
-  if (results && typeof toolOut === "string" && toolOut.startsWith("Applied as revision") && toolOut.includes("relazione"))
+  if (
+    results &&
+    typeof toolOut === "string" &&
+    toolOut.startsWith("Applied as revision") &&
+    toolOut.includes("relazione")
+  )
     return {
       text: "Fatto: ho aggiornato i totali della tabella, la nota sull'acciaio e aggiunto il nuovo fornitore. Le modifiche sono nel pannello Modifiche, ognuna si annulla da sola.",
     };
-  if (results && typeof toolOut === "string" && toolOut.startsWith("Applied as revision") && toolOut.includes("piano"))
+  if (
+    results &&
+    typeof toolOut === "string" &&
+    toolOut.startsWith("Applied as revision") &&
+    toolOut.includes("piano")
+  )
     return { text: "Fatto: c'è la diapositiva «Prossimi passi» e la data nuova in copertina." };
   if (results && typeof toolOut === "string" && toolOut.startsWith("Applied as revision"))
     return {
-      text: "Fatto: ho aggiunto le due voci e corretto l'orario. Le vedi evidenziate nel Canvas; dal pannello Modifiche puoi annullarle.",
+      text: said.startsWith("Migliora il totale")
+        ? "Fatto: ho spiegato il carrello vuoto e corretto l'arrotondamento. Le righe sono evidenziate nel Canvas; da Modifiche vedi le differenze o le annulli."
+        : said.startsWith("Aggiorna la guida")
+          ? "Fatto: ho aggiunto la sezione sui resi, la vedi nell'anteprima accanto."
+          : "Fatto: ho aggiunto le due voci e corretto l'orario. Le vedi evidenziate nel Canvas; dal pannello Modifiche puoi annullarle.",
     };
   if (results && typeof toolOut === "string" && toolOut.startsWith("Proposed to the person"))
     return { text: "Te l'ho proposta: la trovi in Modifiche, da accettare o rifiutare." };
@@ -251,6 +265,37 @@ const brain = (req) => {
         ],
       },
     ],
+    // G37.2: the agent edits code and Markdown open in the canvas.
+    [
+      "Migliora il totale",
+      "canvas_edit",
+      {
+        path: "canvas/app.py",
+        ops: [
+          {
+            op: "replace",
+            from_line: 15,
+            to_line: 16,
+            text: "    if net <= 0:\n        # An empty cart, or only free items.\n        return 0.0",
+          },
+          { op: "replace", find: "return round(gross, 2)", text: "return round(gross + 1e-9, 2)" },
+        ],
+      },
+    ],
+    [
+      "Aggiorna la guida",
+      "canvas_edit",
+      {
+        path: "canvas/guida.md",
+        ops: [
+          {
+            op: "insert",
+            line: 9,
+            text: "## Resi\n\nUn reso si accetta entro **14 giorni**, con lo scontrino.\n\n",
+          },
+        ],
+      },
+    ],
     [
       "Aggiorna la relazione",
       "canvas_edit",
@@ -264,7 +309,12 @@ const brain = (req) => {
             find: "Ritardi sulle forniture di acciaio.",
             text: "Ritardi sulle forniture di acciaio, rientrati a fine ottobre.",
           },
-          { op: "insert_paragraph", after: 7, text: "Nuovo fornitore di acciaio da gennaio 2027.", style: "List 1" },
+          {
+            op: "insert_paragraph",
+            after: 7,
+            text: "Nuovo fornitore di acciaio da gennaio 2027.",
+            style: "List 1",
+          },
         ],
       },
     ],
@@ -281,7 +331,12 @@ const brain = (req) => {
             title: "Prossimi passi",
             text: "Gara per l'acciaio entro dicembre\nSquadra Sud operativa a febbraio\nCollaudo del cantiere Nord a marzo",
           },
-          { op: "set_slide_text", slide: 1, shape: "subtitle", text: "Riunione di direzione - 19 novembre 2026" },
+          {
+            op: "set_slide_text",
+            slide: 1,
+            shape: "subtitle",
+            text: "Riunione di direzione - 19 novembre 2026",
+          },
         ],
       },
     ],
@@ -1234,8 +1289,48 @@ if (process.env.DEMO_CANVAS) {
     join(into, "spesa.txt"),
     "Spesa per sabato\n- latte\n- uova\n- farina\n\nRitiro in negozio alle 18, porta le borse.\n",
   );
+  // G37.2: Markdown and JSON edited as text, beside the code (app.py).
+  await writeFile(
+    join(into, "guida.md"),
+    [
+      "# Guida del negozio",
+      "",
+      "Aperto dal **martedì al sabato**, dalle 9 alle 19. Il lunedì si fa l'inventario.",
+      "",
+      "- Le consegne arrivano il mercoledì",
+      "- Il pane fresco il venerdì mattina",
+      "- Le borse di carta stanno sotto il banco",
+      "",
+      "## Prezzi",
+      "",
+      "| Prodotto | Prezzo |",
+      "| --- | ---: |",
+      "| Pane | 3,20 € |",
+      "| Latte | 1,40 € |",
+      "",
+      "I prezzi si aggiornano in `app.py` (vedi la funzione `total`).",
+      "",
+    ].join("\n"),
+  );
+  await writeFile(
+    join(into, "config.json"),
+    `${JSON.stringify(
+      {
+        negozio: "Bottega di Ada",
+        iva: 0.22,
+        aperto: true,
+        orari: { martedi: "9-19", sabato: "9-13" },
+        consegne: ["mercoledi", "venerdi"],
+      },
+      null,
+      2,
+    )}\n`,
+  );
   canvasSession = await core.startSession("local", god.id);
   await (await core.send("local", canvasSession, "Mostra il file canvas/spesa.txt")).done;
+  const codeSession = await core.startSession("local", god.id);
+  for (const f of ["config.json", "guida.md", "app.py"])
+    await (await core.send("local", codeSession, `Mostra il file canvas/${f}`)).done;
   // G37.4: a realistic report (DOCX) and slides (PPTX), edited on their open copies.
   const { copyFile, cp: copyDir } = await import("node:fs/promises");
   for (const f of ["relazione.docx", "piano.pptx"])

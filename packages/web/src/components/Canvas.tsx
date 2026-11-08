@@ -16,8 +16,9 @@ import {
   IconRefresh,
 } from "../icons.js";
 import { type CanvasTarget, canvasViewId, getApi } from "../state.js";
+import { viewerFor } from "../viewers/kind.js";
 import { CanvasTab, lastMove, report, setTabKind } from "../viewers/live.js";
-import { hasOfficeCopy, isOfficeFile } from "../viewers/office-bridge.js";
+import { hasOfficeCopy } from "../viewers/office-bridge.js";
 import { bytesText, download, type ViewerSource } from "../viewers/source.js";
 import { DocEditor, editableInCanvas } from "./viewers/DocEditor.js";
 import { EditCopyButton } from "./viewers/OfficeEditor.js";
@@ -127,13 +128,9 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
         id,
         site
           ? "site"
-          : editable && target.kind === "file" && isOfficeFile(target.path)
-            ? /\.odp$/i.test(target.path)
-              ? "slides"
-              : "document"
-            : editable
-              ? "text"
-              : shown?.kind,
+          : editable && target.kind === "file"
+            ? viewerFor(target.path).kind
+            : shown?.kind,
       ),
     [id, site, editable, shown?.kind],
   );
@@ -249,7 +246,20 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
           <div class="empty">{t("loading")}</div>
         ) : editable && target.kind === "file" ? (
           <CanvasTab.Provider value={id}>
-            <DocEditor file={{ scope: target.scope, path: target.path }} />
+            <DocEditor
+              file={{ scope: target.scope, path: target.path }}
+              line={target.at?.line}
+              fallback={() => (
+                <CanvasFile
+                  scope={target.scope}
+                  path={target.path}
+                  name={name}
+                  url={url}
+                  onKind={setShown}
+                  {...(target.at && { at: target.at })}
+                />
+              )}
+            />
           </CanvasTab.Provider>
         ) : site ? (
           <iframe

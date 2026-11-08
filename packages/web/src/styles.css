@@ -15024,8 +15024,249 @@ button.doc-change-what {
 }
 .doc-change-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 6px;
+}
+/* Text and code in the editor (G37.2): a slim bar of its own (Markdown's preview, the tree, the
+   language, the syntax check), the preview beside the text or instead of it, and the differences
+   of a change, a turn or a proposal over the text (@codemirror/merge), in the theme's colours. */
+.doc-work {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+}
+.doc-text-wrap {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  container-type: inline-size;
+}
+.doc-sub {
+  padding: 5px 12px;
+  gap: 6px 10px;
+  font-size: 12px;
+  background: var(--panel-2);
+}
+.doc-sub .vw-seg > button {
+  min-height: 26px;
+  font-size: 12px;
+}
+.doc-sub .vw-toggle {
+  font-size: 12px;
+}
+.doc-lang {
+  white-space: nowrap;
+}
+.doc-text-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.doc-text-body > .doc-text {
+  flex: 1;
+  min-width: 0;
+}
+.doc-text-body.mode-preview > .doc-text,
+.doc-text-body.mode-tree > .doc-text {
+  display: none;
+}
+.doc-preview {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  padding: 16px 22px 40px;
+  border-left: 1px solid var(--line);
+}
+.mode-preview > .doc-preview {
+  border-left: 0;
+  max-width: 860px;
+  margin: 0 auto;
+}
+.doc-tree {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+@container (max-width: 560px) {
+  .doc-text-body.mode-split {
+    flex-direction: column;
+  }
+  .mode-split > .doc-text,
+  .mode-split > .doc-preview {
+    flex: 1 1 50%;
+    min-height: 0;
+  }
+  .mode-split > .doc-preview {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 12px 16px 24px;
+  }
+  .doc-syntax-msg {
+    display: none;
+  }
+}
+.doc-syntax {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.doc-syntax.ok {
+  color: var(--ok);
+}
+.doc-syntax.bad > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--err);
+  font-size: 12px;
+  text-decoration: none;
+}
+.doc-syntax-msg {
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 340px;
+}
+.doc-text .cm-tooltip,
+.doc-text .cm-panels {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--line);
+}
+.doc-text .cm-diagnostic-error {
+  border-left-color: var(--err);
+}
+.doc-text .cm-lintRange-error {
+  background-image: none;
+  text-decoration: underline wavy var(--err);
+  text-underline-offset: 3px;
+}
+.doc-group-head .doc-diff-open {
+  margin-left: auto;
+  min-width: 28px;
+  min-height: 28px;
+}
+.doc-diff-open + .doc-undo-turn {
+  margin-left: 0;
+}
+.doc-fallback {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.doc-fallback > .vw-note {
+  margin: 0;
+}
+.doc-diff {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+}
+.doc-diff-bar {
+  gap: 6px 10px;
+}
+.doc-diff-title {
+  flex: 1 1 120px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-diff-bar .spacer {
+  display: none;
+}
+.doc-diff-close {
+  flex: none;
+}
+.doc-diff-heads {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  font-size: 12px;
+  color: var(--dim);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.doc-diff-heads > span {
+  padding: 4px 12px;
+}
+.doc-diff-heads > span + span {
+  border-left: 1px solid var(--line);
+}
+.doc-diff-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  font-size: 13px;
+}
+.doc-diff-body.hidden {
+  display: none;
+}
+.doc-diff-body .cm-editor {
+  background: var(--panel);
+  color: var(--text);
+}
+.doc-diff-body .cm-editor.cm-focused {
+  outline: none;
+}
+.doc-diff-body .cm-scroller {
+  font-family: var(--mono);
+}
+.doc-diff-body .cm-gutters {
+  background: var(--panel-2);
+  color: var(--dim);
+  border-right: 1px solid var(--line);
+}
+.doc-diff-body .cm-mergeViewEditor + .cm-mergeViewEditor {
+  border-left: 1px solid var(--line);
+}
+.doc-diff-body .cm-changedLine,
+.doc-diff-body .cm-inlineChangedLine {
+  background: color-mix(in srgb, var(--ok) 13%, transparent);
+}
+.doc-diff-body .cm-merge-a .cm-changedLine,
+.doc-diff-body .cm-deletedChunk {
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+}
+.doc-diff-body .cm-changedText {
+  background: color-mix(in srgb, var(--ok) 32%, transparent);
+}
+.doc-diff-body .cm-merge-a .cm-changedText,
+.doc-diff-body .cm-deletedChunk .cm-deletedText {
+  background: color-mix(in srgb, var(--err) 30%, transparent);
+}
+.doc-diff-body .cm-changedLineGutter {
+  background: var(--ok);
+}
+.doc-diff-body .cm-merge-a .cm-changedLineGutter,
+.doc-diff-body .cm-deletedLineGutter {
+  background: var(--err);
+}
+.doc-diff-body .cm-collapsedLines {
+  color: var(--dim);
+  background: var(--panel-2);
+  font-size: 12px;
+  font-family: var(--sans, inherit);
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+}
+.doc-diff-body .cm-collapsedLines::before,
+.doc-diff-body .cm-collapsedLines::after {
+  content: none;
 }
 .tl-edit-rule h4 {
   margin: 0 0 4px;
@@ -15051,6 +15292,9 @@ button.doc-change-what {
   }
   .doc-undo span {
     display: inline;
+  }
+  .doc-diff-heads {
+    display: none;
   }
 }
 

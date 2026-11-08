@@ -6,13 +6,17 @@
 //   GET  /api/unattended               → UnattendedDecision[] (decided without the person)
 //   GET  /api/settings/editor          → { settings } (G37.1: the agents' edits, at once or proposed)
 //   PUT  /api/settings/editor          → PlatformChange
+//   POST /api/editor/diff              → { before, after, from, to } (G37.2: a change, a turn or a
+//                                        proposal, before and after, for the difference view)
 
 import {
   CRITICAL_IDS,
   DEFAULT_COMMAND_SETTINGS,
   DEFAULT_REQUEST_SETTINGS,
+  DocFile,
 } from "@redgiant/protocol";
 import type { Context, Hono } from "hono";
+import { z } from "zod";
 import type { RedGiantCore } from "./core.js";
 import { ConfigError, type PersonSettingsKey } from "./platform.js";
 
@@ -68,6 +72,17 @@ export function personRoutes<E extends { Variables: any }>(
     if (r.status === 200) core.editor.modeChanged(owner(c));
     return r;
   });
+  // The difference view (G37.2): the file before and after a change, a turn or a proposal.
+  app.post("/api/editor/diff", async (c) => {
+    const body = DiffAsk.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "Say the file and which change" }, 400);
+    const { file, ...what } = body.data;
+    try {
+      return c.json(await core.editor.diffOf(owner(c), file, what), 200);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
   app.get("/api/unattended", async (c) =>
     c.json(
       await core.person.list(owner(c), {
@@ -77,3 +92,12 @@ export function personRoutes<E extends { Variables: any }>(
     ),
   );
 }
+
+const DiffAsk = z
+  .object({
+    file: DocFile,
+    revision: z.number().int().positive().optional(),
+    groupId: z.string().min(1).max(200).optional(),
+    proposalId: z.string().min(1).max(80).optional(),
+  })
+  .strict();
