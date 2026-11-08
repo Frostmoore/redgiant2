@@ -81,6 +81,22 @@ export interface VaultEntry {
   updatedAt: string;
   lastUsedAt: string | null;
   uses: number;
+  /**
+   * A key a part of RedGiant uses (G36.20: a provider's key, a chat's token, a mailbox's password,
+   * an MCP service's sign-in): editable here like any other, set and removed from its page.
+   */
+  usedBy?: VaultUsedBy | undefined;
+}
+
+/** The part of RedGiant that uses a key kept in the keychain, and the page that sets it. */
+export interface VaultUsedBy {
+  /** Which key of that part (`setup:keys.anthropic`, `email:<box>`, `mcp:<server>`). */
+  key: string;
+  /** The Settings section where it is set and removed. */
+  section: string;
+  kind: VaultSystemEntry["kind"];
+  /** What it is for, in English (the page has its own words for the known ones). */
+  what: string;
 }
 
 /**
@@ -98,6 +114,8 @@ export interface VaultSystemEntry {
   /** What it is for, in English (the page has its own words for the known ones). */
   what: string;
   kind: "provider" | "chat" | "email" | "mcp" | "git" | "search" | "other";
+  /** Set by whoever installed the server (an environment variable): it cannot change here. */
+  locked?: boolean | undefined;
 }
 
 /** One use of a credential: who, when, where to, and how it went. */
@@ -113,7 +131,8 @@ export interface VaultUse {
   tool: string;
   host: string;
   method: string;
-  outcome: "used" | "denied" | "refused";
+  /** `moved`: brought into the keychain from an older file (`host` names it, G36.20). */
+  outcome: "used" | "denied" | "refused" | "moved";
   /** Why it was denied or refused. */
   reason?: string | undefined;
 }

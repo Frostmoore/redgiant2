@@ -1,7 +1,8 @@
 // Routines on email (G24.14c): the person's mailboxes, read over IMAP every few minutes. Only mail
 // that arrived after a mailbox was set is looked at; nothing is marked as read or changed. A
 // message that matches a routine starts it, the message given to the agent as data. Passwords
-// stay in private files, never in the database.
+// are in the keychain (G36.20: `email:<id>`, moved there from the private files of before), never
+// in the database; a private file only while the keychain cannot open.
 //
 // Many mailboxes (G33.3, the person: "infiniti indirizzi email… divisi per categoria"): each has
 // a name, a category (work, personal, social, other or the person's own), its own last UID and
@@ -14,6 +15,7 @@ import type { SqlClient } from "@redgiant/events";
 import type { Mailbox as MailboxInfo } from "@redgiant/protocol";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
+import { shredFile, type Vault } from "./vault.js";
 
 export interface EmailAccount {
   host: string;
@@ -141,8 +143,60 @@ export class EmailWatcher {
       sender?: MailSender;
       /** Owners whose routines may wait for email. */
       owners: () => Promise<string[]>;
+      /** Where the passwords are kept (G36.20); without it, or while it is closed, private files. */
+      vault?: Vault;
     },
   ) {}
+
+  private keyOf(id: string) {
+    return `email:${id}`;
+  }
+
+  private metaOf(box: Pick<Stored, "id" | "name" | "user" | "host" | "smtp">) {
+    const smtp = box.smtp?.host ?? smtpFor({ host: box.host }).host;
+    return {
+      name: `email-${box.name}`,
+      service: box.name,
+      brand: "email",
+      category: "email" as const,
+      username: box.user,
+      hosts: [...new Set([box.host.toLowerCase(), smtp.toLowerCase()])],
+      inject: { header: "", format: "{value}" },
+      section: "automations",
+      kind: "email" as const,
+      what: box.user,
+    };
+  }
+
+  /**
+   * At startup (G36.20): every mailbox's password still in a private file goes to the keychain,
+   * is read back, and only then the file is destroyed. Nothing happens while it is closed.
+   */
+  async moveSecretsToVault(): Promise<number> {
+    if (!this.o.vault?.ready) return 0;
+    let n = 0;
+    for (const owner of await this.o.owners().catch(() => []))
+      for (const b of await this.boxes(owner).catch(() => []))
+        if (await this.moveOne(owner, b)) n++;
+    return n;
+  }
+
+  private async moveOne(ownerId: string, box: Stored): Promise<boolean> {
+    const vault = this.o.vault;
+    if (!vault?.ready) return false;
+    const file = this.secretFile(ownerId, box.id);
+    const password = await readFile(file, "utf8")
+      .then((t) => (JSON.parse(t) as { password?: string }).password)
+      .catch(() => undefined);
+    if (password === undefined) return false;
+    const key = this.keyOf(box.id);
+    if (vault.systemValue(ownerId, key) !== password)
+      await vault.setSystem(ownerId, key, password, this.metaOf(box));
+    if (!(await vault.verifySystem(ownerId, new Map([[key, password]])))) return false;
+    await shredFile(file);
+    await vault.recordMoved(ownerId, [key], `email/${box.id}.json`);
+    return true;
+  }
 
   /** The single mailbox of older versions. */
   private oldFile(ownerId: string) {
@@ -190,7 +244,11 @@ export class EmailWatcher {
       const list = (await this.setting<Stored[]>(ownerId, "email_boxes")) ?? [];
       const id = `box_${randomUUID().slice(0, 8)}`;
       const last = await this.setting<number>(ownerId, "email_last_uid");
-      await this.writeSecret(ownerId, id, old.password);
+      await this.writeSecret(
+        ownerId,
+        { id, name: old.user, user: old.user, host: old.host },
+        old.password,
+      );
       await this.setSetting(ownerId, "email_boxes", [
         {
           id,
@@ -211,7 +269,17 @@ export class EmailWatcher {
     this.migrated.add(ownerId);
   }
 
-  private async writeSecret(ownerId: string, id: string, password: string) {
+  private async writeSecret(
+    ownerId: string,
+    box: Pick<Stored, "id" | "name" | "user" | "host" | "smtp">,
+    password: string,
+  ) {
+    const id = box.id;
+    if (this.o.vault?.ready) {
+      await this.o.vault.setSystem(ownerId, this.keyOf(id), password, this.metaOf(box));
+      await shredFile(this.secretFile(ownerId, id));
+      return;
+    }
     const dir = join(this.o.dir, safe(ownerId));
     await mkdir(dir, { recursive: true, mode: 0o700 });
     const file = this.secretFile(ownerId, id);
@@ -220,9 +288,20 @@ export class EmailWatcher {
   }
 
   private async password(ownerId: string, id: string): Promise<string | undefined> {
-    return readFile(this.secretFile(ownerId, id), "utf8")
+    const vault = this.o.vault;
+    const kept = vault?.systemValue(ownerId, this.keyOf(id));
+    if (kept !== undefined) return kept;
+    const password = await readFile(this.secretFile(ownerId, id), "utf8")
       .then((t) => (JSON.parse(t) as { password?: string }).password)
       .catch(() => undefined);
+    // A file of before, found while the keychain is open: moved there now.
+    if (password !== undefined && vault?.ready) {
+      const box = ((await this.setting<Stored[]>(ownerId, "email_boxes")) ?? []).find(
+        (b) => b.id === id,
+      );
+      if (box) await this.moveOne(ownerId, box).catch(() => false);
+    }
+    return password;
   }
 
   /** Every mailbox of the person, oldest first. */
@@ -272,7 +351,7 @@ export class EmailWatcher {
       ...(i.smtp && { smtp: i.smtp }),
       createdAt: new Date().toISOString(),
     };
-    await this.writeSecret(ownerId, id, i.password);
+    await this.writeSecret(ownerId, box, i.password);
     await this.setSetting(ownerId, "email_boxes", [...list, box]);
     await this.setLast(id, ownerId, last);
     return box;
@@ -305,7 +384,12 @@ export class EmailWatcher {
       i.password !== undefined;
     if (moved) {
       const { last } = await (this.o.mailbox ?? imapMailbox).newer(account, null);
-      if (i.password !== undefined) await this.writeSecret(ownerId, id, i.password);
+      if (i.password !== undefined)
+        await this.writeSecret(
+          ownerId,
+          { ...box, host: account.host, user: account.user, name: i.name?.trim() || box.name },
+          i.password,
+        );
       // Another mailbox (or the same one moved): its UIDs start again from now.
       if (account.host !== box.host || account.user !== box.user)
         await this.setLast(id, ownerId, last);
@@ -340,6 +424,7 @@ export class EmailWatcher {
       list.filter((b) => b.id !== id),
     );
     await rm(this.secretFile(ownerId, id), { force: true });
+    if (this.o.vault?.ready) await this.o.vault.setSystem(ownerId, this.keyOf(id), null);
     await this.dropSetting(ownerId, `email_last_uid:${id}`);
   }
 

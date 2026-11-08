@@ -47,7 +47,7 @@ export interface BackupData {
 
 /** What `exportBackup` adds on request (G36.19). */
 export interface ExportOptions {
-  /** The settings too (rg_settings: no secret is kept there; the keys stay in secrets.json). */
+  /** The settings too (rg_settings: no secret is kept there; the keys are in the keychain, G36.20). */
   full?: boolean;
   version?: string;
 }

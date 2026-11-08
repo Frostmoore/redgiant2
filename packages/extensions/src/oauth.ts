@@ -1,7 +1,8 @@
 // Signing in to remote MCP servers (G24.9): the MCP authorization spec's OAuth 2.1 with dynamic
 // client registration and PKCE, done by the MCP SDK; this file keeps what it needs per server in
-// a private file (never in the database, never in a sandbox): the registered client, the tokens,
-// the PKCE verifier, and, for servers that use a plain key, its headers or variables.
+// the person's keychain when the server gives one (G36.20), a private file otherwise (never in the
+// database, never in a sandbox): the registered client, the tokens, the PKCE verifier, and, for
+// servers that use a plain key, its headers or variables.
 
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -39,18 +40,48 @@ export interface McpApp {
 
 const safe = (s: string) => s.replace(/[^\w.-]+/g, "_");
 
-/** One file per owner and server, readable only by RedGiant. */
+/**
+ * Where the server keeps these secrets instead of files (the keychain, G36.20): one value per
+ * owner and server, the JSON of `McpSecrets`.
+ */
+export interface McpSecretBackend {
+  ready(): boolean;
+  get(ownerId: string, name: string): string | undefined;
+  set(ownerId: string, name: string, value: string | null): Promise<void>;
+  /**
+   * A file of before: its value written, read back, and only then the file destroyed (and the
+   * move recorded). false: the file stays.
+   */
+  adopt(ownerId: string, name: string, value: string, file: string): Promise<boolean>;
+}
+
+/** One entry of the keychain per owner and server; one file each while it cannot be used. */
 export class McpCredentialStore {
-  constructor(private readonly dir: string) {}
+  constructor(
+    private readonly dir: string,
+    private readonly backend?: McpSecretBackend,
+  ) {}
 
   private file(ownerId: string, name: string): string {
     return join(this.dir, safe(ownerId), `${safe(name)}.json`);
   }
 
+  private parse(t: string | undefined): McpSecrets {
+    try {
+      return t ? (JSON.parse(t) as McpSecrets) : {};
+    } catch {
+      return {};
+    }
+  }
+
   async load(ownerId: string, name: string): Promise<McpSecrets> {
-    return readFile(this.file(ownerId, name), "utf8")
-      .then((t) => JSON.parse(t) as McpSecrets)
-      .catch(() => ({}));
+    const b = this.backend?.ready() ? this.backend : undefined;
+    const kept = b?.get(ownerId, name);
+    if (kept !== undefined) return this.parse(kept);
+    const file = this.file(ownerId, name);
+    const t = await readFile(file, "utf8").catch(() => undefined);
+    if (t !== undefined && b) await b.adopt(ownerId, name, t, file).catch(() => false);
+    return this.parse(t);
   }
 
   /** Merges a patch; a field set to undefined is removed. */
@@ -61,6 +92,10 @@ export class McpCredentialStore {
   ): Promise<void> {
     const file = this.file(ownerId, name);
     const next = { ...(await this.load(ownerId, name)), ...patch };
+    if (this.backend?.ready()) {
+      await this.backend.set(ownerId, name, JSON.stringify(next));
+      return;
+    }
     await mkdir(join(this.dir, safe(ownerId)), { recursive: true, mode: 0o700 });
     await writeFile(`${file}.tmp`, JSON.stringify(next), { mode: 0o600 });
     await chmod(`${file}.tmp`, 0o600);
@@ -69,6 +104,7 @@ export class McpCredentialStore {
 
   async remove(ownerId: string, name: string): Promise<void> {
     await rm(this.file(ownerId, name), { force: true });
+    if (this.backend?.ready()) await this.backend.set(ownerId, name, null);
   }
 }
 

@@ -676,8 +676,49 @@ await core.automations.create(
 );
 
 const web = fileURLToPath(new URL("../dist", import.meta.url));
+// G36.20, DEMO_KEYS=1: the files of a version before, moved into the keychain at this start (a
+// secrets.json with keys of models, chats, GitHub and search; a mailbox's password file).
+if (process.env.DEMO_KEYS) {
+  await mkdir(join(dir, "data"), { recursive: true });
+  await writeFile(
+    join(dir, "data", "secrets.json"),
+    JSON.stringify({
+      keys: { anthropic: "sk-ant-api03-demo-moved", openai: "sk-proj-demo-moved" },
+      telegramToken: "123456:AAH-demo-moved",
+      chats: { matrix: { homeserver: "https://matrix.example.org", accessToken: "syt_demo" } },
+      githubToken: "ghp_demo_good_moved",
+      searchKeys: { brave: "BSA-demo-moved" },
+    }),
+    { mode: 0o600 },
+  );
+  await core.db.query(
+    "INSERT INTO rg_settings (owner_id, key, value) VALUES ('local', 'email_boxes', $1) ON CONFLICT DO NOTHING",
+    [
+      JSON.stringify([
+        {
+          id: "box_demo1",
+          name: "Lavoro",
+          category: "work",
+          host: "imap.example.org",
+          port: 993,
+          secure: true,
+          user: "mario@example.org",
+          createdAt: new Date().toISOString(),
+        },
+      ]),
+    ],
+  );
+  await mkdir(join(dir, "email", "local"), { recursive: true });
+  await writeFile(
+    join(dir, "email", "local", "box_demo1.json"),
+    JSON.stringify({ password: "demo-mail-password" }),
+  );
+  await core.email.accountOf("local", "box_demo1");
+}
 // The setup wizard, already completed, with hooks that change nothing (no keys, no engine).
 const setup = new SetupService({
+  // DEMO_KEYS: the pictures key set by the administrator (an environment variable).
+  ...(process.env.DEMO_KEYS && { locked: { images: true } }),
   db: core.db,
   core,
   dataDir: join(dir, "data"),
@@ -1029,6 +1070,7 @@ if (process.env.DEMO_UPDATE || process.env.DEMO_FOUND) {
 }
 await debugLog.configure({ dir: join(dir, "logs") });
 await setup.applyAtStartup();
+core.vaultSystem = async () => setup.keysForVault();
 // DEMO_FRESH=1: a fresh install, the setup wizard takes the whole page (2026-11-06).
 if (!process.env.DEMO_FRESH) await setup.complete();
 const running = await serve(core, new TokenAuth({ [token]: "local" }), {

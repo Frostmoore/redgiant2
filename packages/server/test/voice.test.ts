@@ -168,8 +168,8 @@ describe("voice messages through the server", () => {
     s.core.setAgentLanguage("zh-Hant");
     await post();
     expect(got[1]?.url).toMatch(/^\/asr\?.*language=zh(&|$)/);
-    // The key is in the secrets file only, never in the readable configuration.
-    expect(await readFile(join(dataDir, "secrets.json"), "utf8")).toContain("whisper-secret");
+    // The key is in the keychain only (G36.20), never in the readable configuration.
+    expect(s.core.vault.systemValue("me", "setup:transcriptionKey")).toBe("whisper-secret");
     expect(await readFile(join(dataDir, "redgiant.yaml"), "utf8")).not.toContain("whisper-secret");
     const state = await s.api<{ secretsSet: { transcription: boolean } }>("GET", "/api/setup");
     expect(state.body.secretsSet.transcription).toBe(true);

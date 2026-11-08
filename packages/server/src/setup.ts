@@ -41,6 +41,7 @@ import type { MoePrefetchState } from "./moe-prefetch.js";
 import { defaultTemplate, toPlaceholders } from "./prompts.js";
 import { REMOTE_STEPS, type RemoteRequest } from "./remote.js";
 import { BIG_BATCHES, type EnginePlan, MOE_BATCH } from "./stream.js";
+import { type SystemKeyMeta, shredFile } from "./vault.js";
 
 /** Applies a choice while the server runs (set by main.ts; tests pass fakes). */
 export interface SetupHooks {
@@ -310,6 +311,11 @@ export interface SetupConfig {
   remote?: { way: RemoteRequest["way"]; url: string };
   /** Pi-hole, when chosen (its admin password is in the secrets). */
   pihole?: { lanIp: string; domain?: string; adminUrl: string };
+  /**
+   * The chats' settings that are not secret (a Matrix server, a Teams App ID, G36.20): their
+   * tokens and passwords are in the keychain.
+   */
+  chatSettings?: Partial<Record<Platform, Record<string, string>>>;
 }
 
 interface Secrets {
@@ -363,6 +369,264 @@ const SERVICE_NAMES: Record<string, string> = {
   exa: "Exa",
   serper: "Serper",
 };
+
+/** Where each service's key may go (the keychain's allowed hosts, G36.20). */
+const KEY_HOSTS: Record<string, string[]> = {
+  anthropic: ["api.anthropic.com"],
+  openai: ["api.openai.com"],
+  openrouter: ["openrouter.ai"],
+  deepseek: ["api.deepseek.com"],
+  mistral: ["api.mistral.ai"],
+  gemini: ["generativelanguage.googleapis.com"],
+  google: ["generativelanguage.googleapis.com"],
+  xai: ["api.x.ai"],
+  groq: ["api.groq.com"],
+  elevenlabs: ["api.elevenlabs.io"],
+  runway: ["api.dev.runwayml.com"],
+  brave: ["api.search.brave.com"],
+  tavily: ["api.tavily.com"],
+  exa: ["api.exa.ai"],
+  serper: ["google.serper.dev"],
+};
+
+/** The keychain's keys of the setup start with this (`setup:keys.anthropic`). */
+export const SETUP_KEYS = "setup:";
+
+/** Which fields of a chat's settings are secret (the rest stays in the settings). */
+const SECRET_FIELD = /token|secret|password|key/i;
+
+/**
+ * Every secret as `path → value` (`keys.anthropic`, `chats.matrix.accessToken`): one keychain
+ * entry each. The chats' fields that are not secret are left out (they go in the settings).
+ */
+export function flattenSecrets(s: object): Map<string, string> {
+  const out = new Map<string, string>();
+  const walk = (v: unknown, at: string[]) => {
+    if (typeof v === "string") {
+      if (v && !(at[0] === "chats" && at.length === 3 && !SECRET_FIELD.test(at[2] as string)))
+        out.set(at.join("."), v);
+    } else if (v && typeof v === "object")
+      for (const [k, x] of Object.entries(v)) walk(x, [...at, k]);
+  };
+  walk(s, []);
+  return out;
+}
+
+/** The secrets back from `path → value`, with the chats' plain fields put back beside them. */
+export function unflattenSecrets(
+  m: Map<string, string>,
+  chatSettings: SetupConfig["chatSettings"] = {},
+): Secrets {
+  const out: Record<string, unknown> = {};
+  for (const [path, value] of m) {
+    const parts = path.split(".");
+    let o = out;
+    for (const p of parts.slice(0, -1)) {
+      if (!o[p] || typeof o[p] !== "object") o[p] = {};
+      o = o[p] as Record<string, unknown>;
+    }
+    o[parts.at(-1) as string] = value;
+  }
+  const s = out as Secrets;
+  for (const [p, plain] of Object.entries(chatSettings ?? {}))
+    if (plain && s.chats?.[p as Platform])
+      s.chats[p as Platform] = { ...plain, ...s.chats[p as Platform] };
+  return s;
+}
+
+/** The chats' fields that are not secret, kept in the settings. */
+function plainChatSettings(s: Secrets): SetupConfig["chatSettings"] {
+  const out: NonNullable<SetupConfig["chatSettings"]> = {};
+  for (const [p, f] of Object.entries(s.chats ?? {})) {
+    const plain = Object.fromEntries(
+      Object.entries(f ?? {}).filter(([k]) => !SECRET_FIELD.test(k)),
+    );
+    if (Object.keys(plain).length) out[p as Platform] = plain;
+  }
+  return out;
+}
+
+/** b over a, object by object. */
+function mergeSecrets(a: unknown, b: unknown): unknown {
+  if (!b || typeof b !== "object" || Array.isArray(b)) return b === undefined ? a : b;
+  const out: Record<string, unknown> = { ...(a && typeof a === "object" ? a : {}) };
+  for (const [k, v] of Object.entries(b)) out[k] = mergeSecrets(out[k], v);
+  return out;
+}
+
+const hostOf = (url: string | undefined) => {
+  try {
+    return url ? [new URL(url).hostname.toLowerCase()] : [];
+  } catch {
+    return [];
+  }
+};
+
+/** How one of the setup's secrets shows in the keychain: name, service, page, allowed hosts. */
+export function setupKeyMeta(path: string, c: SetupConfig): SystemKeyMeta {
+  const [head = "", sub = "", field = ""] = path.split(".");
+  const named = (id: string) =>
+    SERVICE_NAMES[id] ?? (id ? id.charAt(0).toUpperCase() + id.slice(1) : "RedGiant");
+  const hostsOf = (id: string) => {
+    const known = KEY_HOSTS[id];
+    if (known) return known;
+    try {
+      return hostOf(keyProvider(id)?.baseUrl);
+    } catch {
+      return [];
+    }
+  };
+  const base = (
+    name: string,
+    service: string,
+    section: string,
+    kind: SystemKeyMeta["kind"],
+    what: string,
+    hosts: string[],
+    extra: Partial<SystemKeyMeta> = {},
+  ): SystemKeyMeta => ({
+    name,
+    service,
+    brand: service.toLowerCase().split(" ")[0],
+    category: "api",
+    hosts,
+    section,
+    kind,
+    what,
+    ...extra,
+  });
+  const anthropicHeader = { inject: { header: "x-api-key", format: "{value}" } };
+  switch (head) {
+    case "keys":
+      return base(
+        `${sub}-api-key`,
+        named(sub),
+        "subscriptions",
+        "provider",
+        "API key",
+        hostsOf(sub),
+        {
+          brand: sub,
+          ...(sub === "anthropic" && anthropicHeader),
+        },
+      );
+    case "mediaKeys":
+      return base(
+        `${sub}-media-key`,
+        named(sub),
+        "subscriptions",
+        "provider",
+        "API key",
+        hostsOf(sub),
+        {
+          brand: sub,
+        },
+      );
+    case "searchKeys":
+      return base(
+        `${sub}-search-key`,
+        named(sub),
+        "subscriptions",
+        "search",
+        "API key",
+        hostsOf(sub),
+        {
+          brand: sub,
+        },
+      );
+    case "serverKey":
+      return base(
+        "own-server-key",
+        "OpenAI-compatible server",
+        "subscriptions",
+        "provider",
+        "API key",
+        hostOf(c.server?.baseUrl),
+        { brand: "server", url: c.server?.baseUrl ?? "" },
+      );
+    case "claudeSubscriptionToken":
+      return base(
+        "claude-subscription",
+        "Claude",
+        "subscriptions",
+        "provider",
+        "subscription",
+        ["api.anthropic.com"],
+        { brand: "claude" },
+      );
+    case "transcriptionKey":
+      return base(
+        "transcription-key",
+        "Transcription",
+        "subscriptions",
+        "other",
+        "API key",
+        hostOf(c.transcription?.url),
+      );
+    case "openaiImagesKey":
+      return base(
+        "openai-images-key",
+        "OpenAI",
+        "subscriptions",
+        "provider",
+        "images key",
+        ["api.openai.com"],
+        { brand: "openai" },
+      );
+    case "telegramToken":
+      return base(
+        "telegram-bot-token",
+        "Telegram",
+        "telegram",
+        "chat",
+        "bot token",
+        ["api.telegram.org"],
+        { brand: "telegram", inject: { header: "", format: "{value}" } },
+      );
+    case "chats":
+      return base(`${sub}-${field}`, named(sub), "chats", "chat", field || "token", [], {
+        brand: sub,
+        inject: { header: "", format: "{value}" },
+      });
+    case "githubToken":
+      return base(
+        "github-token",
+        "GitHub",
+        "code",
+        "git",
+        "token",
+        ["api.github.com", "github.com"],
+        {
+          brand: "github",
+          category: "server",
+        },
+      );
+    case "giteaToken":
+      return base("gitea-token", "Gitea", "code", "git", "token", hostOf(c.git?.gitea?.publicUrl), {
+        brand: "gitea",
+        category: "server",
+        inject: { header: "Authorization", format: "token {value}" },
+      });
+    case "piholePassword":
+      return base("pihole-password", "Pi-hole", "remote", "other", "password", [], {
+        brand: "pihole",
+        category: "server",
+        inject: { header: "", format: "{value}" },
+      });
+    case "cloudflareToken":
+      return base(
+        "cloudflare-token",
+        "Cloudflare",
+        "remote",
+        "other",
+        "token",
+        ["api.cloudflare.com"],
+        { brand: "cloudflare", category: "server" },
+      );
+    default:
+      return base(path.replace(/\./g, "-"), "RedGiant", "subscriptions", "other", path, []);
+  }
+}
 
 export interface SetupState {
   config: SetupConfig;
@@ -510,18 +774,121 @@ export class SetupService {
     );
     if (r)
       this.config = (typeof r.value === "string" ? JSON.parse(r.value) : r.value) as SetupConfig;
-    this.secrets = await readFile(this.secretsFile, "utf8")
-      .then((t) => JSON.parse(t) as Secrets)
-      .catch(() => ({}));
-    if (this.migrate()) await this.save();
+    const vault = this.vault;
+    if (!this.listening) {
+      this.listening = true;
+      vault.onSystemChange((owner, key) => this.keyChanged(owner, key));
+    }
+    // G36.20: the keys live in the keychain; a secrets.json of before is moved there, checked
+    // and destroyed. While the keychain cannot open, the file stays and is used as before.
+    const file = await this.readSecretsFile();
+    let moving: Secrets | null = null;
+    if (vault.ready) {
+      this.secrets = this.fromVault();
+      if (file === "unreadable")
+        console.warn(
+          "setup: secrets.json cannot be read: it is left where it is, the keys come from the keychain",
+        );
+      else if (file) {
+        moving = file;
+        this.secrets = mergeSecrets(this.secrets, file) as Secrets;
+      }
+    } else {
+      this.secrets = file && file !== "unreadable" ? file : {};
+      console.warn(
+        "setup: the keychain did not open (Settings > Keychain says why): the keys stay in secrets.json until it does",
+      );
+    }
+    let changed = this.migrate();
     // Push notifications through ntfy are gone (G24.1): alerts go to Telegram.
     const old = this.config as { ntfyUrl?: string };
     const oldSecrets = this.secrets as { ntfyToken?: string };
     if (old.ntfyUrl !== undefined || oldSecrets.ntfyToken !== undefined) {
       delete old.ntfyUrl;
       delete oldSecrets.ntfyToken;
-      await this.save();
+      changed = true;
     }
+    if (changed || moving) await this.save();
+    if (moving) await this.finishMove(moving);
+    // A move cut short after its check: the file was already renamed to be destroyed.
+    if (vault.ready) await shredFile(`${this.secretsFile}.shred`);
+  }
+
+  private listening = false;
+
+  private get vault() {
+    return this.o.core.vault;
+  }
+
+  /** secrets.json, if there is one: null when absent, "unreadable" when it is not JSON. */
+  private async readSecretsFile(): Promise<Secrets | "unreadable" | null> {
+    const t = await readFile(this.secretsFile, "utf8").catch(() => null);
+    if (t === null) return null;
+    try {
+      return JSON.parse(t) as Secrets;
+    } catch {
+      return "unreadable";
+    }
+  }
+
+  /** The setup's keys as the keychain holds them, with the chats' plain settings beside. */
+  private fromVault(): Secrets {
+    const m = new Map<string, string>();
+    for (const [k, v] of this.vault.systemValues(this.o.ownerId, SETUP_KEYS))
+      m.set(k.slice(SETUP_KEYS.length), v);
+    return unflattenSecrets(m, this.config.chatSettings);
+  }
+
+  /**
+   * After the keys of secrets.json were written to the keychain: read back from the disk and
+   * compared one by one; only then the file is destroyed and the move recorded.
+   */
+  private async finishMove(file: Secrets): Promise<void> {
+    const moved = flattenSecrets(file);
+    const want = new Map<string, string>();
+    for (const [k, v] of flattenSecrets(this.secrets)) want.set(`${SETUP_KEYS}${k}`, v);
+    if (!(await this.vault.verifySystem(this.o.ownerId, want))) {
+      console.warn("setup: the keys written to the keychain did not read back: secrets.json stays");
+      return;
+    }
+    await shredFile(this.secretsFile);
+    await shredFile(`${this.secretsFile}.tmp`);
+    await this.vault.recordMoved(
+      this.o.ownerId,
+      [...moved.keys()].map((k) => `${SETUP_KEYS}${k}`),
+      "secrets.json",
+    );
+    console.log(`setup: ${moved.size} key(s) moved from secrets.json to the keychain`);
+  }
+
+  /**
+   * The person changed one of these keys in the keychain (or a backup brought it back): the part
+   * that uses it takes it at once.
+   */
+  private async keyChanged(owner: string, key: string): Promise<void> {
+    if (owner !== this.o.ownerId || !key.startsWith(SETUP_KEYS)) return;
+    this.secrets = this.fromVault();
+    const [head = "", sub = ""] = key.slice(SETUP_KEYS.length).split(".");
+    const h = this.o.hooks;
+    const s = this.secrets;
+    const c = this.config;
+    if (head === "keys" && s.keys?.[sub] && !(sub === "anthropic" && this.locked.anthropic))
+      await h.key(sub, s.keys[sub]);
+    else if (head === "serverKey" && c.server && !this.locked.server)
+      await h.server({ baseUrl: c.server.baseUrl, ...(s.serverKey && { key: s.serverKey }) });
+    else if (head === "telegramToken" && s.telegramToken && !this.locked.telegram)
+      await h.telegram(s.telegramToken);
+    else if (head === "chats" && h.chat && s.chats?.[sub as Platform])
+      await h.chat(sub as Platform, s.chats[sub as Platform] as Record<string, string>);
+    else if (head === "searchKeys" && !this.locked.search)
+      await h.search(this.searchChoice() ?? null);
+    else if (head === "transcriptionKey" && !this.locked.voice && c.transcription)
+      this.applyTranscription();
+    else if (head === "openaiImagesKey" && !this.locked.images) this.applyImages();
+    else if (head === "mediaKeys") this.applyMedia();
+    else if (head === "githubToken" || head === "giteaToken") await this.applyGit();
+    else if (head === "claudeSubscriptionToken" && c.subscriptions?.claude && h.claudeSubscription)
+      await h.claudeSubscription(s.claudeSubscriptionToken ?? "");
   }
 
   /**
@@ -562,21 +929,45 @@ export class SetupService {
   }
 
   private async save(): Promise<void> {
+    const plain = plainChatSettings(this.secrets);
+    if (plain && Object.keys(plain).length) this.config.chatSettings = plain;
+    else delete this.config.chatSettings;
     await this.o.db.query(
       `INSERT INTO rg_settings (owner_id, key, value) VALUES ($1, 'setup', $2)
        ON CONFLICT (owner_id, key) DO UPDATE SET value = EXCLUDED.value`,
       [this.o.ownerId, JSON.stringify(this.config)],
     );
     await mkdir(this.o.dataDir, { recursive: true });
+    const inVault = await this.saveSecrets();
+    // Readable copy of the choices (no secrets): for people and backups.
+    await writeFile(
+      join(this.o.dataDir, "redgiant.yaml"),
+      `# Written by RedGiant's setup wizard; secrets are in ${inVault ? "the keychain (Settings > Keychain)" : "secrets.json"}.\n${stringify(this.config)}`,
+    );
+  }
+
+  /**
+   * The secrets in the keychain (G36.20), one entry each; secrets.json only while the keychain
+   * cannot open (as before), then they move at the next start. true: in the keychain.
+   */
+  private async saveSecrets(): Promise<boolean> {
+    const vault = this.vault;
+    if (vault.ready) {
+      const want = new Map<string, { value: string; meta: SystemKeyMeta }>();
+      for (const [k, v] of flattenSecrets(this.secrets))
+        want.set(`${SETUP_KEYS}${k}`, { value: v, meta: setupKeyMeta(k, this.config) });
+      try {
+        await vault.syncSystem(this.o.ownerId, SETUP_KEYS, want);
+        return true;
+      } catch (err) {
+        console.warn(`setup: the keychain did not take the keys: ${(err as Error).message}`);
+      }
+    }
     const tmp = `${this.secretsFile}.tmp`;
     await writeFile(tmp, `${JSON.stringify(this.secrets, null, 2)}\n`, { mode: 0o600 });
     await chmod(tmp, 0o600);
     await rename(tmp, this.secretsFile);
-    // Readable copy of the choices (no secrets): for people and backups.
-    await writeFile(
-      join(this.o.dataDir, "redgiant.yaml"),
-      `# Written by RedGiant's setup wizard; secrets are in secrets.json.\n${stringify(this.config)}`,
-    );
+    return false;
   }
 
   private get locked(): Locked {
@@ -645,45 +1036,43 @@ export class SetupService {
   }
 
   /**
-   * The keys kept here, for the keychain's list (G33.4): what each is and where it is managed.
-   * Names only: the values stay in secrets.json, used as before.
+   * The keys set by whoever installed the server (environment variables): listed in the keychain
+   * as locked, «set by the administrator» (G36.20). The setup's other keys are keychain entries.
    */
   keysForVault(): VaultSystemEntry[] {
-    const s = this.secrets;
+    const l = this.locked;
     const out: VaultSystemEntry[] = [];
     const add = (
       id: string,
       service: string,
+      brand: string,
       section: string,
       kind: VaultSystemEntry["kind"],
       what: string,
-      category: VaultSystemEntry["category"] = "api",
     ) =>
       out.push({
-        id: `setup:${id}`,
-        service: SERVICE_NAMES[service] ?? service.charAt(0).toUpperCase() + service.slice(1),
-        brand: service.toLowerCase(),
+        id: `env:${id}`,
+        service,
+        brand,
         section,
         kind,
         what,
-        category,
+        category: "api",
+        locked: true,
       });
-    for (const p of Object.keys(s.keys ?? {})) add(`key-${p}`, p, "setup", "provider", "API key");
-    if (s.serverKey) add("server", "OpenAI-compatible server", "setup", "provider", "API key");
-    if (s.claudeSubscriptionToken)
-      add("claude-subscription", "Claude", "subscriptions", "provider", "subscription");
-    for (const p of Object.keys(s.mediaKeys ?? {}))
-      add(`media-${p}`, p, "setup", "provider", "API key");
-    if (s.transcriptionKey) add("transcription", "Transcription", "setup", "other", "API key");
-    if (s.openaiImagesKey) add("images", "OpenAI", "setup", "provider", "images key");
-    if (s.telegramToken) add("telegram", "Telegram", "telegram", "chat", "bot token");
-    for (const p of Object.keys(s.chats ?? {})) add(`chat-${p}`, p, "chats", "chat", "token");
-    if (s.githubToken) add("github", "GitHub", "code", "git", "token", "server");
-    if (s.giteaToken) add("gitea", "Gitea", "code", "git", "token", "server");
-    for (const p of Object.keys(s.searchKeys ?? {}))
-      add(`search-${p}`, p, "setup", "search", "API key");
-    if (s.piholePassword) add("pihole", "Pi-hole", "remote", "other", "password", "server");
-    if (s.cloudflareToken) add("cloudflare", "Cloudflare", "remote", "other", "token", "server");
+    if (l.anthropic)
+      add("anthropic", "Anthropic", "anthropic", "subscriptions", "provider", "API key");
+    if (l.server)
+      add(
+        "server",
+        "OpenAI-compatible server",
+        "server",
+        "subscriptions",
+        "provider",
+        "address and key",
+      );
+    if (l.telegram) add("telegram", "Telegram", "telegram", "telegram", "chat", "bot token");
+    if (l.images) add("images", "OpenAI", "openai", "subscriptions", "provider", "images key");
     return out;
   }
 

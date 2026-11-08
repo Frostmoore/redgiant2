@@ -21,6 +21,11 @@
   just made (`create_agent` `tools_off`), never essential ones.
 - Cache discipline: reasoning is always sent back (Anthropic native blocks; `reasoning_content` for local servers),
   effort/thinking stay fixed for a session (only the human changes the model or effort, from the composer: `setSessionModel`), and compaction reuses the exact same request plus one message.
+- Keys (G36.20): every key RedGiant keeps (providers, chats, mailboxes, MCP sign-ins, GitHub/Gitea…) lives in the
+  encrypted keychain as an entry with `usedBy` (`Vault.setSystem`/`syncSystem`/`systemValue`), held in memory by the
+  server, never in a file in clear, a log, an event or an answer. `secrets.json` and the private files are used only
+  while the keychain cannot open, and move in at the next start (written, read back, then shredded). Keys from the
+  environment stay locked sources («set by the administrator»).
 - Sandboxes: file tools work on the shared directory, commands run in the container (`ContainerWorkspace`).
   Secrets never go into sandbox env: credentials belong to egress routes. Docker tests: `*.docker.test.ts`,
   run with `REDGIANT_DOCKER_TESTS=1 pnpm test:docker`.

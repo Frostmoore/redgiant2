@@ -1,269 +1,127 @@
-# RedGiant — le funzionalità dell'harness
+# RedGiant — cosa sa fare
 
-Panoramica breve di tutto quello che l'harness sa fare, ricavata da `memory/codebase_reference.md` (ramo 3.3, correzioni
-p3.3.1–p3.3.2, punti G36 compresi). Per firme, file e dettagli tecnici fa fede la codebase reference.
+**Una squadra di agenti AI tutta tua, che lavora sul tuo computer, sui tuoi progetti e con le tue regole.**
+
+RedGiant non è un chatbot: è un'organizzazione di agenti con ruoli diversi, che si dividono il lavoro, si controllano a
+vicenda e ti chiedono il permesso solo quando serve davvero. Lo usi dal browser, dal telefono o dalla chat che usi già.
 
 ---
 
-## 1. Che cos'è e dove gira
+## Una squadra, non un assistente
 
-- **Un harness per agenti AI personale**, organizzato come un albero di agenti (God, Demi-God, orchestratori, agenti,
-  sotto-agenti, assistenti, ispettori) che lavorano su progetti veri, con un'interfaccia web, chat esterne, automazioni e
-  modelli cloud o locali.
-- **Windows nativo**: `RedGiant.exe` avvia il server sotto Node, un Postgres incorporato, llama.cpp nativo, Git portatile,
-  whisper.cpp. Niente WSL, e Docker solo se c'è già.
-- **macOS**: un'app nella barra dei menu che avvia server, Postgres e motore (Metal), firmata e notarizzata.
-- **Linux/Docker**: `compose.yaml` con Postgres+pgvector, server, proxy di egress e profili facoltativi (motore CPU/CUDA/Vulkan,
-  SearXNG, whisper).
-- **CLI** (`redgiant`) per progetti, agenti, sessioni, chat, approvazioni e verifica del log.
+- **Un capo che coordina tutto.** God è l'agente principale: capisce cosa vuoi, crea progetti, assume altri agenti e
+  distribuisce il lavoro.
+- **Un responsabile per ogni progetto**, con i suoi agenti specializzati, ciascuno con il suo spazio di lavoro.
+- **Lavoro in parallelo**: più agenti affrontano insieme le parti di un compito, poi il lavoro viene unito.
+- **Un compito è finito solo quando è verificato.** Ogni lavoro affidato si chiude con una prova che funziona davvero, non
+  con un «fatto!» sulla parola.
+- **Un ispettore per progetto** che osserva tutto senza toccare niente, risponde alle tue domande e ti manda un riassunto.
+- **Assistenti personali** per la vita di tutti i giorni, e una Chat sempre pronta per le domande veloci.
+- **Una bacheca condivisa** dove gli agenti si scambiano compiti, risultati, dubbi e decisioni, e **chat di gruppo** dove
+  parli con più agenti insieme.
+- **Crei un agente nuovo in pochi passi**: dici cosa deve fare e RedGiant gli scrive le istruzioni migliori.
 
-## 2. La gerarchia degli agenti
+## Il cervello che preferisci
 
-- **Tipi**: `god` (uno per persona, gestisce la piattaforma), `demigod` (l'interlocutore sulle chat, parla solo con God),
-  `orchestrator` (uno per progetto), `agent`, `subagent`, `inspector` (legge un progetto in sola lettura), `assistant`
-  (assistenti personali sotto God, compresa la «Chat»).
-- **Ambiti**: una sola funzione pura (`can`) decide chi può leggere, scrivere, creare, fermare, configurare, approvare o
-  scegliere gli strumenti di chi; è testata come tabella.
-- **Registro degli agenti**: creazione, arresto di un sottoalbero, configurazione (modello, modo, istruzioni, connessioni,
-  compattazione), spostamento fra progetti e sottoprogetti, modello ereditato dal genitore.
-- **Progetti e sottoprogetti**: ogni sottoprogetto vede le parti comuni, scrive solo nella sua cartella e può avere un
-  container proprio.
-- **Istruzioni con segnaposto** (`{name}`, `{god}`, `{demigod}`, `{role}`): predefinite per tipo, modificabili, con un
-  **refiner** che le riscrive con un modello scelto (stima del costo, confronto parola per parola, mai salvate da sole) e
-  che scrive le istruzioni di un agente appena creato.
-- **Modi di permesso**: manuale, automatico, piano (solo lettura finché il piano non è approvato), sola lettura.
-- **Lingua degli agenti** (76 lingue) distinta dalla lingua dell'interfaccia (it/en).
+- **Tutti i grandi modelli**: Claude, GPT, Gemini, Mistral, DeepSeek, Grok e molti altri, con la tua chiave.
+- **Il tuo abbonamento**: usa Claude o ChatGPT che paghi già, senza costi extra per token.
+- **Modelli locali, gratis e privati**: RedGiant sceglie il modello adatto al tuo computer, lo scarica e lo fa girare,
+  anche modelli più grandi della memoria della tua scheda video.
+- **Un modello per ogni ruolo**: quello potente per chi decide, quello veloce ed economico per i lavori semplici.
+- **Mai bloccato**: se un modello non risponde, passa da solo a quello di riserva.
+- **Spesa sotto controllo**: tetti di spesa per agente, per progetto o totali, con il conto giorno per giorno.
 
-## 3. Conversazioni e ciclo dell'agente
+## Lavora davvero, non solo parla
 
-- **Il log degli eventi è la fonte della verità**: ogni passo va prima in `EventStore` (Postgres, catena di hash, niente
-  DELETE, cancellazioni solo come oscuramento del payload) e lo stato si ricostruisce con `rebuildHistory`, identico a
-  quello vivo. Verifica dell'integrità ed esportazione JSONL.
-- **Prefisso stabile per la cache**: strumenti in ordine per nome, system prompt fisso per la sessione, storia append-only,
-  ragionamento sempre rimandato al modello, effort fisso (lo cambia solo la persona dal composer).
-- **Ciclo degli strumenti**: riparazione del JSON malformato, hook prima e dopo, validazione zod, permesso, esecuzione;
-  **letture in parallelo**, avviso sulle chiamate ripetute, chiamate troncate rifiutate con «fai un passo più piccolo»,
-  riepilogo finale quando finiscono i passi.
-- **Compattazione**: automatica in background oltre l'80 % del contesto, d'emergenza oltre il 90 %, manuale con
-  `/compact`; riusa la stessa richiesta più un messaggio; si può annullare.
-- **Messaggi durante il lavoro**: in coda o «steer» (entrano nel turno in corso dopo gli strumenti); un messaggio in coda si
-  può ritirare.
-- **Fork**: modificare un messaggio apre una conversazione nuova fino a quel punto.
-- **Comandi in background**: `bash` con `background`, registro con l'orario di ogni riga, lettura filtrata con
-  `bash_output` (grep, intervalli, attesa di un testo, riassunto di errori e avvisi), arresto dell'albero dei processi,
-  recupero dei processi orfani al riavvio, limiti decisi dalla persona.
-- **Lista dei passi** (`update_todos`) mostrata sopra il composer.
-- **Esportazione in Markdown** di una conversazione; ricerca in tutte le conversazioni.
+- **Scrive e modifica codice e file**, esegue comandi, cerca sul web, legge pagine e documenti.
+- **Lavori lunghi in sottofondo**: avvia compilazioni o server e continua a fare altro, tenendoli d'occhio.
+- **Naviga sul web come una persona**: apre siti, clicca, compila moduli. Tu guardi in diretta, puoi prendere il
+  controllo o insegnargli come si fa.
+- **Crea contenuti**: immagini, video, voci, musica ed effetti sonori.
+- **Lavora in 3D**: con Blender crea scene, fa render e video a 360°.
+- **Capisce i tuoi vocali**, in qualsiasi lingua.
+- **Si allarga da solo**: si collega a centinaia di servizi esterni e impara nuove abilità; quando risolve un problema
+  difficile, se ne ricorda per la prossima volta.
 
-## 4. Modelli e fornitori
+## Ti mostra le cose, non solo te le racconta
 
-- **Anthropic** nativo (cache, thinking adattivo, effort, fallback lato server, ricerca web nativa).
-- **OpenAI-compatibili**: OpenAI, Gemini, Mistral, DeepSeek, xAI, Groq, OpenRouter, Together, Fireworks, Cerebras e server
-  propri; lettura del contesto da `/models`, `reasoning_content` rimandato.
-- **Abbonamenti**: Claude (tramite Claude Code / Agent SDK) e ChatGPT (tramite Codex), scaricati solo quando servono, con
-  login riusato se la persona l'ha già fatto, limiti di utilizzo mostrati.
-- **Fallback**: ritenta gli errori temporanei, poi passa al modello di riserva indicato; anche un rifiuto passa al fallback.
-- **Modello di riserva** per i compiti abbandonati: riprova con un altro modello e il primo tentativo come contesto.
-- **Budget** per agente, progetto e totale, persistenti, con spesa giornaliera; la corsa si ferma al tetto.
-- **Metriche per messaggio**: token, cache letta/scritta, tempi di prefill e decodifica, token/s, costo.
+- **Un'area di lavoro accanto alla chat** dove l'agente ti apre ciò che ha fatto: siti, documenti, fogli di calcolo,
+  presentazioni, PDF, immagini, video, modelli 3D, archivi, font.
+- **Documenti Office mostrati con l'impaginazione vera**, come li stamperesti.
+- **Apre anche i formati chiusi** (Photoshop, InDesign, Sketch, Figma, Affinity e altri), ne crea una copia aperta su cui
+  lavorare e ti dice con onestà cosa si è perso nella conversione. L'originale non si tocca mai.
+- **Editor, terminale e file del progetto** sempre a portata di mano.
 
-## 5. Motore locale (llama.cpp)
+## La tua conoscenza, a portata di agente
 
-- Avvio con barra (download, precaricamento, caricamento), sempre con `--slot-save-path` e `--swa-full`.
-- **KV cache su disco**: salva e ripristina gli slot per prefisso più lungo (anche fra conversazioni), con budget e
-  priorità per tipo di agente; precalcolo delle ultime conversazioni all'avvio.
-- **Rilevamento dell'hardware** (GPU, VRAM, RAM, dischi) e **catalogo dei modelli locali** con stima della velocità; ricerca
-  e download da Hugging Face con ripresa.
-- **SSD stream** per i modelli MoE più grandi della memoria: piano automatico fra scheda, RAM e SSD, prove di velocità sul
-  turno tipico; opzioni sperimentali «passate grandi» e «il prossimo strato in anticipo» (build di llama.cpp patchata).
-- Decodifica speculativa (modello bozza o n-gram), template di chat corretti (gpt-oss), spostamento dei modelli su un altro
-  disco.
+- **Dai agli agenti i tuoi documenti**: cartelle, progetti, PDF, pagine web. RedGiant li legge, li indicizza e li tiene
+  aggiornati da solo.
+- **Risposte con le fonti**: ogni citazione apre il documento alla pagina o alla riga giusta.
+- **Una memoria che cresce con te**: ricorda le cose importanti che gli dici (le tue preferenze, i tuoi progetti), e tu
+  puoi sempre vedere, correggere o far dimenticare per sempre.
 
-## 6. Strumenti
+## Lavora anche quando non ci sei
 
-- **Strumenti di base** per chi ha un workspace: `bash`, `read_file`, `write_file`, `edit_file` (con diff), `glob`,
-  `grep`, `fetch` (anti-SSRF), `web_search`, `view_image`, `show_file`, `update_todos`, più `convert_file`,
-  `edit_package`, `blender`.
-- **Per ruolo**: orchestrazione (`delegate`, `create_agent`, `run_subagent(s)`, `ask_god`, `ask_assistant`…), bacheca,
-  domande e piani, memoria, skill, generazione di media, `send_file`, `publish_board`, `run_script` (Python/JS che chiama gli
-  altri strumenti, ognuno controllato), strumenti personalizzati, MCP, browser, `use_credential`, `repo_*`.
-- **Pagina degli strumenti**: la persona spegne strumenti per tutti o per un agente, vedendo quanti token pesano; gli
-  indispensabili non si spengono. Il set è fissato all'inizio della conversazione.
-- **`request_tool`**: un agente chiede uno strumento spento; col sì della persona entra nella sessione (una volta o per sempre).
-- I creatori possono spegnere strumenti all'agente che hanno appena creato (`tools_off`).
+- **Automazioni senza limiti**: a un'ora precisa, quando arriva un'email, quando ricevi un messaggio, quando cambia un file,
+  quando qualcuno fa un push, quando finisce un altro lavoro.
+- **Automazioni magiche**: descrivi a parole cosa vuoi («ogni mattina riassumimi le email di lavoro e mandamelo su
+  Telegram») e God la costruisce con te, chiedendoti solo quello che manca.
+- **Promemoria** semplici, per quando ti serve solo un avviso.
+- **Con giudizio**: puoi chiedere che ti domandi il permesso prima di partire, fissare quanto può spendere, decidere in quali
+  ore e giorni può agire.
+- **Ti avvisa dove preferisci**: chat, email o pagina web.
 
-## 7. Sandbox e workspace
+## Sempre con te
 
-- **Host** (predefinito): i percorsi restano chiusi nel workspace; le scritture fuori passano dal guardiano.
-- **Docker** (facoltativo): container senza capability, rete interna, `/tmp` in RAM, gVisor possibile, cartelle montate dal
-  volume dei dati; una sandbox per workspace, riusata.
-- **Worktree git** per ogni agente e sotto-agente (merge uno per uno, conflitti segnalati).
-- **Proxy di egress** con lista di host consentiti, rotte con credenziali iniettate (git, portachiavi), controllo di dove
-  risolve ogni nome; i segreti non entrano mai nell'ambiente della sandbox.
-- Ambiente dei comandi ripulito (`agentEnv`): solo variabili innocue, più i programmi di RedGiant nel PATH.
-- Terminale interattivo (pty / ConPTY) nella pagina.
+- **Dal browser**, su computer e telefono, con tema chiaro o scuro.
+- **Dalle chat che usi già**: Telegram, WhatsApp, Discord, Slack, Signal, Matrix, Microsoft Teams, iMessage. La
+  conversazione è una sola: la inizi su Telegram e la continui su Discord.
+- **Approvi con un tocco** dal telefono.
+- **Raggiungibile da fuori casa** in modo sicuro.
+- **Parla la tua lingua**: l'interfaccia in italiano e inglese, gli agenti in oltre 70 lingue.
 
-## 8. Sicurezza e permessi
+## Sicuro per come è fatto
 
-- **Politica**: regole della persona (deny > ask > allow), 14 pericoli predefiniti (rm ricorsivo, push, riscrittura della
-  storia, pipe nella shell, privilegi, dischi, container, drop di database, deploy, messaggi in uscita, file di segreti…).
-- **Guardiano**: riconosce le scritture fuori dal progetto anche dentro i comandi shell.
-- **Le cose davvero pericolose** (`criticalOf`, tabella di 107 casi): file di sistema, cancellazioni per sempre, segreti che
-  escono, pagamenti veri, le protezioni di RedGiant. Chiedono sempre alla persona, in ogni modo e su ogni canale; il tempo
-  scaduto è un no.
-- **Catena di approvazione**: la richiesta sale lungo i genitori (che possono approvare, negare o passare oltre) fino alla
-  persona; errore o timeout non valgono mai «sì».
-- **Richieste a te**: «Chiedimelo» (arrivano ovunque, la prima risposta chiude le altre copie e dice dove) oppure «Non
-  chiedermi niente» (decide un classificatore, con il motivo nel log; un classificatore che fallisce è un no). Tempo di
-  attesa e comportamento allo scadere configurabili; elenco delle decisioni prese senza la persona.
-- Approvazioni «una volta», «per questa chat», «sempre», e diniego con motivo letto dall'agente.
-- Accesso con token, password e codice TOTP, sessioni revocabili.
+- **Decidi tu quanto chiederti**: «chiedimelo» oppure «non chiedermi niente», e in quel caso decide un controllore
+  automatico che spiega ogni scelta.
+- **Le cose davvero pericolose ti arrivano sempre**, comunque tu l'abbia impostato: cancellazioni definitive, file di
+  sistema, password che escono, pagamenti veri.
+- **Il primo sì su qualsiasi canale vale per tutti**, e gli altri avvisi si chiudono da soli.
+- **Un portachiavi integrato**: password e chiavi restano chiuse e cifrate sul tuo computer. Gli agenti le usano senza mai
+  vederle, solo verso i siti che hai scelto, e ogni uso è registrato. Importi le password da Bitwarden, 1Password, Chrome o
+  Firefox.
+- **Se incolli una password per sbaglio**, RedGiant la ferma prima che parta.
+- **Ambienti di lavoro separati**: gli agenti lavorano nei loro spazi e non escono senza permesso.
+- **Un registro completo e a prova di manomissione** di tutto quello che è successo.
+- **Tu scegli gli strumenti** di ogni agente: spegni quello che non serve e risparmi anche sui costi.
 
-## 9. Portachiavi
+## Si migliora da solo, con il tuo permesso
 
-- Ogni chiave e password in un unico posto, cifrata (AES-256-GCM) con la chiave principale protetta da DPAPI su Windows,
-  dal portachiavi su Mac, da file altrove; rifiuta di aprirsi dentro un repository git.
-- Gli agenti usano una credenziale **per nome** (`use_credential`, `{{vault:nome}}`, o un indirizzo del proxy per gli
-  strumenti) senza mai vederne il valore; host consentiti, chi può usarla, quando chiedere (sempre, una volta per
-  conversazione, mai).
-- Registro di ogni uso; i valori sono oscurati nel log e nelle risposte.
-- Un segreto incollato in chat viene fermato prima dell'invio, con la proposta di metterlo nel portachiavi.
-- Import CSV da Bitwarden, 1Password, Chrome, Firefox; export sigillato con una frase; elenco delle chiavi tenute altrove.
+- **RedGiant può modificare sé stesso**: God propone cambiamenti alla configurazione e persino al codice, li prova in una
+  copia separata e li applica solo con il tuo sì.
+- **Ogni modifica si può annullare**, e se una versione nuova non parte si torna da soli a quella di prima.
 
-## 10. Memoria
+## Facile da iniziare, facile da cambiare
 
-- **Note per agente e per progetto** (`memory`), nel system prompt della conversazione.
-- **Memoria condivisa** per persona: fatti brevi e duraturi, imparati da soli da un modello leggero che legge solo le
-  parole della persona (segreti esclusi), modificabili, annullabili, «dimentica per sempre».
+- **Installazione in un clic** su Windows e Mac, tutto incluso; su Linux con Docker.
+- **Una configurazione guidata, una domanda alla volta**, anche dal telefono.
+- **Vieni da un altro agente?** Porta con te istruzioni, abilità, collegamenti, ricordi e conversazioni da Claude Code,
+  Codex, Cursor, Gemini, ChatGPT, Claude e altri. E se cambi idea, annulli tutto.
+- **Backup completi** in un file, con le password solo se le proteggi con una frase.
+- **Aggiornamenti automatici e leggeri**: scarica solo quello che è cambiato.
 
-## 11. Compiti, squadre e coordinamento
+---
 
-- **Compiti (RD17)**: `delegate` apre un compito che si chiude solo con `complete_task` e un verificatore che esce con 0 (o
-  un «non testabile» motivato); dopo tre promemoria il compito è abbandonato.
-- **Sotto-agenti** in parallelo (fino a 6), ciascuno nel suo worktree, con schede nella chat a più livelli.
-- **Bacheca** del progetto: thread di task, risultati, domande, decisioni, blocchi; ricerca, rilevamento dei doppioni,
-  riassunti periodici.
-- **Gruppi**: stanze con fino a 6 agenti e la persona, menzioni, turni limitati.
-- **Domande e piani**: `ask_user` (scelte multiple) e `propose_plan` (approvazione che fa uscire dal modo piano).
-- **Spinta alle skill**: dopo un problema risolto a fatica l'agente è invitato a proporre o aggiornare una skill.
+## In una frase per il pitch
 
-## 12. Estensioni
+> **RedGiant è la tua squadra di agenti AI: lavorano sui tuoi progetti, con il modello che preferisci, anche mentre dormi,
+> e ti chiedono il permesso solo per le cose che contano.**
 
-- **Skill** nello standard agentskills.io (cercabili, caricabili, condivisibili in zip), di piattaforma o di progetto.
-- **Server MCP**: catalogo di 37 voci, stdio o HTTP, OAuth gestito, credenziali in file privati.
-- **Strumenti personalizzati** (comando + schema) eseguiti nella sandbox.
-- **Proposte degli agenti**: provate in una sandbox usa e getta, poi aspettano la persona; le skill senza script possono
-  installarsi da sole se la persona lo sceglie; aggiornamenti di una skill esistente invece dei doppioni.
+### I punti di forza
 
-## 13. Automazioni
-
-- **Ricette YAML**: un agente (mai i suoi strumenti), istruzioni o semplice promemoria, sessione nuova o continua.
-- **Inneschi**: cron, data, webhook (anche eventi GitHub/Gitea), email, messaggi dalle chat, cambi di file, fine di un'altra
-  automazione, chiusura di un compito, avvio, ripetizione dopo un fallimento, manuale.
-- **Condizioni**: ore, giorni, date, mittenti, parole, massimo al giorno, pausa minima.
-- **Controlli**: approvazione prima della corsa, tetto di spesa, niente sovrapposizioni (salta o metti in coda), tentativi e
-  ricetta di riserva, recupero delle corse perse.
-- **Consegna** su chat, pagina web o email, con l'esito registrato per ogni corsa.
-- I dati dei webhook, delle email e dei messaggi arrivano all'agente come **dati, non istruzioni**.
-- **Automazioni magiche**: la persona descrive cosa vuole, God costruisce la ricetta conversando, elenca ciò che manca
-  (chat, caselle, credenziali, estensioni) e nulla si crea prima del sì.
-- **Caselle email multiple** per categoria (IMAP in ingresso, SMTP in uscita).
-- Editor visuale con frase in parole e anteprima delle prossime esecuzioni; orologio finto per i test.
-
-## 14. Canali
-
-- **Pagina web** (WebSocket, messaggi in ordine per connessione).
-- **Telegram** (grammY): abbinamento con codice, foto, documenti, vocali, pulsanti per approvazioni e domande, comandi
-  `/new`, `/status`, `/stop`.
-- **Gateway** per Discord, Slack, Signal, WhatsApp, Matrix, Microsoft Teams, iMessage (BlueBubbles): una sola conversazione
-  per persona che continua da una chat all'altra; scelte numerate dove mancano i pulsanti.
-- **Notifiche del browser** a pagina nascosta; campanella con permessi, domande, proposte e avvisi.
-
-## 15. File, Canvas e conversioni
-
-- **Esploratore e editor** (CodeMirror) dei file del progetto, cestino, conflitti di salvataggio.
-- **Canvas**: `show_file` apre un file a lato; visualizzatori per video/audio, immagini, PDF, codice e Markdown, tabelle
-  (CSV, XLSX, ODS), documenti (DOCX, ODT), presentazioni, modelli 3D (three.js), archivi, font, JSON/YAML/XML ad albero,
-  OpenRaster a livelli; anteprima di siti in iframe isolato. Area ridimensionabile, ingrandibile e a schermo intero.
-- **Anteprima impaginata** dei documenti Office tramite LibreOffice, scaricato la prima volta.
-- **Solo formati aperti**: un file chiuso si converte accanto all'originale in `<file>.open/`, con un manifesto e le
-  **perdite dichiarate**. PSD → ORA/PNG (livelli, fusioni, maschere), IDML → SLA (Scribus) o ODG con l'impaginazione,
-  Sketch → SVG, 3D → GLB (Blender), video e audio → WebM/Opus (ffmpeg); per InDesign, Affinity, XD e Figma solo
-  l'anteprima, con «Apri in…» se l'app è installata.
-- **Strumento `blender`**: script Python, rendering (Cycles/EEVEE) e giro a 360° in video.
-- Programmi esterni (LibreOffice, Scribus, Blender, ffmpeg, 7-Zip) scaricati con barra, mai installati né inclusi.
-
-## 16. Browser degli agenti
-
-- Chrome/Edge/Chromium del computer (o un container): aprire, leggere, cliccare, scrivere, schede, schermate (solo per i
-  modelli che vedono).
-- La persona guarda dal vivo, prende il controllo o insegna; password mai rilette; i clic che inviano, pagano o cancellano
-  passano dai permessi.
-
-## 17. Conoscenza (RAG)
-
-- **pgvector** dentro il Postgres di RedGiant, ricerca ibrida (significato + parole, RRF) con reranker facoltativo.
-- **Raccolte** per tutti, per agente o per progetto; fonti: cartelle (con `.gitignore`), workspace, file, pagine web.
-- Indicizzazione incrementale con osservazione dei file, riuso dei vettori per i file spostati, cambio di modello senza
-  fermare la ricerca.
-- Estrazione di testo, codice, Markdown, PDF per pagina, Office, HTML; **citazioni** che aprono il Canvas alla pagina o
-  alla riga giusta.
-- Embedding locali (llama.cpp, modelli Qwen3/Gemma/BGE…) o cloud (OpenAI, Voyage, Cohere, Gemini, Mistral, Jina).
-
-## 18. Media, voce e ricerca web
-
-- **Generazione**: immagini, video, voce, musica, suoni da OpenAI, Google, xAI, BFL, Runway, ElevenLabs.
-- **Trascrizione dei vocali**: whisper.cpp locale (scaricato da solo), whisper-asr o API OpenAI; decodifica Opus in WASM,
-  ffmpeg per gli altri formati.
-- **Ricerca web**: SearXNG gestito (anche senza Docker), Brave, Tavily, Exa, Serper, o la ricerca nativa di Anthropic.
-
-## 19. Ispettore, Chat e assistenti
-
-- **Inspector** per progetto: legge tutto in sola lettura, risponde a domande, riassunto giornaliero, comandi degli agenti
-  consultabili.
-- **Chat quotidiana**: un assistente con tutti gli strumenti, chat in cartelle, modello scelto in chat.
-- **Assistenti** personali con scrivania condivisa e connessioni scelte.
-
-## 20. La piattaforma che si modifica (G14)
-
-- God cambia la configurazione (agenti, budget, automazioni, politica, MCP, strumenti) con l'autorità della persona, che
-  approva; ogni cambio tiene il «prima» ed è annullabile.
-- **Modifiche al codice** di RedGiant: worktree, test, copia di prova con ambiente pulito (senza segreti), promozione solo
-  con un server supervisionato; il **supervisor** ricompila, controlla la salute e torna all'ultima versione buona se la
-  nuova fallisce.
-
-## 21. Import da altri agenti
-
-- Da Claude Code, Codex, Cursor, Gemini/Antigravity, opencode, Hermes, export di ChatGPT e Claude: istruzioni, skill,
-  server MCP (chiavi nelle credenziali), ricordi, conversazioni.
-- Scansione del computer, cartella scelta o zip; anteprima con scelte per voce e conflitti; import annullabile; ricordi
-  proposti dalle conversazioni importate.
-
-## 22. Backup e aggiornamenti
-
-- **Backup** (gzip): progetti, agenti, conversazioni, file, impostazioni; il portachiavi solo sigillato con una frase;
-  verifica rileggendo tutto; ritrovamento dei backup al primo avvio.
-- **Aggiornamenti**: controllo ogni 6 ore; su Windows **aggiornamenti differenziali** (solo i file cambiati, manifesto
-  firmato, swap con giornale e ripristino automatico se la nuova versione non parte).
-- **Tipi di rilascio** firmati (normale, obbligatorio, breaking): un obbligatorio ferma i messaggi finché non si aggiorna; un
-  breaking non si applica mai sul posto, fa prima un backup di sicurezza e guida a una reinstallazione pulita.
-
-## 23. Interfaccia web
-
-- Preact + signals, disposizione come Officina: barra a sinistra (conversazioni e impostazioni), linguette al centro, file,
-  editor, terminali e Canvas a destra.
-- **Wizard «una cosa alla volta»**: lingua, modo d'installazione, modelli (chiavi, abbonamenti, locale), nomi, chi usa quale
-  modello, Telegram, codice (GitHub/Gitea), accesso da fuori (Tailscale, Cloudflare, Caddy), sicurezza e spese.
-- **Impostazioni** a gruppi: generale, agenti, memoria, automazioni, estensioni, strumenti, portachiavi, chat, abbonamenti,
-  budget, codice, accesso remoto, backup, piattaforma, comandi, richieste, import.
-- Tema chiaro/scuro/di sistema, italiano e inglese ovunque (`t()`), icone disegnate (niente emoji), Markdown sempre
-  ripulito con DOMPurify, fonti come link nel testo, versione per il telefono, finestra delle novità.
-- Servizi facoltativi: Gitea, Pi-hole, accesso remoto, registro di debug scaricabile.
-
-## 24. Valutazioni (evals)
-
-- **Compiti** (correggere bug, implementare una specifica, refactoring, test, CLI, debug…) con verificatore nascosto, che
-  rifiuta i file iniziali e accetta una soluzione di riferimento.
-- **Suite harness**: scenari (delega, squadre in parallelo, estensioni, automazioni, confini, memoria lunga, recupero,
-  budget, concorrenza) con controlli comuni: nessun errore del programma, ogni chiamata col suo risultato, cache del
-  prefisso almeno al 50 %.
+1. **Una squadra organizzata**, non un singolo assistente: ruoli, deleghe e lavoro verificato.
+2. **Libertà di modello**: cloud, abbonamento o locale gratuito, mescolati come vuoi.
+3. **Fa le cose davvero**: codice, web, documenti, media, 3D, e te li mostra.
+4. **Lavora da solo** con automazioni che descrivi a parole.
+5. **Ovunque**: browser, telefono e tutte le chat principali, una sola conversazione.
+6. **Sicuro per progetto**: portachiavi, permessi intelligenti, registro completo, i tuoi dati a casa tua.

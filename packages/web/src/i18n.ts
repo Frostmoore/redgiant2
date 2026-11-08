@@ -1003,7 +1003,7 @@ const en = {
   updBrkDockerCopy:
     "The folder is inside RedGiant's data volume, which a clean install removes: copy the file out first, from RedGiant's folder:",
   updBrkKeys:
-    "Your keychain ({n} keys) is not in the backup: it goes in only protected by a passphrase of yours.",
+    "Your keychain ({n} keys, the models', chats' and mailboxes' ones too) is not in the backup: it goes in only protected by a passphrase of yours.",
   updBrkKeysAdd: "Add the keychain too",
   updBrkKeysAgain: "Make the backup again with the keychain",
   updBrkKeysIn: "The keychain is in the backup too, protected by your passphrase.",
@@ -1030,7 +1030,7 @@ const en = {
   updFoundLead:
     "There is a backup of {date} (RedGiant {version}): {projects} projects and {conversations} conversations. Put everything back now?",
   updFoundKeys:
-    "The passphrase you chose for the keychain. Without it everything else is restored.",
+    "The passphrase you chose for the keychain. Without it everything else is restored, and the keys of models and chats are put in again from their pages.",
   updFoundRestore: "Restore from the backup",
   updFoundDone: "Everything is back. Go on with the next steps to set up the models.",
   job_backup_safety: "Backup before the clean install",
@@ -2756,7 +2756,7 @@ const en = {
   // The keychain, secrets held back from a chat, magic automations' needs (G33.4).
   backupKeys: "Include the keychain",
   backupKeysHelp:
-    "Sealed with a passphrase of yours: without it the backup's credentials cannot be opened.",
+    "Sealed with a passphrase of yours, with the keys of the models, chats and mailboxes: without it the backup's credentials cannot be opened.",
   backupKeysIn: "The backup carries a keychain: its passphrase",
   backupKeysInHelp: "Leave it empty to import everything else without the credentials.",
   backupKeysWrong: "The keychain was not imported: wrong passphrase. Everything else was.",
@@ -2791,9 +2791,17 @@ const en = {
   kcExpiringLead: "To renew soon:",
   kcUsedTimes: "Used {n} times, last {when}",
   kcNeverUsed: "Never used",
-  kcSystemTitle: "Kept by RedGiant",
+  kcSystemTitle: "Set by the administrator",
   kcSystemLead:
-    "Keys you gave RedGiant elsewhere: listed here so everything is in one place, managed where you set them.",
+    "Keys set by whoever installed this server (in its environment): RedGiant uses them, they cannot be changed here.",
+  kcUsedBy: "Used by:",
+  kcUsedByText:
+    "RedGiant uses this key by itself. Here you can change it, choose whether agents may use it too and see every use; you remove it from its page.",
+  kcLockedAdmin: "Set by the administrator",
+  kcUse_moved: "moved {name} here from {host}",
+  kcClosedKeys:
+    "Until it opens, the keys you gave RedGiant stay where they were (secrets.json and the private files), and nothing is deleted.",
+  err_vault_system: "RedGiant uses this key: remove it from its page in Settings.",
   kcSys_provider: "Model provider: {what}",
   kcSys_chat: "Chat: {what}",
   kcSys_email: "Mailbox: {what}",
@@ -4556,7 +4564,7 @@ const it: Record<Key, string> = {
   updBrkDockerCopy:
     "La cartella sta nel volume dei dati di RedGiant, che l'installazione pulita cancella: copia prima il file fuori, dalla cartella di RedGiant:",
   updBrkKeys:
-    "Il tuo portachiavi ({n} chiavi) non è nel backup: ci entra solo protetto da una frase tua.",
+    "Il tuo portachiavi ({n} chiavi, anche quelle dei modelli, delle chat e delle caselle) non è nel backup: ci entra solo protetto da una frase tua.",
   updBrkKeysAdd: "Aggiungi anche il portachiavi",
   updBrkKeysAgain: "Rifai il backup con il portachiavi",
   updBrkKeysIn: "Nel backup c'è anche il portachiavi, protetto dalla tua frase.",
@@ -4583,7 +4591,7 @@ const it: Record<Key, string> = {
   updFoundLead:
     "C'è un backup del {date} (RedGiant {version}): {projects} progetti e {conversations} conversazioni. Rimetto tutto a posto adesso?",
   updFoundKeys:
-    "La frase che hai scelto per il portachiavi. Senza, tutto il resto si ripristina lo stesso.",
+    "La frase che hai scelto per il portachiavi. Senza, tutto il resto si ripristina lo stesso, e le chiavi dei modelli e delle chat si rimettono dalle loro pagine.",
   updFoundRestore: "Ripristina dal backup",
   updFoundDone: "È tutto tornato. Vai avanti con i passi successivi per sistemare i modelli.",
   job_backup_safety: "Backup prima dell'installazione pulita",
@@ -6327,7 +6335,7 @@ const it: Record<Key, string> = {
   // Il portachiavi, i segreti trattenuti da una chat, i bisogni delle automazioni magiche (G33.4).
   backupKeys: "Includi il portachiavi",
   backupKeysHelp:
-    "Cifrato con una frase segreta tua: senza, le credenziali del backup non si possono aprire.",
+    "Cifrato con una frase segreta tua, con le chiavi dei modelli, delle chat e delle caselle: senza, le credenziali del backup non si possono aprire.",
   backupKeysIn: "Il backup contiene un portachiavi: la sua frase segreta",
   backupKeysInHelp: "Lasciala vuota per importare tutto il resto senza le credenziali.",
   backupKeysWrong:
@@ -6363,9 +6371,17 @@ const it: Record<Key, string> = {
   kcExpiringLead: "Da rinnovare presto:",
   kcUsedTimes: "Usata {n} volte, l'ultima {when}",
   kcNeverUsed: "Mai usata",
-  kcSystemTitle: "Tenute da RedGiant",
+  kcSystemTitle: "Impostate dall'amministratore",
   kcSystemLead:
-    "Le chiavi che hai dato a RedGiant altrove: le vedi qui per avere tutto in un posto, e le gestisci dove le hai messe.",
+    "Chiavi messe da chi ha installato questo server (nel suo ambiente): RedGiant le usa, qui non si possono cambiare.",
+  kcUsedBy: "Usata da:",
+  kcUsedByText:
+    "RedGiant usa questa chiave da sola. Qui puoi cambiarla, scegliere se possono usarla anche gli agenti e vedere ogni uso; la togli dalla sua pagina.",
+  kcLockedAdmin: "Impostata dall'amministratore",
+  kcUse_moved: "ha spostato {name} qui da {host}",
+  kcClosedKeys:
+    "Finché non si apre, le chiavi che hai dato a RedGiant restano dove erano (secrets.json e i file privati) e non si cancella niente.",
+  err_vault_system: "RedGiant usa questa chiave: la togli dalla sua pagina nelle Impostazioni.",
   kcSys_provider: "Fornitore di modelli: {what}",
   kcSys_chat: "Chat: {what}",
   kcSys_email: "Casella email: {what}",

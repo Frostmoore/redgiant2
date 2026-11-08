@@ -28,6 +28,12 @@ import {
 } from "../src/index.js";
 import { startServer } from "./helpers.js";
 
+/** The setup's keys as the keychain holds them (G36.20), by path (`keys.anthropic`). */
+const keptKeys = (core: { vault: { systemValues(o: string, p: string): Map<string, string> } }) =>
+  Object.fromEntries(
+    [...core.vault.systemValues("me", "setup:")].map(([k, v]) => [k.slice("setup:".length), v]),
+  );
+
 type Server = Awaited<ReturnType<typeof startServer>>;
 let s: Server | undefined;
 afterEach(async () => {
@@ -114,7 +120,7 @@ async function setup() {
 }
 
 describe("the setup wizard", () => {
-  it("applies and keeps every step, with secrets only in a private file", async () => {
+  it("applies and keeps every step, with secrets only in the keychain", async () => {
     const { calls, dataDir } = await setup();
     const api = (s as Server).api;
     const first = (await api<SetupState>("GET", "/api/setup")).body;
@@ -229,13 +235,16 @@ describe("the setup wizard", () => {
       "engine:cuda:gemma.gguf",
     ]);
 
-    // Secrets: in secrets.json (owner-only), never in the API, the database or redgiant.yaml.
-    const secrets = join(dataDir, "secrets.json");
-    if (process.platform !== "win32") expect((await stat(secrets)).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(await readFile(secrets, "utf8"))).toMatchObject({
-      keys: { anthropic: key },
+    // Secrets: in the keychain (G36.20, encrypted), never in a file in clear, the API, the
+    // database or redgiant.yaml.
+    await expect(stat(join(dataDir, "secrets.json"))).rejects.toThrow();
+    expect(keptKeys((s as Server).core)).toMatchObject({
+      "keys.anthropic": key,
       telegramToken: "123:ABC-def",
     });
+    const sealed = await readFile(join(dataDir, "..", "keychain", "keychain.enc"), "utf8");
+    expect(sealed).not.toContain(key);
+    expect(sealed).not.toContain("123:ABC-def");
     expect(JSON.stringify(state)).not.toContain(key);
     const rows = await (s as Server).core.db.query<{ value: unknown }>(
       "SELECT value FROM rg_settings",
@@ -350,10 +359,12 @@ describe("the setup wizard", () => {
       defaultModel: { provider: "server", model: "qwen3-8b" },
     });
     expect(state.config).not.toHaveProperty("openaiBaseUrl");
-    expect(JSON.parse(await readFile(join(dataDir, "secrets.json"), "utf8"))).toEqual({
-      keys: { anthropic: "sk-ant-api03-old-key" },
+    // The file of before moved into the keychain and is gone.
+    expect(keptKeys(core)).toEqual({
+      "keys.anthropic": "sk-ant-api03-old-key",
       serverKey: "old-server-key",
     });
+    await expect(stat(join(dataDir, "secrets.json"))).rejects.toThrow();
     next.stop();
   });
 
@@ -809,9 +820,7 @@ describe("the setup wizard", () => {
     expect(password).toHaveLength(16);
     // The password is a secret: never in the configuration the API returns.
     expect(JSON.stringify(state)).not.toContain(password);
-    expect(JSON.parse(await readFile(join(dataDir, "secrets.json"), "utf8")).piholePassword).toBe(
-      password,
-    );
+    expect(keptKeys((s as Server).core).piholePassword).toBe(password);
     // Started again, it keeps the same password.
     const again = await api<Job>("POST", "/api/setup/pihole", { lanIp: "192.168.1.51" });
     await s?.core.jobs.settled(again.body.id);
@@ -892,8 +901,7 @@ describe("the setup wizard", () => {
     });
     expect(state.secretsSet.media.sort()).toEqual(["openai", "runway"]);
     expect(JSON.stringify(state)).not.toContain("key_runway_secret_123");
-    const secrets = JSON.parse(await readFile(join(dataDir, "secrets.json"), "utf8"));
-    expect(secrets.mediaKeys).toEqual({ runway: "key_runway_secret_123" });
+    expect(keptKeys((s as Server).core)["mediaKeys.runway"]).toBe("key_runway_secret_123");
     // ElevenLabs' voices need its key.
     expect(
       (await api<{ code?: string }>("GET", "/api/setup/media/voices?provider=elevenlabs")).body

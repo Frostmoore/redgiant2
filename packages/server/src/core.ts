@@ -204,6 +204,7 @@ import { UpdateRequiredError, type UpdateWatcher } from "./updates.js";
 import {
   blankPastedSecrets,
   type MasterKeyStore,
+  shredFile,
   Vault,
   type VaultCaller,
   type VaultEgress,
@@ -531,8 +532,36 @@ export class RedGiantCore implements OrchestrationHost {
 
   private constructor(private readonly o: CoreOptions) {
     this.store = new EventStore(o.db, o.redactor ? { redactor: o.redactor } : {});
+    // MCP sign-ins and keys live in the keychain (G36.20), one entry per server.
+    const mcpKey = (name: string) => `mcp:${name}`;
+    const mcpMeta = (name: string) => ({
+      name: `mcp-${name}`,
+      service: name,
+      brand: name.toLowerCase(),
+      category: "api" as const,
+      hosts: [],
+      inject: { header: "", format: "{value}" },
+      section: "extensions",
+      kind: "mcp" as const,
+      what: "sign-in",
+    });
     this.mcpCredentials = new McpCredentialStore(
       o.mcpCredentialsDir ?? join(dirname(o.workspacesDir), "mcp-credentials"),
+      {
+        ready: () => this.vault.ready,
+        get: (owner, name) => this.vault.systemValue(owner, mcpKey(name)),
+        set: (owner, name, value) =>
+          this.vault.setSystem(owner, mcpKey(name), value, mcpMeta(name)),
+        adopt: async (owner, name, value, file) => {
+          const key = mcpKey(name);
+          if (this.vault.systemValue(owner, key) !== value)
+            await this.vault.setSystem(owner, key, value, mcpMeta(name));
+          if (!(await this.vault.verifySystem(owner, new Map([[key, value]])))) return false;
+          await shredFile(file);
+          await this.vault.recordMoved(owner, [key], `mcp-credentials/${name}.json`);
+          return true;
+        },
+      },
     );
     this.logins = new LoginStore(o.db);
     if (o.transcription?.key) o.redactor?.addSecret("transcription", o.transcription.key);
@@ -751,6 +780,7 @@ export class RedGiantCore implements OrchestrationHost {
       ...(o.mailbox && { mailbox: o.mailbox }),
       ...(o.mailSender && { sender: o.mailSender }),
       owners: async () => [...new Set(this.registry.list({}).map((a) => a.ownerId))],
+      vault: this.vault,
     });
     this.files = new FileTriggers({
       automations: this.automations,
@@ -916,6 +946,7 @@ export class RedGiantCore implements OrchestrationHost {
     const core = new RedGiantCore(o);
     await core.vault.open();
     await core.registry.load();
+    await core.moveSecretsToVault();
     await core.policies.load();
     await core.commandSettings.load();
     await core.requestSettings.load();
@@ -4605,10 +4636,33 @@ export class RedGiantCore implements OrchestrationHost {
    * Keys RedGiant keeps elsewhere, for the keychain's list (G33.4): the setup's (from main), the
    * mailboxes' passwords and the MCP services' sign-ins. Names only, never a value.
    */
+  /**
+   * At startup (G36.20): mailboxes' passwords and MCP sign-ins still in private files of before
+   * move to the keychain (each read back before its file is destroyed). Nothing while it is closed.
+   */
+  private async moveSecretsToVault(): Promise<void> {
+    if (!this.vault.ready) {
+      console.warn("keychain closed: passwords and sign-ins stay in their files until it opens");
+      return;
+    }
+    const mail = await this.email.moveSecretsToVault().catch(() => 0);
+    let mcp = 0;
+    for (const owner of new Set(this.registry.list({}).map((a) => a.ownerId)))
+      for (const m of await this.listMcp(owner).catch(() => [])) {
+        const had = this.vault.systemValue(owner, `mcp:${m.name}`) !== undefined;
+        await this.mcpCredentials.load(owner, m.name).catch(() => ({}));
+        if (!had && this.vault.systemValue(owner, `mcp:${m.name}`) !== undefined) mcp++;
+      }
+    if (mail || mcp)
+      console.log(`keychain: ${mail} mailbox password(s), ${mcp} MCP sign-in(s) moved in`);
+  }
+
   async keysElsewhere(ownerId: string): Promise<VaultSystemEntry[]> {
     const out: VaultSystemEntry[] = [
       ...((await this.vaultSystem?.(ownerId).catch(() => [])) ?? []),
     ];
+    // With the keychain open these are its own entries (G36.20); listed here only while it is not.
+    if (this.vault.ready) return out;
     for (const b of await this.email.boxes(ownerId).catch(() => []))
       out.push({
         id: `email:${b.id}`,

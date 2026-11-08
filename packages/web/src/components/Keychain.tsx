@@ -12,6 +12,7 @@ import type {
   VaultInput,
   VaultSystemEntry,
   VaultUse,
+  VaultUsedBy,
   VaultView,
 } from "@redgiant/protocol";
 import { VAULT_NAME_RE } from "@redgiant/protocol";
@@ -19,7 +20,7 @@ import type { JSX } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type { Installed } from "../api.js";
 import { brandFor, brandOr } from "../brands.js";
-import { lang, t } from "../i18n.js";
+import { type Key, lang, t } from "../i18n.js";
 import {
   IconAlert,
   IconCopy,
@@ -45,6 +46,44 @@ import { Acts, Box, Chips, Head, Seg, Slider, Sub, SwitchRow, WzPage } from "./S
 import { Advanced, Field, Modal } from "./ui.js";
 
 const CATEGORIES: VaultCategory[] = ["api", "login", "bank", "email", "server", "other"];
+
+/** The Settings page each part of RedGiant sets its keys in (G36.20), by its section. */
+const PAGE_OF: Record<string, Key> = {
+  setup: "subscriptions",
+  subscriptions: "subscriptions",
+  telegram: "telegram",
+  chats: "chats",
+  code: "wzCode",
+  remote: "wzRemote",
+  automations: "automations",
+  extensions: "extensions",
+};
+const pageOf = (section: string) => t(PAGE_OF[section] ?? "settings");
+const openSection = (section: string) =>
+  openTab({
+    id: "settings",
+    type: "settings",
+    title: t("settings"),
+    section: (section === "setup" ? "subscriptions" : section) as SettingsSection,
+  });
+
+/** «Used by: Models and subscriptions», with the page one click away. */
+function UsedBy({ u }: { u: VaultUsedBy }) {
+  return (
+    <div class="kc-usedby">
+      <IconLock size={18} />
+      <span>
+        <b>
+          {t("kcUsedBy")}{" "}
+          <button type="button" class="wz-link inl" onClick={() => openSection(u.section)}>
+            {pageOf(u.section)}
+          </button>
+        </b>
+        <small>{t("kcUsedByText")}</small>
+      </span>
+    </div>
+  );
+}
 const CLIPBOARD_MS = 30_000;
 const DAY = 86_400_000;
 
@@ -362,7 +401,7 @@ export function CredentialWindow({
       onClose={() => onClose(false)}
       foot={
         <Acts>
-          {entry && (
+          {entry && !entry.usedBy && (
             <button type="button" class="wz-btn quiet kc-del" onClick={() => setRemoving(true)}>
               <IconTrash size={16} /> {t("kcRemove")}
             </button>
@@ -382,6 +421,7 @@ export function CredentialWindow({
       }
     >
       <div class="wz-panel-in kc-form">
+        {entry?.usedBy && <UsedBy u={entry.usedBy} />}
         <div class="kc-grid">
           <Field label={t("kcService")} help={t("kcServiceHelp")}>
             <input
@@ -686,9 +726,12 @@ function UseRow({ u }: { u: VaultUse }) {
   return (
     <li class={`kc-use ${u.outcome}`}>
       <span class="kc-use-what">
-        <b>{u.agentName ?? t("kcSomeone")}</b>{" "}
+        <b>
+          {u.agentName ??
+            (u.agentId === null && u.sessionId === null ? "RedGiant" : t("kcSomeone"))}
+        </b>{" "}
         {t(`kcUse_${u.outcome}`, { name: u.name, host: u.host })}
-        {u.reason && u.outcome !== "used" && <small>{u.reason}</small>}
+        {u.reason && u.outcome !== "used" && u.outcome !== "moved" && <small>{u.reason}</small>}
       </span>
       <span class="kc-use-when">{when(u.at)}</span>
     </li>
@@ -951,6 +994,11 @@ function Item({ e, onOpen }: { e: VaultEntry; onOpen: () => void }) {
           <code>{e.name}</code>
           {e.username && ` · ${e.username}`}
         </small>
+        {e.usedBy && (
+          <small class="kc-item-usedby">
+            {t("kcUsedBy")} {pageOf(e.usedBy.section)}
+          </small>
+        )}
         {e.tags.length > 0 && (
           <span class="kc-tags">
             {e.tags.map((x) => (
@@ -981,21 +1029,13 @@ function SystemItem({ e }: { e: VaultSystemEntry }) {
       <span class="kc-item-text">
         <b>{e.service}</b>
         <small>{t(`kcSys_${e.kind}`, { what: e.what })}</small>
+        {e.locked && <small class="kc-item-usedby">{t("kcLockedAdmin")}</small>}
       </span>
-      <button
-        type="button"
-        class="wz-btn small quiet"
-        onClick={() =>
-          openTab({
-            id: "settings",
-            type: "settings",
-            title: t("settings"),
-            section: e.section as SettingsSection,
-          })
-        }
-      >
-        {t("kcManage")}
-      </button>
+      {!e.locked && (
+        <button type="button" class="wz-btn small quiet" onClick={() => openSection(e.section)}>
+          {t("kcManage")}
+        </button>
+      )}
     </div>
   );
 }
@@ -1031,7 +1071,7 @@ export function Keychain() {
     () =>
       (view?.entries ?? []).filter(
         (e) =>
-          (filter === "all" || filter === e.category) &&
+          (filter === "all" || filter === e.category || (filter === "system" && e.usedBy)) &&
           match(`${e.service} ${e.name} ${e.username} ${e.url} ${e.tags.join(" ")} ${e.notes}`),
       ),
     [view, filter, words],
@@ -1046,7 +1086,7 @@ export function Keychain() {
     c === "all"
       ? (view?.entries.length ?? 0)
       : c === "system"
-        ? (view?.system.length ?? 0)
+        ? (view?.system.length ?? 0) + (view?.entries.filter((e) => e.usedBy).length ?? 0)
         : (view?.entries.filter((e) => e.category === c).length ?? 0);
   const filters: Filter[] = ["all", ...CATEGORIES.filter((c) => counts(c) > 0), "system"];
   const closed = view && !view.ready;
@@ -1086,6 +1126,7 @@ export function Keychain() {
             <IconAlert size={20} /> {t("kcClosed")}
           </p>
           <p class="kc-note">{view.reason}</p>
+          <p class="kc-note">{t("kcClosedKeys")}</p>
         </Box>
       ) : (
         view && (
@@ -1144,7 +1185,7 @@ export function Keychain() {
                 onChange={([c]) => c && setFilter(c)}
               />
             </div>
-            {filter !== "system" &&
+            {(filter !== "system" || entries.length > 0) &&
               (entries.length === 0 ? (
                 <div class="kc-empty">
                   <span class="kc-ico big">

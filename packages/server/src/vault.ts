@@ -15,7 +15,16 @@
 //   - Values are added to the event log's Redactor: never in the log in clear.
 import { execFile } from "node:child_process";
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scryptSync } from "node:crypto";
-import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  open as openFile,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, parse, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Tool } from "@redgiant/agent";
@@ -28,6 +37,7 @@ import {
   type VaultProtection,
   type VaultSystemEntry,
   type VaultUse,
+  type VaultUsedBy,
   type VaultView,
 } from "@redgiant/protocol";
 import { hostAllowed } from "@redgiant/sandbox";
@@ -47,7 +57,8 @@ export class VaultError extends Error {
       | "vault_bad_passphrase"
       | "vault_bad_file"
       | "vault_host"
-      | "vault_inject",
+      | "vault_inject"
+      | "vault_system",
     message: string,
   ) {
     super(message);
@@ -66,6 +77,37 @@ export async function gitRootOf(dir: string): Promise<string | null> {
     if (d === root) return null;
     d = dirname(d);
   }
+}
+
+/**
+ * Destroys a file that held secrets in clear (G36.20): it is renamed first (so a start that finds
+ * `<file>.shred` knows the keys were already moved and checked), overwritten with random bytes,
+ * flushed to the disk, then removed. On disks that move blocks around (SSDs, copy-on-write) the
+ * overwrite is a best effort; the removal always happens.
+ */
+export async function shredFile(path: string): Promise<void> {
+  const doomed = path.endsWith(".shred") ? path : `${path}.shred`;
+  if (doomed !== path) {
+    if (!(await stat(path).catch(() => null))) return;
+    await rename(path, doomed);
+  }
+  const size = (await stat(doomed).catch(() => null))?.size;
+  if (size === undefined) return;
+  try {
+    const f = await openFile(doomed, "r+");
+    try {
+      for (let at = 0; at < size; at += 65_536) {
+        const n = Math.min(65_536, size - at);
+        await f.write(randomBytes(n), 0, n, at);
+      }
+      await f.sync();
+    } finally {
+      await f.close();
+    }
+  } catch {
+    // Not writable: removed all the same.
+  }
+  await rm(doomed, { force: true });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -278,6 +320,28 @@ export interface VaultOptions {
   system?: (ownerId: string) => Promise<VaultSystemEntry[]>;
 }
 
+/**
+ * A key a part of RedGiant keeps here (G36.20): what the entry is called and shows when it is
+ * first written. Afterwards the person may rename it, change its hosts and who may use it; the
+ * part only ever changes its value.
+ */
+export interface SystemKeyMeta {
+  name: string;
+  service: string;
+  brand?: string | undefined;
+  category: VaultEntry["category"];
+  username?: string | undefined;
+  url?: string | undefined;
+  hosts: string[];
+  inject?: VaultEntry["inject"] | undefined;
+  section: string;
+  kind: VaultUsedBy["kind"];
+  what: string;
+}
+
+/** Told when the person changes the value of a key a part of RedGiant uses (or a backup brings it). */
+export type SystemChange = (ownerId: string, key: string) => void | Promise<void>;
+
 const USES_KEPT = 2000;
 const IMPORT_TTL_MS = 15 * 60_000;
 const PLACEHOLDER = /\{\{\s*vault:([a-z0-9][a-z0-9_-]{1,47})\s*\}\}/g;
@@ -298,7 +362,21 @@ export class Vault {
     { ownerId: string; at: number; preview: VaultImportPreview; values: Map<number, string> }
   >();
 
+  private readonly changes: SystemChange[] = [];
+
   constructor(private readonly o: VaultOptions) {}
+
+  /** Who to tell when a key some part of RedGiant uses changes from the keychain's page. */
+  onSystemChange(fn: SystemChange): void {
+    this.changes.push(fn);
+  }
+
+  private changed(ownerId: string, key: string) {
+    for (const fn of this.changes)
+      void Promise.resolve()
+        .then(() => fn(ownerId, key))
+        .catch((err) => console.warn(`keychain: ${key}: ${(err as Error).message}`));
+  }
 
   private get file() {
     return join(this.o.dir, "keychain.enc");
@@ -503,6 +581,7 @@ export class Vault {
       ask: input.ask,
       allow: input.allow,
       inject: input.inject,
+      ...(old?.usedBy && { usedBy: old.usedBy }),
       createdAt: old?.createdAt ?? at,
       updatedAt: at,
     };
@@ -517,11 +596,18 @@ export class Vault {
     this.remember(e);
     await this.save();
     await this.publish();
+    // The part that uses it takes the new value at once (a provider's key, a chat's token).
+    if (old?.usedBy && old.value !== e.value) this.changed(ownerId, old.usedBy.key);
     return this.show(e);
   }
 
   async remove(ownerId: string, id: string): Promise<void> {
     const e = this.entry(ownerId, id);
+    if (e.usedBy)
+      throw new VaultError(
+        "vault_system",
+        `"${e.name}" is used by RedGiant: remove it from its page in Settings (${e.usedBy.section})`,
+      );
     this.data.entries = this.data.entries.filter((x) => x.id !== e.id);
     this.caps.delete(e.id);
     await this.save();
@@ -532,6 +618,198 @@ export class Vault {
   reveal(ownerId: string, id: string): string {
     this.need();
     return this.entry(ownerId, id).value;
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Keys the parts of RedGiant use (G36.20): the setup's keys, mailboxes' passwords, MCP sign-ins
+
+  private systemEntry(ownerId: string, key: string): Stored | undefined {
+    return this.data.entries.find((e) => e.ownerId === ownerId && e.usedBy?.key === key);
+  }
+
+  /** The value of a key a part of RedGiant uses, inside the server only (never to an agent). */
+  systemValue(ownerId: string, key: string): string | undefined {
+    if (!this.ready) return undefined;
+    return this.systemEntry(ownerId, key)?.value;
+  }
+
+  /** Every key of a part (by the start of its keys), with its value: for that part only. */
+  systemValues(ownerId: string, prefix: string): Map<string, string> {
+    const out = new Map<string, string>();
+    if (!this.ready) return out;
+    for (const e of this.data.entries)
+      if (e.ownerId === ownerId && e.usedBy?.key.startsWith(prefix)) out.set(e.usedBy.key, e.value);
+    return out;
+  }
+
+  private freeName(ownerId: string, wanted: string): string {
+    const base =
+      wanted
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/^[^a-z0-9]+/, "")
+        .slice(0, 44) || "key";
+    const ok = (n: string) =>
+      /^[a-z0-9][a-z0-9_-]{1,47}$/.test(n) &&
+      !this.data.entries.some((e) => e.ownerId === ownerId && e.name === n);
+    if (ok(base)) return base;
+    for (let n = 2; ; n++) if (ok(`${base}-${n}`)) return `${base}-${n}`;
+  }
+
+  /** One change in memory; true when something changed. */
+  private applySystem(
+    ownerId: string,
+    key: string,
+    value: string | null,
+    meta: SystemKeyMeta | undefined,
+  ): boolean {
+    const old = this.systemEntry(ownerId, key);
+    if (value === null) {
+      if (!old) return false;
+      this.data.entries = this.data.entries.filter((x) => x.id !== old.id);
+      this.caps.delete(old.id);
+      return true;
+    }
+    const at = this.now().toISOString();
+    if (old) {
+      if (old.value === value && (meta?.username === undefined || old.username === meta.username))
+        return false;
+      if (old.value !== value) {
+        this.caps.delete(old.id);
+        for (const g of [...this.granted]) if (g.endsWith(`:${old.id}`)) this.granted.delete(g);
+      }
+      old.value = value;
+      if (meta?.username !== undefined) old.username = meta.username;
+      if (old.hosts.length === 0 && meta?.hosts.length) old.hosts = meta.hosts;
+      old.updatedAt = at;
+      this.remember(old);
+      return true;
+    }
+    if (!meta) throw new VaultError("vault_not_found", `There is no key "${key}"`);
+    const e: Stored = {
+      id: `key_${randomUUID().slice(0, 12)}`,
+      ownerId,
+      name: this.freeName(ownerId, meta.name),
+      service: meta.service.slice(0, 80),
+      ...(meta.brand && { brand: meta.brand }),
+      category: meta.category,
+      tags: [],
+      username: meta.username ?? "",
+      value,
+      url: meta.url ?? "",
+      hosts: meta.hosts,
+      notes: "",
+      expires: null,
+      // RedGiant uses it by itself; an agent only if the person allows it here.
+      ask: "always",
+      allow: { allAgents: false, agents: [], tools: [], automations: [] },
+      inject: meta.inject ?? { header: "Authorization", format: "Bearer {value}" },
+      usedBy: { key, section: meta.section, kind: meta.kind, what: meta.what },
+      createdAt: at,
+      updatedAt: at,
+    };
+    this.data.entries.push(e);
+    this.remember(e);
+    return true;
+  }
+
+  /** Sets (or with null removes) one key a part of RedGiant uses. */
+  async setSystem(
+    ownerId: string,
+    key: string,
+    value: string | null,
+    meta?: SystemKeyMeta,
+  ): Promise<void> {
+    this.need();
+    if (!this.applySystem(ownerId, key, value, meta)) return;
+    await this.save();
+    await this.publish();
+  }
+
+  /**
+   * Makes a part's keys (those starting with `prefix`) exactly these, in one write: new ones
+   * added, changed ones changed, missing ones removed.
+   */
+  async syncSystem(
+    ownerId: string,
+    prefix: string,
+    want: Map<string, { value: string; meta: SystemKeyMeta }>,
+  ): Promise<void> {
+    this.need();
+    let changed = false;
+    for (const key of this.systemValues(ownerId, prefix).keys())
+      if (!want.has(key)) changed = this.applySystem(ownerId, key, null, undefined) || changed;
+    for (const [key, w] of want)
+      changed = this.applySystem(ownerId, key, w.value, w.meta) || changed;
+    if (!changed) return;
+    await this.save();
+    await this.publish();
+  }
+
+  /**
+   * Reads the keychain's file again from the disk and checks that these keys are there with
+   * these values (before an older file with them is destroyed).
+   */
+  async verifySystem(ownerId: string, want: Map<string, string>): Promise<boolean> {
+    const key = this.need();
+    await this.writing;
+    try {
+      const sealed = JSON.parse(await readFile(this.file, "utf8")) as Sealed;
+      const read = JSON.parse(unseal(key, sealed).toString("utf8")) as Contents;
+      for (const [k, v] of want)
+        if (
+          !read.entries.some((e) => e.ownerId === ownerId && e.usedBy?.key === k && e.value === v)
+        )
+          return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** In the record of uses: these keys were brought here from `from` (an older file). */
+  async recordMoved(ownerId: string, keys: string[], from: string): Promise<void> {
+    for (const k of keys) {
+      const e = this.systemEntry(ownerId, k);
+      if (e)
+        this.data.uses.push({
+          id: `use_${randomUUID().slice(0, 12)}`,
+          ownerId,
+          entryId: e.id,
+          name: e.name,
+          at: this.now().toISOString(),
+          agentId: null,
+          agentName: null,
+          sessionId: null,
+          tool: "migration",
+          host: from,
+          method: "MOVE",
+          outcome: "moved",
+        });
+    }
+    if (this.data.uses.length > USES_KEPT)
+      this.data.uses.splice(0, this.data.uses.length - USES_KEPT);
+    await this.save();
+  }
+
+  /**
+   * A part of RedGiant read a key to use it (a provider registered with it, a mailbox read):
+   * recorded once every ten minutes, like `serviceFetch`.
+   */
+  async recordSystemUse(ownerId: string, key: string, purpose: string, host = ""): Promise<void> {
+    if (!this.ready) return;
+    const e = this.systemEntry(ownerId, key);
+    if (!e) return;
+    const k = `${ownerId}\0${e.id}\0${purpose}`;
+    if (Date.now() - (this.serviceUses.get(k) ?? 0) <= 10 * 60_000) return;
+    this.serviceUses.set(k, Date.now());
+    await this.record(
+      { ownerId, agentId: null, agentName: null, sessionId: null, tool: purpose },
+      e,
+      host,
+      "USE",
+      "used",
+    );
   }
 
   /** When each credential's use by the server itself was last recorded (one record a while). */
@@ -912,7 +1190,25 @@ export class Vault {
       this.data.entries.filter((e) => e.ownerId === ownerId).map((e) => e.name),
     );
     let n = 0;
+    const moved: string[] = [];
     for (const e of entries) {
+      // A key some part of RedGiant uses comes back to that part, under the name it has here.
+      if (e.usedBy) {
+        const here = this.systemEntry(ownerId, e.usedBy.key);
+        if (here?.value === e.value) continue;
+        if (here) this.applySystem(ownerId, e.usedBy.key, e.value, undefined);
+        else {
+          const { id: _id, ...rest } = e;
+          const name = taken.has(e.name) ? nameFor(e.service, taken) : e.name;
+          taken.add(name);
+          const back: Stored = { ...rest, ownerId, name, id: `key_${randomUUID().slice(0, 12)}` };
+          this.data.entries.push(back);
+          this.remember(back);
+        }
+        moved.push(e.usedBy.key);
+        n++;
+        continue;
+      }
       const same = this.data.entries.find(
         (x) => x.ownerId === ownerId && x.name === e.name && x.value === e.value,
       );
@@ -922,6 +1218,11 @@ export class Vault {
       const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = e;
       await this.put(ownerId, { ...rest, name });
       n++;
+    }
+    if (moved.length) {
+      await this.save();
+      await this.publish();
+      for (const k of moved) this.changed(ownerId, k);
     }
     return n;
   }

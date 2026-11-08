@@ -29,6 +29,26 @@ const entry = {
   lastUsedAt: null,
   uses: 0,
 };
+/** A provider's key moved in from secrets.json (G36.20): RedGiant uses it, its page sets it. */
+const moved = {
+  ...entry,
+  id: "key_2",
+  name: "anthropic-api-key",
+  service: "Anthropic",
+  brand: "anthropic",
+  category: "api",
+  tags: [],
+  hosts: ["api.anthropic.com"],
+  expires: null,
+  ask: "always",
+  allow: { allAgents: false, agents: [], tools: [], automations: [] },
+  usedBy: {
+    key: "setup:keys.anthropic",
+    section: "subscriptions",
+    kind: "provider",
+    what: "API key",
+  },
+};
 const magic: Record<string, unknown> = {};
 const fakeApi = new Proxy(
   {},
@@ -41,18 +61,33 @@ const fakeApi = new Proxy(
           return Promise.resolve({
             ready: true,
             protection: "file",
-            entries: [entry],
+            entries: [entry, moved],
             system: [
               {
-                id: "setup:telegram",
+                id: "env:telegram",
                 service: "Telegram",
                 category: "api",
                 section: "telegram",
                 what: "bot token",
                 kind: "chat",
+                locked: true,
               },
             ],
-            uses: [],
+            uses: [
+              {
+                id: "use_1",
+                entryId: "key_2",
+                name: "anthropic-api-key",
+                at: "2026-11-08T00:00:00Z",
+                agentId: null,
+                agentName: null,
+                sessionId: null,
+                tool: "migration",
+                host: "secrets.json",
+                method: "MOVE",
+                outcome: "moved",
+              },
+            ],
             proxy: false,
           });
         if (name === "revealVault") return Promise.resolve({ value: VALUE });
@@ -109,6 +144,26 @@ describe("the keychain page (G33.4)", () => {
     fireEvent.click(buttons[buttons.length - 1] as HTMLElement);
     await waitFor(() => expect(r.container.textContent).toContain(VALUE));
     expect(calls).toContainEqual(["revealVault", ["key_1"]]);
+  });
+
+  it("shows the keys RedGiant uses as entries, with the page that uses them (G36.20)", async () => {
+    const r = render(<Keychain />);
+    await waitFor(() => r.getAllByText("Anthropic"));
+    expect(r.container.textContent).toContain("Usata da: Modelli e abbonamenti");
+    expect(r.container.textContent).toContain(
+      "RedGiant ha spostato anthropic-api-key qui da secrets.json",
+    );
+    // Set by the administrator: no way to manage it here.
+    expect(r.container.textContent).toContain("Impostata dall'amministratore");
+    expect(r.queryByText("Gestisci")).toBeNull();
+    // Editable like any other, removed only from its page.
+    const items = [...r.container.querySelectorAll(".kc-item")];
+    fireEvent.click(items.find((i) => i.textContent?.includes("Anthropic")) as HTMLElement);
+    await waitFor(() => r.getByText("Modelli e abbonamenti"));
+    expect(r.container.querySelector(".kc-usedby")).not.toBeNull();
+    expect(r.queryByText("Elimina")).toBeNull();
+    expect(r.getByText("Salva")).toBeTruthy();
+    expect(r.container.querySelector(CHECK)).toBeNull();
   });
 
   it("makes passwords from the browser's randomness, of the asked length and kind", () => {
