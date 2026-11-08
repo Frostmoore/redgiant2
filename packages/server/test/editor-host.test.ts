@@ -347,7 +347,7 @@ describe("EditorHost: the disk", () => {
     });
     const [e] = await store.list({ types: ["doc.replaced"] });
     expect(e?.payload).toMatchObject({ by: "outside", revision: 1, summary: { kind: "replaced" } });
-    expect((e?.payload as { ops?: unknown[] }).ops).toHaveLength(1);
+    expect((e?.payload as { ops?: unknown[] } | undefined)?.ops).toHaveLength(1);
     expect((await h.read(ME, file)).model?.toString()).toBe(
       "one\n2\nthree\nfour\nfive\nsix (bash)",
     );
