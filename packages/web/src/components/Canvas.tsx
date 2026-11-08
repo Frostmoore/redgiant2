@@ -4,6 +4,8 @@
 // documents, sheets, slides, 3D, archives, fonts, trees, code), everything drawn in the page. It
 // reloads by itself when the file changes. Office files are laid out by LibreOffice and closed
 // formats are seen through their open copy (viewers/OpenCopy.tsx, G34.4).
+
+import type { CanvasDo } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import {
@@ -13,7 +15,8 @@ import {
   IconFullscreenExit,
   IconRefresh,
 } from "../icons.js";
-import { type CanvasTarget, getApi } from "../state.js";
+import { type CanvasTarget, canvasViewId, getApi } from "../state.js";
+import { CanvasTab, lastMove, report, setTabKind } from "../viewers/live.js";
 import { bytesText, download, type ViewerSource } from "../viewers/source.js";
 import { CanvasFile } from "./viewers/OpenCopy.js";
 
@@ -52,11 +55,39 @@ export function canvasKind(target: CanvasTarget): CanvasKind {
   return "text";
 }
 
+/** An agent's move in words, for the tab's head (G36.12): «The agent went to page 3». */
+export function moveText(d: CanvasDo): string {
+  const parts: string[] = [];
+  if (d.page) parts.push(t("canvasMovePage", { n: String(d.page) }));
+  if (d.line)
+    parts.push(
+      d.toLine && d.toLine > d.line
+        ? t("canvasMoveLines", { from: String(d.line), to: String(d.toLine) })
+        : t("canvasMoveLine", { n: String(d.line) }),
+    );
+  if (d.time !== undefined) parts.push(t("canvasMoveTime", { at: clockOf(d.time) }));
+  if (d.play === true) parts.push(t("canvasMovePlay"));
+  if (d.play === false) parts.push(t("canvasMovePause"));
+  if (d.zoom === "fit") parts.push(t("canvasMoveFit"));
+  else if (d.zoom) parts.push(t("canvasMoveZoom", { n: String(Math.round(d.zoom)) }));
+  if (d.find) parts.push(t("canvasMoveFind", { words: d.find }));
+  if (d.sheet) parts.push(t("canvasMoveSheet", { name: d.sheet }));
+  if (d.cells) parts.push(t("canvasMoveCells", { cells: d.cells.toUpperCase() }));
+  return parts.length ? t("canvasAgentMoved", { what: parts.join(", ") }) : t("canvasAgentOpened");
+}
+
+const clockOf = (s: number) => {
+  const m = Math.floor(s / 60);
+  const r = Math.floor(s % 60);
+  return `${m}:${String(r).padStart(2, "0")}`;
+};
+
 /** The file's own name, from its path in the workspace (or on the computer). */
 export const fileName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 
 export function Canvas({ title, target }: { title: string; target: CanvasTarget }) {
   const site = canvasKind(target) === "site";
+  const id = canvasViewId(target);
   const [link, setLink] = useState<string>();
   const [error, setError] = useState<string>();
   const [version, setVersion] = useState(0);
@@ -74,6 +105,27 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
     if (full) void document.exitFullscreen?.().catch(() => {});
     else void box.current?.requestFullscreen?.().catch(() => {});
   };
+  // What the person selects in the tab is part of where they are (G36.12), read when an agent asks.
+  useEffect(() => {
+    const change = () => {
+      const sel = document.getSelection();
+      const el = box.current;
+      if (!sel || !el || !sel.anchorNode || !el.contains(sel.anchorNode)) return;
+      report(id, { selection: sel.toString().trim().slice(0, 2000) || undefined });
+    };
+    document.addEventListener("selectionchange", change);
+    return () => document.removeEventListener("selectionchange", change);
+  }, [id]);
+  useEffect(() => setTabKind(id, site ? "site" : shown?.kind), [id, site, shown?.kind]);
+  // The agent's move, said for a few seconds in the head.
+  const move = lastMove.value?.id === id ? lastMove.value : undefined;
+  const [moveShown, setMoveShown] = useState<number>();
+  useEffect(() => {
+    if (!move) return;
+    setMoveShown(move.n);
+    const timer = setTimeout(() => setMoveShown(undefined), 6000);
+    return () => clearTimeout(timer);
+  }, [move?.n]);
   const key = JSON.stringify(target);
   useEffect(() => {
     setError(undefined);
@@ -117,6 +169,11 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
           )}
         </span>
         <div class="spacer" />
+        {move && moveShown === move.n && (
+          <span class="canvas-agent" role="status" title={moveText(move.do)}>
+            {moveText(move.do)}
+          </span>
+        )}
         <button
           type="button"
           class="icon-button"
@@ -177,15 +234,17 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
             allow="fullscreen; autoplay; clipboard-write"
           />
         ) : (
-          <CanvasFile
-            key={url}
-            scope={target.kind === "file" ? target.scope : "outside"}
-            path={target.kind === "file" ? target.path : name}
-            name={name}
-            url={url}
-            onKind={setShown}
-            {...(target.kind === "file" && target.at && { at: target.at })}
-          />
+          <CanvasTab.Provider value={id}>
+            <CanvasFile
+              key={url}
+              scope={target.kind === "file" ? target.scope : "outside"}
+              path={target.kind === "file" ? target.path : name}
+              name={name}
+              url={url}
+              onKind={setShown}
+              {...(target.kind === "file" && target.at && { at: target.at })}
+            />
+          </CanvasTab.Provider>
         )}
       </div>
     </div>

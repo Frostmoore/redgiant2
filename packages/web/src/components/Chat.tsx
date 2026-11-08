@@ -283,6 +283,12 @@ function ToolLine({
           </span>
         )}
       </button>
+      {item.result?.images && (
+        <div class="tool-seen">
+          <span class="dim">{t("toolSeen")}</span>
+          <Images images={item.result.images} />
+        </div>
+      )}
       {diff && (
         <div
           class="md tool-diff"

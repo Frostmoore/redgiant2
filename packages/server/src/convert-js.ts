@@ -387,6 +387,17 @@ export interface Converted {
   losses: string[];
 }
 
+/** A Photoshop file's own flattened picture (G36.12, a look at it), without its layers. */
+export function psdComposite(bytes: Uint8Array): Rgba | undefined {
+  readyPsd();
+  const psd: Psd = readPsd(bytes, {
+    useImageData: true,
+    skipThumbnail: true,
+    skipLayerImageData: true,
+  });
+  return psd.imageData ? to8(psd.imageData as Rgba) : undefined;
+}
+
 /** A Photoshop file as OpenRaster (layers, groups, opacity, blending) and a flat PNG. */
 export function psdToOra(bytes: Uint8Array, stem: string): Converted {
   readyPsd();

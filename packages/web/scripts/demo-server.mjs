@@ -58,7 +58,11 @@ function demoPdf(line) {
 let turn = 0;
 const brain = (req) => {
   const last = req.messages.at(-1);
-  const results = last?.role === "user" && last.parts.every((p) => p.type === "tool_result");
+  // A tool's pictures (canvas_look, G36.12) come in the same message as the results.
+  const results =
+    last?.role === "user" &&
+    last.parts.some((p) => p.type === "tool_result") &&
+    last.parts.every((p) => p.type === "tool_result" || p.type === "image");
   turn++;
   const said = last?.parts.find((p) => p.type === "text")?.text ?? "";
   // G36.17: the person's classifier (DEMO_REQUESTS): yes to installing, no to deleting, an answer.
@@ -140,6 +144,31 @@ const brain = (req) => {
     return {
       text: "Ho trovato i file da cambiare:\n\n- `packages/server/src/convert-js.ts`\n- `packages/server/src/convert-blender.ts`\n- `packages/web/src/components/Composer.tsx`",
     };
+  // G36.12 (DEMO_CANVAS): the agent looks at the person's canvas and leafs through it.
+  const toolOut = last?.parts.find((p) => p.type === "tool_result")?.content;
+  if (results && typeof toolOut === "string" && toolOut.startsWith("The person's canvas"))
+    return {
+      text: toolOut.includes("Looking at sedia.obj")
+        ? "Vedo la sedia che hai aperto: quattro gambe, il sedile e lo schienale, dritta sul pavimento."
+        : toolOut.includes("Looking at canvas/conti.csv")
+          ? "Vedo la tabella dei conti: affitto, luce e internet, mese per mese."
+          : "Ecco cosa vedo nel tuo Canvas.",
+    };
+  if (results && typeof toolOut === "string" && toolOut.startsWith("Done: the person's canvas"))
+    return { text: "Fatto: guarda nel Canvas, qui accanto." };
+  const canvasMoves = [
+    ["Guarda il Canvas", "canvas_look", {}],
+    ["Guarda la sedia di lato", "canvas_look", { path: "canvas/sedia.obj", view: "right" }],
+    ["Guarda la tabella", "canvas_look", { path: "canvas/conti.csv", cells: "A1:D5" }],
+    ["Segna le celle", "canvas_act", { path: "canvas/conti.csv", cells: "B2:C4" }],
+    ["Vai alla riga", "canvas_act", { path: "canvas/app.py", line: 12, to_line: 18 }],
+  ];
+  for (const [words, name, input] of canvasMoves)
+    if (said.startsWith(words) && !results)
+      return {
+        text: name === "canvas_look" ? "Guardo il tuo Canvas." : "Lo sfoglio io, guarda.",
+        toolCalls: [{ name, input }],
+      };
   // G34: «Mostra il file <path>» → show_file; its result → a short answer.
   const shownResult = last?.parts.find((p) => p.type === "tool_result")?.content;
   if (results && typeof shownResult === "string" && shownResult.startsWith("Opened "))
@@ -998,6 +1027,77 @@ if (process.env.DEMO_REQUESTS) {
   void ask("git push --force origin main", ["git-push", "git-history", "critical-delete"], true);
 }
 let viewerSession;
+// G36.12, DEMO_CANVAS=1: files for an agent that looks at the canvas and leafs through it.
+let canvasSession;
+if (process.env.DEMO_CANVAS) {
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const into = join(core.platformPath("local"), "canvas");
+  await mkdir(into, { recursive: true });
+  await writeFile(
+    join(into, "conti.csv"),
+    "Mese,Affitto,Luce,Internet\nGennaio,650,82.40,29.90\nFebbraio,650,77.10,29.90\nMarzo,650,69.80,29.90\nAprile,650,58.30,29.90\nMaggio,650,51.00,29.90\n",
+  );
+  const code = [
+    "# A small shop: prices, the cart and its total.",
+    "from dataclasses import dataclass",
+    "",
+    "",
+    "@dataclass",
+    "class Item:",
+    "    name: str",
+    "    price: float",
+    "    qty: int = 1",
+    "",
+    "",
+    "def total(cart: list[Item], vat: float = 0.22) -> float:",
+    '    """The cart\'s total with VAT, rounded to the cent."""',
+    "    net = sum(i.price * i.qty for i in cart)",
+    "    if net <= 0:",
+    "        return 0.0",
+    "    gross = net * (1 + vat)",
+    "    return round(gross, 2)",
+    "",
+    "",
+    ...Array.from({ length: 40 }, (_, i) => `PRICE_${i + 1} = ${(i + 1) * 1.5}`),
+  ].join("\n");
+  await writeFile(join(into, "app.py"), `${code}\n`);
+  // A chair: four legs, the seat and the back, each a box.
+  const boxes = [
+    [0, 0, 0, 0.1, 1, 0.1],
+    [0.9, 0, 0, 1, 1, 0.1],
+    [0, 0, 0.9, 0.1, 1, 1],
+    [0.9, 0, 0.9, 1, 1, 1],
+    [0, 1, 0, 1, 1.12, 1],
+    [0, 1.12, 0.9, 1, 2.1, 1],
+  ];
+  const v = [];
+  const f = [];
+  for (const [x0, y0, z0, x1, y1, z1] of boxes) {
+    const b = v.length;
+    for (const [x, y, z] of [
+      [x0, y0, z0],
+      [x1, y0, z0],
+      [x1, y1, z0],
+      [x0, y1, z0],
+      [x0, y0, z1],
+      [x1, y0, z1],
+      [x1, y1, z1],
+      [x0, y1, z1],
+    ])
+      v.push(`v ${x} ${y} ${z}`);
+    for (const q of [
+      [1, 2, 3, 4],
+      [5, 8, 7, 6],
+      [1, 5, 6, 2],
+      [2, 6, 7, 3],
+      [3, 7, 8, 4],
+      [4, 8, 5, 1],
+    ])
+      f.push(`f ${q.map((n) => n + b).join(" ")}`);
+  }
+  await writeFile(join(into, "sedia.obj"), `${v.join("\n")}\n${f.join("\n")}\n`);
+  canvasSession = await core.startSession("local", god.id);
+}
 if (process.env.DEMO_SAMPLES) {
   const { cp, readdir } = await import("node:fs/promises");
   const into = join(core.platformPath("local"), "campioni");
@@ -1088,6 +1188,7 @@ console.log(
     orchestrator: orch.id,
     god: god.id,
     ...(viewerSession && { viewerSession }),
+    ...(canvasSession && { canvasSession }),
     ...(subSession && { subSession }),
   }),
 );

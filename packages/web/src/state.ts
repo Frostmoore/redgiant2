@@ -2,6 +2,7 @@ import { type Signal, signal } from "@preact/signals";
 import type {
   Answers,
   AssistantPart,
+  CanvasState,
   Event,
   ImagePart,
   MessageMetrics,
@@ -22,6 +23,7 @@ import {
   type Subproject,
 } from "./api.js";
 import { t, tOptional } from "./i18n.js";
+import { forgetTab, kindOfTab, order, placeOf } from "./viewers/live.js";
 
 /** What the canvas shows (G25.1): a file or folder of a workspace, or a port of an agent. */
 export type CanvasTarget =
@@ -55,7 +57,7 @@ export type ChatItem =
       callId: string;
       tool: string;
       input: unknown;
-      result?: { ok: boolean; output: string };
+      result?: { ok: boolean; output: string; images?: ImagePart[] };
       /** Called by the agent's program (run_script), not by the model directly. */
       viaScript?: boolean;
     }
@@ -198,7 +200,14 @@ export function buildItems(events: Event[]): ChatItem[] {
       }
       case "tool.result": {
         const call = tools.get(e.payload.callId);
-        if (call) call.result = { ok: e.payload.ok, output: e.payload.output };
+        if (call)
+          call.result = {
+            ok: e.payload.ok,
+            output: e.payload.output,
+            // What canvas_look drew for the agent (G36.12): the person sees what it saw.
+            ...(call.tool === "canvas_look" &&
+              e.payload.images?.length && { images: e.payload.images }),
+          };
         break;
       }
       // A call made by the agent's program (run_script): shown like any other, marked so.
@@ -423,6 +432,10 @@ export function applyMessage(m: ServerMessage): void {
         teaching: m.teaching,
       };
       return;
+    // An agent looks at the canvas (G36.12): what it shows and where the person is, once.
+    case "canvas.query":
+      live?.send({ type: "canvas.state", requestId: m.requestId, state: canvasSnapshot() });
+      return;
     case "error":
       if (m.code === "unavailable")
         browserScreen.value = { ...browserScreen.value, unavailable: true };
@@ -435,6 +448,11 @@ export function applyMessage(m: ServerMessage): void {
       // Shown while the person watches: the canvas opens by itself (not when the log replays).
       if (m.event.type === "canvas.show" && m.event.payload && v.value.synced)
         openCanvas(m.event.payload.title, m.event.payload.target);
+      // An agent leafing through it (G36.12): the tab comes forward and its viewer moves.
+      if (m.event.type === "canvas.act" && m.event.payload && v.value.synced) {
+        const { title, target, do: d } = m.event.payload;
+        order(openCanvas(title, target, true), d);
+      }
       // A request ends with its message; while the turn runs, a user message or a tool's
       // result means the next request is being prepared.
       const next =
@@ -962,6 +980,7 @@ export function closeTab(id: string): void {
 }
 
 export function closeSide(id: string): void {
+  forgetTab(id);
   const index = sideViews.value.findIndex((x) => x.id === id);
   sideViews.value = sideViews.value.filter((x) => x.id !== id);
   if (activeSide.value === id)
@@ -971,19 +990,58 @@ export function closeSide(id: string): void {
   persistCanvas();
 }
 
-/** Opens (or brings forward) what an agent showed, in the area on the right (G25.1). */
-export function openCanvas(title: string, target: CanvasTarget): void {
-  const id =
-    target.kind === "file"
-      ? `canvas:${target.scope}:${target.path}`
-      : `canvas:${target.agentId}:${target.port}:${target.path ?? ""}`;
+/** A canvas tab's id: one tab per file (wherever it opens) or per port and page. */
+export const canvasViewId = (target: CanvasTarget): string =>
+  target.kind === "file"
+    ? `canvas:${target.scope}:${target.path}`
+    : `canvas:${target.agentId}:${target.port}:${target.path ?? ""}`;
+
+/**
+ * Opens (or brings forward) what an agent showed, in the area on the right (G25.1). `keep`: a
+ * tab already open stays as it is (an agent moving in it, G36.12), only brought forward.
+ */
+export function openCanvas(title: string, target: CanvasTarget, keep = false): string {
+  const id = canvasViewId(target);
   const view: SideView = { id, type: "canvas", title, target };
-  sideViews.value = sideViews.value.some((v) => v.id === id)
-    ? sideViews.value.map((v) => (v.id === id ? view : v))
-    : [...sideViews.value, view];
+  const open = sideViews.value.some((v) => v.id === id);
+  if (!(open && keep))
+    sideViews.value = open
+      ? sideViews.value.map((v) => (v.id === id ? view : v))
+      : [...sideViews.value, view];
   activeSide.value = id;
   sideAside.value = false;
   persistCanvas();
+  return id;
+}
+
+/** What the canvas shows now, for an agent that looks (G36.12): tabs, the active one, places. */
+export function canvasSnapshot(): CanvasState {
+  const views = sideViews.value.filter(
+    (v): v is Extract<SideView, { type: "canvas" }> => v.type === "canvas",
+  );
+  const active = views.find((v) => v.id === activeSide.value);
+  const narrow =
+    typeof window.matchMedia === "function" && window.matchMedia("(max-width: 760px)").matches;
+  const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+  return {
+    visible: !!active && !hidden && !(narrow && sideAside.value),
+    tabs: views.slice(-50).map((v) => {
+      const place = placeOf(v.id);
+      const kind = kindOfTab(v.id);
+      return {
+        title: v.title,
+        target: v.target,
+        active: v.id === active?.id,
+        ...(kind && { kind }),
+        ...(place && {
+          place: {
+            ...place,
+            ...(place.selection && { selection: place.selection.slice(0, 2000) }),
+          },
+        }),
+      };
+    }),
+  };
 }
 
 /**

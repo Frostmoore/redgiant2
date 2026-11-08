@@ -59,6 +59,9 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   one("use_credential", "credentials"),
   one("request_connection", "credentials"),
   one("show_file", "canvas"),
+  // Looking at the person's canvas and leafing through it (G36.12).
+  one("canvas_look", "canvas"),
+  one("canvas_act", "canvas"),
   one("show", "canvas"),
   one("view_image", "canvas"),
   one("send_file", "canvas"),

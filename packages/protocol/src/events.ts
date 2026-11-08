@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AgentSpec } from "./agents.js";
 import { AutomationRunStatus, AutomationTrigger } from "./automations.js";
+import { CanvasDo, CanvasTargetSchema } from "./canvas.js";
 import { AssistantPart, ImagePart, NativeContent, StopReason } from "./messages.js";
 import { MessageMetrics } from "./metrics.js";
 import { Answers, Question } from "./questions.js";
@@ -271,6 +272,14 @@ export const EventBody = z.discriminatedUnion("type", [
         }),
       ]),
     }),
+  }),
+  /**
+   * An agent moved the person's canvas (G36.12): opened a tab, went to a page, a line or a time,
+   * selected, zoomed, played or paused. The page follows it live; nothing is edited.
+   */
+  z.object({
+    type: z.literal("canvas.act"),
+    payload: z.object({ title: z.string(), target: CanvasTargetSchema, do: CanvasDo }),
   }),
   /**
    * A board ("tavola", G25.4, as in Officina): 1 to 8 HTML pages side by side for the person to

@@ -1,6 +1,7 @@
 export * from "./agents.js";
 export * from "./automations.js";
 export * from "./backup.js";
+export * from "./canvas.js";
 export * from "./critical.js";
 export * from "./dangers.js";
 export * from "./events.js";

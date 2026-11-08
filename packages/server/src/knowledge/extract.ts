@@ -848,6 +848,34 @@ function pageText(items: TextItemLike[]): string {
     .trim();
 }
 
+/** One page of a PDF (G36.12, canvas_look): its text, its size in points, how many pages. */
+export async function pdfPage(
+  data: Uint8Array,
+  n: number,
+): Promise<{ pages: number; page: number; width: number; height: number; text: string }> {
+  const { lib, dir } = await pdfjs();
+  const task = lib.getDocument({
+    data,
+    disableFontFace: true,
+    useSystemFonts: false,
+    verbosity: 0,
+    cMapUrl: `${dir}cmaps/`,
+    cMapPacked: true,
+    standardFontDataUrl: `${dir}standard_fonts/`,
+  });
+  try {
+    const doc = await task.promise;
+    const page = Math.max(1, Math.min(doc.numPages, Math.floor(n) || 1));
+    const p = await doc.getPage(page);
+    const vp = p.getViewport({ scale: 1 });
+    const content = await p.getTextContent();
+    const text = pageText(content.items.filter((i) => "str" in i) as unknown as TextItemLike[]);
+    return { pages: doc.numPages, page, width: vp.width, height: vp.height, text };
+  } finally {
+    await task.destroy().catch(() => {});
+  }
+}
+
 /** A PDF's text page by page. */
 export async function extractPdfData(
   data: Uint8Array,

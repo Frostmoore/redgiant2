@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
 import { renderMarkdown } from "../../markdown.js";
 import { codeLanguageName } from "../../viewers/kind.js";
+import { useOrders, useReport } from "../../viewers/live.js";
 import { useText, type ViewerProps } from "../../viewers/source.js";
 
 /** Above this the rest is cut: a viewer, not an editor of logs of gigabytes. */
@@ -45,6 +46,26 @@ function Code({
   line?: number | undefined;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const editor = useRef<EditorView | undefined>(undefined);
+  const [ready, setReady] = useState(false);
+  const report = useReport();
+  // An agent's move (G36.12): a line brought to the middle, or lines selected.
+  useOrders((d) => {
+    const view = editor.current;
+    if (!view || !d.line) return false;
+    const doc = view.state.doc;
+    const from = doc.line(Math.min(d.line, doc.lines));
+    const to = doc.line(Math.min(Math.max(d.toLine ?? d.line, d.line), doc.lines));
+    view.dispatch({
+      selection: { anchor: from.from, head: to.to },
+      effects: EditorView.scrollIntoView(from.from, { y: "center" }),
+    });
+    report({
+      line: from.number,
+      selection: d.toLine ? doc.sliceString(from.from, to.to).slice(0, 2000) : undefined,
+    });
+    return true;
+  }, ready);
   useEffect(() => {
     const el = host.current;
     if (!el) return;
@@ -75,9 +96,23 @@ function Code({
           effects: EditorView.scrollIntoView(at.from, { y: "center" }),
         });
       }
+      // The first line in view is where the person is (G36.12).
+      const shown = view;
+      const tell = () =>
+        report({
+          line: shown.state.doc.lineAt(shown.lineBlockAtHeight(shown.scrollDOM.scrollTop).from)
+            .number,
+          lines: shown.state.doc.lines,
+        });
+      shown.scrollDOM.addEventListener("scroll", tell, { passive: true });
+      tell();
+      editor.current = view;
+      setReady(true);
     })();
     return () => {
       live = false;
+      editor.current = undefined;
+      setReady(false);
       view?.destroy();
     };
   }, [text, name, wrap, line]);
@@ -89,6 +124,11 @@ export function CodeView({ src }: ViewerProps) {
   const markdown = src.kind === "markdown";
   // A citation's line is in the source: Markdown opens there instead of rendered.
   const [source, setSource] = useState(!markdown || Boolean(src.at?.line));
+  // A line asked by an agent is in the source: rendered Markdown turns to it (G36.12).
+  useOrders((d) => {
+    if (d.line && !source) setSource(true);
+    return false;
+  });
   const [wrap, setWrap] = useState(src.kind !== "code");
   if (error) return <div class="vw-empty">{error}</div>;
   if (value === undefined) return <div class="vw-empty dim">{t("loading")}</div>;

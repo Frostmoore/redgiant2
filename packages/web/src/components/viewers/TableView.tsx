@@ -1,10 +1,11 @@
 // Tables (G34.2): CSV and TSV read here, XLSX/ODS/XLS read by SheetJS (Community Edition,
 // Apache-2.0, loaded only for a sheet). Columns sort with a press on their name, a filter keeps
 // the rows that hold its words, the first row and the first column stay in place.
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
 import { IconChevronDown, IconSearch } from "../../icons.js";
 import { parseDelimited } from "../../viewers/delimited.js";
+import { cellRange, useOrders, useReport } from "../../viewers/live.js";
 import { useBytes, useText, type ViewerProps } from "../../viewers/source.js";
 
 export { parseDelimited };
@@ -61,12 +62,29 @@ export function filterRows(rows: string[][], filter: string): string[][] {
 
 const MAX_SHOWN = 2000;
 
-export function Grid({ rows }: { rows: string[][] }) {
+export function Grid({ rows, mark }: { rows: string[][]; mark?: string | undefined }) {
   const [sort, setSort] = useState<Sort>(null);
   const [filter, setFilter] = useState("");
   const [head = [], ...body] = rows;
   const width = Math.max(head.length, ...body.slice(0, 500).map((r) => r.length));
   const shown = useMemo(() => sortRows(filterRows(body, filter), sort), [rows, sort, filter]);
+  // Cells an agent marked (G36.12), named as in the sheet: row 1 is the head.
+  const marked = cellRange(mark);
+  const scroll = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!marked) return;
+    if (sort || filter) {
+      setSort(null);
+      setFilter("");
+    }
+    requestAnimationFrame(() =>
+      scroll.current
+        ?.querySelector(".vw-mark")
+        ?.scrollIntoView?.({ block: "center", inline: "center" }),
+    );
+  }, [mark]);
+  const isMarked = (row: number, col: number) =>
+    !!marked && row >= marked.r0 && row <= marked.r1 && col >= marked.c0 && col <= marked.c1;
   const next = (col: number): Sort =>
     sort?.col !== col ? { col, dir: "asc" } : sort.dir === "asc" ? { col, dir: "desc" } : null;
   return (
@@ -88,14 +106,16 @@ export function Grid({ rows }: { rows: string[][] }) {
             : t("vwRows", { n: body.length.toLocaleString() })}
         </span>
       </div>
-      <div class="vw-grid-scroll">
+      <div class="vw-grid-scroll" ref={scroll}>
         <table>
           <thead>
             <tr>
-              <th class="vw-rowno" />
+              {/* Rows numbered as in the sheet (G36.12): the head is row 1, as an agent names cells. */}
+              <th class="vw-rowno">1</th>
               {Array.from({ length: width }, (_, i) => (
                 <th
                   key={i}
+                  class={isMarked(0, i) ? "vw-mark" : undefined}
                   aria-sort={
                     sort?.col === i ? (sort.dir === "asc" ? "ascending" : "descending") : "none"
                   }
@@ -115,9 +135,12 @@ export function Grid({ rows }: { rows: string[][] }) {
           <tbody>
             {shown.slice(0, MAX_SHOWN).map((r, i) => (
               <tr key={i}>
-                <td class="vw-rowno">{i + 1}</td>
+                <td class="vw-rowno">{i + 2}</td>
                 {Array.from({ length: width }, (_, j) => (
-                  <td key={j} class={asNumber(r[j] ?? "") !== undefined ? "num" : ""}>
+                  <td
+                    key={j}
+                    class={`${asNumber(r[j] ?? "") !== undefined ? "num" : ""} ${isMarked(i + 1, j) ? "vw-mark" : ""}`}
+                  >
                     {r[j] ?? ""}
                   </td>
                 ))}
@@ -142,9 +165,17 @@ function Delimited({ src }: ViewerProps) {
       value === undefined ? undefined : parseDelimited(value, guessSeparator(value, src.format)),
     [value],
   );
+  const [mark, setMark] = useState<string>();
+  const report = useReport();
+  useOrders((d) => {
+    if (!d.cells) return false;
+    setMark(d.cells);
+    report({ cells: d.cells.toUpperCase() });
+    return true;
+  }, !!rows);
   if (error) return <div class="vw-empty">{error}</div>;
   if (!rows) return <div class="vw-empty dim">{t("loading")}</div>;
-  return <Grid rows={rows} />;
+  return <Grid rows={rows} mark={mark} />;
 }
 
 /** Every sheet of a workbook as rows of text, as the program showing it would format them. */
@@ -172,10 +203,28 @@ function Workbook({ src }: ViewerProps) {
   const [sheets, setSheets] = useState<{ name: string; rows: string[][] }[]>();
   const [failed, setFailed] = useState<string>();
   const [on, setOn] = useState(0);
+  const [mark, setMark] = useState<string>();
   useEffect(() => {
     if (value)
       void readWorkbook(value).then(setSheets, (e: unknown) => setFailed((e as Error).message));
   }, [value]);
+  // The sheet in view is where the person is (G36.12); an agent may change it and mark cells.
+  const report = useReport();
+  useEffect(() => {
+    if (sheets) report({ sheet: sheets[on]?.name, cells: mark?.toUpperCase() });
+  }, [sheets, on, mark]);
+  useOrders((d) => {
+    if (!sheets || (!d.sheet && !d.cells)) return false;
+    const i = d.sheet
+      ? sheets.findIndex((s) => s.name.toLowerCase() === d.sheet?.toLowerCase())
+      : -1;
+    if (i >= 0 && i !== on) {
+      setOn(i);
+      setMark(undefined);
+    }
+    if (d.cells) setMark(d.cells);
+    return true;
+  }, !!sheets);
   if (error || failed) return <div class="vw-empty">{error ?? failed}</div>;
   if (!sheets) return <div class="vw-empty dim">{t("loading")}</div>;
   return (
@@ -196,7 +245,7 @@ function Workbook({ src }: ViewerProps) {
           ))}
         </div>
       )}
-      <Grid key={on} rows={sheets[on]?.rows ?? []} />
+      <Grid key={on} rows={sheets[on]?.rows ?? []} mark={mark} />
     </div>
   );
 }

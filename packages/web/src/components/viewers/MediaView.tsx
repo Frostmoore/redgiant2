@@ -5,6 +5,7 @@ import { useRef, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
 import { IconAlert, IconDownload, IconMic, IconRefresh } from "../../icons.js";
 import { playable } from "../../viewers/kind.js";
+import { useOrders, useReport } from "../../viewers/live.js";
 import { download, type ViewerProps } from "../../viewers/source.js";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -34,6 +35,27 @@ export function MediaView({ src, convert }: ViewerProps) {
   const [time, setTime] = useState({ at: 0, total: 0 });
   const [size, setSize] = useState<string>();
   const seeking = useRef(false);
+  const [loaded, setLoaded] = useState(false);
+  // Where the person is (G36.12), and an agent's moves: a time, play, pause.
+  const report = useReport();
+  const tell = () => {
+    const el = ref.current;
+    if (el)
+      report({
+        time: el.currentTime,
+        duration: Number.isFinite(el.duration) ? el.duration : undefined,
+        playing: !el.paused,
+      });
+  };
+  useOrders((d) => {
+    const el = ref.current;
+    if (!el || (d.time === undefined && d.play === undefined)) return false;
+    if (d.time !== undefined) el.currentTime = d.time;
+    if (d.play === true) void el.play()?.catch(() => {});
+    if (d.play === false) el.pause();
+    tell();
+    return true;
+  }, loaded && !failed);
   if (failed)
     return (
       <div class="vw-empty">
@@ -71,7 +93,11 @@ export function MediaView({ src, convert }: ViewerProps) {
       }
       setTime({ at: el.currentTime, total: el.duration });
       if (video && el.videoWidth) setSize(`${el.videoWidth} × ${el.videoHeight}`);
+      setLoaded(true);
+      tell();
     },
+    onPlay: tell,
+    onPause: tell,
     onTimeUpdate: () => {
       const el = ref.current;
       if (!el) return;
@@ -80,6 +106,7 @@ export function MediaView({ src, convert }: ViewerProps) {
         el.currentTime = 0;
       }
       setTime({ at: seeking.current ? 0 : el.currentTime, total: el.duration });
+      tell();
     },
   };
   return (

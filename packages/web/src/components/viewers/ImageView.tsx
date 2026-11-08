@@ -1,9 +1,10 @@
 // Pictures (G34.2): fitted to the panel or at their real size, zoomed with the buttons or the
 // wheel, on a checkered ground that shows the transparent parts. An SVG is shown as a picture
 // (an <img> never runs its scripts), so a drawing from anywhere is safe to look at.
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
 import { IconMinus, IconPlus } from "../../icons.js";
+import { useOrders, useReport } from "../../viewers/live.js";
 import { download, type ViewerProps } from "../../viewers/source.js";
 
 type Ground = "check" | "light" | "dark";
@@ -24,6 +25,14 @@ export function ImageView({ src }: ViewerProps) {
   const [natural, setNatural] = useState<{ w: number; h: number }>();
   const [failed, setFailed] = useState(false);
   const shown = scale ?? 1;
+  // The zoom is part of where the person is (G36.12); an agent may zoom.
+  const report = useReport();
+  useEffect(() => report({ zoom: scale === null ? undefined : Math.round(scale * 100) }), [scale]);
+  useOrders((d) => {
+    if (d.zoom === undefined) return false;
+    setScale(d.zoom === "fit" ? null : d.zoom / 100);
+    return true;
+  });
   return (
     <div class="vw-image">
       <div class="vw-bar">
