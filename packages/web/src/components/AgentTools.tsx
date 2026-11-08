@@ -1,12 +1,12 @@
 // An agent's Tools tab (G34.5, the person: «Ovviamente devo poter scegliere agente per agente»): each
 // of its tools as for every agent, always on for it, or off; the essential ones locked, with why.
 // On top, what its tools weigh on every message now. New conversations only.
-import type { AgentToolState, ToolView } from "@redgiant/protocol";
-import { useState } from "preact/hooks";
+import type { AgentEditMode, AgentToolState, EditorSettings, ToolView } from "@redgiant/protocol";
+import { useEffect, useState } from "preact/hooks";
 import type { Agent } from "../api.js";
 import { t } from "../i18n.js";
 import { IconArrowRight, IconLock } from "../icons.js";
-import { getApi, openTab } from "../state.js";
+import { attempt, getApi, openTab } from "../state.js";
 import { Seg } from "./SettingsKit.js";
 import {
   aboutTokens,
@@ -19,6 +19,45 @@ import {
 } from "./ToolsPage.js";
 
 type Pick = "default" | AgentToolState;
+
+/**
+ * The rule for this agent's edits of files open in the Canvas (G37.1): right away (highlighted,
+ * undoable) or as proposals the person accepts. A file's own choice, in its editor, wins.
+ */
+export function AgentEditRule({ agent }: { agent: Agent }) {
+  const [s, setS] = useState<EditorSettings>();
+  useEffect(() => {
+    void getApi()
+      .editorSettings()
+      .then(
+        (r) => setS(r.settings),
+        () => {},
+      );
+  }, [agent.id]);
+  if (!s) return null;
+  const pick = (mode: AgentEditMode) => {
+    const next = { ...s, agents: { ...s.agents } };
+    if (mode === "now") delete next.agents[agent.id];
+    else next.agents[agent.id] = mode;
+    setS(next);
+    void attempt(() => getApi().setEditorSettings(next));
+  };
+  return (
+    <section class="tl-section tl-edit-rule">
+      <h4>{t("stEditorTitle")}</h4>
+      <p class="tl-lead">{t("stEditorLead")}</p>
+      <Seg
+        value={s.agents[agent.id] ?? "now"}
+        label={t("stEditorTitle")}
+        options={[
+          ["now", t("docModeNow")],
+          ["propose", t("docModePropose")],
+        ]}
+        onChange={pick}
+      />
+    </section>
+  );
+}
 
 export function AgentTools({ agent }: { agent: Agent }) {
   const { view, setView, error, setError, load } = useToolsView(agent.id);
@@ -62,6 +101,7 @@ export function AgentTools({ agent }: { agent: Agent }) {
             </div>
           </div>
           <NewOnly />
+          <AgentEditRule agent={agent} />
           <button
             type="button"
             class="wz-btn small tl-all"

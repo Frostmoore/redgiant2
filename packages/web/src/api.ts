@@ -1079,6 +1079,14 @@ export class Api {
     }>("GET", "/api/settings/requests");
   setRequestSettings = (s: import("@redgiant/protocol").RequestSettings) =>
     this.call<PlatformChange>("PUT", "/api/settings/requests", s);
+  /** The rule for the agents' edits in the editor (G37.1): at once or proposed, per agent or file. */
+  editorSettings = () =>
+    this.call<{ settings: import("@redgiant/protocol").EditorSettings }>(
+      "GET",
+      "/api/settings/editor",
+    );
+  setEditorSettings = (s: import("@redgiant/protocol").EditorSettings) =>
+    this.call<PlatformChange>("PUT", "/api/settings/editor", s);
   /** Requests decided without the person (the classifier, or the time running out). */
   unattended = () =>
     this.call<import("@redgiant/protocol").UnattendedDecision[]>("GET", "/api/unattended");
@@ -1573,6 +1581,7 @@ export class Live {
   private delay = 1000;
   private closed = false;
   private readonly followed = new Set<string>();
+  private readonly docs = new Map<string, ClientMessage>();
 
   constructor(
     private readonly token: string,
@@ -1597,6 +1606,7 @@ export class Live {
         this.onStatus("online");
         for (const s of this.followed)
           ws.send(JSON.stringify({ type: "session.follow", sessionId: s }));
+        for (const d of this.docs.values()) ws.send(JSON.stringify(d));
         for (const q of this.queue.splice(0)) ws.send(JSON.stringify(q));
       }
       this.onMessage(m);
@@ -1612,6 +1622,9 @@ export class Live {
   send(m: ClientMessage): void {
     if (m.type === "session.follow") this.followed.add(m.sessionId);
     if (m.type === "session.unfollow") this.followed.delete(m.sessionId);
+    // Files open in the editor (G37.1) are opened again after a reconnection.
+    if (m.type === "doc.open") this.docs.set(`${m.file.scope}\u0000${m.file.path}`, m);
+    if (m.type === "doc.close") this.docs.delete(`${m.file.scope}\u0000${m.file.path}`);
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m));
     else this.queue.push(m);
   }

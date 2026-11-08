@@ -273,7 +273,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
     file: DocFile,
     clientId: z.string(),
     revision: z.number().int().nonnegative(),
-    /** Present when the host rebased them: what was applied (the page already has it). */
+    /** The revision made (the panel «Modifiche» lists it; the page already has its text). */
     change: DocChange.optional(),
   }),
   z.object({

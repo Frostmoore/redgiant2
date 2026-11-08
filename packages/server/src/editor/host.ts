@@ -688,7 +688,7 @@ export class EditorHost {
           file: doc.file,
           clientId: req.origin.clientId,
           revision,
-          ...(rebased && { change }),
+          change,
         });
       else s.send({ type: "doc.changed", file: doc.file, revision, ops, change });
     if (!person)

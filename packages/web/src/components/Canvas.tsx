@@ -18,6 +18,7 @@ import {
 import { type CanvasTarget, canvasViewId, getApi } from "../state.js";
 import { CanvasTab, lastMove, report, setTabKind } from "../viewers/live.js";
 import { bytesText, download, type ViewerSource } from "../viewers/source.js";
+import { DocEditor, editableInCanvas } from "./viewers/DocEditor.js";
 import { CanvasFile } from "./viewers/OpenCopy.js";
 
 export { parseDelimited } from "../viewers/delimited.js";
@@ -87,6 +88,8 @@ export const fileName = (path: string) => path.split(/[\\/]/).filter(Boolean).po
 
 export function Canvas({ title, target }: { title: string; target: CanvasTarget }) {
   const site = canvasKind(target) === "site";
+  // A file the editor knows opens editable (G37.1): the host keeps it, no reloading here.
+  const editable = target.kind === "file" && editableInCanvas(target);
   const id = canvasViewId(target);
   const [link, setLink] = useState<string>();
   const [error, setError] = useState<string>();
@@ -116,7 +119,10 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
     document.addEventListener("selectionchange", change);
     return () => document.removeEventListener("selectionchange", change);
   }, [id]);
-  useEffect(() => setTabKind(id, site ? "site" : shown?.kind), [id, site, shown?.kind]);
+  useEffect(
+    () => setTabKind(id, site ? "site" : editable ? "text" : shown?.kind),
+    [id, site, editable, shown?.kind],
+  );
   // The agent's move, said for a few seconds in the head.
   const move = lastMove.value?.id === id ? lastMove.value : undefined;
   const [moveShown, setMoveShown] = useState<number>();
@@ -138,7 +144,7 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
   }, [key]);
   // Files: when they change, what is shown follows (a viewer: the file alone; a site: its folder).
   useEffect(() => {
-    if (target.kind !== "file") return;
+    if (target.kind !== "file" || editable) return;
     let stopped = false;
     const look = () =>
       void getApi()
@@ -224,6 +230,10 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
           <p class="notice error">{error}</p>
         ) : !url ? (
           <div class="empty">{t("loading")}</div>
+        ) : editable && target.kind === "file" ? (
+          <CanvasTab.Provider value={id}>
+            <DocEditor file={{ scope: target.scope, path: target.path }} />
+          </CanvasTab.Provider>
         ) : site ? (
           <iframe
             key={url}

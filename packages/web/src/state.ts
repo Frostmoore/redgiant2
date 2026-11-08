@@ -14,6 +14,16 @@ import type {
   ServerMessage,
 } from "@redgiant/protocol";
 import {
+  type AgentEditMode,
+  type ClientMessage,
+  type DocChange,
+  type DocFile,
+  type DocPresence,
+  type DocProposal,
+  type DocSnapshot,
+  docKey,
+} from "@redgiant/protocol";
+import {
   type Agent,
   Api,
   ApiError,
@@ -489,6 +499,17 @@ export function applyMessage(m: ServerMessage): void {
         url: m.url,
         teaching: m.teaching,
       };
+      return;
+    // The editor (G37.1): one file's revisions, in the host's order.
+    case "doc.opened":
+    case "doc.changed":
+    case "doc.ack":
+    case "doc.rejected":
+    case "doc.replaced":
+    case "doc.presence":
+    case "doc.proposals":
+    case "doc.mode":
+      docMessage(m);
       return;
     // An agent looks at the canvas (G36.12): what it shows and where the person is, once.
     case "canvas.query":
@@ -1385,4 +1406,154 @@ export function setCommandStripMin(min: boolean): void {
   try {
     localStorage.setItem("rg.cmdStrip", min ? "min" : "open");
   } catch {}
+}
+
+// ---------- The editor (G37.1) ----------
+
+/** What the editor's shell shows of one open file: the panel «Modifiche», who is in it, the rule. */
+export interface DocView {
+  status: "loading" | "ready";
+  revision: number;
+  /** The latest first. */
+  changes: DocChange[];
+  proposals: DocProposal[];
+  presence: DocPresence[];
+  mode: AgentEditMode;
+  modeOwn: boolean;
+  /** The last refusal of something the person asked (an undo, a proposal), with the host's words. */
+  refusal?: { clientId: string; code: string; reason: string; conflict?: number } | undefined;
+}
+
+export const emptyDocView = (): DocView => ({
+  status: "loading",
+  revision: 0,
+  changes: [],
+  proposals: [],
+  presence: [],
+  mode: "now",
+  modeOwn: false,
+});
+
+type DocMessage = Extract<
+  ServerMessage,
+  {
+    type:
+      | "doc.opened"
+      | "doc.changed"
+      | "doc.ack"
+      | "doc.rejected"
+      | "doc.replaced"
+      | "doc.presence"
+      | "doc.proposals"
+      | "doc.mode";
+  }
+>;
+
+const withChange = (list: DocChange[], c: DocChange): DocChange[] => {
+  const marked = c.undoOf?.length
+    ? list.map((x) => (c.undoOf?.includes(x.revision) ? { ...x, undoneBy: c.revision } : x))
+    : list;
+  return [c, ...marked.filter((x) => x.revision !== c.revision)].slice(0, 300);
+};
+
+/** One message of the host applied to a file's view (pure: tested as a table). */
+export function reduceDoc(v: DocView, m: DocMessage): DocView {
+  switch (m.type) {
+    case "doc.opened":
+      return {
+        status: "ready",
+        revision: m.revision,
+        changes: m.changes,
+        proposals: m.proposals,
+        presence: m.presence,
+        mode: m.mode,
+        modeOwn: m.modeOwn,
+      };
+    case "doc.changed":
+    case "doc.replaced":
+      return { ...v, revision: m.revision, changes: withChange(v.changes, m.change) };
+    case "doc.ack":
+      return {
+        ...v,
+        revision: Math.max(v.revision, m.revision),
+        ...(m.change && { changes: withChange(v.changes, m.change) }),
+      };
+    case "doc.rejected":
+      return {
+        ...v,
+        refusal: {
+          clientId: m.clientId,
+          code: m.code,
+          reason: m.reason,
+          ...(m.conflict !== undefined && { conflict: m.conflict }),
+        },
+      };
+    case "doc.presence":
+      return { ...v, presence: m.presence };
+    case "doc.proposals":
+      return { ...v, proposals: m.proposals };
+    case "doc.mode":
+      return { ...v, mode: m.mode, modeOwn: m.modeOwn };
+  }
+}
+
+/** The open editor of a file: it is told the revisions to apply to its text. */
+export interface DocPeer {
+  opened(snapshot: DocSnapshot, revision: number): void;
+  changed(m: Extract<ServerMessage, { type: "doc.changed" }>): void;
+  ack(m: Extract<ServerMessage, { type: "doc.ack" }>): void;
+  rejected(m: Extract<ServerMessage, { type: "doc.rejected" }>): void;
+  replaced(m: Extract<ServerMessage, { type: "doc.replaced" }>): void;
+}
+
+const docViews = new Map<string, Signal<DocView>>();
+const docPeers = new Map<string, DocPeer>();
+
+export function docView(file: DocFile): Signal<DocView> {
+  const key = docKey(file);
+  let v = docViews.get(key);
+  if (!v) {
+    v = signal(emptyDocView());
+    docViews.set(key, v);
+  }
+  return v;
+}
+
+function docMessage(m: DocMessage): void {
+  const v = docView(m.file);
+  v.value = reduceDoc(v.value, m);
+  const peer = docPeers.get(docKey(m.file));
+  if (!peer) return;
+  if (m.type === "doc.opened") peer.opened(m.snapshot, m.revision);
+  else if (m.type === "doc.changed") peer.changed(m);
+  else if (m.type === "doc.ack") peer.ack(m);
+  else if (m.type === "doc.rejected") peer.rejected(m);
+  else if (m.type === "doc.replaced") peer.replaced(m);
+}
+
+/** Opens a file in the editor: the host sends it, then every change; the function closes it. */
+export function openDoc(file: DocFile, peer: DocPeer): () => void {
+  const key = docKey(file);
+  docPeers.set(key, peer);
+  docView(file).value = emptyDocView();
+  live?.send({ type: "doc.open", file });
+  return () => {
+    if (docPeers.get(key) === peer) docPeers.delete(key);
+    live?.send({ type: "doc.close", file });
+  };
+}
+
+/** A message about an open file (operations, undo, presence, a proposal's answer). */
+export function sendDoc(m: Extract<ClientMessage, { file: DocFile }>): void {
+  live?.send(m);
+}
+
+/** The person's rule for the agents' edits of one file (Settings keep it, with its history). */
+export async function setDocMode(file: DocFile, mode: AgentEditMode | "default"): Promise<void> {
+  const a = getApi();
+  const { settings } = await a.editorSettings();
+  const files = { ...settings.files };
+  if (mode === "default") delete files[docKey(file)];
+  else files[docKey(file)] = mode;
+  await a.setEditorSettings({ ...settings, files });
 }

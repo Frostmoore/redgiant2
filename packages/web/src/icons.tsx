@@ -433,6 +433,13 @@ export const IconRetry = ({ size = 20 }: P) => (
     <path d="M23 4v6h-6M1 20v-6h6M3.5 9a9 9 0 0 1 14.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15" />
   </Svg>
 );
+/** Undo (G37.1, the panel «Modifiche»): an arrow turning back. */
+export const IconUndo = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M3 7v6h6" />
+    <path d="M3.5 13A8.5 8.5 0 1 0 6 6.5L3 9.5" />
+  </Svg>
+);
 export const IconHome = ({ size = 20 }: P) => (
   <Svg size={size}>
     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10" />

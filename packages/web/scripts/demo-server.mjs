@@ -220,17 +220,45 @@ const brain = (req) => {
     };
   if (results && typeof toolOut === "string" && toolOut.startsWith("Done: the person's canvas"))
     return { text: "Fatto: guarda nel Canvas, qui accanto." };
+  // G37.1 (DEMO_CANVAS): the agent edits the note open in the canvas, with canvas_edit.
+  if (results && typeof toolOut === "string" && toolOut.startsWith("Applied as revision"))
+    return {
+      text: "Fatto: ho aggiunto le due voci e corretto l'orario. Le vedi evidenziate nel Canvas; dal pannello Modifiche puoi annullarle.",
+    };
+  if (results && typeof toolOut === "string" && toolOut.startsWith("Proposed to the person"))
+    return { text: "Te l'ho proposta: la trovi in Modifiche, da accettare o rifiutare." };
   const canvasMoves = [
     ["Guarda il Canvas", "canvas_look", {}],
     ["Guarda la sedia di lato", "canvas_look", { path: "canvas/sedia.obj", view: "right" }],
     ["Guarda la tabella", "canvas_look", { path: "canvas/conti.csv", cells: "A1:D5" }],
     ["Segna le celle", "canvas_act", { path: "canvas/conti.csv", cells: "B2:C4" }],
     ["Vai alla riga", "canvas_act", { path: "canvas/app.py", line: 12, to_line: 18 }],
+    [
+      "Sistema la nota",
+      "canvas_edit",
+      {
+        path: "canvas/spesa.txt",
+        ops: [
+          { op: "insert", line: 4, text: "- caffè in grani\n- limoni\n" },
+          { op: "replace", find: "alle 18", text: "alle 18:30" },
+        ],
+      },
+    ],
+    [
+      "Aggiungi il pane",
+      "canvas_edit",
+      { path: "canvas/spesa.txt", ops: [{ op: "insert", line: 2, text: "- pane integrale\n" }] },
+    ],
   ];
   for (const [words, name, input] of canvasMoves)
     if (said.startsWith(words) && !results)
       return {
-        text: name === "canvas_look" ? "Guardo il tuo Canvas." : "Lo sfoglio io, guarda.",
+        text:
+          name === "canvas_look"
+            ? "Guardo il tuo Canvas."
+            : name === "canvas_edit"
+              ? "Lo sistemo io nel Canvas."
+              : "Lo sfoglio io, guarda.",
         toolCalls: [{ name, input }],
       };
   // G34: «Mostra il file <path>» → show_file; its result → a short answer.
@@ -1160,7 +1188,13 @@ if (process.env.DEMO_CANVAS) {
       f.push(`f ${q.map((n) => n + b).join(" ")}`);
   }
   await writeFile(join(into, "sedia.obj"), `${v.join("\n")}\n${f.join("\n")}\n`);
+  // G37.1: a plain text note the person and the agent edit together.
+  await writeFile(
+    join(into, "spesa.txt"),
+    "Spesa per sabato\n- latte\n- uova\n- farina\n\nRitiro in negozio alle 18, porta le borse.\n",
+  );
   canvasSession = await core.startSession("local", god.id);
+  await (await core.send("local", canvasSession, "Mostra il file canvas/spesa.txt")).done;
 }
 if (process.env.DEMO_SAMPLES) {
   const { cp, readdir } = await import("node:fs/promises");
