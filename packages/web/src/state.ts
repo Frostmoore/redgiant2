@@ -754,6 +754,71 @@ export const activeSide = signal<string | null>(
 /** On a phone the area on the right covers the chat: put aside (not closed) to see the chat. */
 export const sideAside = signal(initialCanvas.views.length > 0);
 
+/**
+ * The area's width next to the chat (p3.3.2): dragged on its divider, kept on this device. Null is
+ * the normal width (half of the room); the area never gets narrower than `SIDE_MIN` and always
+ * leaves the chat `CHAT_MIN`.
+ */
+export const SIDE_MIN = 300;
+export const CHAT_MIN = 420;
+export const loadSideWidth = (): number | null => {
+  try {
+    const n = Number(localStorage.getItem("rg.sideWidth"));
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+  } catch {
+    return null;
+  }
+};
+export const sideWidth = signal<number | null>(loadSideWidth());
+/** The area over the whole window (p3.3.2): the chat hidden, the tabs and «Back to chat» kept. */
+export const sideMax = signal(false);
+
+/** The width the area may take: at least `SIDE_MIN`, at most what leaves the chat its own. */
+export function clampSideWidth(width: number, room: number): number {
+  const most = Math.max(SIDE_MIN, room - CHAT_MIN);
+  return Math.round(Math.min(most, Math.max(SIDE_MIN, width)));
+}
+
+/** Sets the area's width (clamped to the room it shares with the chat) and keeps it. */
+export function setSideWidth(width: number, room: number): void {
+  const w = clampSideWidth(width, room);
+  sideWidth.value = w;
+  try {
+    localStorage.setItem("rg.sideWidth", String(w));
+  } catch {
+    // A full storage only forgets the width.
+  }
+}
+
+/** Back to the normal width (a double click on the divider, or Enter on it). */
+export function resetSideWidth(): void {
+  sideWidth.value = null;
+  try {
+    localStorage.removeItem("rg.sideWidth");
+  } catch {
+    // nothing to forget
+  }
+}
+
+/**
+ * The divider with the keyboard: the arrows move it (Shift: further), Home and End take the
+ * narrowest and widest area. The area is on the right, so the left arrow widens it. Null: a key
+ * the divider leaves alone.
+ */
+export function sideWidthByKey(
+  key: string,
+  shift: boolean,
+  width: number,
+  room: number,
+): number | null {
+  const step = shift ? 120 : 24;
+  if (key === "ArrowLeft") return clampSideWidth(width + step, room);
+  if (key === "ArrowRight") return clampSideWidth(width - step, room);
+  if (key === "Home") return clampSideWidth(SIDE_MIN, room);
+  if (key === "End") return clampSideWidth(room, room);
+  return null;
+}
+
 function persistCanvas(): void {
   const views = sideViews.value.filter((v) => v.type === "canvas");
   try {
@@ -864,6 +929,8 @@ export function closeSide(id: string): void {
   sideViews.value = sideViews.value.filter((x) => x.id !== id);
   if (activeSide.value === id)
     activeSide.value = sideViews.value[Math.min(index, sideViews.value.length - 1)]?.id ?? null;
+  // The last tab closed: the chat comes back, never an empty window.
+  if (sideViews.value.length === 0) sideMax.value = false;
   persistCanvas();
 }
 

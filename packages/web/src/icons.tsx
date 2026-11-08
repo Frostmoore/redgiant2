@@ -581,3 +581,21 @@ export const IconExternal = ({ size = 16 }: P) => (
     <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
   </Svg>
 );
+/** The canvas over the whole window (p3.3.2): two arrows out to the corners. */
+export const IconMaximize = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7" />
+  </Svg>
+);
+/** A file on the whole screen (the Fullscreen API): four corners. */
+export const IconFullscreen = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" />
+  </Svg>
+);
+/** Out of the whole screen: the four corners turned in. */
+export const IconFullscreenExit = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d="M9 4v4a1 1 0 0 1-1 1H4M20 9h-4a1 1 0 0 1-1-1V4M15 20v-4a1 1 0 0 1 1-1h4M4 15h4a1 1 0 0 1 1 1v4" />
+  </Svg>
+);

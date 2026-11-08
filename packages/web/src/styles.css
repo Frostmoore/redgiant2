@@ -1382,19 +1382,78 @@ select.model:disabled {
   background: var(--code);
   color: #d7dce5;
   order: 1;
+  position: relative;
 }
-.side-tabs {
+/* The divider between the chat and the area (p3.3.2): a wide grip over the area's left edge. */
+.side-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 9px;
+  z-index: 6;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.side-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.side-resizer:hover::after,
+.side-resizer:focus-visible::after,
+.side-resizing .side-resizer::after {
+  left: 3px;
+  width: 3px;
+  background: var(--accent);
+}
+.side-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+/* A site's frame would swallow the drag. */
+.side-resizing iframe {
+  pointer-events: none;
+}
+/* The bar over the area: its tabs scroll sideways, the buttons at its ends stay. */
+.side-bar {
   display: flex;
-  overflow-x: auto;
+  align-items: stretch;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   flex: none;
+  min-width: 0;
+}
+.side-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.side-max {
+  flex: none;
+  align-self: center;
+  margin: 0 6px;
+  color: var(--dim);
 }
 .side-tab {
   display: flex;
   align-items: center;
+  flex: none;
+  max-width: 240px;
   border-right: 1px solid var(--line);
   color: var(--dim);
+}
+.side-tab > .icon-button {
+  flex: none;
 }
 .side-tab.active {
   color: var(--text);
@@ -1411,7 +1470,44 @@ select.model:disabled {
   padding: 7px 4px 7px 10px;
   font-size: 13px;
   white-space: nowrap;
-  max-width: 220px;
+  min-width: 0;
+}
+.side-tab > button.label > .icon {
+  flex: none;
+}
+/* A long title on one line with «…»: the whole of it in the tooltip. */
+.side-tab > button.label > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* «Maximize»: the area over the whole window, the chat hidden until «Back to chat» or Esc. */
+.side-area.max {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  max-width: none;
+  min-width: 0;
+  border-left: 0;
+}
+.side-area.max .side-to-chat {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.side-area.max .side-to-chat:hover {
+  background: var(--bg);
 }
 .side-content {
   flex: 1;
@@ -11120,6 +11216,29 @@ html[data-theme="dark"] {
   min-height: 44px;
   background: var(--panel);
 }
+/* Its buttons keep their size; the title gives way with «…» (p3.3.2). */
+.canvas-head > :not(.canvas-title, .spacer) {
+  flex: none;
+}
+.canvas-open-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+/* The canvas measures itself: narrow, «Open in a new tab» is its icon alone. */
+.canvas {
+  container-type: inline-size;
+}
+@container (max-width: 520px) {
+  .canvas-open-tab span {
+    display: none;
+  }
+}
+/* A file on the whole screen (Fullscreen API): the theme's panel behind it. */
+.canvas:fullscreen {
+  background: var(--panel);
+}
 .canvas-title {
   display: flex;
   flex-direction: column;
@@ -12125,16 +12244,23 @@ button.vw-archive-row:hover {
   .side-area {
     flex-direction: column-reverse;
   }
-  .side-area .side-tabs {
+  .side-area .side-bar {
     border-bottom: 0;
     border-top: 1px solid var(--line);
     padding-bottom: env(safe-area-inset-bottom);
     min-height: 48px;
   }
+  /* On a phone the area is already the whole screen: no divider, no «Maximize». */
+  .side-resizer,
+  .side-max {
+    display: none;
+  }
+  .side-area .side-tab {
+    max-width: 180px;
+  }
   .side-area .side-tab > button.label {
     padding: 12px 6px 12px 12px;
     font-size: 14px;
-    max-width: 160px;
   }
   .side-area .side-tab.active {
     box-shadow: inset 0 2px 0 var(--accent);

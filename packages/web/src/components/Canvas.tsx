@@ -4,9 +4,15 @@
 // documents, sheets, slides, 3D, archives, fonts, trees, code), everything drawn in the page. It
 // reloads by itself when the file changes. Office files are laid out by LibreOffice and closed
 // formats are seen through their open copy (viewers/OpenCopy.tsx, G34.4).
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n.js";
-import { IconDownload, IconRefresh } from "../icons.js";
+import {
+  IconDownload,
+  IconExternal,
+  IconFullscreen,
+  IconFullscreenExit,
+  IconRefresh,
+} from "../icons.js";
 import { type CanvasTarget, getApi } from "../state.js";
 import { bytesText, download, type ViewerSource } from "../viewers/source.js";
 import { CanvasFile } from "./viewers/OpenCopy.js";
@@ -56,6 +62,18 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
   const [version, setVersion] = useState(0);
   const [reloads, setReloads] = useState(0);
   const [shown, setShown] = useState<ViewerSource>();
+  const box = useRef<HTMLDivElement>(null);
+  const [full, setFull] = useState(false);
+  // The file on the whole screen (p3.3.2): Esc, or the same button, ends it.
+  useEffect(() => {
+    const change = () => setFull(!!box.current && document.fullscreenElement === box.current);
+    document.addEventListener("fullscreenchange", change);
+    return () => document.removeEventListener("fullscreenchange", change);
+  }, []);
+  const toggleFull = () => {
+    if (full) void document.exitFullscreen?.().catch(() => {});
+    else void box.current?.requestFullscreen?.().catch(() => {});
+  };
   const key = JSON.stringify(target);
   useEffect(() => {
     setError(undefined);
@@ -87,7 +105,7 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
   const url = link && `${link}${link.includes("?") ? "&" : "?"}v=${version}-${reloads}`;
   const name = target.kind === "file" ? fileName(target.path) : title;
   return (
-    <div class="canvas">
+    <div class="canvas" ref={box}>
       <div class="canvas-head">
         <span class="canvas-title">
           <strong title={target.kind === "file" ? target.path : title}>{title}</strong>
@@ -119,9 +137,28 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
             <IconDownload size={14} />
           </button>
         )}
+        {document.fullscreenEnabled && (
+          <button
+            type="button"
+            class="icon-button"
+            title={full ? t("canvasFullscreenExit") : t("canvasFullscreen")}
+            aria-label={full ? t("canvasFullscreenExit") : t("canvasFullscreen")}
+            aria-pressed={full}
+            onClick={toggleFull}
+          >
+            {full ? <IconFullscreenExit size={14} /> : <IconFullscreen size={14} />}
+          </button>
+        )}
         {url && (
-          <a class="button tiny" href={url} target="_blank" rel="noreferrer">
-            {t("canvasOpenTab")}
+          <a
+            class="button tiny canvas-open-tab"
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            title={t("canvasOpenTab")}
+          >
+            <IconExternal size={13} />
+            <span>{t("canvasOpenTab")}</span>
           </a>
         )}
       </div>
