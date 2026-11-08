@@ -251,15 +251,21 @@ export class UpdateWatcher {
         state: this.last.latest ? this.last.state : "unreachable",
       });
     }
+    await this.writing;
     return this.last;
   }
+
+  /** The file for the Mac app being written. */
+  private writing: Promise<void> = Promise.resolve();
 
   private set(next: UpdateStatus): void {
     const before = this.last;
     this.last = next;
     if (before.gate !== next.gate || before.latest !== next.latest) {
       debugLog.write("update", `latest ${next.latest ?? "?"}: ${next.gate}`);
-      void this.writeForApp(next);
+      // check() waits for it: whoever reads the file right after a check finds it (a slow disk on
+      // Windows made the test read it before it was written).
+      this.writing = this.writeForApp(next);
       this.o.onChange?.(next);
     }
   }
