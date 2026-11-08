@@ -534,6 +534,28 @@ export class Vault {
       .map((e) => ({ name: e.name, service: e.service, hosts: e.hosts }));
   }
 
+  /** An owner's credentials without their values (the browser extension's matching, G36.21). */
+  entriesOf(ownerId: string): VaultEntry[] {
+    if (!this.ready) return [];
+    return this.data.entries.filter((e) => e.ownerId === ownerId).map((e) => this.show(e));
+  }
+
+  /**
+   * A use by the person outside an agent (a linked browser filling a form, G36.21), written in the
+   * same record as the agents' uses.
+   */
+  async recordUse(
+    caller: VaultCaller,
+    entryId: string,
+    host: string,
+    method: string,
+    outcome: VaultUse["outcome"],
+    reason?: string,
+  ): Promise<void> {
+    this.need();
+    await this.record(caller, this.entry(caller.ownerId, entryId), host, method, outcome, reason);
+  }
+
   /**
    * The values of an owner's credentials, only to recognise them leaving (G36.17b: a truly
    * dangerous request). Never shown to an agent or stored elsewhere.

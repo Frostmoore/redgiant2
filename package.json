@@ -10,7 +10,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -b && pnpm --filter @redgiant/web build",
+    "build": "tsc -b && pnpm --filter @redgiant/web build && pnpm --filter @redgiant/browser-extension build",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

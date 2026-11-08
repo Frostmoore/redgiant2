@@ -2858,6 +2858,46 @@ const en = {
   kcUsesLead: "Every time an agent asked for a credential: when, where to, and how it went.",
   kcNoUses: "No agent has used a credential yet.",
   kcSomeone: "Someone",
+  kcUseBrowser: "{name} (browser)",
+  kcBrTitle: "In your browser",
+  kcBrLead:
+    "The keychain's extension fills sign-ins in Opera, Chrome, Edge, Brave and Firefox, only on the site each password belongs to, and saves the new ones here. Every use shows in the list above.",
+  kcBrLink: "Link a browser",
+  kcBrNone: "No browser linked yet.",
+  kcBrLinked: "linked {when}",
+  kcBrSeen: "last seen {when}",
+  kcBrNever: "not used yet",
+  kcBrUnlink: "Unlink",
+  kcBrUnlinkQ: "Unlink {name}?",
+  kcBrUnlinkText:
+    "The browser stops reaching the keychain at once. The passwords stay here; to use it again, link it with a new code.",
+  kcBrWinTitle: "Link a browser",
+  kcBrWinLead:
+    "The keychain's extension fills sign-ins in Opera, Chrome, Edge, Brave and Firefox, only on the site each password belongs to, and saves the new ones here.",
+  kcBrStep1: "1. Install the extension",
+  kcBrStep2: "2. Link it with a code",
+  kcBrWhich: "Your browser",
+  kcBrDownload: "Download the extension",
+  kcBrDownloadFirefox: "Download the version for Firefox",
+  kcBrHowChromium:
+    "Unzip it into a folder you will keep. Open {page}, switch on «Developer mode», press «Load unpacked» and choose the folder. You can also drag the zip onto that page.",
+  kcBrHowOpera:
+    "Unzip it into a folder you will keep. Open opera://extensions, switch on «Developer mode» at the top right, press «Load unpacked» and choose the folder. You can also drag the zip onto that page.",
+  kcBrHowFirefox:
+    "Open about:debugging#/runtime/this-firefox, press «Load Temporary Add-on…» and choose the zip. Firefox keeps it until it closes: to keep it for good it must be signed by Mozilla.",
+  kcBrStore: "Later also in the Chrome Web Store: one click to install, and it updates itself.",
+  kcBrMakeCode: "Make a code",
+  kcBrAddress: "RedGiant's address",
+  kcBrCode: "Code",
+  kcBrCodeLead:
+    "In the extension (the key in the browser's bar) write this address and this code. The code works for ten minutes and for one browser.",
+  kcBrExpires: "Valid until {time}",
+  kcBrExpired: "That code expired: make a new one.",
+  kcBrDone: "Linked: «{name}». You can close this window.",
+  kcBrCopy: "Copy",
+  kcBrCopied: "Copied",
+  kcBrHttpNote:
+    "This address starts with http: the extension accepts it only at home (this computer or the local network). From outside use remote access, with https.",
   kcUse_used: "used {name} towards {host}",
   kcUse_denied: "asked for {name} towards {host}: you said no",
   kcUse_refused: "could not use {name} towards {host}",
@@ -6702,6 +6742,47 @@ const it: Record<Key, string> = {
     "Ogni volta che un agente ha chiesto una credenziale: quando, verso dove e com'è andata.",
   kcNoUses: "Nessun agente ha ancora usato una credenziale.",
   kcSomeone: "Qualcuno",
+  kcUseBrowser: "{name} (browser)",
+  kcBrTitle: "Nel tuo browser",
+  kcBrLead:
+    "L'estensione del portachiavi compila gli accessi in Opera, Chrome, Edge, Brave e Firefox, solo sul sito a cui appartiene ogni password, e salva qui quelle nuove. Ogni uso compare nell'elenco qui sopra.",
+  kcBrLink: "Collega un browser",
+  kcBrNone: "Nessun browser collegato.",
+  kcBrLinked: "collegato {when}",
+  kcBrSeen: "visto {when}",
+  kcBrNever: "non ancora usato",
+  kcBrUnlink: "Scollega",
+  kcBrUnlinkQ: "Scollegare {name}?",
+  kcBrUnlinkText:
+    "Il browser smette subito di raggiungere il portachiavi. Le password restano qui; per usarlo di nuovo, ricollegalo con un codice nuovo.",
+  kcBrWinTitle: "Collega un browser",
+  kcBrWinLead:
+    "L'estensione del portachiavi compila gli accessi in Opera, Chrome, Edge, Brave e Firefox, solo sul sito a cui appartiene ogni password, e salva qui quelle nuove.",
+  kcBrStep1: "1. Installa l'estensione",
+  kcBrStep2: "2. Collegala con un codice",
+  kcBrWhich: "Il tuo browser",
+  kcBrDownload: "Scarica l'estensione",
+  kcBrDownloadFirefox: "Scarica la versione per Firefox",
+  kcBrHowChromium:
+    "Decomprimila in una cartella che non sposterai. Apri {page}, attiva «Modalità sviluppatore», premi «Carica estensione non pacchettizzata» e scegli la cartella. Puoi anche trascinare lo zip su quella pagina.",
+  kcBrHowOpera:
+    "Decomprimila in una cartella che non sposterai. Apri opera://extensions, attiva «Modalità sviluppatore» in alto a destra, premi «Carica estensione non pacchettizzata» e scegli la cartella. Puoi anche trascinare lo zip su quella pagina.",
+  kcBrHowFirefox:
+    "Apri about:debugging#/runtime/this-firefox, premi «Carica componente aggiuntivo temporaneo…» e scegli lo zip. Firefox la tiene finché non si chiude: per tenerla sempre deve essere firmata da Mozilla.",
+  kcBrStore:
+    "Più avanti anche nel Chrome Web Store: si installa con un clic e si aggiorna da sola.",
+  kcBrMakeCode: "Crea un codice",
+  kcBrAddress: "Indirizzo di RedGiant",
+  kcBrCode: "Codice",
+  kcBrCodeLead:
+    "Nell'estensione (la chiave nella barra del browser) scrivi questo indirizzo e questo codice. Il codice vale dieci minuti e per un solo browser.",
+  kcBrExpires: "Valido fino alle {time}",
+  kcBrExpired: "Quel codice è scaduto: creane uno nuovo.",
+  kcBrDone: "Collegato: «{name}». Puoi chiudere questa finestra.",
+  kcBrCopy: "Copia",
+  kcBrCopied: "Copiato",
+  kcBrHttpNote:
+    "Questo indirizzo inizia con http: l'estensione lo accetta solo in casa (questo computer o la rete di casa). Da fuori usa l'accesso remoto, con https.",
   kcUse_used: "ha usato {name} verso {host}",
   kcUse_denied: "ha chiesto {name} verso {host}: hai detto di no",
   kcUse_refused: "non ha potuto usare {name} verso {host}",

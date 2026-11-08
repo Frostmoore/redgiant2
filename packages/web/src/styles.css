@@ -10895,6 +10895,51 @@ button.kc-item:hover {
 .kc-move {
   margin-bottom: 10px;
 }
+/* G36.21: the browsers linked to the keychain, and the window that links one. */
+.kcb-list {
+  margin-bottom: 12px;
+}
+.kcb-item .kc-item-text {
+  flex-basis: 200px;
+}
+.kcb-step {
+  margin: 8px 0 0;
+  font-size: 16px;
+}
+.kcb-how {
+  line-height: 1.55;
+}
+.kcb-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kcb-copy-label {
+  color: var(--dim);
+  font-size: 13.5px;
+}
+.kcb-copy-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.kcb-addr,
+.kcb-code {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--panel-2);
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+.kcb-code {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-align: center;
+}
 .kc-form {
   display: flex;
   flex-direction: column;

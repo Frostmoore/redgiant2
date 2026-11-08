@@ -22,6 +22,14 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm lint
+      # The keychain's browser extension (G36.21), built by `pnpm build`: Chromium's and Firefox's zips.
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        with:
+          name: redgiant-keychain-extension
+          path: packages/browser-extension/dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
 
   installers:
     runs-on: ${{ matrix.os }}
