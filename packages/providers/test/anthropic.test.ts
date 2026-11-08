@@ -185,6 +185,66 @@ describe("AnthropicProvider response", () => {
     expect(costUsd(c.usage, p.modelInfo("claude-opus-5-5").pricing)).toBeCloseTo(0.0077, 10);
   });
 
+  it("bills one-hour cache writes at 2x input and Haiku 5.5 prompts over 100K at the higher prices", async () => {
+    const { fetch } = fakeFetch(() =>
+      sseResponse(
+        anthropicEvents({
+          text: "ok",
+          stop: "end_turn",
+          usage: { input: 100, output: 50, cacheRead: 9000, cacheWrite: 900, cacheWrite1h: 600 },
+        }),
+      ),
+    );
+    const p = new AnthropicProvider({ apiKey: "t", fetch, maxRetries: 0, longCache: true });
+    const c = await complete(
+      p.stream({ model: "claude-opus-5-5", system: "s", tools: [], messages: [user("x")] }),
+    );
+    expect(c.usage.cacheWrite1hTokens).toBe(600);
+    // 100 * 4 + 9000 * 0.2 + 300 * 5 + 600 * 8 + 50 * 20
+    expect(costUsd(c.usage, p.modelInfo("claude-opus-5-5").pricing)).toBeCloseTo(0.0095, 10);
+
+    const haiku = p.modelInfo("claude-haiku-5-5").pricing;
+    const at = (inputTokens: number) => ({
+      inputTokens,
+      cachedReadTokens: inputTokens - 1000,
+      cacheWriteTokens: 1000,
+      cacheWrite1hTokens: 0,
+      outputTokens: 1000,
+    });
+    // Up to 100K: 0.10 / 0.125 / 0.01 / 0.50 per million.
+    expect(costUsd(at(100_000), haiku)).toBeCloseTo(
+      (99_000 * 0.01 + 1000 * 0.125 + 1000 * 0.5) / 1e6,
+      12,
+    );
+    // Over 100K, every token of the request (cache reads included): 0.50 / 0.625 / 0.05 / 2.50.
+    expect(costUsd(at(100_001), haiku)).toBeCloseTo(
+      (99_001 * 0.05 + 1000 * 0.625 + 1000 * 2.5) / 1e6,
+      12,
+    );
+    expect(haiku?.longPrompt?.prices.cacheWrite1h).toBe(1);
+    expect(haiku?.cacheWrite1h).toBeCloseTo(0.2, 12);
+  });
+
+  it("matches Anthropic's price list (checked 2026-11-08)", () => {
+    const p = new AnthropicProvider({ apiKey: "t" });
+    const row = (m: string) => {
+      const x = p.modelInfo(m).pricing;
+      return x && [x.input, x.cacheWrite, x.cacheWrite1h, x.cacheRead, x.output];
+    };
+    expect(row("claude-fable-5-1")).toEqual([10, 12.5, 20, 0.25, 50]);
+    expect(row("claude-fable-5")).toEqual([10, 12.5, 20, 1, 50]);
+    expect(row("claude-opus-5-5")).toEqual([4, 5, 8, 0.2, 20]);
+    expect(row("claude-opus-5")).toEqual([5, 6.25, 10, 0.5, 25]);
+    expect(row("claude-opus-4-8")).toEqual([5, 6.25, 10, 0.5, 25]);
+    expect(row("claude-sonnet-5-5")).toEqual([2, 2.5, 4, 0.1, 10]);
+    expect(row("claude-sonnet-5")).toEqual([2, 2.5, 4, 0.2, 10]);
+    expect(row("claude-sonnet-4-6")).toEqual([3, 3.75, 6, 0.3, 15]);
+    expect(row("claude-haiku-5-5")?.map((n) => Number(n?.toFixed(4)))).toEqual([
+      0.1, 0.125, 0.2, 0.01, 0.5,
+    ]);
+    expect(row("claude-haiku-4-5")).toEqual([1, 1.25, 2, 0.1, 5]);
+  });
+
   it("starts timing generation at the first content block, not the first text", async () => {
     const events = anthropicEvents({
       tool: { id: "t1", name: "a_tool", json: '{"x":1}' },

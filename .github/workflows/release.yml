@@ -215,6 +215,9 @@ jobs:
           # Real folders, no links: the installer copies files, and Windows' junctions would not survive.
           pnpm --filter @redgiant/server deploy --prod --legacy --config.node-linker=hoisted packaging/windows/server
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          # The redgiant command line (G36.15) inside the server, so updates carry it.
+          node packaging/cli/stage.mjs packaging/windows/server
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           # Codex and Claude Code (hundreds of MB) come down only when a subscription is switched on.
           Get-ChildItem packaging/windows/server/node_modules/@openai, packaging/windows/server/node_modules/@anthropic-ai -Directory | Where-Object { $_.Name -like "codex-win32-*" -or $_.Name -like "claude-agent-sdk-win32-*" } | Remove-Item -Recurse -Force
           # pgvector next to the server (G36.1): the embedded Postgres loads it from there.
@@ -256,6 +259,8 @@ jobs:
           New-Item -ItemType Directory -Force $app | Out-Null
           foreach ($d in "server", "web", "node") { Copy-Item -Recurse "packaging\windows\$d" "$app\$d" }
           Copy-Item packaging\windows\RedGiant.exe, packaging\windows\redgiant.ico $app
+          New-Item -ItemType Directory -Force "$app\bin" | Out-Null
+          Copy-Item packaging\windows\redgiant.cmd "$app\bin"
           node packaging/update/pack.mjs --tree $app --version $version --platform win-x64 --out packaging/windows/update --installer packaging/windows/dist/RedGiant-Setup.exe
           if ($LASTEXITCODE -ne 0) { exit 1 }
           $keyed = (Get-Content packaging\windows\launcher\UpdateKey.cs -Raw) -notmatch 'PublicKeyXml = ""'
@@ -323,6 +328,96 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: packaging/mac/dist/RedGiant-mac-*.dmg
+
+  # Homebrew and winget (G36.10): the cask and the winget manifest made from this release's own
+  # installers (the sha256 GitHub lists for them), attached to the release. The tap is updated
+  # when HOMEBREW_TAP_TOKEN (a token that may push to Frostmoore/homebrew-redgiant) is set; winget
+  # gets a pull request only when the repository variable WINGET_AUTO_SUBMIT is "true" and
+  # WINGET_TOKEN is set: off until the person turns it on, after the first submission (made by
+  # hand, docs/INSTALL.md) is accepted.
+  stores:
+    if: ${{ startsWith(github.ref, 'refs/tags/') && !inputs.only && !inputs.dry_run }}
+    needs: [windows-installer, mac-app]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.files.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: The cask and the manifest, from the release's assets
+        id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          digest() {
+            gh release view "$GITHUB_REF_NAME" --json assets \
+              -q ".assets[] | select(.name == \"$1\") | .digest" | sed 's/^sha256://'
+          }
+          dmg=$(digest RedGiant-mac-arm64.dmg)
+          setup=$(digest RedGiant-Setup.exe)
+          [ -n "$dmg" ] && [ -n "$setup" ] || { echo "the release has no installers yet"; exit 1; }
+          node packaging/stores/stores.mjs --version "$version" --dmg-sha256 "$dmg" \
+            --setup-sha256 "$setup" --date "$(date -u +%F)" --out stores
+          ruby -c stores/homebrew/Casks/redgiant.rb
+          (cd stores/winget && zip -qr "../RedGiant-winget-$version.zip" manifests)
+          cp stores/homebrew/Casks/redgiant.rb stores/redgiant.rb
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stores
+          path: stores/winget/manifests
+          retention-days: 30
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            stores/redgiant.rb
+            stores/RedGiant-winget-*.zip
+      - name: The Homebrew tap (when HOMEBREW_TAP_TOKEN is set)
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::notice::no HOMEBREW_TAP_TOKEN: redgiant.rb is attached to the release, the tap is not updated"
+            exit 0
+          fi
+          git clone -q "https://x-access-token:$TAP_TOKEN@github.com/Frostmoore/homebrew-redgiant.git" tap
+          mkdir -p tap/Casks
+          cp stores/homebrew/Casks/redgiant.rb tap/Casks/redgiant.rb
+          cd tap
+          git add Casks/redgiant.rb
+          if git diff --cached --quiet; then echo "the tap already has it"; exit 0; fi
+          git -c user.name="RedGiant release" -c user.email="actions@github.com" \
+            commit -q -m "redgiant ${GITHUB_REF_NAME#v}"
+          git push -q origin HEAD
+
+  # winget's pull request (G36.10), only when the person turned it on (WINGET_AUTO_SUBMIT) after
+  # the first submission was accepted: wingetcreate opens it from WINGET_TOKEN's fork.
+  winget-submit:
+    if: ${{ vars.WINGET_AUTO_SUBMIT == 'true' }}
+    needs: stores
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: stores
+          path: manifests
+      - name: wingetcreate submit
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if (-not $env:WINGET_TOKEN) { "WINGET_AUTO_SUBMIT is on but WINGET_TOKEN is missing"; exit 1 }
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          $dir = "manifests\f\Frostmoore\RedGiant\${{ needs.stores.outputs.version }}"
+          .\wingetcreate.exe submit --token $env:WINGET_TOKEN $dir
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
   # The patched engines' plan (G32.2): their fingerprints (engine/fingerprint.sh: llama.cpp's tag,
   # CUDA, the card families, engine/llama-patches and the build recipe) and, for each, "build" (a

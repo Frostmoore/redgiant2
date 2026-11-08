@@ -4,7 +4,8 @@
 ; no administrator rights.
 ;
 ; Built in CI: iscc /DAppVersion=3.0.0 RedGiant.iss, next to RedGiant.exe (launcher),
-; redgiant.ico, node\node.exe, server\ (pnpm deploy of @redgiant/server) and web\ (the page).
+; redgiant.ico, redgiant.cmd, node\node.exe, server\ (pnpm deploy of @redgiant/server, with the
+; command line in server\cli, packaging/cli/stage.mjs) and web\ (the page).
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -42,6 +43,9 @@ LanguageDetectionMethod=uilanguage
 ; RedGiant is closed by the setup itself (PrepareToInstall, RedGiant.exe --quit).
 CloseApplications=no
 RestartApplications=no
+; The `redgiant` command in the user's PATH is a choice (the "clipath" task, off by default):
+; Windows is told when the user's environment changes, so new terminals see it.
+ChangesEnvironment=yes
 
 [Languages]
 Name: "it"; MessagesFile: "compiler:Languages\Italian.isl"
@@ -63,15 +67,23 @@ en.DataText=RedGiant keeps everything you do here: choose a disk with room (at l
 it.DeleteModels=Vuoi eliminare anche i modelli scaricati e i motori per farli girare (%1)?%n%nSì: liberi lo spazio; se reinstalli RedGiant li riscarichi.%nNo: restano, pronti per la prossima volta.
 en.DeleteModels=Delete the downloaded models and the engines that run them as well (%1)?%n%nYes: the space is freed; if you install RedGiant again they are downloaded again.%nNo: they stay, ready for next time.
 it.KeepData=Vuoi tenere le conversazioni, i progetti e le impostazioni di RedGiant?%n%nSì: restano sul computer e li ritrovi se lo reinstalli.%nNo: vengono cancellati per sempre.
+it.CliPath=Aggiungi il comando «redgiant» al terminale (solo per il tuo utente)
+en.CliPath=Add the «redgiant» command to the terminal (for your user only)
+it.CliGroup=Riga di comando:
+en.CliGroup=Command line:
 en.KeepData=Keep RedGiant's conversations, projects and settings?%n%nYes: they stay on the computer and come back if you install it again.%nNo: they are deleted for good.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 Name: "autostart"; Description: "{cm:Autostart}"; GroupDescription: "{cm:AdditionalIcons}"
+; Off unless chosen: the only change outside RedGiant's folder is the user's own PATH (G36.15).
+Name: "clipath"; Description: "{cm:CliPath}"; GroupDescription: "{cm:CliGroup}"; Flags: unchecked
 
 [Files]
 Source: "RedGiant.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "redgiant.ico"; DestDir: "{app}"; Flags: ignoreversion
+; The command line (G36.15): always there, usable as {app}\bin\redgiant.cmd; in the PATH by choice.
+Source: "redgiant.cmd"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "node\node.exe"; DestDir: "{app}\node"; Flags: ignoreversion
 Source: "server\*"; DestDir: "{app}\server"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "web\*"; DestDir: "{app}\web"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -89,6 +101,7 @@ Type: filesandordirs; Name: "{app}\server"
 Type: filesandordirs; Name: "{app}\web"
 Type: filesandordirs; Name: "{app}\node"
 Type: filesandordirs; Name: "{app}\update"
+Type: filesandordirs; Name: "{app}\bin"
 
 [Icons]
 Name: "{userprograms}\RedGiant"; Filename: "{app}\RedGiant.exe"; IconFilename: "{app}\redgiant.ico"
@@ -100,6 +113,8 @@ Name: "{userstartup}\RedGiant"; Filename: "{app}\RedGiant.exe"; Parameters: "--b
 ; DataDir outlives an uninstallation that keeps the data, so installing again finds them.
 Root: HKCU; Subkey: "Software\RedGiant"; ValueType: string; ValueName: "Version"; ValueData: "{#AppVersion}"; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\RedGiant"; ValueType: string; ValueName: "DataDir"; ValueData: "{code:DataDir}"
+; The command line in the user's PATH, only when chosen; taken out again on uninstall (CliPathOut).
+Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{code:CliPathWith}"; Tasks: clipath; Check: CliPathMissing
 
 [Run]
 ; A first installation asks; an update opens RedGiant by itself (CurStepChanged).
@@ -176,6 +191,51 @@ begin
     Result := ExpandConstant('{localappdata}\RedGiant\data')
   else
     Result := DataPage.Values[0];
+end;
+
+{ The user's own PATH (HKCU\Environment), '' when it has none. }
+function UserPath(): String;
+begin
+  if not RegQueryStringValue(HKCU, 'Environment', 'Path', Result) then Result := '';
+end;
+
+function CliDir(): String;
+begin
+  Result := ExpandConstant('{app}\bin');
+end;
+
+{ True when the user's PATH does not hold RedGiant's bin folder yet (compared without case). }
+function CliPathMissing(): Boolean;
+begin
+  Result := Pos(';' + Lowercase(CliDir()) + ';', ';' + Lowercase(UserPath()) + ';') = 0;
+end;
+
+{ The user's PATH with RedGiant's bin folder at the end; everything else as it was. }
+function CliPathWith(Param: String): String;
+begin
+  Result := UserPath();
+  if (Result <> '') and (Copy(Result, Length(Result), 1) <> ';') then Result := Result + ';';
+  Result := Result + CliDir();
+end;
+
+{ Uninstalling takes RedGiant's bin folder out of the user's PATH again, and nothing else. }
+procedure CliPathOut();
+var
+  Path, Low, Dir: String;
+  P: Integer;
+begin
+  if not RegQueryStringValue(HKCU, 'Environment', 'Path', Path) then Exit;
+  Path := ';' + Path + ';';
+  Low := Lowercase(Path);
+  Dir := ';' + Lowercase(CliDir()) + ';';
+  P := Pos(Dir, Low);
+  if P = 0 then Exit;
+  Delete(Path, P, Length(Dir) - 1);
+  Path := Copy(Path, 2, Length(Path) - 2);
+  if Path = '' then
+    RegDeleteValue(HKCU, 'Environment', 'Path')
+  else
+    RegWriteExpandStringValue(HKCU, 'Environment', 'Path', Path);
 end;
 
 { An update shows nothing but its progress; it ends by opening RedGiant. }
@@ -325,6 +385,7 @@ var
 begin
   if CurUninstallStep <> usUninstall then Exit;
   StopRedGiant();
+  CliPathOut();
   { Silent (2026-11-05: a plain MsgBox waited forever for an answer nobody could give): the
     data and the models stay. }
   if SuppressibleMsgBox(CustomMessage('KeepData'), mbConfirmation, MB_YESNO or MB_DEFBUTTON1, IDYES) = IDYES then begin

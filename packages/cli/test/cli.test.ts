@@ -1,6 +1,9 @@
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { startServer, TOKEN } from "../../server/test/helpers.js";
-import { type CliIo, runCli } from "../src/index.js";
+import { appDataDir, type CliIo, connection, runCli } from "../src/index.js";
 
 type Server = Awaited<ReturnType<typeof startServer>>;
 let s: Server | undefined;
@@ -160,5 +163,50 @@ describe("redgiant CLI", () => {
     expect(bad.err()).toMatch(/Unknown command/);
     const missing = await run(["agents", "create", "--kind", "god"]);
     expect(missing.code).toBe(1);
+  });
+});
+
+describe("finding the installed RedGiant (G36.15)", () => {
+  it("reads the app's data folder when the environment says nothing", async () => {
+    const files: Record<string, string> = {
+      [join("/data", "token.txt")]: "tok",
+      [join("/data", "address.txt")]: "http://127.0.0.1:7601",
+    };
+    const read = (f: string) => files[f];
+    expect(connection({}, read, "/data")).toEqual({ url: "http://127.0.0.1:7601", token: "tok" });
+    expect(connection({ REDGIANT_URL: "http://h:1", REDGIANT_TOKEN: "t" }, read, "/data")).toEqual({
+      url: "http://h:1",
+      token: "t",
+    });
+    expect(connection({}, read, undefined)).toEqual({
+      url: "http://127.0.0.1:7600",
+      token: undefined,
+    });
+    expect(appDataDir({ LOCALAPPDATA: "C:\\Users\\Me\\AppData\\Local" }, "win32")).toBe(
+      join("C:\\Users\\Me\\AppData\\Local", "RedGiant", "data"),
+    );
+    expect(appDataDir({}, "darwin", "/Users/me")).toBe(
+      join("/Users/me", "Library", "Application Support", "RedGiant", "data"),
+    );
+    expect(appDataDir({ REDGIANT_DATA_DIR: "/x" }, "linux")).toBe("/x");
+    expect(appDataDir({}, "linux")).toBeUndefined();
+
+    // The whole command, against a server whose address and token sit in a data folder.
+    s = await startServer([]);
+    const dir = await mkdtemp(join(tmpdir(), "rg-cli-"));
+    await writeFile(join(dir, "token.txt"), `${TOKEN}\n`);
+    await writeFile(join(dir, "address.txt"), `${s.url}\n`);
+    const code = join(dir, "code");
+    await mkdir(code);
+    const x = io();
+    expect(
+      await runCli(
+        ["projects", "create", "Here", "--path", code],
+        { REDGIANT_DATA_DIR: dir },
+        x.io,
+      ),
+    ).toBe(0);
+    expect(x.out()).toContain(`Created project here (${await realpath(code)})`);
+    await rm(dir, { recursive: true, force: true });
   });
 });

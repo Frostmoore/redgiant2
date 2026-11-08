@@ -1,5 +1,5 @@
 // The person's settings for commands (G36.16) and requests (G36.17), for the web page:
-//   GET  /api/settings/commands        → { settings, defaults }
+//   GET  /api/settings/commands        → { settings, defaults, serverMaxTurns }
 //   PUT  /api/settings/commands        → PlatformChange (history, undoable; 400 on a bad value)
 //   GET  /api/settings/requests        → { settings, defaults, defaultModel, critical }
 //   PUT  /api/settings/requests        → PlatformChange
@@ -32,7 +32,12 @@ export function personRoutes<E extends { Variables: any }>(
   };
   app.get("/api/settings/commands", (c) =>
     c.json(
-      { settings: core.commandSettings.get(owner(c)), defaults: DEFAULT_COMMAND_SETTINGS },
+      {
+        settings: core.commandSettings.get(owner(c)),
+        // The steps of a turn default to the server's (REDGIANT_MAX_TURNS, else 50).
+        defaults: DEFAULT_COMMAND_SETTINGS,
+        serverMaxTurns: core.serverMaxTurns,
+      },
       200,
     ),
   );

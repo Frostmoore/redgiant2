@@ -453,6 +453,17 @@ describe("AgentSession", () => {
     });
     const s2 = await AgentSession.start(loop.options);
     expect(await s2.send("go")).toMatchObject({ stopReason: "max_turns", turns: 3 });
+
+    // A function is read at each send (the person's setting, G36.15).
+    let limit = 2;
+    const read = setup(() => ({ toolCalls: [{ name: "echo", input: { text: "again" } }] }), {
+      sessionId: "s3",
+      maxTurns: () => limit,
+    });
+    const s3 = await AgentSession.start(read.options);
+    expect(await s3.send("go")).toMatchObject({ stopReason: "max_turns", turns: 2 });
+    limit = 5;
+    expect(await s3.send("go")).toMatchObject({ stopReason: "max_turns", turns: 5 });
   });
 
   it("says when a call keeps repeating, and closes the step limit with a summary", async () => {

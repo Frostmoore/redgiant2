@@ -1020,6 +1020,8 @@ export class Api {
     this.call<{
       settings: import("@redgiant/protocol").CommandSettings;
       defaults: import("@redgiant/protocol").CommandSettings;
+      /** The steps of a turn when none is chosen (REDGIANT_MAX_TURNS, else 50; G36.15). */
+      serverMaxTurns?: number;
     }>("GET", "/api/settings/commands");
   setCommandSettings = (s: import("@redgiant/protocol").CommandSettings) =>
     this.call<PlatformChange>("PUT", "/api/settings/commands", s);

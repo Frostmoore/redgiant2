@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import { promisify } from "node:util";
 import {
   AgentSession,
@@ -253,6 +253,14 @@ export interface CoreOptions {
   providers: ProviderRegistry;
   /** Root of the project workspaces. */
   workspacesDir: string;
+  /** Model calls in one turn when the person set none (`REDGIANT_MAX_TURNS`; default 50). */
+  maxTurns?: number;
+  /**
+   * Projects that adopt an existing folder (G36.15) must pick one under this folder: the Docker
+   * image's sandboxes mount from the data volume and reach nothing else. None: any folder the
+   * rules allow (`folderProblem`).
+   */
+  projectFoldersInside?: string;
   /** Where the MCP servers' sign-ins and keys are kept (default: next to the workspaces). */
   mcpCredentialsDir?: string;
   /** God's own workspace (the platform). */
@@ -568,7 +576,7 @@ export class RedGiantCore implements OrchestrationHost {
     if (o.images?.key) o.redactor?.addSecret("openai-images", o.images.key);
     this.registry = new AgentRegistry(o.db, this.store);
     this.budget = new PersistentBudget(o.db, this.store);
-    this.projects = new ProjectStore(o.db, o.workspacesDir);
+    this.projects = new ProjectStore(o.db, o.workspacesDir, o.projectFoldersInside);
     this.sandbox = o.sandbox ?? new HostSandboxProvider();
     this.tasks = new TaskTracker(this.store);
     this.tasks.escalate = (task, reason) => this.escalate(task, reason);
@@ -1510,6 +1518,8 @@ export class RedGiantCore implements OrchestrationHost {
         }));
       },
       priority: PRIORITY[agent.kind],
+      // Read at each message: a new setting applies to live conversations too (G36.15).
+      maxTurns: () => this.maxTurnsFor(ownerId),
       ...this.compactionOptions(model, agent),
       // Demi-God only relays (RD8): its one tool is ask_god.
       ...(agent.kind === "demigod" && { historyTool: false }),
@@ -4398,8 +4408,9 @@ export class RedGiantCore implements OrchestrationHost {
     this.sharedMemory.turnStarted(sessionId, human);
     this.skillNudge.turnStarted(sessionId);
     if (human) this.sharedMemory.heard(ownerId, sessionId, l.agentId, text);
-    const notify = (state: "idle" | "running") => {
-      for (const f of l.listeners) f({ type: "session.state", sessionId, state });
+    const notify = (state: "idle" | "running", stopReason?: string) => {
+      for (const f of l.listeners)
+        f({ type: "session.state", sessionId, state, ...(stopReason && { stopReason }) });
     };
     notify("running");
     // "/compact [what to keep]" (G24.14): a summary now, asked by the person; no message.
@@ -4416,7 +4427,7 @@ export class RedGiantCore implements OrchestrationHost {
         .finally(() => {
           l.running = null;
           this.sharedMemory.turnEnded(sessionId);
-          notify("idle");
+          notify("idle", "end_turn");
           this.drain(ownerId, sessionId, l);
         });
       return { done };
@@ -4425,11 +4436,21 @@ export class RedGiantCore implements OrchestrationHost {
     const started = Date.now();
     // `steer` only says how a busy session takes it; it is not part of the message.
     const { watch, steer: _steer, clientId: _clientId, human: _human, ...message } = extra;
-    const done = l.session.send(text, controller.signal, message).finally(() => {
+    const ended = (stopReason: string) => {
       l.running = null;
       this.sharedMemory.turnEnded(sessionId);
-      notify("idle");
-    });
+      notify("idle", stopReason);
+    };
+    const done = l.session.send(text, controller.signal, message).then(
+      (r) => {
+        ended(controller.signal.aborted && r.stopReason !== "end_turn" ? "aborted" : r.stopReason);
+        return r;
+      },
+      (err: unknown) => {
+        ended(controller.signal.aborted ? "aborted" : "error");
+        throw err;
+      },
+    );
     // After the turn: reports of tasks closed here go back to who handed them over, then the next
     // message in line is taken.
     void done
@@ -4445,6 +4466,17 @@ export class RedGiantCore implements OrchestrationHost {
       })
       .finally(() => this.drain(ownerId, sessionId, l));
     return { done };
+  }
+
+  /** Model calls in one turn for this person (G36.15): their setting, the server's, or 50. */
+  maxTurnsFor(ownerId: string): number | null {
+    const set = this.commandSettings.get(ownerId).maxTurns;
+    return set === undefined ? this.serverMaxTurns : set;
+  }
+
+  /** Model calls in one turn when the person set none: `REDGIANT_MAX_TURNS`, else 50. */
+  get serverMaxTurns(): number {
+    return this.o.maxTurns ?? 50;
   }
 
   /** "Teach a task" (G24.14b): the person shows a personal agent how, in the browser. */
@@ -4555,7 +4587,9 @@ export class RedGiantCore implements OrchestrationHost {
       childId,
     ]);
     await this.projects.forget(ownerId, childId);
-    await rename(child.path, `${child.path}.merged-${Date.now().toString(36)}`).catch(() => {});
+    // A folder the project adopted (G36.15) is the person's: it stays where and as it is.
+    if (child.path.startsWith(join(this.o.workspacesDir, sep)))
+      await rename(child.path, `${child.path}.merged-${Date.now().toString(36)}`).catch(() => {});
     return sub;
   }
 

@@ -232,7 +232,17 @@ const routes = {
     path: "/api/projects",
     security,
     request: {
-      body: { content: { "application/json": { schema: z.object({ name: z.string().min(1) }) } } },
+      body: {
+        content: {
+          "application/json": {
+            schema: z.object({
+              name: z.string().min(1),
+              /** A folder that already exists, which the project adopts as it is (G36.15). */
+              path: z.string().min(1).optional(),
+            }),
+          },
+        },
+      },
     },
     responses: { 201: json(Project, "Created"), ...errors },
   }),
@@ -956,7 +966,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.openapi(routes.listProjects, async (c) => c.json(await core.projects.list(owner(c)), 200));
   app.openapi(routes.createProject, async (c) => {
     try {
-      return c.json(await core.projects.create(owner(c), c.req.valid("json").name), 201);
+      const { name, path } = c.req.valid("json");
+      return c.json(await core.projects.create(owner(c), name, path), 201);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
     }

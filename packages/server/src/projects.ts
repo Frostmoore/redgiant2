@@ -1,5 +1,6 @@
-import { mkdir } from "node:fs/promises";
-import { join, posix } from "node:path";
+import { mkdir, realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join, posix, win32 } from "node:path";
 import type { SqlClient } from "@redgiant/events";
 
 export interface Project {
@@ -27,6 +28,9 @@ export interface Subproject {
 }
 
 export class SubprojectError extends Error {}
+
+/** A project that cannot be made as asked (the name, the folder). */
+export class ProjectError extends Error {}
 
 export async function migrateProjects(db: SqlClient): Promise<void> {
   await db.query(`
@@ -86,6 +90,100 @@ export const slug = (name: string) =>
     .replace(/^-|-$/g, "")
     .slice(0, 48);
 
+/** Where a project may live when it adopts a folder that already exists (G36.15). */
+export interface FolderRules {
+  /** RedGiant's data folder: never inside it (the keychain, the database), nor above it. */
+  dataDir: string;
+  /** The person's home folder: a folder in it is fine, the home itself is not. */
+  home?: string | undefined;
+  /**
+   * Sandboxes that mount from the data volume (the Docker image) only reach folders under
+   * this one: there the folder must be inside it, and the data-folder rule gives way to it.
+   */
+  inside?: string | undefined;
+}
+
+/** System folders: never a project, nor anything inside them. */
+const SYSTEM_TREES = [
+  "/bin",
+  "/boot",
+  "/dev",
+  "/etc",
+  "/lib",
+  "/lib32",
+  "/lib64",
+  "/proc",
+  "/run",
+  "/sbin",
+  "/sys",
+  "/usr",
+  "/System",
+  "/Library",
+  "/Applications",
+  // On a Mac /etc lives here (/tmp and /var/folders under /private are fine).
+  "/private/etc",
+];
+/** Folders that hold everyone's things: a folder inside them is fine, they themselves are not. */
+const SHARED_ROOTS = [
+  "/",
+  "/home",
+  "/Users",
+  "/var",
+  "/opt",
+  "/mnt",
+  "/media",
+  "/srv",
+  "/root",
+  "/Volumes",
+];
+const WINDOWS_TREES = ["windows", "program files", "program files (x86)", "programdata"];
+const WINDOWS_ROOTS = ["users"];
+
+const isWindowsPath = (p: string) => /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
+
+/**
+ * Why a folder cannot become a project, or undefined when it can (pure: tested as a table).
+ * `others` are the folders of the projects that exist: folders never overlap.
+ */
+export function folderProblem(
+  path: string,
+  rules: FolderRules,
+  others: readonly string[],
+): string | undefined {
+  const win = isWindowsPath(path);
+  if (!win && !posix.isAbsolute(path))
+    return "The folder must be a full path (like /home/me/code/shop)";
+  const lib = win ? win32 : posix;
+  const key = (x: string) => {
+    const n = lib.normalize(x).replace(/[\\/]+$/, "");
+    return win ? n.toLowerCase() : n || "/";
+  };
+  const sep = win ? "\\" : "/";
+  const p = key(path);
+  const within = (a: string, root: string) =>
+    a === root || a.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
+  const overlaps = (a: string, b: string) => within(a, b) || within(b, a);
+  if (win) {
+    const drive = p.slice(0, 2);
+    if (p.length <= 3 || WINDOWS_ROOTS.some((r) => p === `${drive}\\${r}`))
+      return "Not a whole drive or a shared folder: choose the project's own folder";
+    if (WINDOWS_TREES.some((t) => within(p, `${drive}\\${t}`))) return "Not a system folder";
+  } else {
+    if (SHARED_ROOTS.includes(p)) return "Not a shared folder: choose the project's own folder";
+    if (SYSTEM_TREES.some((t) => within(p, t))) return "Not a system folder";
+  }
+  if (rules.home && p === key(rules.home))
+    return "Not the whole home folder: choose the project's own folder";
+  if (rules.inside) {
+    const inside = key(rules.inside);
+    if (p === inside || !within(p, inside))
+      return `Here projects live in the data volume: choose a folder inside ${rules.inside}`;
+  } else if (overlaps(p, key(rules.dataDir))) return "Not RedGiant's own data folder";
+  const clash = others.find((o) => overlaps(p, key(o)));
+  if (clash) return `It overlaps the folder of another project (${clash})`;
+  return undefined;
+}
+
 interface Row {
   id: string;
   owner_id: string;
@@ -125,15 +223,24 @@ export class ProjectStore {
   constructor(
     private readonly db: SqlClient,
     private readonly workspacesDir: string,
+    /** Folders under this one only, for projects that adopt a folder (the Docker image). */
+    private readonly foldersInside?: string,
   ) {}
 
   /** Called after a project is created (its repository, G24.5). */
   onCreate: ((project: Project) => Promise<void>) | undefined;
 
-  async create(ownerId: string, name: string): Promise<Project> {
+  /**
+   * A new project: a new folder under the workspaces, or (`folder`, G36.15) one that already
+   * exists, which the project adopts as it is (no repository is created or rewired for it).
+   */
+  async create(ownerId: string, name: string, folder?: string): Promise<Project> {
     const id = slug(name);
-    if (!id) throw new Error("The project name needs letters or digits");
-    const path = join(this.workspacesDir, slug(ownerId) || "owner", id);
+    if (!id) throw new ProjectError("The project name needs letters or digits");
+    const path =
+      folder === undefined
+        ? join(this.workspacesDir, slug(ownerId) || "owner", id)
+        : await this.adoptable(folder.trim());
     try {
       await this.db.query(
         "INSERT INTO rg_projects (id, owner_id, name, path) VALUES ($1, $2, $3, $4)",
@@ -141,16 +248,51 @@ export class ProjectStore {
       );
     } catch (err) {
       if (/unique|duplicate/i.test(String(err)))
-        throw new Error(`A project "${id}" already exists`);
+        throw new ProjectError(`A project "${id}" already exists`);
       throw err;
     }
-    await mkdir(path, { recursive: true });
     const project = (await this.get(ownerId, id)) as Project;
+    if (folder !== undefined) return project;
+    await mkdir(path, { recursive: true });
     // Its repository on GitHub or Gitea (G24.5): a failure there does not undo the project.
     await this.onCreate?.(project).catch((err) =>
       console.warn(`project ${id}: no repository: ${(err as Error).message}`),
     );
     return project;
+  }
+
+  /** The folder as it really is (links followed), once every rule lets it be a project. */
+  private async adoptable(folder: string): Promise<string> {
+    const rules: FolderRules = {
+      dataDir: dirname(this.workspacesDir),
+      home: homedir(),
+      inside: this.foldersInside,
+    };
+    const first = folderProblem(folder, rules, []);
+    if (first) throw new ProjectError(first);
+    let real: string;
+    try {
+      real = await realpath(folder);
+      if (!(await stat(real)).isDirectory()) throw new Error("not a folder");
+    } catch {
+      throw new ProjectError(`No folder at ${folder}`);
+    }
+    const others = (await this.db.query<{ path: string }>("SELECT path FROM rg_projects")).map(
+      (r) => r.path,
+    );
+    // Checked again where links lead: a link must not open a way into a forbidden folder.
+    const real_ = async (x: string | undefined) => x && (await realpath(x).catch(() => x));
+    const problem = folderProblem(
+      real,
+      {
+        dataDir: (await real_(rules.dataDir)) as string,
+        home: await real_(rules.home),
+        inside: await real_(rules.inside),
+      },
+      others,
+    );
+    if (problem) throw new ProjectError(problem);
+    return real;
   }
 
   async get(ownerId: string, id: string): Promise<Project | undefined> {
