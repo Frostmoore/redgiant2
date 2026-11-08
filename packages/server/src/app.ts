@@ -68,6 +68,8 @@ import { RefineError } from "./prompt-refiner.js";
 import { RoomError } from "./rooms.js";
 import type { SetupService } from "./setup.js";
 import { MEMORY_ENTRY_LIMIT, MemoryError } from "./shared-memory.js";
+import { updateRoutes } from "./update-routes.js";
+import { UpdateRequiredError } from "./updates.js";
 import { VaultError } from "./vault.js";
 import { MAX_AUDIO_BYTES, TranscriptionError } from "./voice.js";
 
@@ -856,6 +858,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       return c.json({ error: err.message }, 404);
     if (err instanceof MagicStateError) return c.json({ error: err.message }, 400);
     if (err instanceof RecipeError) return c.json({ error: err.message }, 400);
+    // A mandatory update is waiting (G36.19): refused, nothing lost; the page shows its window.
+    if (err instanceof UpdateRequiredError)
+      return c.json({ error: err.message, code: err.code }, 423);
     if (err instanceof SessionBusyError) return c.json({ error: err.message }, 409);
     if (err instanceof NoModelError) return c.json({ error: err.message, code: err.code }, 400);
     if (
@@ -1273,6 +1278,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   importRoutes(app, core, owner, options.setup);
   // Commands' limits and requests to the person (G36.16, G36.17).
   personRoutes(app, core, owner);
+  // Mandatory and breaking updates (G36.19): the status, the safety backup, found backups.
+  updateRoutes(app, core, owner, options.setup);
   // The knowledge (G36, the RAG): collections, sources, models, search, citations.
   knowledgeRoutes(app, () => core.knowledge, owner);
 
@@ -2094,7 +2101,16 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   );
   // Pi-hole, the home's own DNS, by choice (G24.14c).
   // «Look for updates» (2026-11-04).
-  app.post("/api/update/check", (c) => wizard(c, () => (setup as SetupService).checkUpdates()));
+  app.post("/api/update/check", (c) =>
+    wizard(c, async () => {
+      // The signed kind of the release (G36.19) comes with the answer: the page opens its window.
+      const gate = await core.updates?.check();
+      return {
+        ...(await (setup as SetupService).checkUpdates()),
+        ...(gate && { gate: gate.gate }),
+      };
+    }),
+  );
   // The models moved to another SSD (Windows, 2026-11-03).
   app.post("/api/setup/models-disk", (c) =>
     wizard(c, async () => {

@@ -47,7 +47,7 @@ jobs:
         shell: pwsh
         working-directory: packaging/windows
         run: |
-          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Management.dll /r:System.Web.Extensions.dll launcher\RedGiant.cs launcher\Updates.cs launcher\Moves.cs launcher\Memory.cs launcher\Diag.cs launcher\Delta.cs launcher\UpdateKey.cs
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Management.dll /r:System.Web.Extensions.dll launcher\RedGiant.cs launcher\Updates.cs launcher\Moves.cs launcher\Memory.cs launcher\Diag.cs launcher\Delta.cs launcher\UpdateKey.cs launcher\ReleaseInfo.cs
           if ($LASTEXITCODE -ne 0) { exit 1 }
           # Differential updates (G36.18): Delta.cs's tests and the tool the checks below use.
           & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /out:DeltaTests.exe /r:System.IO.Compression.dll /r:System.Web.Extensions.dll /r:System.Core.dll launcher\test\DeltaTests.cs launcher\Delta.cs
@@ -55,6 +55,11 @@ jobs:
           & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /out:UpdateTool.exe /r:System.IO.Compression.dll /r:System.Web.Extensions.dll launcher\test\UpdateTool.cs launcher\Delta.cs
           if ($LASTEXITCODE -ne 0) { exit 1 }
           .\DeltaTests.exe
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # Mandatory and breaking updates (G36.19): release.json's rules and signature.
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /out:ReleaseInfoTests.exe /r:System.IO.Compression.dll /r:System.Web.Extensions.dll /r:System.Core.dll launcher\test\ReleaseInfoTests.cs launcher\ReleaseInfo.cs launcher\Delta.cs
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          .\ReleaseInfoTests.exe
           if ($LASTEXITCODE -ne 0) { exit 1 }
       # The engine on Windows (G24.3b): RedGiant.exe downloads llama.cpp's Vulkan build, starts it
       # and reports. The runner has no GPU: the engine must be found and that must be said (no_gpu).
@@ -90,6 +95,10 @@ jobs:
           node-version: 24
       - if: runner.os == 'Windows'
         shell: pwsh
+        # The launcher refuses unsigned manifests once UpdateKey.cs holds a key: the test feed is
+        # signed with the repository's secret (pushes only; elsewhere the differential part is skipped).
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: |
           corepack enable
           pnpm install --frozen-lockfile
@@ -198,6 +207,10 @@ jobs:
             & $change
             node packaging/update/pack.mjs --tree $next --version $v --platform win-x64 --out $feed --installer packaging\windows\dist\RedGiant-Setup.exe
             if ($LASTEXITCODE -ne 0) { exit 1 }
+            if ($env:UPDATE_SIGNING_KEY) {
+              node packaging/update/sign.mjs "$feed\RedGiant-win-x64.manifest.json"
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+            }
             Copy-Item packaging\windows\dist\RedGiant-Setup.exe $feed
           }
           function Wait-Version($v) {
@@ -209,45 +222,70 @@ jobs:
             Get-Content "$app\engine\launcher-*.log" -ErrorAction SilentlyContinue | Select-String "update" | Select-Object -Last 40
             return $false
           }
-          Pack-Version "0.0.1" { Add-Content "$next\web\index.html" "<!-- 0.0.1 -->"; Set-Content "$next\server\dist\ci-marker.js" "export {};" }
-          .\packaging\windows\DeltaTests.exe $feed $next
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          $srv = Start-Process node -ArgumentList "packaging/update/range-server.mjs", $feed, "18765", "0.0.1" -PassThru
-          Start-Sleep 2
-          & "$app\RedGiant.exe" --quit | Out-Null
-          $env:REDGIANT_UPDATE_FEED = "http://127.0.0.1:18765/release.json"
-          Start-Process "$app\RedGiant.exe" -ArgumentList "--background", "--update-now"
-          if (-not (Wait-Version "0.0.1")) { "the differential update to 0.0.1 did not finish"; exit 1 }
-          $served = [long](Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18765/served).Content
-          "0.0.1 in place, $served bytes downloaded of a $((Get-Item "$feed\RedGiant-win-x64.zip").Length)-byte zip"
-          # What it must cost: the gzipped manifest, its signature if any, and the two changed entries
-          # (one range each: they sit far apart in the zip). 64 KB of slack for nothing else.
-          $m = Get-Content "$feed\RedGiant-win-x64.manifest.json" -Raw | ConvertFrom-Json
-          $changed = ($m.files | Where-Object { $_.path -in @("web/index.html", "server/dist/ci-marker.js") } | Measure-Object csize -Sum).Sum
-          $expected = (Get-Item "$feed\RedGiant-win-x64.manifest.json.gz").Length + $changed
-          if (Test-Path "$feed\RedGiant-win-x64.manifest.json.sig") { $expected += (Get-Item "$feed\RedGiant-win-x64.manifest.json.sig").Length }
-          "expected about $expected bytes (manifest.gz + $changed bytes of entries)"
-          if ($served -gt $expected + 64KB) { "too much downloaded for two files"; Get-Content "$app\engine\launcher-*.log" -ErrorAction SilentlyContinue | Select-String "differential" | Select-Object -Last 5; exit 1 }
-          & packaging\windows\UpdateTool.exe verify "$feed\RedGiant-win-x64.manifest.json" $app
-          if ($LASTEXITCODE -ne 0) { "the folder is not 0.0.1"; exit 1 }
-          for ($i = 0; $i -lt 30 -and (Test-Path "$app\update\0.0.1"); $i++) { Start-Sleep 2 }
-          if (Test-Path "$app\update\0.0.1") { "the old version was not cleaned up"; exit 1 }
-          if ((Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{6F0E3B52-8D4A-4C1E-9B7A-2E1D5C9F4A10}_is1").DisplayVersion -ne "0.0.1") { "Windows' list still shows the old version"; exit 1 }
-          Stop-Process $srv -Force
-          # 0.0.2's server stops at once: the trial fails, 0.0.1 comes back by itself and answers.
-          Pack-Version "0.0.2" { Add-Content "$next\web\index.html" "<!-- 0.0.1 -->"; Set-Content "$next\server\dist\ci-marker.js" "export {};"; Set-Content "$next\server\dist\main.js" "process.exit(1);" }
-          $srv = Start-Process node -ArgumentList "packaging/update/range-server.mjs", $feed, "18765", "0.0.2" -PassThru
-          Start-Sleep 2
-          & "$app\RedGiant.exe" --quit | Out-Null
-          Start-Process "$app\RedGiant.exe" -ArgumentList "--background", "--update-now"
-          # Rolled back: the broken version is remembered (the next update uses the installer).
-          for ($i = 0; $i -lt 150 -and (Get-ItemProperty HKCU:\Software\RedGiant).UpdateBroken -ne "0.0.2"; $i++) { Start-Sleep 2 }
-          if ((Get-ItemProperty HKCU:\Software\RedGiant).UpdateBroken -ne "0.0.2") { "the failed 0.0.2 was not rolled back"; Get-Content "$app\engine\launcher-*.log" -ErrorAction SilentlyContinue | Select-Object -Last 40; exit 1 }
-          if (-not (Wait-Version "0.0.1")) { "0.0.1 did not come back after the failed 0.0.2"; exit 1 }
-          if ((Get-Content "$app\server\dist\main.js" -Raw) -match "process.exit") { "the broken server stayed"; exit 1 }
-          "0.0.2 failed on trial and 0.0.1 came back"
-          Stop-Process $srv -Force
-          Remove-Item Env:\REDGIANT_UPDATE_FEED
+          if ($env:UPDATE_SIGNING_KEY) {
+            Pack-Version "0.0.1" { Add-Content "$next\web\index.html" "<!-- 0.0.1 -->"; Set-Content "$next\server\dist\ci-marker.js" "export {};" }
+            .\packaging\windows\DeltaTests.exe $feed $next
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            $srv = Start-Process node -ArgumentList "packaging/update/range-server.mjs", $feed, "18765", "0.0.1" -PassThru
+            Start-Sleep 2
+            & "$app\RedGiant.exe" --quit | Out-Null
+            $env:REDGIANT_UPDATE_FEED = "http://127.0.0.1:18765/release.json"
+            Start-Process "$app\RedGiant.exe" -ArgumentList "--background", "--update-now"
+            if (-not (Wait-Version "0.0.1")) { "the differential update to 0.0.1 did not finish"; exit 1 }
+            $served = [long](Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18765/served).Content
+            "0.0.1 in place, $served bytes downloaded of a $((Get-Item "$feed\RedGiant-win-x64.zip").Length)-byte zip"
+            # What it must cost: the gzipped manifest, its signature if any, and the two changed entries
+            # (one range each: they sit far apart in the zip). 64 KB of slack for nothing else.
+            $m = Get-Content "$feed\RedGiant-win-x64.manifest.json" -Raw | ConvertFrom-Json
+            $changed = ($m.files | Where-Object { $_.path -in @("web/index.html", "server/dist/ci-marker.js") } | Measure-Object csize -Sum).Sum
+            $expected = (Get-Item "$feed\RedGiant-win-x64.manifest.json.gz").Length + $changed
+            if (Test-Path "$feed\RedGiant-win-x64.manifest.json.sig") { $expected += (Get-Item "$feed\RedGiant-win-x64.manifest.json.sig").Length }
+            "expected about $expected bytes (manifest.gz + $changed bytes of entries)"
+            if ($served -gt $expected + 64KB) { "too much downloaded for two files"; Get-Content "$app\engine\launcher-*.log" -ErrorAction SilentlyContinue | Select-String "differential" | Select-Object -Last 5; exit 1 }
+            & packaging\windows\UpdateTool.exe verify "$feed\RedGiant-win-x64.manifest.json" $app
+            if ($LASTEXITCODE -ne 0) { "the folder is not 0.0.1"; exit 1 }
+            for ($i = 0; $i -lt 30 -and (Test-Path "$app\update\0.0.1"); $i++) { Start-Sleep 2 }
+            if (Test-Path "$app\update\0.0.1") { "the old version was not cleaned up"; exit 1 }
+            if ((Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{6F0E3B52-8D4A-4C1E-9B7A-2E1D5C9F4A10}_is1").DisplayVersion -ne "0.0.1") { "Windows' list still shows the old version"; exit 1 }
+            Stop-Process $srv -Force
+            # 0.0.2's server stops at once: the trial fails, 0.0.1 comes back by itself and answers.
+            Pack-Version "0.0.2" { Add-Content "$next\web\index.html" "<!-- 0.0.1 -->"; Set-Content "$next\server\dist\ci-marker.js" "export {};"; Set-Content "$next\server\dist\main.js" "process.exit(1);" }
+            $srv = Start-Process node -ArgumentList "packaging/update/range-server.mjs", $feed, "18765", "0.0.2" -PassThru
+            Start-Sleep 2
+            & "$app\RedGiant.exe" --quit | Out-Null
+            Start-Process "$app\RedGiant.exe" -ArgumentList "--background", "--update-now"
+            # Rolled back: the broken version is remembered (the next update uses the installer).
+            for ($i = 0; $i -lt 150 -and (Get-ItemProperty HKCU:\Software\RedGiant).UpdateBroken -ne "0.0.2"; $i++) { Start-Sleep 2 }
+            if ((Get-ItemProperty HKCU:\Software\RedGiant).UpdateBroken -ne "0.0.2") { "the failed 0.0.2 was not rolled back"; Get-Content "$app\engine\launcher-*.log" -ErrorAction SilentlyContinue | Select-Object -Last 40; exit 1 }
+            if (-not (Wait-Version "0.0.1")) { "0.0.1 did not come back after the failed 0.0.2"; exit 1 }
+            if ((Get-Content "$app\server\dist\main.js" -Raw) -match "process.exit") { "the broken server stayed"; exit 1 }
+            "0.0.2 failed on trial and 0.0.1 came back"
+            Stop-Process $srv -Force
+            # G36.19: 0.0.3 is signed "breaking": RedGiant.exe must not touch the installed files,
+            # not even with --update-now (no differential, no installer over it).
+            Pack-Version "0.0.3" { Add-Content "$next\web\index.html" "<!-- 0.0.3 -->" }
+            '{"version":"0.0.3","kind":"breaking","minVersion":null,"note":{"it":"Prova","en":"Test"},"requiredBelow":null,"cleanInstallBelow":null}' | Set-Content "$env:RUNNER_TEMP\kind.json"
+            node packaging/update/release-info.mjs --version 0.0.3 --kind-file "$env:RUNNER_TEMP\kind.json" --out $feed
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            node packaging/update/sign.mjs "$feed\release.json"
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            $srv = Start-Process node -ArgumentList "packaging/update/range-server.mjs", $feed, "18765", "0.0.3" -PassThru
+            Start-Sleep 2
+            & "$app\RedGiant.exe" --quit | Out-Null
+            Start-Process "$app\RedGiant.exe" -ArgumentList "--background", "--update-now"
+            if (-not (Wait-Version "0.0.1")) { "RedGiant did not start again as 0.0.1"; exit 1 }
+            Start-Sleep 20
+            $served = [long](Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18765/served).Content
+            $info = (Get-Item "$feed\release.json").Length + (Get-Item "$feed\release.json.sig").Length
+            "breaking 0.0.3: $served bytes served (release.json and its signature: $info)"
+            if ((Get-ItemProperty HKCU:\Software\RedGiant).Version -ne "0.0.1") { "a breaking release was installed in place"; exit 1 }
+            if ($served -gt $info + 4KB) { "a breaking release's files were downloaded"; exit 1 }
+            if ((Get-Content "$app\web\index.html" -Raw) -match "0.0.3") { "the breaking release's files reached the app"; exit 1 }
+            Stop-Process $srv -Force
+            Remove-Item Env:\REDGIANT_UPDATE_FEED
+          } else {
+            "::warning::no UPDATE_SIGNING_KEY here (a pull request from a fork): the differential update is not tried"
+          }
           & "$app\RedGiant.exe" --quit | Out-Null
           Start-Sleep 5
           $left = @(Get-Process node, postgres -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$app*" })

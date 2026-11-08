@@ -5,6 +5,7 @@
 // window (a sheet from below on phones) with its real panel: instructions for every agent, the
 // backup model, web search, voice messages, pictures, updates and the debug log. The account at the bottom. The mailbox serves automations only and lives
 // in Settings > Automations (2026-11-07).
+
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
@@ -45,6 +46,7 @@ import {
   Tiles,
   WzPage,
 } from "./SettingsKit.js";
+import { refreshUpdateStatus } from "./UpdateGate.js";
 import { Modal } from "./ui.js";
 
 type DebugState = { enabled: boolean; forced: boolean; bytes: number; files: number };
@@ -239,6 +241,8 @@ function Updates() {
     const r = await attempt(() => getApi().checkUpdates());
     setBusy(false);
     if (!r) return;
+    // A mandatory or breaking release opens its window (G36.19).
+    void refreshUpdateStatus();
     const v = r.version ?? "";
     setAnswer(
       r.state === "available"

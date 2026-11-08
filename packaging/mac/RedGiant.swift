@@ -45,6 +45,21 @@ func say(_ key: String) -> String {
     "keep": ("Disinstalla e tieni i dati", "Uninstall, keep the data"),
     "delete": ("Disinstalla e cancella tutto", "Uninstall and delete everything"),
     "cancel": ("Annulla", "Cancel"),
+    // Mandatory and breaking updates (G36.19), as the server found them (update-required.json).
+    "mandatoryTitle": ("È necessario aggiornare RedGiant", "RedGiant must be updated"),
+    "mandatoryText": (
+      "Serve RedGiant %@ (hai la %@): questo aggiornamento non può aspettare. Finché non aggiorni, agenti e automazioni restano fermi; conversazioni e progetti sono al sicuro. Scarica la versione nuova, chiudi RedGiant e trascina quella nuova in Applicazioni.",
+      "RedGiant %@ is needed (you have %@): this update cannot wait. Until you update, agents and automations wait; conversations and projects are safe. Download the new version, close RedGiant and drag the new one into Applications."
+    ),
+    "download": ("Scarica la versione nuova", "Download the new version"),
+    "close": ("Chiudi RedGiant", "Close RedGiant"),
+    "breakingTitle": ("Questa versione richiede un'installazione pulita", "This version needs a clean install"),
+    "breakingText": (
+      "RedGiant %@ non si può installare sopra la %@. Nella pagina di RedGiant faccio prima un backup di tutto in Documenti, poi ti guido passo per passo.",
+      "RedGiant %@ cannot be installed over %@. In RedGiant's page a backup of everything goes into Documents first, then you are guided step by step."
+    ),
+    "guide": ("Apri la guida", "Open the guide"),
+    "later": ("Più tardi", "Later"),
   ]
   let t = texts[key] ?? (key, key)
   return it ? t.0 : t.1
@@ -158,6 +173,10 @@ final class App: NSObject, NSApplicationDelegate {
     env["REDGIANT_WIN_ENGINE_DIR"] = support.appendingPathComponent("engine").path
     // The server stops when this program goes, even if it is killed.
     env["REDGIANT_STOP_ON_STDIN_END"] = "1"
+    // The app's version and where a breaking update's backup goes (G36.19).
+    env["REDGIANT_INSTALL"] = "mac"
+    env["REDGIANT_VERSION"] = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+    env["REDGIANT_DOCUMENTS_DIR"] = home.appendingPathComponent("Documents").path
     p.environment = env
     let log = logsDir.appendingPathComponent("server.log")
     if fm.fileExists(atPath: log.path),
@@ -186,6 +205,7 @@ final class App: NSObject, NSApplicationDelegate {
     }
     server = p
     url = URL(string: "http://localhost:\(port)/#token=\(t)")
+    watchUpdates()
     DispatchQueue.global().async { [weak self] in
       guard let self else { return }
       for _ in 0..<180 {
@@ -200,6 +220,69 @@ final class App: NSObject, NSApplicationDelegate {
         Thread.sleep(forTimeInterval: 1)
       }
       DispatchQueue.main.async { self.fail() }
+    }
+  }
+
+  var updateTimer: Timer?
+  var shownUpdate = ""
+
+  /**
+   * G36.19: the server writes update-required.json in the data folder when the latest release is
+   * mandatory or breaking (it checked the signature), and quit-request.json when the page's
+   * «Close RedGiant» is pressed. Looked at every 15 seconds.
+   */
+  func watchUpdates() {
+    updateTimer?.invalidate()
+    updateTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+      self?.lookAtUpdates()
+    }
+  }
+
+  func lookAtUpdates() {
+    let quitFile = dataDir.appendingPathComponent("quit-request.json")
+    if fm.fileExists(atPath: quitFile.path) {
+      try? fm.removeItem(at: quitFile)
+      quit()
+      return
+    }
+    let file = dataDir.appendingPathComponent("update-required.json")
+    guard let data = try? Data(contentsOf: file),
+      let info = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+      let gate = info["gate"] as? String, let version = info["version"] as? String
+    else { return }
+    // Only about a version newer than this app (a file left from before an update says nothing).
+    let mine = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+    if version.compare(mine, options: .numeric) != .orderedDescending { return }
+    let key = gate + version
+    if key == shownUpdate { return }
+    shownUpdate = key
+    let installed = info["installed"] as? String ?? "?"
+    let it = Locale.preferredLanguages.first?.hasPrefix("it") ?? false
+    let note = (info["note"] as? [String: Any])?[it ? "it" : "en"] as? String
+    let a = NSAlert()
+    if gate == "mandatory" {
+      a.messageText = say("mandatoryTitle")
+      a.informativeText =
+        String(format: say("mandatoryText"), version, installed) + (note.map { "\n\n" + $0 } ?? "")
+      a.addButton(withTitle: say("download"))
+      a.addButton(withTitle: say("close"))
+      NSApp.activate(ignoringOtherApps: true)
+      let answer = a.runModal()
+      if answer == .alertFirstButtonReturn, let s = info["downloadUrl"] as? String,
+        let link = URL(string: s)
+      {
+        NSWorkspace.shared.open(link)
+      }
+      // Either way RedGiant closes: the new version replaces this one in Applications.
+      quit()
+    } else if gate == "breaking" {
+      a.messageText = say("breakingTitle")
+      a.informativeText =
+        String(format: say("breakingText"), version, installed) + (note.map { "\n\n" + $0 } ?? "")
+      a.addButton(withTitle: say("guide"))
+      a.addButton(withTitle: say("later"))
+      NSApp.activate(ignoringOtherApps: true)
+      if a.runModal() == .alertFirstButtonReturn { openPage() }
     }
   }
 

@@ -963,6 +963,73 @@ const en = {
   updManual:
     "The latest version is {version}. On this server run RedGiant's install.sh again: it downloads the new version and starts it.",
   updUnreachable: "GitHub did not answer: try again in a moment.",
+  updCopy: "Copy",
+  updCopied: "Copied",
+  updReqTitle: "RedGiant must be updated",
+  updReqSub: "Version {version} is needed (you have {installed})",
+  updReqLead:
+    "This update cannot wait: RedGiant {version} fixes something that the {installed} cannot keep doing safely.",
+  updReqSafe:
+    "Until you update, agents and automations wait. Your conversations, projects and settings are safe: nothing is lost.",
+  updReqNow: "Update now",
+  updReqClose: "Close RedGiant",
+  updReqAgain: "Look again",
+  updReqUpdating:
+    "RedGiant is downloading the update: follow the window on your desktop. It restarts by itself.",
+  updReqClosing: "RedGiant is closing. You can close this page.",
+  updDownloadNew: "Download the new version",
+  updReqMac:
+    "Open the downloaded file and drag RedGiant into Applications, replacing the old one; then open it again.",
+  updReqDocker: "On the computer where RedGiant runs, in its folder, run:",
+  updReqSource: "Bring the code up to date (git pull), build it and start RedGiant again.",
+  updReqInstaller: "If the update does not start, the whole installer is here:",
+  updReqInstallerLink: "RedGiant-Setup.exe",
+  updLater: "Later",
+  updBrkTitle: "This version needs a clean install",
+  updBrkSub: "RedGiant {version} cannot be installed over the {installed}",
+  updBrkLead:
+    "RedGiant {version} changed too much inside to update the usual way: installed over the old one it could break.",
+  updBrkWhy:
+    "So it goes in three short steps: first a backup of everything (I am making it now, by myself), then you remove the old RedGiant and install the new one, which puts everything back from the backup.",
+  updBrkRetry: "Try the backup again",
+  updBrkSaved: "Backup made and read back: it is in this folder",
+  updBrkChecked:
+    "{file} · {size} · {projects} projects, {conversations} conversations, memories and settings",
+  updBrkDockerCopy:
+    "The folder is inside RedGiant's data volume, which a clean install removes: copy the file out first, from RedGiant's folder:",
+  updBrkKeys:
+    "Your keychain ({n} keys) is not in the backup: it goes in only protected by a passphrase of yours.",
+  updBrkKeysAdd: "Add the keychain too",
+  updBrkKeysAgain: "Make the backup again with the keychain",
+  updBrkKeysIn: "The keychain is in the backup too, protected by your passphrase.",
+  updBrkNext: "Go on",
+  updBrkStep1: "Remove the old RedGiant",
+  updBrkStep1Win:
+    "Uninstall RedGiant. When it asks whether to keep the data, you can answer No: everything is in the backup.",
+  updBrkStep1Mac:
+    "From the menu bar icon choose «Uninstall…» (or drag RedGiant from Applications to the Bin).",
+  updBrkStep1Docker: "In RedGiant's folder remove the containers and their volumes:",
+  updBrkStep1Source: "Stop RedGiant and move its data folder away.",
+  updBrkUninstall: "Uninstall RedGiant",
+  updBrkSure: "RedGiant closes and its uninstaller starts. The backup stays in {folder}.",
+  updBrkUninstallYes: "Yes, uninstall",
+  updBrkUninstalling: "The uninstaller is starting on your desktop.",
+  updBrkStep2: "Install RedGiant {version}",
+  updBrkStep3: "Restore",
+  updBrkStep3Text:
+    "At its first start the new RedGiant offers «Restore from the backup»: it finds it in that folder by itself.",
+  updBrkStep3Docker:
+    "Open RedGiant, finish the setup and import the copied file in Settings › Backup › Import a backup.",
+  updBrkDone: "Got it",
+  updFoundTitle: "Restore from the backup",
+  updFoundLead:
+    "There is a backup of {date} (RedGiant {version}): {projects} projects and {conversations} conversations. Put everything back now?",
+  updFoundKeys:
+    "The passphrase you chose for the keychain. Without it everything else is restored.",
+  updFoundRestore: "Restore from the backup",
+  updFoundDone: "Everything is back. Go on with the next steps to set up the models.",
+  job_backup_safety: "Backup before the clean install",
+  job_step_verify: "Reading the backup back",
   job_pihole: "Starting Pi-hole",
   job_step_pihole_image: "Downloading Pi-hole (only once)",
   job_step_pihole_start: "Starting Pi-hole",
@@ -4444,6 +4511,73 @@ const it: Record<Key, string> = {
   updManual:
     "L'ultima versione è la {version}. Su questo server rilancia install.sh di RedGiant: scarica la nuova versione e la avvia.",
   updUnreachable: "GitHub non ha risposto: riprova tra poco.",
+  updCopy: "Copia",
+  updCopied: "Copiato",
+  updReqTitle: "È necessario aggiornare RedGiant",
+  updReqSub: "Serve la versione {version} (hai la {installed})",
+  updReqLead:
+    "Questo aggiornamento non può aspettare: RedGiant {version} sistema una cosa che la {installed} non può continuare a fare in sicurezza.",
+  updReqSafe:
+    "Finché non aggiorni, agenti e automazioni restano fermi. Conversazioni, progetti e impostazioni sono al sicuro: non si perde niente.",
+  updReqNow: "Aggiorna ora",
+  updReqClose: "Chiudi RedGiant",
+  updReqAgain: "Controlla di nuovo",
+  updReqUpdating:
+    "RedGiant sta scaricando l'aggiornamento: segui la finestra sul desktop. Si riavvia da solo.",
+  updReqClosing: "RedGiant si sta chiudendo. Puoi chiudere questa pagina.",
+  updDownloadNew: "Scarica la versione nuova",
+  updReqMac:
+    "Apri il file scaricato e trascina RedGiant in Applicazioni, sostituendo quello vecchio; poi riaprilo.",
+  updReqDocker: "Sul computer dove gira RedGiant, nella sua cartella, esegui:",
+  updReqSource: "Porta il codice all'ultima versione (git pull), ricompilalo e riavvia RedGiant.",
+  updReqInstaller: "Se l'aggiornamento non parte, l'installazione completa è qui:",
+  updReqInstallerLink: "RedGiant-Setup.exe",
+  updLater: "Più tardi",
+  updBrkTitle: "Questa versione richiede un'installazione pulita",
+  updBrkSub: "RedGiant {version} non si può installare sopra la {installed}",
+  updBrkLead:
+    "RedGiant {version} è cambiato troppo dentro per aggiornarsi come al solito: installato sopra quello vecchio potrebbe rompersi.",
+  updBrkWhy:
+    "Quindi si fa in tre passi brevi: prima un backup di tutto (lo sto facendo adesso, da solo), poi togli il RedGiant vecchio e installi quello nuovo, che rimette tutto a posto dal backup.",
+  updBrkRetry: "Riprova il backup",
+  updBrkSaved: "Backup fatto e riletto: è in questa cartella",
+  updBrkChecked:
+    "{file} · {size} · {projects} progetti, {conversations} conversazioni, memorie e impostazioni",
+  updBrkDockerCopy:
+    "La cartella sta nel volume dei dati di RedGiant, che l'installazione pulita cancella: copia prima il file fuori, dalla cartella di RedGiant:",
+  updBrkKeys:
+    "Il tuo portachiavi ({n} chiavi) non è nel backup: ci entra solo protetto da una frase tua.",
+  updBrkKeysAdd: "Aggiungi anche il portachiavi",
+  updBrkKeysAgain: "Rifai il backup con il portachiavi",
+  updBrkKeysIn: "Nel backup c'è anche il portachiavi, protetto dalla tua frase.",
+  updBrkNext: "Avanti",
+  updBrkStep1: "Togli il RedGiant vecchio",
+  updBrkStep1Win:
+    "Disinstalla RedGiant. Quando chiede se tenere i dati puoi rispondere No: è tutto nel backup.",
+  updBrkStep1Mac:
+    "Dall'icona nella barra dei menu scegli «Disinstalla…» (oppure trascina RedGiant da Applicazioni nel Cestino).",
+  updBrkStep1Docker: "Nella cartella di RedGiant togli i container e i loro volumi:",
+  updBrkStep1Source: "Ferma RedGiant e sposta altrove la sua cartella dei dati.",
+  updBrkUninstall: "Disinstalla RedGiant",
+  updBrkSure: "RedGiant si chiude e parte il suo disinstallatore. Il backup resta in {folder}.",
+  updBrkUninstallYes: "Sì, disinstalla",
+  updBrkUninstalling: "Il disinstallatore sta partendo sul desktop.",
+  updBrkStep2: "Installa RedGiant {version}",
+  updBrkStep3: "Ripristina",
+  updBrkStep3Text:
+    "Al primo avvio il nuovo RedGiant propone «Ripristina dal backup»: lo trova da solo in quella cartella.",
+  updBrkStep3Docker:
+    "Apri RedGiant, finisci la configurazione e importa il file copiato in Impostazioni › Backup › Importa un backup.",
+  updBrkDone: "Ho capito",
+  updFoundTitle: "Ripristina dal backup",
+  updFoundLead:
+    "C'è un backup del {date} (RedGiant {version}): {projects} progetti e {conversations} conversazioni. Rimetto tutto a posto adesso?",
+  updFoundKeys:
+    "La frase che hai scelto per il portachiavi. Senza, tutto il resto si ripristina lo stesso.",
+  updFoundRestore: "Ripristina dal backup",
+  updFoundDone: "È tutto tornato. Vai avanti con i passi successivi per sistemare i modelli.",
+  job_backup_safety: "Backup prima dell'installazione pulita",
+  job_step_verify: "Rileggo il backup",
   job_pihole: "Avvio di Pi-hole",
   job_step_pihole_image: "Scarico Pi-hole (una volta sola)",
   job_step_pihole_start: "Avvio Pi-hole",

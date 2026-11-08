@@ -35,6 +35,7 @@ export * from "./setup.js";
 export * from "./shared-memory.js";
 export * from "./terminal.js";
 export * from "./tool-choice.js";
+export * from "./updates.js";
 export * from "./vault.js";
 export * from "./voice.js";
 export * from "./win-engine.js";

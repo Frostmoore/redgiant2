@@ -48,6 +48,8 @@ env:
 jobs:
   images:
     if: ${{ !inputs.only && !inputs.dry_run }}
+    # The image is what Docker installations update to: the release's kind is published first.
+    needs: release-info
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -139,11 +141,54 @@ jobs:
     with:
       publish: ${{ startsWith(github.ref, 'refs/tags/') }}
 
+  # What the release is (G36.19): release.json from packaging/release-kind.json and the tag,
+  # signed with UPDATE_SIGNING_KEY (the update key) and attached FIRST: the release exists with it
+  # before any installer or app is attached, so no launcher or server ever meets this release's
+  # files without its kind (a breaking release must never be taken for a normal one).
+  release-info:
+    if: ${{ !inputs.only && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: release.json, signed
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || version=0.0.0
+          node packaging/update/release-info.mjs --version "$version" --out dist-info
+          if [ -n "$UPDATE_SIGNING_KEY" ]; then
+            node packaging/update/sign.mjs dist-info/release.json
+          elif grep -q 'PublicKeyXml = ""' packaging/windows/launcher/UpdateKey.cs; then
+            echo "::warning::release.json not signed (no key yet): its kind counts for nothing"
+          else
+            echo "UPDATE_SIGNING_KEY is missing: release.json must be signed"; exit 1
+          fi
+          cat dist-info/release.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-info
+          path: dist-info/*
+          retention-days: 7
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            dist-info/release.json
+            dist-info/release.json.sig
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+
   # RedGiant-Setup.exe (G22; 3.0, G30.2): the launcher, Node, the server built for Windows and the
   # web page, attached to the tag's GitHub Release. No WSL: everything runs on Windows itself.
   windows-installer:
     if: ${{ !inputs.only && !inputs.dry_run }}
-    needs: pgvector
+    needs: [pgvector, release-info]
     runs-on: windows-latest
     permissions:
       contents: write
@@ -185,7 +230,7 @@ jobs:
         shell: pwsh
         working-directory: packaging/windows
         run: |
-          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Management.dll /r:System.Web.Extensions.dll launcher\RedGiant.cs launcher\Updates.cs launcher\Moves.cs launcher\Memory.cs launcher\Diag.cs launcher\Delta.cs launcher\UpdateKey.cs
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Management.dll /r:System.Web.Extensions.dll launcher\RedGiant.cs launcher\Updates.cs launcher\Moves.cs launcher\Memory.cs launcher\Diag.cs launcher\Delta.cs launcher\UpdateKey.cs launcher\ReleaseInfo.cs
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Build the installer (Inno Setup)
         shell: pwsh
@@ -248,7 +293,7 @@ jobs:
   # Connect API key, the .p8 file in base64), MAC_NOTARY_KEY_ID, MAC_NOTARY_ISSUER_ID.
   mac-app:
     if: ${{ !inputs.only && !inputs.dry_run }}
-    needs: pgvector
+    needs: [pgvector, release-info]
     runs-on: macos-latest
     permissions:
       contents: write

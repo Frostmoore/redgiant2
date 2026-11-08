@@ -1579,6 +1579,30 @@ export class SetupService {
     }
   }
 
+  /**
+   * The person's own choices from a full backup (G36.19, after a clean install): instructions,
+   * languages, how long conversations are kept, the mode. Never what belongs to this computer
+   * (engine, keys, servers); what is set here already stays. Returns the fields taken.
+   */
+  async restorePortable(from: Record<string, unknown>): Promise<string[]> {
+    const c = this.config as unknown as Record<string, unknown>;
+    const taken: string[] = [];
+    const take = (key: string, ok: (v: unknown) => boolean) => {
+      const v = from[key];
+      const here = c[key];
+      if (!ok(v) || (here !== undefined && here !== "" && here !== null)) return;
+      c[key] = v;
+      taken.push(key);
+    };
+    take("instructions", (v) => typeof v === "string" && v.trim() !== "");
+    take("language", (v) => v === "it" || v === "en");
+    take("agentLanguage", (v) => typeof v === "string" && v.length <= 40);
+    take("retentionDays", (v) => typeof v === "number" && v >= 0);
+    take("mode", (v) => v === "standard" || v === "advanced");
+    if (taken.length) await this.save();
+    return taken;
+  }
+
   /** RedGiant's own search engine can be started here (Docker installation). */
   get canRunSearch(): boolean {
     return !!this.o.hooks.searxng && !this.locked.search;

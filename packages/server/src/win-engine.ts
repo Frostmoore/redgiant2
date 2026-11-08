@@ -200,6 +200,18 @@ export class WinEngine {
     debugLog.write("engine", "asked Windows to empty WSL's cache of files");
   }
 
+  /**
+   * The update window's choice (G36.19) for RedGiant.exe: update now (no question), quit, or
+   * run the uninstaller (it asks once more on the desktop).
+   */
+  async updateAction(action: "update" | "quit" | "uninstall"): Promise<void> {
+    await mkdir(this.o.dir, { recursive: true });
+    const file = join(this.o.dir, "update.json");
+    await writeFile(`${file}.tmp`, JSON.stringify({ id: randomUUID(), action }));
+    await rename(`${file}.tmp`, file);
+    debugLog.write("engine", `asked RedGiant.exe: ${action}`);
+  }
+
   async checkUpdate(): Promise<{ state: string; version: string } | null> {
     const id = randomUUID();
     await mkdir(this.o.dir, { recursive: true });

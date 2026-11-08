@@ -200,6 +200,7 @@ import { scriptTool } from "./script.js";
 import { SharedMemory } from "./shared-memory.js";
 import { SKILL_PROMPT, SkillNudge } from "./skill-nudge.js";
 import { dryWorkspace, ToolChoiceStore, toolChars, toolsView } from "./tool-choice.js";
+import { UpdateRequiredError, type UpdateWatcher } from "./updates.js";
 import {
   blankPastedSecrets,
   type MasterKeyStore,
@@ -490,6 +491,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly converter: FileConverter;
   /** Background commands of every conversation (p3.3.1): bash with background, bash_output. */
   readonly commands: BackgroundCommands;
+  /** Mandatory and breaking updates (G36.19), set by main: while one is mandatory no new turn starts. */
+  updates: UpdateWatcher | undefined;
   /** Backups made or being imported (2026-11-03): next to the workspaces, in the data volume. */
   get backupsDir(): string {
     return join(dirname(this.o.workspacesDir), "backups");
@@ -713,7 +716,16 @@ export class RedGiantCore implements OrchestrationHost {
         this.approveAutomation(ownerId, recipe, ask, signal),
       sendEmail: (ownerId, mail) => this.email.send(ownerId, mail),
     };
-    this.automations = new AutomationService({ db: o.db, store: this.store, host });
+    this.automations = new AutomationService({
+      db: o.db,
+      store: this.store,
+      host,
+      // A mandatory update (G36.19) holds every run, each written down with the reason.
+      held: () =>
+        this.updates?.held
+          ? `Not run: RedGiant must be updated${this.updates.status().latest ? ` to ${this.updates.status().latest}` : ""} first (automations wait until then).`
+          : null,
+    });
     this.policies = new PolicyStore(o.db);
     this.changes = new PlatformChanges(o.db, this.store);
     this.toolChoices = new ToolChoiceStore(o.db);
@@ -4269,6 +4281,7 @@ export class RedGiantCore implements OrchestrationHost {
     // A secret the person pasted (G33.4) never reaches the model nor the log: it is blanked here,
     // and the agent is told so it can point them to the keychain. The page asks first.
     const text = extra.watch === true || extra.human === true ? blankPastedSecrets(raw) : raw;
+    this.updateGate();
     const l = await this.open(ownerId, sessionId);
     const { queue, ...rest } = extra;
     if (l.running || (l.queue?.length ?? 0) > 0) {
@@ -4284,6 +4297,14 @@ export class RedGiantCore implements OrchestrationHost {
       return { done, queued: true };
     }
     return this.sendNow(ownerId, sessionId, l, text, rest);
+  }
+
+  /**
+   * A mandatory update is waiting (G36.19): no new turn, cleanly (the turn already running ends
+   * as it would; nothing is written for the refused message).
+   */
+  private updateGate(): void {
+    if (this.updates?.held) throw new UpdateRequiredError(this.updates.status().latest);
   }
 
   /**
@@ -4326,6 +4347,8 @@ export class RedGiantCore implements OrchestrationHost {
       human?: boolean;
     },
   ): Promise<{ done: Promise<SendResult> }> {
+    // Also for messages that waited in line: they are refused, not lost in the middle of a turn.
+    this.updateGate();
     // The first message names the conversation in the list; every message moves it up.
     await this.o.db.query(
       "UPDATE rg_sessions SET title = COALESCE(title, $2), last_at = now() WHERE id = $1",

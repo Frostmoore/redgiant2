@@ -373,6 +373,7 @@ export function Modal({
   sub,
   foot,
   class: cls,
+  locked,
 }: {
   title: string;
   onClose: () => void;
@@ -386,6 +387,8 @@ export function Modal({
   /** The window's buttons in a bar that stays at the bottom while the body scrolls. */
   foot?: ComponentChildren;
   class?: string | undefined;
+  /** A window that does not close (G36.19, a mandatory update): no X, no veil, no Escape. */
+  locked?: boolean | undefined;
 }) {
   const [me] = useState(() => ({}));
   useEffect(() => {
@@ -397,13 +400,18 @@ export function Modal({
   useEffect(() => {
     // Only the window on top closes: Escape in the mailbox's window, opened from an automation
     // being written, must not throw the draft away.
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && stack.at(-1) === me && onClose();
+    const esc = (e: KeyboardEvent) =>
+      e.key === "Escape" && !locked && stack.at(-1) === me && onClose();
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
-  }, [onClose]);
+  }, [onClose, locked]);
   return (
     <div class="ui-modal-back">
-      <button type="button" class="ui-modal-veil" aria-label={t("close")} onClick={onClose} />
+      {locked ? (
+        <div class="ui-modal-veil" />
+      ) : (
+        <button type="button" class="ui-modal-veil" aria-label={t("close")} onClick={onClose} />
+      )}
       <div
         class={`ui-modal${wide ? " wide" : ""}${foot ? " with-foot" : ""}${cls ? ` ${cls}` : ""}`}
         role="dialog"
@@ -422,9 +430,11 @@ export function Modal({
             <strong>{title}</strong>
           )}
           {/* An X to close, as on phones (2026-11-04). */}
-          <button type="button" class="ui-modal-x" aria-label={t("close")} onClick={onClose}>
-            <IconX size={18} />
-          </button>
+          {!locked && (
+            <button type="button" class="ui-modal-x" aria-label={t("close")} onClick={onClose}>
+              <IconX size={18} />
+            </button>
+          )}
         </header>
         <div class="ui-modal-body">{children}</div>
         {foot && <footer class="ui-modal-foot wz-acts">{foot}</footer>}

@@ -81,6 +81,7 @@ import { Acts, Head, Sub, Tile } from "./SettingsKit.js";
 import { AssignStep } from "./SetupAssign.js";
 import { PHONE, useMedia, useOnNext, useWz, type Wz, WzCtx } from "./SetupKit.js";
 import { TelegramStep } from "./SetupTelegram.js";
+import { FoundBackups } from "./UpdateGate.js";
 import { Modal } from "./ui.js";
 
 function Welcome() {
@@ -147,6 +148,8 @@ function Welcome() {
   return (
     <div class="wz-inner">
       <Head eyebrow={t("wzSetup")} q={t("wzHello")} lead={t("wzHelloLead")} />
+      {/* After a clean install (G36.19): the backup left in Documents, found by itself. */}
+      <FoundBackups onRestored={reload} />
       <div class="wz-langs">
         {L("it", "Italiano", t("wzLangIt"), t("wzLangItShort"))}
         {L("en", "English", t("wzLangEn"), t("wzLangEnShort"))}

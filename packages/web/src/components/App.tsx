@@ -68,6 +68,7 @@ import { Settings } from "./Settings.js";
 import { Setup } from "./Setup.js";
 import { SideArea } from "./SideArea.js";
 import { Sidebar } from "./Sidebar.js";
+import { UpdateGate } from "./UpdateGate.js";
 import { Variants } from "./Variants.js";
 import { WhatsNew } from "./WhatsNew.js";
 
@@ -353,6 +354,8 @@ export function App() {
             firstRun.value = false;
           }}
         />
+        {/* A mandatory update holds the wizard too (G36.19). */}
+        <UpdateGate />
       </div>
     );
 
@@ -414,6 +417,7 @@ export function App() {
       </header>
       <EngineLoading />
       <WhatsNew />
+      <UpdateGate />
       {lastError.value && (
         <div class="banner error">
           <IconAlert /> {lastError.value}

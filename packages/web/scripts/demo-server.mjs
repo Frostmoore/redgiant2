@@ -10,6 +10,7 @@ import {
   Browsers,
   DockerBrowserLauncher,
   debugLog,
+  exportBackup,
   GitHosts,
   HuggingFace,
   JobFailure,
@@ -17,6 +18,7 @@ import {
   SetupService,
   serve,
   TokenAuth,
+  UpdateWatcher,
 } from "@redgiant/server";
 
 const port = Number(process.argv[2] ?? 7650);
@@ -962,6 +964,68 @@ if (process.env.DEMO_SAMPLES) {
   viewerSession = await core.startSession("local", god.id);
   for (const f of (await readdir(into)).sort())
     await (await core.send("local", viewerSession, `Mostra il file campioni/${f}`)).done;
+}
+// DEMO_UPDATE=mandatory|breaking (G36.19): a newer release with signed metadata, as GitHub would
+// serve it; DEMO_INSTALL=windows|mac|docker says how this RedGiant is installed. DEMO_FOUND=1 puts
+// a safety backup in the folder a breaking update uses (the wizard offers it with DEMO_FRESH=1).
+if (process.env.DEMO_UPDATE || process.env.DEMO_FOUND) {
+  const { generateKeyPairSync, sign } = await import("node:crypto");
+  const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const kind = process.env.DEMO_UPDATE ?? "normal";
+  const info = Buffer.from(
+    `${JSON.stringify({
+      format: 1,
+      version: "3.5.0",
+      kind,
+      note: {
+        it: "Il database cambia forma per la memoria nuova: sopra la 3.4 non si aggiorna.",
+        en: "The database changes shape for the new memory: it cannot update over 3.4.",
+      },
+    })}\n`,
+  );
+  const files = {
+    "release.json": info,
+    "release.json.sig": Buffer.from(sign("sha256", info, keys.privateKey).toString("base64")),
+  };
+  const docs = join(dir, "Documents");
+  core.updates = new UpdateWatcher({
+    install: process.env.DEMO_INSTALL ?? "windows",
+    installed: "3.4.0",
+    dataDir: dir,
+    backupBase: process.env.DEMO_INSTALL === "docker" ? "/data/RedGiant-backups" : docs,
+    feed: "https://demo.feed/latest",
+    publicKey: keys.publicKey.export({ type: "spki", format: "pem" }).toString(),
+    launcher: true,
+    composeDir: "~/redgiant",
+    act: async () => true,
+    fetch: async (url) => {
+      if (url === "https://demo.feed/latest")
+        return Response.json({
+          tag_name: "v3.5.0",
+          assets: Object.keys(files).map((name) => ({
+            name,
+            browser_download_url: `https://demo.feed/${name}`,
+          })),
+        });
+      return new Response(files[url.split("/").pop()]);
+    },
+  });
+  if (process.env.DEMO_UPDATE) await core.updates.check();
+  if (process.env.DEMO_FOUND) {
+    const jobs = core.jobs;
+    const job = jobs.start("local", "x", ["data", "conversations", "files"], (h) =>
+      exportBackup(
+        core.backupDeps,
+        "local",
+        join(docs, "RedGiant-backup-2026-11-08", "redgiant-3.4.0-0930.rgbackup"),
+        h,
+        undefined,
+        { full: true, version: "3.4.0" },
+      ),
+    );
+    for (let i = 0; i < 200 && jobs.get("local", job.id)?.state === "running"; i++)
+      await new Promise((r) => setTimeout(r, 50));
+  }
 }
 await debugLog.configure({ dir: join(dir, "logs") });
 await setup.applyAtStartup();

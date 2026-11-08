@@ -39,6 +39,17 @@ export interface BackupData {
   tables: Record<string, Row[]>;
   /** The keychain sealed with the person's passphrase (`Vault.exportSealed`), when chosen. */
   keychain?: string;
+  /** The RedGiant version that made it (G36.19; older backups do not say). */
+  version?: string;
+  /** A full backup (G36.19, before a clean install): the settings come along (`rg_settings`). */
+  full?: boolean;
+}
+
+/** What `exportBackup` adds on request (G36.19). */
+export interface ExportOptions {
+  /** The settings too (rg_settings: no secret is kept there; the keys stay in secrets.json). */
+  full?: boolean;
+  version?: string;
 }
 
 export interface ImportChoices {
@@ -55,6 +66,10 @@ export interface ImportResult {
   files: number;
   /** The sealed keychain the backup carries, for the keychain to open with the passphrase. */
   keychain?: string;
+  /** Settings put back (full backups, G36.19), without the wizard's own ("setup"). */
+  settings?: number;
+  /** The wizard's choices of the backup ("setup"), for the setup service to take what is portable. */
+  setup?: Record<string, unknown>;
 }
 
 export interface BackupDeps {
@@ -255,6 +270,7 @@ export async function exportBackup(
   h: JobHandle,
   /** The sealed keychain to carry (G33.4), when the person chose a passphrase. */
   keychain?: string,
+  opts: ExportOptions = {},
 ): Promise<void> {
   const { db } = deps;
   h.step("data");
@@ -278,6 +294,12 @@ export async function exportBackup(
     ...(tables.rg_subprojects ?? []),
     ...(tables.rg_agents ?? []),
   ].map((r) => r.id as string);
+  // A full backup (G36.19) carries the settings: what the person chose, never a secret.
+  if (opts.full && (await exists(db, "rg_settings")))
+    tables.rg_settings = await db.query<Row>(
+      "SELECT key, value FROM rg_settings WHERE owner_id = $1 ORDER BY key",
+      [ownerId],
+    );
   // Only the limits: what was spent belongs to this installation.
   tables.rg_budgets = keys.length
     ? await db.query<Row>(
@@ -302,6 +324,8 @@ export async function exportBackup(
     events: Number(n),
     tables,
     ...(keychain && { keychain }),
+    ...(opts.version && { version: opts.version }),
+    ...(opts.full && { full: true }),
   };
 
   await mkdir(dirname(file), { recursive: true });
@@ -607,6 +631,18 @@ export async function importBackup(
         });
     for (const b of t.rg_budgets ?? [])
       await insert("rg_budgets", { ...b, key: to(b.key), spent_usd: 0, spent_tok: 0 });
+    // Settings of a full backup (G36.19): what is set here already stays; the wizard's own
+    // choices go back to the caller, which keeps only what belongs to the person.
+    for (const row of t.rg_settings ?? []) {
+      const key = row.key as string;
+      const value = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+      if (key === "setup") {
+        if (value && typeof value === "object") result.setup = value as Record<string, unknown>;
+        continue;
+      }
+      if (await insert("rg_settings", { owner_id: ownerId, key, value }))
+        result.settings = (result.settings ?? 0) + 1;
+    }
 
     // The log: events already here (same id) are skipped; the rest keep their id and time.
     h.step("conversations");
@@ -685,6 +721,129 @@ export async function importBackup(
   } finally {
     await r.close();
   }
+}
+
+/** What a backup that was read back to the end holds (G36.19). */
+export interface BackupCheck {
+  createdAt: string;
+  version: string | null;
+  events: number;
+  files: number;
+  bytes: number;
+  projects: number;
+  conversations: number;
+  keychain: boolean;
+}
+
+/**
+ * Reads a backup back to its last byte (G36.19, before a clean install the person must be sure
+ * of it): the header, every event a JSON line and as many as the header says, every file as long
+ * as it says. A BackupError says what is wrong.
+ */
+export async function verifyBackup(file: string, h?: JobHandle): Promise<BackupCheck> {
+  const { r, data } = await open(file);
+  try {
+    let entry = await r.next();
+    if (entry?.name !== "events.jsonl") throw new BackupError("The backup file is damaged");
+    let events = 0;
+    let rest = "";
+    for await (const chunk of r.body(entry.size)) {
+      const lines = (rest + chunk.toString()).split("\n");
+      rest = lines.pop() ?? "";
+      for (const l of lines) {
+        if (!l) continue;
+        JSON.parse(l);
+        events++;
+      }
+    }
+    if (rest) {
+      JSON.parse(rest);
+      events++;
+    }
+    if (events !== data.events) throw new BackupError("The backup file is damaged");
+    let files = 0;
+    let bytes = 0;
+    for (entry = await r.next(); entry; entry = await r.next()) {
+      if (!entry.name.startsWith("files/")) throw new BackupError("The backup file is damaged");
+      let got = 0;
+      for await (const b of r.body(entry.size)) got += b.length;
+      if (got !== entry.size) throw new BackupError("The backup file is cut short");
+      bytes += got;
+      files++;
+      h?.progress(bytes, data.filesBytes);
+    }
+    if (bytes !== data.filesBytes) throw new BackupError("The backup file is cut short");
+    return {
+      createdAt: data.createdAt,
+      version: data.version ?? null,
+      events,
+      files,
+      bytes,
+      projects: (data.tables.rg_projects ?? []).length,
+      conversations: (data.tables.rg_sessions ?? []).length,
+      keychain: typeof data.keychain === "string",
+    };
+  } catch (err) {
+    // Any gzip error (cut short, wrong bytes) is a damaged file.
+    if (err instanceof SyntaxError || /^Z_/.test((err as { code?: string }).code ?? ""))
+      throw new BackupError("The backup file is damaged");
+    throw err;
+  } finally {
+    await r.close();
+  }
+}
+
+/** The folders a safety backup goes in (G36.19): "RedGiant-backup-2026-11-08", "-2" for the next one that day. */
+export const SAFETY_FOLDER = /^RedGiant-backup-\d{4}-\d{2}-\d{2}(?:-\d{1,3})?$/;
+export const SAFETY_FILE = /^redgiant-[0-9a-z.-]+\.rgbackup$/;
+
+/**
+ * The backups left by a breaking update under `base` (Documents, or the data volume), newest
+ * first, each read back to the end: a damaged one is not offered.
+ */
+export async function findBackups(
+  base: string,
+): Promise<
+  (BackupCheck & { id: string; folder: string; file: string; path: string; size: number })[]
+> {
+  const out: (BackupCheck & {
+    id: string;
+    folder: string;
+    file: string;
+    path: string;
+    size: number;
+  })[] = [];
+  let folders: string[];
+  try {
+    folders = (await readdir(base)).filter((f) => SAFETY_FOLDER.test(f));
+  } catch {
+    return out;
+  }
+  for (const folder of folders) {
+    const names = await readdir(join(base, folder)).catch(() => [] as string[]);
+    for (const file of names.filter((f) => SAFETY_FILE.test(f))) {
+      const path = join(base, folder, file);
+      const st = await lstat(path).catch(() => undefined);
+      if (!st?.isFile()) continue;
+      const check = await verifyBackup(path).catch(() => undefined);
+      if (check) out.push({ ...check, id: `${folder}/${file}`, folder, file, path, size: st.size });
+    }
+  }
+  return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** The file of a found backup's id ("<folder>/<file>"), or null when the id is not one. */
+export function foundBackupPath(base: string, id: string): string | null {
+  const [folder, file, more] = id.split("/");
+  if (
+    more !== undefined ||
+    !folder ||
+    !file ||
+    !SAFETY_FOLDER.test(folder) ||
+    !SAFETY_FILE.test(file)
+  )
+    return null;
+  return join(base, folder, file);
 }
 
 /** Removes a backup file (after it was downloaded or imported). */

@@ -13,6 +13,13 @@
 // download goes on next time from where it was. Anything that does not add up (no manifest, a
 // file that is not what the manifest says, most of the app changed) falls back to the old way:
 // the whole installer, downloaded and run silently.
+//
+// Mandatory and breaking updates (G36.19): the release's release.json, signed with UpdateKey,
+// says its kind. It is read at every start and every six hours. Mandatory: a window that does
+// not close, «Update now» or «Close RedGiant». Breaking: never updated in place (no differential,
+// no installer over it); a window opens RedGiant's page, where the backup is made and the clean
+// install guided. A release.json that is listed but cannot be read or checked stops the update
+// this time (it is never taken for normal).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -50,12 +57,22 @@ static class Updates
         /** The same manifest gzipped (2026-11-08): about a quarter of the bytes; preferred. */
         public string ManifestGzUrl;
         public string ManifestGzSha256;
+        /** G36.19: the release's signed metadata (null: none, or not validly signed). */
+        public string InfoUrl;
+        public string InfoSigUrl;
+        public ReleaseInfo Info;
+        /** "normal", "mandatory", "breaking", or "unchecked" (listed but unreadable: no update now). */
+        public string Gate = "normal";
     }
 
     /** Set by the launcher: server, Postgres and engine stopped, so their files can be moved. */
     public static Action StopAll;
     /** Set by the launcher: leave now, nothing more to stop (another RedGiant is starting). */
     public static Action Exit;
+    /** Set by the launcher: stop everything and leave (a mandatory update's «Close RedGiant»). */
+    public static Action Quit;
+    /** Set by the launcher: RedGiant's page in the browser (a breaking update's guide is there). */
+    public static Action OpenPage;
     /** Where the installer put RedGiant (RedGiant.exe's folder). */
     public static string AppDir;
 
@@ -167,11 +184,42 @@ static class Updates
                 if (digest != null && digest.StartsWith("sha256:")) r.ManifestGzSha256 = digest.Substring(7).ToLowerInvariant();
             }
             else if (name == ManifestAsset + ".sig") r.SignatureUrl = url;
+            else if (name == ReleaseInfo.Asset) r.InfoUrl = url;
+            else if (name == ReleaseInfo.Asset + ".sig") r.InfoSigUrl = url;
             else if (name == ArchiveAsset) r.ArchiveUrl = url;
         }
         if (r.Url == null) return null;
-        Diag.Log("update", "latest release: " + r.Version + " (installer " + r.Size + " bytes, manifest " + (r.ManifestUrl != null ? "yes" : "no") + ")");
+        Kind(r);
+        Diag.Log("update", "latest release: " + r.Version + " (installer " + r.Size + " bytes, manifest " + (r.ManifestUrl != null ? "yes" : "no") + ", " + r.Gate + ")");
         return r;
+    }
+
+    /** The release's kind from its signed release.json (G36.19). */
+    static void Kind(Release r)
+    {
+        if (r.InfoUrl == null)
+        {
+            // Releases before G36.19 (or a test feed): nothing says otherwise.
+            r.Gate = ReleaseInfo.Assess(null, Installed, r.Version);
+            return;
+        }
+        try
+        {
+            byte[] bytes;
+            string sig = null;
+            using (var w = Client()) bytes = w.DownloadData(r.InfoUrl);
+            if (r.InfoSigUrl != null) using (var w = Client()) sig = w.DownloadString(r.InfoSigUrl);
+            r.Info = ReleaseInfo.Verified(bytes, sig, UpdateKey.PublicKeyXml);
+            if (r.Info == null && UpdateKey.PublicKeyXml != "")
+                Diag.Log("update", "release.json of " + r.Version + " is not validly signed: its kind is ignored");
+            r.Gate = ReleaseInfo.Assess(r.Info, Installed, r.Version);
+        }
+        catch (Exception e)
+        {
+            // Listed but not readable now: it could be a breaking release; no update this time.
+            Diag.Log("update", "release.json of " + r.Version + " could not be read: " + e.Message);
+            r.Gate = "unchecked";
+        }
     }
 
     static System.Threading.Timer watcher;
@@ -193,17 +241,24 @@ static class Updates
             if (!m.Success || m.Groups[1].Value == lastAsk) return;
             lastAsk = m.Groups[1].Value;
             string id = lastAsk;
+            // The update window's buttons in the page (G36.19): update now, quit, uninstall.
+            var act = Regex.Match(json, "\"action\"\\s*:\\s*\"([a-z]+)\"");
+            if (act.Success)
+            {
+                Act(owner, act.Groups[1].Value);
+                return;
+            }
             string state, version = "";
             try
             {
                 Release r = Find();
                 Set("UpdateLastCheck", Today);
-                if (r != null && Compare(Get("Version"), r.Version) < 0)
+                if (r != null && Compare(Get("Version"), r.Version) < 0 && r.Gate != "unchecked")
                 {
                     state = "available";
                     version = r.Version;
                     Set("UpdateSnoozeUntil", null);
-                    try { owner.BeginInvoke(new Action(() => Ask(r))); } catch (Exception) { }
+                    try { owner.BeginInvoke(new Action(() => Offer(r))); } catch (Exception) { }
                 }
                 else
                 {
@@ -231,21 +286,141 @@ static class Updates
     public static void Start(Control owner, bool now)
     {
         askNow = now;
-        if (!now && !Due()) return;
+        // Every start looks (a mandatory or breaking release must not wait for tomorrow); a
+        // normal one is asked about only at the first start of the day, as before.
+        bool due = now || Due();
+        Look(owner, due);
+        // And every six hours while RedGiant runs, for mandatory and breaking releases only.
+        periodic = new System.Threading.Timer(_ => Look(owner, false), null, 6 * 3600 * 1000, 6 * 3600 * 1000);
+    }
+
+    static System.Threading.Timer periodic;
+    static string shownGate;
+
+    static void Look(Control owner, bool askNormal)
+    {
         var t = new Thread(() =>
         {
             Release r = null;
             try { r = Find(); } catch (Exception e) { Diag.Log("update", "check failed: " + e.Message); return; }
-            Set("UpdateLastCheck", Today);
-            if (r == null || Compare(Get("Version"), r.Version) >= 0)
+            if (askNormal) Set("UpdateLastCheck", Today);
+            if (r == null || Compare(Get("Version"), r.Version) >= 0 || r.Gate == "none")
             {
                 Set("UpdatePending", null);
                 return;
             }
-            try { owner.BeginInvoke(new Action(() => { if (askNow) Update(r); else Ask(r); })); } catch (Exception) { }
+            if (r.Gate == "unchecked") return;
+            if (r.Gate == "normal" && !askNormal) return;
+            try { owner.BeginInvoke(new Action(() => { if (askNow && r.Gate != "breaking") Update(r); else Offer(r); })); } catch (Exception) { }
         });
         t.IsBackground = true;
         t.Start();
+    }
+
+    /** The right window for the release: the usual question, or the mandatory or breaking one (once at a time). */
+    static void Offer(Release r)
+    {
+        if (r.Gate == "mandatory" || r.Gate == "breaking")
+        {
+            if (shownGate == r.Gate + r.Version) return;
+            shownGate = r.Gate + r.Version;
+            if (r.Gate == "mandatory") Required(r); else Breaking(r);
+            return;
+        }
+        Ask(r);
+    }
+
+    /** The page's buttons (update.json with an action), on the UI thread of `owner`. */
+    static void Act(Control owner, string action)
+    {
+        Diag.Log("update", "the page asked: " + action);
+        if (action == "quit") { try { owner.BeginInvoke(new Action(() => { if (Quit != null) Quit(); })); } catch (Exception) { } return; }
+        if (action == "uninstall") { try { owner.BeginInvoke(new Action(Uninstall)); } catch (Exception) { } return; }
+        if (action != "update") return;
+        var t = new Thread(() =>
+        {
+            Release r = null;
+            try { r = Find(); } catch (Exception e) { Diag.Log("update", "check failed: " + e.Message); return; }
+            if (r == null || r.Gate == "none" || r.Gate == "unchecked") return;
+            try { owner.BeginInvoke(new Action(() => { if (r.Gate == "breaking") Breaking(r); else Update(r); })); } catch (Exception) { }
+        });
+        t.IsBackground = true;
+        t.Start();
+    }
+
+    /** Text of the release's reason for this window, or none. */
+    static string NoteFor(Release r)
+    {
+        string n = r.Info != null ? r.Info.Note(It, r.Gate) : null;
+        return n == null ? "" : "\n\n" + n;
+    }
+
+    /**
+     * A mandatory update (G36.19): the window does not close; RedGiant updates now or closes.
+     * Until then the server refuses the agents' work (nothing is lost).
+     */
+    static void Required(Release r)
+    {
+        var f = Dialog(It ? "È necessario aggiornare RedGiant" : "RedGiant must be updated", 500, 250);
+        f.ControlBox = false;
+        bool leaving = false;
+        f.FormClosing += (s, e) => { if (!leaving && e.CloseReason == CloseReason.UserClosing) e.Cancel = true; };
+        var text = new Label
+        {
+            Text = (It
+                ? "Serve RedGiant " + r.Version + " (hai la " + (Installed ?? "?") + "): questo aggiornamento non può aspettare. Finché non aggiorni, agenti e automazioni restano fermi; conversazioni e progetti sono al sicuro."
+                : "RedGiant " + r.Version + " is needed (you have " + (Installed ?? "?") + "): this update cannot wait. Until you update, agents and automations wait; conversations and projects are safe.") + NoteFor(r),
+            Location = new Point(18, 16),
+            Size = new Size(464, 160),
+        };
+        var now = Button(It ? "Aggiorna ora" : "Update now", 18, 196, 170, true);
+        var close = Button(It ? "Chiudi RedGiant" : "Close RedGiant", 196, 196, 170, false);
+        f.Controls.AddRange(new Control[] { text, now, close });
+        now.Click += (s, e) => { leaving = true; f.Close(); Update(r); };
+        close.Click += (s, e) => { leaving = true; f.Close(); if (Quit != null) Quit(); };
+        f.Show();
+        f.Activate();
+    }
+
+    /** A breaking update (G36.19): never applied here; the page makes the backup and guides the clean install. */
+    static void Breaking(Release r)
+    {
+        var f = Dialog(It ? "Questa versione richiede un'installazione pulita" : "This version needs a clean install", 500, 250);
+        var text = new Label
+        {
+            Text = (It
+                ? "RedGiant " + r.Version + " non si può installare sopra la " + (Installed ?? "?") + ": è cambiato troppo dentro. Nella pagina di RedGiant faccio prima un backup di tutto nella cartella Documenti, poi ti guido a disinstallare e installare la versione nuova, che rimette tutto a posto."
+                : "RedGiant " + r.Version + " cannot be installed over " + (Installed ?? "?") + ": too much changed inside. In RedGiant's page a backup of everything goes into your Documents first, then you are guided to uninstall and install the new version, which puts everything back.") + NoteFor(r),
+            Location = new Point(18, 16),
+            Size = new Size(464, 160),
+        };
+        var open = Button(It ? "Apri la guida" : "Open the guide", 18, 196, 170, true);
+        var later = Button(It ? "Più tardi" : "Later", 196, 196, 120, false);
+        f.Controls.AddRange(new Control[] { text, open, later });
+        open.Click += (s, e) => { f.Close(); if (OpenPage != null) OpenPage(); };
+        later.Click += (s, e) => f.Close();
+        f.Show();
+        f.Activate();
+    }
+
+    /** The uninstaller, after a yes on the desktop: RedGiant stops and leaves while it runs. */
+    static void Uninstall()
+    {
+        string unins = AppDir != null ? Path.Combine(AppDir, "unins000.exe") : null;
+        if (unins == null || !File.Exists(unins))
+        {
+            MessageBox.Show(It ? "Non trovo il disinstallatore: disinstalla RedGiant da Impostazioni di Windows > App." : "The uninstaller was not found: uninstall RedGiant from Windows Settings > Apps.", "RedGiant", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        var yes = MessageBox.Show(
+            It ? "Chiudo RedGiant e apro il suo disinstallatore. Il backup che hai fatto resta nella cartella Documenti. Continuo?" : "RedGiant closes and its uninstaller opens. The backup you made stays in your Documents. Go on?",
+            "RedGiant", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2, (MessageBoxOptions)0x40000);
+        if (yes != DialogResult.Yes) return;
+        Diag.Log("update", "starting the uninstaller for a clean install");
+        if (StopAll != null) StopAll();
+        try { Process.Start(new ProcessStartInfo(unins) { UseShellExecute = true }); }
+        catch (Exception e) { Diag.Log("update", "the uninstaller did not start: " + e.Message); }
+        if (Exit != null) Exit();
     }
 
     static void Ask(Release r)
@@ -367,6 +542,9 @@ static class Updates
     /** "Aggiorna adesso": the differential way when it can be, the installer otherwise. */
     static void Update(Release r)
     {
+        // A breaking release is never put over the installed one (G36.19), not even by the installer.
+        if (r.Gate == "breaking") { Breaking(r); return; }
+        if (r.Gate == "unchecked") return;
         if (r.ManifestUrl == null || r.ArchiveUrl == null || AppDir == null || Installed == null || Get("UpdateBroken") == r.Version)
         {
             Diag.Log("update", "the whole installer: " + (r.ManifestUrl == null ? "no manifest in the release" : Get("UpdateBroken") == r.Version ? "this version was rolled back once" : "no differential update here"));
@@ -449,6 +627,8 @@ static class Updates
             {
                 f.Close();
                 MessageBox.Show((It ? "Non sono riuscito a scaricare l'aggiornamento. Riprovo la prossima volta, da dove ero arrivato.\n\n" : "The update could not be downloaded. It is tried again next time, from where it stopped.\n\n") + e.Message, "RedGiant", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                // A mandatory update stays mandatory: its window comes back.
+                if (r.Gate == "mandatory") Required(r);
             }));
         }
         catch (Exception) { }
@@ -636,6 +816,7 @@ static class Updates
     /** The installer, with the bar every download has: amount, speed of the last seconds, time left. */
     static void Download(Release r)
     {
+        if (r.Gate == "breaking" || r.Gate == "unchecked") return;
         var f = Dialog(It ? "Scarico l'aggiornamento" : "Downloading the update", 470, 150);
         var what = new Label { Text = "RedGiant " + r.Version, Location = new Point(18, 16), Size = new Size(434, 24) };
         var detail = new Label { Text = "", Location = new Point(18, 48), Size = new Size(434, 40), ForeColor = Color.FromArgb(160, 166, 178), Font = new Font("Segoe UI", 9.5f) };
@@ -661,6 +842,7 @@ static class Updates
                 f.Close();
                 MessageBox.Show((It ? "Non sono riuscito a scaricare l'aggiornamento. Riprovo la prossima volta.\n\n" : "The update could not be downloaded. It is tried again next time.\n\n") + (e.Error != null ? e.Error.Message : ""), "RedGiant", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 Set("UpdatePending", r.Version);
+                if (r.Gate == "mandatory") Required(r);
                 return;
             }
             Diag.Log("update", "downloaded in " + (int) (DateTime.Now - downloadStarted).TotalSeconds + " s, starting the installer");

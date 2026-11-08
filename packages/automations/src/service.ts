@@ -120,6 +120,11 @@ export interface AutomationServiceOptions {
   minuteMs?: number;
   /** Where scheduler failures are written besides the run history (default: console.error). */
   logError?: (message: string, err: unknown) => void;
+  /**
+   * A reason no run may start now (G36.19: a mandatory update is waiting), or null. Every
+   * trigger is then written down as skipped with that reason; nothing reaches the host.
+   */
+  held?: () => string | null;
 }
 
 export class AutomationNotFoundError extends Error {}
@@ -680,6 +685,18 @@ export class AutomationService {
     if (trigger !== "manual" && trigger !== "retry" && !(await this.allowed(row, recipe, opts)))
       return null;
     const runId = `run_${randomUUID().slice(0, 12)}`;
+    const held = this.o.held?.() ?? null;
+    if (held) {
+      const at = this.now();
+      await this.o.db.query(
+        `INSERT INTO rg_automation_runs (id, automation_id, owner_id, trigger, status, summary, started_at, finished_at)
+       VALUES ($1, $2, $3, $4, 'skipped', $5, $6, $6)`,
+        [runId, row.id, row.owner_id, trigger, held, at],
+      );
+      await this.log(row, recipe, runId, trigger, "skipped", null).catch(() => {});
+      this.changed(row.owner_id, row.id);
+      return { run: await this.getRun(runId), done: Promise.resolve() };
+    }
     // Reserved before any await: two triggers at the same moment cannot both start.
     const busy = this.running.has(row.id);
     const queue = busy && recipe.overlap === "queue" && !this.queued.has(row.id);

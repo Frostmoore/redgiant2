@@ -143,6 +143,9 @@ sealed class Launcher : ApplicationContext
         // starts the new RedGiant and leaves.
         Updates.StopAll = () => { WinEngine.Shutdown(); StopEngine(); StopLeftovers(); };
         Updates.Exit = () => { tray.Visible = false; ExitThread(); };
+        // A mandatory update's «Close RedGiant», and a breaking one's guide in the page (G36.19).
+        Updates.Quit = () => Ui(Quit);
+        Updates.OpenPage = () => Ui(OpenBrowser);
         if (rolledBack != null) Updates.RolledBack(splash, rolledBack);
         Updates.Start(splash, updateNow);
         Updates.Watch(splash, WinEngine.Dir);
@@ -347,6 +350,9 @@ sealed class Launcher : ApplicationContext
         env["REDGIANT_STOP_ON_STDIN_END"] = "1";
         // The installed version: its release has the patched engine (G32.2, «next layer ahead»).
         env["REDGIANT_VERSION"] = Updates.Installed ?? "";
+        // Where a breaking update's safety backup goes (G36.19): the person's Documents, even
+        // when Windows moved them (OneDrive).
+        env["REDGIANT_DOCUMENTS_DIR"] = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         env["NODE_ENV"] = "production";
         engine = new Process { StartInfo = info, EnableRaisingEvents = true };
         var startedAt = DateTime.Now;

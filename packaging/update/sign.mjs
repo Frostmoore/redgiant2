@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Signs an update manifest (G36.18): RSA, SHA-256, PKCS #1 v1.5, as the launcher checks it
+// Signs an update manifest (G36.18) or a release.json (G36.19): RSA, SHA-256, PKCS #1 v1.5, as the launcher checks it
 // (Delta.SignatureValid with UpdateKey.PublicKeyXml). The private key (PEM) comes from the
 // UPDATE_SIGNING_KEY environment variable, the repository's secret; it is never written to disk.
 //
@@ -39,6 +39,20 @@ if (process.argv[1]?.endsWith("sign.mjs")) {
   const built = /PublicKeyXml = "([^"]*)"/.exec(cs)?.[1] ?? "";
   if (built !== "" && built !== dotnetXml(pem)) {
     console.error("UPDATE_SIGNING_KEY is not the key whose public half is in UpdateKey.cs");
+    process.exit(1);
+  }
+  // And against the server's copy (G36.19, release.json): both halves must be the same key.
+  const ts = readFileSync(
+    new URL("../../packages/server/src/release-key.ts", import.meta.url),
+    "utf8",
+  );
+  const serverPem = /RELEASE_PUBLIC_KEY = `([^`]*)`/.exec(ts)?.[1]?.trim() ?? "";
+  if (serverPem !== "" && dotnetXml(serverPem) !== dotnetXml(pem)) {
+    console.error("UPDATE_SIGNING_KEY is not the key whose public half is in release-key.ts");
+    process.exit(1);
+  }
+  if ((built === "") !== (serverPem === "")) {
+    console.error("UpdateKey.cs and release-key.ts must both hold the public key, or neither");
     process.exit(1);
   }
   writeFileSync(`${file}.sig`, `${sig}\n`);

@@ -4,6 +4,7 @@ import {
   type BackupPreview,
   type ClientMessage,
   type Event,
+  type FoundBackup,
   type ImportApply,
   type ImportPreview,
   type ImportRecord,
@@ -25,6 +26,7 @@ import {
   type ServerMessage,
   type SharedMemoryEntry,
   type SharedMemoryView,
+  type UpdateStatus,
   type VaultEntry,
   type VaultImportPreview,
   type VaultInput,
@@ -1365,6 +1367,23 @@ export class Api {
       "POST",
       "/api/update/check",
     );
+  /** Mandatory and breaking updates (G36.19): the last look, a look now, the window's buttons. */
+  updateStatus = () => this.call<UpdateStatus>("GET", "/api/update/status");
+  updateLook = () => this.call<UpdateStatus>("POST", "/api/update/look");
+  updateAct = (action: "update" | "quit" | "uninstall") =>
+    this.call<{ ok: true }>("POST", "/api/update/act", { action });
+  /** A full backup into Documents (or the data volume), read back to the end. */
+  safetyBackup = (keychainPassphrase?: string) =>
+    this.call<Job>("POST", "/api/update/safety-backup", {
+      ...(keychainPassphrase && { keychainPassphrase }),
+    });
+  /** The backups a breaking update left in that folder, for the wizard. */
+  foundBackups = () => this.call<FoundBackup[]>("GET", "/api/backup/found");
+  restoreFound = (id: string, keychainPassphrase?: string) =>
+    this.call<Job>("POST", "/api/backup/found/import", {
+      id,
+      ...(keychainPassphrase && { keychainPassphrase }),
+    });
   /** RedGiant's own search engine (SearXNG). */
   startSearch = () => this.call<Job>("POST", "/api/setup/searxng");
   stopSearch = () => this.call("DELETE", "/api/setup/searxng");

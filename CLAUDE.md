@@ -67,5 +67,11 @@
 - Test SQL helpers reject unused parameters, as real Postgres does: keep it that way.
 - Packaging (G15): the server runs in Docker as `node` with the data in one volume; sandboxes mount their folders from
   that volume (`dataVolume`, subpath, `NoCopy`). Never use host paths for sandbox mounts in the image.
+- Release kinds (G36.19): every release carries a signed `release.json` (`packaging/update/release-info.mjs` from
+  `packaging/release-kind.json`, signed like the manifests, attached first by `release.yml`'s `release-info` job).
+  Before tagging, set `release-kind.json`: `version` = the tag, `kind` normal | mandatory | breaking, `minVersion`, and
+  `note` it/en; keep the carried `requiredBelow`/`cleanInstallBelow`. Without a valid signature a kind counts for
+  nothing; a breaking release is never applied in place (no differential, no installer over it). The rule is one pure
+  function, `assessRelease` (protocol), mirrored in `ReleaseInfo.cs`; change both tables together.
 - Evals: every task's verifier must reject the starting files and accept a reference solution (tested); add both
   when adding a task.

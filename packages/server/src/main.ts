@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // RedGiant server. Configured by environment variables until the setup wizard (G17) exists.
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,6 +32,7 @@ import { ensureGit } from "./portable-git.js";
 import { backgroundPuller, runtimeHooks } from "./runtime.js";
 import { serve } from "./serve.js";
 import { SetupService } from "./setup.js";
+import { installedVersion, installKind, safetyBackupBase, UpdateWatcher } from "./updates.js";
 import { WIN_ENGINE_BUILD, WinEngine } from "./win-engine.js";
 
 const env = process.env;
@@ -446,6 +447,38 @@ if (sandbox.kind === "host")
   console.log(
     "Agents work in their projects' folders on this system; the guardian asks before they write elsewhere (Settings, Safety).",
   );
+// Mandatory and breaking updates (G36.19): at start and every few hours, from the release's
+// signed release.json. Before the automations start, so a held RedGiant runs none.
+{
+  const install = nativeWindows ? "windows" : nativeMac ? "mac" : installKind(env);
+  const updates = new UpdateWatcher({
+    install,
+    installed: installedVersion(env),
+    dataDir,
+    backupBase: safetyBackupBase(install, dataDir, env),
+    ...(env.REDGIANT_UPDATE_FEED && { feed: env.REDGIANT_UPDATE_FEED }),
+    ...(env.REDGIANT_HOME && { composeDir: env.REDGIANT_HOME }),
+    launcher: nativeWindows && !!winEngine,
+    act: async (action) => {
+      if (nativeWindows && winEngine) {
+        await winEngine.updateAction(action);
+        return true;
+      }
+      // The Mac app watches the data folder for this (RedGiant.swift).
+      if (nativeMac && action === "quit") {
+        await writeFile(
+          join(dataDir, "quit-request.json"),
+          `${JSON.stringify({ at: Date.now() })}\n`,
+        );
+        return true;
+      }
+      return false;
+    },
+  });
+  core.updates = updates;
+  if (env.REDGIANT_UPDATE_CHECK !== "0") updates.start();
+  shutdownHooks.push(async () => updates.stop());
+}
 await core.automations.start();
 // Windows without Git (RedGiant 3.0): the portable one comes down once, with its bar.
 void ensureGit(core.jobs, owner, dataDir).catch((err) =>
