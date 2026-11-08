@@ -27,6 +27,8 @@ import {
   type SharedMemoryEntry,
   type SharedMemoryView,
   type UpdateStatus,
+  type VaultBrowser,
+  type VaultBrowserCode,
   type VaultEntry,
   type VaultImportPreview,
   type VaultInput,
@@ -855,6 +857,11 @@ export class Api {
     this.call<{ file: string }>("POST", "/api/vault-export", { passphrase });
   importVaultFile = (file: string, passphrase: string) =>
     this.call<{ added: number }>("POST", "/api/vault-import/sealed", { file, passphrase });
+  /** Browsers linked to the keychain (G36.21): the list, a code to link one, «Unlink». */
+  vaultBrowsers = () => this.call<VaultBrowser[]>("GET", "/api/vault-browsers");
+  vaultBrowserCode = () => this.call<VaultBrowserCode>("POST", "/api/vault-browsers/code");
+  unlinkVaultBrowser = (id: string) =>
+    this.call("DELETE", `/api/vault-browsers/${encodeURIComponent(id)}`);
   // Import from other agents (G36.7).
   importScan = (places: { home?: boolean; projects?: boolean; folder?: string }) =>
     this.call<ImportPreview>("POST", "/api/import/scan", places);

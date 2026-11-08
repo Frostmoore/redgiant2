@@ -39,6 +39,7 @@ import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { type AuthProvider, bearer, type Principal } from "./auth.js";
 import { BackupError, exportBackup, importBackup, previewBackup, removeBackup } from "./backup.js";
+import { browserRoutes } from "./browser-routes.js";
 import { bridge, PREVIEW_HEADERS, serveFile, serveRaw } from "./canvas.js";
 import { ChatError } from "./chat.js";
 import { type ChatHub, ChatSettings, PLATFORMS } from "./chats.js";
@@ -839,9 +840,11 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       // The service sends the person back here after signing in; the state is the credential.
       "/api/extensions/oauth/callback",
     ];
-    // Automation webhooks carry their own secret.
+    // Automation webhooks carry their own secret; the browser extension its device token (G36.21),
+    // checked by its own routes: the person's sign-in does not open them.
     if (
       open.includes(c.req.path) ||
+      c.req.path.startsWith("/api/browser-ext/") ||
       /^\/api\/automations\/[\w-]+\/hook(\/[\w-]+)?$/.test(c.req.path)
     )
       return next();
@@ -882,6 +885,19 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   });
 
   const owner = (c: Context<Env>) => c.get("principal").ownerId ?? LOCAL_OWNER_ID;
+  // Who is asking, as far as can be trusted: Cloudflare's header (it overwrites it), the last
+  // address our own proxy added, or the connection itself. The first X-Forwarded-For entry is
+  // whatever the client wrote.
+  const clientAddress = (c: Context<Env>) => {
+    const socket = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)
+      ?.incoming?.socket?.remoteAddress;
+    return (
+      c.req.header("cf-connecting-ip") ||
+      c.req.header("x-forwarded-for")?.split(",").at(-1)?.trim() ||
+      socket ||
+      "local"
+    );
+  };
   // Signing in with a password (G24.6): one owner per installation.
   const loginOwner = options.loginOwner ?? LOCAL_OWNER_ID;
   const loginFailure = (c: Context<Env>, err: unknown) =>
@@ -894,16 +910,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       .object({ password: z.string().min(1).max(500), code: z.string().max(12).optional() })
       .safeParse(await c.req.json().catch(() => ({})));
     if (!b.success) return c.json({ error: "A password is needed" }, 400);
-    // Who is trying, as far as can be trusted: Cloudflare's header (it overwrites it), the
-    // last address our own proxy added, or the connection itself. The first X-Forwarded-For
-    // entry is whatever the client wrote.
-    const socket = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)
-      ?.incoming?.socket?.remoteAddress;
-    const address =
-      c.req.header("cf-connecting-ip") ||
-      c.req.header("x-forwarded-for")?.split(",").at(-1)?.trim() ||
-      socket ||
-      "local";
+    const address = clientAddress(c);
     try {
       return c.json(
         await core.logins.login(
@@ -1282,6 +1289,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   importRoutes(app, core, owner, options.setup);
   // Commands' limits and requests to the person (G36.16, G36.17).
   personRoutes(app, core, owner);
+  browserRoutes(app, core.browserLinks, owner, clientAddress);
   // Mandatory and breaking updates (G36.19): the status, the safety backup, found backups.
   updateRoutes(app, core, owner, options.setup);
   // The knowledge (G36, the RAG): collections, sources, models, search, citations.
@@ -3258,6 +3266,7 @@ const MIME: Record<string, string> = {
   ".ico": "image/x-icon",
   ".webmanifest": "application/manifest+json",
   ".woff2": "font/woff2",
+  ".zip": "application/zip",
 };
 
 const escapeHtml = (s: string) =>

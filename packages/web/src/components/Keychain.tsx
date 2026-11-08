@@ -42,6 +42,7 @@ import {
 } from "../icons.js";
 import { agents, getApi, openTab, type SettingsSection, vaultDraft } from "../state.js";
 import { explain } from "./Brain.js";
+import { KeychainBrowsers } from "./KeychainBrowsers.js";
 import { Acts, Box, Chips, Head, Seg, Slider, Sub, SwitchRow, WzPage } from "./SettingsKit.js";
 import { Advanced, Field, Modal } from "./ui.js";
 
@@ -727,8 +728,10 @@ function UseRow({ u }: { u: VaultUse }) {
     <li class={`kc-use ${u.outcome}`}>
       <span class="kc-use-what">
         <b>
-          {u.agentName ??
-            (u.agentId === null && u.sessionId === null ? "RedGiant" : t("kcSomeone"))}
+          {u.tool === "browser_extension" && u.agentName
+            ? t("kcUseBrowser", { name: u.agentName })
+            : (u.agentName ??
+              (u.agentId === null && u.sessionId === null ? "RedGiant" : t("kcSomeone")))}
         </b>{" "}
         {t(`kcUse_${u.outcome}`, { name: u.name, host: u.host })}
         {u.reason && u.outcome !== "used" && u.outcome !== "moved" && <small>{u.reason}</small>}
@@ -1220,6 +1223,7 @@ export function Keychain() {
                 ))}
               </ul>
             )}
+            <KeychainBrowsers />
             <Sub title={t("kcMoveTitle")} lead={t("kcMoveLead")} />
             <div class="kc-row-acts kc-move">
               <button type="button" class="wz-btn" onClick={() => setImporting(true)}>

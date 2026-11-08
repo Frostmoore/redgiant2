@@ -173,3 +173,56 @@ export interface VaultImportPreview {
   /** The upload's id, for the confirmation. */
   id: string;
 }
+
+// ---------------------------------------------------------------------------------------------
+// The browser extension (G36.21): the keychain in Chrome, Edge, Brave, Opera and Firefox, outside
+// RedGiant. A browser is linked with a short code from Settings > Keychain and gets a token of its
+// own that opens only the extension's routes; the person unlinks it from the same page.
+
+/** A linked browser, as the keychain's page lists it (never its token). */
+export interface VaultBrowser {
+  id: string;
+  /** What the person called it in the extension («Opera on the desk»). */
+  name: string;
+  /** The browser it said it is (chrome, edge, brave, opera, firefox, other). */
+  browser: string;
+  createdAt: string;
+  lastSeenAt: string | null;
+}
+
+/** The code that links a browser: shown once, valid ten minutes, good for one browser. */
+export interface VaultBrowserCode {
+  code: string;
+  expiresAt: string;
+}
+
+/** A credential the extension may offer on a page (its value comes only when filling). */
+export interface BrowserExtEntry {
+  id: string;
+  service: string;
+  brand?: string | undefined;
+  category: VaultCategory;
+  username: string;
+  /** The site of the credential that matched the page (`example.com`, `*.example.com`). */
+  site: string;
+}
+
+/** What the extension knows about a page: its site and the credentials that belong to it. */
+export interface BrowserExtSite {
+  /** The page's host, ASCII (punycode shows as such: a look-alike name is visible). */
+  host: string;
+  secure: boolean;
+  entries: BrowserExtEntry[];
+}
+
+/** After a form with a password was sent: is it new, changed, or already in the keychain? */
+export interface BrowserExtCheck {
+  state: "new" | "changed" | "same" | "unsafe";
+  /** The credential that would be updated («changed», «same»). */
+  entryId?: string | undefined;
+  service: string;
+  /** The sites a new credential would get (the page's host). */
+  hosts: string[];
+  /** The page's registrable domain: the only one the sites may be on. */
+  domain: string;
+}

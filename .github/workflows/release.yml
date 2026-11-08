@@ -184,6 +184,38 @@ jobs:
           fail_on_unmatched_files: false
           generate_release_notes: true
 
+  # The keychain's browser extension (G36.21): the zips for Chromium (Chrome, Edge, Brave, Opera)
+  # and Firefox, with the release's version in their manifests, attached to the tag's release.
+  browser-extension:
+    if: ${{ !inputs.only && !inputs.dry_run }}
+    needs: [release-info]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: corepack enable
+      - name: Build the extension
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec tsc -b packages/protocol
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || version=0.0.0
+          REDGIANT_VERSION="$version" pnpm --filter @redgiant/browser-extension build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: redgiant-keychain-extension
+          path: packages/browser-extension/dist/*.zip
+          retention-days: 7
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: packages/browser-extension/dist/*.zip
+          fail_on_unmatched_files: true
+
   # RedGiant-Setup.exe (G22; 3.0, G30.2): the launcher, Node, the server built for Windows and the
   # web page, attached to the tag's GitHub Release. No WSL: everything runs on Windows itself.
   windows-installer:

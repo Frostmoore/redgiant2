@@ -128,6 +128,7 @@ import { HumanApprovals } from "./approvals.js";
 import { type ReapDeps, reapOrphan } from "./background-reap.js";
 import type { BackupDeps } from "./backup.js";
 import { type Browsers, browserTools } from "./browser.js";
+import { BrowserLinks } from "./browser-links.js";
 import { contentType, inside, lastChange, Previews, type PreviewTarget } from "./canvas.js";
 import { canvasView } from "./canvas-view.js";
 import { CHAT_AGENT_PROMPT, ChatError, DailyChat, migrateChat } from "./chat.js";
@@ -472,6 +473,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly magic: MagicAutomations;
   /** The keychain (G33.4): credentials agents use by name, never seeing them. */
   readonly vault: Vault;
+  /** Browsers linked to the keychain (G36.21): the extension's device tokens. */
+  readonly browserLinks: BrowserLinks;
   /**
    * RedGiant's own files (G36.17b): its settings, its keychain, its database and its releases.
    * An agent touching them is a truly dangerous request.
@@ -612,6 +615,7 @@ export class RedGiantCore implements OrchestrationHost {
       ask: (caller, entry, host, method) => this.askVault(caller, entry, host, method),
       system: (ownerId) => this.keysElsewhere(ownerId),
     });
+    this.browserLinks = new BrowserLinks({ db: o.db, vault: this.vault });
     // Conversions (G34.3): programs in the data folder's tools, LibreOffice with its own profile.
     // Every program found or downloaded goes on the PATH of the agents' commands (p3.3.1).
     this.programs = new Programs({
@@ -951,6 +955,7 @@ export class RedGiantCore implements OrchestrationHost {
     await migrateLogin(o.db);
     const core = new RedGiantCore(o);
     await core.vault.open();
+    await core.browserLinks.load();
     await core.registry.load();
     await core.moveSecretsToVault();
     await core.policies.load();
