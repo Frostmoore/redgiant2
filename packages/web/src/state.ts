@@ -1418,6 +1418,8 @@ export interface DocView {
   changes: DocChange[];
   proposals: DocProposal[];
   presence: DocPresence[];
+  /** When the presence was told (an agent's «sta modificando» fades a minute after). */
+  presenceAt: number;
   mode: AgentEditMode;
   modeOwn: boolean;
   /** The last refusal of something the person asked (an undo, a proposal), with the host's words. */
@@ -1430,6 +1432,7 @@ export const emptyDocView = (): DocView => ({
   changes: [],
   proposals: [],
   presence: [],
+  presenceAt: 0,
   mode: "now",
   modeOwn: false,
 });
@@ -1466,6 +1469,7 @@ export function reduceDoc(v: DocView, m: DocMessage): DocView {
         changes: m.changes,
         proposals: m.proposals,
         presence: m.presence,
+        presenceAt: Date.now(),
         mode: m.mode,
         modeOwn: m.modeOwn,
       };
@@ -1489,7 +1493,7 @@ export function reduceDoc(v: DocView, m: DocMessage): DocView {
         },
       };
     case "doc.presence":
-      return { ...v, presence: m.presence };
+      return { ...v, presence: m.presence, presenceAt: Date.now() };
     case "doc.proposals":
       return { ...v, proposals: m.proposals };
     case "doc.mode":

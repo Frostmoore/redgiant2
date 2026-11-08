@@ -56,8 +56,12 @@ const marks = StateField.define<DecorationSet>({
         next = next.update({ add: [...iterDecos(b.finish())] });
       }
       if (e.is(dropMarks)) {
+        // -1: every mark (an undo took the marked text back).
         const id = String(e.value);
-        next = next.update({ filter: (_f, _t, d) => d.spec.attributes?.["data-mark"] !== id });
+        next =
+          e.value < 0
+            ? Decoration.none
+            : next.update({ filter: (_f, _t, d) => d.spec.attributes?.["data-mark"] !== id });
       }
     }
     return next;
@@ -82,9 +86,11 @@ export function changeText(s: DocSummary): string {
   const where =
     s.line === undefined
       ? ""
-      : s.lines && s.lines > 1
-        ? t("docAtLines", { from: String(s.line), to: String(s.line + s.lines - 1) })
-        : t("docAtLine", { n: String(s.line) });
+      : s.kind === "edit"
+        ? t("docFromLine", { n: String(s.line) })
+        : s.lines && s.lines > 1
+          ? t("docAtLines", { from: String(s.line), to: String(s.line + s.lines - 1) })
+          : t("docAtLine", { n: String(s.line) });
   const n = (k: "docInserted" | "docDeleted", v: number | undefined) => t(k, { n: String(v ?? 0) });
   const what =
     s.kind === "insert"
@@ -95,7 +101,9 @@ export function changeText(s: DocSummary): string {
           ? t("docUndid")
           : s.kind === "replaced"
             ? t("docReplaced")
-            : t("docReplacedChars", { a: String(s.removed ?? 0), b: String(s.added ?? 0) });
+            : s.kind === "edit"
+              ? t("docEdits", { n: String(s.count ?? 2) })
+              : t("docReplacedChars", { a: String(s.removed ?? 0), b: String(s.added ?? 0) });
   return where ? `${what} ${where}` : what;
 }
 
@@ -246,7 +254,11 @@ function TextEditor({
       changed(m) {
         const r = collab.remote(m.revision, m.ops, m.change.wrote ?? []);
         if (!r || !view) return resync();
-        view.dispatch({ changes: r.changes, annotations: [remote, noHistory] });
+        view.dispatch({
+          changes: r.changes,
+          annotations: [remote, noHistory],
+          ...(m.change.undoOf?.length && { effects: dropMarks.of(-1) }),
+        });
         if (m.change.author !== PERSON) highlight(r.wrote);
       },
       ack(m) {
@@ -308,7 +320,8 @@ export function DocEditor({ file }: { file: DocFile }) {
       scrollIntoView: true,
     });
   };
-  const others = v.presence.filter((p) => p.who !== PERSON);
+  const others =
+    Date.now() - v.presenceAt < 60_000 ? v.presence.filter((p) => p.who !== PERSON) : [];
   const people = v.presence.filter((p) => p.who === PERSON).length;
   return (
     <div class={`doc-shell ${panel ? "with-panel" : ""}`}>

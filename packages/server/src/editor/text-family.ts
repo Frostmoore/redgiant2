@@ -238,7 +238,8 @@ export const textFamily: DocFamily<Text> = {
       doc = c.apply(doc);
     }
     const what: DocSummary["kind"] =
-      kind ?? (removed === 0 ? "insert" : added === 0 ? "delete" : "replace");
+      kind ??
+      (ops.length > 1 ? "edit" : removed === 0 ? "insert" : added === 0 ? "delete" : "replace");
     const line = first ?? 1;
     const lines = Math.max(1, last - line + 1);
     const verb =
@@ -250,7 +251,9 @@ export const textFamily: DocFamily<Text> = {
             ? `undid (${added} written, ${removed} removed)`
             : what === "replaced"
               ? `changed from outside (${added} written, ${removed} removed)`
-              : `replaced ${plural(removed, "character")} with ${plural(added, "character")}`;
+              : what === "edit"
+                ? `made ${ops.length} changes (${added} characters written, ${removed} removed)`
+                : `replaced ${plural(removed, "character")} with ${plural(added, "character")}`;
     return {
       text: `${verb} at line ${line}${lines > 1 ? `-${line + lines - 1}` : ""}`,
       kind: what,
@@ -258,6 +261,7 @@ export const textFamily: DocFamily<Text> = {
       lines,
       added,
       removed,
+      ...(ops.length > 1 && { count: ops.length }),
     };
   },
 

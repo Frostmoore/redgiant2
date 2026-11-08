@@ -1,3 +1,4 @@
+/// <reference types="node" />
 // The licences of what the page carries (G37.1, plan G37: «Licenze compatibili con MIT per tutto
 // ciò che si incorpora»). Every package the web UI depends on at run time (and theirs, all the way
 // down) may end up in the bundle: each must be MIT-compatible (MIT, Apache-2.0, BSD, ISC, Zlib,

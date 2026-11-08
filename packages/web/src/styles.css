@@ -14997,9 +14997,11 @@ button.doc-change-what {
 .doc-undone {
   font-size: 12px;
 }
-.doc-undo {
+.doc-undo.vw-icon {
+  width: auto;
+  min-width: 28px;
   min-height: 28px;
-  padding: 0 8px;
+  padding: 0 7px;
   font-size: 12px;
   gap: 4px;
   flex: none;
@@ -15040,6 +15042,12 @@ button.doc-change-what {
   }
   .doc-mode > span {
     display: none;
+  }
+  .doc-change {
+    flex-wrap: wrap;
+  }
+  .doc-undo {
+    margin-left: auto;
   }
   .doc-undo span {
     display: inline;

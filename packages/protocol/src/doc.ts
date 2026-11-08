@@ -134,6 +134,8 @@ export const DocSummary = z.object({
   /** Characters written and removed. */
   added: z.number().int().nonnegative().optional(),
   removed: z.number().int().nonnegative().optional(),
+  /** Operations in the batch, when more than one («3 modifiche»). */
+  count: z.number().int().positive().optional(),
 });
 export type DocSummary = z.infer<typeof DocSummary>;
 
