@@ -70,6 +70,8 @@ export async function migrateProjects(db: SqlClient): Promise<void> {
   await db.query("ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS last_at timestamptz");
   // Folders of conversations (2026-11-03): a name, or none.
   await db.query("ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS folder text");
+  // A conversation that goes on from another one (G36.23): the link the list shows.
+  await db.query("ALTER TABLE rg_sessions ADD COLUMN IF NOT EXISTS forked_from text");
   // Work conversations once named after the task's id ("[Task task_… from God: title]"): the
   // readable name they have now ("God: title").
   await db.query(

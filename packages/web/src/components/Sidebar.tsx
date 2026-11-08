@@ -5,6 +5,7 @@ import {
   IconArchive,
   IconBoard,
   IconBox,
+  IconBranch,
   IconChat,
   IconChevron,
   IconCrown,
@@ -64,6 +65,9 @@ function Folder({ name, children }: { name: string; children: preact.ComponentCh
 /** One conversation: open it, pin it, archive it (the log is never touched). */
 function SessionLine({ row, folders }: { row: SessionRow; folders: string[] }) {
   const active = activeTab.value === `chat:${row.id}`;
+  const origin = row.forkedFrom
+    ? sessionRows.value.find((r) => r.id === row.forkedFrom)
+    : undefined;
   const update = (change: { pinned?: boolean; archived?: boolean; folder?: string | null }) =>
     void attempt(() => getApi().updateSession(row.id, change)).then(refreshConversations);
   return (
@@ -78,6 +82,18 @@ function SessionLine({ row, folders }: { row: SessionRow; folders: string[] }) {
         <span class="title">{row.title ?? t("newConversation")}</span>
         <span class="date">{shortDate(row.lastAt ?? row.createdAt)}</span>
       </button>
+      {origin && (
+        // A conversation that goes on from another one (G36.23): the way back, one click.
+        <button
+          type="button"
+          class="fork-of"
+          title={t("forkBack", { title: origin.title ?? t("newConversation") })}
+          onClick={() => openSession(origin)}
+        >
+          <IconBranch size={11} />
+          <span>{t("forkOf", { title: origin.title ?? t("newConversation") })}</span>
+        </button>
+      )}
       <span class="row-actions">
         <button
           type="button"

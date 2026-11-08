@@ -1,11 +1,12 @@
 import { useComputed } from "@preact/signals";
-import type { AssistantPart, PermissionRequestInfo } from "@redgiant/protocol";
+import { type AssistantPart, ownWords, type PermissionRequestInfo } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { duration, kTokens } from "../format.js";
 import { danger, lang, t } from "../i18n.js";
 import {
   IconAlert,
   IconArrowDown,
+  IconAside,
   IconCanvas,
   IconChevron,
   IconClose,
@@ -45,6 +46,16 @@ import {
   subStatus,
 } from "../state.js";
 import { canvasKind } from "./Canvas.js";
+import {
+  AsidePanel,
+  addQuote,
+  ContinueHere,
+  ForkMark,
+  type QuoteDraft,
+  QuoteDrafts,
+  QuotePicker,
+  QuoteRefs,
+} from "./ChatTools.js";
 import { CommandStrip } from "./CommandStrip.js";
 import { Composer, packMessage } from "./Composer.js";
 import { Images } from "./Images.js";
@@ -141,15 +152,17 @@ function UserItem({
   item,
   agentId,
   sessionId,
+  actions,
 }: {
   item: Extract<ChatItem, { kind: "user" }>;
   agentId: string;
   sessionId: string;
+  actions?: boolean;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   const seq = Number(item.key.replace(/^e/, ""));
   const fork = async (text: string) => {
-    const r = await attempt(() => getApi().forkSession(sessionId, seq));
+    const r = await attempt(() => getApi().forkSession(sessionId, { beforeSeq: seq }));
     if (!r) return;
     openSession({ id: r.sessionId, agentId, title: null });
     getLive().send({ type: "session.send", sessionId: r.sessionId, text });
@@ -185,6 +198,7 @@ function UserItem({
     <>
       {item.from && <div class="from">{item.from}</div>}
       <div class="bubble user">
+        {item.quotes && <QuoteRefs quotes={item.quotes} />}
         <Images images={item.images} />
         {splitAttachments(item.text).text}
         {splitAttachments(item.text).files.length > 0 && (
@@ -220,14 +234,19 @@ function UserItem({
         )}
       </div>
       <div class="time">{time(item.ts)}</div>
-      {!item.from && Number.isFinite(seq) && (
-        <button
-          type="button"
-          class="link edit-message"
-          onClick={() => setEditing(splitAttachments(item.text).text)}
-        >
-          {t("editMessage")}
-        </button>
+      {actions && Number.isFinite(seq) && (
+        <div class="msg-actions user-actions">
+          {!item.from && (
+            <button
+              type="button"
+              class="link msg-action"
+              onClick={() => setEditing(splitAttachments(item.text).text)}
+            >
+              {t("editMessage")}
+            </button>
+          )}
+          <ContinueHere sessionId={sessionId} agentId={agentId} seq={seq} />
+        </div>
       )}
     </>
   );
@@ -473,27 +492,46 @@ function Item({
   item,
   agentId,
   sessionId,
+  actions,
 }: {
   item: ChatItem;
   agentId: string;
   sessionId: string;
+  /** The conversation's own view: quotes, «Continua da qui», «Modifica» (not a sub-agent's tab). */
+  actions?: boolean;
 }) {
   switch (item.kind) {
     case "user":
-      return <UserItem item={item} agentId={agentId} sessionId={sessionId} />;
+      return <UserItem item={item} agentId={agentId} sessionId={sessionId} actions={actions} />;
     case "assistant":
       return (
-        <div class="bubble assistant">
-          <Parts parts={item.parts} />
-          {!item.imported && (
-            <MetricsBar
-              m={item.metrics}
-              costUsd={item.costUsd}
-              model={item.model}
-              compactAt={agents.value.find((a) => a.id === agentId)?.compaction?.at ?? 0.8}
-            />
+        <>
+          <div class="bubble assistant" data-seq={item.seq} data-at={item.ts}>
+            <Parts parts={item.parts} />
+            {!item.imported && (
+              <MetricsBar
+                m={item.metrics}
+                costUsd={item.costUsd}
+                model={item.model}
+                compactAt={agents.value.find((a) => a.id === agentId)?.compaction?.at ?? 0.8}
+              />
+            )}
+          </div>
+          {actions && item.parts.some((p) => p.type === "text" && p.text.trim()) && (
+            <div class="msg-actions">
+              <ContinueHere sessionId={sessionId} agentId={agentId} seq={item.seq} />
+            </div>
           )}
-        </div>
+        </>
+      );
+    case "fork":
+      return (
+        <ForkMark
+          fromSessionId={item.fromSessionId}
+          fromTitle={item.fromTitle}
+          how={item.how}
+          agentId={agentId}
+        />
       );
     case "tool":
       return <ToolLine item={item} agentId={agentId} />;
@@ -1011,20 +1049,28 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
   const view = sessionView(sessionId);
   const items = useComputed(() => buildItems(view.value.events));
   // Sent while the agent works (2026-11-05, as in Officina): shown at once, until the log has it.
-  const [pending, setPending] = useState<{ key: string; text: string }[]>([]);
+  const [pending, setPending] = useState<{ key: string; text: string; match: string }[]>([]);
   useEffect(() => setPending([]), [sessionId]);
   useEffect(() => {
     if (pending.length === 0) return;
     const said = new Set(
       items.value.flatMap((i) => (i.kind === "user" ? [i.text.trim()] : [])).slice(-20),
     );
-    const left = pending.filter((p) => !said.has(p.text.trim()));
+    const left = pending.filter((p) => !said.has(p.match.trim()));
     if (left.length !== pending.length) setPending(left);
   }, [items.value]);
   const scroller = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   const agent = agents.value.find((a) => a.id === agentId);
   const waiting = approvals.value.filter((r) => r.agentId === agentId);
+  // Passages being answered (G36.22) and the «Intanto» panel (G36.24), per conversation.
+  const [drafts, setDrafts] = useState<QuoteDraft[]>([]);
+  const [asideOpen, setAsideOpen] = useState(false);
+  useEffect(() => {
+    setDrafts([]);
+    setAsideOpen(false);
+  }, [sessionId]);
 
   useEffect(() => {
     const live = getLive();
@@ -1045,7 +1091,12 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
   return (
     <div class="chat">
       <CommandStrip sessionId={sessionId} />
-      <div class="chat-body">
+      <div class="chat-body" ref={body}>
+        <QuotePicker
+          scroller={scroller}
+          body={body}
+          onPick={(q) => setDrafts((d) => addQuote(d, q))}
+        />
         <div
           class="chat-scroll"
           ref={scroller}
@@ -1058,7 +1109,7 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
             <div class="empty">{t("startConversation", { name: agent?.name ?? "" })}</div>
           )}
           {items.value.map((item) => (
-            <Item key={item.key} item={item} agentId={agentId} sessionId={sessionId} />
+            <Item key={item.key} item={item} agentId={agentId} sessionId={sessionId} actions />
           ))}
           {v.drawing && (
             <div class="drawing">
@@ -1131,9 +1182,18 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
             <IconArrowDown />
           </button>
         )}
+        {asideOpen && (
+          <AsidePanel
+            sessionId={sessionId}
+            running={v.state === "running"}
+            onClose={() => setAsideOpen(false)}
+          />
+        )}
       </div>
       <Todos items={items.value} running={v.state === "running"} />
       <Composer
+        top={<QuoteDrafts drafts={drafts} onChange={setDrafts} />}
+        ready={drafts.length > 0}
         lang={lang.value}
         placeholder={
           v.state === "running"
@@ -1149,14 +1209,23 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
             getApi().write(scope, path, data, "base64"),
           );
           const clientId = `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+          const clean = drafts.map(({ key: _key, reply, ...q }) =>
+            reply?.trim() ? { ...q, reply: reply.trim() } : q,
+          );
           getLive().send({
             type: "session.send",
             sessionId,
             text: msg.text,
             ...(msg.images.length ? { images: msg.images } : {}),
+            ...(clean.length ? { quotes: clean } : {}),
             clientId,
           });
-          if (v.state === "running") setPending((p) => [...p, { key: clientId, text: msg.text }]);
+          setDrafts([]);
+          if (v.state === "running")
+            setPending((p) => [
+              ...p,
+              { key: clientId, text: ownWords(msg.text, clean), match: msg.text },
+            ]);
         }}
         onStop={() => getLive().send({ type: "session.interrupt", sessionId })}
         chips={
@@ -1182,6 +1251,17 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
                 own={own !== undefined}
                 disabled={v.state === "running"}
               />
+              {items.value.some((i) => i.kind === "assistant") && (
+                <button
+                  type="button"
+                  class={`mode${asideOpen ? " on" : ""}`}
+                  title={t("asideHint")}
+                  aria-pressed={asideOpen}
+                  onClick={() => setAsideOpen(!asideOpen)}
+                >
+                  <IconAside size={13} /> <span class="mode-name">{t("asideChip")}</span>
+                </button>
+              )}
               {items.value.length > 2 && (
                 <button
                   type="button"

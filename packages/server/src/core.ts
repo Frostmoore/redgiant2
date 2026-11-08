@@ -7,8 +7,11 @@ import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
   AgentSession,
+  type AsideResult,
   type Engine,
+  forkPoint,
   type SendResult,
+  sessionLog,
   type Tool,
   type ToolContext,
   type ToolOutput,
@@ -65,8 +68,10 @@ import {
   MCP_CATALOG,
   type MediaChoice,
   type MediaKind,
+  type MessageQuote,
   type ModelSpec,
   type NotifyReport,
+  ownWords,
   type Recipe,
   type RefineEstimate,
   type RefineRequest,
@@ -332,6 +337,7 @@ interface Live {
     text: string;
     extra: {
       images?: ImagePart[];
+      quotes?: MessageQuote[];
       from?: string;
       watch?: boolean;
       steer?: boolean;
@@ -1503,10 +1509,11 @@ export class RedGiantCore implements OrchestrationHost {
         l.folded = [...(l.folded ?? []), ...mine];
         for (const q of mine)
           if (q.extra.watch === true || q.extra.human === true)
-            this.sharedMemory.heard(ownerId, sessionId, agentId, q.text);
+            this.sharedMemory.heard(ownerId, sessionId, agentId, ownWords(q.text, q.extra.quotes));
         return mine.map((q) => ({
           text: q.text,
           ...(q.extra.images?.length && { images: q.extra.images }),
+          ...(q.extra.quotes?.length && { quotes: q.extra.quotes }),
         }));
       },
       priority: PRIORITY[agent.kind],
@@ -1576,7 +1583,7 @@ export class RedGiantCore implements OrchestrationHost {
   /** The tools switched back on in a conversation (G36.15), from its log. */
   private async toolsAdded(sessionId: string): Promise<Set<string>> {
     const out = new Set<string>();
-    for (const e of await this.store.list({ sessionId }))
+    for (const e of await sessionLog(this.store, sessionId))
       if (e.type === "session.tools_added" && e.payload)
         for (const n of e.payload.tools) out.add(n);
     return out;
@@ -1661,7 +1668,7 @@ export class RedGiantCore implements OrchestrationHost {
     names: string[],
   ): Promise<string[]> {
     if (resume) {
-      const started = (await this.store.list({ sessionId })).find(
+      const started = (await sessionLog(this.store, sessionId)).find(
         (e) => e.type === "session.started",
       );
       if (started?.type === "session.started" && started.payload)
@@ -2092,6 +2099,8 @@ export class RedGiantCore implements OrchestrationHost {
     extra: {
       images?: ImagePart[];
       files?: { name: string; data: Buffer }[];
+      /** A reply to one of its messages, or to a passage of it (G36.22, Telegram's quotes). */
+      quotes?: MessageQuote[];
       /** The message waits behind the previous one: the person is told at once. */
       onQueued?: () => void;
     } = {},
@@ -2124,6 +2133,7 @@ export class RedGiantCore implements OrchestrationHost {
     // Still answering the previous message: this one waits its turn (G24.14f).
     const { done, queued } = await this.send(ownerId, sid, `${text}${lines}`, {
       ...(images.length && { images }),
+      ...(extra.quotes?.length && { quotes: extra.quotes }),
       queue: true,
       human: true,
     });
@@ -3759,13 +3769,19 @@ export class RedGiantCore implements OrchestrationHost {
     );
   }
 
-  /** Starts a new conversation with an agent. */
   /**
-   * A new conversation that starts as this one did up to (not including) `beforeSeq`
-   * (2026-11-05: edit a message and send it again, as LibreChat, Zed and Claude Code's /branch
-   * do). The original stays as it is; the copy goes on from there with the same agent and model.
+   * A new conversation that goes on from this one (G36.23): «Continua da qui» from the message at
+   * `fromSeq` (with what belongs to it, `forkPoint`), or everything before `beforeSeq` to send an
+   * edited message again (2026-11-05, as LibreChat, Zed and Claude Code's /branch). Nothing is
+   * copied: the new one starts with a `session.forked` event pointing at the origin and the point,
+   * and its history is resolved from there (`sessionLog`), so the prefix is the origin's — same
+   * agent, model, instructions and tools — and its cache is reused. The origin stays as it is.
    */
-  async forkSession(ownerId: string, sessionId: string, beforeSeq: number): Promise<string> {
+  async forkSession(
+    ownerId: string,
+    sessionId: string,
+    at: number | { beforeSeq: number } | { fromSeq: number },
+  ): Promise<string> {
     const [row] = await this.o.db.query<{
       agent_id: string;
       project_id: string | null;
@@ -3776,13 +3792,21 @@ export class RedGiantCore implements OrchestrationHost {
       [sessionId, ownerId],
     );
     if (!row) throw new NotFoundError(`Session "${sessionId}" not found`);
+    const point = typeof at === "number" ? { beforeSeq: at } : at;
+    const log = await sessionLog(this.store, sessionId);
+    const through =
+      "fromSeq" in point
+        ? forkPoint(log, point.fromSeq)
+        : Math.max(-1, ...log.filter((e) => e.seq < point.beforeSeq).map((e) => e.seq));
+    if (!log.some((e) => e.seq <= through && e.type === "session.started"))
+      throw new BadRequestError("Nothing to go on from at that point");
     const model =
       typeof row.model === "string"
         ? (JSON.parse(row.model) as ModelSpec)
         : (row.model ?? undefined);
     const id = `sess_${randomUUID().slice(0, 12)}`;
     await this.o.db.query(
-      "INSERT INTO rg_sessions (id, owner_id, agent_id, project_id, model, title) VALUES ($1, $2, $3, $4, $5, $6)",
+      "INSERT INTO rg_sessions (id, owner_id, agent_id, project_id, model, title, forked_from) VALUES ($1, $2, $3, $4, $5, $6, $7)",
       [
         id,
         ownerId,
@@ -3790,25 +3814,56 @@ export class RedGiantCore implements OrchestrationHost {
         row.project_id,
         model ? JSON.stringify(model) : null,
         row.title ? `${row.title.slice(0, 70)} (2)` : null,
+        sessionId,
       ],
     );
-    // The log is append-only: the copy gets its own events, the same bodies in the same order.
-    for (const e of await this.store.list({ sessionId })) {
-      if (e.seq >= beforeSeq) break;
-      if (e.payload === null) continue;
-      await this.store.append({
-        ownerId,
-        projectId: e.projectId,
-        agentId: e.agentId,
-        sessionId: id,
-        body: { type: e.type, payload: e.payload } as never,
-      });
-    }
+    const first = log[0];
+    await this.store.append({
+      ownerId,
+      projectId: first?.projectId ?? row.project_id,
+      agentId: first?.agentId ?? row.agent_id,
+      sessionId: id,
+      body: {
+        type: "session.forked",
+        payload: {
+          fromSessionId: sessionId,
+          throughSeq: through,
+          ...(row.title && { fromTitle: row.title }),
+          how: "fromSeq" in point ? "continue" : "edit",
+        },
+      },
+    });
     this.live.set(
       id,
       await this.build(ownerId, row.agent_id, id, true, model, row.project_id ?? undefined),
     );
     return id;
+  }
+
+  /**
+   * A side question «Intanto» (G36.24): answered with the conversation's prefix, also while it
+   * works; recorded as an `aside` event, never part of the conversation nor of the memory.
+   */
+  async aside(ownerId: string, sessionId: string, question: string): Promise<AsideResult> {
+    this.updateGate();
+    const l = await this.open(ownerId, sessionId);
+    l.usedAt = Date.now();
+    return l.session.aside(question);
+  }
+
+  /** «Porta nella chat»: the aside becomes a normal exchange at the end (only between turns). */
+  async promoteAside(ownerId: string, sessionId: string, asideId: string): Promise<void> {
+    const l = await this.open(ownerId, sessionId);
+    if (l.running || (l.queue?.length ?? 0) > 0) throw new SessionBusyError();
+    const events = await this.store.list({ sessionId, types: ["aside", "aside.promoted"] });
+    if (events.some((e) => e.type === "aside.promoted" && e.payload?.asideId === asideId))
+      throw new BadRequestError("Already in the chat");
+    const a = events.find((e) => e.type === "aside" && e.payload?.id === asideId);
+    if (a?.type !== "aside" || !a.payload) throw new NotFoundError(`Aside "${asideId}" not found`);
+    if (a.payload.error || !a.payload.answer)
+      throw new BadRequestError("This question has no answer to bring");
+    await l.session.adoptAside(a.payload);
+    await this.o.db.query("UPDATE rg_sessions SET last_at = now() WHERE id = $1", [sessionId]);
   }
 
   /**
@@ -4121,8 +4176,9 @@ export class RedGiantCore implements OrchestrationHost {
       last_at: Date | null;
       model: ModelSpec | string | null;
       folder: string | null;
+      forked_from: string | null;
     }>(
-      `SELECT id, agent_id, project_id, created_at, title, pinned, archived, last_at, model, folder FROM rg_sessions WHERE owner_id = $1${agentId ? " AND agent_id = $2" : ""} ORDER BY created_at`,
+      `SELECT id, agent_id, project_id, created_at, title, pinned, archived, last_at, model, folder, forked_from FROM rg_sessions WHERE owner_id = $1${agentId ? " AND agent_id = $2" : ""} ORDER BY created_at`,
       agentId ? [ownerId, agentId] : [ownerId],
     );
   }
@@ -4280,7 +4336,8 @@ export class RedGiantCore implements OrchestrationHost {
     await this.open(ownerId, sessionId).catch((err) => {
       if (!(err instanceof NoModelError)) throw err;
     });
-    return this.store.list({ sessionId });
+    // A conversation that goes on from another one shows the origin's part too (G36.23).
+    return sessionLog(this.store, sessionId);
   }
 
   /**
@@ -4293,6 +4350,8 @@ export class RedGiantCore implements OrchestrationHost {
     raw: string,
     extra: {
       images?: ImagePart[];
+      /** Passages of earlier messages it answers (G36.22). */
+      quotes?: MessageQuote[];
       from?: string;
       /** The human sent it: a long or failed turn is notified when it ends. */
       watch?: boolean;
@@ -4311,10 +4370,16 @@ export class RedGiantCore implements OrchestrationHost {
   ): Promise<{ done: Promise<SendResult>; queued?: boolean }> {
     // A secret the person pasted (G33.4) never reaches the model nor the log: it is blanked here,
     // and the agent is told so it can point them to the keychain. The page asks first.
-    const text = extra.watch === true || extra.human === true ? blankPastedSecrets(raw) : raw;
+    const person = extra.watch === true || extra.human === true;
+    const text = person ? blankPastedSecrets(raw) : raw;
     this.updateGate();
     const l = await this.open(ownerId, sessionId);
     const { queue, ...rest } = extra;
+    // The replies under quoted passages are the person's words too.
+    if (person && rest.quotes)
+      rest.quotes = rest.quotes.map((q) =>
+        q.reply ? { ...q, reply: blankPastedSecrets(q.reply) } : q,
+      );
     if (l.running || (l.queue?.length ?? 0) > 0) {
       if (!queue) throw new SessionBusyError();
       let resolve!: (r: SendResult) => void;
@@ -4371,6 +4436,7 @@ export class RedGiantCore implements OrchestrationHost {
     text: string,
     extra: {
       images?: ImagePart[];
+      quotes?: MessageQuote[];
       from?: string;
       watch?: boolean;
       steer?: boolean;
@@ -4387,7 +4453,7 @@ export class RedGiantCore implements OrchestrationHost {
         sessionId,
         text.trim().startsWith("/compact")
           ? null
-          : text.trim().split("\n")[0]?.slice(0, 80) || null,
+          : ownWords(text, extra.quotes).split("\n")[0]?.slice(0, 80) || null,
       ],
     );
     const controller = new AbortController();
@@ -4397,13 +4463,13 @@ export class RedGiantCore implements OrchestrationHost {
     const human = extra.watch === true || extra.human === true;
     this.sharedMemory.turnStarted(sessionId, human);
     this.skillNudge.turnStarted(sessionId);
-    if (human) this.sharedMemory.heard(ownerId, sessionId, l.agentId, text);
+    if (human) this.sharedMemory.heard(ownerId, sessionId, l.agentId, ownWords(text, extra.quotes));
     const notify = (state: "idle" | "running") => {
       for (const f of l.listeners) f({ type: "session.state", sessionId, state });
     };
     notify("running");
     // "/compact [what to keep]" (G24.14): a summary now, asked by the person; no message.
-    const manual = text.trim().match(/^\/compact\b([\s\S]*)$/);
+    const manual = extra.quotes?.length ? null : text.trim().match(/^\/compact\b([\s\S]*)$/);
     if (manual) {
       const instructions = manual[1]?.trim();
       const done = l.session
@@ -5041,7 +5107,7 @@ export class RedGiantCore implements OrchestrationHost {
       const set = this.waiting.get(sessionId) ?? new Set();
       set.add(listener);
       this.waiting.set(sessionId, set);
-      const past = await this.store.list({ sessionId });
+      const past = await sessionLog(this.store, sessionId);
       for (const e of past) listener({ type: "event", sessionId, event: e });
       listener({ type: "session.synced", sessionId, lastSeq: past.at(-1)?.seq ?? -1 });
       listener({ type: "session.state", sessionId, state: "idle" });
@@ -5055,7 +5121,7 @@ export class RedGiantCore implements OrchestrationHost {
     const relay = (m: ServerMessage) => (replaying ? buffered.push(m) : listener(m));
     l.listeners.add(relay);
     l.usedAt = Date.now();
-    const past = await this.store.list({ sessionId });
+    const past = await sessionLog(this.store, sessionId);
     for (const e of past) listener({ type: "event", sessionId, event: e });
     const lastSeq = past.at(-1)?.seq ?? -1;
     listener({ type: "session.synced", sessionId, lastSeq });

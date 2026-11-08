@@ -1,11 +1,15 @@
+import { randomUUID } from "node:crypto";
 import type { EventStore } from "@redgiant/events";
 import {
+  ASIDE_NOTE,
   type ChatMessage,
   type EventBody,
   type ImagePart,
   LOCAL_OWNER_ID,
   type MessageMetrics,
+  type MessageQuote,
   type ModelSpec,
+  quotedText,
   type StopReason,
   type UserPart,
 } from "@redgiant/protocol";
@@ -27,6 +31,7 @@ import {
   withoutReasoning,
 } from "./compaction.js";
 import type { Engine } from "./engine.js";
+import { sessionLog } from "./forks.js";
 import type { Hooks, ToolCallInfo } from "./hooks.js";
 import { type HistoryEntry, rebuildHistory, summaryMessage } from "./rebuild.js";
 import { repairJson } from "./repair.js";
@@ -42,7 +47,7 @@ export interface AgentSessionOptions {
    * Messages the person sent while the agent worked (2026-11-05): taken after each round of
    * tools and given to the model with the results, as Claude Code does.
    */
-  interject?: () => { text: string; images?: ImagePart[] }[];
+  interject?: () => { text: string; images?: ImagePart[]; quotes?: MessageQuote[] }[];
   /**
    * Tools that only read (2026-11-05, as the Claude Agent SDK does): consecutive calls of these
    * run together; every other call runs alone, in the order the model gave.
@@ -141,13 +146,13 @@ function historyTool(store: EventStore, sessionId: string): Tool {
     async run(i: { from_seq?: number; to_seq?: number; query?: string }) {
       const words = i.query?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
       const lines: string[] = [];
-      for (const e of await store.list({ sessionId })) {
+      for (const e of await sessionLog(store, sessionId)) {
         if (i.from_seq !== undefined && e.seq < i.from_seq) continue;
         if (i.to_seq !== undefined && e.seq > i.to_seq) continue;
         if (!e.payload) continue;
         const text =
           e.type === "message.user"
-            ? `user: ${e.payload.text}`
+            ? `user: ${quotedText(e.payload.text, e.payload.quotes)}`
             : e.type === "message.assistant"
               ? `assistant: ${e.payload.parts
                   .map((p) =>
@@ -187,6 +192,49 @@ function historyTool(store: EventStore, sessionId: string): Tool {
  * One agent conversation. Every step is appended to the event log first; the in-memory
  * history is only a cache of what the log says, and `resume` rebuilds it from the log.
  */
+/** A side question as recorded, with where and when (G36.24). */
+export type AsideResult = Extract<EventBody, { type: "aside" }>["payload"] & {
+  seq: number;
+  at: string;
+};
+
+const answerOf = (c: Completion) =>
+  c.message.parts
+    .flatMap((p) => (p.type === "text" ? [p.text] : []))
+    .join("")
+    .trim();
+
+/**
+ * The messages of a side question (G36.24): the conversation as it is now, unchanged, and the
+ * question at its end. A turn in the middle of its tools has calls without results yet: they get
+ * a placeholder, or the request would not be valid; the person's last message, if unanswered,
+ * takes the question as one more part.
+ */
+export function asideMessages(history: readonly ChatMessage[], question: string): ChatMessage[] {
+  const ask: UserPart = { type: "text", text: `${ASIDE_NOTE}\n\n${question}` };
+  const last = history.at(-1);
+  if (!last) return [{ role: "user", parts: [ask] }];
+  if (last.role === "user")
+    return [...history.slice(0, -1), { ...last, parts: [...(last.parts as UserPart[]), ask] }];
+  const open = last.parts.flatMap((p) => (p.type === "tool_call" ? [p.callId] : []));
+  return [
+    ...history,
+    {
+      role: "user",
+      parts: [
+        ...open.map(
+          (callId): UserPart => ({
+            type: "tool_result",
+            callId,
+            content: "[Still running: the result is not in yet.]",
+          }),
+        ),
+        ask,
+      ],
+    },
+  ];
+}
+
 /** After this many identical calls with identical results in a row, the result says so. */
 const REPEAT_NOTE_AFTER = 3;
 
@@ -243,7 +291,8 @@ export class AgentSession {
 
   /** Reopens an existing session from the event log. */
   static async resume(options: AgentSessionOptions): Promise<AgentSession> {
-    const events = await options.store.list({ sessionId: options.sessionId });
+    // A conversation that goes on from another one (G36.23) has the origin's start and history.
+    const events = await sessionLog(options.store, options.sessionId);
     // The system prompt the conversation started with, never the one rebuilt now (2026-11-05:
     // notes or skills changed meanwhile altered the cached prefix when a session was reloaded).
     const started = events.find((e) => e.type === "session.started" && e.payload);
@@ -254,7 +303,9 @@ export class AgentSession {
     for (const e of events) {
       if (e.type === "compaction" || e.type === "compaction.undone") s.lastMetrics = undefined;
       if (e.type === "message.assistant" && e.payload) s.lastMetrics = e.payload.metrics;
-      if (e.type === "engine.session" && e.payload) s.engineSession = e.payload.id;
+      // An engine's own conversation belongs to the session that had it, not to its forks.
+      if (e.type === "engine.session" && e.payload && e.sessionId === options.sessionId)
+        s.engineSession = e.payload.id;
     }
     return s;
   }
@@ -338,10 +389,13 @@ export class AgentSession {
   async send(
     text: string,
     signal?: AbortSignal,
-    extra: { images?: ImagePart[]; from?: string } = {},
+    extra: { images?: ImagePart[]; from?: string; quotes?: MessageQuote[] } = {},
   ): Promise<SendResult> {
     const ctx = { ...this.ctx, signal };
     const images = extra.images ?? [];
+    const quotes = extra.quotes ?? [];
+    // What the model reads: the quoted passages first, each with its reply (G36.22).
+    const said = quotedText(text, quotes);
     // A summary made after the last turn is applied first: the message lands after it.
     await this.background;
     const first = await this.record({
@@ -350,14 +404,15 @@ export class AgentSession {
         text,
         ...(images.length > 0 && { images }),
         ...(extra.from && { from: extra.from }),
+        ...(quotes.length > 0 && { quotes }),
       },
     });
     this.history.push({
-      message: { role: "user", parts: [{ type: "text", text }, ...images] },
+      message: { role: "user", parts: [{ type: "text", text: said }, ...images] },
       firstSeq: first.seq,
     });
 
-    if (this.o.engine) return this.sendToEngine(this.o.engine, text, images, ctx);
+    if (this.o.engine) return this.sendToEngine(this.o.engine, said, images, ctx);
 
     let last: Completion | undefined;
     // Calls cut by the output limit, answered with an error and retried (at most twice).
@@ -748,9 +803,14 @@ export class AgentSession {
     for (const m of this.o.interject?.() ?? []) {
       await this.record({
         type: "message.user",
-        payload: { text: m.text, ...(m.images?.length && { images: m.images }), steer: true },
+        payload: {
+          text: m.text,
+          ...(m.images?.length && { images: m.images }),
+          ...(m.quotes?.length && { quotes: m.quotes }),
+          steer: true,
+        },
       });
-      parts.push({ type: "text", text: m.text }, ...(m.images ?? []));
+      parts.push({ type: "text", text: quotedText(m.text, m.quotes) }, ...(m.images ?? []));
     }
     return parts;
   }
@@ -985,7 +1045,7 @@ export class AgentSession {
    */
   async undoCompaction(): Promise<boolean> {
     await this.background;
-    const events = await this.o.store.list({ sessionId: this.ctx.sessionId });
+    const events = await sessionLog(this.o.store, this.ctx.sessionId);
     const undone = new Set(
       events.flatMap((e) =>
         e.type === "compaction.undone" && e.payload ? [e.payload.compactionSeq] : [],
@@ -1000,12 +1060,111 @@ export class AgentSession {
     )
       return false;
     await this.record({ type: "compaction.undone", payload: { compactionSeq: last.seq } });
-    this.history = rebuildHistory(await this.o.store.list({ sessionId: this.ctx.sessionId }), {
+    this.history = rebuildHistory(await sessionLog(this.o.store, this.ctx.sessionId), {
       maxResultChars: this.maxResultChars,
     });
     this.lastMetrics = undefined;
     this.prevPrompt = 0;
     return true;
+  }
+
+  /**
+   * A side question «Intanto» (G36.24, Claude Code's /btw): a request of its own with this
+   * conversation's system, tools and history (so the cached prefix is reused) plus the question,
+   * also while a turn runs. Recorded as an `aside` event, never in the history: the conversation
+   * and its memory go on as if it was never asked. Tools are not run; the tool choice changes only
+   * if the model calls one anyway (as the summaries do), because changing it costs the cache.
+   */
+  async aside(question: string, signal?: AbortSignal): Promise<AsideResult> {
+    const id = `aside_${randomUUID().slice(0, 12)}`;
+    const done = async (payload: Extract<EventBody, { type: "aside" }>["payload"]) => {
+      const e = await this.record({ type: "aside", payload });
+      return { ...payload, seq: e.seq, at: e.ts };
+    };
+    const failed = (error: string) =>
+      done({
+        id,
+        question,
+        answer: "",
+        provider: this.o.model.provider,
+        model: this.o.model.model,
+        costUsd: 0,
+        error,
+      });
+    if (this.o.engine)
+      return failed("A subscription's engine keeps its own conversation: ask in the chat.");
+    const base = {
+      ...this.request(),
+      messages: asideMessages(this.messages, question),
+      // Its own key: a turn running now keeps its local engine slot.
+      cacheKey: `${this.ctx.sessionId}:aside`,
+    };
+    let usd = 0;
+    let last: Completion | undefined;
+    try {
+      for (const req of [base, { ...base, toolChoice: "none" as const }]) {
+        const gate = await this.o.beforeModelCall?.();
+        if (gate && !gate.allow) return failed(gate.reason ?? "budget");
+        let c: Completion | undefined;
+        for await (const e of streamWithFallback(this.o.providers, this.o.model, req, signal))
+          if (e.type === "done") c = e.completion;
+        if (!c) throw new Error("Model stream ended without a completion");
+        usd += await this.priced(c);
+        last = c;
+        if (answerOf(c) || !c.message.parts.some((p) => p.type === "tool_call")) break;
+      }
+    } catch (err) {
+      return failed(err instanceof Error ? err.message : String(err));
+    }
+    const c = last as Completion;
+    return done({
+      id,
+      question,
+      answer: answerOf(c),
+      provider: c.provider,
+      model: c.model,
+      metrics: c.metrics,
+      costUsd: usd,
+    });
+  }
+
+  /**
+   * «Porta nella chat» (G36.24): the side question and its answer become a normal exchange at the
+   * end of the conversation, appended as any message is (no new model call). Only between turns.
+   */
+  async adoptAside(
+    a: Pick<AsideResult, "id" | "question" | "answer" | "provider" | "model" | "metrics">,
+  ): Promise<void> {
+    await this.background;
+    const user = await this.record({ type: "message.user", payload: { text: a.question } });
+    this.history.push({
+      message: { role: "user", parts: [{ type: "text", text: a.question }] },
+      firstSeq: user.seq,
+    });
+    const parts = [{ type: "text" as const, text: a.answer }];
+    const reply = await this.record({
+      type: "message.assistant",
+      payload: {
+        parts,
+        stopReason: "end_turn",
+        provider: a.provider,
+        model: a.model,
+        metrics: a.metrics ?? {
+          startedAt: new Date().toISOString(),
+          inputTokens: 0,
+          cachedReadTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 0,
+          contextUsed: 0,
+          contextWindow: 1,
+          source: "server",
+        },
+        // Already counted when it was asked.
+        costUsd: 0,
+      },
+    });
+    this.history.push({ message: { role: "assistant", parts }, firstSeq: reply.seq });
+    await this.record({ type: "aside.promoted", payload: { asideId: a.id } });
   }
 
   /** Resolves when no summary is being made in the background. */

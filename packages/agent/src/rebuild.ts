@@ -1,4 +1,4 @@
-import type { ChatMessage, Event, UserPart } from "@redgiant/protocol";
+import { type ChatMessage, type Event, quotedText, type UserPart } from "@redgiant/protocol";
 import { trimResult, withoutReasoning } from "./compaction.js";
 
 /** A conversation message plus the sequence number of the first event it came from. */
@@ -69,7 +69,7 @@ export function rebuildHistory(events: Iterable<Event>, o: RebuildOptions = {}):
         // Written while the agent worked: it rides with the tool results it followed.
         if (e.payload.steer && pendingResults && open.length === 0) {
           pendingResults.images.push(
-            { type: "text", text: e.payload.text },
+            { type: "text", text: quotedText(e.payload.text, e.payload.quotes) },
             ...(e.payload.images ?? []),
           );
           break;
@@ -79,7 +79,10 @@ export function rebuildHistory(events: Iterable<Event>, o: RebuildOptions = {}):
         history.push({
           message: {
             role: "user",
-            parts: [{ type: "text", text: e.payload.text }, ...(e.payload.images ?? [])],
+            parts: [
+              { type: "text", text: quotedText(e.payload.text, e.payload.quotes) },
+              ...(e.payload.images ?? []),
+            ],
           },
           firstSeq: e.seq,
         });

@@ -6,6 +6,7 @@ import {
   CHANNEL_NAMES,
   dangerWords,
   type ImagePart,
+  type MessageQuote,
   type PermissionRequestInfo,
   PLAN_APPROVE,
   PLAN_REVISE,
@@ -25,6 +26,8 @@ export interface TelegramHost {
     extra?: {
       images?: ImagePart[];
       files?: { name: string; data: Buffer }[];
+      /** A reply to one of the bot's messages, or to a passage of it (G36.22). */
+      quotes?: MessageQuote[];
       /** Called when the message waits behind the previous one. */
       onQueued?: () => void;
     },
@@ -112,6 +115,39 @@ export async function migrateTelegram(db: SqlClient): Promise<void> {
       username  text,
       linked_at timestamptz NOT NULL DEFAULT now()
     )`);
+}
+
+/**
+ * Telegram's own reply (G36.22): a reply to one of the bot's messages answers it, and a reply with
+ * a quote (reply_parameters.quote, the passage the person selected) answers that passage. Either
+ * way it reaches the agent as the page's quotes do; replies to the person's own messages do not.
+ */
+export function telegramQuotes(
+  m:
+    | {
+        reply_to_message?: {
+          from?: { is_bot?: boolean };
+          text?: string;
+          caption?: string;
+          date?: number;
+        };
+        quote?: { text?: string; position?: number };
+      }
+    | undefined,
+): MessageQuote[] | undefined {
+  const to = m?.reply_to_message;
+  if (!to?.from?.is_bot) return undefined;
+  const passage = (m?.quote?.text ?? to.text ?? to.caption ?? "").trim();
+  if (!passage) return undefined;
+  const text = passage.length > 4000 ? `${passage.slice(0, 3999)}…` : passage;
+  const start = m?.quote?.text ? m.quote.position : undefined;
+  return [
+    {
+      text,
+      ...(to.date !== undefined && { at: new Date(to.date * 1000).toISOString() }),
+      ...(start !== undefined && { start, end: start + text.length }),
+    },
+  ];
 }
 
 /** Telegram's limit is 4096 characters per message; split on paragraph or line ends. */
@@ -315,7 +351,8 @@ export class TelegramGateway {
         .catch(() => {});
       return;
     }
-    this.background(this.relay(owner, ctx.chat.id, text));
+    const quotes = telegramQuotes(ctx.message);
+    this.background(this.relay(owner, ctx.chat.id, text, quotes ? { quotes } : undefined));
   }
 
   /**
@@ -452,7 +489,11 @@ export class TelegramGateway {
     owner: string,
     chatId: number,
     text: string,
-    extra?: { images?: ImagePart[]; files?: { name: string; data: Buffer }[] },
+    extra?: {
+      images?: ImagePart[];
+      files?: { name: string; data: Buffer }[];
+      quotes?: MessageQuote[];
+    },
   ) {
     const api = this.bot.api;
     // "typing…" while Demi-God and God work (Telegram shows it for about 5 seconds).

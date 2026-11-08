@@ -73,6 +73,27 @@ const brain = (req) => {
         : '{"decision": "allow", "reason": "Installa le dipendenze del progetto: serve al compito ed è sicuro."}',
     };
   }
+  // G36.22–24 (DEMO_CHAT_TOOLS): a plan to answer in parts, a reply to a passage, a side question.
+  if (said.includes("Come organizzo il lancio"))
+    return {
+      text: "Ecco un piano in tre passi per il lancio:\n\n1. **Prima settimana**: una pagina d'attesa con l'iscrizione alla lista, e tre post che raccontano il perché del prodotto.\n2. **Seconda settimana**: una demo dal vivo di venti minuti, registrata e messa sul sito.\n3. **Il giorno del lancio**: email alla lista alle 9, post su LinkedIn alle 10, e un'ora per rispondere a tutti.\n\nIl budget più grosso va nella demo: è quella che convince.",
+      usage: { inputTokens: 5200, cachedReadTokens: 4800, outputTokens: 210 },
+    };
+  if (said.includes("They received the whole message"))
+    return {
+      text: "Giusto: la demo dal vivo può diventare un video di cinque minuti, girato una volta sola. Costa un terzo e si guarda fino in fondo. Il resto del piano resta com'è.",
+      usage: { inputTokens: 5600, cachedReadTokens: 5300, outputTokens: 90 },
+    };
+  if (said.includes("a side question from the person"))
+    return {
+      text: "Venti minuti dal vivo sono tanti per chi non ti conosce: **cinque o sei minuti** bastano, il resto va nelle domande.",
+      usage: { inputTokens: 5500, cachedReadTokens: 5300, outputTokens: 60 },
+    };
+  if (said.includes("E se rimandassimo"))
+    return {
+      text: "Rimandare di due settimane va bene: sposto la pagina d'attesa a metà mese e la demo subito dopo.",
+      usage: { inputTokens: 5400, cachedReadTokens: 5200, outputTokens: 50 },
+    };
   // G36.15: an agent asks for a switched-off tool (the person answers from the bell).
   if (said.includes("Mi serve Blender") && !results)
     return {
@@ -1068,6 +1089,35 @@ if (process.env.DEMO_UPDATE || process.env.DEMO_FOUND) {
       await new Promise((r) => setTimeout(r, 50));
   }
 }
+// G36.22–24, DEMO_CHAT_TOOLS=1: a plan answered in parts (a quote with its reply), a side question
+// «Intanto», and a branch that goes on from the plan.
+let toolsSession;
+let branchSession;
+if (process.env.DEMO_CHAT_TOOLS) {
+  toolsSession = await core.startSession("local", god.id);
+  await (await core.send("local", toolsSession, "Come organizzo il lancio del nuovo prodotto?"))
+    .done;
+  const plan = (await core.history("local", toolsSession)).findLast(
+    (e) => e.type === "message.assistant",
+  );
+  await (
+    await core.send("local", toolsSession, "Per il resto va bene.", {
+      watch: true,
+      quotes: [
+        {
+          seq: plan.seq,
+          at: plan.ts,
+          text: "una demo dal vivo di venti minuti, registrata e messa sul sito",
+          reply: "Venti minuti sono troppi, e dal vivo mi agita: si può fare diversamente?",
+        },
+      ],
+    })
+  ).done;
+  await core.aside("local", toolsSession, "Quanto dovrebbe durare una demo, di solito?");
+  branchSession = await core.forkSession("local", toolsSession, { fromSeq: plan.seq });
+  await (await core.send("local", branchSession, "E se rimandassimo il lancio di due settimane?"))
+    .done;
+}
 await debugLog.configure({ dir: join(dir, "logs") });
 await setup.applyAtStartup();
 core.vaultSystem = async () => setup.keysForVault();
@@ -1089,5 +1139,6 @@ console.log(
     god: god.id,
     ...(viewerSession && { viewerSession }),
     ...(subSession && { subSession }),
+    ...(toolsSession && { toolsSession, branchSession }),
   }),
 );

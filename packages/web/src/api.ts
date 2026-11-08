@@ -895,9 +895,22 @@ export class Api {
       x.send(file);
     });
   }
-  /** A copy of a conversation up to (not including) one event, to send an edited message. */
-  forkSession = (sessionId: string, beforeSeq: number) =>
-    this.call<{ sessionId: string }>("POST", `/api/sessions/${sessionId}/fork`, { beforeSeq });
+  /**
+   * A new conversation that goes on from this one (G36.23): from a message (`fromSeq`, «Continua da
+   * qui») or before one (`beforeSeq`, to send it edited).
+   */
+  forkSession = (sessionId: string, at: { fromSeq: number } | { beforeSeq: number }) =>
+    this.call<{ sessionId: string }>("POST", `/api/sessions/${sessionId}/fork`, at);
+  /** «Intanto» (G36.24): a side question, never part of the conversation. */
+  aside = (sessionId: string, question: string) =>
+    this.call<{ aside: { id: string; answer: string; error?: string } }>(
+      "POST",
+      `/api/sessions/${sessionId}/aside`,
+      { question },
+    );
+  /** «Porta nella chat»: the side question and its answer become a normal exchange. */
+  promoteAside = (sessionId: string, asideId: string) =>
+    this.call("POST", `/api/sessions/${sessionId}/asides/${asideId}/chat`);
   setupSubscriptions = (b: Record<string, unknown>) =>
     this.call("PUT", "/api/setup/subscriptions", b);
   chatgptStatus = () =>

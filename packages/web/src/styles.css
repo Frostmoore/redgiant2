@@ -8073,16 +8073,6 @@ button.pick-tile.on {
 }
 
 /* Edit a message: a copy of the conversation from there (2026-11-05). */
-.edit-message {
-  align-self: flex-end;
-  font-size: 12px;
-  opacity: 0;
-}
-.bubble.user:hover + .time + .edit-message,
-.edit-message:hover,
-.edit-message:focus {
-  opacity: 1;
-}
 .bubble.user.editing {
   display: flex;
   flex-direction: column;
@@ -14109,4 +14099,324 @@ button.sub-tab {
 .kc-item-text small.kc-item-usedby {
   color: var(--text);
   opacity: 0.8;
+}
+
+/* --- G36.22–24: replying to a passage, going on from a message, «Intanto» --- */
+.quote-pop {
+  position: absolute;
+  z-index: 6;
+  width: 168px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.22);
+}
+.quote-pop:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.quote-drafts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 8px 0;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.quote-draft {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 4px 6px 4px 10px;
+  min-width: 0;
+}
+.quote-draft-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.quote-draft-head span {
+  flex: 1;
+  min-width: 0;
+}
+.quote-draft-head .icon-button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
+.quote-text,
+.quote-ref {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.quote-text:hover,
+.quote-ref:hover:not(:disabled) {
+  color: var(--text);
+}
+.quote-draft textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 30px;
+  max-height: 140px;
+  padding: 5px 0 3px;
+  border: 0;
+  border-top: 1px dashed var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  resize: none;
+  outline: none;
+}
+.quote-refs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.quote-refs:last-child {
+  margin-bottom: 0;
+}
+.quote-block .quote-ref {
+  border-left: 3px solid var(--accent-dim);
+  padding: 2px 0 2px 8px;
+}
+.quote-ref:disabled {
+  cursor: default;
+}
+.quote-reply {
+  margin-top: 3px;
+}
+.bubble.assistant.quote-flash {
+  animation: quote-flash 1.8s ease-out;
+  border-radius: var(--radius);
+}
+@keyframes quote-flash {
+  0%,
+  35% {
+    background: var(--accent-soft);
+  }
+  100% {
+    background: transparent;
+  }
+}
+::highlight(rg-quote) {
+  background-color: var(--accent-dim);
+  color: var(--text);
+}
+.msg-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: -6px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.msg-actions.user-actions {
+  align-self: flex-end;
+}
+.bubble:hover + .msg-actions,
+.bubble.user:hover + .time + .msg-actions,
+.msg-actions:hover,
+.msg-actions:focus-within {
+  opacity: 1;
+}
+@media (hover: none) {
+  .msg-actions {
+    opacity: 0.7;
+  }
+}
+.msg-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.fork-mark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--dim);
+  margin: 6px 0;
+  flex-wrap: wrap;
+}
+.fork-mark .fork-line {
+  flex: 1;
+  min-width: 16px;
+  height: 1px;
+  background: var(--line);
+}
+.fork-mark .link {
+  font-size: 12px;
+}
+.session-row {
+  flex-wrap: wrap;
+}
+.session-row .fork-of {
+  order: 3;
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 8px 4px 22px;
+  border: 0;
+  background: none;
+  font-size: 11px;
+  color: var(--dim);
+  text-align: left;
+}
+.session-row .fork-of span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-row .fork-of:hover {
+  color: var(--accent);
+}
+.mode.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.aside-panel {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  width: min(440px, calc(100% - 24px));
+  max-height: min(70%, 560px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.25);
+  overflow: hidden;
+}
+.aside-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.aside-head .aside-sub {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aside-head .icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+.aside-list {
+  flex: 1;
+  min-height: 60px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.aside-empty {
+  margin: 0;
+  font-size: 13px;
+}
+.aside-item {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.aside-q {
+  font-weight: 600;
+  margin-bottom: 4px;
+  white-space: pre-wrap;
+}
+.aside-wait {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.aside-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.aside-foot .link {
+  font-size: 12px;
+}
+.aside-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--line);
+}
+.aside-form textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  max-height: 120px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.aside-form .send {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: var(--accent);
+  color: #fff;
+}
+.aside-form .send:disabled {
+  opacity: 0.35;
+}
+@media (max-width: 480px) {
+  .aside-panel {
+    right: 6px;
+    left: 6px;
+    bottom: 6px;
+    width: auto;
+    max-height: 75%;
+  }
 }

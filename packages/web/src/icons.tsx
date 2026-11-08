@@ -599,3 +599,27 @@ export const IconFullscreenExit = ({ size = 15 }: P) => (
     <path d="M9 4v4a1 1 0 0 1-1 1H4M20 9h-4a1 1 0 0 1-1-1V4M15 20v-4a1 1 0 0 1 1-1h4M4 15h4a1 1 0 0 1 1 1v4" />
   </Svg>
 );
+/** Replying to a passage (G36.22): the corner arrow of «reply». */
+export const IconReply = ({ size = 14 }: P) => (
+  <Svg size={size}>
+    <path d="M9 17l-5-5 5-5" />
+    <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+  </Svg>
+);
+/** A conversation that goes on from another one (G36.23): a branch. */
+export const IconBranch = ({ size = 14 }: P) => (
+  <Svg size={size}>
+    <circle cx="6" cy="5" r="2" />
+    <circle cx="6" cy="19" r="2" />
+    <circle cx="18" cy="8" r="2" />
+    <path d="M6 7v10" />
+    <path d="M18 10c0 4-6 3-11.3 7.4" />
+  </Svg>
+);
+/** «Intanto» (G36.24): a side note, a small bubble beside a big one. */
+export const IconAside = ({ size = 14 }: P) => (
+  <Svg size={size}>
+    <path d="M14 4H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1v3l3.5-3H14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" />
+    <path d="M19 9h0a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-1v2.5L15.5 17H13" />
+  </Svg>
+);

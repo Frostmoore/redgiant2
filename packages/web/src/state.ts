@@ -1,10 +1,12 @@
 import { type Signal, signal } from "@preact/signals";
 import type {
   Answers,
+  AsideView,
   AssistantPart,
   Event,
   ImagePart,
   MessageMetrics,
+  MessageQuote,
   PermissionRequestInfo,
   Question,
   QuestionRequestInfo,
@@ -37,10 +39,22 @@ export type CanvasTarget =
 // ---------- Chat items (pure) ----------
 
 export type ChatItem =
-  | { kind: "user"; key: string; text: string; ts: string; images: ImagePart[]; from?: string }
+  | {
+      kind: "user";
+      key: string;
+      text: string;
+      ts: string;
+      images: ImagePart[];
+      from?: string;
+      /** Passages of earlier messages it answers (G36.22). */
+      quotes?: MessageQuote[];
+    }
   | {
       kind: "assistant";
       key: string;
+      /** Its event and time: what a quote of it points at (G36.22). */
+      seq: number;
+      ts: string;
       parts: AssistantPart[];
       metrics: MessageMetrics;
       costUsd: number;
@@ -94,6 +108,14 @@ export type ChatItem =
     }
   /** Something the agent showed in the canvas (G25.1): a card that opens it. */
   | { kind: "canvas"; key: string; title: string; target: CanvasTarget }
+  /** Where a conversation that goes on from another one starts its own part (G36.23). */
+  | {
+      kind: "fork";
+      key: string;
+      fromSessionId: string;
+      fromTitle?: string;
+      how: "continue" | "edit";
+    }
   /** The conversation was summarised here (G24.14). */
   | {
       kind: "compaction";
@@ -147,12 +169,24 @@ export function buildItems(events: Event[]): ChatItem[] {
           ts: e.ts,
           images: e.payload.images ?? [],
           ...(e.payload.from && { from: e.payload.from }),
+          ...(e.payload.quotes?.length && { quotes: e.payload.quotes }),
+        });
+        break;
+      case "session.forked":
+        items.push({
+          kind: "fork",
+          key,
+          fromSessionId: e.payload.fromSessionId,
+          ...(e.payload.fromTitle && { fromTitle: e.payload.fromTitle }),
+          how: e.payload.how ?? "edit",
         });
         break;
       case "message.assistant":
         items.push({
           kind: "assistant",
           key,
+          seq: e.seq,
+          ts: e.ts,
           parts: e.payload.parts.filter((p) => p.type !== "tool_call"),
           metrics: e.payload.metrics,
           costUsd: e.payload.costUsd,
@@ -353,6 +387,30 @@ export function buildItems(events: Event[]): ChatItem[] {
     last.undoable = !after.some((i) => i.kind === "user" || i.kind === "assistant");
   }
   return items;
+}
+
+/** The side questions «Intanto» of a conversation (G36.24), oldest first. Pure. */
+export function asidesOf(events: Event[]): AsideView[] {
+  const promoted = new Set(
+    events.flatMap((e) => (e.type === "aside.promoted" && e.payload ? [e.payload.asideId] : [])),
+  );
+  return events.flatMap((e) =>
+    e.type === "aside" && e.payload
+      ? [
+          {
+            id: e.payload.id,
+            seq: e.seq,
+            at: e.ts,
+            question: e.payload.question,
+            answer: e.payload.answer,
+            model: e.payload.model,
+            costUsd: e.payload.costUsd,
+            ...(e.payload.error && { error: e.payload.error }),
+            promoted: promoted.has(e.payload.id),
+          },
+        ]
+      : [],
+  );
 }
 
 // ---------- Live session views ----------
@@ -1041,6 +1099,8 @@ export interface SessionRow {
   model?: { provider: string; model: string; effort?: string } | null;
   /** Its folder, if the person put it in one. */
   folder?: string | null;
+  /** The conversation it goes on from (G36.23). */
+  forkedFrom?: string | null;
 }
 
 export const sessionRows = signal<SessionRow[]>([]);

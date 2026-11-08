@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_QUOTES, MessageQuote } from "./chat-tools.js";
 import { Event } from "./events.js";
 import { ImagePart } from "./messages.js";
 import { Answers, QuestionRequestInfo } from "./questions.js";
@@ -33,6 +34,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
     images: z.array(ImagePart).max(10).optional(),
     /** The page's own id for it: a message still waiting can be taken back (2026-11-05). */
     clientId: z.string().max(80).optional(),
+    /** Passages of earlier messages it answers (G36.22). */
+    quotes: z.array(MessageQuote).max(MAX_QUOTES).optional(),
   }),
   z.object({ type: z.literal("session.interrupt"), sessionId: z.string() }),
   /** Background commands (p3.3.1): stop one (no confirmation), or take a finished one off the strip. */

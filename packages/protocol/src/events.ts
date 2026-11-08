@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AgentSpec } from "./agents.js";
 import { AutomationRunStatus, AutomationTrigger } from "./automations.js";
+import { MAX_QUOTES, MessageQuote } from "./chat-tools.js";
 import { AssistantPart, ImagePart, NativeContent, StopReason } from "./messages.js";
 import { MessageMetrics } from "./metrics.js";
 import { Answers, Question } from "./questions.js";
@@ -66,6 +67,11 @@ export const EventBody = z.discriminatedUnion("type", [
        * turn after the tool results, in the same message the model reads next.
        */
       steer: z.boolean().optional(),
+      /**
+       * Passages of earlier messages it answers (G36.22): the model reads them as a block before
+       * the text (`quotedText`); the history before it never changes.
+       */
+      quotes: z.array(MessageQuote).max(MAX_QUOTES).optional(),
     }),
   }),
   z.object({ type: z.literal("message.assistant.delta"), payload: text }),
@@ -515,6 +521,45 @@ export const EventBody = z.discriminatedUnion("type", [
    * A conversation brought in from another assistant (G36.7, ChatGPT or Claude): the messages
    * after it are the original ones, in order; the conversation goes on from there.
    */
+  /**
+   * The first event of a conversation that goes on from another one (G36.23): its history is the
+   * origin's events up to `throughSeq` (resolved with `sessionLog`), then its own. Nothing is
+   * copied, so the prefix and its cache are the origin's, and the origin stays as it was.
+   */
+  z.object({
+    type: z.literal("session.forked"),
+    payload: z.object({
+      fromSessionId: z.string(),
+      throughSeq: z.number().int(),
+      /** The origin's title when it was forked, for the link in the list. */
+      fromTitle: z.string().optional(),
+      /** "continue": «Continua da qui»; "edit": a message of the person's edited and sent again. */
+      how: z.enum(["continue", "edit"]).optional(),
+    }),
+  }),
+  /**
+   * A side question «Intanto» (G36.24) and its answer: a separate request with the conversation's
+   * prefix and no tools. Recorded for the history of asides and their cost; `rebuildHistory`
+   * never reads it, so it never enters the conversation nor the memory.
+   */
+  z.object({
+    type: z.literal("aside"),
+    payload: z.object({
+      id: z.string(),
+      question: z.string(),
+      answer: z.string(),
+      provider: z.string(),
+      model: z.string(),
+      metrics: MessageMetrics.optional(),
+      costUsd: z.number().nonnegative(),
+      error: z.string().optional(),
+    }),
+  }),
+  /** «Porta nella chat»: the aside became a normal message and its answer (G36.24). */
+  z.object({
+    type: z.literal("aside.promoted"),
+    payload: z.object({ asideId: z.string() }),
+  }),
   z.object({
     type: z.literal("session.imported"),
     payload: z.object({

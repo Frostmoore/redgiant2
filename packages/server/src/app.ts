@@ -322,6 +322,9 @@ const routes = {
             title: z.string().nullable(),
             pinned: z.boolean(),
             archived: z.boolean(),
+            folder: z.string().nullable().optional(),
+            /** The conversation it goes on from (G36.23). */
+            forkedFrom: z.string().nullable().optional(),
             running: z.boolean(),
             /** The session's own model, when it does not use the agent's. */
             model: ModelSpec.nullable(),
@@ -1095,6 +1098,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         pinned: r.pinned,
         archived: r.archived,
         folder: r.folder ?? null,
+        forkedFrom: r.forked_from ?? null,
         running: core.isRunning(r.id),
         model: (typeof r.model === "string"
           ? JSON.parse(r.model)
@@ -2431,15 +2435,39 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       return memoryFailed(c, err);
     }
   });
-  // Edit a message and send it again (2026-11-05): a copy of the conversation up to it.
+  // A new conversation that goes on from this one (G36.23): «Continua da qui» from a message
+  // (`fromSeq`), or before a message to send it edited (`beforeSeq`, 2026-11-05).
   app.post("/api/sessions/:id/fork", async (c) => {
     const body = await c.req
       .json()
-      .then((b) => z.object({ beforeSeq: z.number().int().positive() }).parse(b))
+      .then((b) =>
+        z
+          .union([
+            z.object({ fromSeq: z.number().int().nonnegative() }),
+            z.object({ beforeSeq: z.number().int().positive() }),
+          ])
+          .parse(b),
+      )
       .catch(() => undefined);
-    if (!body) return c.json({ error: "beforeSeq is required" }, 400);
-    const sessionId = await core.forkSession(owner(c), c.req.param("id"), body.beforeSeq);
+    if (!body) return c.json({ error: "fromSeq or beforeSeq is required" }, 400);
+    const sessionId = await core.forkSession(owner(c), c.req.param("id"), body);
     return c.json({ sessionId }, 201);
+  });
+  // «Intanto» (G36.24): a side question, answered with the conversation's prefix and never part
+  // of it; also while the agent works.
+  app.post("/api/sessions/:id/aside", async (c) => {
+    const body = await c.req
+      .json()
+      .then((b) => z.object({ question: z.string().trim().min(1).max(20_000) }).parse(b))
+      .catch(() => undefined);
+    if (!body) return c.json({ error: "question is required" }, 400);
+    const aside = await core.aside(owner(c), c.req.param("id"), body.question);
+    return c.json({ aside }, 201);
+  });
+  // «Porta nella chat»: the side question and its answer become a normal exchange.
+  app.post("/api/sessions/:id/asides/:aside/chat", async (c) => {
+    await core.promoteAside(owner(c), c.req.param("id"), c.req.param("aside"));
+    return c.json({ ok: true }, 200);
   });
   // A background command's log (p3.3.1): every line with its time and stream; the last 2000, or
   // from a line on (the page follows a running one).

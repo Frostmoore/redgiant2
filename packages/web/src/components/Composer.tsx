@@ -243,7 +243,13 @@ export function Composer({
   lang,
   mentions,
   queues,
+  top,
+  ready,
 }: {
+  /** Shown at the top of the box, above the attachments (the passages being answered, G36.22). */
+  top?: ComponentChildren;
+  /** Something else makes the message worth sending without text (quotes with their replies). */
+  ready?: boolean;
   /** Messages written while it works wait in line and are read right after (G24.14f). */
   queues?: boolean;
   /** Names to suggest after "@" (group chats). */
@@ -291,7 +297,7 @@ export function Composer({
   const [held, setHeld] = useState<SecretSpan[] | null>(null);
   const [vaulting, setVaulting] = useState(false);
   const send = async (clean?: string) => {
-    if ((!text.trim() && files.length === 0) || (running && !queues) || busy) return;
+    if ((!text.trim() && files.length === 0 && !ready) || (running && !queues) || busy) return;
     if (clean === undefined) {
       const found = findSecrets(text);
       if (found.length > 0) {
@@ -303,7 +309,7 @@ export function Composer({
     setBusy(true);
     try {
       const body = clean ?? text;
-      await onSend(body.trim() ? body : t("seeAttachments"), files);
+      await onSend(body.trim() || files.length === 0 ? body : t("seeAttachments"), files);
       for (const f of files) if (f.kind === "image") URL.revokeObjectURL(f.url);
       setText("");
       setFiles([]);
@@ -404,6 +410,7 @@ export function Composer({
       }}
     >
       <div class="box">
+        {top}
         {files.length > 0 && (
           <div class="attachments">
             {files.map((f) =>
@@ -551,7 +558,9 @@ export function Composer({
             type="button"
             class="send"
             title={running && queues ? t("sendQueued") : t("send")}
-            disabled={(!text.trim() && files.length === 0) || (running && !queues) || busy}
+            disabled={
+              (!text.trim() && files.length === 0 && !ready) || (running && !queues) || busy
+            }
             onClick={() => void send()}
           >
             <IconSend size={16} />
