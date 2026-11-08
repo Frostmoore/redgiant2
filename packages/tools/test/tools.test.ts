@@ -55,6 +55,7 @@ describe("baseTools", () => {
       "bash_output",
       "edit_file",
       "fetch",
+      "find_files",
       "glob",
       "grep",
       "read_file",

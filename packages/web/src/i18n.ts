@@ -3355,6 +3355,9 @@ const en = {
   toolDo_glob: "Lists the files whose name matches a pattern.",
   tool_grep: "Search inside files",
   toolDo_grep: "Finds the files that contain a word or a pattern.",
+  tool_find_files: "Find files on the computer",
+  toolDo_find_files:
+    "Finds files, folders and programs anywhere on the computer by name, with the system's index or a short search that never loads the computer.",
   tool_update_todos: "To-do list",
   toolDo_update_todos: "Keeps a list of the steps of a long piece of work.",
   tool_run_script: "Chains of steps",
@@ -7251,6 +7254,9 @@ const it: Record<Key, string> = {
   toolDo_glob: "Elenca i file il cui nome somiglia a un modello.",
   tool_grep: "Cercare dentro i file",
   toolDo_grep: "Trova i file che contengono una parola o un modello.",
+  tool_find_files: "Trovare file sul computer",
+  toolDo_find_files:
+    "Trova file, cartelle e programmi ovunque sul computer per nome, con l'indice del sistema o una ricerca breve che non carica mai il computer.",
   tool_update_todos: "Lista delle cose da fare",
   toolDo_update_todos: "Tiene l'elenco dei passi di un lavoro lungo.",
   tool_run_script: "Passi in fila",

@@ -1,6 +1,7 @@
 import { canonicalTools, type Tool } from "@redgiant/agent";
 import { type BackgroundCommands, bashOutputTool } from "./background.js";
 import { editFileTool, readFileTool, writeFileTool } from "./files.js";
+import { findFilesTool } from "./find.js";
 import { viewImageTool } from "./image.js";
 import type { ModelProfile } from "./profiles.js";
 import { globTool, grepTool } from "./search.js";
@@ -13,6 +14,7 @@ export * from "./background.js";
 export * from "./disk-wide.js";
 export * from "./edit.js";
 export * from "./files.js";
+export * from "./find.js";
 export * from "./image.js";
 export * from "./profiles.js";
 export * from "./scoped.js";
@@ -52,6 +54,7 @@ export function baseTools(o: BaseToolsOptions): Tool[] {
     editFileTool(o.workspace, p),
     globTool(o.workspace, p),
     grepTool(o.workspace, p),
+    findFilesTool(o.workspace, p, { host: o.host }),
     bashTool(o.workspace, p, 30_000, o.background, o.bashMaxMs, o.host),
     bashOutputTool(o.background, p),
     fetchTool(p, o.fetch, o.lookup ? { lookup: o.lookup } : {}),

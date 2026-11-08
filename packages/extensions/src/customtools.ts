@@ -34,6 +34,7 @@ export const RESERVED = new Set([
   "fetch",
   "glob",
   "grep",
+  "find_files",
   "read_file",
   "web_search",
   "write_file",
