@@ -16,6 +16,7 @@ import {
   IconRefresh,
 } from "../icons.js";
 import { type CanvasTarget, canvasViewId, getApi } from "../state.js";
+import { viewerFor } from "../viewers/kind.js";
 import { CanvasTab, lastMove, report, setTabKind } from "../viewers/live.js";
 import { bytesText, download, type ViewerSource } from "../viewers/source.js";
 import { DocEditor, editableInCanvas } from "./viewers/DocEditor.js";
@@ -120,7 +121,15 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
     return () => document.removeEventListener("selectionchange", change);
   }, [id]);
   useEffect(
-    () => setTabKind(id, site ? "site" : editable ? "text" : shown?.kind),
+    () =>
+      setTabKind(
+        id,
+        site
+          ? "site"
+          : editable && target.kind === "file"
+            ? viewerFor(target.path).kind
+            : shown?.kind,
+      ),
     [id, site, editable, shown?.kind],
   );
   // The agent's move, said for a few seconds in the head.
@@ -232,7 +241,20 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
           <div class="empty">{t("loading")}</div>
         ) : editable && target.kind === "file" ? (
           <CanvasTab.Provider value={id}>
-            <DocEditor file={{ scope: target.scope, path: target.path }} />
+            <DocEditor
+              file={{ scope: target.scope, path: target.path }}
+              line={target.at?.line}
+              fallback={() => (
+                <CanvasFile
+                  scope={target.scope}
+                  path={target.path}
+                  name={name}
+                  url={url}
+                  onKind={setShown}
+                  {...(target.at && { at: target.at })}
+                />
+              )}
+            />
           </CanvasTab.Provider>
         ) : site ? (
           <iframe

@@ -159,7 +159,11 @@ describe("reduceDoc: the panel as the host tells it", () => {
     expect(changeText({ text: "", kind: "insert", line: 4, lines: 2, added: 23 })).toMatch(/4-5/);
     expect(editableInCanvas({ scope: "platform", path: "notes/a.txt" })).toBe(true);
     expect(editableInCanvas({ scope: "outside", path: "/x/a.txt" })).toBe(false);
-    expect(editableInCanvas({ scope: "platform", path: "a.py" })).toBe(false);
+    // G37.2: code, Markdown, JSON/YAML/XML too; tables, sites and images are other editors.
+    for (const p of ["a.py", "README.md", "conf/app.json", "k8s.yaml", "x.xml", "Makefile"])
+      expect(editableInCanvas({ scope: "platform", path: p }), p).toBe(true);
+    for (const p of ["a.csv", "index.html", "logo.svg", "a.png", "a.docx"])
+      expect(editableInCanvas({ scope: "platform", path: p }), p).toBe(false);
   });
 });
 

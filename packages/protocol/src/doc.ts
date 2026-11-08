@@ -134,6 +134,10 @@ export const DocSummary = z.object({
   /** Characters written and removed. */
   added: z.number().int().nonnegative().optional(),
   removed: z.number().int().nonnegative().optional(),
+  /** Whole lines (G37.2): changed in place, added, removed. The panel speaks of these. */
+  linesChanged: z.number().int().nonnegative().optional(),
+  linesAdded: z.number().int().nonnegative().optional(),
+  linesRemoved: z.number().int().nonnegative().optional(),
   /** Operations in the batch, when more than one («3 modifiche»). */
   count: z.number().int().positive().optional(),
 });
