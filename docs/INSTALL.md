@@ -33,6 +33,25 @@ login", "Uninstall RedGiant…" (keeping or deleting the data) and "Quit". Every
 uses the GPU through Metal (llama.cpp's macOS build, downloaded the first time) and voice messages
 are transcribed on the Mac (whisper with Metal).
 
+With [Homebrew](https://brew.sh), from RedGiant's tap:
+
+```sh
+brew install --cask frostmoore/redgiant/redgiant
+```
+
+`brew upgrade` brings new versions; `brew uninstall --cask redgiant` removes the app and keeps the
+data, `--zap` deletes `~/Library/Application Support/RedGiant` and the logs too.
+
+The `redgiant` command line is inside the app, in `RedGiant.app/Contents/Resources/bin/redgiant`
+(Homebrew links it by itself). With the app from the disk image, to type just `redgiant` in the
+Terminal, link it once (nothing is installed outside the app unless you do this):
+
+```sh
+sudo mkdir -p /usr/local/bin && sudo ln -s /Applications/RedGiant.app/Contents/Resources/bin/redgiant /usr/local/bin/redgiant
+```
+
+It finds the RedGiant running for you by itself (see [The command line](#the-command-line)).
+
 From source instead, with Node.js 22+ and git:
 
 ```sh
@@ -68,6 +87,20 @@ before 3.0 (the one with WSL) must be uninstalled first. The icon starts RedGian
 whether to keep conversations, projects and settings. The installer is not code-signed yet: if SmartScreen
 says "Windows protected your PC", click "More info", then "Run anyway". Windows 10 2004 or newer, x64.
 
+With winget (once RedGiant is in the winget catalog):
+
+```powershell
+winget install Frostmoore.RedGiant
+```
+
+It installs for your user only, silently, with the setup's usual choices; `winget upgrade
+Frostmoore.RedGiant` updates it and keeps the data.
+
+The `redgiant` command line comes with it, in `%LOCALAPPDATA%\RedGiant\bin\redgiant.cmd`. The setup
+offers "Add the «redgiant» command to the terminal" (off unless you tick it): it adds that folder to
+your user's PATH only, and uninstalling takes it out again. Nothing else outside RedGiant's folder
+changes.
+
 Alternatively, in containers with Docker Desktop (which needs WSL 2), in PowerShell:
 
 ```powershell
@@ -78,6 +111,32 @@ or download the repository and double-click `install.cmd`. The installer checks 
 Desktop and offers to install them (WSL 2 needs administrator rights and a restart; Docker Desktop
 comes from `winget`). It always asks before installing anything. RedGiant goes in
 `%USERPROFILE%\redgiant`.
+
+## The command line
+
+`redgiant` talks to a running RedGiant: projects, agents, a live chat with an agent, approvals.
+
+```sh
+redgiant projects                                  # list
+redgiant projects create "Shop"                    # a new folder under RedGiant's workspaces
+redgiant projects create "Shop" --path ~/code/shop # a project on a folder that already exists
+redgiant chat <agentId>                            # talk to an agent
+redgiant help
+```
+
+With the Windows or Mac app it needs nothing: the app keeps its token (`token.txt`) and the server
+its address (`address.txt`) in the data folder, and the command reads them. Elsewhere, or for
+another RedGiant, set `REDGIANT_URL` (default `http://127.0.0.1:7600`) and `REDGIANT_TOKEN`, or
+`REDGIANT_DATA_DIR` to the data folder. The same works over HTTP: `POST /api/projects` with
+`{"name": "Shop", "path": "/home/me/code/shop"}` adopts the folder as it is (no repository is
+created or rewired). The folder must exist and may not be a whole drive, the home folder itself, a
+system folder, RedGiant's own data, or overlap another project's folder; in the Docker image it must
+be inside the data volume's `workspaces`, the only place the sandboxes can see.
+
+**Steps in one turn.** An agent makes at most 50 model calls in one turn, then stops and says where it
+got to. Settings > Commands > Steps in one turn changes it (or "No limit"; the budgets still hold);
+`REDGIANT_MAX_TURNS` sets the server's default. The WebSocket's `session.state` message with
+`state: "idle"` carries `stopReason` (`end_turn`, `max_turns`, `budget`, `aborted`, `error`…).
 
 ## Options
 
@@ -189,6 +248,28 @@ docker compose down -v                      # also deletes the database and the 
 then delete the installation folder. The local engine started by the setup wizard is a container of its
 own: remove it first with `docker rm -f redgiant-engine`. The sandbox containers (`rg-sbx-*`) are removed by
 RedGiant; any left over can be removed with `docker rm -f`.
+
+## Homebrew and winget (for maintainers)
+
+Each release makes the files for both stores from its own installers (`packaging/stores/stores.mjs`,
+job `stores` in `release.yml`): `redgiant.rb` (the cask) and `RedGiant-winget-<version>.zip` (the
+three winget manifest files, schema 1.12.0) are attached to the release.
+
+- **Homebrew tap.** Create the public repository `Frostmoore/homebrew-redgiant` (empty, with a
+  `Casks/` folder) and a fine-grained token that can push to it only, saved as the repository secret
+  `HOMEBREW_TAP_TOKEN`: from then on every release updates `Casks/redgiant.rb` there. Until then the
+  cask is attached to the release and can be copied in by hand. (The official homebrew-cask catalog
+  wants a well-known project first; the tap needs no approval.)
+- **winget, first time.** It needs a pull request to
+  [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs), made by the person: fork it, copy
+  the zip's `manifests/f/Frostmoore/RedGiant/<version>` folder into the fork, check it on Windows
+  with `winget validate --manifest <folder>` and `winget install --manifest <folder>`, then open the
+  pull request ("New package: Frostmoore.RedGiant version <version>"). A moderator reviews it; the
+  installer is not code-signed yet, so the automatic scan may ask for a look by hand.
+- **winget, later.** Once the package is in the catalog, set the repository variable
+  `WINGET_AUTO_SUBMIT` to `true` and the secret `WINGET_TOKEN` (a classic token with `public_repo`):
+  the `winget-submit` job then opens each release's pull request with `wingetcreate`. Without the
+  variable it never runs.
 
 ## Running from source
 

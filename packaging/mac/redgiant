@@ -1,0 +1,17 @@
+#!/bin/sh
+# redgiant: RedGiant's command line (G36.15), inside RedGiant.app with its own Node. It finds the
+# RedGiant running for this user in ~/Library/Application Support/RedGiant/data (token.txt,
+# address.txt), unless REDGIANT_URL and REDGIANT_TOKEN say otherwise. To type just `redgiant`:
+#   ln -s /Applications/RedGiant.app/Contents/Resources/bin/redgiant /usr/local/bin/redgiant
+# (or add that bin folder to PATH in ~/.zprofile). Nothing is installed outside the app by itself.
+self="$0"
+# Followed through links (the one in /usr/local/bin): the app's folder is where the file is.
+while [ -L "$self" ]; do
+  link="$(readlink "$self")"
+  case "$link" in
+    /*) self="$link" ;;
+    *) self="$(dirname "$self")/$link" ;;
+  esac
+done
+res="$(cd "$(dirname "$self")/.." && pwd)"
+exec "$res/node/node" "$res/server/cli/main.js" "$@"

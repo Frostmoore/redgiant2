@@ -172,6 +172,13 @@ const core = await RedGiantCore.create({
     ...(vaultEgress && { egress: vaultEgress.egress }),
   },
   workspacesDir: join(dataDir, "workspaces"),
+  // Model calls in one turn when the person set none in Settings (G36.15).
+  ...(Number(env.REDGIANT_MAX_TURNS) >= 1 && {
+    maxTurns: Math.floor(Number(env.REDGIANT_MAX_TURNS)),
+  }),
+  // In the Docker image the sandboxes mount from the data volume only.
+  ...(env.REDGIANT_SANDBOX === "docker" &&
+    env.REDGIANT_DATA_VOLUME && { projectFoldersInside: join(dataDir, "workspaces") }),
   platformDir: join(dataDir, "platform"),
   sandbox,
   redactor,
@@ -441,6 +448,11 @@ const running = await serve(core, new TokenAuth({ [token]: owner }), {
   webDir: env.REDGIANT_WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 console.log(`RedGiant listening on ${running.url} (sandbox: ${sandbox.kind})`);
+// Where the `redgiant` command line finds this server (G36.15); its token is the app's token.txt.
+await writeFile(
+  join(dataDir, "address.txt"),
+  `${running.url.replace("//0.0.0.0:", "//127.0.0.1:")}\n`,
+).catch(() => {});
 if (metal)
   console.warn("WARNING: metal mode: God works directly on this system (every change asks you).");
 if (sandbox.kind === "host")

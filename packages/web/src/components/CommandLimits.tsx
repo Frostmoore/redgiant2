@@ -1,6 +1,7 @@
 // Settings > Commands (G36.16, the person: «i comandi in background devono poter essere infiniti»):
 // how many background commands at once in a conversation, how long one runs, how big its log
-// grows, and how long an ordinary command may wait. Each a row of chips; "No limit" is always
+// grows, how long an ordinary command may wait, and how many model calls one turn may make
+// (G36.15). Each a row of chips; "No limit" is always
 // there, with a plain warning (never a block). Saved as configuration: in the history, undoable.
 import type { CommandSettings } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
@@ -39,6 +40,7 @@ function options(ready: (number | null)[], now: number | null, label: (v: number
 export function CommandLimits() {
   const [s, setS] = useState<CommandSettings>();
   const [defaults, setDefaults] = useState<CommandSettings>();
+  const [serverTurns, setServerTurns] = useState(50);
   const [saved, setSaved] = useState<PlatformChange | "undone">();
   const [error, setError] = useState<string>();
   const load = () =>
@@ -47,6 +49,7 @@ export function CommandLimits() {
       .then((r) => {
         setS(r.settings);
         setDefaults(r.defaults);
+        setServerTurns(r.serverMaxTurns ?? 50);
       })
       .catch((err) => setError(explain(err)));
   useEffect(() => void load(), []);
@@ -124,6 +127,30 @@ export function CommandLimits() {
             onChange={([v]) => change({ bashMaxMs: Number(v ?? 10 * MIN) })}
           />
         </Row>
+      </Box>
+      <Sub title={t("cmdStepsTitle")} lead={t("cmdStepsLead")} />
+      <Box>
+        <Row title={t("cmdSteps")} help={t("cmdStepsHelp")}>
+          <Chips
+            options={[
+              { id: "default", label: t("cmdStepsDefault", { n: String(serverTurns) }) },
+              ...options(
+                [25, 100, 200, 500, null].filter((n) => n !== serverTurns),
+                s.maxTurns === undefined || s.maxTurns === serverTurns ? 25 : s.maxTurns,
+                String,
+              ),
+            ]}
+            value={[
+              s.maxTurns === undefined || s.maxTurns === serverTurns ? "default" : id(s.maxTurns),
+            ]}
+            onChange={([v]) => {
+              const { maxTurns: _old, ...rest } = s;
+              setSaved(undefined);
+              setS(v === "default" || v === undefined ? rest : { ...rest, maxTurns: value(v) });
+            }}
+          />
+        </Row>
+        {s.maxTurns === null && <p class="cl-warn">{t("cmdStepsWarn")}</p>}
       </Box>
       {error && <p class="notice error">{error}</p>}
       <div class="cl-acts">

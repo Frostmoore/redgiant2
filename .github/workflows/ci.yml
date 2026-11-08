@@ -33,9 +33,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - if: runner.os == 'Linux'
-        run: shellcheck install.sh docker/entrypoint.sh packaging/mac/build.sh packaging/mac/keychain.sh
+        run: shellcheck install.sh docker/entrypoint.sh packaging/mac/build.sh packaging/mac/keychain.sh packaging/mac/redgiant
       - if: runner.os == 'Linux'
         run: REDGIANT_TOKEN=x POSTGRES_PASSWORD=y docker compose config -q
+      # Homebrew's cask (G36.10), as a release makes it: Ruby that parses.
+      - if: runner.os == 'Linux'
+        run: |
+          sha=$(printf 'redgiant' | sha256sum | cut -d' ' -f1)
+          node packaging/stores/stores.mjs --version 3.4.0 --dmg-sha256 "$sha" --setup-sha256 "$sha" --out "$RUNNER_TEMP/stores"
+          ruby -c "$RUNNER_TEMP/stores/homebrew/Casks/redgiant.rb"
       - if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -107,6 +113,9 @@ jobs:
           # Real folders, no links: the installer copies files, and Windows' junctions would not survive.
           pnpm --filter @redgiant/server deploy --prod --legacy --config.node-linker=hoisted packaging/windows/server
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          # The redgiant command line (G36.15) inside the server, so updates carry it.
+          node packaging/cli/stage.mjs packaging/windows/server
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           # Codex and Claude Code (hundreds of MB) come down only when a subscription is switched on.
           Get-ChildItem packaging/windows/server/node_modules/@openai, packaging/windows/server/node_modules/@anthropic-ai -Directory | Where-Object { $_.Name -like "codex-win32-*" -or $_.Name -like "claude-agent-sdk-win32-*" } | Remove-Item -Recurse -Force
           # pgvector (G36.1), built here as the release does (seconds): next to the server.
@@ -150,6 +159,13 @@ jobs:
             exit 1
           }
           "answered after about $($i * 2) s"
+          # The command line (G36.15): installed with the app, it finds this RedGiant by itself
+          # (token and address in the data folder); the user's PATH is untouched without the task.
+          $rg = & "$app\bin\redgiant.cmd" projects create "CLI check" 2>&1
+          if ($LASTEXITCODE -ne 0 -or "$rg" -notmatch "Created project cli-check") { "the redgiant command failed: $rg"; exit 1 }
+          $userPath = (Get-ItemProperty HKCU:\Environment -ErrorAction SilentlyContinue).Path
+          if ("$userPath" -like "*RedGiant\bin*") { "the PATH was changed without the clipath task"; exit 1 }
+          "redgiant command: $rg"
           # pgvector from the installed folder (G36.1): the embedded Postgres loads it from outside
           # its installation (redgiant.conf), and CREATE EXTENSION works in RedGiant's database.
           if (-not (Test-Path "$app\server\pgvector\lib\vector.dll")) { "pgvector was not installed"; exit 1 }
@@ -204,6 +220,8 @@ jobs:
             New-Item -ItemType Directory -Force $next, $feed | Out-Null
             foreach ($d in "server", "web", "node") { Copy-Item -Recurse "packaging\windows\$d" "$next\$d" }
             Copy-Item packaging\windows\RedGiant.exe, packaging\windows\redgiant.ico $next
+            New-Item -ItemType Directory -Force "$next\bin" | Out-Null
+            Copy-Item packaging\windows\redgiant.cmd "$next\bin"
             & $change
             node packaging/update/pack.mjs --tree $next --version $v --platform win-x64 --out $feed --installer packaging\windows\dist\RedGiant-Setup.exe
             if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -339,6 +357,9 @@ jobs:
           token=$(cat ~/Library/Application\ Support/RedGiant/data/token.txt)
           curl -sf -H "Authorization: Bearer $token" http://127.0.0.1:7600/api/setup >/dev/null
           curl -sf http://127.0.0.1:7600/ | grep -q "<html"
+          # The command line in the bundle (G36.15), through a link as the instructions say.
+          ln -sf /tmp/RedGiant.app/Contents/Resources/bin/redgiant /tmp/redgiant
+          /tmp/redgiant projects create "CLI check" | grep -q "Created project cli-check" || { echo "the redgiant command failed"; exit 1; }
           # pgvector (G36.1): the signed postgres loads the signed vector.dylib from the app's own
           # folder (hardened runtime, library validation), and CREATE EXTENSION works.
           data=~/Library/Application\ Support/RedGiant/data

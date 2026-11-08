@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import type { Event, PermissionRequestInfo, ServerMessage } from "@redgiant/protocol";
@@ -28,7 +31,46 @@ const USAGE = `Usage: redgiant <command> [options]
   approve <requestId> | deny <requestId>
   verify                            check the integrity of the event log
 
-Environment: REDGIANT_URL (default http://127.0.0.1:7600), REDGIANT_TOKEN.`;
+  projects create <name> --path <folder>   a project on a folder that already exists
+
+Environment: REDGIANT_URL (default http://127.0.0.1:7600), REDGIANT_TOKEN. Without them, the
+RedGiant installed for this user is found in its data folder (REDGIANT_DATA_DIR, or the app's own:
+%LOCALAPPDATA%\\RedGiant\\data on Windows, ~/Library/Application Support/RedGiant/data on a Mac).`;
+
+/** The data folder of the RedGiant app installed for this user (Windows, Mac), if any. */
+export function appDataDir(
+  env: Record<string, string | undefined>,
+  platform: NodeJS.Platform = process.platform,
+  home = homedir(),
+): string | undefined {
+  if (env.REDGIANT_DATA_DIR) return env.REDGIANT_DATA_DIR;
+  if (platform === "win32" && env.LOCALAPPDATA) return join(env.LOCALAPPDATA, "RedGiant", "data");
+  if (platform === "darwin")
+    return join(home, "Library", "Application Support", "RedGiant", "data");
+  return undefined;
+}
+
+/**
+ * Where the server is and its token (G36.15): the environment first, otherwise what the running
+ * app keeps in its data folder (`token.txt`, made by the app; `address.txt`, by the server).
+ */
+export function connection(
+  env: Record<string, string | undefined>,
+  read: (file: string) => string | undefined = (f) => {
+    try {
+      return readFileSync(f, "utf8").trim() || undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  dataDir = appDataDir(env),
+): { url: string; token: string | undefined } {
+  const file = (name: string) => (dataDir ? read(join(dataDir, name)) : undefined);
+  return {
+    url: env.REDGIANT_URL ?? file("address.txt") ?? "http://127.0.0.1:7600",
+    token: env.REDGIANT_TOKEN ?? file("token.txt"),
+  };
+}
 
 /** Runs one CLI command; returns the exit code. */
 export async function runCli(
@@ -42,12 +84,12 @@ export async function runCli(
     say(USAGE);
     return command ? 0 : 2;
   }
-  const token = env.REDGIANT_TOKEN;
+  const { url, token } = connection(env);
   if (!token) {
-    io.err("REDGIANT_TOKEN is not set.");
+    io.err("REDGIANT_TOKEN is not set, and no RedGiant app was found for this user.");
     return 2;
   }
-  const client = new RedGiantClient(env.REDGIANT_URL ?? "http://127.0.0.1:7600", token);
+  const client = new RedGiantClient(url, token);
   const { values, positionals } = parseArgs({
     args: rest,
     allowPositionals: true,
@@ -62,6 +104,7 @@ export async function runCli(
       agent: { type: "string" },
       session: { type: "string" },
       continue: { type: "boolean" },
+      path: { type: "string" },
     },
   });
 
@@ -71,6 +114,7 @@ export async function runCli(
         if (positionals[0] === "create") {
           const p = await client.api<{ id: string; path: string }>("POST", "/api/projects", {
             name: positionals.slice(1).join(" "),
+            ...(values.path && { path: values.path }),
           });
           say(`Created project ${p.id} (${p.path})`);
           return 0;

@@ -48,7 +48,14 @@ export function anthropicEvents(opts: {
   text?: string;
   tool?: { id: string; name: string; json: string };
   stop: string;
-  usage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
+  usage?: {
+    input: number;
+    output: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    /** The part of cacheWrite cached for one hour. */
+    cacheWrite1h?: number;
+  };
 }) {
   const u = opts.usage ?? { input: 10, output: 5 };
   const events: { event: string; data: unknown }[] = [
@@ -69,6 +76,12 @@ export function anthropicEvents(opts: {
             output_tokens: 1,
             cache_read_input_tokens: u.cacheRead ?? 0,
             cache_creation_input_tokens: u.cacheWrite ?? 0,
+            ...(u.cacheWrite1h !== undefined && {
+              cache_creation: {
+                ephemeral_5m_input_tokens: (u.cacheWrite ?? 0) - u.cacheWrite1h,
+                ephemeral_1h_input_tokens: u.cacheWrite1h,
+              },
+            }),
           },
         },
       },

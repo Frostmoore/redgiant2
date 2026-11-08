@@ -272,3 +272,58 @@ describe("live sessions", () => {
     expect(c.closed()?.code).toBe(4003);
   });
 });
+
+describe("the steps of a turn (G36.15)", () => {
+  it("follows the person's setting over the server's, and says why a turn stopped", async () => {
+    // Always one more tool call: only the step limit ends the turn (then a closing summary).
+    s = await startServer(
+      (req) =>
+        req.messages
+          .at(-1)
+          ?.parts.some((p) => p.type === "text" && p.text.includes("limit of steps"))
+          ? { text: "Where I got to." }
+          : { toolCalls: [{ name: "write_file", input: { path: "a.txt", content: "x" } }] },
+      {},
+      { maxTurns: 7 },
+    );
+    const t = await tree(s);
+    const settings = await s.api<{ serverMaxTurns: number; settings: { maxTurns?: number } }>(
+      "GET",
+      "/api/settings/commands",
+    );
+    expect(settings.body.serverMaxTurns).toBe(7);
+    expect(settings.body.settings.maxTurns).toBeUndefined();
+    const { body } = await s.api<{ sessionId: string }>("POST", "/api/sessions", {
+      agentId: t.agent,
+    });
+    const c = await wsClient(s.url);
+    await c.waitFor("welcome");
+    c.send({ type: "session.follow", sessionId: body.sessionId });
+    await c.waitFor("session.synced");
+    const calls = () => s?.provider.requests.length ?? 0;
+    const turn = async () => {
+      const before = calls();
+      const seen = c.messages.length;
+      c.send({ type: "session.send", sessionId: body.sessionId, text: "go" });
+      const idle = await c.waitFor(
+        "session.state",
+        (m) => m.state === "idle" && c.messages.indexOf(m) >= seen,
+      );
+      return { calls: calls() - before, stopReason: idle.stopReason };
+    };
+    // The server's limit (REDGIANT_MAX_TURNS): 7 steps and the closing summary.
+    expect(await turn()).toEqual({ calls: 8, stopReason: "max_turns" });
+    // The person's, from Settings > Commands: the live conversation follows it at once.
+    const put = await s.api("PUT", "/api/settings/commands", {
+      ...settings.body.settings,
+      maxTurns: 5,
+    });
+    expect(put.status).toBe(200);
+    expect(await turn()).toEqual({ calls: 6, stopReason: "max_turns" });
+    expect(
+      (await s.api("PUT", "/api/settings/commands", { ...settings.body.settings, maxTurns: 2 }))
+        .status,
+    ).toBe(400);
+    c.close();
+  });
+});

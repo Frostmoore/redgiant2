@@ -36,6 +36,11 @@ export const CommandSettings = z.object({
     .min(MINUTE)
     .max(4 * HOUR)
     .default(10 * MINUTE),
+  /**
+   * Model calls in one turn of an agent (G36.15); absent: the server's default
+   * (`REDGIANT_MAX_TURNS`, else 50); null: no limit (the budgets still hold).
+   */
+  maxTurns: z.number().int().min(5).max(10_000).nullable().optional(),
 });
 export type CommandSettings = z.infer<typeof CommandSettings>;
 export const DEFAULT_COMMAND_SETTINGS: CommandSettings = CommandSettings.parse({});

@@ -23,12 +23,16 @@ interface CatalogEntry {
   pricing: Pricing;
 }
 
-/** Cache writes with the default 5-minute TTL cost 1.25x input. */
+/**
+ * Anthropic's price list: cache writes cost 1.25x input for 5 minutes and 2x for one hour;
+ * cache reads 0.1x input unless the model says otherwise.
+ */
 const price = (input: number, output: number, cacheRead = input / 10): Pricing => ({
   input,
   output,
   cacheRead,
   cacheWrite: input * 1.25,
+  cacheWrite1h: input * 2,
 });
 
 const current = (pricing: Pricing): CatalogEntry => ({
@@ -39,7 +43,10 @@ const current = (pricing: Pricing): CatalogEntry => ({
   pricing,
 });
 
-/** Known models (prices in USD per million tokens, as of 2026-10). Overridable via options. */
+/**
+ * Known models (USD per million tokens, checked 2026-11-08 against
+ * platform.claude.com/docs/en/about-claude/pricing). Overridable via options.
+ */
 export const ANTHROPIC_MODELS: Record<string, CatalogEntry> = {
   "claude-fable-5-1": current(price(10, 50, 0.25)),
   "claude-fable-5": current(price(10, 50)),
@@ -48,10 +55,14 @@ export const ANTHROPIC_MODELS: Record<string, CatalogEntry> = {
   "claude-opus-4-8": current(price(5, 25)),
   "claude-opus-4-7": current(price(5, 25)),
   "claude-opus-4-6": current(price(5, 25)),
-  "claude-sonnet-5-5": current(price(2, 10, 0.2)),
+  "claude-sonnet-5-5": current(price(2, 10, 0.1)),
   "claude-sonnet-5": current(price(2, 10)),
   "claude-sonnet-4-6": current(price(3, 15)),
-  "claude-haiku-5-5": current(price(0.1, 0.5)),
+  // Priced by prompt length: over 100K input tokens the whole request pays 5x.
+  "claude-haiku-5-5": current({
+    ...price(0.1, 0.5),
+    longPrompt: { overTokens: 100_000, prices: price(0.5, 2.5) },
+  }),
   "claude-haiku-4-5": {
     contextWindow: 200_000,
     maxOutputTokens: 64_000,
@@ -317,6 +328,9 @@ export class AnthropicProvider implements Provider {
         ...(searches > 0 && { extraUsd: searches * WEB_SEARCH_USD }),
         cachedReadTokens: u.cache_read_input_tokens ?? 0,
         cacheWriteTokens: u.cache_creation_input_tokens ?? 0,
+        ...(u.cache_creation?.ephemeral_1h_input_tokens && {
+          cacheWrite1hTokens: u.cache_creation.ephemeral_1h_input_tokens,
+        }),
         inputTokens:
           u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0),
         outputTokens: u.output_tokens,

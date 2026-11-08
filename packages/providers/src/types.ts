@@ -49,6 +49,8 @@ export interface Usage {
   inputTokens: number;
   cachedReadTokens: number;
   cacheWriteTokens: number;
+  /** The part of `cacheWriteTokens` cached for one hour (billed at `cacheWrite1h`). */
+  cacheWrite1hTokens?: number | undefined;
   outputTokens: number;
   /** Billed apart from the tokens: the provider's own tools (Anthropic's web search). */
   extraUsd?: number;
@@ -102,11 +104,23 @@ export interface ModelInfo {
 }
 
 /** USD per million tokens. */
-export interface Pricing {
+export interface PriceSet {
   input: number;
   output: number;
   cacheRead: number;
+  /** Cache writes with the default (5-minute) lifetime. */
   cacheWrite: number;
+  /** Cache writes that last one hour (Anthropic: 2x input); `cacheWrite` when absent. */
+  cacheWrite1h?: number | undefined;
+}
+
+/** USD per million tokens; some models charge more for long prompts. */
+export interface Pricing extends PriceSet {
+  /**
+   * A request whose prompt (all input tokens: uncached, cache reads and writes) is over
+   * `overTokens` pays these prices for all of its tokens (Claude Haiku 5.5: over 100K).
+   */
+  longPrompt?: { overTokens: number; prices: PriceSet } | undefined;
 }
 
 export interface Provider {

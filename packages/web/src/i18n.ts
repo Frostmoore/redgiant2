@@ -3510,8 +3510,16 @@ const en = {
   cmdBash: "Longest wait",
   cmdBashHelp:
     "The agent can ask for less; never for more. For longer work it uses the background.",
+  cmdStepsTitle: "Steps in one turn",
+  cmdStepsLead:
+    "In one turn an agent thinks, uses a tool, reads the result and goes on. Past this many steps it stops and tells you where it got to; you can tell it to go on.",
+  cmdSteps: "Steps at most",
+  cmdStepsHelp: "One step is one call to the model. For long jobs choose more.",
+  cmdStepsDefault: "{n} (default)",
+  cmdStepsWarn:
+    "No limit: an agent can work for hours in one turn. Only the budgets stop it, so keep one set (Settings, Budgets) if the model costs money.",
   cmdDefaults: "Back to the defaults",
-  cmdSaved: "Saved: it counts from the next command.",
+  cmdSaved: "Saved: it counts from the next command and the next message.",
   cmdUndo: "Undo",
   cmdUndone: "Undone: the previous values are back.",
   rqSection: "Requests to you",
@@ -7136,8 +7144,16 @@ const it: Record<Key, string> = {
     "Quelli che l'agente aspetta prima di andare avanti (test, un'installazione, una conversione).",
   cmdBash: "Attesa più lunga",
   cmdBashHelp: "L'agente può chiedere meno, mai di più. Per lavori più lunghi usa il sottofondo.",
+  cmdStepsTitle: "Passi in un turno",
+  cmdStepsLead:
+    "In un turno un agente ragiona, usa uno strumento, legge il risultato e va avanti. Dopo questi passi si ferma e ti dice a che punto è; puoi dirgli di continuare.",
+  cmdSteps: "Passi al massimo",
+  cmdStepsHelp: "Un passo è una chiamata al modello. Per i lavori lunghi scegline di più.",
+  cmdStepsDefault: "{n} (predefinito)",
+  cmdStepsWarn:
+    "Senza limite: un agente può lavorare per ore in un solo turno. Lo fermano solo i budget: tienine uno attivo (Impostazioni, Budget) se il modello costa.",
   cmdDefaults: "Torna ai predefiniti",
-  cmdSaved: "Salvato: vale dal prossimo comando.",
+  cmdSaved: "Salvato: vale dal prossimo comando e dal prossimo messaggio.",
   cmdUndo: "Annulla",
   cmdUndone: "Annullato: sono tornati i valori di prima.",
   rqSection: "Richieste a te",

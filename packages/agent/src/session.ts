@@ -89,8 +89,11 @@ export interface AgentSessionOptions {
   toolsOff?: readonly string[];
   /** A summary is being made in the foreground (the chat says so) or done. */
   onCompacting?: (busy: boolean) => void;
-  /** Maximum model calls per `send` (default 50). */
-  maxTurns?: number;
+  /**
+   * Maximum model calls per `send` (default 50). A function is read at each `send`, so the
+   * person's setting applies to the next message of a live session; null: no limit.
+   */
+  maxTurns?: number | (() => number | null);
   maxTokens?: number;
   /** Scheduling priority on shared local engines; set from the agent kind. */
   priority?: number;
@@ -385,6 +388,13 @@ export class AgentSession {
     return usd;
   }
 
+  /** The step limit of one `send`, read when it starts (Infinity: none). */
+  private turnLimit(): number {
+    const m = this.o.maxTurns;
+    const v = typeof m === "function" ? m() : m;
+    return v === null ? Number.POSITIVE_INFINITY : (v ?? 50);
+  }
+
   /** Sends a user message and runs the model/tool loop until the model stops. */
   async send(
     text: string,
@@ -417,7 +427,8 @@ export class AgentSession {
     let last: Completion | undefined;
     // Calls cut by the output limit, answered with an error and retried (at most twice).
     let cutCalls = 0;
-    for (let turn = 1; turn <= (this.o.maxTurns ?? 50); turn++) {
+    const limit = this.turnLimit();
+    for (let turn = 1; turn <= limit; turn++) {
       const gate = await this.o.beforeModelCall?.();
       if (gate && !gate.allow) {
         return {
@@ -508,7 +519,7 @@ export class AgentSession {
     }
     return {
       stopReason: "max_turns",
-      turns: this.o.maxTurns ?? 50,
+      turns: limit,
       ...(last && { lastCompletion: last }),
     };
   }
@@ -572,7 +583,8 @@ export class AgentSession {
   ): Promise<SendResult> {
     let message = text;
     let pictures = images;
-    for (let turn = 1; turn <= (this.o.maxTurns ?? 50); turn++) {
+    const limit = this.turnLimit();
+    for (let turn = 1; turn <= limit; turn++) {
       const gate = await this.o.beforeModelCall?.();
       if (gate && !gate.allow)
         return {
@@ -660,7 +672,7 @@ export class AgentSession {
       message = more;
       pictures = [];
     }
-    return { stopReason: "max_turns", turns: this.o.maxTurns ?? 50 };
+    return { stopReason: "max_turns", turns: limit };
   }
 
   /** Stop hooks for engines: they see the last assistant text as a completion. */

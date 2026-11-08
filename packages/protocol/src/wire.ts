@@ -120,6 +120,11 @@ export const ServerMessage = z.discriminatedUnion("type", [
     type: z.literal("session.state"),
     sessionId: z.string(),
     state: z.enum(["idle", "running"]),
+    /**
+     * With "idle" after a turn (G36.15): why it stopped. "end_turn", "max_turns" (out of
+     * steps), "budget", "max_tokens", "refusal", "aborted" (stopped), "error" (it failed).
+     */
+    stopReason: z.string().optional(),
   }),
   /** Sent after a follow, once the stored history has been replayed. */
   z.object({ type: z.literal("session.synced"), sessionId: z.string(), lastSeq: z.number().int() }),
