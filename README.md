@@ -200,11 +200,24 @@ orchestrator. On the current eight tasks, Claude Sonnet 5.5 and Claude Opus 5.5 
 (costs, tokens and times in [docs/evals.md](docs/evals.md)). Run it on your own models with
 `pnpm --filter @redgiant/evals start -- --models provider/model`.
 
+Against other harnesses, with the same model (Claude Haiku 5.5) on the same tasks:
+
+| Harness     | SWE-bench Verified (50) | Aider Polyglot (225) | Cost      |
+| ----------- | ----------------------- | -------------------- | --------- |
+| RedGiant    | 42/50                   | 220/225              | **$1.69** |
+| OpenHands   | 44/50                   | 224/225              | $1.85     |
+| Claude Code | 42/50                   | 210/225              | $3.13     |
+
+RedGiant costs the least. One run, with caveats that matter (a network outage, three Windows fixes
+that came after it): [docs/benchmark.md](docs/benchmark.md).
+
 ## Documentation
 
 - [docs/INSTALL.md](docs/INSTALL.md): installing, options, environment variables, updates, backups,
   running from source, the packages
 - [docs/evals.md](docs/evals.md): evaluation results and tasks
+- [docs/benchmark.md](docs/benchmark.md): RedGiant, Claude Code and OpenHands on SWE-bench Verified and
+  Aider Polyglot
 - [recipes/README.md](recipes/README.md): writing automations
 
 ## Contributing
