@@ -10,6 +10,7 @@ import { fetchTool, type ResolveHost, type WebSearchProvider, webSearchTool } fr
 import type { Workspace } from "./workspace.js";
 
 export * from "./background.js";
+export * from "./disk-wide.js";
 export * from "./edit.js";
 export * from "./files.js";
 export * from "./image.js";
@@ -36,6 +37,8 @@ export interface BaseToolsOptions {
   background?: BackgroundCommands;
   /** The longest an ordinary bash call waits, per owner (G36.16, Settings > Commands). */
   bashMaxMs?: (ownerId: string) => number;
+  /** Commands run on this computer (sandbox "host"): a walk of a whole disk is refused (p3.4.0). */
+  host?: boolean;
 }
 
 /** The base tools every agent has (RD29), in canonical order. */
@@ -49,7 +52,7 @@ export function baseTools(o: BaseToolsOptions): Tool[] {
     editFileTool(o.workspace, p),
     globTool(o.workspace, p),
     grepTool(o.workspace, p),
-    bashTool(o.workspace, p, 30_000, o.background, o.bashMaxMs),
+    bashTool(o.workspace, p, 30_000, o.background, o.bashMaxMs, o.host),
     bashOutputTool(o.background, p),
     fetchTool(p, o.fetch, o.lookup ? { lookup: o.lookup } : {}),
     webSearchTool(o.search, p),

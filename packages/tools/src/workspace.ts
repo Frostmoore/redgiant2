@@ -50,11 +50,34 @@ export interface ProcessEntry {
  * started long before by a parent that is gone (the embedded database's `cmd.exe`, whose `pg_ctl`
  * exits at once). So a child counts only when it was created no earlier than its parent, as
  * process explorers do: the current owner of a reused id is always born after the orphans of the
- * id's earlier owner. A root that is not in the list has ended: nothing is stopped.
+ * id's earlier owner. A root that is not in the list has ended: nothing is stopped, unless
+ * `started` says when it was started (RedGiant knows it for its own commands): then its orphans
+ * born since are still its own (Git's `bin\bash.exe` launcher may end before `usr\bin\bash.exe`
+ * and its `find.exe`, which the benchmark of 2026-11-08 found running for hours).
  */
-export function windowsDescendants(root: number, processes: readonly ProcessEntry[]): number[] {
+export function windowsDescendants(
+  root: number,
+  processes: readonly ProcessEntry[],
+  started?: bigint,
+): number[] {
+  const listed = processes.find((p) => p.pid === root);
+  if (listed) return windowsTree([listed], processes);
+  return started === undefined
+    ? []
+    : windowsTree([{ pid: root, ppid: -1, created: started }], processes);
+}
+
+/**
+ * Every process of `processes` that descends from one of `roots` (as known when they were
+ * listed, perhaps ended since), leaves first, by the creation rule of `windowsDescendants`. A
+ * root is stopped too only while it is still the same process (listed with the same creation);
+ * one whose id now belongs to a younger process is a stranger, and so are that one's children.
+ */
+export function windowsTree(
+  roots: readonly ProcessEntry[],
+  processes: readonly ProcessEntry[],
+): number[] {
   const byPid = new Map(processes.map((p) => [p.pid, p]));
-  if (!byPid.has(root)) return [];
   const children = new Map<number, ProcessEntry[]>();
   for (const p of processes) {
     if (p.pid === p.ppid) continue;
@@ -64,13 +87,18 @@ export function windowsDescendants(root: number, processes: readonly ProcessEntr
   }
   const order: number[] = [];
   const seen = new Set<number>();
-  const visit = (p: ProcessEntry) => {
+  const visit = (p: ProcessEntry, present: boolean) => {
     seen.add(p.pid);
     for (const c of children.get(p.pid) ?? [])
-      if (!seen.has(c.pid) && c.created >= p.created) visit(c);
-    order.push(p.pid);
+      if (!seen.has(c.pid) && c.created >= p.created) visit(c, true);
+    if (present) order.push(p.pid);
   };
-  visit(byPid.get(root) as ProcessEntry);
+  for (const r of roots) {
+    if (seen.has(r.pid)) continue;
+    const now = byPid.get(r.pid);
+    if (now && now.created !== r.created) continue;
+    visit(r, now !== undefined);
+  }
   return order;
 }
 
@@ -105,9 +133,12 @@ export function listWindowsProcesses(): Promise<ProcessEntry[] | undefined> {
  * Stops a process and everything it started (p3.3.1). Elsewhere the process group, which every
  * command gets of its own. Windows (p3.4.0): never `taskkill /T`, which follows recorded parent
  * ids that may have been reused and once took the embedded database down with an agent's
- * command; the processes are listed once, the true descendants chosen by creation time
- * (`windowsDescendants`) and each stopped alone, the root last. When the list cannot be read only
- * the root is stopped. Never rejects; callers may ignore the promise.
+ * command; the whole tree is listed before anything is stopped, the true descendants chosen by
+ * creation time (`windowsDescendants`, with `started` also when the root itself has ended) and
+ * each stopped alone, the root last. Then the list is read once more: what the tree started
+ * while it was being stopped (a shell going on to its next command) is stopped too
+ * (`windowsTree`). When the list cannot be read only the root is stopped. Never rejects;
+ * callers may ignore the promise.
  */
 export async function killTree(
   pid: number,
@@ -117,15 +148,28 @@ export async function killTree(
   },
   kill: (pid: number, signal: NodeJS.Signals) => void = process.kill,
   list: () => Promise<ProcessEntry[] | undefined> = listWindowsProcesses,
+  /** When the root was started (a Windows file time), if known: see `windowsDescendants`. */
+  started?: bigint,
 ): Promise<void> {
   if (platform === "win32") {
+    const stop = (pids: number[]) => {
+      for (const p of pids) {
+        try {
+          run("taskkill", ["/PID", String(p), "/F"]);
+        } catch {}
+      }
+    };
     const processes = await list().catch(() => undefined);
-    const targets = processes ? windowsDescendants(pid, processes) : [pid];
-    for (const p of targets) {
-      try {
-        run("taskkill", ["/PID", String(p), "/F"]);
-      } catch {}
-    }
+    if (!processes) return stop([pid]);
+    const targets = windowsDescendants(pid, processes, started);
+    stop(targets);
+    // The tree as it was, the root included even when it had ended already.
+    const known: ProcessEntry[] = processes.filter((p) => targets.includes(p.pid));
+    if (!known.some((p) => p.pid === pid) && started !== undefined)
+      known.push({ pid, ppid: -1, created: started });
+    if (known.length === 0) return;
+    const after = await list().catch(() => undefined);
+    if (after) stop(windowsTree(known, after));
     return;
   }
   try {
@@ -315,6 +359,22 @@ export function shellKind(shell: string = defaultShell()): "cmd" | "powershell" 
   return "posix";
 }
 
+/**
+ * A folder as the agents' shell writes it (p3.4.0): Git's bash on Windows says /c/Users/… for
+ * C:\\Users\\…; every other shell takes the path as it is.
+ */
+export function shellPath(
+  path: string,
+  platform: NodeJS.Platform = process.platform,
+  shell: string = defaultShell(),
+): string {
+  if (platform !== "win32" || shellKind(shell) !== "posix") return path;
+  const m = /^([A-Za-z]):[\\/]*(.*)$/.exec(path);
+  if (!m) return path.replaceAll("\\", "/");
+  const rest = (m[2] ?? "").replaceAll("\\", "/").replace(/\/+$/, "");
+  return `/${(m[1] as string).toLowerCase()}${rest ? `/${rest}` : ""}`;
+}
+
 /** Directories never walked by glob/grep. */
 export const IGNORED_DIRS = [
   ".git",
@@ -338,6 +398,8 @@ export class LocalWorkspace implements Workspace {
      * command to cmd.exe verbatim; escaping it ourselves breaks commands with quotes).
      */
     private readonly shell: string = defaultShell(),
+    /** How long a stopped command may keep its output open before it is let go (p3.4.0). */
+    private readonly stopGraceMs = 5_000,
   ) {
     this.root = resolve(root);
   }
@@ -516,23 +578,56 @@ export class LocalWorkspace implements Workspace {
       // Its own process group: stopping it stops what it started too (a shell's `sleep`
       // would otherwise keep the output open, and the turn waiting, until it ended).
       const group = process.platform !== "win32";
+      // Its start as a Windows file time: its orphans are still found if it ends first.
+      const started = (BigInt(Date.now()) + 11_644_473_600_000n) * 10_000n;
       const child = spawn(file, args, {
         cwd: this.root,
         ...(shell && { shell }),
         env: env ? { ...agentEnv(), ...env } : agentEnv(),
         detached: group,
+        // No input (p3.4.0, the benchmark on Windows): a program that waits for it, such as a
+        // `cmd.exe` that opened interactively, reads end-of-file and ends instead of hanging.
+        stdio: ["ignore", "pipe", "pipe"],
       });
       if (child.pid) onSpawn?.(child.pid);
-      // The whole tree: on Windows the shell's true descendants too (`killTree`).
-      const stop = () => {
-        try {
-          if (child.pid) void killTree(child.pid);
-          else child.kill("SIGKILL");
-        } catch {}
-      };
       let stdout = "";
       let stderr = "";
       let timedOut = false;
+      let settled = false;
+      let exited = false;
+      let exitCode: number | null = null;
+      let grace: ReturnType<typeof setTimeout> | undefined;
+      const finish = (code: number | null, note?: string) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        clearTimeout(grace);
+        signal?.removeEventListener("abort", stop);
+        if (note) stderr += `${stderr && !stderr.endsWith("\n") ? "\n" : ""}${note}\n`;
+        done({ stdout, stderr, exitCode: code, timedOut });
+      };
+      // The whole tree: on Windows the shell's true descendants too (`killTree`). Once stopped,
+      // the result comes back within `stopGraceMs` even when a process that could not be
+      // stopped (outside the tree, or stuck in the system on a disk or a pipe: the benchmark's
+      // `find /` in Git's bash, 2026-11-08) still holds the output open: the streams are let go.
+      const stop = () => {
+        try {
+          if (child.pid)
+            void killTree(child.pid, process.platform, undefined, undefined, undefined, started);
+          else child.kill("SIGKILL");
+        } catch {}
+        if (grace || settled) return;
+        grace = setTimeout(() => {
+          child.stdout.destroy();
+          child.stderr.destroy();
+          finish(
+            exited ? exitCode : null,
+            exited
+              ? "[RedGiant: the command was stopped; something it started still held its output open and was left behind.]"
+              : `[RedGiant: the command was stopped but did not end (process ${child.pid ?? "unknown"}); it may still be running.]`,
+          );
+        }, this.stopGraceMs);
+      };
       // Past what a timer can hold (about 24 days) there is no limit at all.
       const timer =
         Number.isFinite(timeoutMs) && timeoutMs <= MAX_TIMER_MS
@@ -554,11 +649,11 @@ export class LocalWorkspace implements Workspace {
       child.on("error", (err) => {
         stderr += err.message;
       });
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        signal?.removeEventListener("abort", stop);
-        done({ stdout, stderr, exitCode: code, timedOut });
+      child.on("exit", (code) => {
+        exited = true;
+        exitCode = code;
       });
+      child.on("close", (code) => finish(code));
     });
   }
 }

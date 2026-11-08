@@ -18,6 +18,7 @@ import {
   secondsOf,
   summarizeLog,
   windowsDescendants,
+  windowsTree,
 } from "../src/index.js";
 
 const posix = process.platform !== "win32";
@@ -177,11 +178,16 @@ describe.runIf(posix)("background commands", () => {
 describe("stopping a tree", () => {
   it("stops the true descendants one by one on Windows, the process group elsewhere", async () => {
     const runs: string[][] = [];
-    const list = async () => [
-      { pid: 4242, ppid: 1, created: 100n },
-      { pid: 50, ppid: 4242, created: 110n },
-      { pid: 60, ppid: 4242, created: 90n },
+    // Listed twice: before stopping anything, then after (the stopped ones are gone).
+    const lists = [
+      [
+        { pid: 4242, ppid: 1, created: 100n },
+        { pid: 50, ppid: 4242, created: 110n },
+        { pid: 60, ppid: 4242, created: 90n },
+      ],
+      [{ pid: 60, ppid: 4242, created: 90n }],
     ];
+    const list = async () => lists.shift();
     await killTree(4242, "win32", (file, args) => void runs.push([file, ...args]), undefined, list);
     expect(runs).toEqual([
       ["taskkill", "/PID", "50", "/F"],
@@ -190,6 +196,29 @@ describe("stopping a tree", () => {
     const kills: [number, string][] = [];
     await killTree(77, "linux", undefined, (pid, sig) => void kills.push([pid, sig]));
     expect(kills).toEqual([[-77, "SIGKILL"]]);
+  });
+
+  it("stops on Windows what the tree started while it was being stopped, and the orphans of a root that ended first", async () => {
+    const runs: string[] = [];
+    const taskkill = (_file: string, args: string[]) => void runs.push(args[1] as string);
+    // Git's bash: the launcher (10) → usr\bin\bash (11) → find (12). While 12 and 11 were being
+    // stopped, 11 went on to its next command (13); 99 was born after but is not theirs.
+    const lists = [
+      [p(10, 1, 100), p(11, 10, 101), p(12, 11, 102)],
+      [p(13, 11, 105), p(99, 1, 106), p(14, 13, 107)],
+    ];
+    await killTree(10, "win32", taskkill, undefined, async () => lists.shift());
+    expect(runs).toEqual(["12", "11", "10", "14", "13"]);
+
+    // The launcher ended before its children: with its start known they are still found.
+    runs.length = 0;
+    const gone = [[p(11, 10, 101), p(12, 11, 102), p(40, 10, 50)], [p(12, 11, 102)]];
+    await killTree(10, "win32", taskkill, undefined, async () => gone.shift(), 100n);
+    expect(runs).toEqual(["12", "11", "12"]);
+    // Without it nothing is stopped: the id may be anyone's now.
+    runs.length = 0;
+    await killTree(10, "win32", taskkill, undefined, async () => [p(11, 10, 101)]);
+    expect(runs).toEqual([]);
   });
 
   it("stops only the root on Windows when the processes cannot be listed", async () => {
@@ -235,6 +264,34 @@ describe("stopping a tree", () => {
     ["a loop of recorded ids never repeats", 10, [p(10, 11, 100), p(11, 10, 100)], [11, 10]],
   ])("chooses the descendants on Windows: %s", (_name, root, list, expected) => {
     expect(windowsDescendants(root, list)).toEqual(expected);
+  });
+
+  // The root has ended (Git's launcher before its bash and find, 2026-11-08), but its start is
+  // known: what it started since is its own, older orphans of the same id are not.
+  it.each<[string, ProcessEntry[], number[]]>([
+    ["its children and theirs", [p(11, 10, 101), p(12, 11, 102), p(13, 12, 103)], [13, 12, 11]],
+    ["not the orphans of the id's earlier owner", [p(20, 10, 50), p(11, 10, 101)], [11]],
+    ["not a child older than the start", [p(11, 10, 99)], []],
+    ["a child born at the start counts", [p(11, 10, 100)], [11]],
+    ["a living root keeps its own creation", [p(10, 1, 90), p(11, 10, 95)], [11, 10]],
+  ])("finds the tree of a root that ended: %s", (_name, list, expected) => {
+    expect(windowsDescendants(10, list, 100n)).toEqual(expected);
+  });
+
+  // The second look, after stopping: the tree as it was listed, perhaps gone since.
+  it.each<[string, ProcessEntry[], ProcessEntry[], number[]]>([
+    ["what a stopped shell started meanwhile", [p(11, 10, 101)], [p(13, 11, 105)], [13]],
+    ["a process still dying, again", [p(11, 10, 101)], [p(11, 10, 101)], [11]],
+    [
+      "an id reused by a younger stranger, with its children",
+      [p(11, 10, 101)],
+      [p(11, 1, 200), p(12, 11, 201)],
+      [],
+    ],
+    ["unrelated processes", [p(11, 10, 101)], [p(30, 1, 300), p(31, 30, 301)], []],
+    ["a child older than its recorded parent", [p(11, 10, 101)], [p(12, 11, 100)], []],
+  ])("looks again after stopping: %s", (_name, known, after, expected) => {
+    expect(windowsTree(known, after)).toEqual(expected);
   });
 
   it("reads the Windows process list", () => {
