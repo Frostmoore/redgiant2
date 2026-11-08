@@ -251,7 +251,7 @@ export function SheetEditor({
   return (
     <div class="sheet-editor">
       <div class="sheet-bar">
-        <div class="vw-seg" role="group" aria-label={t("sheetModeHint")}>
+        <fieldset class="vw-seg" aria-label={t("sheetModeHint")}>
           <button
             type="button"
             class={mode === "edit" ? "on" : ""}
@@ -269,7 +269,7 @@ export function SheetEditor({
           >
             {t("sheetModePages")}
           </button>
-        </div>
+        </fieldset>
         {saved?.error ? (
           <span class="sheet-save warn" role="status">
             {saved.waitsFor ? <IconSpinner size={13} /> : null}
@@ -349,6 +349,7 @@ export function SheetEditor({
         <div
           class="sheet-grid"
           ref={host}
+          role="region"
           aria-label={t("sheetEditorLabel")}
           style={mode === "edit" ? undefined : { display: "none" }}
         />

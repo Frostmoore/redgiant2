@@ -632,7 +632,7 @@ export class EditorHost {
       if (line !== undefined)
         return refuse(
           "busy",
-          `the person is typing at line ${line} right now: their edit comes first. Try again in a few seconds, or change another place`,
+          `the person is typing at ${line} right now: their edit comes first. Try again in a few seconds, or change another place`,
         );
     }
     const summary = f.summarize(doc.model, ops, req.kind);

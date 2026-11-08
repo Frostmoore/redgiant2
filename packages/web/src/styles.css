@@ -15390,3 +15390,7 @@ button.doc-change-what {
     max-height: 22%;
   }
 }
+fieldset.vw-seg {
+  margin: 0;
+  min-inline-size: 0;
+}

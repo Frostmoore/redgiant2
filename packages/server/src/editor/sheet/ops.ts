@@ -634,10 +634,8 @@ export function sheetSummary(
     const range = areaName(box("", params(m).range as Range));
     return done("sort", `sorted ${range}`, { name: nameOf(subOf(m)), range });
   }
-  if (
-    (m =
-      find(MUTATIONS.filterRange) ?? find(MUTATIONS.filterCriteria) ?? find(MUTATIONS.removeFilter))
-  )
+  m = find(MUTATIONS.filterRange) ?? find(MUTATIONS.filterCriteria) ?? find(MUTATIONS.removeFilter);
+  if (m)
     return done(
       "filter",
       m.id === MUTATIONS.removeFilter ? "removed the filter" : "changed the filter",
