@@ -22,6 +22,7 @@ import {
   type DocPresence,
   type DocProposal,
   type DocProposedPayload,
+  type DocSnapshot,
   type DocSummary,
   docKey,
   docStreamId,
@@ -621,16 +622,18 @@ export class EditorHost {
     for (const [i, op] of ops.entries()) {
       const bad = f.check(model, op);
       if (bad) return refuse("invalid", `operation ${i + 1}: ${bad}`);
-      if (!person && !req.undoOf && !req.proposalId && i === 0) {
-        const line = this.heldBy(doc, op);
-        if (line !== undefined)
-          return refuse(
-            "busy",
-            `the person is typing at ${line} right now: their edit comes first. Try again in a few seconds, or change another place`,
-          );
-      }
       inverse.unshift(f.invert(model, op));
       model = f.apply(model, op);
+    }
+    // Where the person is typing, the whole batch (G37.2: every operation of it, not the first).
+    if (!person && !req.undoOf && !req.proposalId) {
+      const all = ops.length > 1 ? f.compose(ops) : ops[0];
+      const line = all ? this.heldBy(doc, all) : undefined;
+      if (line !== undefined)
+        return refuse(
+          "busy",
+          `the person is typing at line ${line} right now: their edit comes first. Try again in a few seconds, or change another place`,
+        );
     }
     const summary = f.summarize(doc.model, ops, req.kind);
     if (req.dryRun) return { ok: true, revision: doc.revision, summary, rebased };
@@ -1203,6 +1206,58 @@ export class EditorHost {
         model,
         modelAt: (r: number) => this.modelAt(doc, r),
       };
+    });
+  }
+
+  /**
+   * The file before and after a revision, an agent's turn (a group) or a proposal (G37.2): what
+   * the page's difference view shows. A group spans from before its first revision to its last.
+   */
+  async diffOf(
+    ownerId: string,
+    file: DocFile,
+    what: {
+      revision?: number | undefined;
+      groupId?: string | undefined;
+      proposalId?: string | undefined;
+    },
+  ): Promise<{ before: DocSnapshot; after: DocSnapshot; from: number; to: number }> {
+    const doc = await this.open(ownerId, file);
+    return this.enqueue(doc, async () => {
+      await this.checkDisk(doc);
+      const f = doc.family;
+      const at = (r: number): unknown => {
+        const m = this.modelAt(doc, r);
+        if (m === undefined) throw new Error(`Revision ${r} cannot be read back anymore`);
+        return m;
+      };
+      if (what.proposalId) {
+        const p = doc.proposals.get(what.proposalId);
+        if (!p) throw new Error("That proposal is not open anymore");
+        const base = at(p.baseRevision);
+        let after = base;
+        for (const op of p.ops) {
+          const bad = f.check(after, op);
+          if (bad) throw new Error(`The proposal cannot be read: ${bad}`);
+          after = f.apply(after, op);
+        }
+        return {
+          before: f.snapshot(base),
+          after: f.snapshot(after),
+          from: p.baseRevision,
+          to: p.baseRevision,
+        };
+      }
+      const revs = what.groupId
+        ? doc.history.filter((r) => r.groupId === what.groupId).map((r) => r.revision)
+        : what.revision !== undefined
+          ? [what.revision]
+          : [];
+      if (revs.length === 0) throw new Error("Say which change: a revision, a group or a proposal");
+      const from = Math.min(...revs);
+      const to = Math.max(...revs);
+      if (from < 1 || to > doc.revision) throw new Error(`Revision ${to} does not exist`);
+      return { before: f.snapshot(at(from - 1)), after: f.snapshot(at(to)), from, to };
     });
   }
 

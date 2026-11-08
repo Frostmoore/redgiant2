@@ -1,100 +1,74 @@
 // The editor in the canvas (G37.1): the shell every family shares (its bar, who is in the file,
 // the rule for the agents' edits, the panel «Modifiche» with «Annulla questa modifica» and
-// «Annulla tutto il turno», the proposals to accept) around the family's own editor. Plain text is
-// the first: CodeMirror, editable, wired to the server's host (viewers/collab.ts). The person's
-// Ctrl+Z undoes only their own typing; what an agent wrote is highlighted for a few seconds and
-// listed in the panel, where any change can be taken back. Nothing is saved from here: the host
-// writes the file.
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import {
-  type ChangeSet,
-  EditorState,
-  RangeSetBuilder,
-  StateEffect,
-  StateField,
-  Transaction,
-} from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
-import { tags } from "@lezer/highlight";
+// «Annulla tutto il turno», the proposals to accept, the differences of a change, a turn or a
+// proposal) around the family's own editor. Text and code are the first (TextEditor.tsx, G37.2):
+// code, Markdown, JSON/YAML/XML and plain text. Nothing is saved from here: the host writes the file.
+import type { EditorView } from "@codemirror/view";
 import type { DocChange, DocFile, DocSummary } from "@redgiant/protocol";
 import { PERSON } from "@redgiant/protocol";
-import { basicSetup } from "codemirror";
+import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { t } from "../../i18n.js";
-import { IconCheck, IconClock, IconList, IconUndo, IconUser, IconX } from "../../icons.js";
-import { agents, attempt, docView, openDoc, sendDoc, setDocMode } from "../../state.js";
-import { TextCollab } from "../../viewers/collab.js";
-import { useReport } from "../../viewers/live.js";
+import { type Key, t } from "../../i18n.js";
+import { IconCheck, IconClock, IconEye, IconList, IconUndo, IconUser, IconX } from "../../icons.js";
+import { agents, attempt, docView, sendDoc, setDocMode } from "../../state.js";
+import { viewerFor } from "../../viewers/kind.js";
 import { sheetChangeText } from "../../viewers/sheet-words.js";
+import type { DocDiff as DiffView, DiffWhat } from "./DocDiff.js";
 import { SHEET_EDITABLE, SheetEditor } from "./SheetEditor.js";
+import { TextEditor } from "./TextEditor.js";
 
-/** The plain text files the page edits (G37.1); code, Markdown and the rest come with G37.2. */
-export const EDITABLE = /\.(txt|text|log)$/i;
+/** The kinds of the viewer that are text the page edits (G37.2): code, Markdown, trees, text. */
+const TEXT_KINDS = new Set(["text", "code", "markdown", "tree"]);
+/** Whether the file is text or code the editor opens (by its name, as the server's text family). */
+export const textEditable = (path: string) => TEXT_KINDS.has(viewerFor(path).kind);
 export const editableInCanvas = (file: { scope: string; path: string }) =>
-  file.scope !== "outside" && (EDITABLE.test(file.path) || SHEET_EDITABLE.test(file.path));
-
-/** A pause in typing longer than this starts another gesture (another line of the panel). */
-const GESTURE_MS = 2000;
-/** How long an agent's text stays highlighted. */
-const HIGHLIGHT_MS = 8000;
-
-// ---- the agent's highlight -----------------------------------------------------------------
-
-const addMarks = StateEffect.define<{ ranges: [number, number][]; id: number }>();
-const dropMarks = StateEffect.define<number>();
-const agentMark = (id: number) =>
-  Decoration.mark({ class: "doc-agent-mark", attributes: { "data-mark": String(id) } });
-
-const marks = StateField.define<DecorationSet>({
-  create: () => Decoration.none,
-  update(set, tr) {
-    let next = set.map(tr.changes);
-    for (const e of tr.effects) {
-      if (e.is(addMarks)) {
-        const b = new RangeSetBuilder<Decoration>();
-        const len = tr.state.doc.length;
-        for (const [f, to] of [...e.value.ranges].sort((x, y) => x[0] - y[0]))
-          if (to > f && to <= len) b.add(f, to, agentMark(e.value.id));
-        next = next.update({ add: [...iterDecos(b.finish())] });
-      }
-      if (e.is(dropMarks)) {
-        // -1: every mark (an undo took the marked text back).
-        const id = String(e.value);
-        next =
-          e.value < 0
-            ? Decoration.none
-            : next.update({ filter: (_f, _t, d) => d.spec.attributes?.["data-mark"] !== id });
-      }
-    }
-    return next;
-  },
-  provide: (f) => EditorView.decorations.from(f),
-});
-
-function* iterDecos(set: DecorationSet) {
-  const it = set.iter();
-  while (it.value) {
-    yield it.value.range(it.from, it.to);
-    it.next();
-  }
-}
-
-const classes = HighlightStyle.define([{ tag: [tags.heading], class: "cmv-head" }]);
+  file.scope !== "outside" && (textEditable(file.path) || SHEET_EDITABLE.test(file.path));
 
 // ---- words ---------------------------------------------------------------------------------
 
-/** A change in the person's words: «Ada ha inserito 2 righe alla riga 5». */
+/** «2 righe cambiate e 3 righe aggiunte», or undefined when the summary has no lines (G37.2). */
+export function linesText(s: DocSummary): string | undefined {
+  if (s.linesChanged === undefined && s.linesAdded === undefined && s.linesRemoved === undefined)
+    return undefined;
+  const part = (n: number | undefined, one: Key, many: Key) =>
+    n ? (n === 1 ? t(one) : t(many, { n: String(n) })) : undefined;
+  const parts = [
+    part(s.linesChanged, "docLineChanged1", "docLinesChanged"),
+    part(s.linesAdded, "docLineAdded1", "docLinesAdded"),
+    part(s.linesRemoved, "docLineRemoved1", "docLinesRemoved"),
+  ].filter((p): p is string => !!p);
+  if (parts.length === 0) return undefined;
+  const last = parts.pop() as string;
+  return parts.length ? t("docAnd", { a: parts.join(", "), b: last }) : last;
+}
+
+/** A change in the person's words: «3 righe aggiunte alla riga 7», «Cambiata la riga 4». */
 export function changeText(s: DocSummary): string {
   // A sheet's change (G37.3) has its own words.
   if (s.sheet && s.kind !== "undo" && s.kind !== "replaced") return sheetChangeText(s);
-  const where =
+  const at =
     s.line === undefined
       ? ""
-      : s.kind === "edit"
-        ? t("docFromLine", { n: String(s.line) })
-        : s.lines && s.lines > 1
-          ? t("docAtLines", { from: String(s.line), to: String(s.line + s.lines - 1) })
-          : t("docAtLine", { n: String(s.line) });
+      : s.lines && s.lines > 1
+        ? t("docAtLines", { from: String(s.line), to: String(s.line + s.lines - 1) })
+        : t("docAtLine", { n: String(s.line) });
+  const lines = linesText(s);
+  if (lines !== undefined) {
+    const line = String(s.line ?? 1);
+    if (s.kind === "edit")
+      return t("docEditsLines", { n: String(s.count ?? 2), line, what: lines });
+    if (s.kind === "undo") return t("docUndidLines", { what: lines });
+    if (s.kind === "replaced") return t("docReplacedLines", { what: lines });
+    if (!s.linesAdded && !s.linesRemoved)
+      return s.lines && s.lines > 1
+        ? t("docChangedLines", { from: line, to: String((s.line ?? 1) + s.lines - 1) })
+        : t("docChangedLine", { n: line });
+    if (s.kind === "delete") return `${lines} ${t("docFromLine", { n: line })}`;
+    return at ? `${lines} ${at}` : lines;
+  }
+  // Changes told before G37.2: in characters.
+  const where =
+    s.kind === "edit" && s.line !== undefined ? t("docFromLine", { n: String(s.line) }) : at;
   const n = (k: "docInserted" | "docDeleted", v: number | undefined) => t(k, { n: String(v ?? 0) });
   const what =
     s.kind === "insert"
@@ -141,156 +115,32 @@ export function groupChanges(
   return out;
 }
 
-// ---- the plain text editor -----------------------------------------------------------------
-
-function TextEditor({
-  file,
-  onReady,
-}: {
-  file: DocFile;
-  onReady: (v: EditorView | undefined) => void;
-}) {
-  const host = useRef<HTMLDivElement>(null);
-  const report = useReport();
-  useEffect(() => {
-    const el = host.current;
-    if (!el) return;
-    let view: EditorView | undefined;
-    let group = `g-${Math.random().toString(36).slice(2, 10)}`;
-    let lastKey = 0;
-    let sendTimer: ReturnType<typeof setTimeout> | undefined;
-    let presenceTimer: ReturnType<typeof setTimeout> | undefined;
-    let markId = 0;
-    const collab = new TextCollab((o) =>
-      sendDoc({
-        type: "doc.ops",
-        file,
-        clientId: o.clientId,
-        baseRevision: o.baseRevision,
-        ops: o.ops,
-        groupId: group,
-      }),
-    );
-    const remote = Transaction.remote.of(true);
-    const noHistory = Transaction.addToHistory.of(false);
-    const presence = (editing: boolean) => {
-      if (!view) return;
-      const sel = view.state.selection.main;
-      sendDoc({
-        type: "doc.presence",
-        file,
-        editing,
-        from: sel.from,
-        to: sel.to,
-        revision: collab.revision,
-      });
-    };
-    const setText = (text: string) => {
-      if (!view) {
-        view = new EditorView({
-          parent: el,
-          state: EditorState.create({
-            doc: text,
-            extensions: [
-              basicSetup,
-              EditorView.lineWrapping,
-              syntaxHighlighting(classes),
-              marks,
-              EditorView.contentAttributes.of({ "aria-label": t("docEditorLabel") }),
-              EditorView.updateListener.of((u) => {
-                const own = u.transactions.filter(
-                  (tr) => tr.docChanged && !tr.annotation(Transaction.remote),
-                );
-                for (const tr of own) collab.local(tr.changes as ChangeSet);
-                if (own.length) {
-                  const now = Date.now();
-                  if (now - lastKey > GESTURE_MS)
-                    group = `g-${Math.random().toString(36).slice(2, 10)}`;
-                  lastKey = now;
-                  // Keystrokes travel in small batches.
-                  if (sendTimer) clearTimeout(sendTimer);
-                  sendTimer = setTimeout(() => collab.flush(), 120);
-                  if (!presenceTimer)
-                    presenceTimer = setTimeout(() => {
-                      presenceTimer = undefined;
-                      presence(true);
-                    }, 250);
-                }
-                if (u.docChanged || u.viewportChanged) {
-                  const v = u.view;
-                  report({
-                    line: v.state.doc.lineAt(v.lineBlockAtHeight(v.scrollDOM.scrollTop).from)
-                      .number,
-                    lines: v.state.doc.lines,
-                  });
-                }
-              }),
-              EditorView.domEventHandlers({ blur: () => presence(false) }),
-            ],
-          }),
-        });
-        onReady(view);
-        return;
-      }
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: text },
-        annotations: [remote, noHistory],
-      });
-    };
-    const highlight = (ranges: [number, number][]) => {
-      if (!view || !ranges.length) return;
-      const id = ++markId;
-      view.dispatch({ effects: addMarks.of({ ranges, id }) });
-      setTimeout(() => view?.dispatch({ effects: dropMarks.of(id) }), HIGHLIGHT_MS);
-    };
-    const resync = () => sendDoc({ type: "doc.open", file });
-    const close = openDoc(file, {
-      opened(snapshot, revision) {
-        if (snapshot.family !== "text") return;
-        collab.reset(revision);
-        setText(snapshot.text);
-      },
-      replaced(m) {
-        if (m.snapshot.family !== "text") return;
-        collab.reset(m.revision);
-        setText(m.snapshot.text);
-      },
-      changed(m) {
-        const r = collab.remote(m.revision, m.ops, m.change.wrote ?? []);
-        if (!r || !view) return resync();
-        view.dispatch({
-          changes: r.changes,
-          annotations: [remote, noHistory],
-          ...(m.change.undoOf?.length && { effects: dropMarks.of(-1) }),
-        });
-        if (m.change.author !== PERSON) highlight(r.wrote);
-      },
-      ack(m) {
-        collab.ack(m.clientId, m.revision);
-      },
-      rejected(m) {
-        if (collab.rejected(m.clientId)) resync();
-      },
-    });
-    return () => {
-      if (sendTimer) clearTimeout(sendTimer);
-      if (presenceTimer) clearTimeout(presenceTimer);
-      collab.flush();
-      close();
-      onReady(undefined);
-      view?.destroy();
-    };
-  }, [file.scope, file.path]);
-  return <div class="vw-code doc-text" ref={host} />;
-}
-
 // ---- the shell -----------------------------------------------------------------------------
 
 let asks = 0;
 const askId = () => `u${Date.now().toString(36)}${(asks++).toString(36)}`;
 
-export function DocEditor({ file }: { file: DocFile }) {
+export function DocEditor({
+  file,
+  line,
+  fallback,
+}: {
+  file: DocFile;
+  /** A citation's line (G36.4). */
+  line?: number | undefined;
+  /** What to show when the host cannot edit this file (too big, not UTF-8): the viewer. */
+  fallback?: () => ComponentChildren;
+}) {
   const v = docView(file).value;
+  const name = file.path.split(/[\\/]/).pop() ?? file.path;
+  /** The differences shown over the text (G37.2): of a group (turn, gesture) or a proposal. */
+  const [diff, setDiffNow] = useState<{ what: DiffWhat; title: string; proposalId?: string }>();
+  // @codemirror/merge comes only when a difference is asked.
+  const [Diff, setDiffView] = useState<typeof DiffView>();
+  const setDiff = (d: typeof diff) => {
+    if (d && !Diff) void import("./DocDiff.js").then((m) => setDiffView(() => m.DocDiff));
+    setDiffNow(d);
+  };
   const [panel, setPanel] = useState(() =>
     typeof window.matchMedia === "function"
       ? !window.matchMedia("(max-width: 760px)").matches
@@ -327,9 +177,27 @@ export function DocEditor({ file }: { file: DocFile }) {
       scrollIntoView: true,
     });
   };
+  const decide = (proposalId: string, accept: boolean) => {
+    sendDoc({ type: "doc.decide", file, clientId: askId(), proposalId, accept });
+    if (diff?.proposalId === proposalId) setDiff(undefined);
+  };
+  // A proposal shown that is not open anymore (decided elsewhere) closes its differences.
+  useEffect(() => {
+    if (diff?.proposalId && !v.proposals.some((p) => p.proposalId === diff.proposalId))
+      setDiff(undefined);
+  }, [v.proposals]);
+  const canDiff = textEditable(file.path);
   const others =
     Date.now() - v.presenceAt < 60_000 ? v.presence.filter((p) => p.who !== PERSON) : [];
   const people = v.presence.filter((p) => p.who === PERSON).length;
+  // The host cannot edit it (too big, not text): the viewer instead, and why.
+  if (fallback && v.status === "loading" && v.refusal?.clientId === "open")
+    return (
+      <div class="doc-fallback">
+        <p class="vw-note">{t("docCannotEditShown", { reason: v.refusal.reason })}</p>
+        {fallback()}
+      </div>
+    );
   return (
     <div class={`doc-shell ${panel ? "with-panel" : ""}`}>
       <div class="vw-bar doc-bar">
@@ -401,11 +269,43 @@ export function DocEditor({ file }: { file: DocFile }) {
               : t("loading")}
           </div>
         )}
-        {sheet ? (
-          <SheetEditor file={file} onReveal={(r) => (reveal.current = r)} />
-        ) : (
-          <TextEditor file={file} onReady={(e) => (view.current = e)} />
-        )}
+        <div class="doc-work">
+          {sheet ? (
+            <SheetEditor file={file} onReveal={(r) => (reveal.current = r)} />
+          ) : (
+            <TextEditor file={file} name={name} line={line} onReady={(e) => (view.current = e)} />
+          )}
+          {diff && Diff && (
+            <Diff
+              file={file}
+              name={name}
+              what={diff.what}
+              title={diff.title}
+              onClose={() => setDiff(undefined)}
+            >
+              {diff.proposalId && (
+                <>
+                  <button
+                    type="button"
+                    class="vw-btn small primary"
+                    onClick={() => decide(diff.proposalId as string, true)}
+                  >
+                    <IconCheck size={14} />
+                    {t("docAccept")}
+                  </button>
+                  <button
+                    type="button"
+                    class="vw-btn small"
+                    onClick={() => decide(diff.proposalId as string, false)}
+                  >
+                    <IconX size={14} />
+                    {t("docReject")}
+                  </button>
+                </>
+              )}
+            </Diff>
+          )}
+        </div>
         {panel && (
           <aside class="doc-panel" id="doc-changes" aria-label={t("docChanges")}>
             {v.proposals.length > 0 && (
@@ -422,15 +322,7 @@ export function DocEditor({ file }: { file: DocFile }) {
                       <button
                         type="button"
                         class="vw-btn small primary"
-                        onClick={() =>
-                          sendDoc({
-                            type: "doc.decide",
-                            file,
-                            clientId: askId(),
-                            proposalId: p.proposalId,
-                            accept: true,
-                          })
-                        }
+                        onClick={() => decide(p.proposalId, true)}
                       >
                         <IconCheck size={14} />
                         {t("docAccept")}
@@ -438,19 +330,28 @@ export function DocEditor({ file }: { file: DocFile }) {
                       <button
                         type="button"
                         class="vw-btn small"
-                        onClick={() =>
-                          sendDoc({
-                            type: "doc.decide",
-                            file,
-                            clientId: askId(),
-                            proposalId: p.proposalId,
-                            accept: false,
-                          })
-                        }
+                        onClick={() => decide(p.proposalId, false)}
                       >
                         <IconX size={14} />
                         {t("docReject")}
                       </button>
+                      {canDiff && (
+                        <button
+                          type="button"
+                          class="vw-btn small"
+                          aria-pressed={diff?.proposalId === p.proposalId}
+                          onClick={() =>
+                            setDiff({
+                              what: { proposalId: p.proposalId },
+                              proposalId: p.proposalId,
+                              title: `${whoText(p)}: ${changeText(p.summary)}`,
+                            })
+                          }
+                        >
+                          <IconEye size={14} />
+                          {t("docShowDiff")}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -473,6 +374,27 @@ export function DocEditor({ file }: { file: DocFile }) {
                     <span class="dim">
                       <IconClock size={12} /> {ago(first.ts)}
                     </span>
+                    {canDiff && !(first.replaced && g.items.length === 1 && !first.wrote) && (
+                      <button
+                        type="button"
+                        class="vw-icon doc-diff-open"
+                        title={t("docShowDiff")}
+                        aria-label={t("docShowDiff")}
+                        aria-pressed={diff?.what.groupId === g.groupId}
+                        onClick={() =>
+                          setDiff({
+                            what: { groupId: g.groupId },
+                            title: `${whoText(first)}: ${
+                              g.items.length === 1
+                                ? changeText(first.summary)
+                                : t("docDiffGroup", { n: String(g.items.length) })
+                            }`,
+                          })
+                        }
+                      >
+                        <IconEye size={13} />
+                      </button>
+                    )}
                     {agentTurn && open.length > 1 && (
                       <button
                         type="button"
