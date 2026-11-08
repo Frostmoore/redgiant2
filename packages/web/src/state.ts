@@ -710,6 +710,7 @@ export type SettingsSection =
   | "setup"
   | "agents"
   | "memory"
+  | "knowledge"
   | "automations"
   | "extensions"
   | "keychain"
@@ -993,8 +994,27 @@ export function openCanvas(title: string, target: CanvasTarget): void {
 export async function openCitation(chunkId: string): Promise<void> {
   const r = await getApi().knowledgeOpen(chunkId);
   if ("url" in r) window.open(r.url, "_blank", "noopener,noreferrer");
+  else if ("chat" in r)
+    openSession({ id: r.chat.sessionId, agentId: r.chat.agentId, title: r.title });
+  else if ("text" in r) citationNote.value = { title: r.title, text: r.text };
   else openCanvas(r.title, r.target);
 }
+
+/** A cited mail's text (G36.6): it lives in the mailbox, so it is shown in a window. */
+export const citationNote = signal<{ title: string; text: string } | null>(null);
+
+/**
+ * A citation in an answer (`#kb:<piece>`, made by renderAnswer from the agent's sources) opens
+ * its file at the page or line instead of following the address.
+ */
+if (typeof document !== "undefined")
+  document.addEventListener("click", (e) => {
+    const a = (e.target as Element | null)?.closest?.("a[href^='#kb:']");
+    if (!a) return;
+    e.preventDefault();
+    const id = (a.getAttribute("href") ?? "").slice(4);
+    if (/^\d+$/.test(id)) void openCitation(id).catch(() => {});
+  });
 
 /** Opens a board of variants as a page of its own (G25.4). */
 export function openBoard(sessionId: string, proposalId: string, title: string): void {

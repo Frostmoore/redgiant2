@@ -209,6 +209,8 @@ export const READ_ONLY_TOOLS = new Set([
   "propose_plan",
   // The agent's own notes (G29.3): no workspace, no project file.
   "memory",
+  // Searching the person's documents (G36.5) only reads.
+  "search_knowledge",
   // The agent's list of steps (2026-11-05): shown to the person, changes nothing.
   "update_todos",
   // Reads or stops the conversation's own background command (p3.3.1): starting it was a bash

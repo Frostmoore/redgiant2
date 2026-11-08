@@ -25,6 +25,8 @@ import { GitHosts } from "./git-hosts.js";
 import { HuggingFace } from "./hf.js";
 import { EmbeddingError, type KeyedFetch } from "./knowledge/embedders.js";
 import { LocalEmbedServers } from "./knowledge/local-embed.js";
+import { mailSource } from "./knowledge/mail.js";
+import { LocalOcr } from "./knowledge/ocr.js";
 import { ensurePgvector } from "./knowledge/pgvector.js";
 import { KnowledgeService } from "./knowledge/service.js";
 import { NativeLauncher } from "./native-launcher.js";
@@ -410,6 +412,15 @@ const knowledge = new KnowledgeService({
   local: new LocalEmbedServers({ dataDir, jobs: core.jobs }),
   keyedFetch: knowledgeFetch,
   scopeRoot: (who, scope) => core.scopeFolder(who, scope),
+  // G36.6: the OCR on this computer, the person's mailboxes and conversations (sources they add
+  // themselves, with their yes), and the projects an agent works on.
+  ocr: new LocalOcr({ dataDir, jobs: core.jobs }),
+  mail: mailSource(core.email),
+  chats: core.knowledgeChats(),
+  agentProjects: async (_who, agentId) => {
+    const a = core.registry.get(agentId);
+    return a?.projectId ? [a.projectId] : [];
+  },
   agentLanguage: () => core.agentLanguageOf(owner) ?? core.uiLanguageOf(owner),
   // Office files read through the PDF LibreOffice makes, only when it is already here.
   officePdf: async (who, abs, signal) =>

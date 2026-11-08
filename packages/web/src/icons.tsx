@@ -599,3 +599,18 @@ export const IconFullscreenExit = ({ size = 15 }: P) => (
     <path d="M9 4v4a1 1 0 0 1-1 1H4M20 9h-4a1 1 0 0 1-1-1V4M15 20v-4a1 1 0 0 1 1-1h4M4 15h4a1 1 0 0 1 1 1v4" />
   </Svg>
 );
+/** An envelope: a mailbox as a knowledge source (G36.6). */
+export const IconMail = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" />
+    <path d="M22 6l-10 7L2 6" />
+  </Svg>
+);
+/** A stack of discs: the knowledge (G36.5), documents kept to be searched. */
+export const IconDatabase = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <ellipse cx="12" cy="5" rx="9" ry="3" />
+    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+  </Svg>
+);

@@ -12,10 +12,11 @@ import { chunkDocument } from "./chunk.js";
 import { EmbeddingError, vectorLiteral } from "./embedders.js";
 import { extractFile, extractHtml, extractPdfData, extractText } from "./extract.js";
 import { hashFile, listFiles } from "./files.js";
+import { extractChat, extractMail } from "./items.js";
 import { indexBuildSettings, indexBuildSql } from "./pgvector.js";
-import { annIndex, HNSW_WITH, partialIndex, vecTable } from "./schema.js";
+import { annIndex, dropVectorTable, HNSW_WITH, PIECES, partialIndex, vecTable } from "./schema.js";
 import { type IndexRow, type KnowledgeService, tsvSql } from "./service.js";
-import type { Chunk, Extracted, ExtractOutcome } from "./types.js";
+import type { Chunk, ExtractContext, Extracted, ExtractOutcome } from "./types.js";
 import { fetchPage } from "./web.js";
 
 /** Below this many vectors an index needs no HNSW graph: exact search is fast and perfect. */
@@ -42,7 +43,12 @@ interface OwnerState {
   until?: number | undefined;
   failures: number;
   graph?: { index: number; table: string } | undefined;
+  /** Pieces embedded lately (when, how many): the page's pace and time left. */
+  recent: { at: number; n: number }[];
 }
+
+/** How far back the pace looks. */
+const PACE_MS = 5 * 60_000;
 
 /** A memory setting (`512MB`, `4GB`) kept under Postgres' ceiling (kB, 0 = unknown). */
 export function capMemory(value: string, maxKb: number): string {
@@ -77,10 +83,22 @@ export class Indexer {
   private owner(o: string): OwnerState {
     let s = this.owners.get(o);
     if (!s) {
-      s = { paused: false, failures: 0 };
+      s = { paused: false, failures: 0, recent: [] };
       this.owners.set(o, s);
     }
     return s;
+  }
+
+  /** Pieces embedded per minute over the last minutes (undefined before two batches). */
+  pace(owner: string): number | undefined {
+    const s = this.owner(owner);
+    const since = Date.now() - PACE_MS;
+    s.recent = s.recent.filter((r) => r.at >= since);
+    if (s.recent.length < 2) return undefined;
+    const first = s.recent[0] as { at: number; n: number };
+    const span = Math.max(1000, Date.now() - first.at);
+    const n = s.recent.slice(1).reduce((x, r) => x + r.n, 0);
+    return (n / span) * 60_000;
   }
 
   state(owner: string) {
@@ -303,9 +321,23 @@ export class Indexer {
       [id],
     );
     const byPath = new Map(known.map((d) => [d.path, d]));
-    const found: { rel: string; abs: string; size: number; mtimeMs: number }[] = [];
+    const found: { rel: string; abs: string; size: number; mtimeMs: number; title?: string }[] = [];
     try {
-      if (s.spec.kind === "url") {
+      if (s.spec.kind === "mail" || s.spec.kind === "chats") {
+        // Mail and conversations (G36.6): what the mailbox or the log holds for those days.
+        const since = Date.now() - s.spec.days * 86_400_000;
+        const refs =
+          s.spec.kind === "mail"
+            ? ((await this.k.deps.mail?.list(
+                s.owner_id,
+                s.spec.mailbox,
+                since,
+                this.abort.signal,
+              )) ?? [])
+            : ((await this.k.deps.chats?.list(s.owner_id, s.spec.agents, since)) ?? []);
+        for (const r of refs)
+          found.push({ rel: r.id, abs: r.id, size: r.size, mtimeMs: r.at, title: r.title });
+      } else if (s.spec.kind === "url") {
         found.push({ rel: s.spec.url, abs: s.spec.url, size: 0, mtimeMs: 0 });
       } else if (s.spec.kind === "file") {
         const f = await stat(root);
@@ -342,7 +374,12 @@ export class Indexer {
     const added: typeof found = [];
     for (const f of fresh) {
       const candidates = (gone.get(String(f.size)) ?? []).filter((d) => d.hash && !moved.has(d.id));
-      if (candidates.length && s.spec.kind !== "url") {
+      if (
+        candidates.length &&
+        s.spec.kind !== "url" &&
+        s.spec.kind !== "mail" &&
+        s.spec.kind !== "chats"
+      ) {
         const h = await hashFile(f.abs).catch(() => undefined);
         const same = candidates.find((d) => d.hash === h);
         if (same) {
@@ -379,7 +416,7 @@ export class Indexer {
           id,
           s.num,
           part.map((f) => f.rel),
-          part.map((f) => (s.spec.kind === "url" ? f.rel : basename(f.rel))),
+          part.map((f) => f.title ?? (s.spec.kind === "url" ? f.rel : basename(f.rel))),
           part.map((f) => f.size),
           part.map((f) => f.mtimeMs),
         ],
@@ -398,14 +435,16 @@ export class Indexer {
       path: string;
       hash: string | null;
       chunks: number;
+      mtime_ms: number;
+      size: string;
       source_id: string;
       spec: unknown;
       owner_id: string;
       num: number;
       language: string;
     }>(
-      `SELECT d.id::text AS id, d.path, d.hash, d.chunks, d.source_id, s.spec, c.owner_id, c.num,
-              c.language
+      `SELECT d.id::text AS id, d.path, d.hash, d.chunks, d.mtime_ms, d.size::text AS size, d.source_id, s.spec, c.owner_id,
+              c.num, c.language
          FROM rg_kb_documents d JOIN rg_kb_sources s ON s.id = d.source_id
          JOIN rg_kb_collections c ON c.num = d.collection_num
         WHERE d.state = 'pending' AND NOT (c.owner_id = ANY($1::text[]))
@@ -435,6 +474,8 @@ export class Indexer {
       path: string;
       hash: string | null;
       chunks: number;
+      mtime_ms?: number;
+      size?: string;
       owner_id: string;
       num: number;
       language: string;
@@ -446,7 +487,32 @@ export class Indexer {
     let hash: string;
     let size = 0;
     let mtime = 0;
-    if (spec.kind === "url") {
+    if (spec.kind === "mail" || spec.kind === "chats") {
+      const { createHash } = await import("node:crypto");
+      let doc: Extracted | undefined;
+      if (spec.kind === "mail") {
+        const m = await this.k.deps.mail?.read(d.owner_id, spec.mailbox, d.path, signal);
+        doc = m ? extractMail(m) : undefined;
+      } else {
+        const c = await this.k.deps.chats?.read(d.owner_id, d.path);
+        doc = c ? extractChat(c) : undefined;
+      }
+      if (!doc) {
+        // Gone from the mailbox or the log: the next look removes it.
+        await this.k.db.query(
+          "UPDATE rg_kb_documents SET state = 'indexed' WHERE id = $1::bigint",
+          [d.id],
+        );
+        return;
+      }
+      const text = doc.parts.map((p) => p.text).join("\n");
+      size = Number(d.size ?? text.length);
+      // The time the look saw (a conversation's last message): kept, or every look reads again.
+      mtime = Number(d.mtime_ms ?? 0);
+      hash = createHash("sha256").update(`${doc.title}\n${text}`).digest("hex");
+      if (hash === d.hash && d.chunks > 0) return this.unchanged(d.id, size, mtime);
+      outcome = doc.parts.length ? { ok: true, doc } : { ok: false, skipped: "empty" };
+    } else if (spec.kind === "url") {
       const page = await fetchPage(spec.url, { signal });
       size = page.bytes.length;
       const { createHash } = await import("node:crypto");
@@ -454,7 +520,7 @@ export class Indexer {
       if (hash === d.hash && d.chunks > 0) return this.unchanged(d.id, size, mtime);
       outcome =
         page.kind === "pdf"
-          ? await extractPdfData(page.bytes, page.finalUrl, signal)
+          ? await extractPdfData(page.bytes, page.finalUrl, signal, await this.ocrFor(d.owner_id))
           : page.kind === "text"
             ? {
                 ok: true,
@@ -480,8 +546,10 @@ export class Indexer {
       mtime = st.mtimeMs;
       hash = await hashFile(abs);
       if (hash === d.hash && d.chunks > 0) return this.unchanged(d.id, size, mtime);
+      const ocr = await this.ocrFor(d.owner_id);
       outcome = await extractFile(abs, {
         signal,
+        ...(ocr && { ocr }),
         ...(this.k.deps.officePdf && {
           officePdf: (a: string, sig?: AbortSignal) =>
             this.k.deps.officePdf?.(d.owner_id, a, sig) ?? Promise.resolve(undefined),
@@ -499,6 +567,25 @@ export class Indexer {
     }
     const chunks = chunkDocument(outcome.doc);
     await this.replaceChunks(d, outcome.doc, chunks, { hash, size, mtime });
+  }
+
+  /**
+   * The OCR for one person's documents: only when they turned it on and it is here (otherwise
+   * pictures wait as `needs_ocr`; its download starts if it went missing).
+   */
+  private async ocrFor(owner: string): Promise<ExtractContext["ocr"]> {
+    const engine = this.k.deps.ocr;
+    if (!engine) return undefined;
+    const { ocr } = await this.k.settings(owner);
+    if (!ocr.on) return undefined;
+    if (!(await engine.ready(ocr.languages))) {
+      void engine
+        .ensure(owner, ocr.languages)
+        .then(() => this.k.ocrArrived(owner))
+        .catch(() => {});
+      return undefined;
+    }
+    return (image, signal) => engine.recognize(image, ocr.languages, signal);
   }
 
   private async unchanged(id: string, size: number, mtime: number) {
@@ -688,6 +775,8 @@ export class Indexer {
         [batch.map((r) => r.id), batch.map((r) => r.num), vectors.map(vectorLiteral)],
       );
       this.cursors.set(idx.id, Number(batch.at(-1)?.id ?? cursor));
+      s.recent.push({ at: Date.now(), n: batch.length });
+      if (s.recent.length > 500) s.recent.splice(0, s.recent.length - 500);
       s.doing = undefined;
       return true;
     }
@@ -745,14 +834,16 @@ export class Indexer {
       const last = this.upkeepAt.get(idx.id) ?? 0;
       if (Date.now() - last < (this.k.deps.manual ? 0 : 30_000)) continue;
       this.upkeepAt.set(idx.id, Date.now());
+      // The database's counters (G36.6): a million pieces are not counted every 30 seconds.
       const counts = await this.k.db.query<{ total: string; embedded: string; pending: string }>(
         `SELECT
-           (SELECT count(*) FROM rg_kb_chunks ch JOIN rg_kb_collections c ON c.num = ch.collection_num
-             WHERE c.owner_id = $1)::text AS total,
-           (SELECT count(*) FROM ${vecTable(idx.id)})::text AS embedded,
+           (SELECT coalesce(sum(n.n), 0) FROM rg_kb_counts n
+              JOIN rg_kb_collections c ON c.num = n.collection_num
+             WHERE c.owner_id = $1 AND n.index_id = ${PIECES})::text AS total,
+           (SELECT coalesce(sum(n.n), 0) FROM rg_kb_counts n WHERE n.index_id = $2)::text AS embedded,
            (SELECT count(*) FROM rg_kb_documents d JOIN rg_kb_collections c ON c.num = d.collection_num
              WHERE c.owner_id = $1 AND d.state = 'pending')::text AS pending`,
-        [owner],
+        [owner, idx.id],
       );
       const total = Number(counts[0]?.total ?? 0);
       const embedded = Number(counts[0]?.embedded ?? 0);
@@ -793,9 +884,9 @@ export class Indexer {
   /** Big collections get a graph of their own (study 4.2: recall 1.0 and 2 ms on a 5% scope). */
   private async partials(owner: string, idx: IndexRow, embedded: number): Promise<boolean> {
     const rows = await this.k.db.query<{ num: number; n: string }>(
-      `SELECT v.collection_num AS num, count(*)::text AS n FROM ${vecTable(idx.id)} v
-         GROUP BY v.collection_num HAVING count(*) >= $1`,
-      [this.thresholds.partialMin],
+      `SELECT collection_num AS num, n::text AS n FROM rg_kb_counts
+        WHERE index_id = $1 AND n >= $2`,
+      [idx.id, this.thresholds.partialMin],
     );
     for (const r of rows) {
       const n = Number(r.n);
@@ -875,7 +966,7 @@ export class Indexer {
       detail: { pieces: embedded, replaces: old?.id ?? 0 },
     });
     if (old) {
-      await this.k.db.query(`DROP TABLE IF EXISTS ${vecTable(old.id)}`).catch(() => {});
+      await dropVectorTable(this.k.db, old.id).catch(() => {});
       await this.k.record(owner, {
         action: "index.retired",
         indexId: old.id,

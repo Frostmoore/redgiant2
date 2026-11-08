@@ -66,14 +66,15 @@ describe("Settings drawn as the wizard", () => {
     const r = render(<Settings section="telegram" />);
     const nav = r.container.querySelector(".settings-nav") as HTMLElement;
     // 16 with Shared memory (G33.2), the Keychain (G33.4) and Tools (G34.5).
-    // 17 with Import (G36.7), 19 with Commands and Requests to you (G36.16, G36.17).
-    expect(nav.querySelectorAll(".st-nav-item")).toHaveLength(19);
+    // 17 with Import (G36.7), 19 with Commands and Requests to you (G36.16, G36.17), 20 with
+    // Knowledge (G36.5).
+    expect(nav.querySelectorAll(".st-nav-item")).toHaveLength(20);
     expect(nav.querySelectorAll(".wz-grp")).toHaveLength(5);
     expect(nav.querySelector(".st-nav-item.cur")?.textContent).toBe("Telegram");
     expect(r.container.querySelector(".st-pick")?.textContent).toContain("Telegram");
     fireEvent.click(r.container.querySelector(".st-pick") as HTMLElement);
     const sheet = r.container.querySelector(".ui-modal") as HTMLElement;
-    expect(sheet.querySelectorAll(".st-nav-item")).toHaveLength(19);
+    expect(sheet.querySelectorAll(".st-nav-item")).toHaveLength(20);
   });
 
   it("General: theme and language in segments, and a window for each square", async () => {

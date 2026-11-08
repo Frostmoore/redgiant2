@@ -21,6 +21,7 @@ import {
   refresh,
 } from "../state.js";
 import { substantialChange } from "../word-diff.js";
+import { AgentKnowledge } from "./AgentKnowledge.js";
 import { AgentMemory } from "./AgentMemory.js";
 import { AgentTools } from "./AgentTools.js";
 import { AgentWizard } from "./AgentWizard.js";
@@ -42,7 +43,7 @@ const CHILDREN: Record<Agent["kind"], Agent["kind"][]> = {
 };
 const MODES = ["auto", "manual", "plan", "readonly"] as const;
 type View = "tree" | "cards";
-type PanelTab = "general" | "model" | "limits" | "behaviour" | "memory" | "tools";
+type PanelTab = "general" | "model" | "limits" | "behaviour" | "memory" | "knowledge" | "tools";
 
 const initials = (name: string) =>
   name
@@ -366,7 +367,7 @@ function AgentPanel({
   const tabs: PanelTab[] =
     agent.kind === "demigod"
       ? ["general", "model", "limits", "behaviour", "tools"]
-      : ["general", "model", "limits", "behaviour", "memory", "tools"];
+      : ["general", "model", "limits", "behaviour", "memory", "knowledge", "tools"];
   const foot = active ? (
     <>
       {agent.kind !== "god" && (
@@ -436,6 +437,7 @@ function AgentPanel({
         {tab === "limits" && <LimitsTab agent={agent} />}
         {tab === "behaviour" && <BehaviourTab agent={agent} />}
         {tab === "memory" && <AgentMemory agent={agent} />}
+        {tab === "knowledge" && <AgentKnowledge agent={agent} />}
         {tab === "tools" && <AgentTools agent={agent} />}
       </div>
     </Modal>

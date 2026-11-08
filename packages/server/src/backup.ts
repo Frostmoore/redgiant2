@@ -9,7 +9,8 @@
 //
 // The file is gzip of: a first line "REDGIANT-BACKUP 1", then entries, each a JSON line
 // {"name","size"} followed by exactly `size` bytes. Entries: "backup.json" (the rows),
-// "events.jsonl" (the log, one event a line), "files/<project>/<path>" (the projects' files).
+// "events.jsonl" (the log, one event a line), "files/<project>/<path>" (the projects' files),
+// and, when the person wants it (G36.6), "knowledge/<collection>.jsonl" (pieces and vectors).
 
 import { once } from "node:events";
 import { createReadStream, createWriteStream } from "node:fs";
@@ -43,6 +44,8 @@ export interface BackupData {
   version?: string;
   /** A full backup (G36.19, before a clean install): the settings come along (`rg_settings`). */
   full?: boolean;
+  /** Knowledge collections carried with their pieces and vectors (G36.6); none when unset. */
+  knowledge?: number;
 }
 
 /** What `exportBackup` adds on request (G36.19). */
@@ -50,6 +53,8 @@ export interface ExportOptions {
   /** The settings too (rg_settings: no secret is kept there; the keys are in the keychain, G36.20). */
   full?: boolean;
   version?: string;
+  /** The knowledge's pieces and vectors too (G36.6, the person's choice in Settings > Knowledge). */
+  vectors?: boolean;
 }
 
 export interface ImportChoices {
@@ -70,12 +75,27 @@ export interface ImportResult {
   settings?: number;
   /** The wizard's choices of the backup ("setup"), for the setup service to take what is portable. */
   setup?: Record<string, unknown>;
+  /** Knowledge pieces put back with their vectors (G36.6). */
+  pieces?: number;
 }
 
 export interface BackupDeps {
   db: SqlClient;
   store: EventStore;
   workspacesDir: string;
+  /** The knowledge's own part (G36.6), when it runs. */
+  knowledge?: {
+    exportTo(
+      owner: string,
+      dir: string,
+      signal?: AbortSignal,
+    ): Promise<{ name: string; path: string; size: number }[]>;
+    importLines(
+      owner: string,
+      lines: AsyncIterable<string>,
+      ids: ReadonlyMap<string, string>,
+    ): Promise<number>;
+  };
 }
 
 /** The tables of the person's own rows, in the order they are put back (parents first). */
@@ -317,6 +337,10 @@ export async function exportBackup(
   }));
   const listed = await Promise.all(files.map(async (p) => ({ ...p, files: await walk(p.path) })));
   const filesBytes = listed.reduce((s, p) => s + p.files.reduce((x, f) => x + f.size, 0), 0);
+  // The knowledge (G36.6): written beside the backup first (its size goes in the entry's head).
+  const kbDir = `${file}.knowledge`;
+  const knowledge =
+    opts.vectors && deps.knowledge ? await deps.knowledge.exportTo(ownerId, kbDir, h.signal) : [];
   const data: BackupData = {
     format: 1,
     createdAt: new Date().toISOString(),
@@ -326,6 +350,7 @@ export async function exportBackup(
     ...(keychain && { keychain }),
     ...(opts.version && { version: opts.version }),
     ...(opts.full && { full: true }),
+    ...(knowledge.length > 0 && { knowledge: knowledge.length }),
   };
 
   await mkdir(dirname(file), { recursive: true });
@@ -364,9 +389,22 @@ export async function exportBackup(
           h.progress(read, filesBytes);
         });
       }
+    for (const k of knowledge) await w.file(k.name, k.path, k.size, () => {});
   } finally {
     await w.end();
+    await rm(kbDir, { recursive: true, force: true });
   }
+}
+
+/** An entry's bytes as lines (the last one may end without a newline). */
+async function* linesOf(body: AsyncIterable<Buffer>): AsyncGenerator<string> {
+  let rest = "";
+  for await (const chunk of body) {
+    const lines = (rest + chunk.toString()).split("\n");
+    rest = lines.pop() ?? "";
+    for (const l of lines) yield l;
+  }
+  if (rest) yield rest;
 }
 
 // --- import ---
@@ -698,6 +736,15 @@ export async function importBackup(
     let written = 0;
     for (; entry; entry = await r.next()) {
       if (h.signal.aborted) throw new Error("Cancelled");
+      // The knowledge's pieces and vectors (G36.6): only where the knowledge runs.
+      if (entry.name.startsWith("knowledge/")) {
+        if (deps.knowledge)
+          result.pieces =
+            (result.pieces ?? 0) +
+            (await deps.knowledge.importLines(ownerId, linesOf(r.body(entry.size)), ids));
+        else for await (const _ of r.body(entry.size));
+        continue;
+      }
       const m = /^files\/([^/]+)\/(.+)$/.exec(entry.name);
       const root = m ? newProjects.get(m[1] as string) : undefined;
       const target = root && m ? resolve(root, m[2] as string) : undefined;
@@ -763,16 +810,24 @@ export async function verifyBackup(file: string, h?: JobHandle): Promise<BackupC
     if (events !== data.events) throw new BackupError("The backup file is damaged");
     let files = 0;
     let bytes = 0;
+    let knowledge = 0;
     for (entry = await r.next(); entry; entry = await r.next()) {
-      if (!entry.name.startsWith("files/")) throw new BackupError("The backup file is damaged");
+      const kb = entry.name.startsWith("knowledge/");
+      if (!kb && !entry.name.startsWith("files/"))
+        throw new BackupError("The backup file is damaged");
       let got = 0;
       for await (const b of r.body(entry.size)) got += b.length;
       if (got !== entry.size) throw new BackupError("The backup file is cut short");
+      if (kb) {
+        knowledge++;
+        continue;
+      }
       bytes += got;
       files++;
       h?.progress(bytes, data.filesBytes);
     }
-    if (bytes !== data.filesBytes) throw new BackupError("The backup file is cut short");
+    if (bytes !== data.filesBytes || knowledge !== (data.knowledge ?? 0))
+      throw new BackupError("The backup file is cut short");
     return {
       createdAt: data.createdAt,
       version: data.version ?? null,

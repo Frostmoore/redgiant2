@@ -1,0 +1,29 @@
+{
+  "about": "Known questions over docs/ (written for RedGiant, CC0). Each names the file that answers it. Some use the files' words, some say it otherwise or in the other language.",
+  "questions": [
+    { "q": "A che ora il guardiano accende la lampada?", "doc": "faro.md" },
+    { "q": "When does the lighthouse keeper switch on the light?", "doc": "faro.md" },
+    { "q": "cosa fa con la nebbia sullo scoglio", "doc": "faro.md" },
+    { "q": "quanto sale nel pane con lievito madre", "doc": "pane.md" },
+    { "q": "how long should sourdough bread rise", "doc": "pane.md" },
+    { "q": "per quanto tempo è coperta la lavatrice dal produttore", "doc": "lavatrice.md" },
+    { "q": "washing machine warranty length", "doc": "lavatrice.md" },
+    { "q": "la guarnizione dell'oblò è in garanzia?", "doc": "lavatrice.md" },
+    { "q": "how do I repair a puncture", "doc": "bike.md" },
+    { "q": "come si ripara una camera d'aria bucata della bici", "doc": "bike.md" },
+    { "q": "when is the yearly income declaration due", "doc": "taxes.md" },
+    { "q": "scadenza della dichiarazione dei redditi", "doc": "taxes.md" },
+    { "q": "quando si seminano i pomodori", "doc": "orto.md" },
+    { "q": "when should I water the vegetable garden in summer", "doc": "orto.md" },
+    { "q": "how many monthly copies does the storage keep", "doc": "backup-policy.md" },
+    { "q": "dove è conservata la chiave di cifratura delle copie", "doc": "backup-policy.md" },
+    { "q": "quanto costa il biglietto giornaliero a Lisbona", "doc": "lisbona.md" },
+    { "q": "best custard tarts in Lisbon", "doc": "lisbona.md" },
+    { "q": "how often should a kitten eat", "doc": "cat-care.md" },
+    { "q": "quando si vaccina il gattino", "doc": "cat-care.md" },
+    { "q": "quanti mesi di preavviso per lasciare la casa in affitto", "doc": "affitto.md" },
+    { "q": "who pays the extraordinary condominium costs", "doc": "affitto.md" },
+    { "q": "posso lavare i pannelli solari con l'idropulitrice?", "doc": "solar.md" },
+    { "q": "the coffee shot runs too fast, what do I change", "doc": "espresso.md" }
+  ]
+}

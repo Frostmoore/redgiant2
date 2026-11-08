@@ -1313,7 +1313,11 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         await mkdir(dir, { recursive: true });
         for (const f of await readdir(dir))
           if (f.startsWith("redgiant-backup-")) await removeBackup(join(dir, f));
-        await exportBackup(core.backupDeps, o, join(dir, name), h, keychain);
+        // The knowledge's pieces and vectors only when the person asked (G36.6).
+        const vectors = (await core.knowledge?.settings(o).catch(() => undefined))?.backupVectors;
+        await exportBackup(core.backupDeps, o, join(dir, name), h, keychain, {
+          ...(vectors && { vectors }),
+        });
         h.info({ file: name });
       },
       { file: name },

@@ -61,6 +61,7 @@ import { Downloads } from "./Downloads.js";
 import { EngineLoading } from "./EngineLoading.js";
 import { Explorer } from "./Explorer.js";
 import { ProjectAgents } from "./Hierarchy.js";
+import { CitationNote } from "./Knowledge.js";
 import { Login } from "./Login.js";
 import { RoomView } from "./Room.js";
 import { Search } from "./Search.js";
@@ -418,6 +419,7 @@ export function App() {
       <EngineLoading />
       <WhatsNew />
       <UpdateGate />
+      <CitationNote />
       {lastError.value && (
         <div class="banner error">
           <IconAlert /> {lastError.value}

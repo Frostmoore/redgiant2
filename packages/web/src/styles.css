@@ -14110,3 +14110,300 @@ button.sub-tab {
   color: var(--text);
   opacity: 0.8;
 }
+
+/* Settings › Knowledge (G36.5-G36.6): status, collections, try a search, models, OCR, disk. */
+.kb-page .wz-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.kb-p {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.5;
+}
+.kb-dim {
+  color: var(--dim);
+  font-size: 14.5px;
+}
+.kb-error {
+  margin: 0;
+  color: var(--err);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.kb-pre,
+.kb-note {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 13px;
+  margin: 0;
+}
+.kb-note {
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.kb-mono {
+  font-family: var(--mono);
+}
+.kb-status {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.kb-status-hd {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.kb-status-hd > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.kb-status-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--panel-2);
+  color: var(--dim);
+}
+.kb-status.busy .kb-status-ico {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.kb-headline {
+  font-size: 19px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.kb-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+  gap: 14px;
+}
+.kb-cols .sb-pill {
+  white-space: normal;
+  max-width: 100%;
+}
+.kb-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 96px;
+  border: 2px dashed var(--line);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.kb-add:hover,
+.kb-add:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.kb-window {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.kb-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.kb-form .wz-chips,
+.kb-scope .wz-chips {
+  justify-content: flex-start;
+}
+.kb-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.kb-h3 {
+  margin: 8px 0 0;
+  font-size: 17px;
+}
+.kb-sources,
+.kb-left,
+.kb-hits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kb-source {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  min-width: 0;
+}
+.kb-source.failed {
+  border-color: var(--err);
+}
+.kb-source-ico {
+  flex: none;
+  color: var(--dim);
+  display: grid;
+}
+.kb-source-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.kb-source-text b {
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+.kb-source-text small {
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+.kb-source-acts {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+.kb-left li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.kb-left li:last-child {
+  border-bottom: none;
+}
+.kb-left-path {
+  font-family: var(--mono);
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+.kb-left small {
+  color: var(--dim);
+}
+.kb-kinds.st-tiles .wz-tile {
+  flex: 1 1 200px;
+}
+.kb-consent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--panel-2);
+}
+.kb-consent p {
+  margin: 0;
+  line-height: 1.5;
+}
+.kb-try {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.kb-try-form {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.kb-try-form .wz-field {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.kb-try-how {
+  margin: 0;
+}
+.kb-hit-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  min-width: 0;
+}
+.kb-hit-btn:hover,
+.kb-hit-btn:focus-visible {
+  border-color: var(--accent);
+}
+.kb-hit-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.kb-pill {
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--dim);
+}
+.kb-hit-text {
+  color: var(--dim);
+  font-size: 14.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.kb-models.st-tiles .wz-tile {
+  flex: 1 1 250px;
+}
+.kb-ocr {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.kb-ocr .wz-chips {
+  justify-content: flex-start;
+}
+.kb-ocr .kb-p {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+/* A citation of the person's own documents: the same pill, with the accent's edge. */
+.md a.cite.kb {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}

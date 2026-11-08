@@ -54,6 +54,8 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   one("web_search", "web"),
   { id: "browser", group: "web", prefix: "browser_" },
   one("memory", "memory"),
+  // The person's documents (G36.5): only the collections the agent may read.
+  one("search_knowledge", "memory"),
   // After a summary the details of the conversation are only reachable through it.
   one("conversation_history", "memory", true),
   one("use_credential", "credentials"),

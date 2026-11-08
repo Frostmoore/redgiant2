@@ -1,6 +1,7 @@
 // Demo server for screenshots and UI development: the real server and UI, an in-process
 // Postgres and a scripted model. Usage: node packages/web/scripts/demo-server.mjs [port]
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,7 +26,22 @@ const port = Number(process.argv[2] ?? 7650);
 // Set DEMO_TOKEN when the demo is reachable by others: the UI includes a terminal.
 const token = process.env.DEMO_TOKEN ?? "demo-token-0123456789";
 const dir = await mkdtemp(join(tmpdir(), "rg-demo-"));
-const pg = await PGlite.create();
+// DEMO_KNOWLEDGE=1 (G36.5): pgvector in the demo's Postgres too, for the knowledge.
+const pg = await PGlite.create(
+  process.env.DEMO_KNOWLEDGE
+    ? {
+        extensions: {
+          vector: (
+            await import(
+              createRequire(new URL("../../server/package.json", import.meta.url)).resolve(
+                "@electric-sql/pglite-pgvector",
+              )
+            )
+          ).vector,
+        },
+      }
+    : {},
+);
 const wrap = (q) => ({
   query: async (text, params) => (await q.query(text, params)).rows,
   transaction: (fn) => (q instanceof PGlite ? q.transaction((tx) => fn(wrap(tx))) : fn(wrap(q))),
@@ -61,6 +77,33 @@ const brain = (req) => {
   const results = last?.role === "user" && last.parts.every((p) => p.type === "tool_result");
   turn++;
   const said = last?.parts.find((p) => p.type === "text")?.text ?? "";
+  // G36.5: a question on the person's documents, searched and answered with its citations.
+  const found = last?.parts.find(
+    (p) => p.type === "tool_result" && String(p.content).includes("(#kb:"),
+  )?.content;
+  if (results && found) {
+    const links = [...String(found).matchAll(/^\[(\d+)\] (\[[^\]]+\]\(#kb:\d+\))/gm)].map(
+      (m) => m[2],
+    );
+    return {
+      text: [
+        "La garanzia della **Lumo 8** dura **24 mesi** dalla data dello scontrino e copre motore, scheda elettronica e pompa di scarico [1]. Non copre la guarnizione dell'oblò né i danni da calcare [1].",
+        "",
+        "Per l'assistenza chiami il numero verde con modello e numero di serie (sono sull'etichetta dietro lo sportello del filtro): il tecnico arriva entro cinque giorni lavorativi [1].",
+        "",
+        "**Fonti**",
+        "",
+        `1. ${links.find((l) => l.includes("lavatrice")) ?? links[0]}`,
+      ].join("\n"),
+    };
+  }
+  if (said.includes("garanzia della lavatrice") && !results)
+    return {
+      text: "Lo cerco nei tuoi documenti.",
+      toolCalls: [
+        { name: "search_knowledge", input: { query: "garanzia lavatrice durata assistenza" } },
+      ],
+    };
   // G36.17: the person's classifier (DEMO_REQUESTS): yes to installing, no to deleting, an answer.
   if (typeof req.system === "string" && req.system.startsWith("You decide for a person")) {
     if (said.includes("Answer each question"))
@@ -1068,6 +1111,126 @@ if (process.env.DEMO_UPDATE || process.env.DEMO_FOUND) {
       await new Promise((r) => setTimeout(r, 50));
   }
 }
+// DEMO_KNOWLEDGE=1 (G36.5-G36.6): the knowledge with three collections, one still being read
+// (stopped a third of the way, so its bar and time left show), a picture waiting for the OCR, and a
+// conversation whose answer cites the documents. Embeddings acted out (no model).
+let knowledgeSession;
+if (process.env.DEMO_KNOWLEDGE) {
+  const { cp } = await import("node:fs/promises");
+  const { KnowledgeService, LocalEmbedServers } = await import("@redgiant/server");
+  const dims = 768;
+  const embed = (t) => {
+    const v = new Array(dims).fill(0);
+    for (const w of t.toLowerCase().match(/[\p{L}0-9]+/gu) ?? []) {
+      let h = 2166136261;
+      for (const c of w.slice(0, 6)) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+      v[Math.abs(h) % dims] += 1;
+    }
+    const n = Math.hypot(...v) || 1;
+    return v.map((x) => x / n);
+  };
+  const kdir = join(dir, "data");
+  const local = new LocalEmbedServers({ dataDir: kdir, jobs: core.jobs });
+  // The local model counts as downloaded; its answers come from `embed`.
+  local.ready = async () => true;
+  const k = new KnowledgeService({
+    db: core.db,
+    store: core.store,
+    jobs: core.jobs,
+    dataDir: kdir,
+    local,
+    keyedFetch: () => {
+      throw new Error("no keys in the demo");
+    },
+    scopeRoot: (o, scope) => core.scopeFolder(o, scope),
+    chats: core.knowledgeChats(),
+    // A mailbox acted out (no IMAP): two messages.
+    mail: {
+      boxes: async () => [{ id: "box_lavoro", name: "Lavoro" }],
+      list: async () => [
+        { id: "11", title: "Preventivo cucina", at: Date.now() - 86_400_000, size: 900 },
+        { id: "12", title: "Riunione di lunedì", at: Date.now() - 3_600_000, size: 400 },
+      ],
+      read: async (_o, _b, id) => ({
+        subject: id === "11" ? "Preventivo cucina" : "Riunione di lunedì",
+        from: "Rossi Arredamenti <info@rossi.example>",
+        date: new Date().toISOString(),
+        text: id === "11" ? "Il preventivo per la cucina è di 4.200 euro." : "Lunedì alle 10.",
+      }),
+    },
+    agentProjects: async (_o, id) => {
+      const a = core.registry.get(id);
+      return a?.projectId ? [a.projectId] : [];
+    },
+    ocr: {
+      ready: async () => false,
+      ensure: async () => {},
+      recognize: async () => "",
+      bytes: async () => 0,
+      stop: async () => {},
+    },
+    manual: true,
+  });
+  await k.start();
+  k.embedderFor = async () => ({
+    batch: 16,
+    maxChars: 8000,
+    embed: async (texts) => texts.map(embed),
+  });
+  core.knowledge = k;
+  await k.setSettings("local", {
+    embedding: { provider: "local", model: "embeddinggemma-300m" },
+    ocr: { on: false, languages: ["ita", "eng"] },
+  });
+  const bench = fileURLToPath(
+    new URL("../../server/test/fixtures/knowledge/bench/docs", import.meta.url),
+  );
+  const home = join(dir, "Documenti");
+  await cp(bench, join(home, "Manuali di casa"), { recursive: true });
+  await writeFile(join(home, "Manuali di casa", "scontrino.jpg"), Buffer.from([0xff, 0xd8, 0xff]));
+  const manuals = await k.createCollection("local", {
+    name: "Manuali di casa",
+    description: "Garanzie, istruzioni e ricette",
+    language: "italian",
+  });
+  await k.addSource("local", manuals.id, { kind: "folder", path: join(home, "Manuali di casa") });
+  const notes = await k.createCollection("local", {
+    name: "Appunti del progetto",
+    scope: { kind: "project", projectId: "demo" },
+    language: "italian",
+  });
+  await k.addSource("local", notes.id, { kind: "workspace", scope: "project:demo" });
+  await k
+    .addSource("local", notes.id, { kind: "url", url: "https://example.org/" })
+    .catch(() => {});
+  await k.indexer.drain();
+  // A big archive, read half-way and paused: the page shows its bar and the time left.
+  const archive = join(home, "Archivio clienti");
+  await mkdir(archive, { recursive: true });
+  for (let i = 1; i <= 600; i++)
+    await writeFile(
+      join(archive, `cliente-${String(i).padStart(3, "0")}.md`),
+      `# Cliente ${i}\n\nContratto firmato il ${(i % 28) + 1} marzo. Rinnovo annuale, ${i % 3 ? "pagamento a 30 giorni" : "pagamento anticipato"}.\n\n## Note\n\nReferente: ufficio acquisti. Ultimo ordine: ${i * 7} pezzi.\n`,
+    );
+  const big = await k.createCollection("local", {
+    name: "Archivio clienti",
+    scope: { kind: "agent", agentId: god.id },
+    language: "italian",
+  });
+  await k.addSource("local", big.id, { kind: "folder", path: archive });
+  // Everything read, about a third embedded (with a pace to tell the time left).
+  await k.indexer.step();
+  while ((await k.status("local")).queue.documents > 0) await k.indexer.step();
+  for (let i = 0; i < 13; i++) {
+    await k.indexer.step();
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  // Nothing more is read (the demo's queue does not run): the page shows the bar and the time
+  // left at the pace measured above.
+  knowledgeSession = await core.startSession("local", god.id);
+  await (await core.send("local", knowledgeSession, "Quanto dura la garanzia della lavatrice?"))
+    .done;
+}
 await debugLog.configure({ dir: join(dir, "logs") });
 await setup.applyAtStartup();
 core.vaultSystem = async () => setup.keysForVault();
@@ -1088,6 +1251,7 @@ console.log(
     orchestrator: orch.id,
     god: god.id,
     ...(viewerSession && { viewerSession }),
+    ...(knowledgeSession && { knowledgeSession }),
     ...(subSession && { subSession }),
   }),
 );

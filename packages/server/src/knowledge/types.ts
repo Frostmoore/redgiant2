@@ -52,6 +52,11 @@ export interface ExtractContext {
    */
   officePdf?: (abs: string, signal?: AbortSignal) => Promise<string | undefined>;
   signal?: AbortSignal;
+  /**
+   * The text in a picture (G36.6, Tesseract on this computer); unset while the OCR is off or not
+   * downloaded yet: pictures and scans are then skipped as `needs_ocr`, read later.
+   */
+  ocr?: (image: Uint8Array, signal?: AbortSignal) => Promise<string>;
   /** Largest file read, bytes (default 50 MB; text files 5 MB). */
   maxBytes?: number;
 }
