@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join, posix, win32 } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
-  bashTool,
   baseTools,
+  bashTool,
   type DirEntry,
   diskWideRefusal,
   type ExecOptions,
