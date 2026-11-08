@@ -153,15 +153,15 @@ const brain = (req) => {
       ],
     };
   // p3.3.1: background commands (DEMO_SUBAGENTS): a server that keeps writing, tests, a build.
-  if (said.startsWith("Avvia il server di prova"))
+  if (said.startsWith("Start the test server"))
     return {
-      text: "Avvio il server di prova e, intanto, i test e la build.",
+      text: "Starting the test server and, meanwhile, the tests and the build.",
       toolCalls: [
         {
           name: "bash",
           input: {
             command:
-              'echo "> vite --port 5173"; for i in $(seq 1 900); do echo "[vite] GET /api/stato 200 in $((i % 40 + 3)) ms"; sleep 1; done',
+              'echo "> vite --port 5173"; for i in $(seq 1 900); do echo "[vite] GET /api/status 200 in $((i % 40 + 3)) ms"; sleep 1; done',
             background: true,
           },
         },
@@ -169,7 +169,7 @@ const brain = (req) => {
           name: "bash",
           input: {
             command:
-              "echo 'RUN v5.0.5'; sleep 1; echo 'warning: test lento (2.3 s)' >&2; echo 'Tests 42 passed (42)'",
+              "echo 'RUN v5.0.5'; sleep 1; echo 'warning: slow test (2.3 s)' >&2; echo 'Tests 42 passed (42)'",
             background: true,
           },
         },
@@ -190,19 +190,19 @@ const brain = (req) => {
     )
   )
     return {
-      text: "Il server gira; i test sono passati, la build ha un errore di tipo in `src/app.ts`.",
+      text: "The server is up; the tests passed, and the build has a type error in `src/app.ts`.",
     };
   // p3.3.1: the sub-agents of DEMO_SUBAGENTS, each with its own answer.
-  if (said.startsWith("Task from God: «Pubblica"))
+  if (said.startsWith("Task from God: «Publish"))
     return {
-      text: "Preparo le note di rilascio, poi pubblico.",
+      text: "Writing the release notes, then publishing.",
       toolCalls: [
         { name: "write_file", input: { path: "release-3.3.1.md", content: "# 3.3.1\n" } },
       ],
     };
-  if (said.startsWith("Task from God: «Scrive"))
+  if (said.startsWith("Task from God: «Write"))
     return {
-      text: "Non ci riesco: i test di integrazione chiedono un database che qui non c'è.",
+      text: "I cannot: the integration tests need a database that is not here.",
     };
   if (said.startsWith("Task from "))
     return {
@@ -505,19 +505,19 @@ void (await core.send("local", godSid, "Plan the export feature for the reports.
   await mkdir(join(home, "site"), { recursive: true });
   await writeFile(
     join(home, "site", "index.html"),
-    `<!doctype html><html><head><link rel="stylesheet" href="/style.css"></head><body><main><h1>Buon giorno, Red Giant</h1><p>Un sito fatto da God, mostrato nel canvas.</p></main></body></html>`,
+    `<!doctype html><html><head><link rel="stylesheet" href="/style.css"></head><body><main><h1>Good morning, Red Giant</h1><p>A site made by God, shown in the canvas.</p></main></body></html>`,
   );
   await writeFile(
     join(home, "site", "style.css"),
     "body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui;background:linear-gradient(135deg,#2b0f12,#7a1e22 55%,#e0482e);color:#fff}h1{font-size:44px;margin:0 0 8px}main{text-align:center}",
   );
   await writeFile(
-    join(home, "spese.csv"),
-    'Mese,Voce,Importo\nGennaio,Affitto,850\nGennaio,"Spesa, alimentari",312.40\nFebbraio,Affitto,850\nFebbraio,Bollette,140.15\n',
+    join(home, "expenses.csv"),
+    'Month,Item,Amount\nJanuary,Rent,850\nJanuary,"Groceries, food",312.40\nFebruary,Rent,850\nFebruary,Bills,140.15\n',
   );
   await writeFile(
     join(home, "note.md"),
-    "# Note\n\n- Il sito è pronto\n- Il **canvas** si aggiorna da solo\n",
+    "# Notes\n\n- The site is ready\n- The **canvas** updates by itself\n",
   );
   // A cube, as a 3D model.
   const v = [
@@ -545,18 +545,18 @@ void (await core.send("local", godSid, "Plan the export feature for the reports.
     [0, 7, 3],
   ];
   const stl = `solid cube\n${faces.map((f) => `facet normal 0 0 0\nouter loop\n${f.map((i) => `vertex ${v[i].join(" ")}`).join("\n")}\nendloop\nendfacet`).join("\n")}\nendsolid cube\n`;
-  await writeFile(join(home, "cubo.stl"), stl);
+  await writeFile(join(home, "cube.stl"), stl);
   const shown = await core.startSession("local", god.id);
-  await (await core.send("local", shown, "Mostrami quello che hai fatto")).done;
+  await (await core.send("local", shown, "Show me what you made")).done;
   // Files sent in the chat (G25.2): a picture and a document.
   await writeFile(
-    join(home, "anteprima.svg"),
-    `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b0f12"/><stop offset="1" stop-color="#e0482e"/></linearGradient></defs><rect width="640" height="360" fill="url(#g)"/><text x="320" y="190" font-family="sans-serif" font-size="36" fill="#fff" text-anchor="middle">Buon giorno, Red Giant</text></svg>`,
+    join(home, "preview.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b0f12"/><stop offset="1" stop-color="#e0482e"/></linearGradient></defs><rect width="640" height="360" fill="url(#g)"/><text x="320" y="190" font-family="sans-serif" font-size="36" fill="#fff" text-anchor="middle">Good morning, Red Giant</text></svg>`,
   );
-  await writeFile(join(home, "relazione.txt"), "Relazione del progetto\n".repeat(40));
+  await writeFile(join(home, "report.txt"), "Project report\n".repeat(40));
   for (const [name, mime, caption] of [
-    ["anteprima.svg", "image/svg+xml", "Ecco come viene il sito"],
-    ["relazione.txt", "text/plain", undefined],
+    ["preview.svg", "image/svg+xml", "Here is how the site looks"],
+    ["report.txt", "text/plain", undefined],
   ])
     await core.store.append({
       ownerId: "local",
@@ -581,15 +581,15 @@ void (await core.send("local", godSid, "Plan the export feature for the reports.
   const boardDir = join(dirname(dirname(core.platformPath("local"))), "boards", boardId);
   await mkdir(boardDir, { recursive: true });
   const page = (bg, fg, sub) =>
-    `<!doctype html><html lang="it"><body style="margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui;background:${bg};color:${fg}"><main style="text-align:center"><h1 style="font-size:64px;margin:0">Buon giorno, Red Giant</h1><p style="font-size:22px">${sub}</p></main></body></html>`;
+    `<!doctype html><html lang="en"><body style="margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui;background:${bg};color:${fg}"><main style="text-align:center"><h1 style="font-size:64px;margin:0">Good morning, Red Giant</h1><p style="font-size:22px">${sub}</p></main></body></html>`;
   const pages = [
     page(
       "linear-gradient(135deg,#2b0f12,#7a1e22 55%,#e0482e)",
       "#fff",
-      "Rosso su nero, come RedGiant",
+      "Red on black, like RedGiant",
     ),
-    page("#f6f1ea", "#2b0f12", "Toni caldi, più leggera"),
-    page("#0d1b2a", "#e0e1dd", "Notte blu, sobria"),
+    page("#f6f1ea", "#2b0f12", "Warm tones, lighter"),
+    page("#0d1b2a", "#e0e1dd", "Night blue, plain"),
   ];
   for (const [n, html] of pages.entries()) await writeFile(join(boardDir, `${n + 1}.html`), html);
   await core.store.append({
@@ -601,20 +601,20 @@ void (await core.send("local", godSid, "Plan the export feature for the reports.
       type: "variants.proposed",
       payload: {
         proposalId: boardId,
-        title: "La home del sito",
-        description: "Tre strade per la pagina d'ingresso.",
+        title: "The site's home page",
+        description: "Three ways to the front page.",
         variants: [
-          { title: "Scura", note: "Rosso su nero, come RedGiant", bytes: pages[0].length },
-          { title: "Chiara", note: "Toni caldi, più leggera", bytes: pages[1].length },
-          { title: "Notte", bytes: pages[2].length },
+          { title: "Dark", note: "Red on black, like RedGiant", bytes: pages[0].length },
+          { title: "Light", note: "Warm tones, lighter", bytes: pages[1].length },
+          { title: "Night", bytes: pages[2].length },
         ],
       },
     },
   });
   for (const [title, path] of [
-    ["Il sito", "site"],
-    ["Spese", "spese.csv"],
-    ["Cubo", "cubo.stl"],
+    ["The site", "site"],
+    ["Expenses", "expenses.csv"],
+    ["Cube", "cube.stl"],
     ["Note", "note.md"],
   ])
     await core.store.append({
@@ -678,8 +678,8 @@ const secretary = await core.registry.create(
   {
     kind: "assistant",
     parentId: god.id,
-    name: "Segretaria",
-    role: "Tieni in ordine le mie attività e i miei appuntamenti e fammi il punto della giornata.",
+    name: "Secretary",
+    role: "Keep my tasks and appointments in order and give me a brief of the day.",
     connections: ["docs"],
   },
 );
@@ -688,13 +688,13 @@ const researcher = await core.registry.create(
   {
     kind: "assistant",
     parentId: god.id,
-    name: "Ricercatore",
-    role: "Cerca sul web e riportami quello che trovi, con le fonti.",
+    name: "Researcher",
+    role: "Search the web and bring back what you find, with the sources.",
   },
 );
 // Subprojects (G24.13): the site and the API, each in its folder, with an agent on the site.
 {
-  const site = await core.projects.createSubproject("local", "demo", "Sito", "apps/site");
+  const site = await core.projects.createSubproject("local", "demo", "Site", "apps/site");
   await core.projects.createSubproject("local", "demo", "API", "apps/api");
   const webmaster = await core.registry.create(
     { type: "human", ownerId: "local" },
@@ -727,14 +727,14 @@ if (process.env.DEMO_BROWSER === "1") {
 // A group chat (G24.12): God, the demo's inspector and the secretary.
 {
   const room = await core.rooms.create("local", {
-    title: "Rilascio di dicembre",
+    title: "December release",
     members: [god.id, (await core.inspectorAgent("local", "demo")).id, secretary.id],
   });
-  await (await core.rooms.post("local", room.id, "Cosa manca per il rilascio di dicembre?")).done;
+  await (await core.rooms.post("local", room.id, "What is left for the December release?")).done;
 }
 await core.automations.create(
   "local",
-  `name: morning-brief\ndescription: Il punto della mattina\non:\n  cron: "0 8 * * 1-5"\nagent: ${secretary.id}\ninstructions: Fammi il punto della giornata.\n`,
+  `name: morning-brief\ndescription: Morning brief\non:\n  cron: "0 8 * * 1-5"\nagent: ${secretary.id}\ninstructions: Give me the brief of the day.\n`,
 );
 // A month of spending for the chart: a little every day, more on some.
 {
@@ -790,7 +790,7 @@ if (process.env.DEMO_KEYS) {
       JSON.stringify([
         {
           id: "box_demo1",
-          name: "Lavoro",
+          name: "Work",
           category: "work",
           host: "imap.example.org",
           port: 993,
@@ -961,12 +961,12 @@ if (process.env.DEMO_SUBAGENTS) {
     core.store.append({ ownerId: "local", projectId: null, agentId, sessionId, body });
   await at(subSession, null, {
     type: "message.user",
-    payload: { text: "Prepara la release 3.3.1: trova cosa cambiare, scrivi i test e pubblica." },
+    payload: { text: "Prepare release 3.3.1: find what to change, write the tests and publish." },
   });
   await at(subSession, god.id, {
     type: "message.assistant",
     payload: {
-      parts: [{ type: "text", text: "Divido il lavoro fra tre sotto-agenti." }],
+      parts: [{ type: "text", text: "Splitting the work among three sub-agents." }],
       metrics: {
         inputTokens: 9000,
         outputTokens: 300,
@@ -982,9 +982,9 @@ if (process.env.DEMO_SUBAGENTS) {
     },
   });
   const work = [
-    ["Cerca i file da cambiare", "Cerca nel progetto i file che la 3.3.1 deve cambiare.", "done"],
-    ["Scrive i test", "Scrivi i test di integrazione della conversione PSD.", "failed"],
-    ["Pubblica il pacchetto", "Pubblica il pacchetto npm della 3.3.1.", null],
+    ["Find the files to change", "Find the files in the project that 3.3.1 must change.", "done"],
+    ["Write the tests", "Write the integration tests for the PSD conversion.", "failed"],
+    ["Publish the package", "Publish the npm package of 3.3.1.", null],
   ];
   for (const [title, task, end] of work) {
     const child = await core.startSession("local", researcher.id);
@@ -1015,12 +1015,11 @@ if (process.env.DEMO_SUBAGENTS) {
           childSessionId: grand,
           childAgentId: researcher.id,
           via: "run_subagent",
-          title: "Controlla il changelog",
-          task: "Controlla che il changelog della 3.3.1 sia completo.",
+          title: "Check the changelog",
+          task: "Check that the 3.3.1 changelog is complete.",
         },
       });
-      await (await core.send("local", grand, "Task from Ricercatore: «Controlla il changelog»"))
-        .done;
+      await (await core.send("local", grand, "Task from Researcher: «Check the changelog»")).done;
       await at(child, researcher.id, {
         type: "subagent.ended",
         payload: { childSessionId: grand, status: "done", summary: "ok" },
@@ -1029,7 +1028,8 @@ if (process.env.DEMO_SUBAGENTS) {
   }
 }
 if (subSession)
-  await (await core.send("local", subSession, "Avvia il server di prova, i test e la build.")).done;
+  await (await core.send("local", subSession, "Start the test server, the tests and the build."))
+    .done;
 // G36.16, G36.17, DEMO_REQUESTS=1: background commands without a time limit, and «Non chiedermi
 // niente»: the classifier said yes to an install, no to a deletion, answered a question, and a
 // push (only the person approves it) still reaches the person and waits for their answer.
@@ -1336,16 +1336,16 @@ if (process.env.DEMO_KNOWLEDGE) {
     new URL("../../server/test/fixtures/knowledge/bench/docs", import.meta.url),
   );
   const home = join(dir, "Documenti");
-  await cp(bench, join(home, "Manuali di casa"), { recursive: true });
-  await writeFile(join(home, "Manuali di casa", "scontrino.jpg"), Buffer.from([0xff, 0xd8, 0xff]));
+  await cp(bench, join(home, "Home manuals"), { recursive: true });
+  await writeFile(join(home, "Home manuals", "scontrino.jpg"), Buffer.from([0xff, 0xd8, 0xff]));
   const manuals = await k.createCollection("local", {
-    name: "Manuali di casa",
-    description: "Garanzie, istruzioni e ricette",
+    name: "Home manuals",
+    description: "Warranties, instructions and recipes",
     language: "italian",
   });
-  await k.addSource("local", manuals.id, { kind: "folder", path: join(home, "Manuali di casa") });
+  await k.addSource("local", manuals.id, { kind: "folder", path: join(home, "Home manuals") });
   const notes = await k.createCollection("local", {
-    name: "Appunti del progetto",
+    name: "Project notes",
     scope: { kind: "project", projectId: "demo" },
     language: "italian",
   });
@@ -1355,7 +1355,7 @@ if (process.env.DEMO_KNOWLEDGE) {
     .catch(() => {});
   await k.indexer.drain();
   // A big archive, read half-way and paused: the page shows its bar and the time left.
-  const archive = join(home, "Archivio clienti");
+  const archive = join(home, "Client archive");
   await mkdir(archive, { recursive: true });
   for (let i = 1; i <= 600; i++)
     await writeFile(
@@ -1363,7 +1363,7 @@ if (process.env.DEMO_KNOWLEDGE) {
       `# Cliente ${i}\n\nContratto firmato il ${(i % 28) + 1} marzo. Rinnovo annuale, ${i % 3 ? "pagamento a 30 giorni" : "pagamento anticipato"}.\n\n## Note\n\nReferente: ufficio acquisti. Ultimo ordine: ${i * 7} pezzi.\n`,
     );
   const big = await k.createCollection("local", {
-    name: "Archivio clienti",
+    name: "Client archive",
     scope: { kind: "agent", agentId: god.id },
     language: "italian",
   });
