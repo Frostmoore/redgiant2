@@ -189,6 +189,13 @@ describe("evaluate", () => {
     ["plan", "edit_file", { path: "a", old_string: "", new_string: "" }, "deny"],
     ["readonly", "bash", { command: "ls" }, "deny"],
     ["readonly", "grep", { pattern: "x" }, "allow"],
+    // G37.1: canvas_edit writes (manual asks, plan denies); its help and dry runs only read.
+    ["auto", "canvas_edit", { path: "a.txt", ops: [{ op: "insert", text: "x" }] }, "allow"],
+    ["manual", "canvas_edit", { path: "a.txt", ops: [{ op: "insert", text: "x" }] }, "ask"],
+    ["plan", "canvas_edit", { path: "a.txt", ops: [{ op: "insert", text: "x" }] }, "deny"],
+    ["plan", "canvas_edit", { path: "a.txt", help: true }, "allow"],
+    ["readonly", "canvas_edit", { path: "a.txt", dry_run: true, ops: [] }, "allow"],
+    ["manual", "canvas_edit", { help: true }, "allow"],
     // G24.11: what leaves through a connected service asks; reading does not.
     ["auto", "mcp__gmail__send_email", { to: "a@b.c" }, "ask"],
     ["auto", "mcp__notion__createPost", {}, "ask"],

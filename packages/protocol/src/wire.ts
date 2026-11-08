@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { CanvasState } from "./canvas.js";
 import { MAX_QUOTES, MessageQuote } from "./chat-tools.js";
+import {
+  AgentEditMode,
+  DocChange,
+  DocFamilyId,
+  DocFile,
+  DocOp,
+  DocPresence,
+  DocProposal,
+  DocSnapshot,
+} from "./doc.js";
 import { Event } from "./events.js";
 import { ImagePart } from "./messages.js";
 import { Answers, QuestionRequestInfo } from "./questions.js";
@@ -92,6 +102,46 @@ export const ClientMessage = z.discriminatedUnion("type", [
       z.object({ kind: z.literal("text"), text: z.string().max(2000) }),
       z.object({ kind: z.literal("key"), key: z.string().min(1).max(40) }),
     ]),
+  }),
+  // The editor (G37.1): the page opens a file, sends the person's operations, takes back an
+  // agent's change or a whole turn, says where the person is typing, answers a proposal.
+  z.object({ type: z.literal("doc.open"), file: DocFile }),
+  z.object({ type: z.literal("doc.close"), file: DocFile }),
+  z.object({
+    type: z.literal("doc.ops"),
+    file: DocFile,
+    /** The page's id for this batch: the answer (`doc.ack` or `doc.rejected`) carries it. */
+    clientId: z.string().min(1).max(80),
+    baseRevision: z.number().int().nonnegative(),
+    ops: z.array(DocOp).min(1).max(1000),
+    /** The person's gesture (a pause starts another). */
+    groupId: z.string().min(1).max(200),
+  }),
+  z.object({
+    type: z.literal("doc.undo"),
+    file: DocFile,
+    clientId: z.string().min(1).max(80),
+    /** «Annulla questa modifica»: one revision; with `toBefore`, back to before it (and all after). */
+    revision: z.number().int().positive().optional(),
+    toBefore: z.boolean().optional(),
+    /** «Annulla tutto il turno». */
+    groupId: z.string().min(1).max(200).optional(),
+  }),
+  z.object({
+    type: z.literal("doc.presence"),
+    file: DocFile,
+    editing: z.boolean(),
+    /** The person's cursor or selection, in the document at `revision`. */
+    from: z.number().int().nonnegative().optional(),
+    to: z.number().int().nonnegative().optional(),
+    revision: z.number().int().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("doc.decide"),
+    file: DocFile,
+    clientId: z.string().min(1).max(80),
+    proposalId: z.string().min(1).max(80),
+    accept: z.boolean(),
   }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
@@ -195,6 +245,68 @@ export const ServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("platform.changed"), changeId: z.string() }),
   /** An agent asks what the person's canvas shows (G36.12): the page answers `canvas.state`. */
   z.object({ type: z.literal("canvas.query"), requestId: z.string() }),
+  // The editor (G37.1). Every message about one file reaches a page in the order the host applied
+  // the revisions: `doc.changed` for others' revisions, `doc.ack` for the page's own.
+  z.object({
+    type: z.literal("doc.opened"),
+    file: DocFile,
+    family: DocFamilyId,
+    revision: z.number().int().nonnegative(),
+    snapshot: DocSnapshot,
+    /** The panel «Modifiche»: the latest first. */
+    changes: z.array(DocChange).max(500),
+    proposals: z.array(DocProposal).max(200),
+    presence: z.array(DocPresence).max(50),
+    /** The rule for the agents' edits on this file, and whether it is the file's own choice. */
+    mode: AgentEditMode,
+    modeOwn: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("doc.changed"),
+    file: DocFile,
+    revision: z.number().int().positive(),
+    ops: z.array(DocOp).min(1).max(1000),
+    change: DocChange,
+  }),
+  z.object({
+    type: z.literal("doc.ack"),
+    file: DocFile,
+    clientId: z.string(),
+    revision: z.number().int().nonnegative(),
+    /** Present when the host rebased them: what was applied (the page already has it). */
+    change: DocChange.optional(),
+  }),
+  z.object({
+    type: z.literal("doc.rejected"),
+    file: DocFile,
+    clientId: z.string(),
+    /** conflict (the same place changed meanwhile), busy (the person is typing there), stale,
+     *  invalid, replaced (the file changed from outside), gone. */
+    code: z.string().max(40),
+    reason: z.string().max(2000),
+    revision: z.number().int().nonnegative(),
+    /** The later revision that touched the same place. */
+    conflict: z.number().int().positive().optional(),
+  }),
+  z.object({
+    type: z.literal("doc.replaced"),
+    file: DocFile,
+    revision: z.number().int().positive(),
+    snapshot: DocSnapshot,
+    change: DocChange,
+  }),
+  z.object({ type: z.literal("doc.presence"), file: DocFile, presence: z.array(DocPresence) }),
+  z.object({
+    type: z.literal("doc.proposals"),
+    file: DocFile,
+    proposals: z.array(DocProposal).max(200),
+  }),
+  z.object({
+    type: z.literal("doc.mode"),
+    file: DocFile,
+    mode: AgentEditMode,
+    modeOwn: z.boolean(),
+  }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

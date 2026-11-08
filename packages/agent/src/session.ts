@@ -162,7 +162,7 @@ function historyTool(store: EventStore, sessionId: string): Tool {
         if (!e.payload) continue;
         const text =
           e.type === "message.user"
-            ? `user: ${quotedText(e.payload.text, e.payload.quotes)}`
+            ? `user: ${quotedText(e.payload.text, e.payload.quotes, e.payload.notes)}`
             : e.type === "message.assistant"
               ? `assistant: ${e.payload.parts
                   .map((p) =>
@@ -406,13 +406,20 @@ export class AgentSession {
   async send(
     text: string,
     signal?: AbortSignal,
-    extra: { images?: ImagePart[]; from?: string; quotes?: MessageQuote[] } = {},
+    extra: {
+      images?: ImagePart[];
+      from?: string;
+      quotes?: MessageQuote[];
+      /** RedGiant's lines after the text (G37.1): files changed while the agent was away. */
+      notes?: string[];
+    } = {},
   ): Promise<SendResult> {
     const ctx = { ...this.ctx, signal };
     const images = extra.images ?? [];
     const quotes = extra.quotes ?? [];
+    const notes = extra.notes ?? [];
     // What the model reads: the quoted passages first, each with its reply (G36.22).
-    const said = quotedText(text, quotes);
+    const said = quotedText(text, quotes, notes);
     // A summary made after the last turn is applied first: the message lands after it.
     await this.background;
     const first = await this.record({
@@ -422,6 +429,7 @@ export class AgentSession {
         ...(images.length > 0 && { images }),
         ...(extra.from && { from: extra.from }),
         ...(quotes.length > 0 && { quotes }),
+        ...(notes.length > 0 && { notes }),
       },
     });
     this.history.push({

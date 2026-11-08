@@ -35,7 +35,12 @@ const when = (iso: string): string => {
  * under it, then the message's own text. Pure and deterministic: the live session and
  * `rebuildHistory` both build it from the event, so the cached prefix holds after a restart.
  */
-export function quotedText(text: string, quotes?: readonly MessageQuote[]): string {
+export function quotedText(
+  text: string,
+  quotes?: readonly MessageQuote[],
+  notes?: readonly string[],
+): string {
+  if (notes?.length) return notedText(quotedText(text, quotes), notes);
   if (!quotes?.length) return text;
   const blocks = quotes.map((q) => {
     const of = `${q.at ? ` of ${when(q.at)}` : ""}${q.seq !== undefined ? ` (event ${q.seq})` : ""}`;
@@ -78,4 +83,18 @@ export interface AsideView {
   error?: string;
   /** «Porta nella chat» made it a normal message. */
   promoted: boolean;
+}
+
+/** At most this many RedGiant notes ride with one message (G37.1). */
+export const MAX_NOTES = 20;
+
+/**
+ * A message with RedGiant's notes after it (G37.1): what changed in files the agent is editing
+ * while it was away. Pure: `send`, `rebuildHistory` and the history tool write it the same way.
+ */
+export function notedText(text: string, notes: readonly string[]): string {
+  const lines = notes.map((n) => n.trim()).filter(Boolean);
+  if (!lines.length) return text;
+  const block = `[RedGiant: ${lines.length === 1 ? lines[0] : `\n${lines.map((l) => `- ${l}`).join("\n")}`}]`;
+  return text.trim() ? `${text}\n\n${block}` : block;
 }

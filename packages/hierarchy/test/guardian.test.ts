@@ -132,6 +132,25 @@ describe("the guardian and show_file (G34.1)", () => {
       );
     });
 
+  // G37.1: canvas_edit writes where its path says, as edit_file; without a path, the tab (in the
+  // agent's workspace, the tool checks it).
+  it("canvas_edit: a path outside the folders is the person's call", () => {
+    const s = { ...DEFAULT_POLICY, roots: ctx.roots, home: ctx.home };
+    const edit = (input: unknown) => ({ callId: "1", name: "canvas_edit", input });
+    expect(outsideWrites(edit({ path: "/etc/hosts", ops: [] }), ctx)).toEqual(["/etc/hosts"]);
+    expect(outsideWrites(edit({ path: "notes.txt", ops: [] }), ctx)).toEqual([]);
+    expect(outsideWrites(edit({ tab: 1, ops: [] }), ctx)).toEqual([]);
+    expect(outsideWrites(edit({ path: "/etc/hosts", help: true }), ctx)).toEqual([]);
+    const out = evaluate(
+      "auto",
+      edit({ path: "~/notes.txt", ops: [{ op: "insert", text: "x" }] }),
+      s,
+    );
+    expect(out.decision).toBe("ask");
+    expect(out.danger).toContain(OUTSIDE_PROJECT);
+    expect(evaluate("auto", edit({ path: "notes.txt", ops: [] }), s).decision).toBe("allow");
+  });
+
   it("the policy: inside allowed in every mode, outside asks the human, auto lets it be", () => {
     const s = { ...DEFAULT_POLICY, roots: ctx.roots, home: ctx.home };
     const call = (path: string) => ({ callId: "1", name: "show_file", input: { path } });

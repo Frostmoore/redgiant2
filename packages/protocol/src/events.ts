@@ -2,7 +2,8 @@ import { z } from "zod";
 import { AgentSpec } from "./agents.js";
 import { AutomationRunStatus, AutomationTrigger } from "./automations.js";
 import { CanvasDo, CanvasTargetSchema } from "./canvas.js";
-import { MAX_QUOTES, MessageQuote } from "./chat-tools.js";
+import { MAX_NOTES, MAX_QUOTES, MessageQuote } from "./chat-tools.js";
+import { DocDecidedPayload, DocOpsPayload, DocProposedPayload, DocReplacedPayload } from "./doc.js";
 import { AssistantPart, ImagePart, NativeContent, StopReason } from "./messages.js";
 import { MessageMetrics } from "./metrics.js";
 import { Answers, Question } from "./questions.js";
@@ -73,6 +74,11 @@ export const EventBody = z.discriminatedUnion("type", [
        * the text (`quotedText`); the history before it never changes.
        */
       quotes: z.array(MessageQuote).max(MAX_QUOTES).optional(),
+      /**
+       * Lines from RedGiant the model reads after the text (G37.1: «the person changed notes.txt
+       * while you were away»); the page shows them apart from the person's words.
+       */
+      notes: z.array(z.string().max(2000)).max(MAX_NOTES).optional(),
     }),
   }),
   z.object({ type: z.literal("message.assistant.delta"), payload: text }),
@@ -287,6 +293,16 @@ export const EventBody = z.discriminatedUnion("type", [
     type: z.literal("canvas.act"),
     payload: z.object({ title: z.string(), target: CanvasTargetSchema, do: CanvasDo }),
   }),
+  /**
+   * The editor (G37.1): one revision of a file, by the person or an agent, in the file's own
+   * stream (`docStreamId`). Applied in order, the stream rebuilds the file from its last snapshot.
+   */
+  z.object({ type: z.literal("doc.ops"), payload: DocOpsPayload }),
+  /** The file changed on disk from outside the editor: the host starts again from it (G37.1). */
+  z.object({ type: z.literal("doc.replaced"), payload: DocReplacedPayload }),
+  /** An agent's edit kept as a proposal for the person (G37.1, the rule «come proposte»). */
+  z.object({ type: z.literal("doc.proposed"), payload: DocProposedPayload }),
+  z.object({ type: z.literal("doc.decided"), payload: DocDecidedPayload }),
   /**
    * A board ("tavola", G25.4, as in Officina): 1 to 8 HTML pages side by side for the person to
    * choose from or comment on. The pages are copied when it is published; what the person says

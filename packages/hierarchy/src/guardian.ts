@@ -211,7 +211,19 @@ export function outsideWrites(call: ToolCallInfo, ctx: GuardianContext): string[
   }
   if (call.name === "bash" && typeof input.command === "string")
     return bashOutsideWrites(input.command, ctx);
+  // The editor (G37.1): where its path says, unless it only reads (help, a dry run).
+  if (call.name === "canvas_edit" && !editReadsOnly(input) && typeof input.path === "string") {
+    const p = resolvePath(input.path, ctx.roots[0] as string, ctx);
+    if (!p) return [];
+    return p === "$unknown" || !inside(p, ctx.roots) ? [p === "$unknown" ? input.path : p] : [];
+  }
   return [];
+}
+
+/** A canvas_edit call that changes nothing (G37.1): its catalog, or a dry run. */
+export function editReadsOnly(input: unknown): boolean {
+  const i = (input ?? {}) as Record<string, unknown>;
+  return i.help === true || i.dry_run === true;
 }
 
 /**

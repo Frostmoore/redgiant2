@@ -69,7 +69,7 @@ export function rebuildHistory(events: Iterable<Event>, o: RebuildOptions = {}):
         // Written while the agent worked: it rides with the tool results it followed.
         if (e.payload.steer && pendingResults && open.length === 0) {
           pendingResults.images.push(
-            { type: "text", text: quotedText(e.payload.text, e.payload.quotes) },
+            { type: "text", text: quotedText(e.payload.text, e.payload.quotes, e.payload.notes) },
             ...(e.payload.images ?? []),
           );
           break;
@@ -80,7 +80,7 @@ export function rebuildHistory(events: Iterable<Event>, o: RebuildOptions = {}):
           message: {
             role: "user",
             parts: [
-              { type: "text", text: quotedText(e.payload.text, e.payload.quotes) },
+              { type: "text", text: quotedText(e.payload.text, e.payload.quotes, e.payload.notes) },
               ...(e.payload.images ?? []),
             ],
           },

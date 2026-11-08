@@ -302,6 +302,57 @@ const TABLE: Case[] = [
   ],
   ["reading the platform", "platform_status", {}, null],
 
+  // The editor (G37.1): canvas_edit writes like edit_file. Emptying a file is not a deletion for
+  // good (its inverse is in the log, the panel «Modifiche» undoes it); help and dry runs write
+  // nothing. A re-export over a closed original (G37.3-4) needs the file's own switch and keeps
+  // the version before: not critical either.
+  [
+    "canvas_edit in the project",
+    "canvas_edit",
+    { path: "notes.txt", ops: [{ op: "insert", text: "hello\n" }] },
+    null,
+  ],
+  [
+    "canvas_edit emptying a file",
+    "canvas_edit",
+    { path: "notes.txt", ops: [{ op: "delete", from: 0, to: 9000 }] },
+    null,
+  ],
+  [
+    "canvas_edit of a file in /etc",
+    "canvas_edit",
+    { path: "/etc/hosts", ops: [{ op: "insert", text: "1.2.3.4 x\n" }] },
+    "critical-system",
+  ],
+  [
+    "canvas_edit writing a key into the code",
+    "canvas_edit",
+    { path: "src/config.ts", ops: [{ op: "replace", find: "KEY = ''", text: `KEY = "${KEY}"` }] },
+    "critical-secret",
+  ],
+  [
+    "canvas_edit writing a key into .env",
+    "canvas_edit",
+    { path: ".env", ops: [{ op: "insert", text: `ANTHROPIC_API_KEY=${KEY}\n` }] },
+    null,
+  ],
+  [
+    "canvas_edit keeping a key that was there",
+    "canvas_edit",
+    {
+      path: "src/config.ts",
+      ops: [{ op: "replace", find: `"${KEY}"; // a`, text: `"${KEY}"; // b` }],
+    },
+    null,
+  ],
+  [
+    "canvas_edit dry run with a key",
+    "canvas_edit",
+    { path: "src/config.ts", dry_run: true, ops: [{ op: "insert", text: KEY }] },
+    null,
+  ],
+  ["canvas_edit help", "canvas_edit", { help: true }, null],
+
   // Ordinary work.
   ["npm publish (a deploy, not critical)", ...bash("npm publish"), null],
   ["docker compose up", ...bash("docker compose up -d --build"), null],

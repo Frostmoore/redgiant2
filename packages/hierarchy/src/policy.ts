@@ -1,6 +1,6 @@
 import type { ToolCallInfo } from "@redgiant/agent";
 import { criticalOf } from "./critical.js";
-import { outsideShows, outsideWrites } from "./guardian.js";
+import { editReadsOnly, outsideShows, outsideWrites } from "./guardian.js";
 
 /** The guardian's danger: writing outside the agent's folders (only the human approves it). */
 export const OUTSIDE_PROJECT = "outside-project";
@@ -304,7 +304,9 @@ export function evaluate(mode: PermissionMode, call: ToolCallInfo, s: PolicySett
 function evaluateRules(mode: PermissionMode, call: ToolCallInfo, s: PolicySettings): Evaluation {
   const matched = classify(call, s.danger);
   const danger = matched.map((r) => r.id);
-  const readOnly = READ_ONLY_TOOLS.has(call.name);
+  // canvas_edit's catalog and dry runs only read (G37.1).
+  const readOnly =
+    READ_ONLY_TOOLS.has(call.name) || (call.name === "canvas_edit" && editReadsOnly(call.input));
   const out = (decision: Decision, ...reasons: string[]): Evaluation => ({
     decision,
     reasons,

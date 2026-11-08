@@ -889,6 +889,30 @@ function fileRules(input: Record<string, unknown>, name: string, w: Where, add: 
     );
 }
 
+/**
+ * canvas_edit (G37.1) writes like edit_file: into its path (a tab without one is in the agent's
+ * workspace, the tool checks it), the text its operations write. Its catalog and dry runs write
+ * nothing. Emptying a file is not a deletion for good: the log keeps the inverse and the panel
+ * «Modifiche» undoes it. A re-export over a closed original (G37.3-4) needs the file's own switch
+ * and keeps the version before: not critical either.
+ */
+function editorRules(input: Record<string, unknown>, w: Where, add: Add) {
+  if (input.help === true || input.dry_run === true) return;
+  const ops = Array.isArray(input.ops) ? input.ops : [];
+  const text = ops
+    .map((o) =>
+      (o as { text?: unknown })?.text === undefined ? "" : String((o as { text: unknown }).text),
+    )
+    .join("\n");
+  const before = ops
+    .map((o) =>
+      (o as { find?: unknown })?.find === undefined ? "" : String((o as { find: unknown }).find),
+    )
+    .join("\n");
+  if (typeof input.path === "string")
+    fileRules({ path: input.path, old_string: before, new_string: text }, "edit_file", w, add);
+}
+
 /** A tool's own name as snake_case words, without the `mcp__<server>__` prefix. */
 const toolWords = (name: string) =>
   name
@@ -1009,6 +1033,7 @@ export function criticalOf(call: ToolCallInfo, ctx: CriticalContext = {}): Criti
   if (PROTECTION_TOOLS[name]) add("critical-protections", PROTECTION_TOOLS[name] as string);
   if (name === "bash" && typeof input.command === "string") shellRules(input.command, w, add);
   else if (name === "write_file" || name === "edit_file") fileRules(input, name, w, add);
+  else if (name === "canvas_edit") editorRules(input, w, add);
   else if (name === "run_script") textRules(JSON.stringify(call.input ?? ""), add);
   if (name.startsWith("mcp__")) {
     const words = toolWords(name);

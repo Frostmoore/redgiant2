@@ -66,6 +66,9 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   // Looking at the person's canvas and leafing through it (G36.12).
   one("canvas_look", "canvas"),
   one("canvas_act", "canvas"),
+  // Editing an open file with the person (G37.1). Not essential: write_file and edit_file stay the
+  // way to change files; this one is the shared editor's (visible, undoable, the person's lead).
+  one("canvas_edit", "canvas"),
   one("show", "canvas"),
   one("view_image", "canvas"),
   one("send_file", "canvas"),
