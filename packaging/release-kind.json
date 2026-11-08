@@ -1,9 +1,12 @@
 {
   "$comment": "What the next release is (G36.19), read by release.yml into the signed release.json. 'version' is the release this kind is for: any other tag is normal. kind: normal | mandatory (it must be installed before RedGiant is used again) | breaking (a clean install: backup, uninstall, install, restore; never a differential update). minVersion: only versions below it are concerned (null: every older one). note: why, in a sentence, it and en (needed unless normal). requiredBelow / cleanInstallBelow: carried bounds; release-info.mjs folds this file's own mandatory or breaking version into them for every later tag, so keep them when you change version and kind.",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "kind": "normal",
   "minVersion": null,
-  "note": { "it": "", "en": "" },
+  "note": {
+    "it": "",
+    "en": ""
+  },
   "requiredBelow": null,
   "cleanInstallBelow": null
 }
