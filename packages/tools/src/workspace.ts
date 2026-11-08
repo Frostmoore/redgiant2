@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import {
   glob as fsGlob,
@@ -36,21 +36,96 @@ export interface ExecOptions {
   onSpawn?: ((pid: number) => void) | undefined;
 }
 
+/** One process as the system lists it: its id, its parent's id, when it was created (any unit). */
+export interface ProcessEntry {
+  pid: number;
+  ppid: number;
+  created: bigint;
+}
+
 /**
- * Stops a process and everything it started (p3.3.1). Windows: `taskkill /PID <pid> /T /F` (the
- * tree; killing the shell alone left its children running); elsewhere the process group, which
- * every command gets of its own.
+ * The processes to stop for `root` on Windows, leaves first and the root last (p3.4.0). Windows
+ * keeps each process's parent id forever, even after the parent dies, and reuses ids: a process
+ * whose recorded parent id now belongs to `root` (or to one of its descendants) may be a stranger
+ * started long before by a parent that is gone (the embedded database's `cmd.exe`, whose `pg_ctl`
+ * exits at once). So a child counts only when it was created no earlier than its parent, as
+ * process explorers do: the current owner of a reused id is always born after the orphans of the
+ * id's earlier owner. A root that is not in the list has ended: nothing is stopped.
  */
-export function killTree(
+export function windowsDescendants(root: number, processes: readonly ProcessEntry[]): number[] {
+  const byPid = new Map(processes.map((p) => [p.pid, p]));
+  if (!byPid.has(root)) return [];
+  const children = new Map<number, ProcessEntry[]>();
+  for (const p of processes) {
+    if (p.pid === p.ppid) continue;
+    const list = children.get(p.ppid);
+    if (list) list.push(p);
+    else children.set(p.ppid, [p]);
+  }
+  const order: number[] = [];
+  const seen = new Set<number>();
+  const visit = (p: ProcessEntry) => {
+    seen.add(p.pid);
+    for (const c of children.get(p.pid) ?? [])
+      if (!seen.has(c.pid) && c.created >= p.created) visit(c);
+    order.push(p.pid);
+  };
+  visit(byPid.get(root) as ProcessEntry);
+  return order;
+}
+
+/** Parses the lines `pid ppid created` the Windows process list prints; undefined when unreadable. */
+export function parseProcessList(out: string): ProcessEntry[] | undefined {
+  const list: ProcessEntry[] = [];
+  for (const line of out.split(/\r?\n/)) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s*$/.exec(line);
+    if (m) list.push({ pid: Number(m[1]), ppid: Number(m[2]), created: BigInt(m[3] as string) });
+  }
+  return list.length > 0 ? list : undefined;
+}
+
+/** Every process on Windows with its parent and creation time (file time), or undefined. */
+export function listWindowsProcesses(): Promise<ProcessEntry[] | undefined> {
+  return new Promise((done) => {
+    execFile(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "Get-CimInstance Win32_Process | ForEach-Object { '{0} {1} {2}' -f $_.ProcessId, $_.ParentProcessId, $(if ($_.CreationDate) { $_.CreationDate.ToFileTimeUtc() } else { 0 }) }",
+      ],
+      { timeout: 15_000, windowsHide: true, maxBuffer: 16 * 1024 * 1024 },
+      (err, out) => done(err ? undefined : parseProcessList(String(out))),
+    );
+  });
+}
+
+/**
+ * Stops a process and everything it started (p3.3.1). Elsewhere the process group, which every
+ * command gets of its own. Windows (p3.4.0): never `taskkill /T`, which follows recorded parent
+ * ids that may have been reused and once took the embedded database down with an agent's
+ * command; the processes are listed once, the true descendants chosen by creation time
+ * (`windowsDescendants`) and each stopped alone, the root last. When the list cannot be read only
+ * the root is stopped. Never rejects; callers may ignore the promise.
+ */
+export async function killTree(
   pid: number,
   platform: NodeJS.Platform = process.platform,
   run: (file: string, args: string[]) => void = (file, args) => {
     spawn(file, args, { stdio: "ignore", windowsHide: true }).on("error", () => {});
   },
   kill: (pid: number, signal: NodeJS.Signals) => void = process.kill,
-): void {
+  list: () => Promise<ProcessEntry[] | undefined> = listWindowsProcesses,
+): Promise<void> {
   if (platform === "win32") {
-    run("taskkill", ["/PID", String(pid), "/T", "/F"]);
+    const processes = await list().catch(() => undefined);
+    const targets = processes ? windowsDescendants(pid, processes) : [pid];
+    for (const p of targets) {
+      try {
+        run("taskkill", ["/PID", String(p), "/F"]);
+      } catch {}
+    }
     return;
   }
   try {
@@ -448,10 +523,10 @@ export class LocalWorkspace implements Workspace {
         detached: group,
       });
       if (child.pid) onSpawn?.(child.pid);
-      // The whole tree: on Windows the shell's children too (taskkill with its tree flag).
+      // The whole tree: on Windows the shell's true descendants too (`killTree`).
       const stop = () => {
         try {
-          if (child.pid) killTree(child.pid);
+          if (child.pid) void killTree(child.pid);
           else child.kill("SIGKILL");
         } catch {}
       };
