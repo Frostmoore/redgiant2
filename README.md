@@ -61,6 +61,18 @@ seeing them. You keep the data and the final say.
 - A Tools page: every tool the agents get, what it does and how many tokens it adds to each request.
   Switch tools off for every agent or one by one; tools a feature depends on stay on, and say why.
 
+**Knowledge**
+
+- Talk with your documents: folders, PDFs (scanned ones too, with OCR), web pages, mail and chats are
+  indexed on your computer (pgvector in RedGiant's own Postgres, with the embeddings you choose), and
+  agents answer with clickable citations. The Knowledge page shows what is indexed, for one agent, a
+  project or everyone.
+- Import instructions, skills, memories and settings from Claude Code, Codex and Cursor, and the
+  conversations exported from ChatGPT and Claude.
+- After solving a problem an agent can propose a skill from what it learned.
+- Agents find files and programs anywhere on the computer in seconds (`find_files`: the system's index
+  when there is one, the likely places first otherwise), never by walking the whole disk.
+
 **Any model**
 
 - Flat subscriptions: **Claude** (through Anthropic's Claude Agent SDK) and **ChatGPT** (through OpenAI's
@@ -210,6 +222,24 @@ Against other harnesses, with the same model (Claude Haiku 5.5) on the same task
 
 RedGiant costs the least. One run, with caveats that matter (a network outage, three Windows fixes
 that came after it): [docs/benchmark.md](docs/benchmark.md).
+
+## Roadmap
+
+RedGiant is in pre-alpha. What comes next, in order:
+
+- **3.4 — Knowledge** (this release): talk with your documents (folders, PDFs, web pages, mail, chats)
+  with citations; import from Claude Code, Codex, Cursor and exported chats; skills that write
+  themselves; Matrix, Teams and iMessage; the Keychain in your browser; smaller, signed updates.
+- **3.5 — Editor**: a real editor in the Canvas for every file it can open (sheets, documents, slides,
+  layered images, vector drawings, 3D, PDF), with the agent working in the same editor as you.
+- **3.6 — Long arms**: SSH to other machines, integrations and extensions created on request, email
+  for the agents, hands-free voice, model evaluations, and ACP both ways (RedGiant inside editors,
+  other agents as workers).
+- **3.7 and 3.8 — Video and 3D**: a video editor shared by you and the agent, and 3D generation with
+  local or cloud engines, finished in Blender.
+- **4.0 — Alpha**: native apps for Windows, Linux and macOS, companion apps for Android and iOS, and a
+  Linux distribution for mini-PCs and virtual machines.
+- **Then** the beta (community, documentation site) and the production release.
 
 ## Documentation
 

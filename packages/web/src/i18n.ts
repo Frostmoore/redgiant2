@@ -1725,6 +1725,27 @@ const en = {
   telegram: "Telegram",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  news340Knowledge: "Talk with your documents",
+  news340KnowledgeText:
+    "Give RedGiant folders, PDFs, web pages, mail and chats: they are indexed on your computer (scanned pages too, with OCR) and the agents search them and answer with clickable citations. The Knowledge page shows what is indexed, for one agent, a project or everyone.",
+  news340Import: "Bring your other agents along",
+  news340ImportText:
+    "Import instructions, skills, memories and settings from Claude Code, Codex and Cursor, and the conversations you exported from ChatGPT and Claude.",
+  news340Skills: "Skills that write themselves, tools that ask",
+  news340SkillsText:
+    "After solving a problem an agent can propose a skill from what it learned. An agent missing a tool you switched off asks you for it by name, and God can write instructions and tools for an agent.",
+  news340Requests: "Requests to you, your way",
+  news340RequestsText:
+    "Requests reach the page and every linked chat at once, now also Matrix, Teams and iMessage. Set a time limit, or choose \"don't ask me anything\" and let a classifier decide for you; truly dangerous requests always reach you.",
+  news340Keychain: "Every key in the Keychain, and in your browser",
+  news340KeychainText:
+    "Every key RedGiant keeps lives in the encrypted Keychain. A browser extension for Chrome, Edge, Brave and Opera fills your passwords on the right site only, when you click.",
+  news340Updates: "Smaller updates",
+  news340UpdatesText:
+    "On Windows an update downloads only the files that changed, signed. Updates that must be installed, or that need a clean install, say so before anything happens.",
+  news340Windows: "Agents that behave on Windows",
+  news340WindowsText:
+    "A stopped command no longer leaves programs running, a whole-disk search is refused, and the new find_files tool finds files and programs in seconds without loading the computer.",
   news330Canvas: "Any file in the Canvas",
   news330CanvasText:
     "Ask an agent to show you a file and it opens in the Canvas beside the chat: videos and sounds with their player, PDFs, Word, Excel and PowerPoint files laid out as they print, sheets also as a table to sort and filter, 3D models to turn and zoom, archives, fonts, code, data. Everything stays on your computer.",
@@ -5604,6 +5625,27 @@ const it: Record<Key, string> = {
   telegram: "Telegram",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  news340Knowledge: "Parla con i tuoi documenti",
+  news340KnowledgeText:
+    "Dai a RedGiant cartelle, PDF, pagine web, posta e chat: vengono indicizzati sul tuo computer (anche le pagine scansionate, con l'OCR) e gli agenti li cercano e rispondono con le citazioni cliccabili. La pagina Conoscenza mostra cosa c'è, per un agente, un progetto o per tutti.",
+  news340Import: "Porta con te gli altri agenti",
+  news340ImportText:
+    "Importa istruzioni, skill, memorie e impostazioni da Claude Code, Codex e Cursor, e le conversazioni esportate da ChatGPT e Claude.",
+  news340Skills: "Skill che nascono da sole, strumenti che si chiedono",
+  news340SkillsText:
+    "Dopo aver risolto un problema un agente può proporre una skill con quello che ha imparato. Se gli manca uno strumento che hai spento te lo chiede per nome, e God può scrivere istruzioni e strumenti per un agente.",
+  news340Requests: "Le richieste a te, come vuoi tu",
+  news340RequestsText:
+    "Le richieste arrivano insieme alla pagina e a tutte le chat collegate, ora anche Matrix, Teams e iMessage. Puoi dare un tempo limite, oppure scegliere «Non chiedermi niente» e lasciar decidere un classificatore; le richieste davvero pericolose arrivano sempre a te.",
+  news340Keychain: "Ogni chiave nel Portachiavi, e nel browser",
+  news340KeychainText:
+    "Tutte le chiavi che RedGiant tiene stanno nel Portachiavi cifrato. Un'estensione per Chrome, Edge, Brave e Opera compila le tue password solo sul sito giusto, quando fai clic tu.",
+  news340Updates: "Aggiornamenti più piccoli",
+  news340UpdatesText:
+    "Su Windows un aggiornamento scarica solo i file cambiati, firmati. Gli aggiornamenti obbligatori, o che chiedono un'installazione pulita, lo dicono prima di fare qualsiasi cosa.",
+  news340Windows: "Agenti che si comportano bene su Windows",
+  news340WindowsText:
+    "Un comando fermato non lascia più programmi accesi, una ricerca su tutto il disco viene rifiutata, e il nuovo strumento find_files trova file e programmi in pochi secondi senza appesantire il computer.",
   news330Canvas: "Qualsiasi file nel Canvas",
   news330CanvasText:
     "Chiedi a un agente di mostrarti un file e si apre nel Canvas accanto alla chat: video e audio con il loro lettore, PDF, file di Word, Excel e PowerPoint impaginati come in stampa, fogli anche come tabella da ordinare e filtrare, modelli 3D da girare e ingrandire, archivi, font, codice, dati. Tutto resta sul tuo computer.",
