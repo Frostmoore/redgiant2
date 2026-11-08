@@ -7,6 +7,7 @@ export default defineConfig({
     include: ["packages/*/test/**/*.test.ts", "packages/*/test/**/*.test.tsx"],
     // In-process Postgres and git worktrees make some integration tests take seconds.
     testTimeout: 30_000,
+    setupFiles: ["./vitest.setup.ts"],
     // Live tests call real models; they run only with `pnpm test:live`.
     exclude: ["**/node_modules/**", "**/*.live.test.ts", "**/*.docker.test.ts"],
   },
