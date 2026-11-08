@@ -298,7 +298,7 @@ export interface ConfigHost {
 }
 
 /** The settings only the person changes, kept with history and undo. */
-export type PersonSettingsKey = "commands" | "requests";
+export type PersonSettingsKey = "commands" | "requests" | "editor";
 export interface PersonSettingsStore {
   get(ownerId: string): unknown;
   set(ownerId: string, value: unknown): Promise<unknown>;
@@ -307,6 +307,7 @@ export interface PersonSettingsStore {
 const SETTINGS_NAMES: Record<PersonSettingsKey, string> = {
   commands: "Background commands and bash limits",
   requests: "Requests to the person",
+  editor: "The agents' edits in the editor",
 };
 
 type McpTransport = { transport: ReturnType<typeof catalogConfig>["transport"] };

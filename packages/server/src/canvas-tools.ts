@@ -33,15 +33,25 @@ export interface CanvasToolsHost {
   look(abs: string, ask: LookAsk, ctx: ToolContext): Promise<Looked>;
   /** Records the move (a `canvas.act` event). */
   act(ctx: ToolContext, title: string, target: CanvasTargetInfo, d: CanvasDo): Promise<void>;
+  /**
+   * The editor's model of a file as words (G37.1, `view: "structure"`) and its revision, which
+   * the conversation has now seen; undefined when no editor knows the file's kind.
+   */
+  structure?(
+    ownerId: string,
+    abs: string,
+    ask: { fromLine?: number | undefined; toLine?: number | undefined },
+    ctx: ToolContext,
+  ): Promise<string | undefined>;
 }
 
-const within = (root: string, p: string) => {
+export const within = (root: string, p: string) => {
   const rel = relative(root, p);
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 };
 
 /** A path the agent gave: in its workspace (its own checks), or outside (the guardian let it). */
-async function fileAt(
+export async function fileAt(
   ws: Workspace,
   path: string,
 ): Promise<{ abs: string; outside: boolean } | { error: string }> {
@@ -106,7 +116,7 @@ const LookInput = z.object({
   to_line: z.number().int().positive().optional(),
   cells: z.string().max(40).optional(),
   sheet: z.string().max(200).optional(),
-  view: z.enum(MODEL_VIEWS).optional(),
+  view: z.enum([...MODEL_VIEWS, "structure"]).optional(),
   width: z.number().int().min(256).max(1600).optional(),
 });
 
@@ -126,7 +136,10 @@ const ActInput = z.object({
 });
 
 /** The tab asked for (1-based), or the active one. */
-function tabOf(s: CanvasState | undefined, n: number | undefined): CanvasTabInfo | undefined {
+export function tabOf(
+  s: CanvasState | undefined,
+  n: number | undefined,
+): CanvasTabInfo | undefined {
   if (!s) return undefined;
   return n ? s.tabs[n - 1] : (s.tabs.find((t) => t.active) ?? s.tabs.at(-1));
 }
@@ -140,7 +153,7 @@ export function canvasTools(
     def: {
       name: "canvas_look",
       description:
-        "See the person's canvas: its tabs, where they are (page, time, line, selection, zoom) and a picture of the active tab, another tab, or any file you give (path), at the page, time, lines or cells you ask.",
+        "See the person's canvas: its tabs, where they are (page, time, line, selection, zoom) and a picture of the active tab, another tab, or any file you give (path), at the page, time, lines or cells you ask. view \"structure\": the editor's content and revision instead of a picture (before canvas_edit).",
       inputSchema: {
         type: "object",
         properties: {
@@ -152,7 +165,11 @@ export function canvasTools(
           to_line: { type: "number" },
           cells: { type: "string", description: "Sheet cells, e.g. A1:F30" },
           sheet: { type: "string" },
-          view: { type: "string", enum: [...MODEL_VIEWS], description: "3D: from where" },
+          view: {
+            type: "string",
+            enum: [...MODEL_VIEWS, "structure"],
+            description: '3D: from where; "structure": the editor\'s content',
+          },
           width: { type: "number", description: "Picture's longest side, 256-1600" },
         },
       },
@@ -185,6 +202,20 @@ export function canvasTools(
           return `${said}\n\nTab ${tab.title} is outside your workspace: to see it, call canvas_look with path "${file}" (the person is asked first).`;
         abs = file;
         place = tab.place;
+      }
+      // The editor's model (G37.1): words and the revision, no picture.
+      if (i.view === "structure") {
+        const seen = await host
+          .structure?.(
+            agent.ownerId,
+            abs,
+            { fromLine: i.from_line ?? place?.line, toLine: i.to_line },
+            ctx,
+          )
+          .catch((err: unknown) => `It cannot be read by the editor: ${(err as Error).message}.`);
+        return seen === undefined
+          ? `${said}\n\nThere is no editor for ${basename(abs)} yet: look at it without "view", or read it with read_file.`
+          : `${said}\n\n${basename(abs)}: ${seen}`;
       }
       // What was not asked comes from where the person is.
       const ask: LookAsk = {

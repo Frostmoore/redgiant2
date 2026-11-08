@@ -425,6 +425,9 @@ importers:
 
   packages/server:
     dependencies:
+      '@codemirror/state':
+        specifier: ^6.7.6
+        version: 6.7.6
       '@electric-sql/pglite':
         specifier: ^0.5.13
         version: 0.5.13

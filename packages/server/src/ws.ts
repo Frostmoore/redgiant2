@@ -1,7 +1,11 @@
+import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import {
   ClientMessage,
+  type DocFile,
+  docKey,
+  PERSON,
   PROTOCOL_VERSION,
   type QuestionRequestInfo,
   type ServerMessage,
@@ -46,6 +50,9 @@ export function attachWebSocket(
     let offCanvas: (() => void) | undefined;
     let offScreen: (() => void) | undefined;
     const follows = new Map<string, () => void>();
+    // Files open in the editor (G37.1): this page's subscriber id for each.
+    const docs = new Map<string, { file: DocFile; subId: string }>();
+    const docSub = (file: DocFile) => docs.get(docKey(file));
     const send = (m: ServerMessage) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
     const fail = (code: string, message: string) => send({ type: "error", code, message });
 
@@ -212,6 +219,114 @@ export function attachWebSocket(
           case "canvas.state":
             core.canvasLive.answer(owner, msg.requestId, msg.state);
             return;
+          // The editor (G37.1). The host orders each file's revisions; this connection's own
+          // messages are handled in order, so an ack never passes the changes before it.
+          case "doc.open": {
+            const key = docKey(msg.file);
+            const was = docs.get(key);
+            if (was) await core.editor.unsubscribe(owner, msg.file, was.subId);
+            const subId = randomUUID();
+            docs.set(key, { file: msg.file, subId });
+            try {
+              await core.editor.subscribe(owner, msg.file, { id: subId, send });
+            } catch (err) {
+              docs.delete(key);
+              return fail("doc_unavailable", (err as Error).message);
+            }
+            return;
+          }
+          case "doc.close": {
+            const d = docSub(msg.file);
+            if (!d) return;
+            docs.delete(docKey(msg.file));
+            await core.editor.unsubscribe(owner, msg.file, d.subId);
+            return;
+          }
+          case "doc.ops": {
+            const d = docSub(msg.file);
+            if (!d) return fail("doc_closed", "Open the file first");
+            const out = await core.editor.apply(owner, msg.file, {
+              author: { id: PERSON },
+              baseRevision: msg.baseRevision,
+              ops: msg.ops,
+              groupId: msg.groupId,
+              origin: { subId: d.subId, clientId: msg.clientId },
+            });
+            if (!out.ok)
+              send({
+                type: "doc.rejected",
+                file: msg.file,
+                clientId: msg.clientId,
+                code: out.code,
+                reason: out.reason,
+                revision: out.revision,
+                ...(out.conflict !== undefined && { conflict: out.conflict }),
+              });
+            return;
+          }
+          case "doc.undo": {
+            const out = await core.editor.undo(
+              owner,
+              msg.file,
+              {
+                ...(msg.revision !== undefined && { revision: msg.revision }),
+                ...(msg.toBefore && { toBefore: true }),
+                ...(msg.groupId && { groupId: msg.groupId }),
+              },
+              { id: PERSON },
+            );
+            send(
+              out.ok
+                ? {
+                    type: "doc.ack",
+                    file: msg.file,
+                    clientId: msg.clientId,
+                    revision: out.revision,
+                  }
+                : {
+                    type: "doc.rejected",
+                    file: msg.file,
+                    clientId: msg.clientId,
+                    code: out.code,
+                    reason: out.reason,
+                    revision: out.revision,
+                    ...(out.conflict !== undefined && { conflict: out.conflict }),
+                  },
+            );
+            return;
+          }
+          case "doc.presence": {
+            const d = docSub(msg.file);
+            if (d)
+              await core.editor.presence(owner, msg.file, d.subId, {
+                editing: msg.editing,
+                from: msg.from,
+                to: msg.to,
+              });
+            return;
+          }
+          case "doc.decide": {
+            const out = await core.editor.decide(owner, msg.file, msg.proposalId, msg.accept);
+            send(
+              out.ok
+                ? {
+                    type: "doc.ack",
+                    file: msg.file,
+                    clientId: msg.clientId,
+                    revision: out.revision,
+                  }
+                : {
+                    type: "doc.rejected",
+                    file: msg.file,
+                    clientId: msg.clientId,
+                    code: out.code,
+                    reason: out.reason,
+                    revision: out.revision,
+                    ...(out.conflict !== undefined && { conflict: out.conflict }),
+                  },
+            );
+            return;
+          }
           case "session.interrupt":
             await core.interrupt(owner, msg.sessionId);
             return;
@@ -271,6 +386,10 @@ export function attachWebSocket(
     ws.on("close", () => {
       clearTimeout(helloTimer);
       for (const off of follows.values()) off();
+      const owner = principal?.ownerId;
+      if (owner)
+        for (const d of docs.values())
+          void core.editor.unsubscribe(owner, d.file, d.subId).catch(() => {});
       core.approvals.off("request", onRequest);
       core.approvals.off("closed", onClosed);
       core.questions.off("request", onQuestion);

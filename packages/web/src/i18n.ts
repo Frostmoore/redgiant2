@@ -3416,6 +3416,9 @@ const en = {
   tool_canvas_act: "Leaf through the Canvas",
   toolDo_canvas_act:
     "Opens tabs, goes to a page, line or time, selects and zooms; changes no file.",
+  tool_canvas_edit: "Edit in the Canvas",
+  toolDo_canvas_edit:
+    "Edits an open file in the same editor as you: changes highlighted, undoable, or proposals if you choose so.",
   tool_show: "Show what it made",
   toolDo_show: "Shows a site, a picture, a video or a program it started in the Canvas.",
   tool_view_image: "Look at pictures",
@@ -7337,6 +7340,9 @@ const it: Record<Key, string> = {
   tool_canvas_act: "Sfogliare il Canvas",
   toolDo_canvas_act:
     "Apre schede, va a pagina, riga o tempo, seleziona e ingrandisce; non modifica i file.",
+  tool_canvas_edit: "Modificare nel Canvas",
+  toolDo_canvas_edit:
+    "Modifica un file aperto nello stesso editor che usi tu: modifiche evidenziate, annullabili, o proposte se lo scegli.",
   tool_show: "Mostrare il lavoro",
   toolDo_show: "Mostra nel Canvas un sito, un'immagine, un video o un programma avviato.",
   tool_view_image: "Guardare le immagini",

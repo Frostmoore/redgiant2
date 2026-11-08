@@ -4,6 +4,8 @@
 //   GET  /api/settings/requests        → { settings, defaults, defaultModel, critical }
 //   PUT  /api/settings/requests        → PlatformChange
 //   GET  /api/unattended               → UnattendedDecision[] (decided without the person)
+//   GET  /api/settings/editor          → { settings } (G37.1: the agents' edits, at once or proposed)
+//   PUT  /api/settings/editor          → PlatformChange
 
 import {
   CRITICAL_IDS,
@@ -57,6 +59,15 @@ export function personRoutes<E extends { Variables: any }>(
     );
   });
   app.put("/api/settings/requests", put("requests"));
+  // The rule for the agents' edits (G37.1): at once, or as proposals, for an agent or a file.
+  app.get("/api/settings/editor", (c) =>
+    c.json({ settings: core.editorSettings.get(owner(c)) }, 200),
+  );
+  app.put("/api/settings/editor", async (c) => {
+    const r = await put("editor")(c);
+    if (r.status === 200) core.editor.modeChanged(owner(c));
+    return r;
+  });
   app.get("/api/unattended", async (c) =>
     c.json(
       await core.person.list(owner(c), {

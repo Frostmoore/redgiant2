@@ -10,6 +10,7 @@ import {
   type AsideResult,
   type Engine,
   forkPoint,
+  type Hooks,
   type SendResult,
   sessionLog,
   type Tool,
@@ -61,7 +62,10 @@ import {
   agentLanguage,
   CommandSettings,
   DEFAULT_COMMAND_SETTINGS,
+  DEFAULT_EDITOR_SETTINGS,
   DEFAULT_REQUEST_SETTINGS,
+  type DocFile,
+  EditorSettings,
   type Event,
   type ImagePart,
   isCriticalId,
@@ -71,6 +75,7 @@ import {
   type MessageQuote,
   type ModelSpec,
   type NotifyReport,
+  notedText,
   ownWords,
   type Recipe,
   type RefineEstimate,
@@ -142,6 +147,8 @@ import { FileConverter } from "./convert.js";
 import { Programs } from "./convert-programs.js";
 import { convertTools, vaultFigma } from "./convert-tools.js";
 import { debugLog } from "./debug-log.js";
+import { EditorHost, type EditorHostOptions } from "./editor/host.js";
+import { type CanvasEditHost, canvasEditTool } from "./editor/tool.js";
 import {
   type EmailAccount,
   EmailWatcher,
@@ -256,6 +263,8 @@ function startsOn(r: Recipe): string {
 
 export interface CoreOptions {
   db: SqlClient;
+  /** The editor's timings (G37.1): tests save at once and hold the person's place briefly. */
+  editor?: Pick<EditorHostOptions, "saveDelayMs" | "lockMs" | "watchMs" | "now">;
   /** Where the mailbox for email routines is kept (default: next to the workspaces). */
   emailDir?: string;
   /** How mailboxes are read (tests use a fake; IMAP otherwise). */
@@ -527,6 +536,10 @@ export class RedGiantCore implements OrchestrationHost {
   readonly converter: FileConverter;
   /** What the person's canvas shows, asked of their pages when an agent looks (G36.12). */
   readonly canvasLive = new CanvasLive();
+  /** The editor (G37.1): one owner of every open file, the person's and the agents' edits. */
+  readonly editor: EditorHost;
+  /** The rule for the agents' edits, for an agent or a file (G37.1). */
+  readonly editorSettings: OwnerSettings<EditorSettings>;
   /** Background commands of every conversation (p3.3.1): bash with background, bash_output. */
   readonly commands: BackgroundCommands;
   /** Mandatory and breaking updates (G36.19), set by main: while one is mandatory no new turn starts. */
@@ -670,6 +683,19 @@ export class RedGiantCore implements OrchestrationHost {
       RequestSettings,
       DEFAULT_REQUEST_SETTINGS,
     );
+    this.editorSettings = new OwnerSettings(
+      o.db,
+      "editor",
+      EditorSettings,
+      DEFAULT_EDITOR_SETTINGS,
+    );
+    this.editor = new EditorHost({
+      store: this.store,
+      dataDir: dirname(o.workspacesDir),
+      resolve: (ownerId, file) => this.docAbs(ownerId, file),
+      settings: (ownerId) => this.editorSettings.get(ownerId),
+      ...o.editor,
+    });
     // Background commands (p3.3.1): their start and end are events of the conversation that
     // started them; the page draws the strip from those and a restart marks them interrupted.
     this.commands = new BackgroundCommands({
@@ -994,6 +1020,7 @@ export class RedGiantCore implements OrchestrationHost {
     await core.policies.load();
     await core.commandSettings.load();
     await core.requestSettings.load();
+    await core.editorSettings.load();
     await core.tasks.rebuild();
     await core.reapCommands();
     return core;
@@ -1385,6 +1412,8 @@ export class RedGiantCore implements OrchestrationHost {
           this.showTool(agent, ws),
           // The canvas seen and moved by the agent (G36.12).
           ...canvasTools(agent, ws, this.canvasHost(agent)),
+          // Editing an open file with the person (G37.1).
+          canvasEditTool(agent, ws, this.canvasEditHost()),
           this.sendFileTool(agent, ws),
           this.variantsTool(agent, ws),
           // Chains of tool calls that do not fill the context (G29.7).
@@ -1542,7 +1571,9 @@ export class RedGiantCore implements OrchestrationHost {
         hooks: {
           // G36.8: one quiet nudge to propose a skill after a problem solved.
           ...(agent.kind !== "demigod" &&
-            agent.kind !== "inspector" && { postToolUse: [this.skillNudge.hook()] }),
+            agent.kind !== "inspector" && {
+              postToolUse: [this.skillNudge.hook(), this.editorNotesHook()],
+            }),
           ...(receivesTasks && { stop: [this.tasks.stopHook(agentId)] }),
         },
       }),
@@ -1645,8 +1676,12 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /** The person's settings kept as configuration (G36.16, G36.17), for the history and undo. */
-  ownerSettings(key: "commands" | "requests") {
-    return key === "commands" ? this.commandSettings : this.requestSettings;
+  ownerSettings(key: "commands" | "requests" | "editor") {
+    return key === "commands"
+      ? this.commandSettings
+      : key === "editor"
+        ? this.editorSettings
+        : this.requestSettings;
   }
 
   /** What the person chose for each pending request_tool ("this conversation" or "always"). */
@@ -2810,6 +2845,53 @@ export class RedGiantCore implements OrchestrationHost {
           body: { type: "canvas.act", payload: { title, target, do: d } },
         });
       },
+      // The editor's model as words (G37.1): the conversation has seen this revision now.
+      structure: async (ownerId, abs, ask, ctx) => {
+        const file = await this.docFileOf(ownerId, abs);
+        if (!file || !this.editor.familyFor(file.path)) return undefined;
+        const read = await this.editor.read(ownerId, file);
+        this.editor.seen(ctx.sessionId, ownerId, file, read.revision);
+        const mode = this.editor.modeFor(ownerId, agent.id, file);
+        return `revision ${read.revision}${mode === "propose" ? " (the person reviews your edits of it: canvas_edit makes proposals)" : ""}. ${read.family.structure(read.model, ask)}`;
+      },
+    };
+  }
+
+  /** canvas_edit's host (G37.1). */
+  private canvasEditHost(): CanvasEditHost {
+    return {
+      editor: this.editor,
+      state: (ownerId) => this.canvasLive.ask(ownerId),
+      docFileOf: (ownerId, abs) => this.docFileOf(ownerId, abs),
+      absOf: (ownerId, file) => this.docAbs(ownerId, file),
+    };
+  }
+
+  /** A file on disk as the editor names it (its workspace's scope and path), if it is in one. */
+  private async docFileOf(ownerId: string, abs: string): Promise<DocFile | undefined> {
+    return this.scopeOf(ownerId, abs).catch(() => undefined);
+  }
+
+  /** The file behind an editor's scope and path: inside its workspace, never outside one. */
+  async docAbs(ownerId: string, file: DocFile): Promise<string> {
+    if (file.scope === "outside")
+      throw new BadRequestError("A file outside every workspace is not edited here");
+    const root = await this.scopeRoot(ownerId, file.scope);
+    const abs = await new LocalWorkspace(root).resolve(file.path);
+    const real = await realpath(abs);
+    // A link that leads out of the workspace is not followed.
+    if (inside(await realpath(root).catch(() => root), real) === undefined)
+      throw new BadRequestError("That file leads outside its workspace");
+    return real;
+  }
+
+  /** The person changed a file an agent edits (G37.1): its next tool result carries the line. */
+  private editorNotesHook(): NonNullable<Hooks["postToolUse"]>[number] {
+    return (call, result, ctx) => {
+      if (call.name === "canvas_edit") return undefined;
+      const notes = this.editor.notesFor(ctx.sessionId);
+      if (!notes.length) return undefined;
+      return { content: notedText(result.content, notes), isError: result.isError };
     };
   }
 
@@ -4661,16 +4743,23 @@ export class RedGiantCore implements OrchestrationHost {
       this.sharedMemory.turnEnded(sessionId);
       notify("idle", stopReason);
     };
-    const done = l.session.send(text, controller.signal, message).then(
-      (r) => {
-        ended(controller.signal.aborted && r.stopReason !== "end_turn" ? "aborted" : r.stopReason);
-        return r;
-      },
-      (err: unknown) => {
-        ended(controller.signal.aborted ? "aborted" : "error");
-        throw err;
-      },
-    );
+    // A new turn: one group of edits (G37.1); what the person changed meanwhile rides with it.
+    this.editor.turnStarted(sessionId);
+    const notes = this.editor.notesFor(sessionId);
+    const done = l.session
+      .send(text, controller.signal, { ...message, ...(notes.length > 0 && { notes }) })
+      .then(
+        (r) => {
+          ended(
+            controller.signal.aborted && r.stopReason !== "end_turn" ? "aborted" : r.stopReason,
+          );
+          return r;
+        },
+        (err: unknown) => {
+          ended(controller.signal.aborted ? "aborted" : "error");
+          throw err;
+        },
+      );
     // After the turn: reports of tasks closed here go back to who handed them over, then the next
     // message in line is taken.
     void done
@@ -5326,6 +5415,8 @@ export class RedGiantCore implements OrchestrationHost {
   /** Stops every running turn and denies every open approval (shutdown). */
   async close(): Promise<void> {
     await this.automations.stop();
+    // Edits accepted are in the log already; the files are written before closing.
+    await this.editor.close().catch(() => {});
     this.email.stop();
     this.files.stop();
     this.sharedMemory.stop();
