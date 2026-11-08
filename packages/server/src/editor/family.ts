@@ -2,7 +2,7 @@
 // inverted, rebased and checked for conflicts, and how an agent's plain operations become them.
 // The host (host.ts) is the same for every family; plain text is the first (text-family.ts), the
 // others come with G37.2-G37.8.
-import type { DocFamilyId, DocOp, DocSnapshot, DocSummary } from "@redgiant/protocol";
+import type { DocFamilyId, DocFile, DocOp, DocSnapshot, DocSummary } from "@redgiant/protocol";
 
 /** The file's bytes as the family keeps them, with what saving needs to write them back alike. */
 export interface Loaded<M> {
@@ -13,6 +13,21 @@ export interface Loaded<M> {
 
 /** An agent's operations turned into the engine's, or why not (the op's index, from 0). */
 export type FromAgent = { ops: DocOp[] } | { error: string; index?: number };
+
+/** What a family that writes through an outside engine knows when it saves (G37.4). */
+export interface SaveContext {
+  ownerId: string;
+  file: DocFile;
+  abs: string;
+  /** Big data kept apart (a page's saved file, a picture), by its sha256. */
+  blob(hash: string): Promise<Uint8Array | undefined>;
+}
+
+/** What preparing an agent's operations may use (G37.4: a picture of the workspace as a blob). */
+export interface PrepareContext {
+  read(path: string): Promise<Uint8Array>;
+  putBlob(bytes: Uint8Array): Promise<string>;
+}
 
 export interface DocFamily<M = unknown> {
   id: DocFamilyId;
@@ -57,4 +72,13 @@ export interface DocFamily<M = unknown> {
   catalog(): string;
   /** The model as an agent reads it (canvas_look `view: "structure"`). */
   structure(model: M, ask: { fromLine?: number | undefined; toLine?: number | undefined }): string;
+  /**
+   * Optional (G37.4): the file written by an outside engine (LibreOffice) instead of `save`, and
+   * the model its bytes make (the host keeps it).
+   */
+  render?(model: M, format: unknown, ctx: SaveContext): Promise<{ bytes: Uint8Array; model?: M }>;
+  /** Optional (G37.4): after the file was written (a closed format written back). */
+  saved?(model: M, ctx: SaveContext): Promise<void>;
+  /** Optional (G37.4): an agent's operations made ready before `fromAgent` (pictures to blobs). */
+  prepare?(ops: readonly unknown[], ctx: PrepareContext): Promise<unknown[]>;
 }

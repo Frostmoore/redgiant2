@@ -4,7 +4,7 @@
 // `dry_run` shows what would change. A batch is one revision, applied at once or kept as a
 // proposal for the person (their rule, for the agent or the file). Refused, it says why: someone
 // changed the same place since the agent's revision, or the person is typing there.
-import { realpath } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import type { Tool, ToolContext } from "@redgiant/agent";
 import type { CanvasState, DocFile } from "@redgiant/protocol";
@@ -21,6 +21,11 @@ export interface CanvasEditHost {
   docFileOf(ownerId: string, abs: string): Promise<DocFile | undefined>;
   /** The file behind a workspace's scope and path. */
   absOf(ownerId: string, file: DocFile): Promise<string>;
+  /**
+   * A closed format's open copy, made if missing (G37.4: a DOCX is edited on its ODT beside it);
+   * undefined when the file has none.
+   */
+  copyOf?(ownerId: string, file: DocFile): Promise<DocFile | undefined>;
 }
 
 const Input = z.object({
@@ -105,7 +110,22 @@ export function canvasEditTool(
       }
       file ??= await host.docFileOf(agent.ownerId, abs);
       if (!file) return fail(`${basename(abs)} is in no workspace the editor knows.`);
-      const family = host.editor.familyFor(file.path);
+      let family = host.editor.familyFor(file.path);
+      let copied = "";
+      if (!family && host.copyOf && !i.help) {
+        try {
+          const copy = await host.copyOf(agent.ownerId, file);
+          if (copy) {
+            copied = ` (${basename(file.path)} is in a closed format: you edited its open copy ${copy.path}; the original stays as it is unless the person turned on writing it back)`;
+            file = copy;
+            family = host.editor.familyFor(copy.path);
+          }
+        } catch (err) {
+          return fail(
+            `${basename(file.path)} has no open copy to edit yet: ${(err as Error).message}.`,
+          );
+        }
+      }
       if (!family) {
         if (i.help) return catalogs(host.editor);
         return fail(
@@ -133,13 +153,29 @@ export function canvasEditTool(
         return fail(
           `Revision ${base} cannot be read back anymore (the file changed from outside since). It is at revision ${read.revision}: look again with canvas_look view "structure".`,
         );
-      const made = family.fromAgent(model, i.ops);
+      // A family may make the operations ready first (G37.4: pictures of the workspace as blobs).
+      let ops: readonly unknown[] = i.ops;
+      if (family.prepare)
+        try {
+          ops = await family.prepare(i.ops, {
+            read: async (p) => {
+              const f = await fileAt(ws, p);
+              if ("error" in f) throw new Error(f.error);
+              if (f.outside) throw new Error(`"${p}" is outside your workspace`);
+              return new Uint8Array(await readFile(f.abs));
+            },
+            putBlob: (b) => host.editor.putBlob(b),
+          });
+        } catch (err) {
+          return fail(`Nothing applied: ${(err as Error).message}.`);
+        }
+      const made = family.fromAgent(model, ops);
       if ("error" in made)
         return fail(
           `Nothing applied: ${made.index !== undefined ? `operation ${made.index + 1}: ` : ""}${made.error}.`,
         );
       const notes = host.editor.notesFor(ctx.sessionId);
-      const tail = notes.length ? `\n\n${notes.join("\n")}` : "";
+      const tail = `${copied}${notes.length ? `\n\n${notes.join("\n")}` : ""}`;
       const author = { id: agent.id, name: agent.name, sessionId: ctx.sessionId };
       const mode = host.editor.modeFor(agent.ownerId, agent.id, file);
       if (i.dry_run) {

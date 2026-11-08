@@ -6,6 +6,7 @@
 // log (`docStreamId`); a change made from outside (write_file, bash, another program) is a
 // `doc.replaced`. The file on disk is the snapshot, the log is the history.
 import { z } from "zod";
+import { OfficeDocOp, OfficeSnapshot } from "./doc-office.js";
 
 /** A file the editor works on: a workspace's scope and the path inside it. */
 export const DocFile = z.object({
@@ -15,7 +16,7 @@ export const DocFile = z.object({
 export type DocFile = z.infer<typeof DocFile>;
 
 /** The families of files with an editor. G37.2-G37.8 add theirs. */
-export const DOC_FAMILIES = ["text"] as const;
+export const DOC_FAMILIES = ["text", "document"] as const;
 export const DocFamilyId = z.enum(DOC_FAMILIES);
 export type DocFamilyId = z.infer<typeof DocFamilyId>;
 
@@ -136,6 +137,8 @@ export const DocSummary = z.object({
   removed: z.number().int().nonnegative().optional(),
   /** Operations in the batch, when more than one («3 modifiche»). */
   count: z.number().int().positive().optional(),
+  /** What `line` counts: lines of text (the default), paragraphs or slides (G37.4). */
+  unit: z.enum(["line", "paragraph", "slide"]).optional(),
 });
 export type DocSummary = z.infer<typeof DocSummary>;
 
@@ -151,7 +154,7 @@ export const TextDocOp = z.object({
 export type TextDocOp = z.infer<typeof TextDocOp>;
 
 /** The envelope of every family's operation. */
-export const DocOp = z.discriminatedUnion("family", [TextDocOp]);
+export const DocOp = z.discriminatedUnion("family", [TextDocOp, OfficeDocOp]);
 export type DocOp = z.infer<typeof DocOp>;
 
 /** Who made a revision: the person, an agent (its id), or a program from outside. */
@@ -276,6 +279,7 @@ export type DocPresence = z.infer<typeof DocPresence>;
 /** The file's content as the page loads it, family by family. */
 export const DocSnapshot = z.discriminatedUnion("family", [
   z.object({ family: z.literal("text"), text: z.string() }),
+  OfficeSnapshot,
 ]);
 export type DocSnapshot = z.infer<typeof DocSnapshot>;
 
@@ -290,9 +294,14 @@ export const EditorSettings = z.object({
   agents: z.record(z.string().max(200), AgentEditMode).default({}),
   /** By `docKey`. */
   files: z.record(z.string().max(4300), AgentEditMode).default({}),
+  /**
+   * Open copies written back in their closed format at every save (G37.4), by the copy's
+   * `docKey`: the file's switch, off by default (the previous version is kept).
+   */
+  reexport: z.record(z.string().max(4300), z.boolean()).default({}),
 });
 export type EditorSettings = z.infer<typeof EditorSettings>;
-export const DEFAULT_EDITOR_SETTINGS: EditorSettings = { agents: {}, files: {} };
+export const DEFAULT_EDITOR_SETTINGS: EditorSettings = { agents: {}, files: {}, reexport: {} };
 
 /** The rule for one agent on one file: the file's choice, then the agent's, then «now». */
 export function agentEditMode(s: EditorSettings, agentId: string, file: DocFile): AgentEditMode {

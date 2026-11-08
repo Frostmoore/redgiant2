@@ -3,7 +3,7 @@
 // order of typing and of others' revisions (the client does what EditorHost does on the server);
 // the panel's state as a table of the host's messages; the words of a change; the shell drawn.
 import { ChangeSet, Text } from "@codemirror/state";
-import type { DocChange, DocOp } from "@redgiant/protocol";
+import type { DocChange, DocOp, TextDocOp } from "@redgiant/protocol";
 import { render } from "@testing-library/preact";
 import { describe, expect, it } from "vitest";
 import { changeText, editableInCanvas, groupChanges } from "../src/components/viewers/DocEditor.js";
@@ -11,7 +11,7 @@ import { emptyDocView, reduceDoc } from "../src/state.js";
 import { type Outgoing, TextCollab, textOp } from "../src/viewers/collab.js";
 
 const file = { scope: "platform", path: "a.txt" };
-const cs = (op: DocOp) => ChangeSet.fromJSON(op.op.changes);
+const cs = (op: DocOp) => ChangeSet.fromJSON((op as TextDocOp).op.changes);
 
 /** The host of the server in a few lines: rebase over the later revisions, `a.map(b, true)`. */
 class MiniHost {

@@ -127,6 +127,8 @@ interface Doc {
   agents: Map<string, { name?: string; at: number }>;
   proposals: Map<string, DocProposedPayload & { ts: string }>;
   usedAt: number;
+  /** Saves that failed in a row (an outside engine missing, G37.4). */
+  saveFailures?: number;
 }
 
 interface StateFile {
@@ -1031,11 +1033,34 @@ export class EditorHost {
   private async saveNow(doc: Doc): Promise<void> {
     await this.checkDisk(doc);
     if (doc.saved.revision >= doc.revision) return;
-    const bytes = doc.family.save(doc.model, doc.format);
+    const f = doc.family;
+    const ctx = {
+      ownerId: doc.ownerId,
+      file: doc.file,
+      abs: doc.abs,
+      blob: (hash: string) => this.blob(hash),
+    };
+    let bytes: Uint8Array;
+    try {
+      // A family with an outside engine (G37.4) writes through it, and may say what it made.
+      if (f.render) {
+        const r = await f.render(doc.model, doc.format, ctx);
+        bytes = r.bytes;
+        if (r.model !== undefined) doc.model = r.model;
+      } else bytes = f.save(doc.model, doc.format);
+    } catch (err) {
+      // Kept in the log; tried again in a while (an engine still downloading).
+      doc.saveFailures = (doc.saveFailures ?? 0) + 1;
+      if (doc.saveFailures <= 20)
+        this.scheduleSave(doc, Math.min(120_000, 5_000 * doc.saveFailures));
+      throw err;
+    }
+    doc.saveFailures = 0;
     await atomicWrite(doc.abs, bytes);
     const st = await stat(doc.abs);
     doc.saved = { revision: doc.revision, hash: sha256(bytes), size: st.size, mtimeMs: st.mtimeMs };
     await this.writeState(doc, bytes);
+    if (f.saved) await f.saved(doc.model, ctx).catch(() => {});
   }
 
   private async writeState(doc: Doc, bytes: Uint8Array): Promise<void> {
