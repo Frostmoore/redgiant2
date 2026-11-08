@@ -11,10 +11,13 @@ import {
   bashTool,
   killTree,
   LocalWorkspace,
+  type ProcessEntry,
   parseLog,
+  parseProcessList,
   queryLog,
   secondsOf,
   summarizeLog,
+  windowsDescendants,
 } from "../src/index.js";
 
 const posix = process.platform !== "win32";
@@ -172,13 +175,74 @@ describe.runIf(posix)("background commands", () => {
 });
 
 describe("stopping a tree", () => {
-  it("uses taskkill with the tree on Windows, the process group elsewhere", () => {
+  it("stops the true descendants one by one on Windows, the process group elsewhere", async () => {
     const runs: string[][] = [];
-    killTree(4242, "win32", (file, args) => void runs.push([file, ...args]));
-    expect(runs).toEqual([["taskkill", "/PID", "4242", "/T", "/F"]]);
+    const list = async () => [
+      { pid: 4242, ppid: 1, created: 100n },
+      { pid: 50, ppid: 4242, created: 110n },
+      { pid: 60, ppid: 4242, created: 90n },
+    ];
+    await killTree(4242, "win32", (file, args) => void runs.push([file, ...args]), undefined, list);
+    expect(runs).toEqual([
+      ["taskkill", "/PID", "50", "/F"],
+      ["taskkill", "/PID", "4242", "/F"],
+    ]);
     const kills: [number, string][] = [];
-    killTree(77, "linux", undefined, (pid, sig) => void kills.push([pid, sig]));
+    await killTree(77, "linux", undefined, (pid, sig) => void kills.push([pid, sig]));
     expect(kills).toEqual([[-77, "SIGKILL"]]);
+  });
+
+  it("stops only the root on Windows when the processes cannot be listed", async () => {
+    for (const list of [async () => undefined, () => Promise.reject(new Error("no powershell"))]) {
+      const runs: string[][] = [];
+      await killTree(9, "win32", (file, args) => void runs.push([file, ...args]), undefined, list);
+      expect(runs).toEqual([["taskkill", "/PID", "9", "/F"]]);
+    }
+  });
+
+  // Each row: the processes as Windows lists them (pid, recorded parent id, creation) and what
+  // stopping `root` must stop, leaves first and the root last.
+  const p = (pid: number, ppid: number, created: number): ProcessEntry => ({
+    pid,
+    ppid,
+    created: BigInt(created),
+  });
+  it.each<[string, number, ProcessEntry[], number[]]>([
+    [
+      "a normal chain",
+      10,
+      [p(10, 1, 100), p(11, 10, 101), p(12, 11, 102), p(13, 10, 103)],
+      [12, 11, 13, 10],
+    ],
+    [
+      // The bug of 2026-11-08: pg_ctl (id 10) started cmd.exe and postgres, then exited; the
+      // agent's command later got id 10. Its own child counts, the database does not.
+      "a reused id whose dead owner left the embedded database",
+      10,
+      [p(20, 10, 50), p(21, 20, 51), p(10, 1, 100), p(11, 10, 101)],
+      [11, 10],
+    ],
+    ["a child created before its parent is a stranger", 10, [p(10, 1, 100), p(11, 10, 99)], [10]],
+    [
+      "a stranger's own children stay too",
+      10,
+      [p(10, 1, 100), p(11, 10, 99), p(12, 11, 150)],
+      [10],
+    ],
+    ["a child created at the same instant counts", 10, [p(10, 1, 100), p(11, 10, 100)], [11, 10]],
+    ["a root that has ended stops nothing", 10, [p(11, 10, 101), p(12, 1, 5)], []],
+    ["a process naming itself as parent", 0, [p(0, 0, 0), p(4, 0, 1)], [4, 0]],
+    ["a loop of recorded ids never repeats", 10, [p(10, 11, 100), p(11, 10, 100)], [11, 10]],
+  ])("chooses the descendants on Windows: %s", (_name, root, list, expected) => {
+    expect(windowsDescendants(root, list)).toEqual(expected);
+  });
+
+  it("reads the Windows process list", () => {
+    expect(parseProcessList("4 0 0\r\n10 4 134000000000000001\r\n\r\njunk\n")).toEqual([
+      p(4, 0, 0),
+      { pid: 10, ppid: 4, created: 134000000000000001n },
+    ]);
+    expect(parseProcessList("")).toBeUndefined();
   });
 
   it("parses a log made elsewhere (the server reads it after a restart)", () => {

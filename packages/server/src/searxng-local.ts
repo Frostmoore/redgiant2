@@ -15,6 +15,7 @@ import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { killTree } from "@redgiant/tools";
 import type { JobHandle } from "./jobs.js";
 
 /** uv's release (astral-sh/uv) and SearXNG's commit, both pinned. */
@@ -272,12 +273,9 @@ export class LocalSearxng {
 
   stop(): void {
     const p = this.proc;
-    // On Windows the venv's python.exe only starts the real one as its child: the whole tree.
-    if (p?.pid && this.platform === "win32")
-      spawn("taskkill", ["/pid", String(p.pid), "/T", "/F"], {
-        stdio: "ignore",
-        windowsHide: true,
-      });
+    // On Windows the venv's python.exe only starts the real one as its child: the whole tree,
+    // its true descendants only (`killTree`, never `taskkill /T`).
+    if (p?.pid && this.platform === "win32") void killTree(p.pid, "win32");
     else p?.kill();
     this.proc = undefined;
     this.url = undefined;

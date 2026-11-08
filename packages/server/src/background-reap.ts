@@ -55,7 +55,7 @@ function namesCommand(pid: number, id: string): boolean | undefined {
 export interface ReapDeps {
   platform?: NodeJS.Platform;
   startTime?: StartTimeOf;
-  kill?: (pid: number) => void;
+  kill?: (pid: number) => void | Promise<void>;
 }
 
 /**
@@ -73,11 +73,11 @@ export async function reapOrphan(
   if (platform === "linux" && !d.startTime) {
     const ours = namesCommand(c.pid, c.id);
     if (ours === undefined || !ours) return false;
-    kill(c.pid);
+    await kill(c.pid);
     return true;
   }
   const started = await (d.startTime ?? processStartTime(platform))(c.pid);
   if (started === undefined || Math.abs(started - Date.parse(c.startedAt)) > 10_000) return false;
-  kill(c.pid);
+  await kill(c.pid);
   return true;
 }
