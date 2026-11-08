@@ -305,9 +305,14 @@ describe("the steps of a turn (G36.15)", () => {
       const before = calls();
       const seen = c.messages.length;
       c.send({ type: "session.send", sessionId: body.sessionId, text: "go" });
+      // The state sent on follow ("idle") can arrive after the send: wait for this turn to run first.
+      const running = await c.waitFor(
+        "session.state",
+        (m) => m.state === "running" && c.messages.indexOf(m) >= seen,
+      );
       const idle = await c.waitFor(
         "session.state",
-        (m) => m.state === "idle" && c.messages.indexOf(m) >= seen,
+        (m) => m.state === "idle" && c.messages.indexOf(m) > c.messages.indexOf(running),
       );
       return { calls: calls() - before, stopReason: idle.stopReason };
     };
