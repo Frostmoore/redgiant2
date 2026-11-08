@@ -5,7 +5,8 @@ import { defineConfig } from "vite";
 const server = process.env.REDGIANT_URL ?? "http://127.0.0.1:7600";
 
 export default defineConfig({
-  plugins: [preact()],
+  // React stays React: the sheet editor's Univer (G37.3) runs its own React in its own chunk.
+  plugins: [preact({ reactAliasesEnabled: false })],
   server: {
     proxy: {
       "/api": server,

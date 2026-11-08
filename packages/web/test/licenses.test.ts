@@ -148,5 +148,8 @@ describe("licenses of the web bundle (G37.1)", () => {
     expect(bad).toEqual([]);
     // The editor's engine is among them (G37.1).
     expect([...pkgs.keys()].some((k) => k.startsWith("@codemirror/state@"))).toBe(true);
+    // The sheet editor (G37.3): Univer's free packages only, never its paid ones.
+    expect([...pkgs.keys()].some((k) => k.startsWith("@univerjs/sheets-ui@"))).toBe(true);
+    expect([...pkgs.keys()].filter((k) => k.startsWith("@univerjs-pro/"))).toEqual([]);
   });
 });

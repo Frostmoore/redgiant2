@@ -25,11 +25,13 @@ import { IconCheck, IconClock, IconList, IconUndo, IconUser, IconX } from "../..
 import { agents, attempt, docView, openDoc, sendDoc, setDocMode } from "../../state.js";
 import { TextCollab } from "../../viewers/collab.js";
 import { useReport } from "../../viewers/live.js";
+import { sheetChangeText } from "../../viewers/sheet-words.js";
+import { SHEET_EDITABLE, SheetEditor } from "./SheetEditor.js";
 
 /** The plain text files the page edits (G37.1); code, Markdown and the rest come with G37.2. */
 export const EDITABLE = /\.(txt|text|log)$/i;
 export const editableInCanvas = (file: { scope: string; path: string }) =>
-  file.scope !== "outside" && EDITABLE.test(file.path);
+  file.scope !== "outside" && (EDITABLE.test(file.path) || SHEET_EDITABLE.test(file.path));
 
 /** A pause in typing longer than this starts another gesture (another line of the panel). */
 const GESTURE_MS = 2000;
@@ -83,6 +85,8 @@ const classes = HighlightStyle.define([{ tag: [tags.heading], class: "cmv-head" 
 
 /** A change in the person's words: «Ada ha inserito 2 righe alla riga 5». */
 export function changeText(s: DocSummary): string {
+  // A sheet's change (G37.3) has its own words.
+  if (s.sheet && s.kind !== "undo" && s.kind !== "replaced") return sheetChangeText(s);
   const where =
     s.line === undefined
       ? ""
@@ -293,6 +297,8 @@ export function DocEditor({ file }: { file: DocFile }) {
       : true,
   );
   const view = useRef<EditorView | undefined>(undefined);
+  const reveal = useRef<((c: DocChange) => void) | undefined>(undefined);
+  const sheet = SHEET_EDITABLE.test(file.path);
   /** What each of the person's requests was about (to offer «Torna a prima» after a refusal). */
   const asked = useRef(new Map<string, { revision?: number; groupId?: string }>());
   const [, tick] = useState(0);
@@ -309,6 +315,7 @@ export function DocEditor({ file }: { file: DocFile }) {
     sendDoc({ type: "doc.undo", file, clientId, ...what });
   };
   const show = (c: DocChange) => {
+    if (sheet) return c.revision === v.revision ? reveal.current?.(c) : undefined;
     const ed = view.current;
     const r = c.wrote?.[0];
     if (!ed || !r || c.revision !== v.revision) return;
@@ -394,7 +401,11 @@ export function DocEditor({ file }: { file: DocFile }) {
               : t("loading")}
           </div>
         )}
-        <TextEditor file={file} onReady={(e) => (view.current = e)} />
+        {sheet ? (
+          <SheetEditor file={file} onReveal={(r) => (reveal.current = r)} />
+        ) : (
+          <TextEditor file={file} onReady={(e) => (view.current = e)} />
+        )}
         {panel && (
           <aside class="doc-panel" id="doc-changes" aria-label={t("docChanges")}>
             {v.proposals.length > 0 && (

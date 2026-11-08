@@ -20,7 +20,10 @@ export const textOp = (c: ChangeSet): DocOp => ({
   op: { changes: c.toJSON() as TextChanges },
 });
 
-const changesOf = (op: DocOp): ChangeSet => ChangeSet.fromJSON(op.op.changes);
+const changesOf = (op: DocOp): ChangeSet => {
+  if (op.family !== "text") throw new Error("Not a text operation");
+  return ChangeSet.fromJSON(op.op.changes);
+};
 
 let counter = 0;
 const newId = () => `c${Date.now().toString(36)}${(counter++).toString(36)}`;

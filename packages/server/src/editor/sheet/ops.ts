@@ -549,7 +549,8 @@ export function sheetSummary(
   ): DocSummary => {
     const sheet = {
       action,
-      ...(extra.name && { name: extra.name }),
+      ...(extra.name &&
+        (model.wb.sheetOrder.length > 1 || action.endsWith("_sheet")) && { name: extra.name }),
       ...(extra.range && { range: extra.range }),
       ...(extra.n !== undefined && { n: extra.n }),
       ...(extra.at !== undefined && { at: extra.at }),

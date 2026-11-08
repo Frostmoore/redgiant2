@@ -120,7 +120,17 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
     return () => document.removeEventListener("selectionchange", change);
   }, [id]);
   useEffect(
-    () => setTabKind(id, site ? "site" : editable ? "text" : shown?.kind),
+    () =>
+      setTabKind(
+        id,
+        site
+          ? "site"
+          : editable
+            ? /\.(csv|tsv|ods)$/i.test(target.kind === "file" ? target.path : "")
+              ? "sheet"
+              : "text"
+            : shown?.kind,
+      ),
     [id, site, editable, shown?.kind],
   );
   // The agent's move, said for a few seconds in the head.

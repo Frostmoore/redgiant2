@@ -11,7 +11,7 @@ import { emptyDocView, reduceDoc } from "../src/state.js";
 import { type Outgoing, TextCollab, textOp } from "../src/viewers/collab.js";
 
 const file = { scope: "platform", path: "a.txt" };
-const cs = (op: DocOp) => ChangeSet.fromJSON(op.op.changes);
+const cs = (op: DocOp) => ChangeSet.fromJSON(op.family === "text" ? op.op.changes : []);
 
 /** The host of the server in a few lines: rebase over the later revisions, `a.map(b, true)`. */
 class MiniHost {
