@@ -30,7 +30,7 @@ import {
   PERSON,
   type ServerMessage,
 } from "@redgiant/protocol";
-import type { DocFamily } from "./family.js";
+import { type DocFamily, SaveWaits } from "./family.js";
 import { textFamily } from "./text-family.js";
 
 /** A page (or a test) that opened a file: it is told every change in the order they applied. */
@@ -186,6 +186,7 @@ export class EditorHost {
   /** Lines waiting for a conversation: the person changed a file it edits, a proposal decided. */
   private readonly pending = new Map<string, Map<string, string>>();
   private readonly sweeper: ReturnType<typeof setInterval>;
+  private closed = false;
 
   constructor(private readonly o: EditorHostOptions) {
     this.families = o.families ?? [textFamily];
@@ -236,7 +237,7 @@ export class EditorHost {
     const abs = await this.o.resolve(ownerId, file);
     const bytes = await readFile(abs);
     const st = await stat(abs);
-    const disk = family.load(bytes);
+    const disk = family.load(bytes, file.path);
     const hash = sha256(bytes);
     const dir = this.stateDir(ownerId, file);
     const state = await readFile(join(dir, "state.json"), "utf8")
@@ -277,7 +278,7 @@ export class EditorHost {
       if (state?.hash === hash) base = disk;
       else if (state) {
         const last = await readFile(join(dir, "content")).catch(() => undefined);
-        if (last && sha256(last) === state.hash) base = family.load(last);
+        if (last && sha256(last) === state.hash) base = family.load(last, file.path);
       }
       const replay = base && state ? this.after(doc, state.revision) : undefined;
       if (base && state && replay) {
@@ -515,11 +516,13 @@ export class EditorHost {
   }
 
   /** The place the person holds now, if they are typing. */
-  private heldBy(doc: Doc, op: DocOp): number | undefined {
+  private heldBy(doc: Doc, op: DocOp): string | undefined {
     const now = this.now();
     for (const p of doc.people.values())
       if (p.editing && p.until > now && doc.family.touches(op, p.from, p.to))
-        return doc.family.lineOf(doc.model, p.from);
+        return (
+          doc.family.placeOf?.(doc.model, p.from) ?? `line ${doc.family.lineOf(doc.model, p.from)}`
+        );
     return undefined;
   }
 
@@ -600,7 +603,14 @@ export class EditorHost {
             `${l.author === PERSON ? "the person" : (l.authorName ?? l.author)} changed the same place at revision ${l.revision} (${l.summary.text}) after your revision ${req.baseRevision}: look again and redo it on revision ${doc.revision}`,
             l.revision,
           );
-        one = f.map(one, lc);
+        const moved = f.map(one, lc);
+        if (!moved)
+          return refuse(
+            person ? "stale" : "conflict",
+            `revision ${l.revision} (${l.summary.text}) moved what these operations touch: look again and redo it on revision ${doc.revision}`,
+            l.revision,
+          );
+        one = moved;
       }
       ops = [one];
       rebased = true;
@@ -616,7 +626,7 @@ export class EditorHost {
         if (line !== undefined)
           return refuse(
             "busy",
-            `the person is typing at line ${line} right now: their edit comes first. Try again in a few seconds, or change another place`,
+            `the person is typing at ${line} right now: their edit comes first. Try again in a few seconds, or change another place`,
           );
       }
       inverse.unshift(f.invert(model, op));
@@ -798,9 +808,21 @@ export class EditorHost {
                 `revision ${l.revision} (${l.author === PERSON ? "the person" : (l.authorName ?? l.author)}: ${l.summary.text}) changed the same place later: go back to before revision ${t.revision} instead, or undo ${l.revision} first`,
                 l.revision,
               );
-            inv = f.map(inv, lc);
+            const moved = f.map(inv, lc);
+            if (!moved)
+              return refuse(
+                "conflict",
+                `revision ${l.revision} (${l.summary.text}) moved what revision ${t.revision} changed: go back to before revision ${t.revision} instead`,
+                l.revision,
+              );
+            inv = moved;
           }
-          for (const m of made) inv = f.map(inv, m);
+          for (const m of made) {
+            const moved = f.map(inv, m);
+            if (!moved)
+              return refuse("stale", `revision ${t.revision} cannot be undone with the others`);
+            inv = moved;
+          }
           made.push(inv);
         }
         return this.applyNow(doc, {
@@ -941,7 +963,7 @@ export class EditorHost {
     const f = doc.family;
     let next: { model: unknown; format: unknown };
     try {
-      next = f.load(bytes);
+      next = f.load(bytes, doc.file.path);
     } catch {
       // Not a file this family edits anymore: the editor keeps what it had, unsaved.
       doc.saved = { ...doc.saved, size: st.size, mtimeMs: st.mtimeMs };
@@ -1022,7 +1044,9 @@ export class EditorHost {
     if (doc.saveTimer) clearTimeout(doc.saveTimer);
     doc.saveTimer = setTimeout(() => {
       doc.saveTimer = undefined;
-      void this.enqueue(doc, () => this.saveNow(doc)).catch(() => {});
+      void this.enqueue(doc, () => this.saveNow(doc)).catch((err: unknown) =>
+        this.saveFailed(doc, err),
+      );
     }, delay);
     doc.saveTimer.unref?.();
   }
@@ -1031,11 +1055,43 @@ export class EditorHost {
   private async saveNow(doc: Doc): Promise<void> {
     await this.checkDisk(doc);
     if (doc.saved.revision >= doc.revision) return;
-    const bytes = doc.family.save(doc.model, doc.format);
+    const f = doc.family;
+    let bytes: Uint8Array;
+    if (f.saveTo) {
+      // A family that saves by itself (a sheet's «toppa»): the model as last saved and the
+      // operations since then.
+      const later = this.after(doc, doc.saved.revision) ?? [];
+      bytes = await f.saveTo({
+        ownerId: doc.ownerId,
+        file: doc.file,
+        abs: doc.abs,
+        model: doc.model,
+        format: doc.format,
+        before: this.modelAt(doc, doc.saved.revision),
+        ops: later.flatMap((r) => r.ops),
+        bytes: await readFile(doc.abs),
+      });
+    } else bytes = f.save(doc.model, doc.format);
     await atomicWrite(doc.abs, bytes);
     const st = await stat(doc.abs);
     doc.saved = { revision: doc.revision, hash: sha256(bytes), size: st.size, mtimeMs: st.mtimeMs };
     await this.writeState(doc, bytes);
+    if (f.saveTo)
+      this.broadcast(doc, { type: "doc.saved", file: doc.file, revision: doc.revision });
+  }
+
+  /** A save that failed: the pages are told why, and it is tried again in a while. */
+  private saveFailed(doc: Doc, err: unknown) {
+    const waits = err instanceof SaveWaits ? err.waitsFor : undefined;
+    this.broadcast(doc, {
+      type: "doc.saved",
+      file: doc.file,
+      revision: doc.saved.revision,
+      error: String((err as Error)?.message ?? err).slice(0, 2000),
+      ...(waits && { waitsFor: waits }),
+    });
+    if (!this.closed && this.docs.get(doc.key) === doc)
+      this.scheduleSave(doc, waits ? 15_000 : 30_000);
   }
 
   private async writeState(doc: Doc, bytes: Uint8Array): Promise<void> {
@@ -1062,12 +1118,15 @@ export class EditorHost {
       [...this.docs.values()].map((d) => {
         if (d.saveTimer) clearTimeout(d.saveTimer);
         d.saveTimer = undefined;
-        return this.enqueue(d, () => this.saveNow(d)).catch(() => {});
+        return this.enqueue(d, () => this.saveNow(d)).catch((err: unknown) =>
+          this.saveFailed(d, err),
+        );
       }),
     );
   }
 
   async close(): Promise<void> {
+    this.closed = true;
     clearInterval(this.sweeper);
     await this.flush();
     for (const d of this.docs.values()) if (d.watchTimer) clearInterval(d.watchTimer);

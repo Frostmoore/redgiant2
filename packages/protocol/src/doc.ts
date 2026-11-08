@@ -15,7 +15,7 @@ export const DocFile = z.object({
 export type DocFile = z.infer<typeof DocFile>;
 
 /** The families of files with an editor. G37.2-G37.8 add theirs. */
-export const DOC_FAMILIES = ["text"] as const;
+export const DOC_FAMILIES = ["text", "sheet"] as const;
 export const DocFamilyId = z.enum(DOC_FAMILIES);
 export type DocFamilyId = z.infer<typeof DocFamilyId>;
 
@@ -136,6 +136,39 @@ export const DocSummary = z.object({
   removed: z.number().int().nonnegative().optional(),
   /** Operations in the batch, when more than one («3 modifiche»). */
   count: z.number().int().positive().optional(),
+  /** A sheet's change (G37.3), for the page's own words: «Cambiate 3 celle in B2:B4». */
+  sheet: z
+    .object({
+      action: z.enum([
+        "cells",
+        "clear",
+        "format",
+        "insert_rows",
+        "delete_rows",
+        "insert_cols",
+        "delete_cols",
+        "move",
+        "merge",
+        "unmerge",
+        "add_sheet",
+        "delete_sheet",
+        "rename_sheet",
+        "order_sheet",
+        "sort",
+        "filter",
+        "size",
+        "other",
+      ]),
+      /** The sheet's name. */
+      name: z.string().max(200).optional(),
+      /** The area, as A1 (B2:B4). */
+      range: z.string().max(200).optional(),
+      /** Cells, rows, columns or sheets counted. */
+      n: z.number().int().nonnegative().optional(),
+      /** A row or column number (1-based) where rows or columns went in or out. */
+      at: z.number().int().positive().optional(),
+    })
+    .optional(),
 });
 export type DocSummary = z.infer<typeof DocSummary>;
 
@@ -150,8 +183,46 @@ export const TextDocOp = z.object({
 });
 export type TextDocOp = z.infer<typeof TextDocOp>;
 
+/** One of Univer's mutations (G37.3): its id and its params, as JSON. */
+export const SheetMutation = z.object({
+  id: z.string().min(1).max(200),
+  params: z.unknown(),
+});
+export type SheetMutation = z.infer<typeof SheetMutation>;
+
+/**
+ * A rectangle of one sheet an operation touches (0-based, inclusive), by the sheet's id; `rows` or
+ * `cols` marks rows or columns that go in, out or move (everything after them shifts).
+ */
+export const SheetArea = z.object({
+  sheet: z.string().max(200),
+  r0: z.number().int().nonnegative(),
+  c0: z.number().int().nonnegative(),
+  r1: z.number().int().nonnegative(),
+  c1: z.number().int().nonnegative(),
+  shift: z.enum(["rows", "cols", "sheet"]).optional(),
+});
+export type SheetArea = z.infer<typeof SheetArea>;
+
+/**
+ * Sheets (G37.3): Univer's own mutations, as the page's commands (or the server's, for an agent)
+ * made them, with the mutations that take them back (Univer's `undoMutations`).
+ */
+export const SheetDocOp = z.object({
+  family: z.literal("sheet"),
+  engine: z.literal("univer"),
+  engineVersion: z.string().max(40),
+  op: z.object({
+    redo: z.array(SheetMutation).max(2000),
+    undo: z.array(SheetMutation).max(2000),
+  }),
+  /** The places it changes (the host checks conflicts on them). */
+  target: z.array(SheetArea).max(2000).optional(),
+});
+export type SheetDocOp = z.infer<typeof SheetDocOp>;
+
 /** The envelope of every family's operation. */
-export const DocOp = z.discriminatedUnion("family", [TextDocOp]);
+export const DocOp = z.discriminatedUnion("family", [TextDocOp, SheetDocOp]);
 export type DocOp = z.infer<typeof DocOp>;
 
 /** Who made a revision: the person, an agent (its id), or a program from outside. */
@@ -274,8 +345,37 @@ export const DocPresence = z.object({
 export type DocPresence = z.infer<typeof DocPresence>;
 
 /** The file's content as the page loads it, family by family. */
+/**
+ * What a sheet holds that the editor shows only as a placeholder (G37.3): charts, pivot tables,
+ * pictures and drawings stay in the file untouched; they are seen in the laid-out pages.
+ */
+export const SheetPlaceholder = z.object({
+  kind: z.enum(["chart", "pivot", "image", "shape", "object"]),
+  /** The sheet's id. */
+  sheet: z.string().max(200),
+  name: z.string().max(200).optional(),
+  /** The cells it covers (a pivot's output; a drawing's anchor area). */
+  r0: z.number().int().nonnegative(),
+  c0: z.number().int().nonnegative(),
+  r1: z.number().int().nonnegative(),
+  c1: z.number().int().nonnegative(),
+  /** Where its data comes from (A1), when known. */
+  source: z.string().max(500).optional(),
+});
+export type SheetPlaceholder = z.infer<typeof SheetPlaceholder>;
+
 export const DocSnapshot = z.discriminatedUnion("family", [
   z.object({ family: z.literal("text"), text: z.string() }),
+  z.object({
+    family: z.literal("sheet"),
+    /** csv, tsv or ods: what saving keeps (a CSV keeps values only). */
+    format: z.enum(["csv", "tsv", "ods"]),
+    /** Univer's workbook data (IWorkbookData). */
+    workbook: z.record(z.string(), z.unknown()),
+    placeholders: z.array(SheetPlaceholder).max(1000),
+    /** Things in the file the editor keeps but does not show (conditional formats, macros…). */
+    kept: z.array(z.string().max(80)).max(50),
+  }),
 ]);
 export type DocSnapshot = z.infer<typeof DocSnapshot>;
 
@@ -290,9 +390,14 @@ export const EditorSettings = z.object({
   agents: z.record(z.string().max(200), AgentEditMode).default({}),
   /** By `docKey`. */
   files: z.record(z.string().max(4300), AgentEditMode).default({}),
+  /**
+   * G37.3: the open copy of a closed file (an XLSX's ODS) written back over the original after
+   * each save, by `docKey` of the copy. Off unless the person turns it on for that file.
+   */
+  reexport: z.record(z.string().max(4300), z.boolean()).default({}),
 });
 export type EditorSettings = z.infer<typeof EditorSettings>;
-export const DEFAULT_EDITOR_SETTINGS: EditorSettings = { agents: {}, files: {} };
+export const DEFAULT_EDITOR_SETTINGS: EditorSettings = { agents: {}, files: {}, reexport: {} };
 
 /** The rule for one agent on one file: the file's choice, then the agent's, then «now». */
 export function agentEditMode(s: EditorSettings, agentId: string, file: DocFile): AgentEditMode {

@@ -133,7 +133,7 @@ export function canvasEditTool(
         return fail(
           `Revision ${base} cannot be read back anymore (the file changed from outside since). It is at revision ${read.revision}: look again with canvas_look view "structure".`,
         );
-      const made = family.fromAgent(model, i.ops);
+      const made = await family.fromAgent(model, i.ops);
       if ("error" in made)
         return fail(
           `Nothing applied: ${made.index !== undefined ? `operation ${made.index + 1}: ` : ""}${made.error}.`,
@@ -158,7 +158,9 @@ export function canvasEditTool(
         const preview =
           snap.family === "text"
             ? `\n${around(snap.text, out.summary.line ?? 1, out.summary.lines ?? 1)}`
-            : "";
+            : out.summary.sheet?.range
+              ? `\n${await family.structure(after, { cells: out.summary.sheet.range, ...(out.summary.sheet.name && { sheet: out.summary.sheet.name }) })}`
+              : "";
         return `Dry run on revision ${base} (nothing changed): it would have ${out.summary.text}${mode === "propose" ? ", as a proposal for the person" : ""}.${preview}${tail}`;
       }
       if (mode === "propose") {
