@@ -601,6 +601,8 @@ export const EventBody = z.discriminatedUnion("type", [
         "index.failed",
         "index.retired",
         "settings.changed",
+        "access.changed",
+        "vectors.restored",
       ]),
       collectionId: z.string().optional(),
       sourceId: z.string().optional(),

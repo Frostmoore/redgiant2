@@ -151,7 +151,8 @@ import type { GitHosts } from "./git-hosts.js";
 import { IMAGE_MODEL, imageFileName } from "./images.js";
 import { Inspector } from "./inspector.js";
 import { Jobs } from "./jobs.js";
-import type { KnowledgeService } from "./knowledge/service.js";
+import type { ChatSource, KnowledgeAsker, KnowledgeService } from "./knowledge/service.js";
+import { knowledgeSection, searchKnowledgeTool } from "./knowledge/tool.js";
 import { LoginStore, migrateLogin } from "./login.js";
 import {
   MAGIC_PROMPT,
@@ -518,7 +519,12 @@ export class RedGiantCore implements OrchestrationHost {
     return join(dirname(this.o.workspacesDir), "backups");
   }
   get backupDeps(): BackupDeps {
-    return { db: this.o.db, store: this.store, workspacesDir: this.o.workspacesDir };
+    return {
+      db: this.o.db,
+      store: this.store,
+      workspacesDir: this.o.workspacesDir,
+      ...(this.knowledge && { knowledge: this.knowledge.backup }),
+    };
   }
   /** How the owner is told about finished automations (set by the Telegram gateway). */
   notify:
@@ -1405,6 +1411,8 @@ export class RedGiantCore implements OrchestrationHost {
           () => this.policies.get(agent.ownerId).skills === "auto",
         ),
         memoryTool(this.notes, this.noteOwner(agent, assignedTo)),
+        // The person's documents (G36.5): only the collections this agent may read.
+        searchKnowledgeTool(() => this.knowledge, this.knowledgeAsker(agent, assignedTo)),
         // The keychain (G33.4): always offered; without credentials it says where to add them.
         vaultTool(agent, this.vault, (sid) => this.automationOfSession(sid)),
       );
@@ -1483,6 +1491,14 @@ export class RedGiantCore implements OrchestrationHost {
           ? `## The person's instructions for every agent\n${this.instructions}`
           : "",
         toolsOff.length > 0 ? switchedOffSection(toolsOff, aside) : "",
+        // What it can search and how to cite (G36.5); fixed with the conversation's start.
+        tools.some((t) => t.def.name === "search_knowledge") && this.knowledge
+          ? knowledgeSection(
+              await this.knowledge
+                .visible(ownerId, this.knowledgeAsker(agent, assignedTo))
+                .catch(() => []),
+            )
+          : "",
         // Every agent that works remembers (G29.3); read once, the prefix stays the same.
         agent.kind !== "demigod" && agent.kind !== "inspector"
           ? await this.notes.prompt(this.noteOwner(agent, assignedTo))
@@ -2773,6 +2789,77 @@ export class RedGiantCore implements OrchestrationHost {
         });
       },
     };
+  }
+
+  /**
+   * The person's conversations as a knowledge source (G36.6): only the person's own messages and
+   * the agents' answers, never tool calls, results or what other agents and automations wrote.
+   */
+  knowledgeChats(): ChatSource {
+    return {
+      list: async (ownerId, agents, sinceMs) => {
+        const rows = await this.o.db.query<{
+          id: string;
+          agent_id: string;
+          title: string | null;
+          last_at: Date | string | null;
+          created_at: Date | string;
+        }>(
+          `SELECT id, agent_id, title, last_at, created_at FROM rg_sessions
+            WHERE owner_id = $1 AND coalesce(last_at, created_at) >= $2
+              AND (cardinality($3::text[]) = 0 OR agent_id = ANY($3::text[]))
+            ORDER BY created_at`,
+          [ownerId, new Date(sinceMs).toISOString(), agents],
+        );
+        return rows.map((r) => ({
+          id: r.id,
+          title: r.title ?? "",
+          at: new Date(r.last_at ?? r.created_at).getTime(),
+          size: 0,
+        }));
+      },
+      read: async (ownerId, sessionId) => {
+        const [row] = await this.o.db.query<{ agent_id: string; title: string | null }>(
+          "SELECT agent_id, title FROM rg_sessions WHERE id = $1 AND owner_id = $2",
+          [sessionId, ownerId],
+        );
+        if (!row) return undefined;
+        const events = await this.store.list({
+          sessionId,
+          types: ["message.user", "message.assistant"],
+        });
+        const messages: { who: "person" | "agent"; at: string; text: string }[] = [];
+        for (const e of events) {
+          // Erased messages (the person's right to be forgotten) stay out.
+          if (e.erased) continue;
+          if (e.type === "message.user" && e.payload) {
+            const from = e.payload.from;
+            // Another agent or an automation wrote it: not the person's words.
+            if (from && (from.startsWith("automation:") || this.registry.get(from))) continue;
+            messages.push({ who: "person", at: e.ts, text: e.payload.text });
+          } else if (e.type === "message.assistant" && e.payload) {
+            const text = e.payload.parts
+              .map((p) => (p.type === "text" ? p.text : ""))
+              .join("")
+              .trim();
+            if (text) messages.push({ who: "agent", at: e.ts, text });
+          }
+        }
+        const name = this.registry.get(row.agent_id)?.name ?? row.agent_id;
+        return { title: row.title ?? "", agentId: row.agent_id, agentName: name, messages };
+      },
+    };
+  }
+
+  /** Who an agent is for the knowledge (G36.5): itself, and the projects it works on. */
+  knowledgeAsker(
+    agent: { id: string; projectId?: string | null },
+    assignedTo?: string | null,
+  ): Extract<KnowledgeAsker, { kind: "agent" }> {
+    const projectIds = [agent.projectId, assignedTo].filter(
+      (p, i, all): p is string => typeof p === "string" && p !== "" && all.indexOf(p) === i,
+    );
+    return { kind: "agent", agentId: agent.id, projectIds };
   }
 
   /** The folder behind a scope on disk (the knowledge's workspace sources, G36.3). */

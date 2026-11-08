@@ -1,11 +1,14 @@
 // Reading files for the knowledge (G36.3): text and code cut by symbol, Markdown by section, PDF
 // by page (pdf.js, no worker, no canvas), Office and OpenDocument through the PDF LibreOffice
 // makes (the one the Canvas shows, so pages match) or, without LibreOffice, straight from their
-// XML, and HTML cleaned of menus and scripts. Images need OCR, which comes later (G36.6).
+// XML, and HTML cleaned of menus and scripts. Pictures and scanned pages are read by the OCR
+// when the person turned it on (G36.6: Tesseract on this computer, `ctx.ocr`); a scanned page's
+// picture comes from pdf.js itself, already decoded, so no canvas is needed.
 
 import { readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, extname } from "node:path";
+import { crc32, deflateSync } from "node:zlib";
 import type { KnowledgeDocKind } from "@redgiant/protocol";
 import { strFromU8, unzipSync } from "fflate";
 import { looksBinary } from "./files.js";
@@ -161,6 +164,12 @@ const OFFICE_OLD = new Set([
   "pub",
 ]);
 const SPREADSHEETS = new Set(["xlsx", "xlsm", "xltx", "ods", "ots"]);
+/** Pictures Tesseract's own decoders read (the others are left out, said why). */
+const OCR_EXT = new Set(["png", "jpg", "jpeg", "webp", "bmp", "pbm", "pgm", "ppm"]);
+/** Scanned pages read by the OCR in one PDF, at most. */
+const MAX_OCR_PAGES = 500;
+/** Pictures larger than this are not given to the OCR (a poster, a photo of the sky). */
+const MAX_OCR_BYTES = 30 * 1024 * 1024;
 const IMAGE_EXT = new Set([
   "png",
   "jpg",
@@ -881,6 +890,7 @@ export async function extractPdfData(
   data: Uint8Array,
   fallbackTitle: string,
   signal?: AbortSignal,
+  ocr?: ExtractContext["ocr"],
 ): Promise<ExtractOutcome> {
   const { lib, dir } = await pdfjs();
   const task = lib.getDocument({
@@ -888,6 +898,9 @@ export async function extractPdfData(
     disableFontFace: true,
     useSystemFonts: false,
     verbosity: 0,
+    // Pictures decoded by pdf.js into plain pixels (what the OCR is given), never a canvas.
+    isOffscreenCanvasSupported: false,
+    isImageDecoderSupported: false,
     cMapUrl: `${dir}cmaps/`,
     cMapPacked: true,
     standardFontDataUrl: `${dir}standard_fonts/`,
@@ -908,11 +921,23 @@ export async function extractPdfData(
       typeof info.Title === "string" && info.Title.trim() ? info.Title.trim() : fallbackTitle;
     const parts: ExtractedPart[] = [];
     let chars = 0;
+    let scanned = 0;
+    let read = 0;
     for (let n = 1; n <= doc.numPages; n++) {
       if (signal?.aborted) throw signal.reason ?? new Error("aborted");
       const page = await doc.getPage(n);
       const content = await page.getTextContent();
-      const text = pageText(content.items.filter((i) => "str" in i) as unknown as TextItemLike[]);
+      let text = pageText(content.items.filter((i) => "str" in i) as unknown as TextItemLike[]);
+      // A page with (almost) no text is a scan: its biggest picture goes to the OCR.
+      if (text.length < 20 && ocr && read < MAX_OCR_PAGES) {
+        const png = await pagePicture(lib, page);
+        if (png) {
+          scanned++;
+          read++;
+          const seen = (await ocr(png, signal)).trim();
+          if (seen.length > text.length) text = seen;
+        }
+      }
       page.cleanup();
       if (!text) continue;
       chars += text.length;
@@ -920,11 +945,103 @@ export async function extractPdfData(
       parts.push({ text, page: n });
     }
     if (chars < Math.min(20, doc.numPages * 5) || !parts.length)
-      return { ok: false, skipped: "needs_ocr" };
-    return { ok: true, doc: { kind: "pdf", title, pages: doc.numPages, parts } };
+      return { ok: false, skipped: ocr ? "empty" : "needs_ocr" };
+    return {
+      ok: true,
+      doc: {
+        kind: "pdf",
+        title,
+        pages: doc.numPages,
+        parts,
+        ...(scanned > 0 && { note: `ocr:${scanned}` }),
+      },
+    };
   } finally {
     await doc.destroy().catch(() => {});
   }
+}
+
+/**
+ * The biggest picture painted on a page, as a PNG (pdf.js decodes JPEG, JBIG2, CCITT and Flate
+ * into pixels itself). Undefined when the page has no picture: vector-only pages would need a
+ * canvas to draw them, which RedGiant does not ship (a native module on every system).
+ */
+async function pagePicture(
+  lib: PdfJs,
+  page: Awaited<ReturnType<Awaited<ReturnType<PdfJs["getDocument"]>["promise"]>["getPage"]>>,
+): Promise<Uint8Array | undefined> {
+  const ops = await page.getOperatorList();
+  let best: { name: string; area: number } | undefined;
+  for (let i = 0; i < ops.fnArray.length; i++) {
+    if (ops.fnArray[i] !== lib.OPS.paintImageXObject) continue;
+    const args = ops.argsArray[i] as [string, number, number];
+    const area = (args[1] ?? 0) * (args[2] ?? 0);
+    if (typeof args[0] === "string" && (!best || area > best.area)) best = { name: args[0], area };
+  }
+  if (!best) return undefined;
+  const name = best.name;
+  const objs = name.startsWith("g_") ? page.commonObjs : page.objs;
+  const img = await new Promise<PdfImage | undefined>((done) => {
+    const t = setTimeout(() => done(undefined), 10_000);
+    try {
+      objs.get(name, (v: unknown) => {
+        clearTimeout(t);
+        done(v as PdfImage);
+      });
+    } catch {
+      clearTimeout(t);
+      done(undefined);
+    }
+  });
+  if (!img?.data || !img.width || !img.height) return undefined;
+  return pngOf(img);
+}
+
+interface PdfImage {
+  width: number;
+  height: number;
+  /** pdf.js ImageKind: 1 one bit per pixel (set = white), 2 RGB, 3 RGBA. */
+  kind: number;
+  data: Uint8Array | Uint8ClampedArray;
+}
+
+/** Pixels as a PNG (no filter, deflated): what Tesseract reads. */
+export function pngOf(img: PdfImage): Uint8Array {
+  const { width: w, height: h } = img;
+  const channels = img.kind === 3 ? 4 : img.kind === 2 ? 3 : 1;
+  const row = w * channels;
+  const raw = Buffer.alloc((row + 1) * h);
+  if (img.kind === 1) {
+    const stride = (w + 7) >> 3;
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const bit = (img.data[y * stride + (x >> 3)] ?? 0) & (128 >> (x & 7));
+        raw[y * (row + 1) + 1 + x] = bit ? 255 : 0;
+      }
+  } else
+    for (let y = 0; y < h; y++)
+      raw.set(img.data.subarray(y * row, (y + 1) * row), y * (row + 1) + 1);
+  const chunk = (type: string, body: Buffer) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(body.length);
+    const tb = Buffer.concat([Buffer.from(type, "latin1"), body]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(tb) >>> 0);
+    return Buffer.concat([len, tb, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8;
+  ihdr[9] = channels === 4 ? 6 : channels === 3 ? 2 : 0;
+  return new Uint8Array(
+    Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk("IHDR", ihdr),
+      chunk("IDAT", deflateSync(raw)),
+      chunk("IEND", Buffer.alloc(0)),
+    ]),
+  );
 }
 
 // ---- Office and OpenDocument ----
@@ -1460,11 +1577,23 @@ export async function extractFile(abs: string, ctx: ExtractContext = {}): Promis
   if (s.size === 0) return { ok: false, skipped: "empty" };
   const max = ctx.maxBytes ?? MAX_BYTES;
   const kind = docKindOf(name);
-  if (kind === "image") return { ok: false, skipped: "needs_ocr" };
+  if (kind === "image") {
+    if (!OCR_EXT.has(ext))
+      return { ok: false, skipped: "unsupported", message: "a picture format the OCR cannot read" };
+    if (!ctx.ocr) return { ok: false, skipped: "needs_ocr" };
+    if (s.size > MAX_OCR_BYTES) return { ok: false, skipped: "too_big" };
+    const seen = (await ctx.ocr(new Uint8Array(await readFile(abs)), ctx.signal)).trim();
+    if (!seen) return { ok: false, skipped: "empty" };
+    // One part, no lines: a picture opens whole.
+    return {
+      ok: true,
+      doc: { kind: "image", title: name, parts: [{ text: seen }], note: "ocr:1" },
+    };
+  }
   if (BINARY_EXT.has(ext)) return { ok: false, skipped: "binary" };
   if (s.size > max) return { ok: false, skipped: "too_big" };
   if (kind === "pdf") {
-    return extractPdfData(new Uint8Array(await readFile(abs)), name, ctx.signal);
+    return extractPdfData(new Uint8Array(await readFile(abs)), name, ctx.signal, ctx.ocr);
   }
   if (kind === "office") {
     const spreadsheet = SPREADSHEETS.has(ext);

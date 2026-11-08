@@ -113,9 +113,11 @@ export function updateRoutes<E extends { Variables: any }>(
       ["data", "conversations", "files", "verify"],
       async (h) => {
         await mkdir(join(dir, folder), { recursive: true });
+        const vectors = (await core.knowledge?.settings(o).catch(() => undefined))?.backupVectors;
         await exportBackup(core.backupDeps, o, path, h, keychain, {
           full: true,
           ...(version && { version }),
+          ...(vectors && { vectors }),
         });
         h.step("verify");
         const check = await verifyBackup(path, h);

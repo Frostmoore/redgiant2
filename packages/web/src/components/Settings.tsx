@@ -14,6 +14,7 @@ import {
   IconChevronDown,
   IconClock,
   IconCompass,
+  IconDatabase,
   IconDollar,
   IconFolder,
   IconKey,
@@ -39,6 +40,7 @@ import { General } from "./General.js";
 import { Hierarchy } from "./Hierarchy.js";
 import { ImportFrom } from "./ImportFrom.js";
 import { Keychain } from "./Keychain.js";
+import { Knowledge } from "./Knowledge.js";
 import { Platform } from "./Platform.js";
 import { RemoteSettings } from "./RemoteSettings.js";
 import { RequestsPage } from "./RequestsPage.js";
@@ -66,6 +68,7 @@ const GROUPS: { title: () => string; sections: Section[] }[] = [
     sections: [
       { id: "agents", label: () => t("agents"), icon: <IconTree size={20} /> },
       { id: "memory", label: () => t("memSection"), icon: <IconBook size={20} /> },
+      { id: "knowledge", label: () => t("kbSection"), icon: <IconDatabase size={20} /> },
       { id: "automations", label: () => t("automations"), icon: <IconClock size={20} /> },
       { id: "extensions", label: () => t("extensions"), icon: <IconPuzzle size={20} /> },
       { id: "tools", label: () => t("toolsSection"), icon: <IconTool size={20} /> },
@@ -173,6 +176,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "import" && <ImportFrom />}
         {section === "agents" && <Hierarchy />}
         {section === "memory" && <SharedMemoryPage />}
+        {section === "knowledge" && <Knowledge />}
         {section === "automations" && <Automations />}
         {section === "extensions" && <Extensions />}
         {section === "tools" && <ToolsPage />}

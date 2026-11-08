@@ -19,6 +19,16 @@ export * from "./hf.js";
 export * from "./images.js";
 export * from "./inspector.js";
 export * from "./jobs.js";
+// The knowledge (G36): what the demo and other programs build on.
+export { LocalEmbedServers } from "./knowledge/local-embed.js";
+export { mailSource } from "./knowledge/mail.js";
+export { LocalOcr } from "./knowledge/ocr.js";
+export {
+  type ChatSource,
+  KnowledgeService,
+  type MailSource,
+  type OcrEngine,
+} from "./knowledge/service.js";
 export * from "./local-models.js";
 export * from "./login.js";
 export * from "./notes.js";

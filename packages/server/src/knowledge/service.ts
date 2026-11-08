@@ -8,18 +8,22 @@
 // (`index.ready` / `index.retired` in the event log). Vectors are derived data: never in the log.
 
 import { randomUUID } from "node:crypto";
-import { realpath, stat } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import type { EventStore, SqlClient } from "@redgiant/events";
 import {
   CLOUD_EMBEDDING_MODELS,
   type EmbeddingChoice,
   EmbeddingChoice as EmbeddingChoiceSchema,
+  type KnowledgeAgentCollection,
   type KnowledgeCitation,
   type KnowledgeCollection,
   KnowledgeCollectionInput,
+  type KnowledgeDisk,
   type KnowledgeDocument,
   type KnowledgeIndexInfo,
+  KnowledgeOcr,
+  type KnowledgeOpenTarget,
   type KnowledgeScope,
   type KnowledgeSearchInput,
   type KnowledgeSearchResult,
@@ -27,11 +31,13 @@ import {
   type KnowledgeSource,
   KnowledgeSourceInput,
   type KnowledgeStatus,
+  OCR_LANGUAGES,
   RerankChoice,
   TEXT_SEARCH_CONFIG_NAMES,
   textSearchConfig,
 } from "@redgiant/protocol";
 import type { Jobs } from "../jobs.js";
+import { KnowledgeBackup } from "./backup.js";
 import {
   type Embedder,
   EmbeddingError,
@@ -43,7 +49,14 @@ import {
 } from "./embedders.js";
 import { Indexer } from "./indexer.js";
 import type { LocalEmbedServers } from "./local-embed.js";
-import { createVectorTable, migrateKnowledge, type VectorState, vecTable } from "./schema.js";
+import {
+  createVectorTable,
+  dropVectorTable,
+  migrateKnowledge,
+  PIECES,
+  type VectorState,
+  vecTable,
+} from "./schema.js";
 import { searchKnowledge } from "./search.js";
 
 export class KnowledgeError extends Error {
@@ -87,11 +100,72 @@ export interface KnowledgeDeps {
   agentLanguage?: () => string | undefined;
   /** The PDF of an Office file made by LibreOffice when it is on this computer. */
   officePdf?: (owner: string, abs: string, signal?: AbortSignal) => Promise<string | undefined>;
+  /** Reading text in pictures and scanned PDFs on this computer (G36.6, `LocalOcr`). */
+  ocr?: OcrEngine;
+  /** The person's mailboxes, read for a `mail` source (G36.6). */
+  mail?: MailSource;
+  /** The person's conversations, read for a `chats` source (G36.6). */
+  chats?: ChatSource;
+  /** The projects an agent works on (its own, the one it is assigned to), for its scope. */
+  agentProjects?: (owner: string, agentId: string) => Promise<string[]>;
   /** Tests: no folder watching, no timers. */
   manual?: boolean;
   /** Pieces in a scope searched exactly (default `EXACT_MAX`, 20 000; tests lower it). */
   exactMax?: number;
   now?: () => Date;
+}
+
+/** What the knowledge needs from the OCR (G36.6). */
+export interface OcrEngine {
+  /** The program and these languages are on this computer. */
+  ready(languages: string[]): Promise<boolean>;
+  /** Downloads what is missing (a job with its bar). */
+  ensure(owner: string, languages: string[]): Promise<void>;
+  /** The text in a picture (PNG, JPEG, TIFF, BMP, WebP…). */
+  recognize(image: Uint8Array, languages: string[], signal?: AbortSignal): Promise<string>;
+  /** Bytes it takes on disk. */
+  bytes(): Promise<number>;
+  stop(): Promise<void>;
+}
+
+/** One message or conversation of a mail or chats source, as listed. */
+export interface ItemRef {
+  /** Stable inside the source (a mail's UID, a conversation's id). */
+  id: string;
+  title: string;
+  /** Last change, ms (a conversation's last message). */
+  at: number;
+  size: number;
+}
+
+export interface MailSource {
+  /** The person's mailboxes (to check a source's mailbox and name it). */
+  boxes(owner: string): Promise<{ id: string; name: string }[]>;
+  list(owner: string, mailbox: string, sinceMs: number, signal?: AbortSignal): Promise<ItemRef[]>;
+  read(
+    owner: string,
+    mailbox: string,
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<
+    { subject: string; from: string; to?: string; date: string; text: string } | undefined
+  >;
+}
+
+export interface ChatSource {
+  list(owner: string, agents: string[], sinceMs: number): Promise<ItemRef[]>;
+  read(
+    owner: string,
+    sessionId: string,
+  ): Promise<
+    | {
+        title: string;
+        agentId: string;
+        agentName: string;
+        messages: { who: "person" | "agent"; at: string; text: string }[];
+      }
+    | undefined
+  >;
 }
 
 export interface IndexRow {
@@ -122,9 +196,55 @@ interface CollectionRow {
   created_at: string;
 }
 
-const DEFAULT_SETTINGS: KnowledgeSettings = { embedding: null, rerank: null, threads: 0 };
+const DEFAULT_SETTINGS: KnowledgeSettings = {
+  embedding: null,
+  rerank: null,
+  threads: 0,
+  agents: {},
+  ocr: { on: false, languages: ["eng"] },
+  backupVectors: false,
+};
 
 const parseJson = <T>(v: unknown): T => (typeof v === "string" ? (JSON.parse(v) as T) : (v as T));
+
+/**
+ * Whether `child` is `parent` or inside it. On Windows two drives have no relative path
+ * (`relative` gives the other's absolute one): not inside (G36.6, seen in CI with C: and D:).
+ */
+export function within(
+  parent: string,
+  child: string,
+  p: { relative(a: string, b: string): string; isAbsolute(a: string): boolean } = {
+    relative,
+    isAbsolute,
+  },
+): boolean {
+  const rel = p.relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !p.isAbsolute(rel));
+}
+
+/** Whether a collection's scope alone lets an agent read it. */
+function byScope(r: CollectionRow, asker: Extract<KnowledgeAsker, { kind: "agent" }>): boolean {
+  if (r.scope_kind === "all") return true;
+  if (r.scope_kind === "agent") return r.scope_id === asker.agentId;
+  return r.scope_id !== null && asker.projectIds.includes(r.scope_id);
+}
+
+/** Bytes of the files under a folder (0 when it is not there). */
+async function folderBytes(dir: string): Promise<number> {
+  let total = 0;
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const e of entries) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) total += await folderBytes(p);
+    else if (e.isFile())
+      total += await stat(p).then(
+        (s) => s.size,
+        () => 0,
+      );
+  }
+  return total;
+}
 
 function scopeOfRow(r: CollectionRow): KnowledgeScope {
   if (r.scope_kind === "agent") return { kind: "agent", agentId: r.scope_id ?? "" };
@@ -183,6 +303,7 @@ export class KnowledgeService {
   async stop(): Promise<void> {
     await this.indexer.stop();
     this.deps.local.stop();
+    await this.deps.ocr?.stop();
   }
 
   async record(
@@ -198,7 +319,9 @@ export class KnowledgeService {
         | "index.ready"
         | "index.failed"
         | "index.retired"
-        | "settings.changed";
+        | "settings.changed"
+        | "access.changed"
+        | "vectors.restored";
       collectionId?: string;
       sourceId?: string;
       indexId?: number;
@@ -219,7 +342,15 @@ export class KnowledgeService {
       "SELECT value FROM rg_kb_settings WHERE owner_id = $1",
       [owner],
     );
-    return { ...DEFAULT_SETTINGS, ...(rows[0] ? parseJson<KnowledgeSettings>(rows[0].value) : {}) };
+    const saved = rows[0] ? parseJson<Partial<KnowledgeSettings>>(rows[0].value) : {};
+    const ocr = KnowledgeOcr.safeParse(saved.ocr ?? {});
+    return {
+      ...DEFAULT_SETTINGS,
+      ...saved,
+      agents: saved.agents ?? {},
+      ocr: ocr.success ? ocr.data : DEFAULT_SETTINGS.ocr,
+      backupVectors: saved.backupVectors === true,
+    };
   }
 
   private async saveSettings(owner: string, s: KnowledgeSettings) {
@@ -289,11 +420,25 @@ export class KnowledgeService {
    */
   async setSettings(
     owner: string,
-    raw: { embedding?: unknown; rerank?: unknown; threads?: unknown },
+    raw: {
+      embedding?: unknown;
+      rerank?: unknown;
+      threads?: unknown;
+      ocr?: unknown;
+      backupVectors?: unknown;
+    },
     signal?: AbortSignal,
   ): Promise<KnowledgeSettings> {
     const before = await this.settings(owner);
     const next: KnowledgeSettings = { ...before };
+    if (raw.backupVectors !== undefined) next.backupVectors = raw.backupVectors === true;
+    if (raw.ocr !== undefined) {
+      const ocr = KnowledgeOcr.parse(raw.ocr);
+      const unknown = ocr.languages.filter((l) => !OCR_LANGUAGES.some((x) => x.id === l));
+      if (unknown.length)
+        throw new KnowledgeError("bad_choice", `Unknown OCR language: ${unknown.join(", ")}`);
+      next.ocr = ocr;
+    }
     if (raw.threads !== undefined) {
       const t = Number(raw.threads);
       if (!Number.isInteger(t) || t < 0 || t > 256)
@@ -315,11 +460,34 @@ export class KnowledgeService {
         embedding: next.embedding ? `${next.embedding.provider}/${next.embedding.model}` : "none",
         rerank: next.rerank ? `${next.rerank.provider}/${next.rerank.model}` : "none",
         threads: next.threads,
+        ocr: next.ocr.on ? next.ocr.languages.join("+") : "off",
+        backupVectors: next.backupVectors,
       },
     });
+    // OCR turned on (or another language): its program comes down, then the pictures and
+    // scans that waited for it are read again.
+    if (next.ocr.on && this.deps.ocr) {
+      const langs = next.ocr.languages;
+      void this.deps.ocr
+        .ensure(owner, langs)
+        .then(() => this.ocrArrived(owner))
+        .catch(() => {});
+    }
     this.indexer.retry(owner);
     return next;
   }
+
+  /** The backup's model becomes the person's choice (its index came with the restore). */
+  async adoptEmbedding(owner: string, choice: EmbeddingChoice) {
+    await this.saveSettings(owner, { ...(await this.settings(owner)), embedding: choice });
+  }
+
+  /** The knowledge in a backup (G36.6, the person's choice `backupVectors`). */
+  get backup(): KnowledgeBackup {
+    this.backupHelper ??= new KnowledgeBackup(this);
+    return this.backupHelper;
+  }
+  private backupHelper: KnowledgeBackup | undefined;
 
   private async useModel(owner: string, choice: EmbeddingChoice, signal?: AbortSignal) {
     if (!this.vector.ok)
@@ -411,7 +579,7 @@ export class KnowledgeService {
       "UPDATE rg_kb_indexes SET state = 'retired', active = false WHERE id = $1",
       [i.id],
     );
-    await this.db.query(`DROP TABLE IF EXISTS ${vecTable(i.id)}`);
+    await dropVectorTable(this.db, i.id);
     this.embedders.delete(`${owner}:${i.id}`);
     await this.record(owner, { action: "index.retired", indexId: i.id, detail: { why } });
   }
@@ -429,12 +597,13 @@ export class KnowledgeService {
 
   async collections(owner: string): Promise<KnowledgeCollection[]> {
     const rows = await this.collectionRows(owner);
-    const counts = await this.db.query<{ num: number; documents: string; chunks: string | null }>(
-      `SELECT d.collection_num AS num, count(*)::text AS documents, sum(d.chunks)::text AS chunks
+    const counts = await this.db.query<{ num: number; documents: string }>(
+      `SELECT d.collection_num AS num, count(*)::text AS documents
          FROM rg_kb_documents d JOIN rg_kb_collections c ON c.num = d.collection_num
         WHERE c.owner_id = $1 GROUP BY d.collection_num`,
       [owner],
     );
+    const pieces = await this.pieceCounts(owner);
     const by = new Map(counts.map((c) => [c.num, c]));
     return rows.map((r) => ({
       id: r.id,
@@ -444,8 +613,19 @@ export class KnowledgeService {
       ...(r.description && { description: r.description }),
       createdAt: r.created_at,
       documents: Number(by.get(r.num)?.documents ?? 0),
-      chunks: Number(by.get(r.num)?.chunks ?? 0),
+      chunks: pieces.get(r.num) ?? 0,
     }));
+  }
+
+  /** Pieces per collection number, from the database's counters (never counted). */
+  async pieceCounts(owner: string, indexId = PIECES): Promise<Map<number, number>> {
+    const rows = await this.db.query<{ num: number; n: string }>(
+      `SELECT n.collection_num AS num, n.n::text AS n FROM rg_kb_counts n
+         JOIN rg_kb_collections c ON c.num = n.collection_num
+        WHERE c.owner_id = $1 AND n.index_id = $2`,
+      [owner, indexId],
+    );
+    return new Map(rows.map((r) => [r.num, Number(r.n)]));
   }
 
   async collection(owner: string, id: string): Promise<CollectionRow> {
@@ -526,6 +706,7 @@ export class KnowledgeService {
     // Pieces first (their vectors follow through the foreign keys), then the rest.
     await this.db.query("DELETE FROM rg_kb_chunks WHERE collection_num = $1", [c.num]);
     await this.db.query("DELETE FROM rg_kb_collections WHERE id = $1", [id]);
+    await this.db.query("DELETE FROM rg_kb_counts WHERE collection_num = $1", [c.num]);
     await this.record(owner, {
       action: "collection.removed",
       collectionId: id,
@@ -542,10 +723,7 @@ export class KnowledgeService {
     if (!real) throw new KnowledgeError("bad_source", `No such folder or file: ${path}`);
     for (const f of [this.deps.dataDir, ...(this.deps.forbidden ?? [])]) {
       const keep = await realpath(resolve(f)).catch(() => resolve(f));
-      const rel = relative(keep, real);
-      const inside = rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-      const contains = !relative(real, keep).startsWith("..");
-      if (inside || contains)
+      if (within(keep, real) || within(real, keep))
         throw new KnowledgeError("bad_source", "That folder holds RedGiant's own data");
     }
     return real;
@@ -570,6 +748,19 @@ export class KnowledgeService {
         return abs;
       }
       return this.checkFolder(spec.path);
+    }
+    // Mail and conversations are not on disk: their «root» names them (G36.6).
+    if (spec.kind === "mail") {
+      if (!this.deps.mail) throw new KnowledgeError("bad_source", "Mail is not available here");
+      const boxes = await this.deps.mail.boxes(owner);
+      if (!boxes.some((b) => b.id === spec.mailbox))
+        throw new KnowledgeError("bad_source", `No mailbox "${spec.mailbox}"`);
+      return `mail:${spec.mailbox}`;
+    }
+    if (spec.kind === "chats") {
+      if (!this.deps.chats)
+        throw new KnowledgeError("bad_source", "Conversations are not available here");
+      return "chats:";
     }
     return spec.url;
   }
@@ -696,21 +887,12 @@ export class KnowledgeService {
 
   async status(owner: string): Promise<KnowledgeStatus> {
     const [settings, indexes] = await Promise.all([this.settings(owner), this.indexes(owner)]);
-    const totals = await this.db.query<{ chunks: string }>(
-      `SELECT count(*)::text AS chunks FROM rg_kb_chunks ch
-         JOIN rg_kb_collections c ON c.num = ch.collection_num WHERE c.owner_id = $1`,
-      [owner],
-    );
-    const total = Number(totals[0]?.chunks ?? 0);
+    // Counters kept by the database (G36.6): fast with a million pieces, nothing counted here.
+    const sum = (m: Map<number, number>) => [...m.values()].reduce((a, b) => a + b, 0);
+    const total = sum(await this.pieceCounts(owner));
     const infos: KnowledgeIndexInfo[] = [];
     for (const i of indexes) {
-      const n = await this.db
-        .query<{ n: string }>(
-          `SELECT count(*)::text AS n FROM ${vecTable(i.id)} v
-             JOIN rg_kb_collections c ON c.num = v.collection_num WHERE c.owner_id = $1`,
-          [owner],
-        )
-        .catch(() => [{ n: "0" }]);
+      const embedded = sum(await this.pieceCounts(owner, i.id));
       infos.push({
         id: i.id,
         provider: i.provider as KnowledgeIndexInfo["provider"],
@@ -718,7 +900,7 @@ export class KnowledgeService {
         dims: i.dims,
         state: i.state,
         active: i.active,
-        embedded: Number(n[0]?.n ?? 0),
+        embedded,
         total,
         ann: i.ann,
         ...(i.error && { error: i.error }),
@@ -739,19 +921,37 @@ export class KnowledgeService {
       [owner],
     );
     const q = this.indexer.state(owner);
+    const left = filling ? Math.max(0, filling.total - filling.embedded) : 0;
+    const pace = this.indexer.pace(owner);
+    const waiting = await this.db.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM rg_kb_documents d
+         JOIN rg_kb_collections c ON c.num = d.collection_num
+        WHERE c.owner_id = $1 AND d.state = 'skipped' AND d.reason = 'needs_ocr'`,
+      [owner],
+    );
     return {
       vector: this.vector,
       settings,
       indexes: infos,
       queue: {
         documents: Number(pending[0]?.n ?? 0),
-        chunks: filling ? Math.max(0, filling.total - filling.embedded) : 0,
+        chunks: left,
         running: q.running,
         paused: q.paused,
         ...(q.doing && { doing: q.doing }),
         ...(q.error && { error: q.error }),
+        // Paused, nothing moves: no pace and no time left to tell.
+        ...(pace && !q.paused && { perMinute: Math.round(pace) }),
+        ...(pace && !q.paused && left > 0 && { etaSeconds: Math.round((left / pace) * 60) }),
       },
       collections: Number(collections[0]?.n ?? 0),
+      chunks: total,
+      ocr: {
+        on: settings.ocr.on,
+        languages: settings.ocr.languages,
+        ready: (await this.deps.ocr?.ready(settings.ocr.languages)) ?? false,
+        waiting: Number(waiting[0]?.n ?? 0),
+      },
     };
   }
 
@@ -764,13 +964,99 @@ export class KnowledgeService {
   /** The collections an asker may search (numbers), narrowed by the ids asked for. */
   async visible(owner: string, asker: KnowledgeAsker, only?: string[]): Promise<CollectionRow[]> {
     const rows = await this.collectionRows(owner);
+    const access =
+      asker.kind === "agent" ? (await this.settings(owner)).agents[asker.agentId] : undefined;
     return rows.filter((r) => {
       if (only && !only.includes(r.id)) return false;
       if (asker.kind === "human") return true;
-      if (r.scope_kind === "all") return true;
-      if (r.scope_kind === "agent") return r.scope_id === asker.agentId;
-      return r.scope_id !== null && asker.projectIds.includes(r.scope_id);
+      // The person's own choice for this agent comes first (its window's Knowledge tab).
+      if (access?.off.includes(r.id)) return false;
+      if (access?.on.includes(r.id)) return true;
+      return byScope(r, asker);
     });
+  }
+
+  /** Every collection as one agent sees it: by its scope, the person's choice, what it gets. */
+  async agentCollections(owner: string, agentId: string): Promise<KnowledgeAgentCollection[]> {
+    const projectIds = (await this.deps.agentProjects?.(owner, agentId)) ?? [];
+    const asker: KnowledgeAsker = { kind: "agent", agentId, projectIds };
+    const [rows, access, pieces] = await Promise.all([
+      this.collectionRows(owner),
+      this.settings(owner).then((s) => s.agents[agentId]),
+      this.pieceCounts(owner),
+    ]);
+    return rows.map((r) => {
+      const scoped = byScope(r, asker);
+      const own = access?.off.includes(r.id) ? "off" : access?.on.includes(r.id) ? "on" : null;
+      return {
+        id: r.id,
+        name: r.name,
+        scope: scopeOfRow(r),
+        byScope: scoped,
+        own,
+        on: own ? own === "on" : scoped,
+        chunks: pieces.get(r.num) ?? 0,
+      };
+    });
+  }
+
+  /** The person's choice for one agent and one collection; null goes back to the scope. */
+  async setAgentAccess(
+    owner: string,
+    agentId: string,
+    collectionId: string,
+    pick: "on" | "off" | null,
+  ): Promise<KnowledgeAgentCollection[]> {
+    await this.collection(owner, collectionId);
+    const s = await this.settings(owner);
+    const now = s.agents[agentId] ?? { on: [], off: [] };
+    const next = {
+      on: now.on.filter((id) => id !== collectionId),
+      off: now.off.filter((id) => id !== collectionId),
+    };
+    if (pick) next[pick].push(collectionId);
+    const agents = { ...s.agents };
+    if (next.on.length || next.off.length) agents[agentId] = next;
+    else delete agents[agentId];
+    await this.saveSettings(owner, { ...s, agents });
+    await this.record(owner, {
+      action: "access.changed",
+      collectionId,
+      detail: { agent: agentId, pick: pick ?? "scope" },
+    });
+    return this.agentCollections(owner, agentId);
+  }
+
+  /** What the knowledge takes on disk: Postgres' own sizes (no row is counted) and the downloads. */
+  async disk(): Promise<KnowledgeDisk> {
+    const size = async (sql: string) =>
+      Number((await this.db.query<{ b: string | null }>(sql).catch(() => []))[0]?.b ?? 0) || 0;
+    const texts =
+      await size(`SELECT (coalesce(pg_total_relation_size(to_regclass('rg_kb_chunks')), 0)
+        + coalesce(pg_total_relation_size(to_regclass('rg_kb_documents')), 0)
+        + coalesce(pg_total_relation_size(to_regclass('rg_kb_sources')), 0))::text AS b`);
+    const vectors = await size(`SELECT coalesce(sum(pg_total_relation_size(c.oid)), 0)::text AS b
+        FROM pg_class c WHERE c.relkind = 'r' AND c.relname ~ '^rg_kb_vec_[0-9]+$'`);
+    return {
+      texts,
+      vectors,
+      models: await folderBytes(join(this.deps.dataDir, "models", "knowledge")),
+      ocr: (await this.deps.ocr?.bytes().catch(() => 0)) ?? 0,
+    };
+  }
+
+  /** The OCR is here now: pictures and scans skipped while it was off are read again. */
+  async ocrArrived(owner: string): Promise<number> {
+    const rows = await this.db.query<{ id: string }>(
+      `UPDATE rg_kb_documents d SET state = 'pending', hash = NULL
+         FROM rg_kb_collections c
+        WHERE c.num = d.collection_num AND c.owner_id = $1
+          AND d.state = 'skipped' AND d.reason = 'needs_ocr'
+        RETURNING d.id::text AS id`,
+      [owner],
+    );
+    this.indexer.wake();
+    return rows.length;
   }
 
   async search(
@@ -786,22 +1072,7 @@ export class KnowledgeService {
    * Where a piece opens: a workspace file (`scope`, `path`, `at`), a file on this computer
    * (`outside`, its full path, allowed because a source holds it), or a web address.
    */
-  async open(
-    owner: string,
-    chunkId: string,
-  ): Promise<
-    | {
-        title: string;
-        target: {
-          kind: "file";
-          scope: string;
-          path: string;
-          at?: { page?: number; line?: number };
-        };
-        citation: KnowledgeCitation;
-      }
-    | { title: string; url: string; citation: KnowledgeCitation }
-  > {
+  async open(owner: string, chunkId: string): Promise<KnowledgeOpenTarget> {
     if (!/^\d+$/.test(chunkId)) throw new KnowledgeError("not_found", "No such piece");
     const rows = await this.db.query<CitationRow>(
       `${CITATION_SELECT} WHERE ch.id = $1::bigint AND c.owner_id = $2`,
@@ -815,6 +1086,23 @@ export class KnowledgeService {
       ...(citation.lineStart && { line: citation.lineStart }),
     };
     if (citation.source === "url") return { title: citation.title, url: citation.path, citation };
+    // A conversation opens as itself; a mail as its text (it lives in the mailbox, not here).
+    if (citation.source === "chats") {
+      const chat = await this.deps.chats?.read(owner, citation.path);
+      if (chat)
+        return {
+          title: citation.title,
+          chat: { sessionId: citation.path, agentId: chat.agentId },
+          citation,
+        };
+    }
+    if (citation.source === "mail" || citation.source === "chats") {
+      const parts = await this.db.query<{ body: string }>(
+        "SELECT body FROM rg_kb_chunks WHERE document_id = $1::bigint ORDER BY ord",
+        [citation.documentId],
+      );
+      return { title: citation.title, text: joinPieces(parts.map((p) => p.body)), citation };
+    }
     if (citation.scope)
       return {
         title: citation.title,
@@ -853,6 +1141,25 @@ export class KnowledgeService {
       return rel === "" ? spec.kind === "file" : !rel.startsWith("..") && !isAbsolute(rel);
     });
   }
+}
+
+/** A document's pieces back as one text: the overlap a long part repeats is said once. */
+export function joinPieces(bodies: string[]): string {
+  let out = "";
+  for (const b of bodies) {
+    if (!out) {
+      out = b;
+      continue;
+    }
+    let cut = 0;
+    for (let n = Math.min(300, b.length, out.length); n >= 20; n--)
+      if (out.endsWith(b.slice(0, n))) {
+        cut = n;
+        break;
+      }
+    out += cut ? b.slice(cut) : `\n\n${b}`;
+  }
+  return out;
 }
 
 /** The local servers need no key. */
@@ -908,5 +1215,7 @@ export function citationOf(r: CitationRow): KnowledgeCitation {
     return spec.scope
       ? { ...base, source: "file", scope: spec.scope, path: spec.path }
       : { ...base, source: "file", path: spec.path };
+  if (spec.kind === "mail") return { ...base, source: "mail", path: `${spec.mailbox}/${r.path}` };
+  if (spec.kind === "chats") return { ...base, source: "chats", path: r.path };
   return { ...base, source: "folder", path: join(spec.path, ...r.path.split("/")) };
 }

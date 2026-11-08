@@ -89,6 +89,26 @@ export const KnowledgeSourceInput = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("file"), path: z.string().min(1), scope: z.string().optional() }),
   /** A web page, read once and again when asked (never with the person's logins). */
   z.object({ kind: z.literal("url"), url: z.url() }),
+  /**
+   * A connected mailbox (G36.6): its inbox, read-only, the last `days` days. Only with the
+   * person's own yes (`consent`), given in the page after it says what that means.
+   */
+  z.object({
+    kind: z.literal("mail"),
+    mailbox: z.string().min(1).max(100),
+    days: z.number().int().min(1).max(3650).default(365),
+    consent: z.literal(true),
+  }),
+  /**
+   * The person's conversations with the agents (G36.6): every agent's, or only these agents'
+   * (`agents`), the last `days` days. Only with the person's own yes (`consent`).
+   */
+  z.object({
+    kind: z.literal("chats"),
+    agents: z.array(z.string().min(1)).max(200).default([]),
+    days: z.number().int().min(1).max(3650).default(365),
+    consent: z.literal(true),
+  }),
 ]);
 export type KnowledgeSourceInput = z.input<typeof KnowledgeSourceInput>;
 
@@ -105,7 +125,30 @@ export interface KnowledgeSource {
 }
 
 /** What a document's text came from. */
-export type KnowledgeDocKind = "text" | "code" | "markdown" | "pdf" | "office" | "html" | "web";
+export type KnowledgeDocKind =
+  | "text"
+  | "code"
+  | "markdown"
+  | "pdf"
+  | "office"
+  | "html"
+  | "web"
+  | "image"
+  | "mail"
+  | "chat";
+
+export const KNOWLEDGE_DOC_KINDS = [
+  "text",
+  "code",
+  "markdown",
+  "pdf",
+  "office",
+  "html",
+  "web",
+  "image",
+  "mail",
+  "chat",
+] as const satisfies readonly KnowledgeDocKind[];
 
 export type KnowledgeDocState = "pending" | "indexed" | "skipped" | "failed";
 
@@ -431,11 +474,116 @@ export interface KnowledgeIndexInfo {
   readyAt: string | null;
 }
 
+/** An agent's own access beyond its collections' scope: collections added, collections taken away. */
+export const KnowledgeAgentAccess = z.object({
+  on: z.array(z.string()).max(500).default([]),
+  off: z.array(z.string()).max(500).default([]),
+});
+export type KnowledgeAgentAccess = z.infer<typeof KnowledgeAgentAccess>;
+
+/** Reading text in pictures and scanned PDFs on this computer (G36.6). */
+export const KnowledgeOcr = z.object({
+  on: z.boolean().default(false),
+  /** Tesseract languages (`ita`, `eng`…, see `OCR_LANGUAGES`), the first one first. */
+  languages: z
+    .array(z.string().regex(/^[a-z_]{3,12}$/))
+    .min(1)
+    .max(6)
+    .default(["eng"]),
+});
+export type KnowledgeOcr = z.infer<typeof KnowledgeOcr>;
+
 export interface KnowledgeSettings {
   embedding: EmbeddingChoice | null;
   rerank: RerankChoice | null;
   /** Processor threads the local models and the indexer may use (0 = decided by RedGiant). */
   threads: number;
+  /** Agents' own access (G36.5, the agent's window): by agent id. */
+  agents: Record<string, KnowledgeAgentAccess>;
+  ocr: KnowledgeOcr;
+  /** Put the pieces and their vectors in the backup too (G36.6): no model paid again on restore. */
+  backupVectors: boolean;
+}
+
+/** A language the OCR can read: the Tesseract data (4.0.0 best_int), downloaded the first time. */
+export interface OcrLanguage {
+  id: string;
+  name: string;
+  /** Download size, kB. */
+  sizeKb: number;
+  sha256: string;
+}
+
+/** The languages offered (checked 2026-11-08 on jsDelivr, `@tesseract.js-data/<id>/4.0.0_best_int`). */
+export const OCR_LANGUAGES: readonly OcrLanguage[] = [
+  {
+    id: "ita",
+    name: "Italiano",
+    sizeKb: 1622,
+    sha256: "f702fcfad297ce028ede3626d1467b67939f23ff23595f9badd54681cf25a4d3",
+  },
+  {
+    id: "eng",
+    name: "English",
+    sizeKb: 2884,
+    sha256: "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+  },
+  {
+    id: "fra",
+    name: "Français",
+    sizeKb: 691,
+    sha256: "d611139672b3752c7097e671e4a1d9209dfd37f2aeb081ef6487fba3351e9255",
+  },
+  {
+    id: "deu",
+    name: "Deutsch",
+    sizeKb: 1302,
+    sha256: "306c4280d0cbed46fbff727486bd43b92730181bae80f56941a091f363bdf28b",
+  },
+  {
+    id: "spa",
+    name: "Español",
+    sizeKb: 2051,
+    sha256: "40be52f97b5d4eb7460073dc1f94cd546b27150333c0bf854ed7e7132db6bceb",
+  },
+  {
+    id: "por",
+    name: "Português",
+    sizeKb: 1360,
+    sha256: "dacebc1386ddaaf8389f81094236cca0d690897cde693d48cbdaa881c86e2b4c",
+  },
+  {
+    id: "nld",
+    name: "Nederlands",
+    sizeKb: 2935,
+    sha256: "a2d904b6ddc4feb0d31ecfcd7361a554102e7aa2e278c54f4fc029e0d0815571",
+  },
+];
+
+/** What the knowledge takes on disk (G36.5): from Postgres' sizes, never by counting rows. */
+export interface KnowledgeDisk {
+  /** Texts, places and words (`rg_kb_chunks` with its indexes, documents, sources). */
+  texts: number;
+  /** Vectors and their graphs, every index. */
+  vectors: number;
+  /** Local embedding and rerank models downloaded. */
+  models: number;
+  /** The OCR's program and languages. */
+  ocr: number;
+}
+
+/** One collection as an agent sees it (its window's «Knowledge» tab). */
+export interface KnowledgeAgentCollection {
+  id: string;
+  name: string;
+  scope: KnowledgeScope;
+  /** Reachable by its scope alone (for everyone, this agent, its project). */
+  byScope: boolean;
+  /** The person's own choice for this agent, if any. */
+  own: "on" | "off" | null;
+  /** What the agent gets. */
+  on: boolean;
+  chunks: number;
 }
 
 export interface KnowledgeStatus {
@@ -453,8 +601,21 @@ export interface KnowledgeStatus {
     /** What it is doing now, for the page. */
     doing?: string;
     error?: string;
+    /** Pieces embedded per minute lately, and the time left at that pace (G36.5). */
+    perMinute?: number;
+    etaSeconds?: number;
   };
   collections: number;
+  /** Pieces in every collection, from counters kept by the database (G36.6: never counted). */
+  chunks: number;
+  ocr: {
+    on: boolean;
+    languages: string[];
+    /** The program and every language chosen are on this computer. */
+    ready: boolean;
+    /** Documents waiting for the OCR (pictures and scans skipped while it was off). */
+    waiting: number;
+  };
 }
 
 // ---- Search (G36.4) ----
@@ -464,7 +625,7 @@ export const KnowledgeSearchInput = z.object({
   /** Only these collections (otherwise every one the asker can see). */
   collections: z.array(z.string()).max(100).optional(),
   /** Only documents of these kinds. */
-  kinds: z.array(z.enum(["text", "code", "markdown", "pdf", "office", "html", "web"])).optional(),
+  kinds: z.array(z.enum(KNOWLEDGE_DOC_KINDS)).optional(),
   /** Only paths starting with this (inside the source). */
   pathPrefix: z.string().max(500).optional(),
   limit: z.number().int().min(1).max(50).default(8),
@@ -483,10 +644,10 @@ export interface KnowledgeCitation {
   documentId: string;
   chunkId: string;
   /** The source's kind and where the file is (a workspace scope, a folder, a web address). */
-  source: "folder" | "workspace" | "file" | "url";
+  source: "folder" | "workspace" | "file" | "url" | "mail" | "chats";
   /** `project:<id>` / `assistants` / `platform` for workspace files. */
   scope?: string;
-  /** Path inside the scope or folder, or the address. */
+  /** Path inside the scope or folder, or the address; `<mailbox>/<uid>` for mail, the session for chats. */
   path: string;
   title: string;
   /** Section or symbol the piece belongs to. */
@@ -559,3 +720,19 @@ export const TEXT_SEARCH_CONFIG_NAMES = [
   "simple",
   ...new Set(Object.values(TEXT_SEARCH_CONFIGS)),
 ].sort();
+
+/** Where a citation opens: a file at its page or line, a web page, a mail's text, a conversation. */
+export type KnowledgeOpenTarget =
+  | {
+      title: string;
+      target: {
+        kind: "file";
+        scope: string;
+        path: string;
+        at?: { page?: number; line?: number };
+      };
+      citation: KnowledgeCitation;
+    }
+  | { title: string; url: string; citation: KnowledgeCitation }
+  | { title: string; text: string; citation: KnowledgeCitation }
+  | { title: string; chat: { sessionId: string; agentId: string }; citation: KnowledgeCitation };

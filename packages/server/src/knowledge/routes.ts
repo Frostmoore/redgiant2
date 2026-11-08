@@ -7,6 +7,7 @@ import {
   KnowledgeSearchInput,
   LOCAL_EMBEDDING_MODELS,
   LOCAL_RERANK_MODELS,
+  OCR_LANGUAGES,
   RERANK_PROVIDERS,
   TEXT_SEARCH_CONFIG_NAMES,
 } from "@redgiant/protocol";
@@ -69,6 +70,13 @@ export function knowledgeRoutes<E extends { Variables: any }>(
           ),
           cloud: CLOUD_EMBEDDING_MODELS,
           languages: TEXT_SEARCH_CONFIG_NAMES,
+          // The OCR's languages (G36.6), and which ones are on this computer already.
+          ocr: await Promise.all(
+            OCR_LANGUAGES.map(async (l) => ({
+              ...l,
+              here: (await s.deps.ocr?.ready([l.id])) ?? false,
+            })),
+          ),
         },
         200,
       );
@@ -82,6 +90,8 @@ export function knowledgeRoutes<E extends { Variables: any }>(
           embedding: z.unknown().optional(),
           rerank: z.unknown().optional(),
           threads: z.unknown().optional(),
+          ocr: z.unknown().optional(),
+          backupVectors: z.unknown().optional(),
         })
         .parse(await body(c));
       return c.json(await s.setSettings(owner(c), b, c.req.raw.signal), 200);
@@ -102,6 +112,59 @@ export function knowledgeRoutes<E extends { Variables: any }>(
         throw new KnowledgeError("bad_choice", `Unknown local model "${b.id}"`);
       void s.deps.local.ensure(owner(c), b.role, b.id, b.gpu).catch(() => {});
       return c.json({ ok: true }, 202);
+    }),
+  );
+  /** The OCR's program and languages now (its bar is a job), before or after turning it on. */
+  app.post(
+    "/api/knowledge/ocr/download",
+    route(async (c, s) => {
+      const b = z.object({ languages: z.array(z.string()).min(1).max(6) }).parse(await body(c));
+      const unknown = b.languages.filter((l) => !OCR_LANGUAGES.some((x) => x.id === l));
+      if (unknown.length)
+        throw new KnowledgeError("bad_choice", `Unknown OCR language: ${unknown.join(", ")}`);
+      if (!s.deps.ocr) throw new KnowledgeError("bad_choice", "The OCR is not available here");
+      const o = owner(c);
+      void s.deps.ocr
+        .ensure(o, b.languages)
+        .then(() => s.ocrArrived(o))
+        .catch(() => {});
+      return c.json({ ok: true }, 202);
+    }),
+  );
+  /** What the knowledge takes on disk (Postgres' sizes and the downloads, nothing counted). */
+  app.get(
+    "/api/knowledge/disk",
+    route(async (c, s) => c.json(await s.disk(), 200)),
+  );
+  /** The mailboxes a mail source can read (G36.6): names only, never a password. */
+  app.get(
+    "/api/knowledge/mailboxes",
+    route(async (c, s) => c.json({ mailboxes: (await s.deps.mail?.boxes(owner(c))) ?? [] }, 200)),
+  );
+  /** One agent's collections (its window's Knowledge tab) and the person's choice for it. */
+  app.get(
+    "/api/knowledge/agents/:id",
+    route(async (c, s) =>
+      c.json({ collections: await s.agentCollections(owner(c), c.req.param("id") as string) }, 200),
+    ),
+  );
+  app.put(
+    "/api/knowledge/agents/:id",
+    route(async (c, s) => {
+      const b = z
+        .object({ collection: z.string().min(1), pick: z.enum(["on", "off"]).nullable() })
+        .parse(await body(c));
+      return c.json(
+        {
+          collections: await s.setAgentAccess(
+            owner(c),
+            c.req.param("id") as string,
+            b.collection,
+            b.pick,
+          ),
+        },
+        200,
+      );
     }),
   );
   app.post(

@@ -27,17 +27,21 @@ import {
 export const EXACT_MAX = 20_000;
 /** RRF's constant (study 4.3). */
 const RRF_K = 60;
+/** How much a piece with only some of the query's words counts in the fusion (G36.6 bench). */
+export const LOOSE_WEIGHT = 0.5;
 
 interface Ranked {
   id: string;
   rank: number;
+  /** Its list's say in the fusion (default 1). */
+  weight?: number;
 }
 
-/** Fuses ranked lists: each id scores Σ 1 / (k + rank). Pure, tested. */
+/** Fuses ranked lists: each id scores Σ weight / (k + rank). Pure, tested. */
 export function rrf(lists: Ranked[][], k = RRF_K): { id: string; score: number }[] {
   const score = new Map<string, number>();
   for (const list of lists)
-    for (const r of list) score.set(r.id, (score.get(r.id) ?? 0) + 1 / (k + r.rank));
+    for (const r of list) score.set(r.id, (score.get(r.id) ?? 0) + (r.weight ?? 1) / (k + r.rank));
   return [...score]
     .map(([id, s]) => ({ id, score: s }))
     .sort((a, b) => b.score - a.score || Number(a.id) - Number(b.id));
@@ -219,9 +223,9 @@ async function searchVectors(
   const [v] = await embedder.embed([query], "query", o.signal);
   if (!v) throw new Error("no vector for the query");
   const table = vecTable(index.id);
-  // Pieces in the scope, from the documents' counts (cheaper than counting a million vectors).
+  // Pieces in the scope, from the database's counters (G36.6: nothing counted on a million rows).
   const sizes = await k.db.query<{ n: string | null }>(
-    "SELECT sum(chunks)::text AS n FROM rg_kb_documents WHERE collection_num = ANY($1::int[])",
+    "SELECT sum(n)::text AS n FROM rg_kb_counts WHERE index_id = 0 AND collection_num = ANY($1::int[])",
     [nums],
   );
   const inScope = Number(sizes[0]?.n ?? 0);
@@ -260,8 +264,38 @@ async function searchVectors(
 /**
  * Words, in each collection's own language (stems: «case» finds «casa») and as written
  * (`simple`: names, code identifiers), ranked by ts_rank_cd. One query per language, each able to
- * use the GIN index (its configuration is a constant).
+ * use the GIN index (its configuration is a constant). Pieces with every word come first; then
+ * those with only some of them (G36.6, the bench: an agent asks in sentences, «how many monthly
+ * copies does the storage keep», and requiring every word found a quarter of the answers).
  */
+/** Most words of a query paired for the loose search (66 pairs). */
+const LOOSE_TERMS = 12;
+
+/**
+ * A query asked in a sentence: pieces with at least two of its words (every pair, OR-ed: each
+ * pair is selective, so the GIN index still answers fast on a million pieces). Undefined for a
+ * query of fewer than three words (all of them or nothing).
+ */
+export async function looseQuery(
+  k: Pick<KnowledgeService, "db">,
+  language: string,
+  query: string,
+): Promise<string | undefined> {
+  const [row] = await k.db.query<{ l: string[] | null }>(
+    `SELECT tsvector_to_array(to_tsvector('${language}', $1)) AS l`,
+    [query],
+  );
+  const terms = [...new Set(row?.l ?? [])].slice(0, LOOSE_TERMS);
+  if (terms.length < 3) return undefined;
+  // Lexemes come out of Postgres itself; a quote inside one is doubled, as tsquery wants.
+  const q = (t: string) => `'${t.replace(/'/g, "''")}'`;
+  const pairs: string[] = [];
+  for (let i = 0; i < terms.length; i++)
+    for (let j = i + 1; j < terms.length; j++)
+      pairs.push(`(${q(terms[i] as string)} & ${q(terms[j] as string)})`);
+  return pairs.join(" | ");
+}
+
 async function searchWords(
   k: KnowledgeService,
   query: string,
@@ -276,22 +310,44 @@ async function searchWords(
     byLanguage.set(l, [...(byLanguage.get(l) ?? []), c.num]);
   }
   const found: { id: string; r: number }[] = [];
+  // Strict matches score 1 + rank, loose ones (two words or more, not all) below 1.
+  const filters = (kind: number, path: number) =>
+    `AND ($${kind}::text[] IS NULL OR d.kind = ANY($${kind}::text[]))
+          AND ($${path}::text IS NULL OR d.path LIKE $${path} || '%')`;
   for (const [language, nums] of byLanguage) {
-    const rows = await k.db.query<{ id: string; r: number }>(
-      `SELECT ch.id::text AS id, ts_rank_cd(ch.tsv, q, 32) AS r
+    const strict = await k.db.query<{ id: string; r: number }>(
+      `SELECT ch.id::text AS id, 1 + ts_rank_cd(ch.tsv, q, 32) AS r
          FROM rg_kb_chunks ch
          JOIN rg_kb_documents d ON d.id = ch.document_id,
               (SELECT websearch_to_tsquery('${language}', $1) || websearch_to_tsquery('simple', $1) AS q) w
         WHERE ch.collection_num = ANY($2::int[]) AND ch.tsv @@ q
-          AND ($3::text[] IS NULL OR d.kind = ANY($3::text[]))
-          AND ($4::text IS NULL OR d.path LIKE $4 || '%')
+          ${filters(3, 4)}
         ORDER BY r DESC, ch.id LIMIT $5`,
       [query, nums, kinds, prefix, pool],
+    );
+    found.push(...strict);
+    if (strict.length >= pool) continue;
+    const loose = await looseQuery(k, language, query);
+    if (!loose) continue;
+    const rows = await k.db.query<{ id: string; r: number }>(
+      `SELECT ch.id::text AS id, ts_rank_cd(ch.tsv, $1::tsquery, 32) AS r
+         FROM rg_kb_chunks ch
+         JOIN rg_kb_documents d ON d.id = ch.document_id
+        WHERE ch.collection_num = ANY($2::int[]) AND ch.tsv @@ $1::tsquery
+          AND NOT (ch.id = ANY($6::bigint[]))
+          ${filters(3, 4)}
+        ORDER BY r DESC, ch.id LIMIT $5`,
+      [loose, nums, kinds, prefix, pool - strict.length, strict.map((r) => r.id)],
     );
     found.push(...rows);
   }
   return found
     .sort((a, b) => b.r - a.r || Number(a.id) - Number(b.id))
     .slice(0, pool)
-    .map((r, i) => ({ id: r.id, rank: i + 1 }));
+    .map((r, i) => ({
+      id: r.id,
+      rank: i + 1,
+      // Only some of the words: weaker evidence when fused with the meaning (G36.6 bench).
+      ...(r.r < 1 && { weight: LOOSE_WEIGHT }),
+    }));
 }

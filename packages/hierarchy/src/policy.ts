@@ -213,6 +213,8 @@ export const READ_ONLY_TOOLS = new Set([
   // folders is the guardian's, above).
   "canvas_look",
   "canvas_act",
+  // Searching the person's documents (G36.5) only reads.
+  "search_knowledge",
   // The agent's list of steps (2026-11-05): shown to the person, changes nothing.
   "update_todos",
   // Reads or stops the conversation's own background command (p3.3.1): starting it was a bash

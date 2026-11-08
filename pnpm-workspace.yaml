@@ -12,7 +12,14 @@ allowBuilds:
   "@embedded-postgres/darwin-x64": false
   "@embedded-postgres/darwin-arm64": false
   "@embedded-postgres/windows-x64": false
+  # tesseract.js only asks for donations after installing.
+  tesseract.js: false
 
 minimumReleaseAgeExclude:
   - ws@8.22.1
   - preact@11.1.1
+
+# The OCR's WebAssembly core (44 MB, four builds) is not shipped: RedGiant downloads the one
+# build it uses the first time the person turns OCR on (knowledge/ocr.ts, G36.6).
+overrides:
+  tesseract.js-core: "-"

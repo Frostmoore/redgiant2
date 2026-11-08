@@ -86,6 +86,7 @@ describe("the agent's window", () => {
       "Limiti",
       "Comportamento",
       "Memoria",
+      "Conoscenza",
       "Strumenti",
     ]);
     const foot = win.querySelector(":scope > .ui-modal-foot") as HTMLElement;

@@ -3,19 +3,31 @@ import {
   type AutomationRun,
   type BackupPreview,
   type ClientMessage,
+  type CloudEmbeddingModel,
   type Event,
   type FoundBackup,
   type ImportApply,
   type ImportPreview,
   type ImportRecord,
   type Job,
-  type KnowledgeCitation,
+  type KnowledgeAgentCollection,
+  type KnowledgeCollection,
+  type KnowledgeCollectionInput,
+  type KnowledgeDisk,
+  type KnowledgeDocument,
+  type KnowledgeOpenTarget,
   type KnowledgeSearchInput,
   type KnowledgeSearchResult,
+  type KnowledgeSettings,
+  type KnowledgeSource,
+  type KnowledgeSourceInput,
   type KnowledgeStatus,
+  type LocalEmbeddingModel,
   type LocalModel,
+  type LocalRerankModel,
   type MagicAutomation,
   type Mailbox as MailboxInfo,
+  type OcrLanguage,
   type PermissionRequestInfo,
   PROTOCOL_VERSION,
   type Recipe,
@@ -32,6 +44,17 @@ import {
   type VaultInput,
   type VaultView,
 } from "@redgiant/protocol";
+
+/** What the «Knowledge» page can choose (`GET /api/knowledge/models`). */
+export interface KnowledgeModels {
+  providers: readonly string[];
+  rerankProviders: readonly string[];
+  local: (LocalEmbeddingModel & { here: boolean })[];
+  localRerank: (LocalRerankModel & { here: boolean })[];
+  cloud: CloudEmbeddingModel[];
+  languages: string[];
+  ocr: (OcrLanguage & { here: boolean })[];
+}
 
 export interface ChatSummary {
   id: string;
@@ -1330,21 +1353,77 @@ export class Api {
   knowledgeStatus = () => this.call<KnowledgeStatus>("GET", "/api/knowledge");
   knowledgeSearch = (input: KnowledgeSearchInput) =>
     this.call<KnowledgeSearchResult>("POST", "/api/knowledge/search", input);
-  /** Where a citation opens: a Canvas target with its page or line, or a web address. */
+  /** Where a citation opens: a file at its page or line, a web page, a mail's text, a conversation. */
   knowledgeOpen = (chunkId: string) =>
-    this.call<
-      | {
-          title: string;
-          target: {
-            kind: "file";
-            scope: string;
-            path: string;
-            at?: { page?: number; line?: number };
-          };
-          citation: KnowledgeCitation;
-        }
-      | { title: string; url: string; citation: KnowledgeCitation }
-    >("GET", `/api/knowledge/open/${encodeURIComponent(chunkId)}`);
+    this.call<KnowledgeOpenTarget>("GET", `/api/knowledge/open/${encodeURIComponent(chunkId)}`);
+  /** The models and OCR languages one can choose (G36.5), and which are here already. */
+  knowledgeModels = () => this.call<KnowledgeModels>("GET", "/api/knowledge/models");
+  setKnowledgeSettings = (
+    s: Partial<
+      Pick<KnowledgeSettings, "embedding" | "rerank" | "threads" | "ocr" | "backupVectors">
+    >,
+  ) => this.call<KnowledgeSettings>("PUT", "/api/knowledge/settings", s);
+  downloadKnowledgeModel = (role: "embed" | "rerank", id: string, gpu = false) =>
+    this.call<{ ok: true }>("POST", "/api/knowledge/models/download", { role, id, gpu });
+  downloadOcr = (languages: string[]) =>
+    this.call<{ ok: true }>("POST", "/api/knowledge/ocr/download", { languages });
+  rebuildKnowledge = () => this.call<{ ok: true }>("POST", "/api/knowledge/rebuild");
+  pauseKnowledge = (paused: boolean) =>
+    this.call<{ ok: true }>("POST", "/api/knowledge/pause", { paused });
+  knowledgeDisk = () => this.call<KnowledgeDisk>("GET", "/api/knowledge/disk");
+  knowledgeMailboxes = () =>
+    this.call<{ mailboxes: { id: string; name: string }[] }>("GET", "/api/knowledge/mailboxes");
+  knowledgeCollections = () =>
+    this.call<{ collections: KnowledgeCollection[] }>("GET", "/api/knowledge/collections");
+  createKnowledgeCollection = (c: KnowledgeCollectionInput) =>
+    this.call<KnowledgeCollection>("POST", "/api/knowledge/collections", c);
+  updateKnowledgeCollection = (id: string, c: Partial<KnowledgeCollectionInput>) =>
+    this.call<KnowledgeCollection>(
+      "PUT",
+      `/api/knowledge/collections/${encodeURIComponent(id)}`,
+      c,
+    );
+  removeKnowledgeCollection = (id: string) =>
+    this.call<{ ok: true }>("DELETE", `/api/knowledge/collections/${encodeURIComponent(id)}`);
+  knowledgeSources = (id: string) =>
+    this.call<{ sources: KnowledgeSource[] }>(
+      "GET",
+      `/api/knowledge/collections/${encodeURIComponent(id)}/sources`,
+    );
+  addKnowledgeSource = (id: string, source: KnowledgeSourceInput) =>
+    this.call<KnowledgeSource>(
+      "POST",
+      `/api/knowledge/collections/${encodeURIComponent(id)}/sources`,
+      source,
+    );
+  removeKnowledgeSource = (id: string, source: string) =>
+    this.call<{ ok: true }>(
+      "DELETE",
+      `/api/knowledge/collections/${encodeURIComponent(id)}/sources/${encodeURIComponent(source)}`,
+    );
+  rescanKnowledge = (id: string, source?: string) =>
+    this.call<{ ok: true }>(
+      "POST",
+      `/api/knowledge/collections/${encodeURIComponent(id)}/rescan`,
+      source ? { source } : {},
+    );
+  knowledgeDocuments = (id: string, state?: KnowledgeDocument["state"], limit = 200) =>
+    this.call<{ documents: KnowledgeDocument[] }>(
+      "GET",
+      `/api/knowledge/collections/${encodeURIComponent(id)}/documents?limit=${limit}${state ? `&state=${state}` : ""}`,
+    );
+  /** One agent's collections (its window's Knowledge tab, G36.5). */
+  agentKnowledge = (agentId: string) =>
+    this.call<{ collections: KnowledgeAgentCollection[] }>(
+      "GET",
+      `/api/knowledge/agents/${encodeURIComponent(agentId)}`,
+    );
+  setAgentKnowledge = (agentId: string, collection: string, pick: "on" | "off" | null) =>
+    this.call<{ collections: KnowledgeAgentCollection[] }>(
+      "PUT",
+      `/api/knowledge/agents/${encodeURIComponent(agentId)}`,
+      { collection, pick },
+    );
   /** Converts a file into open formats beside it: a job to follow (G34.3). */
   convertFile = (scope: string, path: string, to?: string[]) =>
     this.call<Job>("POST", "/api/files/convert", { scope, path, ...(to && { to }) });

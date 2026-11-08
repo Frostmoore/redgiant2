@@ -77,7 +77,9 @@ export function renderMarkdown(md: string): string {
  * An answer with its sources (2026-11-06, the person: «le fonti dovrebbero essere mostrate come
  * link già nel testo… un po' come fa ChatGPT»). When the answer ends with a numbered list of
  * links, every [n] in the text becomes a small link to source n named after its site, several in
- * a row become one («cbsnews.com +2»), and the list itself is drawn small.
+ * a row become one («cbsnews.com +2»), and the list itself is drawn small. The person's own
+ * documents (G36.5, `search_knowledge`) are cited the same way with `#kb:<piece>` links: named
+ * after the file and its page, they open the Canvas at that point (state.ts listens for them).
  */
 export function renderAnswer(md: string): string {
   return linkCitations(renderMarkdown(md));
@@ -88,15 +90,34 @@ export function linkCitations(html: string): string {
   const box = document.createElement("template");
   box.innerHTML = html;
   const sourcesOf = (ol: Element) => [...ol.children].filter((li) => li.tagName === "LI");
+  const SOURCE = 'a[href^="http"], a[href^="#kb:"]';
   const list = [...box.content.querySelectorAll("ol")].reverse().find((ol) => {
     const items = sourcesOf(ol);
-    return items.length > 0 && items.every((li) => li.querySelector('a[href^="http"]'));
+    return items.length > 0 && items.every((li) => li.querySelector(SOURCE));
   });
   if (!list) return html;
   const first = Number(list.getAttribute("start") ?? "1") || 1;
-  const sources = new Map<number, { href: string; site: string; title: string }>();
+  const sources = new Map<number, { href: string; site: string; title: string; kb?: boolean }>();
   sourcesOf(list).forEach((li, i) => {
-    const href = li.querySelector('a[href^="http"]')?.getAttribute("href") ?? "";
+    const link = li.querySelector(SOURCE);
+    const href = link?.getAttribute("href") ?? "";
+    if (href.startsWith("#kb:")) {
+      // A document of the person's: named after the file (and page) the link says.
+      // The tool names places in English (`p. 3`, `lines 4-9`): said here in the page's language.
+      const title =
+        (link?.textContent ?? "")
+          .trim()
+          .replace(/, p\. (\d+)$/, (_, n) => `, ${t("kbPage", { n })}`)
+          .replace(/, lines (\d+)-(\d+)$/, (_, a, b) => `, ${t("kbLines", { a, b })}`)
+          .replace(/, line (\d+)$/, (_, n) => `, ${t("kbLine", { n })}`) || t("kbCiteFallback");
+      if (link) link.textContent = title;
+      // A long name is shortened, its page or lines kept: they are the point of the citation.
+      const cut = title.lastIndexOf(", ");
+      const [name, place] = cut > 0 ? [title.slice(0, cut), title.slice(cut)] : [title, ""];
+      const site = name.length > 24 ? `${name.slice(0, 22).trimEnd()}…${place}` : title;
+      sources.set(first + i, { href, site, title, kb: true });
+      return;
+    }
     try {
       const site = new URL(href).hostname.replace(/^www\./, "");
       const title = (li.textContent ?? "").split(/:\s/)[0]?.trim() || site;
@@ -134,10 +155,12 @@ export function linkCitations(html: string): string {
       const [head] = found as [(typeof found)[0]];
       out.append(rest.slice(0, m.index));
       const a = document.createElement("a");
-      a.className = "cite";
+      a.className = head.kb ? "cite kb" : "cite";
       a.href = head.href;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
+      if (!head.kb) {
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+      }
       a.title = found.map((s) => s.title).join("\n");
       a.textContent = found.length > 1 ? `${head.site} +${found.length - 1}` : head.site;
       out.append(a);

@@ -139,7 +139,7 @@ async function sha256File(path: string): Promise<string> {
 }
 
 /** Downloads `url` to `dest` (resuming a `.part`), with the bar and an sha256 check. */
-async function download(
+export async function download(
   url: string,
   dest: string,
   sha256: string | undefined,
