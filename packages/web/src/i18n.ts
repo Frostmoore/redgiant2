@@ -1736,7 +1736,7 @@ const en = {
     "After solving a problem an agent can propose a skill from what it learned. An agent missing a tool you switched off asks you for it by name, and God can write instructions and tools for an agent.",
   news340Requests: "Requests to you, your way",
   news340RequestsText:
-    "Requests reach the page and every linked chat at once, now also Matrix, Teams and iMessage. Set a time limit, or choose \"don't ask me anything\" and let a classifier decide for you; truly dangerous requests always reach you.",
+    'Requests reach the page and every linked chat at once, now also Matrix, Teams and iMessage. Set a time limit, or choose "don\'t ask me anything" and let a classifier decide for you; truly dangerous requests always reach you.',
   news340Keychain: "Every key in the Keychain, and in your browser",
   news340KeychainText:
     "Every key RedGiant keeps lives in the encrypted Keychain. A browser extension for Chrome, Edge, Brave and Opera fills your passwords on the right site only, when you click.",
