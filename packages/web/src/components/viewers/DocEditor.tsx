@@ -387,7 +387,13 @@ export function DocEditor({ file }: { file: DocFile }) {
         </div>
       )}
       <div class="doc-main">
-        {v.status === "loading" && <div class="vw-empty dim doc-loading">{t("loading")}</div>}
+        {v.status === "loading" && (
+          <div class="vw-empty dim doc-loading">
+            {v.refusal?.clientId === "open"
+              ? t("docCannotEdit", { reason: v.refusal.reason })
+              : t("loading")}
+          </div>
+        )}
         <TextEditor file={file} onReady={(e) => (view.current = e)} />
         {panel && (
           <aside class="doc-panel" id="doc-changes" aria-label={t("docChanges")}>

@@ -191,7 +191,9 @@ describe("canvas_edit and the editor over the WebSocket (G37.1)", () => {
     });
     // A file outside every workspace is not opened.
     a.send({ type: "doc.open", file: { scope: "outside", path: "/etc/hosts" } });
-    expect(await a.waitFor("error", (m) => m.code === "doc_unavailable")).toBeTruthy();
+    expect(
+      await a.waitFor("doc.rejected", (m) => m.clientId === "open" && m.file.scope === "outside"),
+    ).toMatchObject({ code: "invalid" });
     a.close();
     b.close();
   });

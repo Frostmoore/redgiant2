@@ -231,7 +231,15 @@ export function attachWebSocket(
               await core.editor.subscribe(owner, msg.file, { id: subId, send });
             } catch (err) {
               docs.delete(key);
-              return fail("doc_unavailable", (err as Error).message);
+              // The page says it in the tab (too big, not UTF-8 text…), not only in the header.
+              return send({
+                type: "doc.rejected",
+                file: msg.file,
+                clientId: "open",
+                code: "invalid",
+                reason: (err as Error).message,
+                revision: 0,
+              });
             }
             return;
           }
