@@ -1475,6 +1475,30 @@ export class Api {
     return r.blob();
   }
 
+  /** What saving a sheet needs, and the closed original an open copy came from (G37.3). */
+  sheetInfo = (scope: string, path: string) =>
+    this.call<{
+      libreoffice: boolean;
+      canDownload: boolean;
+      original?: string;
+      noReexport?: boolean;
+    }>(
+      "GET",
+      `/api/files/sheet-info?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+    );
+  /** A sheet in another format made by LibreOffice («Esporta come…», G37.3). */
+  async sheetExport(scope: string, path: string, to: string): Promise<Blob> {
+    const r = await fetch(
+      `/api/files/sheet-export?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}&to=${encodeURIComponent(to)}`,
+      { headers: { authorization: `Bearer ${this.token}` } },
+    );
+    if (!r.ok) {
+      const body = (await r.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(r.status, body.error ?? `HTTP ${r.status}`);
+    }
+    return r.blob();
+  }
+
   // ---- documents and presentations in the editor (G37.4) ----
   /** Whether the full editor (ZetaOffice) is here, and what it weighs the first time. */
   officeState = () =>

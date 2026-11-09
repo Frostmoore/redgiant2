@@ -128,7 +128,7 @@ export function officeRoutes<E extends { Variables: any }>(
     const file = fileOf(b.scope, b.path);
     if (!b.find) throw new BadRequestError("Give the words to find");
     const read = await core.editor.read(o, file);
-    const made = read.family.fromAgent(read.model, [
+    const made = await read.family.fromAgent(read.model, [
       { op: "replace_text", find: b.find, text: b.text ?? "", all: b.all === true },
     ]);
     if ("error" in made) return c.json({ error: made.error }, 409);

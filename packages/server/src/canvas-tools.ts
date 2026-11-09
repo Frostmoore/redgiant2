@@ -40,7 +40,12 @@ export interface CanvasToolsHost {
   structure?(
     ownerId: string,
     abs: string,
-    ask: { fromLine?: number | undefined; toLine?: number | undefined },
+    ask: {
+      fromLine?: number | undefined;
+      toLine?: number | undefined;
+      cells?: string | undefined;
+      sheet?: string | undefined;
+    },
     ctx: ToolContext,
   ): Promise<string | undefined>;
 }
@@ -209,7 +214,12 @@ export function canvasTools(
           .structure?.(
             agent.ownerId,
             abs,
-            { fromLine: i.from_line ?? place?.line, toLine: i.to_line },
+            {
+              fromLine: i.from_line ?? place?.line,
+              toLine: i.to_line,
+              cells: i.cells,
+              sheet: i.sheet ?? place?.sheet,
+            },
             ctx,
           )
           .catch((err: unknown) => `It cannot be read by the editor: ${(err as Error).message}.`);

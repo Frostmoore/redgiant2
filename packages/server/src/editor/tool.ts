@@ -169,7 +169,7 @@ export function canvasEditTool(
         } catch (err) {
           return fail(`Nothing applied: ${(err as Error).message}.`);
         }
-      const made = family.fromAgent(model, ops);
+      const made = await family.fromAgent(model, ops);
       if ("error" in made)
         return fail(
           `Nothing applied: ${made.index !== undefined ? `operation ${made.index + 1}: ` : ""}${made.error}.`,
@@ -194,7 +194,9 @@ export function canvasEditTool(
         const preview =
           snap.family === "text"
             ? `\n${around(snap.text, out.summary.line ?? 1, out.summary.lines ?? 1)}`
-            : "";
+            : out.summary.sheet?.range
+              ? `\n${await family.structure(after, { cells: out.summary.sheet.range, ...(out.summary.sheet.name && { sheet: out.summary.sheet.name }) })}`
+              : "";
         return `Dry run on revision ${base} (nothing changed): it would have ${out.summary.text}${mode === "propose" ? ", as a proposal for the person" : ""}.${preview}${tail}`;
       }
       if (mode === "propose") {

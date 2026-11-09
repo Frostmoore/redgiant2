@@ -20,7 +20,7 @@ import {
   type OfficePlainAction,
 } from "@redgiant/protocol";
 import { pictureInfo } from "../convert-idml.js";
-import type { DocFamily, Loaded, PrepareContext, SaveContext } from "./family.js";
+import type { DocFamily, Loaded, PrepareContext, RenderContext } from "./family.js";
 import { atomicWrite } from "./host.js";
 import type { OfficeEngine } from "./office-engine.js";
 import {
@@ -162,7 +162,7 @@ export class OfficeFamily implements DocFamily<OfficeModel> {
   async render(
     model: OfficeModel,
     _format: unknown,
-    ctx: SaveContext,
+    ctx: RenderContext,
   ): Promise<{ bytes: Uint8Array; model: OfficeModel }> {
     if (model.virtual) throw new Error("an older revision rebuilt for reading cannot be written");
     const base = model.base.bytes ?? (await ctx.blob(model.base.hash));
@@ -177,7 +177,7 @@ export class OfficeFamily implements DocFamily<OfficeModel> {
   }
 
   /** The closed original written again from its copy, when the person asked (the previous kept). */
-  async saved(_model: OfficeModel, ctx: SaveContext): Promise<void> {
+  async saved(_model: OfficeModel, ctx: RenderContext): Promise<void> {
     const original = originalOfCopy(ctx.file.path);
     if (!original || !this.o.reexport?.(ctx.ownerId, ctx.file)) return;
     const openDir = dirname(ctx.abs);

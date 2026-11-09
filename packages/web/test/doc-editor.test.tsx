@@ -11,7 +11,7 @@ import { emptyDocView, reduceDoc } from "../src/state.js";
 import { type Outgoing, TextCollab, textOp } from "../src/viewers/collab.js";
 
 const file = { scope: "platform", path: "a.txt" };
-const cs = (op: DocOp) => ChangeSet.fromJSON((op as TextDocOp).op.changes);
+const cs = (op: DocOp) => ChangeSet.fromJSON(op.family === "text" ? op.op.changes : []);
 
 /** The host of the server in a few lines: rebase over the later revisions, `a.map(b, true)`. */
 class MiniHost {
@@ -162,7 +162,10 @@ describe("reduceDoc: the panel as the host tells it", () => {
     // G37.2: code, Markdown, JSON/YAML/XML too; tables, sites and images are other editors.
     for (const p of ["a.py", "README.md", "conf/app.json", "k8s.yaml", "x.xml", "Makefile"])
       expect(editableInCanvas({ scope: "platform", path: p }), p).toBe(true);
-    for (const p of ["a.csv", "index.html", "logo.svg", "a.png", "a.docx"])
+    // G37.3: sheets (csv, tsv, ods) open in the sheet editor; an xlsx through its ODS copy.
+    for (const p of ["a.csv", "b.tsv", "c.ods"])
+      expect(editableInCanvas({ scope: "platform", path: p }), p).toBe(true);
+    for (const p of ["a.xlsx", "index.html", "logo.svg", "a.png", "a.docx"])
       expect(editableInCanvas({ scope: "platform", path: p }), p).toBe(false);
   });
 });

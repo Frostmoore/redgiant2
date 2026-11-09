@@ -15298,6 +15298,102 @@ button.doc-change-what {
   }
 }
 
+/* ---- The sheet editor (G37.3): Univer in its island, our bar and notes around it ---- */
+.sheet-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sheet-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  flex-wrap: wrap;
+}
+.sheet-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+.sheet-save.warn,
+.sheet-note.warn {
+  color: var(--warn-text);
+}
+.sheet-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--dim);
+}
+.sheet-export select {
+  font-size: 12px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+.sheet-notes {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 12px;
+  max-height: 30%;
+  overflow: auto;
+}
+.sheet-note {
+  margin: 2px 0;
+  line-height: 1.4;
+}
+.sheet-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  cursor: pointer;
+}
+.sheet-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.sheet-grid {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.sheet-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.doc-main > .sheet-editor {
+  flex: 1;
+}
+@media (max-width: 760px) {
+  .sheet-bar {
+    padding: 4px 6px;
+  }
+  .sheet-notes {
+    max-height: 22%;
+  }
+}
+fieldset.vw-seg {
+  margin: 0;
+  min-inline-size: 0;
+}
 /* Documents and presentations (G37.4): LibreOffice's isolated frame inside the editor's shell. */
 .doc-main > .doc-office {
   flex: 1;

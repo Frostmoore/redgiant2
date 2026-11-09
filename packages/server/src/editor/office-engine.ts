@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { OfficePlainAction } from "@redgiant/protocol";
 import { execRunner, type Programs, type Runner } from "../convert-programs.js";
+import { SaveWaits } from "./family.js";
 import { OFFICE_UNO_SCRIPT } from "./office-uno.js";
 
 export interface EngineResult {
@@ -31,7 +32,8 @@ export interface OfficeEngine {
   convert(owner: string, bytes: Uint8Array, from: string, to: string): Promise<Uint8Array>;
 }
 
-export class EngineMissingError extends Error {}
+/** LibreOffice is not here yet (it is coming down): the host tries the save again. */
+export class EngineMissingError extends SaveWaits {}
 
 /** Python candidates for a soffice: its own first (Windows, macOS, The Document Foundation's builds). */
 export function pythonCandidates(soffice: string, platform: string = process.platform): string[] {
@@ -93,6 +95,7 @@ export class LibreOfficeEngine implements OfficeEngine {
         void this.o.programs.ensure(owner, "libreoffice").catch(() => {});
         throw new EngineMissingError(
           "LibreOffice is downloading (it applies the edits when the full editor is not open): the file is written when it is here",
+          "libreoffice",
         );
       }
       throw new EngineMissingError(
@@ -140,7 +143,7 @@ export class LibreOfficeEngine implements OfficeEngine {
           filter: FILTERS[ext],
           ops,
           blobs: join(this.o.dataDir, "editor", "blobs"),
-          profile: pathToFileURL(join(this.o.dataDir, "tools", "libreoffice-profile-edit")).href,
+          profile: pathToFileURL(join(this.o.dataDir, "tools", "libreoffice-profile-office")).href,
         };
         const specFile = join(work, "spec.json");
         await writeFile(specFile, JSON.stringify(spec));
@@ -187,7 +190,7 @@ export class LibreOfficeEngine implements OfficeEngine {
             "--norestore",
             "--nolockcheck",
             "--nodefault",
-            `-env:UserInstallation=${pathToFileURL(join(this.o.dataDir, "tools", "libreoffice-profile-edit")).href}`,
+            `-env:UserInstallation=${pathToFileURL(join(this.o.dataDir, "tools", "libreoffice-profile-office")).href}`,
             "--convert-to",
             `${to}:${filter}`,
             "--outdir",

@@ -13,8 +13,10 @@ import { IconCheck, IconClock, IconEye, IconList, IconUndo, IconUser, IconX } fr
 import { agents, attempt, docView, sendDoc, setDocMode } from "../../state.js";
 import { viewerFor } from "../../viewers/kind.js";
 import { isOfficeFile } from "../../viewers/office-bridge.js";
+import { sheetChangeText } from "../../viewers/sheet-words.js";
 import type { DocDiff as DiffView, DiffWhat } from "./DocDiff.js";
 import { OfficeEditor } from "./OfficeEditor.js";
+import { SHEET_EDITABLE, SheetEditor } from "./SheetEditor.js";
 import { TextEditor } from "./TextEditor.js";
 
 /** The kinds of the viewer that are text the page edits (G37.2): code, Markdown, trees, text. */
@@ -22,7 +24,8 @@ const TEXT_KINDS = new Set(["text", "code", "markdown", "tree"]);
 /** Whether the file is text or code the editor opens (by its name, as the server's text family). */
 export const textEditable = (path: string) => TEXT_KINDS.has(viewerFor(path).kind);
 export const editableInCanvas = (file: { scope: string; path: string }) =>
-  file.scope !== "outside" && (textEditable(file.path) || isOfficeFile(file.path));
+  file.scope !== "outside" &&
+  (textEditable(file.path) || SHEET_EDITABLE.test(file.path) || isOfficeFile(file.path));
 
 // ---- words ---------------------------------------------------------------------------------
 
@@ -44,6 +47,8 @@ export function linesText(s: DocSummary): string | undefined {
 
 /** A change in the person's words: «3 righe aggiunte alla riga 7», «Cambiata la riga 4». */
 export function changeText(s: DocSummary): string {
+  // A sheet's change (G37.3) has its own words.
+  if (s.sheet && s.kind !== "undo" && s.kind !== "replaced") return sheetChangeText(s);
   // Documents and presentations (G37.4) count paragraphs and slides.
   if (s.unit === "paragraph" || s.unit === "slide") {
     const para = s.unit === "paragraph";
@@ -174,6 +179,8 @@ export function DocEditor({
       : true,
   );
   const view = useRef<EditorView | undefined>(undefined);
+  const reveal = useRef<((c: DocChange) => void) | undefined>(undefined);
+  const sheet = SHEET_EDITABLE.test(file.path);
   /** What each of the person's requests was about (to offer «Torna a prima» after a refusal). */
   const asked = useRef(new Map<string, { revision?: number; groupId?: string }>());
   const [, tick] = useState(0);
@@ -190,6 +197,7 @@ export function DocEditor({
     sendDoc({ type: "doc.undo", file, clientId, ...what });
   };
   const show = (c: DocChange) => {
+    if (sheet) return c.revision === v.revision ? reveal.current?.(c) : undefined;
     const ed = view.current;
     const r = c.wrote?.[0];
     if (!ed || !r || c.revision !== v.revision) return;
@@ -297,7 +305,11 @@ export function DocEditor({
           <OfficeEditor file={file} />
         ) : (
           <div class="doc-work">
-            <TextEditor file={file} name={name} line={line} onReady={(e) => (view.current = e)} />
+            {sheet ? (
+              <SheetEditor file={file} onReveal={(r) => (reveal.current = r)} />
+            ) : (
+              <TextEditor file={file} name={name} line={line} onReady={(e) => (view.current = e)} />
+            )}
             {diff && Diff && (
               <Diff
                 file={file}

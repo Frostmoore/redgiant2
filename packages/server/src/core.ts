@@ -151,6 +151,7 @@ import { debugLog } from "./debug-log.js";
 import { EditorHost, type EditorHostOptions } from "./editor/host.js";
 import { LibreOfficeEngine, type OfficeEngine } from "./editor/office-engine.js";
 import { copyOfOriginal, OfficeFamily } from "./editor/office-family.js";
+import { sheetFamily } from "./editor/sheet-family.js";
 import { textFamily } from "./editor/text-family.js";
 import { type CanvasEditHost, canvasEditTool } from "./editor/tool.js";
 import { ZetaOffice } from "./editor/zeta.js";
@@ -545,6 +546,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly canvasLive = new CanvasLive();
   /** The editor (G37.1): one owner of every open file, the person's and the agents' edits. */
   readonly editor: EditorHost;
+  /** The sheet family (G37.3): CSV/TSV in place, ODS with LibreOffice's «toppa». */
+  readonly sheets: ReturnType<typeof sheetFamily>;
   /** The rule for the agents' edits, for an agent or a file (G37.1). */
   readonly editorSettings: OwnerSettings<EditorSettings>;
   /** Documents and presentations (G37.4): LibreOffice on the server, ZetaOffice for the page. */
@@ -715,12 +718,21 @@ export class RedGiantCore implements OrchestrationHost {
       }),
       zeta: new ZetaOffice({ dataDir: dirname(o.workspacesDir), jobs: this.jobs }),
     };
+    this.sheets = sheetFamily({
+      libreoffice: () => this.programs.find("libreoffice"),
+      fetchLibreOffice: (ownerId) =>
+        void this.programs.ensure(ownerId, "libreoffice").catch(() => {}),
+      profileDir: join(dirname(o.workspacesDir), "tools", "libreoffice-profile-edit"),
+      tmpDir: join(dirname(o.workspacesDir), "cache", "sheet-save"),
+      reexport: (ownerId, file) =>
+        this.editorSettings.get(ownerId).reexport?.[docKey(file)] === true,
+    });
     this.editor = new EditorHost({
       store: this.store,
       dataDir: dirname(o.workspacesDir),
       resolve: (ownerId, file) => this.docAbs(ownerId, file),
       settings: (ownerId) => this.editorSettings.get(ownerId),
-      families: [textFamily, this.office.family],
+      families: [textFamily, this.sheets, this.office.family],
       ...o.editor,
     });
     // Background commands (p3.3.1): their start and end are events of the conversation that
@@ -2889,7 +2901,7 @@ export class RedGiantCore implements OrchestrationHost {
         const read = await this.editor.read(ownerId, file);
         this.editor.seen(ctx.sessionId, ownerId, file, read.revision);
         const mode = this.editor.modeFor(ownerId, agent.id, file);
-        return `revision ${read.revision}${mode === "propose" ? " (the person reviews your edits of it: canvas_edit makes proposals)" : ""}. ${read.family.structure(read.model, ask)}`;
+        return `revision ${read.revision}${mode === "propose" ? " (the person reviews your edits of it: canvas_edit makes proposals)" : ""}. ${await read.family.structure(read.model, ask)}`;
       },
     };
   }
