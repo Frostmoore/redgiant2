@@ -753,7 +753,8 @@ button.bar-settings {
   color: var(--warn-text);
   font-size: 12px;
 }
-.explorer.read-only .tree-actions {
+.explorer.read-only .tree-actions,
+.explorer-head .icon-button[hidden] {
   display: none;
 }
 @media (max-width: 760px) {

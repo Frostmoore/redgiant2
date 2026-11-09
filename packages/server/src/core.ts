@@ -4486,6 +4486,9 @@ export class RedGiantCore implements OrchestrationHost {
       model ?? undefined,
       row.project_id,
     );
+    // Archived while it was being built: it stays out of memory (its sandbox was stopped).
+    this.assertActive(ownerId, row.project_id);
+    this.assertActive(ownerId, this.registry.get(row.agent_id)?.projectId);
     this.live.set(sessionId, built);
     // Whoever followed it while it could not run follows it now.
     const waiting = this.waiting.get(sessionId);

@@ -198,7 +198,7 @@ export function ArchivedNotice({ projectId }: { projectId: string }) {
         class="wz-btn primary small"
         onClick={() => void restoreProject(p).then(setError)}
       >
-        <IconRestore size={15} /> {t("paRestore")}
+        {t("paRestore")}
       </button>
       {error && <span class="notice error">{error}</span>}
     </div>
