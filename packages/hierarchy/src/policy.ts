@@ -1,6 +1,6 @@
 import type { ToolCallInfo } from "@redgiant/agent";
 import { criticalOf } from "./critical.js";
-import { editReadsOnly, outsideShows, outsideWrites } from "./guardian.js";
+import { editReadsOnly, outsideShows, outsideWrites, readsIntoKnowledge } from "./guardian.js";
 
 /** The guardian's danger: writing outside the agent's folders (only the human approves it). */
 export const OUTSIDE_PROJECT = "outside-project";
@@ -215,8 +215,9 @@ export const READ_ONLY_TOOLS = new Set([
   // folders is the guardian's, above).
   "canvas_look",
   "canvas_act",
-  // Searching the person's documents (G36.5) only reads.
+  // Searching the person's documents (G36.5) only reads; so does their state (3.5.3).
   "search_knowledge",
+  "knowledge_status",
   // The agent's list of steps (2026-11-05): shown to the person, changes nothing.
   "update_todos",
   // Reads or stops the conversation's own background command (p3.3.1): starting it was a bash
@@ -335,7 +336,9 @@ function evaluateRules(mode: PermissionMode, call: ToolCallInfo, s: PolicySettin
       return {
         decision: "ask",
         reasons: [
-          `${call.name === "canvas_look" ? "looks at" : "shows"} a file outside the project: ${shown.slice(0, 3).join(", ")}`,
+          readsIntoKnowledge(call)
+            ? `reads files outside the project into the knowledge: ${shown.slice(0, 3).join(", ")}`
+            : `${call.name === "canvas_look" ? "looks at" : "shows"} a file outside the project: ${shown.slice(0, 3).join(", ")}`,
         ],
         danger: [...danger, OUTSIDE_PROJECT],
         critical: [],

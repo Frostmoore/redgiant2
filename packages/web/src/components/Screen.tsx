@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import { agents, browserScreen, getLive } from "../state.js";
+import { askText } from "./dialogs.js";
 
 /** Keys sent as such; everything else printable is typed as text. */
 const KEYS = new Set([
@@ -99,8 +100,8 @@ export function Screen() {
           <button
             type="button"
             class="primary"
-            onClick={() => {
-              const title = prompt(t("teachTitle")) ?? "";
+            onClick={async () => {
+              const title = (await askText(t("teachTitle"))) ?? "";
               getLive().send({
                 type: "browser.teach",
                 agentId: teaching.id,

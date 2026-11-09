@@ -1683,6 +1683,7 @@ if (process.env.DEMO_KNOWLEDGE) {
       throw new Error("no keys in the demo");
     },
     scopeRoot: (o, scope) => core.scopeFolder(o, scope),
+    places: (o) => core.knowledgePlaces(o),
     chats: core.knowledgeChats(),
     // A mailbox acted out (no IMAP): two messages.
     mail: {
@@ -1718,8 +1719,11 @@ if (process.env.DEMO_KNOWLEDGE) {
     embed: async (texts) => texts.map(embed),
   });
   core.knowledge = k;
+  // DEMO_KNOWLEDGE_WORDS=1 (3.5.3): no model for the meaning, as on a fresh install.
   await k.setSettings("local", {
-    embedding: { provider: "local", model: "embeddinggemma-300m" },
+    ...(!process.env.DEMO_KNOWLEDGE_WORDS && {
+      embedding: { provider: "local", model: "embeddinggemma-300m" },
+    }),
     ocr: { on: false, languages: ["ita", "eng"] },
   });
   const bench = fileURLToPath(

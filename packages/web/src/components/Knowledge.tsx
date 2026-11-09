@@ -39,8 +39,18 @@ import {
   IconRefresh,
   IconSearch,
   IconTrash,
+  IconUpload,
 } from "../icons.js";
 import { agents, citationNote, getApi, openCitation, projects } from "../state.js";
+import {
+  chooseFiles,
+  DropHint,
+  type Picked,
+  PlacePicker,
+  pickedWords,
+  uploadToCollection,
+  useDropFiles,
+} from "./KnowledgeFiles.js";
 import {
   Acts,
   Box,
@@ -254,22 +264,24 @@ export function Knowledge() {
         </p>
       )}
       <StatusPart st={st} jobs={jobs} onPause={(p) => run(() => getApi().pauseKnowledge(p))} />
+      <MeaningNote st={st} models={models} jobs={jobs} run={run} />
 
       <Sub title={t("kbColsTitle")} lead={t("kbColsLead")} />
       <div class="kb-cols">
         {cols.map((c) => (
-          <BoxButton
-            key={c.id}
-            title={c.name}
-            pill={scopeWords(c.scope)}
-            onClick={() => setOpen(c.id)}
-            label={t("kbOpenCollection", { name: c.name })}
-          >
-            <span class="sb-box-p">
-              {t("kbColLine", { docs: num(c.documents), pieces: num(c.chunks) })}
-            </span>
-            {c.description && <span class="sb-box-p kb-dim">{c.description}</span>}
-          </BoxButton>
+          <DropCard key={c.id} c={c} run={run}>
+            <BoxButton
+              title={c.name}
+              pill={scopeWords(c.scope)}
+              onClick={() => setOpen(c.id)}
+              label={t("kbOpenCollection", { name: c.name })}
+            >
+              <span class="sb-box-p">
+                {t("kbColLine", { docs: num(c.documents), pieces: num(c.chunks) })}
+              </span>
+              {c.description && <span class="sb-box-p kb-dim">{c.description}</span>}
+            </BoxButton>
+          </DropCard>
         ))}
         <button type="button" class="kb-add" onClick={() => setMaking(true)}>
           <IconPlus size={22} />
@@ -277,6 +289,7 @@ export function Knowledge() {
         </button>
       </div>
       {cols.length === 0 && <p class="kb-p kb-dim">{t("kbNoCols")}</p>}
+      {cols.length > 0 && <p class="kb-p kb-dim">{t("kbDropOnCard")}</p>}
 
       <TryIt has={cols.length > 0} />
 
@@ -319,6 +332,138 @@ export function Knowledge() {
 }
 
 /** What is ready, what is left and how long it takes. */
+/** Scrolls to the models, for a choice other than the recommended one. */
+const toModels = () => document.getElementById("kb-model")?.scrollIntoView({ behavior: "smooth" });
+
+/**
+ * When the search goes by words only (3.5.3, collaudo della 3.5.1: «2 pieces (words only)» and
+ * nobody knew why): why, in plain words, and the one action that turns it on. Nothing is downloaded
+ * until the person presses the button.
+ */
+function MeaningNote({
+  st,
+  models,
+  jobs,
+  run,
+}: {
+  st: KnowledgeStatus;
+  models: KnowledgeModels | undefined;
+  jobs: Job[];
+  run: (f: () => Promise<unknown>) => Promise<boolean>;
+}) {
+  const [asking, setAsking] = useState(false);
+  const m = st.meaning;
+  if (!m || m.on) return null;
+  const best = models?.local.find((x) => x.recommended) ?? models?.local[0];
+  const chosen = st.settings.embedding;
+  const downloading = jobs.some((j) => j.state === "running" && j.kind !== "download_ocr");
+  const off = m.off ?? "failed";
+  return (
+    <Box class={`kb-meaning ${off}`}>
+      <div class="kb-meaning-hd">
+        <span class="kb-meaning-ico">
+          <IconSearch size={22} />
+        </span>
+        <div>
+          <b>{t("kbMeaningOffTitle")}</b>
+          <span class="kb-p">{t(`kbMeaningOff_${off}`)}</span>
+          {off === "failed" && m.detail && <span class="kb-dim kb-mono">{m.detail}</span>}
+        </div>
+      </div>
+      <Acts>
+        {off === "no_model" && best && (
+          <button type="button" class="wz-btn primary" onClick={() => setAsking(true)}>
+            {t("kbMeaningTurnOn")}
+          </button>
+        )}
+        {off === "downloading" &&
+          !downloading &&
+          chosen?.provider === "local" &&
+          (() => {
+            const model = models?.local.find((x) => x.id === chosen.model);
+            return model ? (
+              <button
+                type="button"
+                class="wz-btn primary"
+                onClick={() =>
+                  void run(() => getApi().downloadKnowledgeModel("embed", model.id, chosen.gpu))
+                }
+              >
+                {t("kbMeaningDownload", { name: model.name, size: num(model.sizeMb) })}
+              </button>
+            ) : null;
+          })()}
+        {(off === "failed" || off === "no_model") && (
+          <button type="button" class="wz-btn" onClick={toModels}>
+            {t("kbMeaningOther")}
+          </button>
+        )}
+      </Acts>
+      {asking && best && (
+        <Modal title={t("kbMeaningTurnOn")} onClose={() => setAsking(false)}>
+          <p class="kb-p">{t("kbMeaningWhy")}</p>
+          <p class="kb-p">{t("kbMeaningBest", { name: best.name, size: num(best.sizeMb) })}</p>
+          <Acts>
+            <button
+              type="button"
+              class="wz-btn"
+              onClick={() => {
+                setAsking(false);
+                toModels();
+              }}
+            >
+              {t("kbMeaningOther")}
+            </button>
+            <button
+              type="button"
+              class="wz-btn primary"
+              onClick={() => {
+                setAsking(false);
+                void run(() =>
+                  getApi().setKnowledgeSettings({
+                    embedding: { provider: "local", model: best.id },
+                  }),
+                );
+              }}
+            >
+              {best.here
+                ? t("kbMeaningUse", { name: best.name })
+                : t("kbMeaningDownload", { name: best.name, size: num(best.sizeMb) })}
+            </button>
+          </Acts>
+        </Modal>
+      )}
+    </Box>
+  );
+}
+
+/** A collection's card that takes files dropped on it (3.5.3). */
+function DropCard({
+  c,
+  run,
+  children,
+}: {
+  c: KnowledgeCollection;
+  run: (f: () => Promise<unknown>) => Promise<boolean>;
+  children: JSX.Element;
+}) {
+  const [sending, setSending] = useState(false);
+  const drop = useDropFiles((files) => {
+    setSending(true);
+    void run(() => uploadToCollection(c, files)).finally(() => setSending(false));
+  });
+  return (
+    <div
+      class={`kb-drop kb-drop-card${drop.over ? " over" : ""}${sending ? " busy" : ""}`}
+      {...drop.props}
+    >
+      {children}
+      <DropHint over={drop.over} />
+      {sending && <span class="kb-drop-busy">{t("kbUploading")}</span>}
+    </div>
+  );
+}
+
 function StatusPart({
   st,
   jobs,
@@ -527,6 +672,12 @@ function CollectionWindow({
   const [error, setError] = useState<string>();
   const [scope, setScope] = useState<KnowledgeScope>(c.scope);
   const [removing, setRemoving] = useState(false);
+  // Files dropped on the window go into this collection (3.5.3).
+  const [sending, setSending] = useState(false);
+  const drop = useDropFiles((files) => {
+    setSending(true);
+    void act(() => uploadToCollection(c, files)).finally(() => setSending(false));
+  });
   const load = async () => {
     const [s, skipped, failed] = await Promise.all([
       getApi().knowledgeSources(c.id),
@@ -592,12 +743,14 @@ function CollectionWindow({
         </>
       }
     >
-      <div class="kb-window">
+      <div class={`kb-window kb-drop${drop.over ? " over" : ""}`} {...drop.props}>
+        <DropHint over={drop.over} />
         {error && (
           <p class="kb-error" role="alert">
             {error}
           </p>
         )}
+        {sending && <p class="kb-dim">{t("kbUploading")}</p>}
         <h3 class="kb-h3">{t("kbSources")}</h3>
         {!sources && <p class="kb-dim">{t("kbLoading")}</p>}
         {sources?.length === 0 && <p class="kb-dim">{t("kbNoSources")}</p>}
@@ -638,9 +791,25 @@ function CollectionWindow({
             );
           })}
         </ul>
-        <button type="button" class="wz-btn" onClick={() => setAdding(true)}>
-          <IconPlus size={16} /> {t("kbAddSource")}
-        </button>
+        <div class="kb-pick-acts">
+          <button type="button" class="wz-btn" onClick={() => setAdding(true)}>
+            <IconPlus size={16} /> {t("kbAddSource")}
+          </button>
+          <button
+            type="button"
+            class="wz-btn"
+            disabled={sending}
+            onClick={() =>
+              chooseFiles(false, (files) => {
+                setSending(true);
+                void act(() => uploadToCollection(c, files)).finally(() => setSending(false));
+              })
+            }
+          >
+            <IconUpload size={16} /> {t("kbUploadFiles")}
+          </button>
+        </div>
+        <p class="kb-dim kb-drop-say">{t("kbDropSay")}</p>
 
         {left.length > 0 && (
           <>
@@ -710,6 +879,26 @@ function AddSource({
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  // 3.5.3: a folder or file chosen among RedGiant's own, or files sent from the computer.
+  const [picked, setPicked] = useState<Picked>();
+  const [picking, setPicking] = useState(false);
+  const [sent, setSent] = useState<{ done: number; total: number }>();
+  const send = async (files: File[]) => {
+    if (!files.length) return;
+    setBusy(true);
+    setError(undefined);
+    setSent({ done: 0, total: files.length });
+    try {
+      await uploadToCollection(collection, files, (done, total) => setSent({ done, total }));
+      onClose(true);
+    } catch (err) {
+      setError(why(err));
+    } finally {
+      setBusy(false);
+      setSent(undefined);
+    }
+  };
+  const drop = useDropFiles((files) => void send(files));
   useEffect(() => {
     void getApi()
       .knowledgeMailboxes()
@@ -720,6 +909,10 @@ function AddSource({
       .catch(() => setBoxes([]));
   }, []);
   const spec = (): KnowledgeSourceInput | undefined => {
+    if ((kind === "folder" || kind === "file") && picked)
+      return picked.type === "dir"
+        ? { kind: "workspace", scope: picked.scope, path: picked.path }
+        : { kind: "file", scope: picked.scope, path: picked.path };
     if (kind === "folder") return path.trim() ? { kind, path: path.trim() } : undefined;
     if (kind === "file") return path.trim() ? { kind, path: path.trim() } : undefined;
     if (kind === "url") return url.trim() ? { kind, url: url.trim() } : undefined;
@@ -753,6 +946,7 @@ function AddSource({
         setKind(k);
         setConsent(false);
         setError(undefined);
+        setPicked(undefined);
       }}
     />
   );
@@ -763,7 +957,8 @@ function AddSource({
       title={t("kbAddSourceTo", { name: collection.name })}
       onClose={() => onClose(false)}
     >
-      <div class="kb-window">
+      <div class={`kb-window kb-drop${drop.over ? " over" : ""}`} {...drop.props}>
+        <DropHint over={drop.over} />
         <Tiles class="kb-kinds">
           {tile("folder", <IconFolder size={24} />)}
           {tile("file", <IconFile size={24} />)}
@@ -774,17 +969,65 @@ function AddSource({
         </Tiles>
         <div class="kb-form">
           {(kind === "folder" || kind === "file") && (
-            <Field
-              label={kind === "folder" ? t("kbFolderPath") : t("kbFilePath")}
-              help={kind === "folder" ? t("kbFolderHelp") : t("kbFileHelp")}
-            >
-              <input
-                class="wz-field kb-mono"
-                value={path}
-                placeholder={kind === "folder" ? t("kbFolderExample") : t("kbFileExample")}
-                onInput={(e) => setPath((e.target as HTMLInputElement).value)}
-              />
-            </Field>
+            <>
+              <div class="kb-pick-acts">
+                <button
+                  type="button"
+                  class="wz-btn small"
+                  disabled={busy}
+                  onClick={() => setPicking(true)}
+                >
+                  <IconFolder size={16} /> {kind === "folder" ? t("kbPickFolder") : t("kbPickFile")}
+                </button>
+                <button
+                  type="button"
+                  class="wz-btn small"
+                  disabled={busy}
+                  onClick={() => chooseFiles(kind === "folder", (f) => void send(f))}
+                >
+                  <IconUpload size={16} />{" "}
+                  {kind === "folder" ? t("kbUploadFolder") : t("kbUploadFiles")}
+                </button>
+              </div>
+              <p class="kb-dim kb-drop-say">{t("kbUploadSay")}</p>
+              {sent && (
+                <Progress
+                  unit="count"
+                  progress={{ done: sent.done, total: sent.total, rate: null, secondsLeft: null }}
+                />
+              )}
+              {picked ? (
+                <div class="kb-picked">
+                  {picked.type === "dir" ? <IconFolder size={18} /> : <IconFile size={18} />}
+                  <b>{pickedWords(picked)}</b>
+                  <button type="button" class="link" onClick={() => setPicked(undefined)}>
+                    {t("kbPickOther")}
+                  </button>
+                </div>
+              ) : (
+                <Field
+                  label={kind === "folder" ? t("kbFolderPath") : t("kbFilePath")}
+                  help={kind === "folder" ? t("kbFolderHelp") : t("kbFileHelp")}
+                >
+                  <input
+                    class="wz-field kb-mono"
+                    value={path}
+                    placeholder={kind === "folder" ? t("kbFolderExample") : t("kbFileExample")}
+                    onInput={(e) => setPath((e.target as HTMLInputElement).value)}
+                  />
+                </Field>
+              )}
+              {picking && (
+                <PlacePicker
+                  want={kind === "folder" ? "dir" : "file"}
+                  onClose={() => setPicking(false)}
+                  onPick={(p) => {
+                    setPicked(p);
+                    setPicking(false);
+                  }}
+                />
+              )}
+            </>
           )}
           {kind === "url" && (
             <Field label={t("kbUrl")} help={t("kbUrlHelp")}>
@@ -993,6 +1236,7 @@ function ModelPart({
     jobs.some((j) => j.state === "running" && j.vars.model === file);
   return (
     <>
+      <div id="kb-model" />
       <Sub title={t("kbModelTitle")} lead={t("kbModelLead")} />
       <Tiles class="kb-models">
         {models.local.map((m) => (

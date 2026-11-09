@@ -138,6 +138,23 @@ export const NewOnly = () => (
   </p>
 );
 
+/**
+ * The agents that differ from the switch for every agent (3.5.3: a tool switched off here stayed on
+ * for God through its own choice, and nothing said so), with a way back to the rule for everyone.
+ */
+function Exceptions({ e, busy, onReset }: { e: ToolView; busy: boolean; onReset: () => void }) {
+  const names = (e.exceptions ?? []).map((x) => x.name).join(", ");
+  return (
+    <p class="tl-except">
+      <IconInfo size={14} />
+      <span>{t(e.global ? "toolsExceptOff" : "toolsExceptOn", { names })}</span>
+      <button type="button" class="link" disabled={busy} onClick={onReset}>
+        {t("toolsExceptReset")}
+      </button>
+    </p>
+  );
+}
+
 /** Reads a tools view, and reads it again after a change. */
 export function useToolsView(agentId?: string) {
   const [view, setView] = useState<ToolsView>();
@@ -183,6 +200,19 @@ export function ToolsPage() {
       await load();
     }
   };
+  // An agent's own choice back to the rule for everyone (3.5.3).
+  const reset = async (e: ToolView) => {
+    setBusy(true);
+    try {
+      for (const x of e.exceptions ?? [])
+        await getApi().setAgentTools(x.agentId, { [e.id]: "default" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+      await load();
+    }
+  };
   return (
     <WzPage class="tl-page">
       <Head eyebrow={t("toolsSection")} q={t("toolsQ")} lead={t("toolsLead")} />
@@ -219,7 +249,12 @@ export function ToolsPage() {
                 class={`tl-row${e.global ? " on" : ""}${e.essential ? " locked" : ""}`}
                 data-tool={e.id}
               >
-                <ToolText e={e} />
+                <div class="tl-main">
+                  <ToolText e={e} />
+                  {e.exceptions?.length ? (
+                    <Exceptions e={e} busy={busy} onReset={() => void reset(e)} />
+                  ) : null}
+                </div>
                 <Switch
                   on={e.global}
                   label={toolName(e.id)}

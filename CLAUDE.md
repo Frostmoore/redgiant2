@@ -42,6 +42,9 @@
   whatever the rules and modes, reach every channel in both modes, and their time running out is a no. The
   policy's `humanOnly` dangers (a plain `git push`, deploys, ordinary messages, keychain use) are ordinary requests:
   they skip the parent agents and then follow the person's choice, classifier included.
+- Archived projects (p3.5.3): archiving stops the project's turns (tasks stay open), pauses its automations and
+  sandboxes and marks its agents `archived` in the registry; `can`/`canKnowledge` then let agents only read, and every
+  gate (`assertActive`, `readOnlyScope`) refuses turns and file changes until it is restored. Nothing is deleted.
 - Server: one WebSocket connection handles its messages strictly in order; `RedGiantCore.send` returns `{ done }`
   (never an async function returning a bare promise: it would wait for the whole turn).
 - Run programs with `Workspace.execFile` (no shell) whenever arguments may come from a model or a user.
@@ -57,7 +60,8 @@
   and no symbol characters as icons anywhere (UI and Telegram texts): drawn icons from `src/icons.tsx`. Light and
   dark themes (or the system's) through the CSS variables in `styles.css`. No native checkboxes or radio buttons:
   on/off is our switch (`Toggle` in `ui.tsx`, `Switch`/`SwitchRow` in `SettingsKit.tsx`), choices are our drawn
-  controls.
+  controls. Never the browser's native dialogs (alert, prompt, confirm): our Modal (`askConfirm`/`askText` in
+  `src/components/dialogs.tsx`; `test/no-native-dialogs.test.tsx` fails if one comes back).
 - Local engines: llama.cpp must run with `--slot-save-path` (shared with the server) and `--swa-full` for
   sliding-window models (Gemma…), or prefixes beyond the window are recomputed every turn.
 - Extensions never install themselves: an agent's proposal is tested in a throwaway sandbox and waits for the

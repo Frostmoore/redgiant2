@@ -151,6 +151,30 @@ describe("the guardian and show_file (G34.1)", () => {
     expect(evaluate("auto", edit({ path: "notes.txt", ops: [] }), s).decision).toBe("allow");
   });
 
+  // 3.5.3: a knowledge source by its path reads files into a collection: outside, the person's call.
+  it("knowledge_add_source: a folder or file outside asks, a project or a page does not", () => {
+    const s = { ...DEFAULT_POLICY, roots: ctx.roots, home: ctx.home };
+    const add = (input: unknown) => ({ callId: "1", name: "knowledge_add_source", input });
+    expect(outsideShows(add({ kind: "folder", path: "/home/me/Documents" }), ctx)).toEqual([
+      "/home/me/Documents",
+    ]);
+    expect(outsideShows(add({ kind: "file", path: "docs/manual.pdf" }), ctx)).toEqual([]);
+    expect(outsideShows(add({ kind: "folder", path: "/data/projects/demo/docs" }), ctx)).toEqual(
+      [],
+    );
+    expect(outsideShows(add({ kind: "project", project: "demo", path: "/etc" }), ctx)).toEqual([]);
+    expect(outsideShows(add({ kind: "url", url: "https://example.com" }), ctx)).toEqual([]);
+    const out = evaluate("auto", add({ kind: "folder", path: "~/Documents" }), s);
+    expect(out.decision).toBe("ask");
+    expect(out.danger).toContain(OUTSIDE_PROJECT);
+    expect(out.reasons[0]).toMatch(/^reads files outside the project into the knowledge/);
+    expect(evaluate("auto", add({ kind: "folder", path: "docs" }), s).decision).toBe("allow");
+    // Its state only reads, in every mode.
+    expect(
+      evaluate("readonly", { callId: "1", name: "knowledge_status", input: {} }, s).decision,
+    ).toBe("allow");
+  });
+
   it("the policy: inside allowed in every mode, outside asks the human, auto lets it be", () => {
     const s = { ...DEFAULT_POLICY, roots: ctx.roots, home: ctx.home };
     const call = (path: string) => ({ callId: "1", name: "show_file", input: { path } });

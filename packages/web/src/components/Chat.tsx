@@ -60,6 +60,7 @@ import {
 } from "./ChatTools.js";
 import { CommandStrip } from "./CommandStrip.js";
 import { Composer, packMessage } from "./Composer.js";
+import { askText } from "./dialogs.js";
 import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
 import { ModelMenu } from "./ModelMenu.js";
@@ -1379,8 +1380,8 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
                   class="mode"
                   title={t("compactNowHint")}
                   disabled={v.state === "running"}
-                  onClick={() => {
-                    const keep = prompt(t("compactNowAsk"));
+                  onClick={async () => {
+                    const keep = await askText(t("compactNowAsk"));
                     if (keep === null) return;
                     getLive().send({
                       type: "session.send",

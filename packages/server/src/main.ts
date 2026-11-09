@@ -419,6 +419,7 @@ const knowledge = new KnowledgeService({
   local: new LocalEmbedServers({ dataDir, jobs: core.jobs }),
   keyedFetch: knowledgeFetch,
   scopeRoot: (who, scope) => core.scopeFolder(who, scope),
+  places: (who) => core.knowledgePlaces(who),
   // G36.6: the OCR on this computer, the person's mailboxes and conversations (sources they add
   // themselves, with their yes), and the projects an agent works on.
   ocr: new LocalOcr({ dataDir, jobs: core.jobs }),

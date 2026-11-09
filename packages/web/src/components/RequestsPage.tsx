@@ -24,6 +24,7 @@ import {
   IconBell,
   IconClock,
   IconKey,
+  IconLock,
   IconMonitor,
   IconShield,
   IconTrash,
@@ -188,6 +189,11 @@ export function RequestsPage() {
             value={s.mode}
             onChange={(mode) => change({ mode })}
           />
+          {/* Beside the choice, whatever it is (3.5.3, collaudo della 3.5.1). */}
+          <p class="rq-always">
+            <IconLock size={16} />
+            <span>{t("rqAlwaysYou")}</span>
+          </p>
           <p class="wz-say">{ask ? t("rqModeAskText") : t("rqModeClassifierText")}</p>
           {!ask && <p class="cl-warn">{t("rqModeClassifierWarn")}</p>}
         </SCard>

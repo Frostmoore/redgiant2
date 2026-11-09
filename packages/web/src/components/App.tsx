@@ -59,6 +59,7 @@ import { Chat } from "./Chat.js";
 import { Chats } from "./Chats.js";
 import { DailyChat } from "./DailyChat.js";
 import { Downloads } from "./Downloads.js";
+import { Dialogs } from "./dialogs.js";
 import { EngineLoading } from "./EngineLoading.js";
 import { Explorer } from "./Explorer.js";
 import { ProjectAgents } from "./Hierarchy.js";
@@ -367,6 +368,7 @@ export function App() {
         />
         {/* A mandatory update holds the wizard too (G36.19). */}
         <UpdateGate />
+        <Dialogs />
       </div>
     );
 
@@ -429,6 +431,8 @@ export function App() {
       <EngineLoading />
       <WhatsNew />
       <UpdateGate />
+      {/* Our own questions, never the browser's (2026-11-09). */}
+      <Dialogs />
       <CitationNote />
       {lastError.value && (
         <div class="banner error">

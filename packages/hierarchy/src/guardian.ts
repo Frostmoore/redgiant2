@@ -231,11 +231,23 @@ export function editReadsOnly(input: unknown): boolean {
  * show_file call, nothing for any other tool. Showing only reads, but it puts a file of the
  * computer in front of the person, so the guardian asks first.
  */
+/**
+ * A knowledge source by its path (3.5.3, knowledge_add_source with a folder or a file): its files
+ * are read into a collection other agents may search, so a path outside the folders asks, as
+ * showing one does. A project's files (`kind: "project"`) are checked by the knowledge's table.
+ */
+export function readsIntoKnowledge(call: ToolCallInfo): boolean {
+  if (call.name !== "knowledge_add_source") return false;
+  const kind = (call.input as { kind?: unknown } | undefined)?.kind;
+  return kind === "folder" || kind === "file";
+}
+
 /** Tools that show or look at a file by its path (G34.1, G36.12): outside the folders, the person decides. */
 export const SHOWING_TOOLS = new Set(["show_file", "canvas_look", "canvas_act"]);
 
 export function outsideShows(call: ToolCallInfo, ctx: GuardianContext): string[] {
-  if (ctx.roots.length === 0 || !SHOWING_TOOLS.has(call.name)) return [];
+  if (ctx.roots.length === 0) return [];
+  if (!SHOWING_TOOLS.has(call.name) && !readsIntoKnowledge(call)) return [];
   const input = (call.input ?? {}) as Record<string, unknown>;
   const p =
     typeof input.path === "string"

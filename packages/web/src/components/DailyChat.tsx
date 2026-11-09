@@ -21,6 +21,7 @@ import {
   refreshRooms,
 } from "../state.js";
 import { type Attachment, Composer } from "./Composer.js";
+import { askConfirm } from "./dialogs.js";
 import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
 import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
@@ -365,8 +366,8 @@ export function DailyChat({
             type="button"
             class="icon-button"
             title={t("delete")}
-            onClick={() => {
-              if (!confirm(t("deleteChatConfirm"))) return;
+            onClick={async () => {
+              if (!(await askConfirm(t("deleteChatConfirm"), { danger: true }))) return;
               void attempt(() => getApi().deleteChat(open)).then(() => {
                 setOpen(null);
                 reload();

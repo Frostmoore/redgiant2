@@ -10,6 +10,7 @@ import {
   type KnowledgeCitation,
   type KnowledgeHit,
   type KnowledgeSearchResult,
+  meaningOffLine,
 } from "@redgiant/protocol";
 import { z } from "zod";
 import type { KnowledgeAsker, KnowledgeService } from "./service.js";
@@ -38,9 +39,15 @@ const HOW =
 
 /** The tool's answer: the pieces, numbered, each with its link. */
 export function formatHits(r: KnowledgeSearchResult, names: ReadonlyMap<string, string>): string {
-  if (!r.hits.length) return "Nothing found in the knowledge for that. Try other words.";
+  if (!r.hits.length)
+    return r.wordsOnly
+      ? `Nothing found in the knowledge for that. Try other words. ${meaningOffLine({ on: false, off: r.meaningOff ?? "failed", detail: r.wordsOnly })}`
+      : "Nothing found in the knowledge for that. Try other words.";
   const how = r.wordsOnly ? "words only" : "meaning and words";
   const out = [`${r.hits.length} pieces (${how}). ${HOW}`];
+  // Why it went by words only, and what the person can do (3.5.3).
+  if (r.wordsOnly)
+    out.push(meaningOffLine({ on: false, off: r.meaningOff ?? "failed", detail: r.wordsOnly }));
   r.hits.forEach((h: KnowledgeHit, i) => {
     const c = h.citation;
     const where = [names.get(c.collectionId), c.heading].filter(Boolean).join(" · ");

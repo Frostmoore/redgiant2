@@ -20,6 +20,7 @@ import {
 } from "../icons.js";
 import { attempt, currentScope, getApi, openCanvas, openTab, toggleExplorer } from "../state.js";
 import { useSwipeAway } from "../swipe.js";
+import { askConfirm, askText } from "./dialogs.js";
 
 /** A file's content as base64 (FileReader: fast even for large files). */
 const asBase64 = (file: File) =>
@@ -153,9 +154,9 @@ function Folder({
                 type="button"
                 class="icon-button"
                 title={t("rename")}
-                onClick={(ev) => {
+                onClick={async (ev) => {
                   ev.stopPropagation();
-                  const to = prompt(t("rename"), e.path);
+                  const to = await askText(t("rename"), e.path, { label: t("dlgPath") });
                   if (to && to !== e.path)
                     act(() => api.fileOp({ op: "rename", scope, path: e.path, to }));
                 }}
@@ -179,11 +180,14 @@ function Folder({
                 type="button"
                 class="icon-button"
                 title={t("delete")}
-                onClick={(ev) => {
+                onClick={async (ev) => {
                   ev.stopPropagation();
                   const forGood = e.path === ".trash" || e.path.startsWith(".trash/");
                   if (
-                    confirm(t(forGood ? "confirmDeleteForGood" : "confirmDelete", { path: e.path }))
+                    await askConfirm(
+                      t(forGood ? "confirmDeleteForGood" : "confirmDelete", { path: e.path }),
+                      { danger: true, yes: t("delete") },
+                    )
                   )
                     act(() => api.fileOp({ op: "delete", scope, path: e.path }));
                 }}
@@ -283,8 +287,11 @@ export function Explorer() {
           class="icon-button"
           title={t("newFile")}
           hidden={readOnly}
-          onClick={() => {
-            const n = prompt(t("newFile"), join(""));
+          onClick={async () => {
+            const n = await askText(t("newFile"), join(""), {
+              yes: t("dlgMake"),
+              label: t("dlgPath"),
+            });
             if (n) act(() => api.write(scope, n, ""));
           }}
         >
@@ -295,8 +302,11 @@ export function Explorer() {
           class="icon-button"
           title={t("newFolder")}
           hidden={readOnly}
-          onClick={() => {
-            const n = prompt(t("newFolder"), join(""));
+          onClick={async () => {
+            const n = await askText(t("newFolder"), join(""), {
+              yes: t("dlgMake"),
+              label: t("dlgPath"),
+            });
             if (n) act(() => api.fileOp({ op: "mkdir", scope, path: n }));
           }}
         >

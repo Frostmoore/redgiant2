@@ -26,6 +26,7 @@ import { AgentMemory } from "./AgentMemory.js";
 import { AgentTools } from "./AgentTools.js";
 import { AgentWizard } from "./AgentWizard.js";
 import { LimitEditor } from "./Budgets.js";
+import { askConfirm } from "./dialogs.js";
 import { modelName } from "./ModelMenu.js";
 import { ModelSelect, useModels } from "./ModelSelect.js";
 import { PromptEditor } from "./PromptEditor.js";
@@ -374,8 +375,8 @@ function AgentPanel({
         <button
           type="button"
           class="wz-btn quiet st-danger"
-          onClick={() => {
-            if (confirm(t("agentStopConfirm", { name: agent.name })))
+          onClick={async () => {
+            if (await askConfirm(t("agentStopConfirm", { name: agent.name }), { danger: true }))
               void attempt(() => getApi().stopAgent(agent.id)).then(refresh);
           }}
         >

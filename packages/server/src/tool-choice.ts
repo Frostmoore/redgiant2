@@ -57,6 +57,8 @@ export function toolsView(
   choice: ToolChoice,
   measured: ReadonlyMap<string, number>,
   agentId: string | null,
+  /** The person's agents by id (the view for every agent names the exceptions); others are left out. */
+  agentNames?: ReadonlyMap<string, string>,
 ): ToolsView {
   const byEntry = new Map<string, string[]>();
   for (const name of [...measured.keys()].sort()) {
@@ -70,6 +72,18 @@ export function toolsView(
     if (!tools) continue;
     const chars = tools.reduce((n, t) => n + (measured.get(t) ?? 0), 0);
     const essential = e.essential === true;
+    const global = essential || !choice.off.includes(e.id);
+    // Agents that differ from the switch for everyone, so the page can say so (3.5.3).
+    const exceptions =
+      agentId === null && !essential && agentNames
+        ? Object.entries(choice.agents).flatMap(([id, m]) => {
+            const state = m[e.id];
+            const name = agentNames.get(id);
+            return state && name !== undefined && (state === "on") !== global
+              ? [{ agentId: id, name, state }]
+              : [];
+          })
+        : [];
     entries.push({
       id: e.id,
       group: e.group,
@@ -77,7 +91,8 @@ export function toolsView(
       tools,
       chars,
       tokens: toolTokens(chars),
-      global: essential || !choice.off.includes(e.id),
+      global,
+      ...(exceptions.length > 0 && { exceptions }),
       ...(agentId !== null && {
         own: essential ? null : (choice.agents[agentId]?.[e.id] ?? null),
         on: toolEntryOn(choice, agentId, e.id),

@@ -56,6 +56,7 @@ import { renderMarkdown } from "../markdown.js";
 import { agents, attempt, getApi, getLive, openCanvas, projects } from "../state.js";
 import { explain } from "./Brain.js";
 import { Chat } from "./Chat.js";
+import { askConfirm } from "./dialogs.js";
 import { KindRow } from "./Media.js";
 import { Acts, Facts, Head, Seg, Sub, SwitchRow, Tile, WzPage } from "./SettingsKit.js";
 import { PHONE, useMedia } from "./SetupKit.js";
@@ -966,7 +967,7 @@ function ImportSkill({ onDone, onClose }: { onDone: () => void; onClose: () => v
         return await api.importSkill(file, scope);
       } catch (err) {
         if (!(err instanceof ApiError && err.status === 409)) throw err;
-        if (!confirm(t("skillReplaceConfirm"))) return undefined;
+        if (!(await askConfirm(t("skillReplaceConfirm")))) return undefined;
         return api.importSkill(file, scope, true);
       }
     });
