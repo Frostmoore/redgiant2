@@ -1,11 +1,25 @@
 # RedGiant: server, supervisor, egress proxy and web UI in one image.
 #   docker build -f docker/redgiant.Dockerfile -t redgiant/redgiant:dev .
 # The source and its node_modules stay in the image: God's code changes are rebuilt from them.
+# The web page and the browser extension are the same files on every processor: built once, on the
+# builder's own one (3.5.3: under arm64 emulation vite went on for hours on the 3.5.x editors).
+FROM --platform=$BUILDPLATFORM node:24-trixie-slim AS web
+WORKDIR /opt/redgiant
+RUN corepack enable
+COPY . .
+RUN pnpm install --frozen-lockfile \
+ && pnpm exec tsc -b \
+ && pnpm --filter @redgiant/web build \
+ && pnpm --filter @redgiant/browser-extension build
+
 FROM node:24-trixie-slim AS build
 WORKDIR /opt/redgiant
 RUN corepack enable
 COPY . .
-RUN pnpm install --frozen-lockfile && pnpm build
+# Each processor's own packages (the embedded Postgres, native modules) and the server's TypeScript.
+RUN pnpm install --frozen-lockfile && pnpm exec tsc -b
+COPY --from=web /opt/redgiant/packages/web/dist packages/web/dist
+COPY --from=web /opt/redgiant/packages/browser-extension/dist packages/browser-extension/dist
 # Codex and Claude Code (hundreds of MB) come down only when a subscription is switched on
 # (2026-11-05), into the data volume.
 RUN rm -rf node_modules/.pnpm/@openai+codex@*-linux-* node_modules/.pnpm/@anthropic-ai+claude-agent-sdk-linux-*
