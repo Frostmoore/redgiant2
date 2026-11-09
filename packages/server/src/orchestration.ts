@@ -330,7 +330,11 @@ export function orchestrationTools(
    */
   const assign = async (to: AgentRecord, title: string, task: string, ctx: ToolContext) => {
     if (!can(me, "message", to, host.registry.resolve))
-      throw new Error(`You cannot assign work to ${to.name}`);
+      throw new Error(
+        to.archived
+          ? `${to.name}'s project is archived: nobody works in it until the person restores it`
+          : `You cannot assign work to ${to.name}`,
+      );
     // An agent assigned to this project works on it in a conversation of its own for it.
     const here =
       self.kind === "orchestrator" && self.projectId && to.projects?.includes(self.projectId)
@@ -543,7 +547,7 @@ export function orchestrationTools(
         return visible
           .map(
             (a) =>
-              `${a.id}\t${a.kind}\t${a.name}${a.role ? ` (${a.role})` : ""}\t${a.projectId ?? "-"}${a.subprojectId ? `/${a.subprojectId}` : ""}\t${a.status}`,
+              `${a.id}\t${a.kind}\t${a.name}${a.role ? ` (${a.role})` : ""}\t${a.projectId ?? "-"}${a.subprojectId ? `/${a.subprojectId}` : ""}\t${a.status}${a.archived ? " (project archived: read only)" : ""}`,
           )
           .join("\n");
       },

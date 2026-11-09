@@ -159,6 +159,40 @@ describe("AgentRegistry", () => {
     ).rejects.toThrow(/stopped/);
   });
 
+  it("marks the agents of an archived project, never in what it stores (2026-11-09)", async () => {
+    const t = await buildTree();
+    registry.setProjectArchived("me", "p1", true);
+    expect(registry.get(t.coder.id)?.archived).toBe(true);
+    expect(registry.get(t.god.id)?.archived).toBe(false);
+    // Not enumerable: a spread, a JSON answer or an event never carries it.
+    expect(JSON.stringify(registry.get(t.coder.id))).not.toContain("archived");
+    expect({ ...registry.get(t.coder.id) }).not.toHaveProperty("archived");
+    // Nobody gives it work, nor creates agents in it, God included.
+    await expect(
+      registry.create(
+        { type: "agent", agent: t.orch },
+        { kind: "agent", parentId: t.orch.id, name: "x" },
+      ),
+    ).rejects.toThrow(HierarchyError);
+    await expect(
+      registry.create(
+        { type: "agent", agent: t.god },
+        { kind: "inspector", parentId: t.god.id, projectId: "p1", name: "x" },
+      ),
+    ).rejects.toThrow(/archived/);
+    await expect(registry.stop({ type: "agent", agent: t.god }, t.coder.id, "x")).rejects.toThrow(
+      /Not allowed/,
+    );
+    // A record replaced after the archive (renamed) keeps the mark; restored, it is gone.
+    expect((await registry.rename(t.coder.id, "Coder 2")).archived).toBe(true);
+    registry.setProjectArchived("me", "p1", false);
+    expect(registry.get(t.coder.id)?.archived).toBe(false);
+    expect(
+      (await registry.configure({ type: "agent", agent: t.god }, t.coder.id, { mode: "manual" }))
+        .mode,
+    ).toBe("manual");
+  });
+
   it("lets only God and the human change permissions", async () => {
     const t = await buildTree();
     await expect(

@@ -10,6 +10,14 @@ export interface Project {
   /** Workspace directory as seen by the server. */
   path: string;
   createdAt: string;
+  /** Archived (2026-11-09): out of every list and read only until it is restored. */
+  archivedAt?: string;
+}
+
+/** What archiving a project paused, to put back exactly when it is restored. */
+export interface ArchivedState {
+  /** Automations that were on and were switched off by the archive. */
+  paused: string[];
 }
 
 /**
@@ -53,6 +61,9 @@ export async function migrateProjects(db: SqlClient): Promise<void> {
       created_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (owner_id, id)
     )`);
+  // A whole project archived (2026-11-09): when, and what the archive paused.
+  await db.query("ALTER TABLE rg_projects ADD COLUMN IF NOT EXISTS archived_at timestamptz");
+  await db.query("ALTER TABLE rg_projects ADD COLUMN IF NOT EXISTS archived_state jsonb");
   await db.query(`
     CREATE TABLE IF NOT EXISTS rg_sessions (
       id         text PRIMARY KEY,
@@ -192,6 +203,7 @@ interface Row {
   name: string;
   path: string;
   created_at: Date | string;
+  archived_at?: Date | string | null;
 }
 
 const fromRow = (r: Row): Project => ({
@@ -200,6 +212,7 @@ const fromRow = (r: Row): Project => ({
   name: r.name,
   path: r.path,
   createdAt: new Date(r.created_at).toISOString(),
+  ...(r.archived_at && { archivedAt: new Date(r.archived_at).toISOString() }),
 });
 
 interface SubRow {
@@ -378,6 +391,40 @@ export class ProjectStore {
       [ownerId, id],
     );
     return r ? fromSubRow(r) : undefined;
+  }
+
+  /**
+   * Archives a project (`state`: what the archive paused) or restores it (null). Only the row's
+   * mark changes: the folder, the agents, the conversations and the tasks stay as they are.
+   */
+  async setArchived(ownerId: string, id: string, state: ArchivedState | null): Promise<void> {
+    await this.db.query(
+      state
+        ? "UPDATE rg_projects SET archived_at = now(), archived_state = $3 WHERE owner_id = $1 AND id = $2"
+        : "UPDATE rg_projects SET archived_at = NULL, archived_state = NULL WHERE owner_id = $1 AND id = $2",
+      state ? [ownerId, id, JSON.stringify(state)] : [ownerId, id],
+    );
+  }
+
+  /** What the archive of this project paused (none when it is not archived). */
+  async archivedState(ownerId: string, id: string): Promise<ArchivedState | undefined> {
+    const [r] = await this.db.query<{ archived_state: ArchivedState | string | null }>(
+      "SELECT archived_state FROM rg_projects WHERE owner_id = $1 AND id = $2 AND archived_at IS NOT NULL",
+      [ownerId, id],
+    );
+    if (!r?.archived_state) return undefined;
+    return typeof r.archived_state === "string"
+      ? (JSON.parse(r.archived_state) as ArchivedState)
+      : r.archived_state;
+  }
+
+  /** Every archived project of every owner (the registry learns them at start). */
+  async archived(): Promise<{ ownerId: string; id: string }[]> {
+    return (
+      await this.db.query<{ owner_id: string; id: string }>(
+        "SELECT owner_id, id FROM rg_projects WHERE archived_at IS NOT NULL",
+      )
+    ).map((r) => ({ ownerId: r.owner_id, id: r.id }));
   }
 
   async list(ownerId: string): Promise<Project[]> {

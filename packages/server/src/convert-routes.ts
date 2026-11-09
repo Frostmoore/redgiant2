@@ -147,6 +147,8 @@ export function convertRoutes<E extends { Variables: any }>(
       .catch(() => ({}) as { scope?: string; path?: string; to?: string[] | string });
     if (!b.path || !b.scope) throw new BadRequestError("Give scope and path");
     const o = owner(c);
+    // An archived project's files are read only (2026-11-09).
+    core.assertWritable(o, b.scope);
     const root = await rootOf(core, o, b.scope);
     const to = b.to === undefined ? undefined : Array.isArray(b.to) ? b.to : [b.to];
     const path = b.path;

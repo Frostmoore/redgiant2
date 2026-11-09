@@ -96,6 +96,8 @@ export function officeRoutes<E extends { Variables: any }>(
   app.post("/api/editor/office/upload", async (c) => {
     const o = owner(c);
     const file = fileOf(c.req.query("scope"), c.req.query("path"));
+    // An archived project's files are read only (2026-11-09).
+    core.assertWritable(o, file.scope);
     const base = Number(c.req.query("base"));
     if (!Number.isInteger(base) || base < 0) throw new BadRequestError("Give the base revision");
     await core.docAbs(o, file);
@@ -126,6 +128,7 @@ export function officeRoutes<E extends { Variables: any }>(
       .json<{ scope?: string; path?: string; find?: string; text?: string; all?: boolean }>()
       .catch(() => ({}) as Record<string, never>);
     const file = fileOf(b.scope, b.path);
+    core.assertWritable(o, file.scope);
     if (!b.find) throw new BadRequestError("Give the words to find");
     const read = await core.editor.read(o, file);
     const made = await read.family.fromAgent(read.model, [
@@ -148,6 +151,7 @@ export function officeRoutes<E extends { Variables: any }>(
       .json<{ scope?: string; path?: string }>()
       .catch(() => ({}) as Record<string, never>);
     const file = fileOf(b.scope, b.path);
+    core.assertWritable(o, file.scope);
     const copy = copyOfOriginal(file.path);
     if (!copy)
       throw new BadRequestError(`${basename(file.path)} is not a document with an open copy`);

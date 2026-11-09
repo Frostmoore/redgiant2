@@ -9,6 +9,7 @@ import {
   IconArchive,
   IconBell,
   IconBook,
+  IconBox,
   IconCard,
   IconChat,
   IconChevronDown,
@@ -42,6 +43,7 @@ import { ImportFrom } from "./ImportFrom.js";
 import { Keychain } from "./Keychain.js";
 import { Knowledge } from "./Knowledge.js";
 import { Platform } from "./Platform.js";
+import { ProjectsPage } from "./ProjectArchive.js";
 import { RemoteSettings } from "./RemoteSettings.js";
 import { RequestsPage } from "./RequestsPage.js";
 import { Setup } from "./Setup.js";
@@ -67,6 +69,7 @@ const GROUPS: { title: () => string; sections: Section[] }[] = [
     title: () => t("stGrpWho"),
     sections: [
       { id: "agents", label: () => t("agents"), icon: <IconTree size={20} /> },
+      { id: "projects", label: () => t("paPageQ"), icon: <IconBox size={20} /> },
       { id: "memory", label: () => t("memSection"), icon: <IconBook size={20} /> },
       { id: "knowledge", label: () => t("kbSection"), icon: <IconDatabase size={20} /> },
       { id: "automations", label: () => t("automations"), icon: <IconClock size={20} /> },
@@ -175,6 +178,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "setup" && <Setup />}
         {section === "import" && <ImportFrom />}
         {section === "agents" && <Hierarchy />}
+        {section === "projects" && <ProjectsPage />}
         {section === "memory" && <SharedMemoryPage />}
         {section === "knowledge" && <Knowledge />}
         {section === "automations" && <Automations />}

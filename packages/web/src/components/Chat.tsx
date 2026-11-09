@@ -28,6 +28,7 @@ import {
   getApi,
   getLive,
   inheritedModel,
+  isArchived,
   markSubSeen,
   openBoard,
   openCanvas,
@@ -61,6 +62,7 @@ import { Composer, packMessage } from "./Composer.js";
 import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
 import { ModelMenu } from "./ModelMenu.js";
+import { ArchivedNotice } from "./ProjectArchive.js";
 import { QuestionCard } from "./QuestionCard.js";
 import { ToolRequestCard } from "./ToolRequestCard.js";
 import { TurnProgress } from "./TurnProgress.js";
@@ -1123,8 +1125,13 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
   const mode = agent?.mode ?? "auto";
   const own = sessionRows.value.find((r) => r.id === sessionId)?.model ?? undefined;
   const model = own ?? agent?.model ?? inheritedModel(agentId);
+  // An archived project's conversation (2026-11-09): read only, the composer gives way to a line.
+  const archivedIn = [
+    sessionRows.value.find((r) => r.id === sessionId)?.projectId,
+    agent?.projectId,
+  ].find((p): p is string => !!p && isArchived(p));
   return (
-    <div class="chat">
+    <div class={`chat${archivedIn ? " read-only" : ""}`}>
       <CommandStrip sessionId={sessionId} />
       <div class="chat-body" ref={body}>
         <QuotePicker
@@ -1226,6 +1233,7 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
         )}
       </div>
       <Todos items={items.value} running={v.state === "running"} />
+      {archivedIn && <ArchivedNotice projectId={archivedIn} />}
       <Composer
         top={<QuoteDrafts drafts={drafts} onChange={setDrafts} />}
         ready={drafts.length > 0}

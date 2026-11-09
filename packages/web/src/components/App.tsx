@@ -4,6 +4,7 @@ import { usd } from "../format.js";
 import { t } from "../i18n.js";
 import {
   IconAlert,
+  IconArchive,
   IconBell,
   IconBoard,
   IconCanvas,
@@ -63,6 +64,7 @@ import { Explorer } from "./Explorer.js";
 import { ProjectAgents } from "./Hierarchy.js";
 import { CitationNote } from "./Knowledge.js";
 import { Login } from "./Login.js";
+import { ArchivedProjectView } from "./ProjectArchive.js";
 import { RoomView } from "./Room.js";
 import { Search } from "./Search.js";
 import { Settings } from "./Settings.js";
@@ -227,6 +229,8 @@ const tabIcon = (tab: Tab) =>
     <IconTree size={13} />
   ) : tab.type === "tavola" ? (
     <IconCanvas size={13} />
+  ) : tab.type === "archived" ? (
+    <IconArchive size={13} />
   ) : (
     <IconSettings size={13} />
   );
@@ -299,6 +303,8 @@ function View({ tab }: { tab: Tab }) {
       return <ProjectAgents key={tab.id} projectId={tab.projectId} />;
     case "tavola":
       return <Variants key={tab.id} sessionId={tab.sessionId} proposalId={tab.proposalId} />;
+    case "archived":
+      return <ArchivedProjectView key={tab.id} projectId={tab.projectId} />;
   }
 }
 

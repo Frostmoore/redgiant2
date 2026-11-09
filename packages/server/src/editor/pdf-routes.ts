@@ -85,6 +85,8 @@ export function pdfRoutes<E extends { Variables: any }>(
     const b = RedactBody.safeParse(await c.req.json().catch(() => ({})));
     if (!b.success) throw new BadRequestError("Give scope, path, page and rects");
     const file = fileOf(b.data.scope, b.data.path);
+    // An archived project's files are read only (2026-11-09).
+    core.assertWritable(o, file.scope);
     const read = await pdfOf(o, file);
     // The same check as an agent's: the written file must have nothing under the areas.
     const made = await read.family.fromAgent(read.model, [

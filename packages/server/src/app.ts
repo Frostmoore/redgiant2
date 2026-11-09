@@ -49,6 +49,7 @@ import {
   BadRequestError,
   NoModelError,
   NotFoundError,
+  ProjectArchivedError,
   type RedGiantCore,
   SessionBusyError,
 } from "./core.js";
@@ -99,7 +100,14 @@ const ModelSpec: z.ZodType<ModelSpecType> = z
 
 const ErrorBody = z.object({ error: z.string() }).openapi("Error");
 const Project = z
-  .object({ id: z.string(), name: z.string(), path: z.string(), createdAt: z.string() })
+  .object({
+    id: z.string(),
+    name: z.string(),
+    path: z.string(),
+    createdAt: z.string(),
+    /** Archived (2026-11-09): read only, out of the lists, until it is restored. */
+    archivedAt: z.string().optional(),
+  })
   .openapi("Project");
 const Agent = z
   .object({
@@ -883,6 +891,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     if (err instanceof RecipeError) return c.json({ error: err.message }, 400);
     // A mandatory update is waiting (G36.19): refused, nothing lost; the page shows its window.
     if (err instanceof UpdateRequiredError)
+      return c.json({ error: err.message, code: err.code }, 423);
+    // An archived project (2026-11-09): read only until the person restores it.
+    if (err instanceof ProjectArchivedError)
       return c.json({ error: err.message, code: err.code }, 423);
     if (err instanceof SessionBusyError) return c.json({ error: err.message }, 409);
     if (err instanceof NoModelError) return c.json({ error: err.message, code: err.code }, 400);
@@ -2545,6 +2556,29 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       throw err;
     }
   });
+  // Archiving a whole project (2026-11-09): who is working there now (the page says it first),
+  // then archive or restore, recorded in the history and undoable like God's changes.
+  app.get("/api/projects/:id/work", async (c) =>
+    c.json(await core.projectWork(owner(c), c.req.param("id")), 200),
+  );
+  app.get("/api/projects/:id/tasks", async (c) =>
+    c.json(await core.projectTasks(owner(c), c.req.param("id")), 200),
+  );
+  for (const [path, archived] of [
+    ["archive", true],
+    ["restore", false],
+  ] as const)
+    app.post(`/api/projects/:id/${path}`, async (c) => {
+      try {
+        return c.json(
+          await core.config.project(owner(c), "human", c.req.param("id"), archived),
+          200,
+        );
+      } catch (err) {
+        if (err instanceof ConfigError) return c.json({ error: err.message }, 400);
+        throw err;
+      }
+    });
   // An existing project becomes a subproject of this one (G24.14c), with its history.
   app.post("/api/projects/:id/adopt", async (c) => {
     const b = z
