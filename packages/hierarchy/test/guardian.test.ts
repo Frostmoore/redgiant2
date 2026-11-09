@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bashOutsideWrites, outsideShows, outsideWrites } from "../src/guardian.js";
+import { bashOutsideWrites, lockedWrites, outsideShows, outsideWrites } from "../src/guardian.js";
 import { DEFAULT_POLICY, evaluate, OUTSIDE_PROJECT } from "../src/policy.js";
 
 const ctx = { roots: ["/data/projects/demo", "/data/worktrees/agent-1"], home: "/root" };
@@ -195,5 +195,93 @@ describe("the guardian and show_file (G34.1)", () => {
         rules: [{ tool: "show_file", decision: "deny" }],
       }).decision,
     ).toBe("deny");
+  });
+});
+
+// An archived project (p3.5.3): no agent touches its folder, whatever the tool and whatever the
+// person would answer. Its folder is locked; reading tools stay free.
+const locked = [{ path: "/data/projects/old", project: "Old site" }];
+const god = { roots: ["/data/platform/me"], home: "/root" };
+const LOCKED: [string, unknown, string[]][] = [
+  ["write_file", { path: "/data/projects/old/a.txt", content: "x" }, ["/data/projects/old/a.txt"]],
+  [
+    "edit_file",
+    { path: "/data/projects/old/src/b.ts", edits: [] },
+    ["/data/projects/old/src/b.ts"],
+  ],
+  ["canvas_edit", { path: "/data/projects/old/n.md", ops: [{}] }, ["/data/projects/old/n.md"]],
+  [
+    "convert_file",
+    { path: "notes.md", to: ["pdf"], out: "/data/projects/old/out" },
+    ["/data/projects/old/out"],
+  ],
+  ["bash", { command: "cd /data/projects/old && ls" }, ["/data/projects/old"]],
+  ["bash", { command: "cat /data/projects/old/README.md" }, ["/data/projects/old/README.md"]],
+  ["bash", { command: "echo x > /data/projects/old/../old/x" }, ["/data/projects/old/x"]],
+  ["bash", { command: "git -C /data/projects/old status" }, ["/data/projects/old"]],
+  // Elsewhere, or only reading: free (the guardian and the policy decide as always).
+  ["bash", { command: "ls /data/projects/older && echo ok > out.txt" }, []],
+  ["write_file", { path: "/data/projects/oldish/a.txt", content: "x" }, []],
+  ["write_file", { path: "notes.md", content: "x" }, []],
+  ["read_file", { path: "/data/projects/old/a.txt" }, []],
+  ["canvas_edit", { path: "/data/projects/old/n.md", help: true }, []],
+];
+
+describe("the archived projects' folders (p3.5.3)", () => {
+  for (const [name, input, expected] of LOCKED)
+    it(`${name} ${JSON.stringify(input)}`, () => {
+      expect(
+        lockedWrites(
+          { callId: "c", name, input },
+          { ...god, locked, readOnly: (n) => n === "read_file" },
+        ),
+      ).toEqual(expected);
+    });
+
+  it("Windows: a bash command naming the folder with either slash, any case (CI on Windows)", () => {
+    const win = {
+      roots: ["C:\\Users\\me\\RedGiant\\platform"],
+      locked: [{ path: "C:\\Users\\me\\RedGiant\\workspaces\\shop", project: "Shop" }],
+    };
+    for (const command of [
+      "cd C:\\Users\\me\\RedGiant\\workspaces\\shop && touch x",
+      'cd "c:/users/me/redgiant/workspaces/Shop" && ls',
+      "rm C:/Users/me/RedGiant/workspaces/shop/a.txt",
+    ])
+      expect(
+        lockedWrites({ callId: "c", name: "bash", input: { command } }, win),
+        command,
+      ).not.toEqual([]);
+    expect(
+      lockedWrites(
+        {
+          callId: "c",
+          name: "bash",
+          input: { command: "ls C:/Users/me/RedGiant/workspaces/shopping" },
+        },
+        win,
+      ),
+    ).toEqual([]);
+  });
+
+  it("is refused at once, before any rule, mode or question: never asked", () => {
+    const base = { ...DEFAULT_POLICY, roots: god.roots, home: "/root", locked };
+    for (const mode of ["auto", "manual"] as const) {
+      const e = evaluate(
+        mode,
+        { callId: "c", name: "write_file", input: { path: "/data/projects/old/a.txt" } },
+        { ...base, rules: [{ tool: "write_file", decision: "allow" }], guardian: "auto" },
+      );
+      expect(e.decision).toBe("deny");
+      expect(e.reasons[0]).toMatch(/The project "Old site" is archived: restore it first/);
+    }
+    // Without the lock (restored) the same call is the guardian's question again.
+    const again = evaluate(
+      "auto",
+      { callId: "c", name: "write_file", input: { path: "/data/projects/old/a.txt" } },
+      { ...base, locked: [] },
+    );
+    expect(again.decision).toBe("ask");
+    expect(again.danger).toContain(OUTSIDE_PROJECT);
   });
 });

@@ -57,7 +57,11 @@ export class FileService {
   private async root(
     ownerId: string,
     scope: FileScope,
+    /** A change: an archived project's files are read only (2026-11-09). */
+    write = false,
   ): Promise<{ ws: LocalWorkspace; projectId: string | null }> {
+    if (write && scope.kind === "project")
+      this.core.assertWritable(ownerId, `project:${scope.projectId}`);
     if (scope.kind === "assistants") {
       const dir = this.core.assistantsPath(ownerId);
       await mkdir(dir, { recursive: true });
@@ -163,7 +167,7 @@ export class FileService {
       ifExists?: "replace" | "keep-both" | "fail" | undefined;
     } = {},
   ): Promise<{ path: string; modifiedAt: string }> {
-    const { ws, projectId } = await this.root(ownerId, parseScope(scopeText));
+    const { ws, projectId } = await this.root(ownerId, parseScope(scopeText), true);
     let target = path;
     let abs = await ws.resolve(target);
     const now = await stat(abs).catch(() => undefined);
@@ -195,13 +199,13 @@ export class FileService {
   }
 
   async mkdir(ownerId: string, scopeText: string, path: string): Promise<void> {
-    const { ws, projectId } = await this.root(ownerId, parseScope(scopeText));
+    const { ws, projectId } = await this.root(ownerId, parseScope(scopeText), true);
     await mkdir(await ws.resolve(path), { recursive: true });
     await this.log(ownerId, projectId, scopeText, "mkdir", path);
   }
 
   async rename(ownerId: string, scopeText: string, from: string, to: string): Promise<void> {
-    const { ws, projectId } = await this.root(ownerId, parseScope(scopeText));
+    const { ws, projectId } = await this.root(ownerId, parseScope(scopeText), true);
     const src = await ws.resolve(from);
     const dst = await ws.resolve(to);
     if (src === ws.root || dst === ws.root)
@@ -212,7 +216,7 @@ export class FileService {
   }
 
   async remove(ownerId: string, scopeText: string, path: string): Promise<void> {
-    const { ws, projectId } = await this.root(ownerId, parseScope(scopeText));
+    const { ws, projectId } = await this.root(ownerId, parseScope(scopeText), true);
     const abs = await ws.resolve(path);
     if (abs === ws.root) throw new BadRequestError("The workspace root cannot be deleted");
     const trashRoot = await ws.resolve(TRASH);

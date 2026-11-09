@@ -544,6 +544,228 @@ button.bar-settings {
   background: var(--panel-2);
 }
 
+/* --- archived projects (2026-11-09): the badge, the list, the read-only view and notices --- */
+.pa-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line));
+  background: color-mix(in srgb, var(--warn) 14%, var(--panel));
+  color: var(--warn-text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pa-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 14%, var(--panel));
+  color: var(--warn-text);
+}
+.pa-ask .pa-working {
+  display: block;
+  color: var(--warn-text);
+}
+.pa-ask .pa-working ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+.pa-ask .pa-line {
+  margin: 8px 0;
+}
+.pa-facts {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--dim);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.bar-archived {
+  margin: 10px 4px 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.bar-archived > .more {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+.pa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pa-list.compact {
+  gap: 0;
+}
+.pa-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pa-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.pa-open:hover {
+  border-color: var(--accent-dim);
+}
+.pa-list.compact .pa-open {
+  padding: 5px 8px;
+  border: 0;
+  background: none;
+  color: var(--dim);
+}
+.pa-list.compact .pa-open:hover {
+  color: var(--text);
+}
+.pa-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pa-open small {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.pa-empty {
+  margin: 4px 0;
+}
+.pa-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 12px 12px;
+  padding: 10px 12px;
+  border: 1px dashed color-mix(in srgb, var(--warn) 55%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warn) 8%, var(--panel));
+}
+.pa-notice-text {
+  flex: 1;
+  min-width: 180px;
+}
+.chat.read-only > .composer {
+  display: none;
+}
+.pa-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.pa-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 18px;
+}
+.pa-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.pa-row:last-child {
+  border-bottom: 0;
+}
+.pa-row.static {
+  cursor: default;
+}
+.pa-row:not(.static):hover b {
+  color: var(--accent-text, var(--accent));
+}
+.pa-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pa-row-main b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.pa-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  white-space: nowrap;
+}
+.pa-pill.open {
+  color: var(--warn-text);
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--line));
+}
+.pa-pill.verified {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 55%, var(--line));
+}
+.pa-files {
+  margin-top: 14px;
+}
+.pa-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pa-files-ro {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 10px 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 12%, var(--panel));
+  color: var(--warn-text);
+  font-size: 12px;
+}
+.explorer.read-only .tree-actions,
+.explorer-head .icon-button[hidden] {
+  display: none;
+}
+@media (max-width: 760px) {
+  .pa-notice {
+    margin: 6px 8px 10px;
+  }
+  .pa-open small {
+    display: none;
+  }
+}
+
 /* --- tabs --- */
 .tabs {
   display: flex;

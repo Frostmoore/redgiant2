@@ -26,6 +26,8 @@ export interface CanvasEditHost {
    * undefined when the file has none.
    */
   copyOf?(ownerId: string, file: DocFile): Promise<DocFile | undefined>;
+  /** Whether a scope's files are read only now (an archived project's, 2026-11-09). */
+  readOnly?(ownerId: string, scope: string): boolean;
 }
 
 const Input = z.object({
@@ -118,6 +120,10 @@ export function canvasEditTool(
       if (!file)
         return fail(
           `${basename(abs)} is in no project or folder RedGiant knows: canvas_edit edits files of the projects; use edit_file or write_file.`,
+        );
+      if (!i.help && host.readOnly?.(agent.ownerId, file.scope))
+        return fail(
+          `${basename(file.path)} belongs to an archived project: its files are read only until the person restores it.`,
         );
       let family = host.editor.familyFor(file.path);
       let copied = "";

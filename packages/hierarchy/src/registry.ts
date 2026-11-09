@@ -11,6 +11,8 @@ import { type Actor, type AgentNode, CHILD_KINDS, can } from "./scopes.js";
 export interface AgentRecord extends AgentSpec {
   ownerId: string;
   status: "active" | "stopped";
+  /** Its project is archived (2026-11-09): read from the registry, never stored. */
+  readonly archived?: boolean;
 }
 
 export interface NewAgent {
@@ -142,8 +144,12 @@ const fromRow = (r: Row): AgentRecord => ({
  * The agent tree of every owner. Creation and stopping are checked against the scope rules
  * and recorded in the event log.
  */
+const projectKey = (ownerId: string, projectId: string) => `${ownerId}/${projectId}`;
+
 export class AgentRegistry {
   private cache = new Map<string, AgentRecord>();
+  /** Archived projects (2026-11-09), as `owner/project` (project ids are slugs): set by the server at start. */
+  private readonly archivedProjects = new Set<string>();
 
   constructor(
     private readonly db: SqlClient,
@@ -153,11 +159,37 @@ export class AgentRegistry {
   /** Loads every agent into memory (the tree is small). */
   async load(): Promise<void> {
     const rows = await this.db.query<Row>("SELECT * FROM rg_agents");
-    this.cache = new Map(rows.map((r) => [r.id, fromRow(r)]));
+    this.cache = new Map(rows.map((r) => [r.id, this.mark(fromRow(r))]));
   }
 
   get(id: string): AgentRecord | undefined {
     return this.cache.get(id);
+  }
+
+  /**
+   * Every cached record says whether its project is archived (the scope rules read it), always
+   * as it is now. Not enumerable: it never reaches a row, an event or an answer by a spread.
+   */
+  private mark(record: AgentRecord): AgentRecord {
+    Object.defineProperty(record, "archived", {
+      get: () =>
+        record.projectId !== null &&
+        this.archivedProjects.has(projectKey(record.ownerId, record.projectId)),
+      enumerable: false,
+      configurable: true,
+    });
+    return record;
+  }
+
+  /** A project archived or restored (2026-11-09): its agents only read until it comes back. */
+  setProjectArchived(ownerId: string, projectId: string, archived: boolean): void {
+    const key = projectKey(ownerId, projectId);
+    if (archived) this.archivedProjects.add(key);
+    else this.archivedProjects.delete(key);
+  }
+
+  isProjectArchived(ownerId: string, projectId: string | null | undefined): boolean {
+    return !!projectId && this.archivedProjects.has(projectKey(ownerId, projectId));
   }
 
   /** Lookup for scope checks. */
@@ -202,6 +234,8 @@ export class AgentRegistry {
     const projectId = needsProject ? (input.projectId ?? parent?.projectId ?? null) : null;
     if (needsProject && !projectId)
       throw new HierarchyError(`A ${input.kind} belongs to a project`);
+    if (this.isProjectArchived(ownerId, projectId))
+      throw new HierarchyError(`The project "${projectId}" is archived: restore it first`);
     if (parent?.projectId && projectId !== parent.projectId) {
       throw new HierarchyError("A child must belong to its parent's project");
     }
@@ -259,7 +293,7 @@ export class AgentRegistry {
       }
       throw err;
     }
-    this.cache.set(record.id, record);
+    this.cache.set(record.id, this.mark(record));
     const { status: _s, ownerId: _o, ...spec } = record;
     await this.store.append({
       ownerId,
@@ -352,7 +386,7 @@ export class AgentRegistry {
       if (v === null) delete updated[key];
       else Object.assign(updated, { [key]: v });
     }
-    this.cache.set(id, updated);
+    this.cache.set(id, this.mark(updated));
     return updated;
   }
 
@@ -377,7 +411,7 @@ export class AgentRegistry {
       parentId: to.parentId,
       ...(to.subprojectId && { subprojectId: to.subprojectId }),
     };
-    this.cache.set(id, moved);
+    this.cache.set(id, this.mark(moved));
     return moved;
   }
 
@@ -387,7 +421,7 @@ export class AgentRegistry {
     if (!a) throw new HierarchyError(`Unknown agent "${id}"`);
     await this.db.query("UPDATE rg_agents SET name = $2 WHERE id = $1", [id, name]);
     const updated = { ...a, name };
-    this.cache.set(id, updated);
+    this.cache.set(id, this.mark(updated));
     return updated;
   }
 

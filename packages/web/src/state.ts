@@ -653,6 +653,8 @@ export function applyMessage(m: ServerMessage): void {
       return;
     case "platform.changed":
       platformVersion.value++;
+      // A project archived or restored (here, by God or on another page) moves at once.
+      void refreshProjects().catch(() => {});
       return;
   }
 }
@@ -661,7 +663,21 @@ export function applyMessage(m: ServerMessage): void {
 
 export const token = signal<string | null>(localStorage.getItem("rg.token"));
 export const status = signal<"online" | "offline" | "connecting">("offline");
+/** The projects in use: every list and choice shows these. */
 export const projects = signal<Project[]>([]);
+/** Archived projects (2026-11-09): only in their own section, read only. */
+export const archivedProjects = signal<Project[]>([]);
+/** Whether a project is archived now (its conversations and files are read only). */
+export const isArchived = (projectId: string | null | undefined) =>
+  !!projectId && archivedProjects.value.some((p) => p.id === projectId);
+/** The projects from the server, split into those in use and the archived ones. */
+export async function refreshProjects(): Promise<void> {
+  setProjects(await getApi().projects());
+}
+function setProjects(all: Project[]): void {
+  projects.value = all.filter((p) => !p.archivedAt);
+  archivedProjects.value = all.filter((p) => p.archivedAt);
+}
 export const agents = signal<Agent[]>([]);
 export const approvals = signal<PermissionRequestInfo[]>([]);
 /** Automation messages sent to the web page, newest first, until the person dismisses them. */
@@ -741,8 +757,15 @@ export function activeChat() {
 
 export async function refresh(): Promise<void> {
   const a = getApi();
-  [projects.value, agents.value, approvals.value, budgets.value, platformInfo.value] =
-    await Promise.all([a.projects(), a.agents(), a.approvals(), a.budgets(), a.platform()]);
+  let all: Project[];
+  [all, agents.value, approvals.value, budgets.value, platformInfo.value] = await Promise.all([
+    a.projects(),
+    a.agents(),
+    a.approvals(),
+    a.budgets(),
+    a.platform(),
+  ]);
+  setProjects(all);
   await refreshConversations().catch(() => {});
   chatAgentId.value = (await a.chatAgentIdOf().catch(() => ({ id: null }))).id;
   await refreshRooms();
@@ -800,6 +823,8 @@ export type Tab =
   | { id: string; type: "chats"; title: string }
   /** The agents of one project, as a tree. */
   | { id: string; type: "agents"; title: string; projectId: string }
+  /** An archived project, read only (2026-11-09): conversations, tasks, files; «Restore». */
+  | { id: string; type: "archived"; title: string; projectId: string }
   /** A board of variants an agent published (G25.4), a page of its own as in Officina. */
   | { id: string; type: "tavola"; title: string; sessionId: string; proposalId: string };
 
@@ -835,7 +860,9 @@ export type SettingsSection =
   /** Background commands' and bash's limits (G36.16). */
   | "commands"
   /** What reaches the person, their classifier and its decisions (G36.17). */
-  | "requests";
+  | "requests"
+  /** The projects: archive one, the archived ones and «Restore» (2026-11-09). */
+  | "projects";
 
 /** Older ways to open things, still used by the views: they land in the new places. */
 export type OpenRequest =
@@ -1168,9 +1195,16 @@ export function openBoard(sessionId: string, proposalId: string, title: string):
 }
 
 /** The scope the explorer shows: the active conversation's project, or God's platform. */
-export function currentScope(): { scope: string; title: string; focus?: string } {
+export function currentScope(): {
+  scope: string;
+  title: string;
+  focus?: string;
+  /** An archived project's files: shown, never changed (2026-11-09). */
+  readOnly?: boolean;
+} {
   const tab = tabs.value.find((x) => x.id === activeTab.value);
-  const projectOf = (id: string | null | undefined) => projects.value.find((p) => p.id === id);
+  const projectOf = (id: string | null | undefined) =>
+    projects.value.find((p) => p.id === id) ?? archivedProjects.value.find((p) => p.id === id);
   let projectId: string | null | undefined;
   const agent =
     tab?.type === "chat"
@@ -1181,14 +1215,20 @@ export function currentScope(): { scope: string; title: string; focus?: string }
   // The personal agents' shared desk (G24.11).
   if (agent?.kind === "assistant") return { scope: "assistants", title: "Agents" };
   if (agent) projectId = agent.projectId;
-  else if (tab?.type === "board" || tab?.type === "inspector") projectId = tab.projectId;
+  else if (tab?.type === "board" || tab?.type === "inspector" || tab?.type === "archived")
+    projectId = tab.projectId;
   const project = projectOf(projectId ?? undefined);
   // A subproject's agent: the explorer opens on its folder (G24.13).
   const sub = agent?.subprojectId
     ? subprojects.value.find((x) => x.id === agent.subprojectId)
     : undefined;
   return project
-    ? { scope: `project:${project.id}`, title: project.name, ...(sub && { focus: sub.dir }) }
+    ? {
+        scope: `project:${project.id}`,
+        title: project.name,
+        ...(sub && { focus: sub.dir }),
+        ...(project.archivedAt && { readOnly: true }),
+      }
     : { scope: "platform", title: "Platform" };
 }
 

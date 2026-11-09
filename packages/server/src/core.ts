@@ -52,6 +52,7 @@ import {
   budgetKeys,
   can,
   hierarchyGuards,
+  type LockedFolder,
   migrateHierarchy,
   PermissionBroker,
   PersistentBudget,
@@ -361,6 +362,22 @@ export class NoModelError extends Error {
   readonly code = "no_model";
 }
 
+/** The project is archived (2026-11-09): read only until the person restores it (423). */
+export class ProjectArchivedError extends Error {
+  readonly code = "project_archived";
+  constructor(readonly projectId: string) {
+    super(`The project "${projectId}" is archived: restore it to work in it`);
+    this.name = "ProjectArchivedError";
+  }
+}
+
+/** Who is working in a project now: what archiving it would stop (the page asks first). */
+export interface ProjectWork {
+  working: { sessionId: string; agentId: string; agentName: string; title: string | null }[];
+  /** Its automations that are on: archiving pauses them, restoring turns them on again. */
+  automations: { id: string; name: string }[];
+}
+
 interface Live {
   id: string;
   ownerId: string;
@@ -391,6 +408,8 @@ interface Live {
   folded?: { resolve: (r: SendResult) => void; reject: (e: unknown) => void }[];
   /** When it last worked or was followed: idle sessions leave memory (their log stays). */
   usedAt: number;
+  /** The turn now running, settled either way (archiving a project waits for it). */
+  turn?: Promise<void>;
 }
 
 const runFile = promisify(execFile);
@@ -980,6 +999,8 @@ export class RedGiantCore implements OrchestrationHost {
         // and for RedGiant's own files being touched.
         const withCritical = {
           ...base,
+          // Archived projects' folders (p3.5.3): refused at once, whatever the answer would be.
+          locked: this.lockedFolders.get(agent.ownerId) ?? [],
           critical: {
             knownSecrets: () => this.vault.values(agent.ownerId),
             protectedPaths: this.protectedPaths,
@@ -1082,6 +1103,11 @@ export class RedGiantCore implements OrchestrationHost {
     await core.vault.open();
     await core.browserLinks.load();
     await core.registry.load();
+    // Archived projects (2026-11-09): their agents only read, from the first request on.
+    for (const p of await core.projects.archived()) {
+      core.registry.setProjectArchived(p.ownerId, p.id, true);
+      await core.lockFolders(p.ownerId);
+    }
     await core.moveSecretsToVault();
     await core.policies.load();
     await core.commandSettings.load();
@@ -1102,9 +1128,21 @@ export class RedGiantCore implements OrchestrationHost {
       sb = provider.create(spec);
       sb.catch(() => this.sandboxes.delete(spec.id));
       this.sandboxes.set(spec.id, sb);
+      this.sandboxSpecs.set(spec.id, { spec, provider });
     }
     return sb;
   }
+
+  /** How each sandbox was made: an archived project's are made again when it is restored. */
+  private readonly sandboxSpecs = new Map<
+    string,
+    { spec: SandboxSpec; provider: SandboxProvider }
+  >();
+  /** The sandboxes an archive stopped, per project, to start again on restore (this run only). */
+  private readonly stoppedSandboxes = new Map<
+    string,
+    { spec: SandboxSpec; provider: SandboxProvider }[]
+  >();
 
   /**
    * The personal assistants' workspace (G24.11): one per owner, shared by all of them like a
@@ -1146,6 +1184,7 @@ export class RedGiantCore implements OrchestrationHost {
       return sb.workspace();
     }
     const id = scope.match(/^project:([a-z0-9-]+)$/)?.[1];
+    this.assertActive(ownerId, id);
     const project = id ? await this.projects.get(ownerId, id) : undefined;
     if (!project) throw new NotFoundError(`No such scope "${scope}"`);
     const sb = await this.sandboxFor({
@@ -1160,6 +1199,7 @@ export class RedGiantCore implements OrchestrationHost {
   async projectWorkspaces(
     agent: AgentRecord,
   ): Promise<{ root: Workspace; worktree: (agentId: string) => Promise<Workspace> }> {
+    this.assertActive(agent.ownerId, agent.projectId);
     const project = agent.projectId
       ? await this.projects.get(agent.ownerId, agent.projectId)
       : undefined;
@@ -1231,6 +1271,7 @@ export class RedGiantCore implements OrchestrationHost {
       );
       return sb.workspace();
     }
+    this.assertActive(agent.ownerId, agent.projectId);
     const project = agent.projectId
       ? await this.projects.get(agent.ownerId, agent.projectId)
       : undefined;
@@ -1543,6 +1584,7 @@ export class RedGiantCore implements OrchestrationHost {
                       ? `project:${assignedTo ?? agent.projectId}`
                       : undefined,
               projectIds: this.knowledgeAsker(agent, assignedTo).projectIds,
+              archived: (projectId) => this.registry.isProjectArchived(ownerId, projectId),
             })),
         // The keychain (G33.4): always offered; without credentials it says where to add them.
         vaultTool(agent, this.vault, (sid) => this.automationOfSession(sid)),
@@ -2966,6 +3008,7 @@ export class RedGiantCore implements OrchestrationHost {
   private canvasEditHost(): CanvasEditHost {
     return {
       editor: this.editor,
+      readOnly: (ownerId, scope) => this.readOnlyScope(ownerId, scope),
       state: (ownerId) => this.canvasLive.ask(ownerId),
       docFileOf: (ownerId, abs) => this.docFileOf(ownerId, abs),
       absOf: (ownerId, file) => this.docAbs(ownerId, file),
@@ -3885,8 +3928,17 @@ export class RedGiantCore implements OrchestrationHost {
       agents.map((a) => a.id),
     );
     const autos = await this.automations.list(ownerId);
+    const projects = await this.projects.list(ownerId);
     return [
       `Sandbox: ${this.sandbox.kind}${this.o.metal ? "; God works on the real system (metal)" : ""}`,
+      "",
+      "Projects (id, name, state):",
+      ...(projects.length
+        ? projects.map(
+            (p) =>
+              `${p.id}	${p.name}	${p.archivedAt ? `archived ${p.archivedAt} (read only; platform_project restores it)` : "active"}`,
+          )
+        : ["none"]),
       "",
       "Agents (id, kind, name, project, status, model, mode):",
       ...agents.map(
@@ -3963,6 +4015,9 @@ export class RedGiantCore implements OrchestrationHost {
     ctx: RunContext,
   ): Promise<RunOutcome> {
     const agent = this.automationAgent(ownerId, recipe);
+    // Paused with its project; one started by hand meanwhile does not run either.
+    this.assertActive(ownerId, recipe.project);
+    this.assertActive(ownerId, agent.projectId);
     const reuse = ctx.sessionId
       ? (await this.listSessions(ownerId, agent.id)).some((s) => s.id === ctx.sessionId)
       : false;
@@ -4405,6 +4460,8 @@ export class RedGiantCore implements OrchestrationHost {
       throw new NotFoundError(`Agent "${agentId}" not found`);
     const project =
       opts.projectId && agent.projects?.includes(opts.projectId) ? opts.projectId : agent.projectId;
+    this.assertActive(ownerId, agent.projectId);
+    this.assertActive(ownerId, project);
     await this.o.db.query(
       "INSERT INTO rg_sessions (id, owner_id, agent_id, project_id, model) VALUES ($1, $2, $3, $4, $5)",
       [id, ownerId, agentId, project, opts.model ? JSON.stringify(opts.model) : null],
@@ -4472,6 +4529,9 @@ export class RedGiantCore implements OrchestrationHost {
     }>("SELECT agent_id, owner_id, model, project_id FROM rg_sessions WHERE id = $1", [sessionId]);
     if (!row || row.owner_id !== ownerId)
       throw new NotFoundError(`Session "${sessionId}" not found`);
+    // An archived project's conversations are read from the log, never built (no sandbox).
+    this.assertActive(ownerId, row.project_id);
+    this.assertActive(ownerId, this.registry.get(row.agent_id)?.projectId);
     const model = typeof row.model === "string" ? (JSON.parse(row.model) as ModelSpec) : row.model;
     // Opened without a model (none was chosen yet): nothing in its log, it starts now.
     const resume = (await this.store.list({ sessionId })).length > 0;
@@ -4483,6 +4543,9 @@ export class RedGiantCore implements OrchestrationHost {
       model ?? undefined,
       row.project_id,
     );
+    // Archived while it was being built: it stays out of memory (its sandbox was stopped).
+    this.assertActive(ownerId, row.project_id);
+    this.assertActive(ownerId, this.registry.get(row.agent_id)?.projectId);
     this.live.set(sessionId, built);
     // Whoever followed it while it could not run follows it now.
     const waiting = this.waiting.get(sessionId);
@@ -4722,34 +4785,38 @@ export class RedGiantCore implements OrchestrationHost {
       const from = Math.max(0, i - 60);
       return `${from > 0 ? "…" : ""}${t.slice(from, i + q.length + 100)}${i + q.length + 100 < t.length ? "…" : ""}`;
     };
-    return [
-      ...sessions.map((r) => ({
-        kind: "session" as const,
-        id: r.session_id,
-        agentId: r.agent_id,
-        projectId: r.project_id,
-        title: r.title,
-        at: r.ts,
-        excerpt: excerpt(text(r.payload)),
-      })),
-      ...chats.map((r) => ({
-        kind: (r.kind === "inspector" ? "inspector" : "chat") as "chat" | "inspector",
-        id: r.chat_id,
-        agentId: null,
-        projectId: r.project_id,
-        title: r.title,
-        at: new Date(r.created_at).toISOString(),
-        excerpt: excerpt(text(r.message)),
-      })),
-    ]
-      .filter((h) => h.excerpt.toLowerCase().includes(q.toLowerCase()))
-      .sort((a, b) => (a.at < b.at ? 1 : -1))
-      .slice(0, limit);
+    return (
+      [
+        ...sessions.map((r) => ({
+          kind: "session" as const,
+          id: r.session_id,
+          agentId: r.agent_id,
+          projectId: r.project_id,
+          title: r.title,
+          at: r.ts,
+          excerpt: excerpt(text(r.payload)),
+        })),
+        ...chats.map((r) => ({
+          kind: (r.kind === "inspector" ? "inspector" : "chat") as "chat" | "inspector",
+          id: r.chat_id,
+          agentId: null,
+          projectId: r.project_id,
+          title: r.title,
+          at: new Date(r.created_at).toISOString(),
+          excerpt: excerpt(text(r.message)),
+        })),
+      ]
+        .filter((h) => h.excerpt.toLowerCase().includes(q.toLowerCase()))
+        // An archived project's conversations stay out of the search (it shows them read only).
+        .filter((h) => !this.registry.isProjectArchived(ownerId, h.projectId))
+        .sort((a, b) => (a.at < b.at ? 1 : -1))
+        .slice(0, limit)
+    );
   }
 
   async history(ownerId: string, sessionId: string): Promise<Event[]> {
     await this.open(ownerId, sessionId).catch((err) => {
-      if (!(err instanceof NoModelError)) throw err;
+      if (!(err instanceof NoModelError) && !(err instanceof ProjectArchivedError)) throw err;
     });
     // A conversation that goes on from another one shows the origin's part too (G36.23).
     return sessionLog(this.store, sessionId);
@@ -4789,6 +4856,7 @@ export class RedGiantCore implements OrchestrationHost {
     const text = person ? blankPastedSecrets(raw) : raw;
     this.updateGate();
     const l = await this.open(ownerId, sessionId);
+    this.liveGate(l);
     const { queue, ...rest } = extra;
     // The replies under quoted passages are the person's words too.
     if (person && rest.quotes)
@@ -4816,6 +4884,40 @@ export class RedGiantCore implements OrchestrationHost {
    */
   private updateGate(): void {
     if (this.updates?.held) throw new UpdateRequiredError(this.updates.status().latest);
+  }
+
+  /** An archived project (2026-11-09): nothing starts in it, nor in a conversation for it. */
+  private assertActive(ownerId: string, projectId: string | null | undefined): void {
+    if (projectId && this.registry.isProjectArchived(ownerId, projectId))
+      throw new ProjectArchivedError(projectId);
+  }
+
+  private liveGate(l: Live): void {
+    this.assertActive(l.ownerId, l.projectId);
+    this.assertActive(l.ownerId, this.registry.get(l.agentId)?.projectId);
+  }
+
+  /** Archived projects' folders per owner (p3.5.3), as written and as they really are. */
+  private readonly lockedFolders = new Map<string, LockedFolder[]>();
+  private async lockFolders(ownerId: string): Promise<void> {
+    const out: LockedFolder[] = [];
+    for (const p of await this.projects.list(ownerId)) {
+      if (!p.archivedAt) continue;
+      out.push({ path: p.path, project: p.name });
+      const real = await realpath(p.path).catch(() => p.path);
+      if (real !== p.path) out.push({ path: real, project: p.name });
+    }
+    this.lockedFolders.set(ownerId, out);
+  }
+
+  /** Whether the files of a scope are read only now: an archived project's (2026-11-09). */
+  readOnlyScope(ownerId: string, scope: string): boolean {
+    return this.registry.isProjectArchived(ownerId, scope.match(/^project:([a-z0-9-]+)$/)?.[1]);
+  }
+
+  /** Throws when the files of this scope may not be changed now. */
+  assertWritable(ownerId: string, scope: string): void {
+    this.assertActive(ownerId, scope.match(/^project:([a-z0-9-]+)$/)?.[1]);
   }
 
   /**
@@ -4861,6 +4963,7 @@ export class RedGiantCore implements OrchestrationHost {
   ): Promise<{ done: Promise<SendResult> }> {
     // Also for messages that waited in line: they are refused, not lost in the middle of a turn.
     this.updateGate();
+    this.liveGate(l);
     // The first message names the conversation in the list; every message moves it up.
     await this.o.db.query(
       "UPDATE rg_sessions SET title = COALESCE(title, $2), last_at = now() WHERE id = $1",
@@ -4902,6 +5005,10 @@ export class RedGiantCore implements OrchestrationHost {
           notify("idle", "end_turn");
           this.drain(ownerId, sessionId, l);
         });
+      l.turn = done.then(
+        () => {},
+        () => {},
+      );
       return { done };
     }
     // Wrapped: an async function returning a bare promise would wait for the whole turn.
@@ -4932,7 +5039,8 @@ export class RedGiantCore implements OrchestrationHost {
       );
     // After the turn: reports of tasks closed here go back to who handed them over, then the next
     // message in line is taken.
-    void done
+    // The turn with what follows it: archiving a project waits for all of it.
+    l.turn = done
       .then(
         (r) => ({ r, err: undefined as unknown }),
         (err: unknown) => ({ r: undefined, err }),
@@ -4989,6 +5097,209 @@ export class RedGiantCore implements OrchestrationHost {
     const { done } = await this.send(ownerId, sid, text);
     void done.catch(() => {});
     return { done };
+  }
+
+  /** The automations that work in a project: its own (`project:`) or run by one of its agents. */
+  private async projectAutomations(ownerId: string, projectId: string) {
+    return (await this.automations.list(ownerId)).filter((a) => {
+      if (a.error) return false;
+      if (a.recipe.project === projectId) return true;
+      if (a.recipe.reminder !== undefined) return false;
+      try {
+        return this.automationAgent(ownerId, a.recipe).projectId === projectId;
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  /** The conversations working in a project now, or with messages waiting. */
+  private liveIn(ownerId: string, projectId: string): Live[] {
+    return [...this.live.values()].filter(
+      (l) =>
+        l.ownerId === ownerId &&
+        (l.projectId === projectId || this.registry.get(l.agentId)?.projectId === projectId),
+    );
+  }
+
+  /** What archiving a project would stop (2026-11-09): the page says it before asking. */
+  async projectWork(ownerId: string, projectId: string): Promise<ProjectWork> {
+    if (!(await this.projects.get(ownerId, projectId)))
+      throw new NotFoundError(`Project "${projectId}" not found`);
+    const working = this.liveIn(ownerId, projectId).filter(
+      (l) => l.running || (l.queue?.length ?? 0) > 0,
+    );
+    const titles = new Map((await this.listSessions(ownerId)).map((r) => [r.id, r.title] as const));
+    return {
+      working: working.map((l) => ({
+        sessionId: l.id,
+        agentId: l.agentId,
+        agentName: this.registry.get(l.agentId)?.name ?? l.agentId,
+        title: titles.get(l.id) ?? null,
+      })),
+      automations: (await this.projectAutomations(ownerId, projectId))
+        .filter((a) => a.enabled)
+        .map((a) => ({ id: a.id, name: a.name })),
+    };
+  }
+
+  /** A project's tasks from the log, newest first (an archived project shows them read only). */
+  async projectTasks(
+    ownerId: string,
+    projectId: string,
+  ): Promise<
+    {
+      id: string;
+      title: string;
+      agentId: string | null;
+      agentName: string;
+      sessionId: string | null;
+      outcome: "open" | "verified" | "not_testable" | "abandoned";
+      openedAt: string;
+    }[]
+  > {
+    if (!(await this.projects.get(ownerId, projectId)))
+      throw new NotFoundError(`Project "${projectId}" not found`);
+    const events = (
+      await this.store.list({ projectId, types: ["task.opened", "task.closed"] })
+    ).filter((e) => e.ownerId === ownerId);
+    const closed = new Map<string, "verified" | "not_testable" | "abandoned">();
+    for (const e of events)
+      if (e.type === "task.closed" && e.payload) closed.set(e.payload.taskId, e.payload.outcome);
+    return events
+      .flatMap((e) =>
+        e.type === "task.opened" && e.payload
+          ? [
+              {
+                id: e.payload.taskId,
+                title: e.payload.title,
+                agentId: e.agentId,
+                agentName: (e.agentId && this.registry.get(e.agentId)?.name) || "-",
+                sessionId: e.sessionId,
+                outcome: closed.get(e.payload.taskId) ?? ("open" as const),
+                openedAt: e.ts,
+              },
+            ]
+          : [],
+      )
+      .reverse();
+  }
+
+  /**
+   * Archives a whole project (2026-11-09): nothing is deleted. From the first moment nothing new
+   * starts in it (the scope rules and every gate read the mark); then its automations that are on
+   * are paused, its turns are stopped as an interruption would (their tasks stay open), its
+   * sandboxes stop, and the log says so. Restoring puts everything back as it was.
+   */
+  async archiveProject(
+    ownerId: string,
+    projectId: string,
+    by: string,
+  ): Promise<{ interrupted: string[]; paused: string[]; sandboxes: string[] }> {
+    const project = await this.projects.get(ownerId, projectId);
+    if (!project) throw new NotFoundError(`Project "${projectId}" not found`);
+    if (project.archivedAt)
+      throw new BadRequestError(`The project "${projectId}" is archived already`);
+    this.registry.setProjectArchived(ownerId, projectId, true);
+    const paused: string[] = [];
+    try {
+      for (const a of await this.projectAutomations(ownerId, projectId)) {
+        if (!a.enabled) continue;
+        await this.automations.setEnabled(ownerId, a.id, false);
+        paused.push(a.id);
+      }
+      await this.projects.setArchived(ownerId, projectId, { paused });
+      await this.lockFolders(ownerId);
+    } catch (err) {
+      // Nothing half done: what was paused comes back, and the project stays as it was.
+      this.registry.setProjectArchived(ownerId, projectId, false);
+      for (const id of paused) await this.automations.setEnabled(ownerId, id, true).catch(() => {});
+      throw err;
+    }
+    // Turns stop as an interruption would; messages waiting are refused (nothing half sent).
+    const interrupted: string[] = [];
+    const lives = this.liveIn(ownerId, projectId);
+    for (const l of lives) {
+      if (l.running) {
+        interrupted.push(l.id);
+        l.running.abort();
+      }
+      for (const q of l.queue?.splice(0) ?? []) q.reject(new ProjectArchivedError(projectId));
+    }
+    await Promise.race([
+      Promise.all(lives.map((l) => l.turn)),
+      new Promise((ok) => setTimeout(ok, 30_000).unref?.()),
+    ]);
+    for (const l of lives) {
+      await this.commands.stopSession(l.id).catch(() => {});
+      // Rebuilt from the log once restored, on a new sandbox; whoever follows it keeps following.
+      this.live.delete(l.id);
+      if (l.listeners.size > 0) this.waiting.set(l.id, new Set(l.listeners));
+    }
+    // Its sandboxes stop (made again on restore); its folder stays as it is.
+    const base = `${ownerId}-${projectId}`;
+    const stopped: { spec: SandboxSpec; provider: SandboxProvider }[] = [];
+    for (const [id, sb] of [...this.sandboxes]) {
+      if (id !== base && id !== `${base}-ro` && !id.startsWith(`${base}--`)) continue;
+      this.sandboxes.delete(id);
+      await (await sb.catch(() => undefined))?.destroy().catch(() => {});
+      const made = this.sandboxSpecs.get(id);
+      if (made) stopped.push(made);
+    }
+    this.stoppedSandboxes.set(base, stopped);
+    const sandboxes = stopped.map((x) => x.spec.id);
+    await this.store.append({
+      ownerId,
+      projectId,
+      body: {
+        type: "project.archived",
+        payload: { projectId, by, interrupted, paused, sandboxes },
+      },
+    });
+    return { interrupted, paused, sandboxes };
+  }
+
+  /** An archived project back exactly as it was: its automations as they were, its sandboxes. */
+  async restoreProject(
+    ownerId: string,
+    projectId: string,
+    by: string,
+  ): Promise<{ resumed: string[]; sandboxes: string[] }> {
+    const project = await this.projects.get(ownerId, projectId);
+    if (!project) throw new NotFoundError(`Project "${projectId}" not found`);
+    if (!project.archivedAt)
+      throw new BadRequestError(`The project "${projectId}" is not archived`);
+    const state = await this.projects.archivedState(ownerId, projectId);
+    await this.projects.setArchived(ownerId, projectId, null);
+    this.registry.setProjectArchived(ownerId, projectId, false);
+    await this.lockFolders(ownerId);
+    const resumed: string[] = [];
+    const existing = new Set((await this.automations.list(ownerId)).map((a) => a.id));
+    for (const id of state?.paused ?? []) {
+      // One deleted meanwhile stays deleted; one turned on meanwhile is on already.
+      if (!existing.has(id)) continue;
+      await this.automations.setEnabled(ownerId, id, true);
+      resumed.push(id);
+    }
+    const base = `${ownerId}-${projectId}`;
+    const sandboxes: string[] = [];
+    for (const { spec, provider } of this.stoppedSandboxes.get(base) ?? []) {
+      // A sandbox that cannot start now starts at the first use, as always.
+      if (
+        await this.sandboxFor(spec, provider).then(
+          () => true,
+          () => false,
+        )
+      )
+        sandboxes.push(spec.id);
+    }
+    this.stoppedSandboxes.delete(base);
+    await this.store.append({
+      ownerId,
+      projectId,
+      body: { type: "project.restored", payload: { projectId, by, resumed } },
+    });
+    return { resumed, sandboxes };
   }
 
   /**
@@ -5309,7 +5620,17 @@ export class RedGiantCore implements OrchestrationHost {
    */
   private async reportTasks(sessionId: string, r?: SendResult, err?: unknown): Promise<void> {
     const own = [...this.tasksIn(sessionId)];
-    if ((err || (r && r.stopReason !== "end_turn")) && this.tasks.waitingIn(sessionId).length === 0)
+    // Stopped by an archive (2026-11-09): its open tasks stay open, as they were.
+    const live = this.live.get(sessionId);
+    const archived =
+      live !== undefined &&
+      (this.registry.isProjectArchived(live.ownerId, live.projectId) ||
+        this.registry.get(live.agentId)?.archived === true);
+    if (
+      !archived &&
+      (err || (r && r.stopReason !== "end_turn")) &&
+      this.tasks.waitingIn(sessionId).length === 0
+    )
       for (const t of own)
         await this.tasks.close(t, {
           outcome: "abandoned",
@@ -5549,7 +5870,8 @@ export class RedGiantCore implements OrchestrationHost {
     try {
       l = await this.open(ownerId, sessionId);
     } catch (err) {
-      if (!(err instanceof NoModelError)) throw err;
+      // No model yet, or an archived project (read only): the log, and live again once it runs.
+      if (!(err instanceof NoModelError) && !(err instanceof ProjectArchivedError)) throw err;
       // No model yet: what was said, then everything once a model is chosen and it runs.
       const set = this.waiting.get(sessionId) ?? new Set();
       set.add(listener);

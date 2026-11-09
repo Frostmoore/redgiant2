@@ -49,6 +49,13 @@ const tree = [
   n("P3", "assistant", "G", null, "me", null, ["p1"]),
   n("A6", "agent", "O2", "p2", "me", null, ["p1"]),
   n("X", "god", null, null, "someone-else"),
+  // An archived project (2026-11-09): p9, with its orchestrator, an agent, its sub-agent and
+  // its inspector; and an agent of p2 assigned to it.
+  { ...n("O9", "orchestrator", "G", "p9"), archived: true },
+  { ...n("A9", "agent", "O9", "p9"), archived: true },
+  { ...n("S9", "subagent", "A9", "p9"), archived: true },
+  { ...n("I9", "inspector", "G", "p9"), archived: true },
+  n("A7", "agent", "O2", "p2", "me", null, ["p9"]),
 ];
 const byId = new Map(tree.map((a) => [a.id, a]));
 const resolve = (id: string) => byId.get(id);
@@ -71,6 +78,11 @@ G  configure P1 yes | G  stop     P1 yes | O1 message P1 no  | O1 read   P1 no  
 O1 read      P3 yes | O1 message  P3 yes | O1 stop    P3 no  | O1 configure P3 no | O1 spawn P3 no | O2 message P3 no | I1 read P3 yes | A1 message P3 no
 O1 message   A6 yes | O1 read     A6 yes | O1 stop    A6 no  | O2 message A6 yes | O2 stop A6 yes | I1 read A6 yes | A1 message A6 no
 G  tools     A1 no  | G  tools     G  no  | G  tools    P1 no  | O1 tools   A1 no  | O1 tools O1 no | A1 tools S1 no | P1 tools P1 no | I1 tools A1 no | D tools G no
+G  read      A9 yes | G  read     O9 yes | G  message  O9 no  | G  message A9 no  | G  spawn O9 no | G  stop A9 no | G  configure O9 no | G approve A9 no
+O9 read      A9 yes | O9 message  A9 no  | O9 stop    A9 no  | O9 spawn   O9 no  | O9 message G no | O9 read O9 yes | O9 configure A9 no
+A9 read      S9 yes | A9 message  S9 no  | A9 spawn   A9 no  | A9 read    A9 yes | S9 read S9 yes | S9 message A9 no
+I9 read      A9 yes | I9 read     S9 yes | I9 message A9 no  | I1 read    A9 no  | O1 read A9 no
+O2 message   A7 yes | O2 stop     A7 yes | O9 message A7 no  | O9 read    A7 yes | I9 read A7 yes | P1 message O9 no
 `
   .trim()
   .split(/\s*[|\n]\s*/)
@@ -98,6 +110,26 @@ describe("scope table", () => {
     expect(can(me, "tools", byId.get("X") as AgentNode, resolve)).toBe(false);
   });
 
+  it("lets the human only read and stop the agents of an archived project", () => {
+    const me = { type: "human" as const, ownerId: "me" };
+    const want: Record<Action, boolean> = {
+      read: true,
+      stop: true,
+      message: false,
+      spawn: false,
+      configure: false,
+      approve: false,
+      join: false,
+      tools: false,
+    };
+    for (const id of ["O9", "A9", "S9", "I9"])
+      for (const [action, ok] of Object.entries(want))
+        expect(
+          can(me, action as Action, byId.get(id) as AgentNode, resolve),
+          `${action} ${id}`,
+        ).toBe(ok);
+  });
+
   it("lets the human do everything on their own agents only", () => {
     expect(
       can({ type: "human", ownerId: "me" }, "configure", byId.get("G") as AgentNode, resolve),
@@ -123,6 +155,7 @@ O1 source p1 yes | O1 source p2 no | O1 source platform no | O1 source assistant
 A1 source p1 yes | A1 source p2 no | A6 source p1 yes | A6 source p2 yes | A1 source platform no
 P1 source assistants yes | P1 source p1 no | P1 source platform no | P3 source p1 yes
 S1 source p1 no | D source platform no | I1 source p1 no
+G  make   p9 no  | G  source p9 no | G  make A9 no | A7 make p9 no | A7 source p9 no | O9 make O9 no | O9 make p9 no
 `
   .trim()
   .split(/\s*[|\n]\s*/)
@@ -132,7 +165,9 @@ const knowledgeTarget = (id: string): KnowledgeTarget => {
   if (id === "all") return { kind: "all" };
   if (id === "platform" || id === "assistants") return { kind: id };
   const a = byId.get(id);
-  return a ? { kind: "agent", agent: a } : { kind: "project", projectId: id };
+  return a
+    ? { kind: "agent", agent: a }
+    : { kind: "project", projectId: id, ...(id === "p9" && { archived: true }) };
 };
 
 describe("knowledge scope table (3.5.3)", () => {
@@ -146,6 +181,10 @@ describe("knowledge scope table (3.5.3)", () => {
       for (const action of ["make", "source"] as const)
         if (action === "make" ? t !== "platform" : t !== "all" && t !== "A1")
           expect(canKnowledge(me, action, knowledgeTarget(t))).toBe(true);
+    // An archived project's collections (2026-11-09): the person still may, from the page (no
+    // file of the project changes); no agent does.
+    expect(canKnowledge(me, "make", knowledgeTarget("p9"))).toBe(true);
+    expect(canKnowledge(me, "source", knowledgeTarget("p9"))).toBe(true);
     // Another owner's agent is never a target.
     expect(canKnowledge(me, "make", knowledgeTarget("X"))).toBe(false);
   });

@@ -224,6 +224,33 @@ describe("the knowledge made by the agents (3.5.3)", () => {
     expect(results[5]).not.toContain("Di God");
   });
 
+  it("no agent makes a collection for an archived project nor reads its files (2026-11-09)", async () => {
+    const results: string[] = [];
+    const { server } = await kbServer(
+      plan(
+        [
+          { name: "knowledge_create", input: { name: "Archivio", for: "collaudo-3-5-1" } },
+          {
+            name: "knowledge_add_source",
+            input: { collection: "Di tutti", kind: "project", project: "collaudo-3-5-1" },
+          },
+          { name: "knowledge_status", input: {} },
+        ],
+        results,
+      ),
+    );
+    await server.api("POST", "/api/knowledge/collections", {
+      name: "Di tutti",
+      scope: { kind: "all" },
+    });
+    await server.api("POST", "/api/projects/collaudo-3-5-1/archive");
+    const god = server.core.registry.list({ ownerId: "me" }).find((a) => a.kind === "god");
+    await (await server.core.send("me", await session(server, god?.id ?? ""), "go")).done;
+    expect(results[0]).toMatch(/^You cannot make a collection for the project collaudo-3-5-1/);
+    expect(results[1]).toMatch(/^You cannot read the project collaudo-3-5-1/);
+    expect(results[2]).toContain("«Di tutti»");
+  });
+
   it("the page's API takes a project's name or its path, and says clearly what is wrong", async () => {
     const { server, project } = await kbServer(() => ({ text: "ok" }));
     const made = await server.api<KnowledgeCollection>("POST", "/api/knowledge/collections", {

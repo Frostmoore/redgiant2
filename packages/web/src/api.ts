@@ -322,6 +322,25 @@ export interface Project {
   name: string;
   path: string;
   createdAt: string;
+  /** Archived (2026-11-09): out of every list, read only until it is restored. */
+  archivedAt?: string;
+}
+
+/** Who works in a project now: what archiving it stops (the window says it first). */
+export interface ProjectWork {
+  working: { sessionId: string; agentId: string; agentName: string; title: string | null }[];
+  automations: { id: string; name: string }[];
+}
+
+/** A project's task, from the log. */
+export interface ProjectTask {
+  id: string;
+  title: string;
+  agentId: string | null;
+  agentName: string;
+  sessionId: string | null;
+  outcome: "open" | "verified" | "not_testable" | "abandoned";
+  openedAt: string;
 }
 
 /** Instructions as the person reads them: the text in use, whether built-in, and the built-in one. */
@@ -589,6 +608,10 @@ export class Api {
 
   projects = () => this.call<Project[]>("GET", "/api/projects");
   createProject = (name: string) => this.call<Project>("POST", "/api/projects", { name });
+  projectWork = (id: string) => this.call<ProjectWork>("GET", `/api/projects/${id}/work`);
+  projectTasks = (id: string) => this.call<ProjectTask[]>("GET", `/api/projects/${id}/tasks`);
+  archiveProject = (id: string) => this.call<unknown>("POST", `/api/projects/${id}/archive`);
+  restoreProject = (id: string) => this.call<unknown>("POST", `/api/projects/${id}/restore`);
   agents = () => this.call<Agent[]>("GET", "/api/agents");
   createAgent = (a: Record<string, unknown>) => this.call<Agent>("POST", "/api/agents", a);
   configureAgent = (id: string, change: Record<string, unknown>) =>

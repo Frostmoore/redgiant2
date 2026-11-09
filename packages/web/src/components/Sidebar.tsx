@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import type { Agent } from "../api.js";
+import type { Agent, Project } from "../api.js";
 import { roleText, t } from "../i18n.js";
 import {
   IconArchive,
@@ -21,6 +21,7 @@ import {
 import {
   activeTab,
   agents,
+  archivedProjects,
   attempt,
   chatAgentId,
   getApi,
@@ -38,6 +39,7 @@ import {
 import { assistantState } from "./Assistants.js";
 import { askConfirm } from "./dialogs.js";
 import { FolderMenu } from "./FolderMenu.js";
+import { ArchivedList, ArchiveProjectDialog } from "./ProjectArchive.js";
 
 const SHOWN = 8;
 
@@ -479,6 +481,9 @@ function RemoteNotice() {
 export function Sidebar() {
   const [open, setOpen] = useState<Set<string>>(new Set(["god"]));
   const [adding, setAdding] = useState(false);
+  /** The project whose «Archive» window is open (2026-11-09), and the archived ones shown. */
+  const [archiving, setArchiving] = useState<Project>();
+  const [showArchived, setShowArchived] = useState(false);
   const [name, setName] = useState("");
   /** Which big button is chosen: the projects or the personal agents. */
   const [section, setSectionState] = useState<"projects" | "agents">(
@@ -649,6 +654,14 @@ export function Sidebar() {
                       >
                         <IconTree size={14} />
                       </button>
+                      <button
+                        type="button"
+                        class="icon-button"
+                        title={t("paArchiveAction")}
+                        onClick={() => setArchiving(p)}
+                      >
+                        <IconArchive />
+                      </button>
                     </span>
                   </div>
                   {open.has(key) &&
@@ -663,9 +676,26 @@ export function Sidebar() {
                 </div>
               );
             })}
+            {archivedProjects.value.length > 0 && (
+              <div class="bar-archived">
+                <button
+                  type="button"
+                  class="more"
+                  aria-expanded={showArchived}
+                  onClick={() => setShowArchived(!showArchived)}
+                >
+                  <IconChevron open={showArchived} />
+                  {t("paArchivedN", { n: String(archivedProjects.value.length) })}
+                </button>
+                {showArchived && <ArchivedList compact />}
+              </div>
+            )}
           </>
         )}
       </div>
+      {archiving && (
+        <ArchiveProjectDialog project={archiving} onClose={() => setArchiving(undefined)} />
+      )}
 
       <div class="bar-foot">
         <RemoteNotice />

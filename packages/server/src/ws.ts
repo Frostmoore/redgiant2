@@ -192,6 +192,26 @@ export function attachWebSocket(
           return;
         }
         const owner = principal.ownerId;
+        // An archived project's files are read only (2026-11-09): edits to them are refused.
+        if (
+          (msg.type === "doc.ops" ||
+            msg.type === "doc.undo" ||
+            msg.type === "doc.save" ||
+            msg.type === "doc.decide") &&
+          core.readOnlyScope(owner, msg.file.scope)
+        ) {
+          const reason = "The project is archived: restore it to change its files";
+          if (msg.type === "doc.ops" || msg.type === "doc.undo")
+            return send({
+              type: "doc.rejected",
+              file: msg.file,
+              clientId: msg.clientId,
+              code: "archived",
+              reason,
+              revision: (await core.editor.read(owner, msg.file)).revision,
+            });
+          return fail("project_archived", reason);
+        }
         switch (msg.type) {
           case "hello":
             return fail("bad_message", "Already authenticated");

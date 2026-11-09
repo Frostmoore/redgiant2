@@ -15,6 +15,11 @@ export interface AgentNode {
    * give it tasks there; it stays where it was created.
    */
   projects?: readonly string[] | undefined;
+  /**
+   * Its project is archived (2026-11-09): until it is restored the agent is only read; nobody
+   * gives it work, configures it or creates agents under it, and it does nothing itself.
+   */
+  archived?: boolean | undefined;
 }
 
 /** The human owner acts as itself; agents act through their node. */
@@ -75,6 +80,8 @@ const isAncestor = (maybe: AgentNode, of: AgentNode, resolve: Resolve) =>
  *   messages God; sees no project and creates nobody.
  * Changing permissions ("configure") is reserved to God and the human; nobody configures
  * God but the human.
+ * An archived project (2026-11-09): its agents are only read (the human may also stop them);
+ * none of them acts.
  */
 export function can(
   actor: Actor,
@@ -86,11 +93,13 @@ export function can(
   if (actor.type === "human")
     return (
       actor.ownerId === target.ownerId &&
+      (!target.archived || action === "read" || action === "stop") &&
       (action !== "join" || (target.kind !== "demigod" && target.kind !== "subagent"))
     );
   const a = actor.agent;
   if (action === "join" || action === "tools") return false;
   if (a.ownerId !== target.ownerId) return false;
+  if ((a.archived || target.archived) && action !== "read") return false;
   const self = a.id === target.id;
 
   switch (a.kind) {
@@ -147,7 +156,8 @@ export type KnowledgeAction = "make" | "source";
 export type KnowledgeTarget =
   | { kind: "all" }
   | { kind: "agent"; agent: AgentNode }
-  | { kind: "project"; projectId: string }
+  /** `archived`: the project is archived (2026-11-09); no agent makes or reads anything there. */
+  | { kind: "project"; projectId: string; archived?: boolean | undefined }
   | { kind: "platform" }
   | { kind: "assistants" };
 
@@ -174,6 +184,13 @@ export function canKnowledge(
   if (action === "source" && (target.kind === "all" || target.kind === "agent")) return false;
   if (actor.type === "human") return true;
   const a = actor.agent;
+  // An archived project (2026-11-09): read only for every agent, its own included.
+  if (
+    a.archived ||
+    (target.kind === "project" && target.archived) ||
+    (target.kind === "agent" && target.agent.archived)
+  )
+    return false;
   const projects = worksIn(a);
   switch (a.kind) {
     case "god":

@@ -364,6 +364,25 @@ export const EventBody = z.discriminatedUnion("type", [
     type: z.literal("agent.stopped"),
     payload: z.object({ agentId: z.string(), reason: z.string() }),
   }),
+  /**
+   * A whole project archived (2026-11-09): nothing is deleted. The turns it interrupted, the
+   * automations it paused (they come back as they were) and whether its sandbox was stopped.
+   */
+  z.object({
+    type: z.literal("project.archived"),
+    payload: z.object({
+      projectId: z.string(),
+      by: z.string(),
+      interrupted: z.array(z.string()),
+      paused: z.array(z.string()),
+      sandboxes: z.array(z.string()),
+    }),
+  }),
+  /** An archived project back as it was: the automations it had paused run again. */
+  z.object({
+    type: z.literal("project.restored"),
+    payload: z.object({ projectId: z.string(), by: z.string(), resumed: z.array(z.string()) }),
+  }),
   z.object({
     type: z.literal("task.opened"),
     payload: z.object({

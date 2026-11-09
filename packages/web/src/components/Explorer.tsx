@@ -3,6 +3,7 @@ import { ApiError, type FileEntry } from "../api.js";
 import { bytes } from "../format.js";
 import { t } from "../i18n.js";
 import {
+  IconArchive,
   IconChevron,
   IconClose,
   IconDownload,
@@ -218,7 +219,7 @@ function Folder({
 
 /** The files of the active conversation's project (or God's platform), on the right. */
 export function Explorer() {
-  const { scope, title, focus } = currentScope();
+  const { scope, title, focus, readOnly } = currentScope();
   const panel = useRef<HTMLElement>(null);
   useSwipeAway(panel, "right", () => toggleExplorer(false));
   const [version, setVersion] = useState(0);
@@ -252,6 +253,7 @@ export function Explorer() {
     );
   /** Uploads one by one; a taken name asks before anything is overwritten. */
   const uploadInto = async (dir: string, files: File[]) => {
+    if (readOnly) return;
     for (const file of files) {
       const path = dir && dir !== "." ? `${dir}/${file.name}` : file.name;
       const data = await asBase64(file);
@@ -277,13 +279,14 @@ export function Explorer() {
     input.click();
   };
   return (
-    <aside class="explorer" ref={panel}>
+    <aside class={`explorer${readOnly ? " read-only" : ""}`} ref={panel}>
       <div class="explorer-head">
         <strong title={title}>{title}</strong>
         <button
           type="button"
           class="icon-button"
           title={t("newFile")}
+          hidden={readOnly}
           onClick={async () => {
             const n = await askText(t("newFile"), join(""), {
               yes: t("dlgMake"),
@@ -298,6 +301,7 @@ export function Explorer() {
           type="button"
           class="icon-button"
           title={t("newFolder")}
+          hidden={readOnly}
           onClick={async () => {
             const n = await askText(t("newFolder"), join(""), {
               yes: t("dlgMake"),
@@ -308,7 +312,13 @@ export function Explorer() {
         >
           <IconFolderPlus />
         </button>
-        <button type="button" class="icon-button" title={t("upload")} onClick={upload}>
+        <button
+          type="button"
+          class="icon-button"
+          title={t("upload")}
+          hidden={readOnly}
+          onClick={upload}
+        >
           <IconUpload />
         </button>
         <button
@@ -330,6 +340,7 @@ export function Explorer() {
           type="button"
           class="icon-button"
           title={t("terminal")}
+          hidden={readOnly}
           onClick={() =>
             openTab({
               id: `term:${scope}:${Date.now()}`,
@@ -353,6 +364,13 @@ export function Explorer() {
       <div class="explorer-where">
         {t("folder")}: <code>/{base}</code>
       </div>
+      {/* An archived project (2026-11-09): its files are shown, never changed (no rename, delete
+          or upload here; the server refuses them too). */}
+      {readOnly && (
+        <div class="pa-files-ro">
+          <IconArchive size={13} /> {t("paFilesReadOnly")}
+        </div>
+      )}
       {taken && (
         <div class="taken">
           <div>{t("fileExists", { name: taken.name })}</div>

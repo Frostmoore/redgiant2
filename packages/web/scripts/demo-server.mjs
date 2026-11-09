@@ -81,6 +81,9 @@ const brain = (req) => {
     last.parts.every((p) => p.type === "tool_result" || p.type === "image");
   turn++;
   const said = last?.parts.find((p) => p.type === "text")?.text ?? "";
+  // DEMO_ARCHIVE (2026-11-09): a long piece of work, still running when the person archives.
+  if (said.includes("Rifai tutte le schede prodotto"))
+    return { text: "Riscrivo le schede una per una. ".repeat(4000) };
   // G36.5: a question on the person's documents, searched and answered with its citations.
   const found = last?.parts.find(
     (p) => p.type === "tool_result" && String(p.content).includes("(#kb:"),
@@ -1022,6 +1025,41 @@ await core.automations.create(
   "local",
   "name: review-on-push\non:\n  webhook: true\nagent: orchestrator\nproject: demo\ninstructions: Review the new commits.\n",
 );
+// Archiving a whole project (2026-11-09, DEMO_ARCHIVE=1): an archived project with its
+// conversation, a task and a paused automation; and a shop whose orchestrator is working.
+if (process.env.DEMO_ARCHIVE === "1") {
+  const old = await core.projects.create("local", "Old site");
+  await writeFile(join(old.path, "index.html"), "<h1>The old site</h1>\n");
+  await writeFile(join(old.path, "NOTES.md"), "# Old site\n\nKept for the archive.\n");
+  const oldLead = await core.registry.create(
+    { type: "agent", agent: god },
+    { kind: "orchestrator", parentId: god.id, projectId: old.id, name: "Old site lead" },
+  );
+  const osid = await core.startSession("local", oldLead.id);
+  await (await core.send("local", osid, "Give me a quick tour of the site.")).done;
+  await core.tasks.open(oldLead, osid, "Move the contact form to the new site");
+  await core.automations.create(
+    "local",
+    `name: old-site-check\non:\n  cron: "0 9 * * 1"\nagent: orchestrator\nproject: ${old.id}\ninstructions: Check the old site's links.\n`,
+  );
+  await core.config.project("local", "human", old.id, true);
+  const shop = await core.projects.create("local", "Shop");
+  const shopLead = await core.registry.create(
+    { type: "agent", agent: god },
+    {
+      kind: "orchestrator",
+      parentId: god.id,
+      projectId: shop.id,
+      name: "Shop lead",
+      // The demo model writes slowly: the work is still running when the window asks.
+      model: { provider: "fake", model: "demo-model" },
+    },
+  );
+  const ssid = await core.startSession("local", shopLead.id);
+  await core.nameSession(ssid, "Schede prodotto");
+  const { done } = await core.send("local", ssid, "Rifai tutte le schede prodotto");
+  done.catch(() => {});
+}
 
 const web = fileURLToPath(new URL("../dist", import.meta.url));
 // G36.20, DEMO_KEYS=1: the files of a version before, moved into the keychain at this start (a

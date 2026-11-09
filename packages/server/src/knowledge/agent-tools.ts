@@ -28,6 +28,8 @@ export interface KnowledgeToolsHost {
   scope: string | undefined;
   /** The projects this agent sees in the knowledge (for knowledge_status). */
   projectIds: string[];
+  /** Whether a project is archived (2026-11-09): no agent makes or reads anything there. */
+  archived?(projectId: string): boolean;
 }
 
 const fail = (content: string) => ({ content, isError: true });
@@ -74,6 +76,9 @@ const StatusInput = z.object({ collection: z.string().trim().max(200).optional()
 /** knowledge_create, knowledge_add_source and knowledge_status for one agent. */
 export function knowledgeTools(agent: AgentNode, host: KnowledgeToolsHost): Tool[] {
   const actor = { type: "agent" as const, agent };
+  /** A project target says whether the project is archived (the table refuses it then). */
+  const marked = (t: KnowledgeTarget): KnowledgeTarget =>
+    t.kind === "project" && host.archived?.(t.projectId) ? { ...t, archived: true } : t;
   const service = () => {
     const k = host.knowledge();
     if (!k) throw new KnowledgeError("no_vector", "The knowledge is not running on this server.");
@@ -123,7 +128,7 @@ export function knowledgeTools(agent: AgentNode, host: KnowledgeToolsHost): Tool
   };
   const mayMake = (c: { scope: KnowledgeScope }) => {
     const t = targetOf(c.scope, host.agents());
-    return t !== undefined && canKnowledge(actor, "make", t);
+    return t !== undefined && canKnowledge(actor, "make", marked(t));
   };
   const wrap =
     <I>(run: (k: KnowledgeService, i: I, ctx: ToolContext) => Promise<string>) =>
@@ -161,7 +166,7 @@ export function knowledgeTools(agent: AgentNode, host: KnowledgeToolsHost): Tool
       const scope = await scopeFor(k, i.for ?? defaultFor(agent));
       const agents = host.agents();
       const target = targetOf(scope, agents);
-      if (!target || !canKnowledge(actor, "make", target))
+      if (!target || !canKnowledge(actor, "make", marked(target)))
         throw new KnowledgeError(
           "forbidden",
           `You cannot make a collection for ${scopeWords(scope, agents)}. ${agent.kind === "god" ? "" : `You can make one for "me"${agent.projectId ? ' or "project"' : ""}.`}`.trim(),
@@ -258,7 +263,7 @@ export function knowledgeTools(agent: AgentNode, host: KnowledgeToolsHost): Tool
           scope === "platform" || scope === "assistants"
             ? { kind: scope }
             : { kind: "project", projectId: scope.slice(8) };
-        if (!canKnowledge(actor, "source", target))
+        if (!canKnowledge(actor, "source", marked(target)))
           throw new KnowledgeError(
             "forbidden",
             `You cannot read ${scope === "platform" ? "God's folder" : scope === "assistants" ? "the assistants' desk" : `the project ${scope.slice(8)}`} into the knowledge: only your own ${agent.kind === "assistant" ? "desk" : "project"}'s files.`,

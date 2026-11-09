@@ -295,6 +295,17 @@ export interface ConfigHost {
   toolChoices?: ToolChoiceStore;
   /** The person's own settings kept as configuration (G36.16 commands, G36.17 requests). */
   ownerSettings?(key: PersonSettingsKey): PersonSettingsStore | undefined;
+  /** A whole project archived or restored (2026-11-09). */
+  archiveProject?(
+    ownerId: string,
+    projectId: string,
+    by: string,
+  ): Promise<{ interrupted: string[]; paused: string[]; sandboxes: string[] }>;
+  restoreProject?(
+    ownerId: string,
+    projectId: string,
+    by: string,
+  ): Promise<{ resumed: string[]; sandboxes: string[] }>;
 }
 
 /** The settings only the person changes, kept with history and undo. */
@@ -639,6 +650,38 @@ export class PlatformConfig {
     });
   }
 
+  /**
+   * Archives a whole project or restores it (2026-11-09): by the person from the page or by God
+   * with their yes. It stops work, so it is in the history and undone like any other change.
+   */
+  async project(
+    ownerId: string,
+    by: string,
+    projectId: string,
+    archived: boolean,
+  ): Promise<PlatformChange> {
+    if (!this.h.archiveProject || !this.h.restoreProject)
+      throw new ConfigError("Projects cannot be archived here");
+    let detail: string;
+    if (archived) {
+      const r = await this.h.archiveProject(ownerId, projectId, by);
+      detail = `${r.interrupted.length} turn(s) stopped, ${r.paused.length} automation(s) paused, ${r.sandboxes.length} sandbox(es) stopped`;
+    } else {
+      const r = await this.h.restoreProject(ownerId, projectId, by);
+      detail = `${r.resumed.length} automation(s) on again, ${r.sandboxes.length} sandbox(es) started`;
+    }
+    return this.h.changes.record(ownerId, {
+      kind: "config",
+      change: `Project ${projectId}: ${archived ? "archived" : "restored"}`,
+      stage: "promoted",
+      target: `project:${projectId}`,
+      before: { archived: !archived },
+      after: { archived },
+      detail,
+      by,
+    });
+  }
+
   /** Puts back what a configuration change replaced; recorded as a change of its own. */
   async undo(ownerId: string, by: string, changeId: string): Promise<PlatformChange> {
     const c = await this.h.changes.get(ownerId, changeId);
@@ -685,6 +728,9 @@ export class PlatformConfig {
             { agentId: id },
           )
         : await this.setTools(ownerId, by, { off: before.off, agents: now.agents });
+    } else if (type === "project") {
+      const before = c.before as { archived: boolean };
+      done = await this.project(ownerId, by, rest.join(":"), before.archived);
     } else if (type === "automation") {
       const id = rest.join(":");
       const before = c.before as { yaml: string; enabled: boolean } | null;
@@ -937,6 +983,26 @@ export function platformConfigTools(
         return entry?.auth.type === "oauth"
           ? `${show(c)}\nThe person must now press Connect next to ${entry.name} in Settings, Extensions, to sign in.`
           : show(c);
+      },
+    } as Tool,
+    {
+      def: {
+        name: "platform_project",
+        description:
+          "Archive a whole project, or restore an archived one (platform_status lists them). Archiving deletes nothing: its agents' turns stop as an interruption would (say so to the person first if they are working), its automations that are on pause, its sandbox stops, its open tasks stay open, and until it is restored nobody works in it or changes its files. Restoring puts it back exactly as it was (the paused automations run again). Undo it with platform_undo.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["archive", "restore"] },
+            project_id: { type: "string" },
+          },
+          required: ["action", "project_id"],
+        },
+      },
+      schema: z.object({ action: z.enum(["archive", "restore"]), project_id: z.string().min(1) }),
+      async run({ action, project_id }) {
+        const c = await config.project(owner, by, project_id, action === "archive");
+        return `${show(c)}${c.detail ? `\n${c.detail}` : ""}`;
       },
     } as Tool,
     {

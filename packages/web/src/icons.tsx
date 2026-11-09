@@ -179,6 +179,12 @@ export const IconArchive = ({ size = 13 }: P) => (
     <path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4" />
   </Svg>
 );
+/** Out of the archive (2026-11-09): the archive box with an arrow coming up out of it. */
+export const IconRestore = ({ size = 13 }: P) => (
+  <Svg size={size}>
+    <path d="M21 8v13H3V8M1 3h22v5H1zM12 19v-7M9 15l3-3 3 3" />
+  </Svg>
+);
 export const IconTrash = ({ size = 13 }: P) => (
   <Svg size={size}>
     <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />

@@ -42,6 +42,9 @@
   whatever the rules and modes, reach every channel in both modes, and their time running out is a no. The
   policy's `humanOnly` dangers (a plain `git push`, deploys, ordinary messages, keychain use) are ordinary requests:
   they skip the parent agents and then follow the person's choice, classifier included.
+- Archived projects (p3.5.3): archiving stops the project's turns (tasks stay open), pauses its automations and
+  sandboxes and marks its agents `archived` in the registry; `can`/`canKnowledge` then let agents only read, and every
+  gate (`assertActive`, `readOnlyScope`) refuses turns and file changes until it is restored. Nothing is deleted.
 - Server: one WebSocket connection handles its messages strictly in order; `RedGiantCore.send` returns `{ done }`
   (never an async function returning a bare promise: it would wait for the whole turn).
 - Run programs with `Workspace.execFile` (no shell) whenever arguments may come from a model or a user.
