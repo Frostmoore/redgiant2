@@ -9,7 +9,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, extname, join } from "node:path";
+import { basename, extname, join, posix } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DocFile } from "@redgiant/protocol";
 import type { Context, Hono } from "hono";
@@ -19,7 +19,9 @@ import { findInkscape, svgOriginalName } from "./svg-family.js";
 
 /** The program that runs Inkscape's command line (the app bundle's on macOS). */
 export const inkscapeCli = (app: string, platform = process.platform) =>
-  platform === "darwin" && app.endsWith(".app") ? join(app, "Contents", "MacOS", "inkscape") : app;
+  platform === "darwin" && app.endsWith(".app")
+    ? posix.join(app, "Contents", "MacOS", "inkscape")
+    : app;
 
 /** A drawing as PDF: Inkscape's exact export, or LibreOffice Draw's import of simple drawings. */
 export async function svgToPdf(

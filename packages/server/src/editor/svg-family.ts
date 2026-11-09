@@ -5,7 +5,7 @@
 // page edits with @svgedit/svgcanvas and sends the same actions; the server never writes the file
 // from the page's DOM.
 import { existsSync, readdirSync } from "node:fs";
-import { basename, delimiter, dirname, extname, posix, win32 } from "node:path";
+import { basename, dirname, extname, posix, win32 } from "node:path";
 import type { DocOp, DocSummary, SvgAction, SvgDocOp } from "@redgiant/protocol";
 import type { DocFamily, Loaded } from "./family.js";
 import { SVG_CATALOG, svgFromAgent } from "./svg/agent.js";
@@ -85,7 +85,8 @@ export function findInkscape(
     }
     return undefined;
   }
-  for (const dir of (env.PATH ?? "").split(delimiter).filter(Boolean)) {
+  // The platform asked about, not the one running (tests ask for each).
+  for (const dir of (env.PATH ?? "").split(":").filter(Boolean)) {
     const p = posix.join(dir, "inkscape");
     if (exists(p)) return p;
   }
