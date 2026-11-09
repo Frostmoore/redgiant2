@@ -32,6 +32,7 @@ import {
   openBoard,
   openCanvas,
   openSession,
+  openSessionById,
   openSubPath,
   openTab,
   questions,
@@ -375,6 +376,65 @@ function ToolLine({
         <WorkspaceImage scope={scopeOf(agentId)} path={picture} />
       )}
     </div>
+  );
+}
+
+/**
+ * One line about the same agent at work in another of its conversations (p3.5.3: a task handed
+ * to an orchestrator while the person watched another of its tasks), with the way there.
+ */
+function Elsewhere({
+  agentId,
+  sessionId,
+  asks,
+}: {
+  agentId: string;
+  sessionId: string;
+  asks?: boolean;
+}) {
+  const title = sessionRows.value.find((r) => r.id === sessionId)?.title ?? t("elsewhereUntitled");
+  const name = agents.value.find((a) => a.id === agentId)?.name ?? "";
+  return (
+    <div class="notice elsewhere">
+      <IconInfo size={13} />
+      <span>{t(asks ? "elsewhereAsks" : "elsewhereWorking", { name, title })}</span>
+      <button type="button" class="link" onClick={() => void openSessionById(sessionId, agentId)}>
+        {t("open")}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * What the agent of this chat does in its other conversations: their questions (a line, and
+ * the card folded under it: answerable here, the first answer closes every copy), and the ones
+ * working now.
+ */
+function OtherWork({ sessionId, agentId }: { sessionId: string; agentId: string }) {
+  const asked = questions.value.filter((q) => q.agentId === agentId && q.sessionId !== sessionId);
+  const asking = new Set([
+    ...asked.map((q) => q.sessionId),
+    ...approvals.value.flatMap((r) => (r.agentId === agentId && r.sessionId ? [r.sessionId] : [])),
+  ]);
+  const busy = sessionRows.value.filter(
+    (r) => r.agentId === agentId && r.id !== sessionId && r.running && !asking.has(r.id),
+  );
+  if (asked.length === 0 && busy.length === 0) return null;
+  return (
+    <>
+      {asked.map((q) => (
+        <div key={q.requestId} class="elsewhere-card">
+          <Elsewhere agentId={agentId} sessionId={q.sessionId} asks />
+          <details class="elsewhere-answer">
+            <summary>{t("elsewhereAnswerHere")}</summary>
+            <QuestionCard requestId={q.requestId} questions={q.questions} plan={q.plan} open />
+          </details>
+        </div>
+      ))}
+      {busy.map((r) => (
+        <Elsewhere key={r.id} agentId={agentId} sessionId={r.id} />
+      ))}
+    </>
   );
 }
 
@@ -1200,9 +1260,17 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
               </button>
             </div>
           ))}
-          {waiting.map((r) => (
-            <PermissionCard key={r.requestId} r={r} />
-          ))}
+          {waiting.map((r) =>
+            r.sessionId && r.sessionId !== sessionId ? (
+              <div key={r.requestId} class="elsewhere-card">
+                <Elsewhere agentId={agentId} sessionId={r.sessionId} asks />
+                <PermissionCard r={r} />
+              </div>
+            ) : (
+              <PermissionCard key={r.requestId} r={r} />
+            ),
+          )}
+          <OtherWork sessionId={sessionId} agentId={agentId} />
         </div>
         {!atBottom && (
           <button

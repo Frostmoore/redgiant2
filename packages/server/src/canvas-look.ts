@@ -5,14 +5,15 @@
 // ffmpeg; a 3D model drawn in RedGiant's own code (model-render.ts); pictures, Photoshop and
 // OpenRaster files shrunk; a sheet's cells and a text's lines as text. A program that is not here
 // yet is fetched in the background (its bar shows), and the answer says to look again.
+
 import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { strFromU8, unzipSync } from "fflate";
 import { type FileConverter, formatOfFile, PREVIEWABLE } from "./convert.js";
 import { pngOf, psdComposite, type Rgba, rgbaOf, shrink } from "./convert-js.js";
 import { execRunner, type Programs, type Runner } from "./convert-programs.js";
 import { pdfPage } from "./knowledge/extract.js";
+import { LO_QUIET, loProfiles, profileArg } from "./lo-profiles.js";
 import { type ModelView, readModel, renderModel, SIMPLE_MODELS } from "./model-render.js";
 
 export type LookKind =
@@ -182,20 +183,19 @@ async function pdfPicture(
       PixelWidth: { type: "long", value: String(w) },
       PixelHeight: { type: "long", value: String(h) },
     })}`;
-    const r = await run(d, lo, [
-      "--headless",
-      "--norestore",
-      "--nolockcheck",
-      "--nodefault",
-      "--nofirststartwizard",
-      `-env:UserInstallation=${pathToFileURL(d.profileDir).href}`,
-      "--infilter=draw_pdf_import",
-      "--convert-to",
-      filter,
-      "--outdir",
-      work,
-      pdf,
-    ]);
+    // Its own profile, one run at a time (p3.5.3: never two soffice on one profile).
+    const r = await loProfiles(d.profileDir).use((profile) =>
+      run(d, lo, [
+        ...LO_QUIET,
+        profileArg(profile),
+        "--infilter=draw_pdf_import",
+        "--convert-to",
+        filter,
+        "--outdir",
+        work,
+        pdf,
+      ]),
+    );
     const made = await madeIn(work, "png");
     if (r.exitCode !== 0 || !made)
       return {
