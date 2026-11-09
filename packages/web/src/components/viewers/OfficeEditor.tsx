@@ -225,7 +225,11 @@ export function OfficeEditor({ file }: { file: DocFile }) {
           });
           revision = m.revision;
           if (m.change.author !== PERSON) showNote(m.change);
-          if ((r.skipped as unknown[] | undefined)?.length) resync();
+          const skipped = r.skipped as { index: number; error: string }[] | undefined;
+          if (skipped?.length) {
+            console.warn("LibreOffice skipped actions", JSON.stringify(skipped));
+            resync();
+          }
         });
       },
       ack(m) {

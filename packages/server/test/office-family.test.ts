@@ -166,6 +166,21 @@ describe("the agent's operations", () => {
     });
   });
 
+  it("refuses a cell merged into another (LibreOffice has no such cell)", () => {
+    const o: OfficeOutline = {
+      app: "writer",
+      items: [
+        { k: "table", name: "T", rows: 1, cols: 2, cells: [["Totale", ""]], covered: ["B1"] },
+      ],
+      styles: [],
+    };
+    expect(
+      actionsFromAgent(o, [{ op: "set_cell", table: 1, cell: "B1", text: "x" }], none),
+    ).toMatchObject({
+      error: expect.stringMatching(/B1 of table 1 is merged/),
+    });
+  });
+
   it("says which operation failed and why", () => {
     expect(
       actionsFromAgent(

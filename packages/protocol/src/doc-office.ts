@@ -75,6 +75,8 @@ export const OfficeItem = z.discriminatedUnion("k", [
     rows: z.number().int().nonnegative(),
     cols: z.number().int().nonnegative(),
     cells: z.array(z.array(z.string().max(20_000))).max(5000),
+    /** Cells merged into another (they are not there to set: «C6»). */
+    covered: z.array(Short).max(5000).optional(),
   }),
 ]);
 export type OfficeItem = z.infer<typeof OfficeItem>;

@@ -107,16 +107,29 @@ const cellText = (cell: XmlNode) =>
     .map(paragraphText)
     .join("\n");
 
+const colName = (c: number): string => {
+  let s = "";
+  let n = c + 1;
+  while (n > 0) {
+    s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+};
+
 /** A table's cells (repeated rows and columns spread, at most 200 × 50). */
-function tableCells(t: XmlNode): string[][] {
+function tableCells(t: XmlNode, covered: string[] = []): string[][] {
   const rows: string[][] = [];
   const addRow = (r: XmlNode) => {
     const row: string[] = [];
     for (const c of kids(r))
       if (c.name === "table:table-cell" || c.name === "table:covered-table-cell") {
         const rep = Math.min(50, Number(c.attrs["table:number-columns-repeated"] ?? 1) || 1);
-        for (let i = 0; i < rep && row.length < 50; i++)
+        for (let i = 0; i < rep && row.length < 50; i++) {
+          if (c.name === "table:covered-table-cell")
+            covered.push(`${colName(row.length)}${rows.length + 1}`);
           row.push(c.name === "table:covered-table-cell" ? "" : cellText(c));
+        }
       }
     const rep = Math.min(200, Number(r.attrs["table:number-rows-repeated"] ?? 1) || 1);
     for (let i = 0; i < rep && rows.length < 200; i++) rows.push([...row]);
@@ -157,13 +170,15 @@ function writerItems(body: XmlNode, style: (n: string | undefined) => string): O
           break;
         }
         case "table:table": {
-          const cells = tableCells(c);
+          const covered: string[] = [];
+          const cells = tableCells(c, covered);
           items.push({
             k: "table",
             name: c.attrs["table:name"] ?? `Table${items.length + 1}`,
             rows: cells.length,
             cols: Math.max(0, ...cells.map((r) => r.length)),
             cells,
+            ...(covered.length && { covered: covered.slice(0, 5000) }),
           });
           break;
         }

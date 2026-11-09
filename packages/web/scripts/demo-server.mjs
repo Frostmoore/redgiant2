@@ -302,8 +302,8 @@ const brain = (req) => {
       {
         path: "canvas/relazione.docx",
         ops: [
-          { op: "set_cell", table: 9, cell: "B6", text: "123.500" },
-          { op: "set_cell", table: 9, cell: "C6", text: "94.700" },
+          { op: "set_cell", table: 9, cell: "B2", text: "43.500" },
+          { op: "set_cell", table: 9, cell: "D2", text: "74.500" },
           {
             op: "replace_text",
             find: "Ritardi sulle forniture di acciaio.",

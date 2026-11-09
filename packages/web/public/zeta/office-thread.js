@@ -345,14 +345,19 @@ function handle(e) {
   const d = e.data;
   try {
     if (d.cmd === "load") {
-      if (doc) {
+      const old = doc;
+      if (old)
         try {
-          doc.setModified(false);
+          old.setModified(false);
         } catch {}
-      }
       doc = desktop.loadComponentFromURL(`file://${d.path}`, "_default", 0, [
         pv("MacroExecutionMode", 0),
       ]);
+      // The one opened before goes (when LibreOffice did not already replace it in its window).
+      if (old && old !== doc)
+        try {
+          old.close(true);
+        } catch {}
       app = doc.supportsService("com.sun.star.text.TextDocument") ? "writer" : "impress";
       doc.getCurrentController().getFrame().getContainerWindow().FullScreen = true;
       const skipped = applyAll(d.pending || [], null);

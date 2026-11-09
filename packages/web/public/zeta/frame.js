@@ -19,6 +19,7 @@
   const canvas = document.getElementById("qtcanvas");
   let port;
   let started = false;
+  let opens = 0;
   const waiting = new Map();
   let nextId = 1;
 
@@ -168,7 +169,9 @@
         post({ t: "ready" });
       } else if (m.t === "open") {
         fsDir();
-        const path = `/tmp/rg/doc.${m.app === "impress" ? "odp" : "odt"}`;
+        // A new name each time: LibreOffice hands back a document already open at the same path.
+        opens += 1;
+        const path = `/tmp/rg/doc-${opens}.${m.app === "impress" ? "odp" : "odt"}`;
         window.FS.writeFile(path, new Uint8Array(m.bytes));
         for (const [hash, b] of Object.entries(m.pictures ?? {}))
           window.FS.writeFile(`/tmp/rg/pic-${hash}`, new Uint8Array(b));

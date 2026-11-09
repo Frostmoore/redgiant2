@@ -612,9 +612,7 @@ export function mapAction(
 export function outlineHunks(before: OfficeOutline, after: OfficeOutline): OfficeHunk[] {
   const keyOf = (o: OfficeOutline): string[] =>
     o.app === "writer"
-      ? o.items.map((it) =>
-          it.k === "p" ? `p|${it.style}|${it.text}` : `t|${JSON.stringify(it.cells)}`,
-        )
+      ? o.items.map((it) => (it.k === "p" ? `p|${it.text}` : `t|${JSON.stringify(it.cells)}`))
       : o.slides.map((s) =>
           JSON.stringify(s.shapes.map((x) => [x.kind, x.text, x.x, x.y, x.w, x.h])),
         );
@@ -875,6 +873,10 @@ function fromAgentOne(
       if (it.k !== "table") fail(`item ${at + 1} is not a table`);
       const cell = str(x.cell, "cell", false).toUpperCase().trim();
       if (!/^[A-Z]{1,3}[1-9]\d{0,4}$/.test(cell)) fail(`"cell" is like "B2", not «${cell}»`);
+      if (it.covered?.includes(cell))
+        fail(
+          `cell ${cell} of table ${at + 1} is merged into the one before it: set that cell instead`,
+        );
       const [r, c] = cellIndex(cell);
       push({
         t: "cell",
