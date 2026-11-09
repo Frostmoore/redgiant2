@@ -2967,6 +2967,7 @@ export class RedGiantCore implements OrchestrationHost {
   private canvasEditHost(): CanvasEditHost {
     return {
       editor: this.editor,
+      readOnly: (ownerId, scope) => this.readOnlyScope(ownerId, scope),
       state: (ownerId) => this.canvasLive.ask(ownerId),
       docFileOf: (ownerId, abs) => this.docFileOf(ownerId, abs),
       absOf: (ownerId, file) => this.docAbs(ownerId, file),

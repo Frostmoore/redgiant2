@@ -1,3 +1,4 @@
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Automation, PermissionRequestInfo } from "@redgiant/protocol";
 import { type CompletionRequest, FakeProvider, ProviderRegistry } from "@redgiant/providers";
@@ -278,6 +279,22 @@ describe("archiving a whole project (2026-11-09)", () => {
     expect(await archivedAt()).toEqual(expect.any(String));
     const [ev] = await server.core.store.list({ types: ["project.archived"] });
     expect(ev?.payload).toMatchObject({ by: t.god });
+
+    // Its files are read only for God too: canvas_edit on one of them is refused (the person's
+    // yes for a file outside God's folder does not open an archived project).
+    const project = await server.core.projects.get("me", t.project);
+    await writeFile(join(project?.path ?? "", "notes.md"), "# Notes\n");
+    steps.edit = {
+      name: "canvas_edit",
+      input: {
+        path: join(project?.path ?? "", "notes.md"),
+        ops: [{ op: "replace_text", find: "Notes", text: "Changed" }],
+      },
+    };
+    const edit = await say("edit");
+    expect(edit?.ok).toBe(false);
+    expect(edit?.output).toMatch(/archived project: its files are read only/);
+    expect(await readFile(join(project?.path ?? "", "notes.md"), "utf8")).toBe("# Notes\n");
 
     // Undone: restored, the automations as they were.
     const change = (await server.core.changes.list("me")).find((c) => c.target === "project:shop");
