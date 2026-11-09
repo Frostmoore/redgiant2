@@ -8,6 +8,7 @@
 // full editor: the laid-out pages, refreshed as LibreOffice on the server writes the file, and a
 // find and replace; one sentence says why and how to get the full editor. LibreOffice's own
 // menus are English; everything around it is ours, in the person's language.
+
 import type { DocChange, DocFile, DocOp, DocSnapshot, Job } from "@redgiant/protocol";
 import { docKey, PERSON } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -30,6 +31,7 @@ import {
 } from "../../viewers/office-shared.js";
 import { bytesText } from "../../viewers/source.js";
 import { Progress, useJob } from "../ui.js";
+import { CopyBar } from "./CopyBar.js";
 import { changeText, whoText } from "./DocEditor.js";
 import { PagedView } from "./OpenCopy.js";
 
@@ -491,49 +493,50 @@ function OfficeStrip({
       }
     });
   return (
-    <div class="vw-bar doc-office-strip">
+    <>
       {original && (
-        <span class="doc-office-copy" title={original}>
-          {t("officeCopyOf", { name: nameOf(original) })}
-        </span>
+        <CopyBar
+          original={original}
+          rewrite={
+            back === undefined
+              ? undefined
+              : {
+                  on: back,
+                  onChange: toggle,
+                  help: t("officeWriteBackHint", { name: nameOf(original) }),
+                }
+          }
+        />
       )}
-      {original && back !== undefined && (
-        <label class="doc-office-back" title={t("officeWriteBackHint", { name: nameOf(original) })}>
-          <input
-            type="checkbox"
-            checked={back}
-            onChange={(e) => toggle((e.target as HTMLInputElement).checked)}
-          />
-          <span>{t("officeWriteBack", { ext })}</span>
+      <div class="vw-bar doc-office-strip">
+        <div class="spacer" />
+        {saving && (
+          <span class="dim doc-office-saving">
+            <IconSpinner size={12} /> {t("officeSaving")}
+          </span>
+        )}
+        <label class="doc-office-export">
+          <IconDownload size={13} />
+          <select
+            aria-label={t("officeExport")}
+            value=""
+            disabled={busy}
+            onChange={(e) => {
+              const v = (e.target as HTMLSelectElement).value;
+              (e.target as HTMLSelectElement).value = "";
+              if (v) exportAs(v);
+            }}
+          >
+            <option value="">{busy ? t("officeExporting") : t("officeExport")}</option>
+            {exportsOf(file.path).map((x) => (
+              <option key={x} value={x}>
+                {x.toUpperCase()}
+              </option>
+            ))}
+          </select>
         </label>
-      )}
-      <div class="spacer" />
-      {saving && (
-        <span class="dim doc-office-saving">
-          <IconSpinner size={12} /> {t("officeSaving")}
-        </span>
-      )}
-      <label class="doc-office-export">
-        <IconDownload size={13} />
-        <select
-          aria-label={t("officeExport")}
-          value=""
-          disabled={busy}
-          onChange={(e) => {
-            const v = (e.target as HTMLSelectElement).value;
-            (e.target as HTMLSelectElement).value = "";
-            if (v) exportAs(v);
-          }}
-        >
-          <option value="">{busy ? t("officeExporting") : t("officeExport")}</option>
-          {exportsOf(file.path).map((x) => (
-            <option key={x} value={x}>
-              {x.toUpperCase()}
-            </option>
-          ))}
-        </select>
-      </label>
-    </div>
+      </div>
+    </>
   );
 }
 

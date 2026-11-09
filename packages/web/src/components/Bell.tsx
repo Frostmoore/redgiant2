@@ -9,6 +9,7 @@ import {
   getApi,
   notices,
   openSession,
+  openSessionById,
   openTab,
   questions,
   sessionRows,
@@ -50,9 +51,8 @@ export function Bell({ close }: { close: () => void }) {
                     type="button"
                     class="link"
                     onClick={() => {
-                      const row = sessionRows.value.find((r) => r.id === n.sessionId);
-                      if (row) openSession(row);
-                      close();
+                      if (n.sessionId)
+                        void openSessionById(n.sessionId).then((ok) => ok && close());
                     }}
                   >
                     {t("open")}
@@ -80,7 +80,28 @@ export function Bell({ close }: { close: () => void }) {
       {approvals.value.length === 0 ? (
         <div class="dim">{t("noApprovals")}</div>
       ) : (
-        approvals.value.map((r) => <PermissionCard key={r.requestId} r={r} />)
+        approvals.value.map((r) =>
+          r.sessionId ? (
+            <div key={r.requestId} class="card">
+              <div class="card-head">
+                <strong>{r.agentName}</strong>
+                <button
+                  type="button"
+                  class="link"
+                  onClick={() => {
+                    if (r.sessionId)
+                      void openSessionById(r.sessionId, r.agentId).then((ok) => ok && close());
+                  }}
+                >
+                  {t("open")}
+                </button>
+              </div>
+              <PermissionCard r={r} />
+            </div>
+          ) : (
+            <PermissionCard key={r.requestId} r={r} />
+          ),
+        )
       )}
       <h3>
         {t("questions")} ({questions.value.length})
@@ -96,9 +117,7 @@ export function Bell({ close }: { close: () => void }) {
                 type="button"
                 class="link"
                 onClick={() => {
-                  const row = sessionRows.value.find((r) => r.id === q.sessionId);
-                  if (row) openSession(row);
-                  close();
+                  void openSessionById(q.sessionId, q.agentId).then((ok) => ok && close());
                 }}
               >
                 {t("open")}

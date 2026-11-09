@@ -798,8 +798,6 @@ const en = {
   officeShowHere: "Show this one",
   officeOneEngine:
     "One LibreOffice for the whole page: this document was saved and opens again here when you come back to it.",
-  officeCopyOf: "Open copy of {name}",
-  officeWriteBack: "Write the {ext} too",
   officeWriteBackHint:
     "{name} is written again from this copy each time it is saved; its previous version stays in the copy's folder (versions).",
   officeSaving: "Saving…",
@@ -904,8 +902,6 @@ const en = {
   sheetLoading: "Loading the sheet editor…",
   sheetCsvNote:
     "A {kind} file keeps values only: a formula is saved as its result; formats, merges and other sheets are not saved in it. Export as ODS to keep them.",
-  sheetPlaceholders:
-    "Kept in the file, not editable here (see them in «Pages»; pivot tables outlined in grey): {list}.",
   sheetPhChart: "chart {name}on {sheet} {range}",
   sheetPhChartReads:
     "chart {name}on {sheet} {range}, reading the cells {source} (a row written below them is not in the chart)",
@@ -935,8 +931,12 @@ const en = {
   sheetSaveWaits:
     "Saving waits for LibreOffice, which is coming down (the first time only): your changes are safe.",
   sheetSaveFailed: "Not saved yet: {reason}. It is tried again by itself; your changes are safe.",
-  sheetCopyOf: "Open copy of {name}: the original stays as it is.",
-  sheetReexport: "Also write {name} again at every save",
+  copyBarOf: "Open copy of {name}",
+  copyBarSafe: "the original stays as it is",
+  copyBarRewrite: "Write the original too",
+  copyBarKept: "{n} things stay in the file, not editable here",
+  sheetPlaceholdersHow:
+    "Pivot tables are outlined in grey in the sheet; you see everything in «Pages».",
   sheetReexportHint:
     "LibreOffice writes the whole file again: Excel's table styles and what LibreOffice does not know are lost in it.",
   sheetEditCopy: "Edit (ODS copy)",
@@ -3627,6 +3627,8 @@ const en = {
   toolsWeight: "about {n} tokens in every message",
   toolsNeeded: "Always needed: {why}",
   toolsLoading: "Weighing the tools…",
+  toolsSearch: "Find a tool: name, command or what it does",
+  toolsNoMatch: "No tool for «{q}».",
   toolsError: "The tools could not be read: {error}",
   toolsFor: "Tools of {name}",
   toolsAgentLead:
@@ -3957,6 +3959,11 @@ const en = {
     "Every request the classifier decided, or that ended because nobody answered in time, newest first.",
   rqDoneEmpty: "No decision taken without you yet.",
   rqOpenChat: "Open the conversation",
+  sessionNotFound: "That conversation cannot be opened: it is not among yours any more.",
+  elsewhereWorking: "{name} is working in another conversation: «{title}»",
+  elsewhereAsks: "{name} is asking you something in another conversation: «{title}»",
+  elsewhereUntitled: "untitled",
+  elsewhereAnswerHere: "Answer here",
   rqByModel: "Classifier ({model}):",
   rqByClassifier: "Classifier:",
   rqByTimeout: "Time ran out:",
@@ -4247,7 +4254,6 @@ const en = {
   svgInkscapeHint:
     "The drawing as last saved, in the Inkscape installed on this computer: what you save there comes back here",
   svgInkscapeOpened: "Opened in Inkscape.",
-  svgCopyOf: "Open SVG copy of {name}: the original stays as it is.",
   svgKeptNote:
     "Everything you do not touch stays in the file as it was (Inkscape's settings, metadata, other programs' elements).",
   svgEditCopy: "Edit (SVG copy)",
@@ -5097,8 +5103,6 @@ const it: Record<Key, string> = {
   officeShowHere: "Mostra questo",
   officeOneEngine:
     "Un solo LibreOffice per tutta la pagina: questo documento è salvato e si riapre qui quando ci torni.",
-  officeCopyOf: "Copia aperta di {name}",
-  officeWriteBack: "Riscrivi anche il {ext}",
   officeWriteBackHint:
     "{name} viene riscritto da questa copia a ogni salvataggio; la sua versione precedente resta nella cartella della copia (versions).",
   officeSaving: "Salvo…",
@@ -5204,8 +5208,6 @@ const it: Record<Key, string> = {
   sheetLoading: "Carico l'editor dei fogli…",
   sheetCsvNote:
     "Un file {kind} conserva solo i valori: una formula si salva come il suo risultato; formati, unioni e altri fogli non si salvano. Esporta come ODS per tenerli.",
-  sheetPlaceholders:
-    "Restano nel file, non si modificano qui (si vedono in «Pagine»; le tabelle pivot sono contornate in grigio): {list}.",
   sheetPhChart: "grafico {name}su {sheet} {range}",
   sheetPhChartReads:
     "grafico {name}su {sheet} {range}, che legge le celle {source} (una riga scritta sotto non entra nel grafico)",
@@ -5235,8 +5237,12 @@ const it: Record<Key, string> = {
   sheetSaveWaits:
     "Il salvataggio aspetta LibreOffice, che si sta scaricando (solo la prima volta): le modifiche sono al sicuro.",
   sheetSaveFailed: "Non ancora salvato: {reason}. Riprovo da solo; le modifiche sono al sicuro.",
-  sheetCopyOf: "Copia aperta di {name}: l'originale resta com'è.",
-  sheetReexport: "Riscrivi anche {name} a ogni salvataggio",
+  copyBarOf: "Copia aperta di {name}",
+  copyBarSafe: "l'originale resta com'è",
+  copyBarRewrite: "Riscrivi anche l'originale",
+  copyBarKept: "{n} cose restano nel file, non si modificano qui",
+  sheetPlaceholdersHow:
+    "Le tabelle pivot sono contornate in grigio nel foglio; si vede tutto in «Pagine».",
   sheetReexportHint:
     "LibreOffice riscrive tutto il file: gli stili delle tabelle di Excel e ciò che LibreOffice non conosce vanno persi.",
   sheetEditCopy: "Modifica (copia ODS)",
@@ -7962,6 +7968,8 @@ const it: Record<Key, string> = {
   toolsWeight: "circa {n} token a ogni messaggio",
   toolsNeeded: "Serve sempre: {why}",
   toolsLoading: "Peso gli strumenti…",
+  toolsSearch: "Cerca uno strumento: nome, comando o cosa fa",
+  toolsNoMatch: "Nessuno strumento per «{q}».",
   toolsError: "Non riesco a leggere gli strumenti: {error}",
   toolsFor: "Strumenti di {name}",
   toolsAgentLead:
@@ -8296,6 +8304,11 @@ const it: Record<Key, string> = {
     "Ogni richiesta decisa dal classificatore, o finita perché nessuno ha risposto in tempo, dalla più recente.",
   rqDoneEmpty: "Ancora nessuna decisione presa senza di te.",
   rqOpenChat: "Apri la conversazione",
+  sessionNotFound: "Questa conversazione non si può aprire: non è più tra le tue.",
+  elsewhereWorking: "{name} sta lavorando in un'altra conversazione: «{title}»",
+  elsewhereAsks: "{name} ti chiede qualcosa in un'altra conversazione: «{title}»",
+  elsewhereUntitled: "senza titolo",
+  elsewhereAnswerHere: "Rispondi qui",
   rqByModel: "Classificatore ({model}):",
   rqByClassifier: "Classificatore:",
   rqByTimeout: "Tempo scaduto:",
@@ -8591,7 +8604,6 @@ const it: Record<Key, string> = {
   svgInkscapeHint:
     "Il disegno com'è salvato, nell'Inkscape installato su questo computer: quello che salvi lì torna qui",
   svgInkscapeOpened: "Aperto in Inkscape.",
-  svgCopyOf: "Copia SVG aperta di {name}: l'originale resta com'è.",
   svgKeptNote:
     "Tutto quello che non tocchi resta nel file com'era (impostazioni di Inkscape, metadati, elementi di altri programmi).",
   svgEditCopy: "Modifica (copia SVG)",

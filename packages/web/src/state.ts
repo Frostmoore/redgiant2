@@ -526,13 +526,7 @@ export function applyMessage(m: ServerMessage): void {
       if (v.value.events.some((e) => e.seq === m.event.seq)) return;
       const done = m.event.type === "message.assistant";
       // Shown while the person watches: the canvas opens by itself (not when the log replays).
-      if (m.event.type === "canvas.show" && m.event.payload && v.value.synced)
-        openCanvas(m.event.payload.title, m.event.payload.target);
-      // An agent leafing through it (G36.12): the tab comes forward and its viewer moves.
-      if (m.event.type === "canvas.act" && m.event.payload && v.value.synced) {
-        const { title, target, do: d } = m.event.payload;
-        order(openCanvas(title, target, true), d);
-      }
+      if (v.value.synced) canvasEvent(m.sessionId, m.event);
       // A request ends with its message; while the turn runs, a user message or a tool's
       // result means the next request is being prepared.
       const next =
@@ -548,6 +542,19 @@ export function applyMessage(m: ServerMessage): void {
       };
       return;
     }
+    // An agent of the person's showed a file from a conversation this page does not follow
+    // (p3.5.3): the canvas opens all the same (the server sends live events only).
+    case "canvas.open":
+      canvasEvent(m.sessionId, m.event);
+      return;
+    // One of the person's conversations started or stopped (p3.5.3), followed or not.
+    case "session.activity":
+      if (sessionRows.value.some((r) => r.id === m.sessionId))
+        sessionRows.value = sessionRows.value.map((r) =>
+          r.id === m.sessionId ? { ...r, running: m.state === "running" } : r,
+        );
+      else refreshSoon();
+      return;
     case "image.progress": {
       const v = sessionView(m.sessionId);
       v.value = {
@@ -617,6 +624,8 @@ export function applyMessage(m: ServerMessage): void {
     case "question.request":
       if (!questions.value.some((q) => q.requestId === m.request.requestId)) {
         questions.value = [...questions.value, m.request];
+        // A conversation the list does not have yet (a task just handed over): fetch it.
+        if (!sessionRows.value.some((r) => r.id === m.request.sessionId)) refreshSoon();
         notifyHidden(t("notifyQuestion", { name: m.request.agentName }));
       }
       return;
@@ -1213,6 +1222,53 @@ export async function refreshConversations(): Promise<void> {
     a.sessions() as Promise<SessionRow[]>,
     a.chats(),
   ]);
+}
+
+/** The conversations again, once for a burst of news about ones the list does not have. */
+let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+function refreshSoon(): void {
+  if (refreshTimer) return;
+  refreshTimer = setTimeout(() => {
+    refreshTimer = undefined;
+    void refreshConversations().catch(() => {});
+  }, 250);
+}
+
+/** Canvas events already acted on (the followed and the owner-wide copy may both arrive). */
+const canvasSeen = new Set<string>();
+/** An agent shows a file or acts on the canvas (G34.1, G36.12): its tab opens, once. */
+function canvasEvent(sessionId: string, e: Event): void {
+  if (e.type !== "canvas.show" && e.type !== "canvas.act") return;
+  if (!e.payload) return;
+  const key = `${sessionId}:${e.seq}`;
+  if (canvasSeen.has(key)) return;
+  canvasSeen.add(key);
+  if (canvasSeen.size > 500) canvasSeen.delete(canvasSeen.values().next().value as string);
+  if (e.type === "canvas.show") openCanvas(e.payload.title, e.payload.target);
+  else order(openCanvas(e.payload.title, e.payload.target, true), e.payload.do);
+}
+
+/**
+ * Opens a conversation by its id (the bell's and the requests' «apri», p3.5.3): from the list
+ * when it is there, fetched again when it is not (a task handed over after the page loaded),
+ * opened with the agent the request names otherwise. One that cannot be found says so.
+ */
+export async function openSessionById(sessionId: string, agentId?: string): Promise<boolean> {
+  let row = sessionRows.value.find((r) => r.id === sessionId);
+  if (!row) {
+    await refreshConversations().catch(() => {});
+    row = sessionRows.value.find((r) => r.id === sessionId);
+  }
+  if (row) {
+    openSession(row);
+    return true;
+  }
+  if (agentId && agents.value.some((a) => a.id === agentId)) {
+    openSession({ id: sessionId, agentId, title: null });
+    return true;
+  }
+  lastError.value = t("sessionNotFound");
+  return false;
 }
 
 /** Opens one of an agent's conversations in the middle. */

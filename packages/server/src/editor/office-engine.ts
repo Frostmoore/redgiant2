@@ -4,6 +4,7 @@
 // own Python (or the system's, with `uno`), run without a shell and with the agents' environment
 // (never the server's secrets). LibreOffice not here yet: it comes down in the background (the
 // person sees the bar) and the save is tried again.
+
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -11,6 +12,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { OfficePlainAction } from "@redgiant/protocol";
 import { execRunner, type Programs, type Runner } from "../convert-programs.js";
+import { LO_QUIET, loProfiles, profileArg } from "../lo-profiles.js";
 import { SaveWaits } from "./family.js";
 import { OFFICE_UNO_SCRIPT } from "./office-uno.js";
 
@@ -83,6 +85,11 @@ export class LibreOfficeEngine implements OfficeEngine {
     },
   ) {}
 
+  /** Its own LibreOffice profile (never the person's, never another run's). */
+  private get profiles() {
+    return loProfiles(join(this.o.dataDir, "tools", "libreoffice-profile-office"));
+  }
+
   private get dir() {
     return join(this.o.dataDir, "tools", "redgiant-office");
   }
@@ -123,91 +130,108 @@ export class LibreOfficeEngine implements OfficeEngine {
     ops: readonly OfficePlainAction[],
     app: "writer" | "impress",
   ): Promise<EngineResult> {
-    return this.queue.run(async () => {
-      const { soffice, python } = await this.ready(owner);
-      await mkdir(this.dir, { recursive: true });
-      const script = join(this.dir, "office_uno.py");
-      const have = await readFile(script, "utf8").catch(() => "");
-      if (have !== OFFICE_UNO_SCRIPT) await writeFile(script, OFFICE_UNO_SCRIPT);
-      const work = join(this.o.dataDir, "cache", "office-edit", randomUUID());
-      await mkdir(work, { recursive: true });
-      const ext = app === "writer" ? "odt" : "odp";
-      try {
-        const input = join(work, `in.${ext}`);
-        const output = join(work, `out.${ext}`);
-        await writeFile(input, bytes);
-        const spec = {
-          soffice,
-          input,
-          output,
-          filter: FILTERS[ext],
-          ops,
-          blobs: join(this.o.dataDir, "editor", "blobs"),
-          profile: pathToFileURL(join(this.o.dataDir, "tools", "libreoffice-profile-office")).href,
-        };
-        const specFile = join(work, "spec.json");
-        await writeFile(specFile, JSON.stringify(spec));
-        const run = this.o.run ?? execRunner;
-        const r = await run(python, [script, specFile], { timeoutMs: 180_000, cwd: work });
-        const line = r.stdout.split("\n").find((l) => l.startsWith("RG-RESULT "));
-        const res = line
-          ? (JSON.parse(line.slice(10)) as {
-              ok: boolean;
-              results: (string | null)[];
-              error?: string;
-            })
-          : undefined;
-        if (!res?.ok)
-          throw new Error(
-            `LibreOffice could not apply the edits: ${res?.error ?? (r.stderr.trim().split("\n").pop() || `exit ${r.exitCode}`)}`,
-          );
-        const out = await readFile(output);
-        return {
-          bytes: new Uint8Array(out),
-          skipped: res.results.flatMap((e, index) => (e ? [{ index, error: e }] : [])),
-        };
-      } finally {
-        await rm(work, { recursive: true, force: true }).catch(() => {});
-      }
-    });
+    return this.queue.run(() =>
+      this.profiles.use((profile) => this.applyNow(owner, bytes, ops, app, profile)),
+    );
+  }
+
+  private async applyNow(
+    owner: string,
+    bytes: Uint8Array,
+    ops: readonly OfficePlainAction[],
+    app: "writer" | "impress",
+    profile: string,
+  ): Promise<EngineResult> {
+    const { soffice, python } = await this.ready(owner);
+    await mkdir(this.dir, { recursive: true });
+    const script = join(this.dir, "office_uno.py");
+    const have = await readFile(script, "utf8").catch(() => "");
+    if (have !== OFFICE_UNO_SCRIPT) await writeFile(script, OFFICE_UNO_SCRIPT);
+    const work = join(this.o.dataDir, "cache", "office-edit", randomUUID());
+    await mkdir(work, { recursive: true });
+    const ext = app === "writer" ? "odt" : "odp";
+    try {
+      const input = join(work, `in.${ext}`);
+      const output = join(work, `out.${ext}`);
+      await writeFile(input, bytes);
+      const spec = {
+        soffice,
+        input,
+        output,
+        filter: FILTERS[ext],
+        ops,
+        blobs: join(this.o.dataDir, "editor", "blobs"),
+        profile: pathToFileURL(profile).href,
+      };
+      const specFile = join(work, "spec.json");
+      await writeFile(specFile, JSON.stringify(spec));
+      const run = this.o.run ?? execRunner;
+      const r = await run(python, [script, specFile], { timeoutMs: 180_000, cwd: work });
+      const line = r.stdout.split("\n").find((l) => l.startsWith("RG-RESULT "));
+      const res = line
+        ? (JSON.parse(line.slice(10)) as {
+            ok: boolean;
+            results: (string | null)[];
+            error?: string;
+          })
+        : undefined;
+      if (!res?.ok)
+        throw new Error(
+          `LibreOffice could not apply the edits: ${res?.error ?? (r.stderr.trim().split("\n").pop() || `exit ${r.exitCode}`)}`,
+        );
+      const out = await readFile(output);
+      return {
+        bytes: new Uint8Array(out),
+        skipped: res.results.flatMap((e, index) => (e ? [{ index, error: e }] : [])),
+      };
+    } finally {
+      await rm(work, { recursive: true, force: true }).catch(() => {});
+    }
   }
 
   convert(owner: string, bytes: Uint8Array, from: string, to: string): Promise<Uint8Array> {
-    return this.queue.run(async () => {
-      const { soffice } = await this.ready(owner);
-      const filter = exportFilter(from, to);
-      if (!filter) throw new Error(`.${from} cannot be written as .${to}`);
-      const work = join(this.o.dataDir, "cache", "office-edit", randomUUID());
-      await mkdir(work, { recursive: true });
-      try {
-        const input = join(work, `doc.${from}`);
-        await writeFile(input, bytes);
-        const run = this.o.run ?? execRunner;
-        const r = await run(
-          soffice,
-          [
-            "--headless",
-            "--norestore",
-            "--nolockcheck",
-            "--nodefault",
-            `-env:UserInstallation=${pathToFileURL(join(this.o.dataDir, "tools", "libreoffice-profile-office")).href}`,
-            "--convert-to",
-            `${to}:${filter}`,
-            "--outdir",
-            join(work, "out"),
-            input,
-          ],
-          { timeoutMs: 180_000, cwd: work },
+    return this.queue.run(() =>
+      this.profiles.use((profile) => this.convertNow(owner, bytes, from, to, profile)),
+    );
+  }
+
+  private async convertNow(
+    owner: string,
+    bytes: Uint8Array,
+    from: string,
+    to: string,
+    profile: string,
+  ): Promise<Uint8Array> {
+    const { soffice } = await this.ready(owner);
+    const filter = exportFilter(from, to);
+    if (!filter) throw new Error(`.${from} cannot be written as .${to}`);
+    const work = join(this.o.dataDir, "cache", "office-edit", randomUUID());
+    await mkdir(work, { recursive: true });
+    try {
+      const input = join(work, `doc.${from}`);
+      await writeFile(input, bytes);
+      const run = this.o.run ?? execRunner;
+      const r = await run(
+        soffice,
+        [
+          ...LO_QUIET,
+          profileArg(profile),
+          "--convert-to",
+          `${to}:${filter}`,
+          "--outdir",
+          join(work, "out"),
+          input,
+        ],
+        { timeoutMs: 180_000, cwd: work },
+      );
+      const out = await readFile(join(work, "out", `doc.${to}`)).catch(() => undefined);
+      if (!out)
+        throw new Error(
+          `LibreOffice did not write the .${to}: ${r.stderr.trim().split("\n").pop() || `exit ${r.exitCode}`}`,
         );
-        const out = await readFile(join(work, "out", `doc.${to}`)).catch(() => undefined);
-        if (!out)
-          throw new Error(
-            `LibreOffice did not write the .${to}: ${r.stderr.trim().split("\n").pop() || `exit ${r.exitCode}`}`,
-          );
-        return new Uint8Array(out);
-      } finally {
-        await rm(work, { recursive: true, force: true }).catch(() => {});
-      }
-    });
+      return new Uint8Array(out);
+    } finally {
+      await rm(work, { recursive: true, force: true }).catch(() => {});
+    }
   }
 }

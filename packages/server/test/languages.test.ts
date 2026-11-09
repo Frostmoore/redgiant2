@@ -74,6 +74,17 @@ describe("the languages the agents speak (G33.5)", () => {
     expect(agentLanguage("PT-br")?.native).toBe("Português (Brasil)");
     expect(AGENT_LANGUAGES.filter((l) => l.common)[0]?.code).toBe("it");
     expect(agentLanguage("xx")).toBeUndefined();
+    // The familiar «you», for the languages that have a formal or plural one besides.
+    const address = Object.fromEntries(AGENT_LANGUAGES.map((l) => [l.code, l.address]));
+    expect(address).toMatchObject({ it: "tu", es: "tú", fr: "tu", de: "du", nl: "je" });
+    expect([address.en, address.ja, address.ar, address.ko]).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    for (const l of AGENT_LANGUAGES)
+      if (l.address !== undefined) expect(l.address.trim()).toBe(l.address);
   });
 
   it("writes automatic texts in the agents' language when translated, else the interface's", () => {
@@ -82,6 +93,16 @@ describe("the languages the agents speak (G33.5)", () => {
     expect(textLanguage("it", "en")).toBe("it");
     expect(textLanguage(undefined, "it")).toBe("it");
     expect(replyLanguageLine("ja")).toMatch(/Reply to the person in Japanese \(日本語\)/);
+    // No familiar «you» in the table: nothing more.
+    expect(replyLanguageLine("ja")).not.toMatch(/informally/);
+    // Where the language has one (p3.5.3: God said «voi» to the person), the familiar singular.
+    expect(replyLanguageLine("it")).toBe(
+      "## Language\nReply to the person in Italian (Italiano), whatever language these instructions are written in, unless they ask you for another. Speak to them as one person, informally, as RedGiant's pages do: «tu», never a plural or formal form of address.",
+    );
+    expect(replyLanguageLine("de")).toContain("«du»");
+    expect(replyLanguageLine("pt-BR")).toContain("«você»");
+    expect(replyLanguageLine("pt-PT")).toContain("«tu»");
+    expect(replyLanguageLine("en")).not.toMatch(/informally/);
     expect(replyLanguageLine("xx")).toBe("");
     expect(learnPrompt("Spanish")).toContain("in Spanish, the language the person chose");
     expect(learnPrompt()).toContain("in the language the person uses");

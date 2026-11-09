@@ -105,6 +105,41 @@ export function Toggle({
   );
 }
 
+/**
+ * Our small on/off switch with its words beside it (never a native checkbox, 2026-11-09):
+ * for bars and tight places; `help` is the longer explanation, as a tooltip.
+ */
+export function SmallSwitch({
+  label,
+  help,
+  on,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  help?: string | undefined;
+  on: boolean;
+  onChange: (on: boolean) => void;
+  disabled?: boolean | undefined;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      class={`ui-small-switch${on ? " on" : ""}`}
+      title={help}
+      disabled={disabled}
+      onClick={() => onChange(!on)}
+    >
+      <span class="ui-switch small" aria-hidden="true">
+        <span />
+      </span>
+      <span class="ui-small-switch-label">{label}</span>
+    </button>
+  );
+}
+
 export interface ChoiceOption<T extends string> {
   id: T;
   title: string;
