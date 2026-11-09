@@ -353,7 +353,7 @@ function text(b: Builder, o: Plain) {
   >;
   const t = String(o.text);
   // Several spaces in a row, or at the ends, are kept only with xml:space.
-  const keep = /\s{2}|^\s|\s$/.test(t) ? { "xml:space": "preserve" } : {};
+  const keep: Record<string, string> = /\s{2}|^\s|\s$/.test(t) ? { "xml:space": "preserve" } : {};
   return b.insert(
     "text",
     { x: fmt(num(o.x, "x")), y: fmt(num(o.y, "y")), ...keep, ...st },
