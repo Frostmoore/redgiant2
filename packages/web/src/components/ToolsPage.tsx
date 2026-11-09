@@ -16,6 +16,7 @@ import {
   IconKey,
   IconLayers,
   IconLock,
+  IconSearch,
   IconUsers,
 } from "../icons.js";
 import { getApi } from "../state.js";
@@ -60,7 +61,11 @@ export const GroupHead = ({ group }: { group: ToolGroup }) => (
 export function ToolText({ e }: { e: ToolView }) {
   return (
     <div class="tl-text">
-      <b>{toolName(e.id)}</b>
+      <div class="tl-name">
+        <b>{toolName(e.id)}</b>
+        {/* The real name (p3.5.3): the one in the chat's lines and in request_tool. */}
+        <code class="tl-id">{e.id}</code>
+      </div>
       <span>{toolDoes(e.id)}</span>
       <small class="tl-weight">{t("toolsWeight", { n: aboutTokens(e.tokens) })}</small>
       {e.essential && (
@@ -69,6 +74,60 @@ export function ToolText({ e }: { e: ToolView }) {
         </small>
       )}
     </div>
+  );
+}
+
+/** Lower case without accents, for a search that ignores both. */
+const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
+/** The entries a search finds: by the name in words, the real name and what it does. */
+export function findTools(entries: ToolView[], q: string): ToolView[] {
+  const words = fold(q).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return entries;
+  return entries.filter((e) => {
+    const text = fold(`${toolName(e.id)} ${e.id} ${e.id.replace(/_/g, " ")} ${toolDoes(e.id)}`);
+    return words.every((w) => text.includes(w));
+  });
+}
+
+/** The search on top of the tools (p3.5.3), with its drawn icon. */
+export function ToolSearch({ q, onChange }: { q: string; onChange: (q: string) => void }) {
+  return (
+    <label class="tl-search">
+      <IconSearch size={18} />
+      <input
+        class="wz-field"
+        type="search"
+        value={q}
+        placeholder={t("toolsSearch")}
+        aria-label={t("toolsSearch")}
+        onInput={(e) => onChange((e.target as HTMLInputElement).value)}
+      />
+    </label>
+  );
+}
+
+/** The tools in their groups, as a search leaves them (groups without any go), or a line. */
+export function ToolGroups({
+  entries,
+  q,
+  row,
+}: {
+  entries: ToolView[];
+  q: string;
+  row: (e: ToolView) => JSX.Element;
+}) {
+  const found = findTools(entries, q);
+  if (found.length === 0) return <p class="tl-none">{t("toolsNoMatch", { q: q.trim() })}</p>;
+  return (
+    <>
+      {byGroup(found).map(([group, list]) => (
+        <section class="tl-section" key={group}>
+          <GroupHead group={group} />
+          <div class="tl-list">{list.map(row)}</div>
+        </section>
+      ))}
+    </>
   );
 }
 
@@ -120,6 +179,7 @@ export function useToolsView(agentId?: string) {
 export function ToolsPage() {
   const { view, setView, error, setError, load } = useToolsView();
   const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState("");
   const flip = async (e: ToolView, on: boolean) => {
     if (!view || e.essential) return;
     const off = view.entries
@@ -179,33 +239,31 @@ export function ToolsPage() {
             </div>
           </div>
           <NewOnly />
-          {byGroup(view.entries).map(([group, entries]) => (
-            <section class="tl-section" key={group}>
-              <GroupHead group={group} />
-              <div class="tl-list">
-                {entries.map((e) => (
-                  <div
-                    key={e.id}
-                    class={`tl-row${e.global ? " on" : ""}${e.essential ? " locked" : ""}`}
-                    data-tool={e.id}
-                  >
-                    <div class="tl-main">
-                      <ToolText e={e} />
-                      {e.exceptions?.length ? (
-                        <Exceptions e={e} busy={busy} onReset={() => void reset(e)} />
-                      ) : null}
-                    </div>
-                    <Switch
-                      on={e.global}
-                      label={toolName(e.id)}
-                      disabled={e.essential || busy}
-                      onChange={(on) => void flip(e, on)}
-                    />
-                  </div>
-                ))}
+          <ToolSearch q={q} onChange={setQ} />
+          <ToolGroups
+            entries={view.entries}
+            q={q}
+            row={(e) => (
+              <div
+                key={e.id}
+                class={`tl-row${e.global ? " on" : ""}${e.essential ? " locked" : ""}`}
+                data-tool={e.id}
+              >
+                <div class="tl-main">
+                  <ToolText e={e} />
+                  {e.exceptions?.length ? (
+                    <Exceptions e={e} busy={busy} onReset={() => void reset(e)} />
+                  ) : null}
+                </div>
+                <Switch
+                  on={e.global}
+                  label={toolName(e.id)}
+                  disabled={e.essential || busy}
+                  onChange={(on) => void flip(e, on)}
+                />
               </div>
-            </section>
-          ))}
+            )}
+          />
         </>
       )}
     </WzPage>

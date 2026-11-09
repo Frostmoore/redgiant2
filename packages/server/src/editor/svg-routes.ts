@@ -6,15 +6,16 @@
 //   POST /api/editor/svg/inkscape          «Apri in Inkscape»: the file, as last saved, opened in the
 //                                          Inkscape installed on this computer (never downloaded)
 // SVG and PNG are made in the page (the file itself, and the browser's picture of it).
+
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, extname, join, posix } from "node:path";
-import { pathToFileURL } from "node:url";
 import type { DocFile } from "@redgiant/protocol";
 import type { Context, Hono } from "hono";
 import { execRunner, openInApp, type Runner } from "../convert-programs.js";
 import { BadRequestError, NotFoundError, type RedGiantCore } from "../core.js";
+import { LO_QUIET, loProfiles, profileArg } from "../lo-profiles.js";
 import { findInkscape, svgOriginalName } from "./svg-family.js";
 
 /** The program that runs Inkscape's command line (the app bundle's on macOS). */
@@ -58,21 +59,22 @@ export async function svgToPdf(
         );
     }
     if (!o.soffice) throw new Error("making a PDF needs Inkscape or LibreOffice");
-    const r = await run(
-      o.soffice,
-      [
-        "--headless",
-        "--norestore",
-        "--nolockcheck",
-        "--nodefault",
-        `-env:UserInstallation=${pathToFileURL(o.profileDir).href}`,
-        "--convert-to",
-        "pdf:draw_pdf_Export",
-        "--outdir",
-        join(work, "out"),
-        input,
-      ],
-      { cwd: work, timeoutMs: 180_000 },
+    const soffice = o.soffice;
+    // Its own profile, one export at a time (p3.5.3: never two soffice on one profile).
+    const r = await loProfiles(o.profileDir).use((profile) =>
+      run(
+        soffice,
+        [
+          ...LO_QUIET,
+          profileArg(profile),
+          "--convert-to",
+          "pdf:draw_pdf_Export",
+          "--outdir",
+          join(work, "out"),
+          input,
+        ],
+        { cwd: work, timeoutMs: 180_000 },
+      ),
     );
     const pdf = await readFile(join(work, "out", "drawing.pdf")).catch(() => undefined);
     if (!pdf)

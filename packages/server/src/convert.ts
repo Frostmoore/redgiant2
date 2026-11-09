@@ -8,7 +8,6 @@
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
-import { pathToFileURL } from "node:url";
 import { LocalWorkspace } from "@redgiant/tools";
 import { unzipSync } from "fflate";
 import { BLENDER_CONVERT_SCRIPT, commands as blenderCommands } from "./convert-blender.js";
@@ -45,6 +44,7 @@ import {
   type Runner,
 } from "./convert-programs.js";
 import { sketchToSvg } from "./convert-sketch.js";
+import { LO_QUIET, type LoProfiles, loProfiles, profileArg } from "./lo-profiles.js";
 
 /**
  * What LibreOffice's AppImage needs from a system without a desktop (checked in
@@ -218,12 +218,8 @@ export const commands = {
   libreoffice(input: string, outDir: string, ext: string, profile: string, fromPdf: boolean) {
     const filter = ext === "svg" ? "svg:draw_svg_Export" : ext;
     return [
-      "--headless",
-      "--norestore",
-      "--nolockcheck",
-      "--nodefault",
-      "--nofirststartwizard",
-      `-env:UserInstallation=${pathToFileURL(profile).href}`,
+      ...LO_QUIET,
+      profileArg(profile),
       ...(fromPdf ? ["--infilter=draw_pdf_import"] : []),
       "--convert-to",
       filter,
@@ -284,7 +280,10 @@ export const commands = {
 
 export interface ConverterOptions {
   programs: Programs;
-  /** Where LibreOffice keeps its own profile (one for RedGiant, never the person's). */
+  /**
+   * Where LibreOffice keeps its own profiles (RedGiant's, never the person's): this folder and
+   * `-2` beside it, one per conversion running (p3.5.3: two at once never share one).
+   */
   profileDir: string;
   run?: Runner;
   now?: () => Date;
@@ -325,8 +324,23 @@ export interface PreviewState {
 
 export class FileConverter {
   private readonly queues = new Map<ProgramId, Queue>();
+  private readonly profiles: LoProfiles;
 
-  constructor(private readonly o: ConverterOptions) {}
+  constructor(private readonly o: ConverterOptions) {
+    this.profiles = loProfiles(o.profileDir, 2);
+  }
+
+  /** One LibreOffice run with a profile no other run holds (two at most at once). */
+  private office(
+    file: string,
+    args: (profile: string) => string[],
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ) {
+    return this.profiles.use((profile) =>
+      this.run("libreoffice", file, args(profile), timeoutMs, signal),
+    );
+  }
 
   private run(
     id: ProgramId,
@@ -336,14 +350,16 @@ export class FileConverter {
     signal?: AbortSignal,
     cwd?: string,
   ) {
+    const exec = () =>
+      (this.o.run ?? execRunner)(file, args, { timeoutMs, signal, ...(cwd && { cwd }) });
+    // LibreOffice: its profiles' pool says how many at once (`office`).
+    if (id === "libreoffice") return exec();
     let q = this.queues.get(id);
     if (!q) {
       q = new Queue();
       this.queues.set(id, q);
     }
-    return q.run(() =>
-      (this.o.run ?? execRunner)(file, args, { timeoutMs, signal, ...(cwd && { cwd }) }),
-    );
+    return q.run(exec);
   }
 
   /** A closed app's needs, with whether it is installed here. */
@@ -763,10 +779,9 @@ export class FileConverter {
     const outDir = join(work, "lo");
     await mkdir(outDir, { recursive: true });
     check(
-      await this.run(
-        id,
+      await this.office(
         program,
-        commands.libreoffice(input, outDir, t.ext, this.o.profileDir, fromPdf),
+        (profile) => commands.libreoffice(input, outDir, t.ext, profile, fromPdf),
         10 * 60_000,
         o.signal,
       ),
@@ -813,10 +828,9 @@ export class FileConverter {
     await rm(work, { recursive: true, force: true });
     await mkdir(work, { recursive: true });
     try {
-      const r = await this.run(
-        "libreoffice",
+      const r = await this.office(
         soffice,
-        commands.libreoffice(abs, work, "pdf", this.o.profileDir, false),
+        (profile) => commands.libreoffice(abs, work, "pdf", profile, false),
         10 * 60_000,
         o.signal,
       );

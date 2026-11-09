@@ -905,6 +905,28 @@ button.bar-settings {
 .notice.error {
   color: var(--err);
 }
+/* The same agent at work in another of its conversations (p3.5.3). */
+.notice.elsewhere {
+  color: var(--text);
+  flex-wrap: wrap;
+}
+.elsewhere-answer > summary {
+  cursor: pointer;
+  width: fit-content;
+  color: var(--accent);
+  font-size: 13px;
+}
+.elsewhere-answer[open] > summary {
+  margin-bottom: 6px;
+}
+.elsewhere-card {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+}
 .permission {
   align-self: stretch;
   max-width: 860px;
@@ -5560,6 +5582,59 @@ button.ui-switch.on {
 button.ui-switch.on > span {
   transform: translateX(18px);
   background: #fff;
+}
+/* The small switch with its words (bars: the open copy's «write the original too»). */
+button.ui-small-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: auto;
+  padding: 3px 4px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  min-width: 0;
+}
+button.ui-small-switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.ui-switch.small {
+  flex: none;
+  position: relative;
+  display: inline-block;
+  width: 30px;
+  height: 18px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  transition: background 0.15s;
+}
+.ui-switch.small > span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--dim);
+  transition: transform 0.15s;
+}
+.ui-small-switch.on .ui-switch.small {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.ui-small-switch.on .ui-switch.small > span {
+  transform: translateX(12px);
+  background: #fff;
+}
+.ui-small-switch-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ui-choice {
   display: grid;
@@ -12766,6 +12841,51 @@ button.vw-archive-row:hover {
 .tl-text b {
   font-size: 17px;
 }
+.tl-name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  min-width: 0;
+}
+.tl-id {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12.5px;
+  color: var(--dim);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 6px;
+  overflow-wrap: anywhere;
+}
+/* The search on top of the tools (p3.5.3). */
+.tl-search {
+  position: relative;
+  display: block;
+  max-width: 860px;
+  margin: 18px auto 0;
+}
+.tl-search > .icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  translate: 0 -50%;
+  color: var(--dim);
+  pointer-events: none;
+}
+.tl-search .wz-field {
+  width: 100%;
+  padding-left: 44px;
+}
+.tl-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.tl-none {
+  max-width: 860px;
+  margin: 26px auto 0;
+  color: var(--dim);
+}
 .tl-text span {
   color: var(--dim);
   font-size: 14.5px;
@@ -15522,12 +15642,91 @@ button.doc-change-what {
   margin: 2px 0;
   line-height: 1.4;
 }
-.sheet-switch {
+/* The open copy's bar (p3.5.3): the same for sheets, documents and drawings. */
+.copy-bar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12.5px;
+  min-width: 0;
+}
+.copy-bar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  min-width: 0;
+}
+.copy-bar-what {
+  flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin-left: 6px;
+  gap: 7px;
+  min-width: 0;
+}
+.copy-bar-what > svg {
+  flex: none;
+  color: var(--accent);
+}
+.copy-bar-what strong {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.copy-bar-safe {
+  color: var(--dim);
+  white-space: nowrap;
+}
+.copy-bar-rewrite {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.copy-bar-help {
+  display: inline-flex;
+  color: var(--dim);
+  cursor: help;
+}
+.copy-bar-kept {
+  color: var(--dim);
+  margin-left: 21px;
+}
+.copy-bar-kept summary {
   cursor: pointer;
+  width: fit-content;
+}
+.copy-bar-kept summary:hover {
+  color: var(--text);
+}
+.copy-bar-how {
+  margin: 4px 0 0;
+}
+.copy-bar-kept ul {
+  margin: 2px 0 2px;
+  padding-left: 18px;
+  line-height: 1.45;
+}
+.sheet-notes .copy-bar-kept {
+  margin-left: 0;
+}
+@media (max-width: 760px) {
+  .copy-bar {
+    padding: 6px 10px;
+  }
+  .copy-bar-safe {
+    display: none;
+  }
+  .copy-bar-kept {
+    margin-left: 0;
+  }
 }
 .sheet-body {
   flex: 1;
@@ -15582,22 +15781,6 @@ fieldset.vw-seg {
 }
 .doc-office-strip > * {
   min-width: 0;
-}
-.doc-office-copy {
-  color: var(--dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-.doc-office-back {
-  flex: 0 1 auto;
-  overflow: hidden;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  cursor: pointer;
 }
 .doc-office-saving {
   display: inline-flex;

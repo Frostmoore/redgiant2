@@ -45,6 +45,8 @@ import { attempt, getApi, openDoc, sendDoc } from "../../state.js";
 import { download } from "../../viewers/source.js";
 import type { SvgIsland, SvgLayer, SvgSelection, SvgTool } from "../../viewers/svg-island.js";
 import { SvgCollab, svgActionsOf, svgDocOp, touchedIds } from "../../viewers/svg-ops.js";
+import { SmallSwitch } from "../ui.js";
+import { CopyBar } from "./CopyBar.js";
 
 /** The drawings the page edits (G37.6); an AI or EPS is edited on its SVG copy. */
 export const SVG_EDITABLE = /\.svg$/i;
@@ -594,9 +596,9 @@ export function SvgEditor({
           </button>
         )}
       </div>
-      {(info?.original || note || failed) && (
+      {info?.original && <CopyBar original={info.original} />}
+      {(note || failed) && (
         <div class="sheet-notes">
-          {info?.original && <p class="sheet-note">{t("svgCopyOf", { name: info.original })}</p>}
           {note && (
             <p class="sheet-note" role="status">
               {note}
@@ -808,22 +810,16 @@ export function SvgEditor({
                       />
                     </label>
                     <div class="svg-checks">
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={!!sel.bold}
-                          onChange={(e) => i?.setBold((e.target as HTMLInputElement).checked)}
-                        />
-                        {t("svgBold")}
-                      </label>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={!!sel.italic}
-                          onChange={(e) => i?.setItalic((e.target as HTMLInputElement).checked)}
-                        />
-                        {t("svgItalic")}
-                      </label>
+                      <SmallSwitch
+                        label={t("svgBold")}
+                        on={!!sel.bold}
+                        onChange={(on) => i?.setBold(on)}
+                      />
+                      <SmallSwitch
+                        label={t("svgItalic")}
+                        on={!!sel.italic}
+                        onChange={(on) => i?.setItalic(on)}
+                      />
                     </div>
                   </>
                 )}

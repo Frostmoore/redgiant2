@@ -55,8 +55,9 @@
   The layout follows Officina (the user's request): left bar with conversations and settings only, tabs in the middle,
   the project's files and an area for open files and terminals on the right, everything else in Settings. No emoji
   and no symbol characters as icons anywhere (UI and Telegram texts): drawn icons from `src/icons.tsx`. Light and
-  dark themes (or the system's) through the CSS variables in `styles.css`.
-  Never the browser's native dialogs (alert, prompt, confirm): our Modal (`askConfirm`/`askText` in
+  dark themes (or the system's) through the CSS variables in `styles.css`. No native checkboxes or radio buttons:
+  on/off is our switch (`Toggle` in `ui.tsx`, `Switch`/`SwitchRow` in `SettingsKit.tsx`), choices are our drawn
+  controls. Never the browser's native dialogs (alert, prompt, confirm): our Modal (`askConfirm`/`askText` in
   `src/components/dialogs.tsx`; `test/no-native-dialogs.test.tsx` fails if one comes back).
 - Local engines: llama.cpp must run with `--slot-save-path` (shared with the server) and `--swa-full` for
   sliding-window models (Gemma…), or prefixes beyond the window are recomputed every turn.
