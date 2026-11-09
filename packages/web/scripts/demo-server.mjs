@@ -220,6 +220,21 @@ const brain = (req) => {
     };
   if (results && typeof toolOut === "string" && toolOut.startsWith("Done: the person's canvas"))
     return { text: "Fatto: guarda nel Canvas, qui accanto." };
+  // G37.8 (DEMO_CANVAS): the agent annotates the PDF and fills its form.
+  if (
+    results &&
+    req.messages
+      .at(-2)
+      ?.parts.some(
+        (p) =>
+          p.type === "tool_call" &&
+          p.name === "canvas_edit" &&
+          JSON.stringify(p.input ?? "").includes("modulo.pdf"),
+      )
+  )
+    return {
+      text: "Fatto: ho evidenziato il nome del cliente, lasciato una nota sul prezzo e compilato nome e città. Lo vedi nel PDF; dal pannello Modifiche annulli ogni passo.",
+    };
   // G37.3 (DEMO_CANVAS): the agent edits the sheet open in the canvas.
   if (
     results &&
@@ -304,6 +319,25 @@ const brain = (req) => {
             line: 9,
             text: "## Resi\n\nUn reso si accetta entro **14 giorni**, con lo scontrino.\n\n",
           },
+        ],
+      },
+    ],
+    [
+      "Prepara il modulo",
+      "canvas_edit",
+      {
+        path: "canvas/modulo.pdf",
+        ops: [
+          { op: "annotate", page: 1, kind: "highlight", find: "Mario Rossi" },
+          {
+            op: "annotate",
+            page: 2,
+            kind: "note",
+            at: [380, 625],
+            text: "Prezzo confermato da Ada il 9 novembre.",
+          },
+          { op: "fill_field", name: "nome", value: "Mario Rossi" },
+          { op: "fill_field", name: "citta", value: "Roma" },
         ],
       },
     ],
@@ -1384,6 +1418,12 @@ if (process.env.DEMO_CANVAS) {
   for (const f of ["relazione.docx", "piano.pptx"]) {
     const s = await core.startSession("local", god.id);
     await (await core.send("local", s, `Mostra il file canvas/${f}`)).done;
+  }
+  // G37.8: a PDF with a form, annotated and filled in the canvas.
+  await copyFile(new URL("./demo-files/modulo.pdf", import.meta.url), join(into, "modulo.pdf"));
+  {
+    const s = await core.startSession("local", god.id);
+    await (await core.send("local", s, "Mostra il file canvas/modulo.pdf")).done;
   }
   // DEMO_ZETA: the engine's files already here (the folder of a G37.0 copy), no download.
   if (process.env.DEMO_ZETA)

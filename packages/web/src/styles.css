@@ -15509,3 +15509,278 @@ fieldset.vw-seg {
     display: none;
   }
 }
+
+/* PDFs (G37.8): pdf.js's viewer and its editor inside the editor's shell. */
+.doc-main > .pdfed {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* The tools' names only when the editor is wide enough (beside the chat it is not). */
+.pdfed {
+  container-type: inline-size;
+}
+@container (max-width: 860px) {
+  .pdfed-tool-name {
+    display: none;
+  }
+}
+.pdfed-bar {
+  gap: 6px 10px;
+  flex-wrap: wrap;
+}
+.pdfed-tools > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.pdfed-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  color: var(--dim);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+}
+.pdfed-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+.pdfed-view {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+/* pdf.js wants its container absolutely positioned. */
+.pdfed-scroll {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+.pdfed-scroll .pdfViewer .page {
+  box-shadow: 0 1px 5px rgb(0 0 0 / 0.18);
+}
+/* A page is paper: its form's fields stay light in the dark theme too. */
+.pdfed-scroll .pdfViewer,
+.pdfed-thumb canvas {
+  color-scheme: light;
+}
+.pdfed:is(.tool-note, .tool-stamp, .tool-sign, .tool-redact) .pdfed-scroll .page {
+  cursor: crosshair;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.pdfed:is(.tool-note, .tool-stamp, .tool-sign, .tool-redact) .pdfed-scroll .textLayer,
+.pdfed:is(.tool-note, .tool-stamp, .tool-sign, .tool-redact) .pdfed-scroll .annotationLayer {
+  pointer-events: none;
+}
+.pdfed-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+.pdfed-band {
+  position: absolute;
+  z-index: 30;
+  pointer-events: none;
+  border: 1.5px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.pdfed-band.redact {
+  border-color: #000;
+  background: rgb(0 0 0 / 0.35);
+}
+.pdfed-redact-mark {
+  position: absolute;
+  z-index: 25;
+  pointer-events: none;
+  background: rgb(0 0 0 / 0.55);
+  outline: 2px dashed var(--accent);
+}
+.pdfed-redact-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 16px;
+  margin-inline: auto;
+  width: max-content;
+  z-index: 40;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 10px;
+  max-width: calc(100% - 24px);
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.22);
+}
+.vw-btn.danger {
+  background: var(--err);
+  border-color: var(--err);
+  color: #fff;
+}
+.vw-btn.danger:hover {
+  filter: brightness(1.08);
+}
+.pdfed-flash .canvasWrapper {
+  outline: 3px solid var(--doc-agent-line, var(--accent));
+  outline-offset: 2px;
+}
+.pdfed-side {
+  width: 200px;
+  flex-shrink: 0;
+  overflow: auto;
+  padding: 10px;
+  font-size: 12.5px;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+}
+.pdfed-side h4 {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  color: var(--dim);
+  font-weight: 600;
+}
+.pdfed-side-note {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+}
+.pdfed-thumbs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pdfed-thumbs li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.pdfed-thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--dim);
+  background: none;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.pdfed-thumbs li.on .pdfed-thumb {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.pdfed-thumb canvas {
+  display: block;
+  min-width: 60px;
+  min-height: 60px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+}
+.pdfed-page-acts {
+  display: flex;
+  gap: 2px;
+}
+.pdfed-annots,
+.pdfed-versions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pdfed-annots li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.pdfed-annots li > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdfed-sign-tabs {
+  margin-bottom: 10px;
+}
+.pdfed-sign-pad {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  aspect-ratio: 420 / 160;
+  margin: 0 auto;
+  color: #102a5c;
+  background: #fff;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  touch-action: none;
+  cursor: crosshair;
+}
+.pdfed-sign-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.pdfed-sign-note {
+  font-size: 12px;
+  margin: 10px 0 0;
+}
+.pdfed-note-text {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  resize: vertical;
+}
+@media (max-width: 760px) {
+  .pdfed-bar {
+    padding: 4px 6px;
+  }
+  .pdfed-tools {
+    overflow-x: auto;
+    max-width: 100%;
+  }
+  .pdfed-search {
+    flex: 1 1 120px;
+  }
+  .pdfed-side {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 45;
+    width: 170px;
+    box-shadow: -6px 0 18px rgb(0 0 0 / 0.2);
+  }
+}

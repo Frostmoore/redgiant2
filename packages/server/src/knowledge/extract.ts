@@ -957,7 +957,8 @@ export async function extractPdfData(
       },
     };
   } finally {
-    await doc.destroy().catch(() => {});
+    // pdf.js 6: the loading task ends the document and its worker.
+    await task.destroy().catch(() => {});
   }
 }
 

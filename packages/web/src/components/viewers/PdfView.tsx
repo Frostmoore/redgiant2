@@ -135,13 +135,16 @@ export function PdfView({ src }: ViewerProps) {
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let live = true;
-    let opened: PDFDocumentProxy | undefined;
+    // pdf.js 6: the loading task ends the document and its worker.
+    let task: { destroy(): Promise<void> } | undefined;
     void (async () => {
       try {
         const lib = await pdfjs();
-        opened = await lib.getDocument({ url: src.url }).promise;
+        const loading = lib.getDocument({ url: src.url });
+        task = loading;
+        const opened = await loading.promise;
         const first = (await opened.getPage(1)).getViewport({ scale: 1 });
-        if (!live) return void opened.destroy();
+        if (!live) return void loading.destroy();
         setBase({ w: first.width, h: first.height });
         setDoc(opened);
       } catch (err) {
@@ -150,7 +153,7 @@ export function PdfView({ src }: ViewerProps) {
     })();
     return () => {
       live = false;
-      void opened?.destroy();
+      void task?.destroy();
     };
   }, [src.url]);
   useEffect(() => {

@@ -352,6 +352,53 @@ const TABLE: Case[] = [
     null,
   ],
   ["canvas_edit help", "canvas_edit", { help: true }, null],
+  // PDFs (G37.8): a redaction takes text and pictures out of the file for good, whoever asks and
+  // whatever the rules; annotations, fields and pages (the version before is kept) are ordinary.
+  [
+    "canvas_edit redacting a PDF",
+    "canvas_edit",
+    { path: "docs/contratto.pdf", ops: [{ op: "redact", page: 1, find: "Mario Rossi" }] },
+    "critical-delete",
+  ],
+  [
+    "canvas_edit redacting among other edits",
+    "canvas_edit",
+    {
+      path: "docs/contratto.pdf",
+      ops: [
+        { op: "annotate", page: 1, kind: "highlight", find: "Roma" },
+        { action: "REDACT", page: 2, rects: [[10, 10, 50, 50]] },
+      ],
+    },
+    "critical-delete",
+  ],
+  [
+    "canvas_edit dry run of a redaction",
+    "canvas_edit",
+    { path: "docs/contratto.pdf", dry_run: true, ops: [{ op: "redact", page: 1, find: "x" }] },
+    null,
+  ],
+  [
+    "canvas_edit highlighting a PDF",
+    "canvas_edit",
+    {
+      path: "docs/contratto.pdf",
+      ops: [{ op: "annotate", page: 1, kind: "highlight", find: "x" }],
+    },
+    null,
+  ],
+  [
+    "canvas_edit taking out a PDF page (the version before is kept)",
+    "canvas_edit",
+    { path: "docs/contratto.pdf", ops: [{ op: "delete_page", page: 3 }] },
+    null,
+  ],
+  [
+    "canvas_edit filling a PDF form",
+    "canvas_edit",
+    { path: "docs/modulo.pdf", ops: [{ op: "fill_field", name: "nome", value: "Anna" }] },
+    null,
+  ],
 
   // Ordinary work.
   ["npm publish (a deploy, not critical)", ...bash("npm publish"), null],
