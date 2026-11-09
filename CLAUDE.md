@@ -57,7 +57,8 @@
   and no symbol characters as icons anywhere (UI and Telegram texts): drawn icons from `src/icons.tsx`. Light and
   dark themes (or the system's) through the CSS variables in `styles.css`. No native checkboxes or radio buttons:
   on/off is our switch (`Toggle` in `ui.tsx`, `Switch`/`SwitchRow` in `SettingsKit.tsx`), choices are our drawn
-  controls.
+  controls. Never the browser's native dialogs (alert, prompt, confirm): our Modal (`askConfirm`/`askText` in
+  `src/components/dialogs.tsx`; `test/no-native-dialogs.test.tsx` fails if one comes back).
 - Local engines: llama.cpp must run with `--slot-save-path` (shared with the server) and `--swa-full` for
   sliding-window models (Gemma…), or prefixes beyond the window are recomputed every turn.
 - Extensions never install themselves: an agent's proposal is tested in a throwaway sandbox and waits for the

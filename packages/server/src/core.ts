@@ -169,7 +169,13 @@ import type { GitHosts } from "./git-hosts.js";
 import { IMAGE_MODEL, imageFileName } from "./images.js";
 import { Inspector } from "./inspector.js";
 import { Jobs } from "./jobs.js";
-import type { ChatSource, KnowledgeAsker, KnowledgeService } from "./knowledge/service.js";
+import { knowledgeTools } from "./knowledge/agent-tools.js";
+import type {
+  ChatSource,
+  KnowledgeAsker,
+  KnowledgePlace,
+  KnowledgeService,
+} from "./knowledge/service.js";
 import { knowledgeSection, searchKnowledgeTool } from "./knowledge/tool.js";
 import { LoginStore, migrateLogin } from "./login.js";
 import {
@@ -469,11 +475,11 @@ function whereYouRun(model: ModelSpec): string {
  * had moved away with cd could not find its project again and searched the whole disk). Set when
  * the conversation starts, like the rest of the system prompt.
  */
-export function yourFolder(ws: Workspace): string {
+export function yourFolder(ws: Workspace, findFiles = true): string {
   const native = startFolder(ws);
   const shell = shellPath(native);
   const both = shell === native ? shell : `${shell} (${native} for Windows programs)`;
-  return `## Your folder\nYour project is ${both}. Every bash call is a new shell that starts there: cd and variables, $OLDPWD too, do not carry over, so write this folder in full when you need it again. Stay in it: never search a whole disk (find /, grep -r /); use glob and grep inside it, and find_files for files or programs elsewhere on this computer.`;
+  return `## Your folder\nYour project is ${both}. Every bash call is a new shell that starts there: cd and variables, $OLDPWD too, do not carry over, so write this folder in full when you need it again. Stay in it: never search a whole disk (find /, grep -r /); use glob and grep inside it${findFiles ? ", and find_files for files or programs elsewhere on this computer" : ""}.`;
 }
 
 export class RedGiantCore implements OrchestrationHost {
@@ -1522,6 +1528,22 @@ export class RedGiantCore implements OrchestrationHost {
         memoryTool(this.notes, this.noteOwner(agent, assignedTo)),
         // The person's documents (G36.5): only the collections this agent may read.
         searchKnowledgeTool(() => this.knowledge, this.knowledgeAsker(agent, assignedTo)),
+        // Making collections and their sources (3.5.3): every agent that can make one (the table).
+        ...(agent.kind === "subagent"
+          ? []
+          : knowledgeTools(agent, {
+              knowledge: () => this.knowledge,
+              agents: () => this.registry.list({ ownerId }),
+              scope:
+                agent.kind === "god"
+                  ? "platform"
+                  : agent.kind === "assistant"
+                    ? "assistants"
+                    : (assignedTo ?? agent.projectId)
+                      ? `project:${assignedTo ?? agent.projectId}`
+                      : undefined,
+              projectIds: this.knowledgeAsker(agent, assignedTo).projectIds,
+            })),
         // The keychain (G33.4): always offered; without credentials it says where to add them.
         vaultTool(agent, this.vault, (sid) => this.automationOfSession(sid)),
       );
@@ -1595,7 +1617,12 @@ export class RedGiantCore implements OrchestrationHost {
         this.systemFor(agent),
         whereYouRun(model),
         // On this computer only: in a container the folder is the container's own.
-        ws && this.sandbox.kind === "host" && preview !== "dry" ? yourFolder(ws) : "",
+        ws && this.sandbox.kind === "host" && preview !== "dry"
+          ? yourFolder(
+              ws,
+              tools.some((t) => t.def.name === "find_files"),
+            )
+          : "",
         // The language the person chose for the agents (G33.5); fixed for the conversation.
         replyLanguageLine(this.agentLang),
         this.instructions
@@ -1817,6 +1844,9 @@ export class RedGiantCore implements OrchestrationHost {
     resume: boolean,
     names: string[],
   ): Promise<string[]> {
+    // A sub-agent is made for one run: it follows the choice the person made for its parent.
+    const self = this.registry.get(agentId);
+    const parent = self?.kind === "subagent" ? self.parentId : undefined;
     if (resume) {
       const started = (await sessionLog(this.store, sessionId)).find(
         (e) => e.type === "session.started",
@@ -1824,10 +1854,11 @@ export class RedGiantCore implements OrchestrationHost {
       if (started?.type === "session.started" && started.payload)
         return started.payload.toolsOff ?? [];
       // An imported conversation (G36.7) has no start of its own: the person's choice now.
-      if (!started) return toolsSwitchedOff(await this.toolChoices.get(ownerId), agentId, names);
+      if (!started)
+        return toolsSwitchedOff(await this.toolChoices.get(ownerId), agentId, names, parent);
       return [];
     }
-    return toolsSwitchedOff(await this.toolChoices.get(ownerId), agentId, names);
+    return toolsSwitchedOff(await this.toolChoices.get(ownerId), agentId, names, parent);
   }
 
   /** Each tool of an agent and its characters, nothing switched off (a dry build, G34.5). */
@@ -1856,7 +1887,8 @@ export class RedGiantCore implements OrchestrationHost {
         throw new NotFoundError(`Agent "${agentId}" not found`);
       const measured = await this.measureTools(agent);
       // With something off, the agent also gets request_tool to ask for it back (G36.15).
-      if (toolsSwitchedOff(choice, agentId, [...measured.keys()]).length > 0)
+      const parent = agent.kind === "subagent" ? agent.parentId : undefined;
+      if (toolsSwitchedOff(choice, agentId, [...measured.keys()], parent).length > 0)
         measured.set("request_tool", toolChars(requestTool([], REQUEST_TOOL_DRY)));
       return toolsView(choice, measured, agentId);
     }
@@ -1870,7 +1902,10 @@ export class RedGiantCore implements OrchestrationHost {
       Object.values(choice.agents).some((m) => Object.values(m).includes("off"))
     )
       measured.set("request_tool", toolChars(requestTool([], REQUEST_TOOL_DRY)));
-    return toolsView(choice, measured, null);
+    const names = new Map(
+      this.registry.list({ ownerId, activeOnly: true }).map((a) => [a.id, a.name] as const),
+    );
+    return toolsView(choice, measured, null, names);
   }
 
   /** Switches tools off (or back on) for every agent; essential ones are refused (G34.5). */
@@ -3044,6 +3079,19 @@ export class RedGiantCore implements OrchestrationHost {
         return { title: row.title ?? "", agentId: row.agent_id, agentName: name, messages };
       },
     };
+  }
+
+  /**
+   * The person's workspaces for the knowledge (3.5.3): God's folder, the assistants' desk and each
+   * project, so a source can be a project (inside RedGiant's data) given by path, name or id.
+   */
+  async knowledgePlaces(ownerId: string): Promise<KnowledgePlace[]> {
+    const projects = await this.projects.list(ownerId).catch(() => []);
+    return [
+      { scope: "platform", name: "God's folder", root: this.platformPath(ownerId) },
+      { scope: "assistants", name: "The assistants' desk", root: this.assistantsPath(ownerId) },
+      ...projects.map((p) => ({ scope: `project:${p.id}`, name: p.name, root: p.path })),
+    ];
   }
 
   /** Who an agent is for the knowledge (G36.5): itself, and the projects it works on. */

@@ -58,6 +58,11 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   one("memory", "memory"),
   // The person's documents (G36.5): only the collections the agent may read.
   one("search_knowledge", "memory"),
+  // Making collections and adding their sources, and their state (3.5.3, decision «Gli agenti
+  // possono creare tutto da sé»): what the person does on the Knowledge page.
+  one("knowledge_create", "memory"),
+  one("knowledge_add_source", "memory"),
+  one("knowledge_status", "memory"),
   // After a summary the details of the conversation are only reachable through it.
   one("conversation_history", "memory", true),
   one("use_credential", "credentials"),
@@ -144,10 +149,20 @@ export function invalidToolIds(ids: readonly string[]): { unknown: string[]; ess
   return { unknown, essential };
 }
 
-/** Whether an entry is on for an agent: its own choice first, then the rule for everyone. */
-export function toolEntryOn(choice: ToolChoice, agentId: string, id: string): boolean {
+/**
+ * Whether an entry is on for an agent: its own choice first, then the choice of the agent it works
+ * for (`parentId`: a sub-agent is made per run and has no choice of its own, 3.5.3), then the rule
+ * for everyone.
+ */
+export function toolEntryOn(
+  choice: ToolChoice,
+  agentId: string,
+  id: string,
+  parentId?: string | null,
+): boolean {
   if (BY_ID.get(id)?.essential) return true;
-  const own = choice.agents[agentId]?.[id];
+  const own =
+    choice.agents[agentId]?.[id] ?? (parentId ? choice.agents[parentId]?.[id] : undefined);
   if (own) return own === "on";
   return !choice.off.includes(id);
 }
@@ -160,10 +175,11 @@ export function toolsSwitchedOff(
   choice: ToolChoice,
   agentId: string,
   names: readonly string[],
+  parentId?: string | null,
 ): string[] {
   return names.filter((n) => {
     const e = toolEntryOf(n);
-    return e !== undefined && !toolEntryOn(choice, agentId, e.id);
+    return e !== undefined && !toolEntryOn(choice, agentId, e.id, parentId);
   });
 }
 
@@ -183,6 +199,11 @@ export interface ToolView {
   own?: AgentToolState | null;
   /** What the agent gets (only in an agent's view). */
   on?: boolean;
+  /**
+   * In the view for every agent: the agents whose own choice differs from the rule for everyone
+   * (3.5.3: an agent kept a switched-off tool on through its own choice, and the page did not say).
+   */
+  exceptions?: { agentId: string; name: string; state: AgentToolState }[];
 }
 
 export interface ToolsView {

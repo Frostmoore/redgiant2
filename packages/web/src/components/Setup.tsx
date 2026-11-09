@@ -69,6 +69,7 @@ import {
   wayState,
   wayTiles,
 } from "./Brain.js";
+import { askConfirm } from "./dialogs.js";
 import { GitTiles } from "./GitCode.js";
 import { ImportFrom } from "./ImportFrom.js";
 import { AgentLanguagePicker } from "./LanguagePicker.js";
@@ -670,8 +671,8 @@ function Names() {
               <button
                 type="button"
                 class="wz-btn quiet"
-                onClick={() => {
-                  if (confirm(t("promptResetConfirm"))) setEditing(builtIn);
+                onClick={async () => {
+                  if (await askConfirm(t("promptResetConfirm"))) setEditing(builtIn);
                 }}
               >
                 <IconRetry size={16} /> {t("promptReset")}

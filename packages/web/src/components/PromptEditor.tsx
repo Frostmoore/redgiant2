@@ -11,6 +11,7 @@ import type { PromptView } from "../api.js";
 import { t } from "../i18n.js";
 import { IconRetry } from "../icons.js";
 import { agents, attempt, offerPromptRewrite, promptRewriteOffer } from "../state.js";
+import { askConfirm } from "./dialogs.js";
 import { godName, PromptRefiner } from "./PromptRefiner.js";
 
 export function PromptEditor({
@@ -99,8 +100,8 @@ export function PromptEditor({
           <button
             type="button"
             class="wz-btn small quiet"
-            onClick={() => {
-              if (confirm(t("promptResetConfirm"))) void store(null);
+            onClick={async () => {
+              if (await askConfirm(t("promptResetConfirm"))) void store(null);
             }}
           >
             <IconRetry size={15} /> {t("promptReset")}

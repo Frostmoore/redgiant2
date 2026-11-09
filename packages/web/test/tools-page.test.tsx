@@ -30,7 +30,9 @@ const ALL: ToolsView = {
   entries: [
     entry("read_file", "files", 120, true, { essential: true }),
     entry("grep", "files", 107, true),
-    entry("web_search", "web", 73, false),
+    entry("web_search", "web", 73, false, {
+      exceptions: [{ agentId: "g1", name: "God", state: "on" }],
+    }),
     entry("browser", "web", 1200, true, { tools: ["browser_open", "browser_click"] }),
     entry("complete_task", "agents", 115, true, { essential: true }),
   ] as ToolsView["entries"],
@@ -109,6 +111,22 @@ describe("the tools page (G34.5)", () => {
     calls.length = 0;
     fireEvent.click(r.getByRole("switch", { name: "Leggere i file" }));
     expect(calls.some(([n]) => n === "setToolsOff")).toBe(false);
+  });
+});
+
+describe("the tools page: one agent's own choice (3.5.3)", () => {
+  it("says which agents keep a switched-off tool on, and puts them back with everyone", async () => {
+    const r = render(<ToolsPage />);
+    await waitFor(() =>
+      expect(r.getByText("Acceso lo stesso per: God (scelta loro)")).toBeTruthy(),
+    );
+    fireEvent.click(r.getByText("Come per tutti"));
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "setAgentTools")?.[1]).toEqual([
+        "g1",
+        { web_search: "default" },
+      ]),
+    );
   });
 });
 

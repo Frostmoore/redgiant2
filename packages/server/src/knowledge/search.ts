@@ -8,6 +8,8 @@
 
 import {
   type KnowledgeHit,
+  type KnowledgeMeaning,
+  type KnowledgeMeaningOff,
   KnowledgeSearchInput,
   type KnowledgeSearchResult,
   TEXT_SEARCH_CONFIG_NAMES,
@@ -78,6 +80,45 @@ export function vectorSql(o: {
     SELECT id, d FROM c ORDER BY d, id`;
 }
 
+/**
+ * Whether a search can go by meaning now, and the index it would use (3.5.3: the same answer for
+ * the search, the page and the agents). Never waits for a download.
+ */
+export async function meaningOf(
+  k: KnowledgeService,
+  owner: string,
+): Promise<{ meaning: KnowledgeMeaning; index?: IndexRow }> {
+  if (!k.vector.ok)
+    return {
+      meaning: {
+        on: false,
+        off: "no_vector",
+        detail: `pgvector is not available: ${k.vector.reason}`,
+      },
+    };
+  const index = (await k.indexes(owner)).find((i) => i.active);
+  if (!index)
+    return { meaning: { on: false, off: "no_model", detail: "No embedding model chosen" } };
+  if (
+    index.choice.provider === "local" &&
+    !(await k.deps.local.ready("embed", index.choice.model, index.choice.gpu ?? false))
+  )
+    return {
+      meaning: { on: false, off: "downloading", detail: "The local model is still downloading" },
+      index,
+    };
+  if (index.state === "failed")
+    return {
+      meaning: {
+        on: false,
+        off: "failed",
+        detail: `The embedding model failed${index.error ? `: ${index.error}` : ""}`,
+      },
+      index,
+    };
+  return { meaning: { on: true }, index };
+}
+
 export async function searchKnowledge(
   k: KnowledgeService,
   owner: string,
@@ -102,18 +143,16 @@ export async function searchKnowledge(
   let meaning: Ranked[] = [];
   let strategy: KnowledgeSearchResult["strategy"] = "words";
   let wordsOnly: string | undefined;
+  let meaningOff: KnowledgeMeaningOff | undefined;
   let index: IndexRow | undefined;
   if (input.mode !== "words") {
-    index = k.vector.ok ? (await k.indexes(owner)).find((i) => i.active) : undefined;
-    if (!k.vector.ok) wordsOnly = `pgvector is not available: ${k.vector.reason}`;
-    else if (!index) wordsOnly = "No embedding model chosen";
-    else if (
-      index.choice.provider === "local" &&
-      !(await k.deps.local.ready("embed", index.choice.model, index.choice.gpu ?? false))
-    )
-      // Never wait for a download inside a search: words now, meaning once it is here.
-      wordsOnly = "The local model is still downloading";
-    else {
+    // Never wait for a download inside a search: words now, meaning once it is here.
+    const now = await meaningOf(k, owner);
+    index = now.index;
+    if (!now.meaning.on) {
+      wordsOnly = now.meaning.detail;
+      meaningOff = now.meaning.off;
+    } else if (index) {
       try {
         meaning = await searchVectors(k, owner, index, input.query, nums, {
           kinds,
@@ -127,6 +166,7 @@ export async function searchKnowledge(
         });
       } catch (err) {
         wordsOnly = `The embedding model failed: ${(err as Error).message}`;
+        meaningOff = "failed";
       }
     }
   }
@@ -152,6 +192,7 @@ export async function searchKnowledge(
       strategy: meaning.length ? strategy : "words",
       indexId: index?.id ?? null,
       ...(wordsOnly && { wordsOnly }),
+      ...(meaningOff && { meaningOff }),
     });
   const rows = await k.db.query<CitationRow>(`${CITATION_SELECT} WHERE ch.id = ANY($1::bigint[])`, [
     candidates.map((c) => c.id),
@@ -202,6 +243,7 @@ export async function searchKnowledge(
     strategy: meaning.length ? strategy : "words",
     indexId: index?.id ?? null,
     ...(wordsOnly && { wordsOnly }),
+    ...(meaningOff && { meaningOff }),
   });
 }
 
