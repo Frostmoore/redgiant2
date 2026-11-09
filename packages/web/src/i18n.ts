@@ -709,6 +709,10 @@ const en = {
   officeOpening: "Opening the document in LibreOffice…",
   officeFirstTime:
     "LibreOffice runs inside this page: its own menus are in English. The first time takes a little longer.",
+  officeElsewhere: "LibreOffice is showing another document",
+  officeShowHere: "Show this one",
+  officeOneEngine:
+    "One LibreOffice for the whole page: this document was saved and opens again here when you come back to it.",
   officeCopyOf: "Open copy of {name}",
   officeWriteBack: "Write the {ext} too",
   officeWriteBackHint:
@@ -4791,6 +4795,10 @@ const it: Record<Key, string> = {
   officeOpening: "Apro il documento in LibreOffice…",
   officeFirstTime:
     "LibreOffice gira dentro questa pagina: i suoi menu sono in inglese. La prima volta ci vuole un po' di più.",
+  officeElsewhere: "LibreOffice sta mostrando un altro documento",
+  officeShowHere: "Mostra questo",
+  officeOneEngine:
+    "Un solo LibreOffice per tutta la pagina: questo documento è salvato e si riapre qui quando ci torni.",
   officeCopyOf: "Copia aperta di {name}",
   officeWriteBack: "Riscrivi anche il {ext}",
   officeWriteBackHint:

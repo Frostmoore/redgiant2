@@ -15428,6 +15428,16 @@ fieldset.vw-seg {
 .doc-office-frame.waiting {
   visibility: hidden;
 }
+/* The page's one LibreOffice frame between two document tabs (office-shared.ts): running, unseen. */
+.doc-office-parking {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 1024px;
+  height: 768px;
+  visibility: hidden;
+  pointer-events: none;
+}
 .doc-office-wait {
   position: absolute;
   inset: 0;

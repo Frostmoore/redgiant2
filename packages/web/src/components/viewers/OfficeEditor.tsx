@@ -13,7 +13,7 @@ import { docKey, PERSON } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
 import { IconAlert, IconDownload, IconPencil, IconSpinner } from "../../icons.js";
-import { attempt, getApi, openCanvas, openDoc, sendDoc } from "../../state.js";
+import { attempt, getApi, openCanvas, openDoc, saveDoc, sendDoc } from "../../state.js";
 import {
   exportsOf,
   fallbackOf,
@@ -22,6 +22,12 @@ import {
   picturesOf,
   plainActions,
 } from "../../viewers/office-bridge.js";
+import {
+  type FrameMsg,
+  NotHolderError,
+  type OfficeTenant,
+  sharedOffice,
+} from "../../viewers/office-shared.js";
 import { bytesText } from "../../viewers/source.js";
 import { Progress, useJob } from "../ui.js";
 import { changeText, whoText } from "./DocEditor.js";
@@ -33,13 +39,8 @@ type Phase =
   | { at: "server"; job: string }
   | { at: "browser"; done: number; total: number }
   | { at: "opening" }
+  | { at: "elsewhere" }
   | { at: "ready" };
-
-interface FrameMsg {
-  t: string;
-  req?: number;
-  [k: string]: unknown;
-}
 
 const nameOf = (p: string) => p.split("/").pop() ?? p;
 /** The pause after the person's last edit before the frame's file is saved. */
@@ -50,57 +51,43 @@ export function OfficeEditor({ file }: { file: DocFile }) {
   const [phase, setPhase] = useState<Phase>({ at: "checking" });
   const [note, setNote] = useState<string>();
   const [saving, setSaving] = useState(false);
-  const frameRef = useRef<HTMLIFrameElement>(null);
-  const [id] = useState(() => Math.random().toString(36).slice(2, 12));
+  const bodyRef = useRef<HTMLDivElement>(null);
+  /** Takes the page's one engine for this tab (when the person comes back to it). */
+  const want = useRef<() => void>(() => {});
   const original = originalOf(file.path);
 
   useEffect(() => {
     let alive = true;
-    const bc = new BroadcastChannel(`rg-office-${id}`);
-    const pending = new Map<number, (m: FrameMsg) => void>();
-    let req = 1;
+    const shared = sharedOffice();
     const listeners: ((m: FrameMsg) => void)[] = [];
-    bc.onmessage = (e) => {
-      const m = e.data as FrameMsg;
-      if (!m || (m as { from?: string }).from !== "frame") return;
-      if (m.req && pending.has(m.req)) {
-        const done = pending.get(m.req);
-        pending.delete(m.req);
-        done?.(m);
-      }
-      for (const l of listeners) l(m);
+    const tenant: OfficeTenant = {
+      slot: () => bodyRef.current,
+      release: async () => {
+        // The person's last edits go first, then the document leaves the engine.
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = undefined;
+        if (dirty && engine === true) save();
+        await chain;
+        if (engine === false) return;
+        engine = "away";
+        if (alive) setPhase({ at: "elsewhere" });
+      },
+      message: (m) => {
+        for (const l of listeners) l(m);
+      },
     };
-    const ask = (m: FrameMsg, timeoutMs = 120_000) =>
-      new Promise<FrameMsg>((resolve, reject) => {
-        const r = req++;
-        const timer = setTimeout(() => {
-          pending.delete(r);
-          reject(new Error(`${m.t}: no answer`));
-        }, timeoutMs);
-        pending.set(r, (x) => {
-          clearTimeout(timer);
-          if (x.t === "error") reject(new Error(String(x.message)));
-          else resolve(x);
-        });
-        bc.postMessage({ ...m, req: r });
-      });
-    const waitFor = (type: string, timeoutMs: number) =>
-      new Promise<FrameMsg | undefined>((resolve) => {
-        const timer = setTimeout(() => resolve(undefined), timeoutMs);
-        listeners.push((m) => {
-          if (m.t === type) {
-            clearTimeout(timer);
-            resolve(m);
-          }
-        });
-      });
+    shared.join(tenant);
+    const ask = (m: FrameMsg, timeoutMs?: number) => shared.ask(tenant, m, timeoutMs);
     const fallback = (why: OfficeFallback, detail?: string) => {
       if (alive) setPhase({ at: "fallback", why, ...(detail && { detail }) });
       engine = false;
+      // The fallback has no place for the frame: it waits out of sight for another tab.
+      if (shared.owner === tenant) void shared.leave(tenant);
     };
 
     // ---- the document, the same for the full editor and the fallback ----
-    let engine: boolean | undefined;
+    /** true: open in the engine; "away": another tab has the engine; false: the fallback. */
+    let engine: boolean | "away" | undefined;
     let revision = 0;
     let snapshot:
       | { snap: Extract<DocSnapshot, { family: "document" }>; revision: number }
@@ -108,15 +95,22 @@ export function OfficeEditor({ file }: { file: DocFile }) {
     let chain: Promise<unknown> = Promise.resolve();
     const run = (task: () => Promise<unknown>) => {
       chain = chain.then(task).catch((err: unknown) => {
-        if (alive) setNote(t("docRefused", { reason: (err as Error).message }));
+        if (alive && !(err instanceof NotHolderError))
+          setNote(t("docRefused", { reason: (err as Error).message }));
       });
     };
     let dirty = false;
     let uploading: string | undefined;
+    /** Ctrl+S came while edits were on their way: the host writes the file once they are in. */
+    let saveAfter = false;
     let saveTimer: ReturnType<typeof setTimeout> | undefined;
     let editingUntil = 0;
     let group = `g-${Math.random().toString(36).slice(2, 10)}`;
     const resync = () => sendDoc({ type: "doc.open", file });
+    const saveFile = () => {
+      saveAfter = false;
+      sendDoc({ type: "doc.save", file });
+    };
     const pictures = async (hashes: string[]) => {
       const out: Record<string, ArrayBuffer> = {};
       for (const h of hashes) out[h] = (await getApi().officeBlob(h)).slice().buffer;
@@ -149,7 +143,10 @@ export function OfficeEditor({ file }: { file: DocFile }) {
           const r = await ask({ t: "export" });
           const bytes = new Uint8Array(r.bytes as ArrayBuffer);
           const up = await getApi().officeUpload(file.scope, file.path, base, bytes);
-          if (!up.hunks.length) return;
+          if (!up.hunks.length) {
+            if (saveAfter) saveFile();
+            return;
+          }
           uploading = `s${Date.now().toString(36)}`;
           sendDoc({
             type: "doc.ops",
@@ -170,6 +167,16 @@ export function OfficeEditor({ file }: { file: DocFile }) {
           if (alive) setSaving(false);
         }
       });
+    /** Ctrl+S (or Cmd+S) in the document: the person's edits sent now, then the file written. */
+    const saveNow = () => {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = undefined;
+      if ((dirty || uploading) && engine === true) {
+        saveAfter = true;
+        saveDoc(file, false);
+        save();
+      } else saveDoc(file);
+    };
     const edited = () => {
       dirty = true;
       const now = Date.now();
@@ -188,7 +195,9 @@ export function OfficeEditor({ file }: { file: DocFile }) {
       }, SAVE_PAUSE_MS);
     };
     listeners.push((m) => {
+      if (engine !== true) return;
       if (m.t === "modified" || m.t === "typing") edited();
+      else if (m.t === "save-key") saveNow();
     });
 
     const close = openDoc(file, {
@@ -237,10 +246,12 @@ export function OfficeEditor({ file }: { file: DocFile }) {
         uploading = undefined;
         revision = m.revision;
         if (dirty) save();
+        else if (saveAfter) saveFile();
       },
       rejected(m) {
         if (m.clientId === uploading) {
           uploading = undefined;
+          if (saveAfter) saveFile();
           resync();
         }
       },
@@ -251,79 +262,117 @@ export function OfficeEditor({ file }: { file: DocFile }) {
       setTimeout(() => alive && setNote(undefined), 7000);
     };
 
-    // ---- can the full editor run here ----
-    void (async () => {
-      const secure = window.isSecureContext;
-      const early = fallbackOf({
-        secure,
-        memory: (navigator as { deviceMemory?: number }).deviceMemory ?? null,
-      });
-      if (early) return fallback(early);
-      // The frame answers once it has loaded (asked again until then).
-      let check: FrameMsg | undefined;
-      for (let i = 0; i < 30 && alive && !check; i++)
-        check = await ask({ t: "check" }, 700).catch(() => undefined);
-      if (!alive) return;
-      const why = check
-        ? fallbackOf({
-            secure: check.secure === true,
-            isolated: check.isolated === true,
-            webgl: check.webgl === true,
-          })
-        : "browser";
-      if (why) return fallback(why);
-      // The engine's files on the server first (downloaded once, with the bar).
-      const st = await getApi()
-        .officeState()
-        .catch(() => undefined);
-      if (!st) return fallback("failed", t("uiFailedGeneric"));
-      if (!st.ready) {
-        const p = await getApi()
-          .officePrepare()
-          .catch((e: unknown) => ({ ready: false, job: undefined, error: (e as Error).message }));
-        if (p.job) {
-          if (alive) setPhase({ at: "server", job: p.job });
-          let j: Job | undefined;
-          for (;;) {
-            await new Promise((r) => setTimeout(r, 1000));
-            if (!alive) return;
-            j = await getApi()
-              .job(p.job)
-              .catch(() => undefined);
-            if (j && j.state !== "running") break;
+    // ---- the engine for this tab: checked, downloaded once, started once for the page ----
+    const early = fallbackOf({
+      secure: window.isSecureContext,
+      memory: (navigator as { deviceMemory?: number }).deviceMemory ?? null,
+    });
+    let taking = false;
+    let opens = 0;
+    const take = async () => {
+      if (taking || !alive || engine === false || engine === true) return;
+      taking = true;
+      try {
+        if (early) return fallback(early);
+        const how = await shared.acquire(tenant);
+        if (!alive) return;
+        // What the frame showed for another tab stays hidden until this document is open.
+        if (how !== "same") shared.element?.classList.add("waiting");
+        if (!shared.started) {
+          if (alive) setPhase({ at: "checking" });
+          const check = await shared.check(tenant);
+          if (!alive) return;
+          const why = check
+            ? fallbackOf({
+                secure: check.secure === true,
+                isolated: check.isolated === true,
+                webgl: check.webgl === true,
+              })
+            : "browser";
+          if (why) return fallback(why);
+          // The engine's files on the server first (downloaded once, with the bar).
+          const st = await getApi()
+            .officeState()
+            .catch(() => undefined);
+          if (!st) return fallback("failed", t("uiFailedGeneric"));
+          if (!st.ready) {
+            const p = await getApi()
+              .officePrepare()
+              .catch((e: unknown) => ({
+                ready: false,
+                job: undefined,
+                error: (e as Error).message,
+              }));
+            if (p.job) {
+              if (alive) setPhase({ at: "server", job: p.job });
+              let j: Job | undefined;
+              for (;;) {
+                await new Promise((r) => setTimeout(r, 1000));
+                if (!alive) return;
+                j = await getApi()
+                  .job(p.job)
+                  .catch(() => undefined);
+                if (j && j.state !== "running") break;
+              }
+              if (j?.state !== "done") return fallback("failed", j?.error?.message);
+            } else if (!p.ready) return fallback("failed", (p as { error?: string }).error);
           }
-          if (j?.state !== "done") return fallback("failed", j?.error?.message);
-        } else if (!p.ready) return fallback("failed", (p as { error?: string }).error);
-      }
-      // Then into this browser (its storage keeps them), and LibreOffice starts.
-      if (alive) setPhase({ at: "browser", done: 0, total: 1 });
-      listeners.push((m) => {
-        if (m.t === "progress" && alive)
-          setPhase((ph) =>
-            ph.at === "browser"
-              ? { at: "browser", done: Number(m.done), total: Number(m.total) }
-              : ph,
+          // Then into this browser (its storage keeps them), and LibreOffice starts.
+          if (alive) setPhase({ at: "browser", done: 0, total: 1 });
+          const err = await shared.start(tenant).then(
+            () => undefined,
+            (e: unknown) => e as Error,
           );
+          if (err instanceof NotHolderError) return;
+          if (err) return fallback("failed", err.message);
+        }
+        if (!alive || shared.owner !== tenant) return;
+        engine = true;
+        setPhase({ at: "opening" });
+        // The first time with the snapshot just received; back from another tab, fresh from the
+        // host (the agents may have changed it meanwhile).
+        if (opens++ === 0) openInFrame();
+        else resync();
+      } catch {
+        // The tab closed while waiting for the engine.
+      } finally {
+        taking = false;
+      }
+    };
+    listeners.push((m) => {
+      if (m.t === "progress" && alive)
+        setPhase((ph) =>
+          ph.at === "browser"
+            ? { at: "browser", done: Number(m.done), total: Number(m.total) }
+            : ph,
+        );
+    });
+    want.current = () => void take();
+
+    // The tab the person looks at takes the engine (a hidden tab measures nothing).
+    const body = bodyRef.current;
+    let seen: ResizeObserver | undefined;
+    if (body && typeof ResizeObserver === "function") {
+      seen = new ResizeObserver(() => {
+        if (body.offsetWidth > 0 && body.offsetHeight > 0) void take();
       });
-      bc.postMessage({ t: "start" });
-      const ok = await Promise.race([waitFor("ready", 600_000), waitFor("error", 600_000)]);
-      if (!ok || ok.t !== "ready") return fallback("failed", ok ? String(ok.message) : undefined);
-      if (!alive) return;
-      engine = true;
-      setPhase({ at: "opening" });
-      openInFrame();
-    })();
+      seen.observe(body);
+    } else void take();
 
     return () => {
       alive = false;
-      if (saveTimer) clearTimeout(saveTimer);
-      if (dirty && engine === true) save();
-      void chain.finally(() => {
-        close();
-        bc.close();
-      });
+      want.current = () => {};
+      seen?.disconnect();
+      void shared.leave(tenant).finally(() => close());
     };
-  }, [file.scope, file.path, id]);
+  }, [file.scope, file.path]);
+
+  // The engine's frame shows only once the document is open in it.
+  useEffect(() => {
+    const el = sharedOffice().element;
+    if (el && el.parentElement === bodyRef.current)
+      el.classList.toggle("waiting", phase.at !== "ready");
+  });
 
   const fb = phase.at === "fallback" ? phase : undefined;
   const loading = phase.at !== "ready" && !fb;
@@ -338,22 +387,16 @@ export function OfficeEditor({ file }: { file: DocFile }) {
       {fb ? (
         <OfficeFallbackView file={file} why={fb.why} detail={fb.detail} />
       ) : (
-        <div class="doc-office-body">
-          <iframe
-            ref={frameRef}
-            class={`doc-office-frame ${phase.at === "ready" ? "" : "waiting"}`}
-            title={t("officeFrameTitle")}
-            src={`/zeta/frame.html#${id}`}
-            allow="cross-origin-isolated; clipboard-read; clipboard-write; fullscreen"
-          />
-          {loading && <OfficeLoading phase={phase} />}
+        // The page's one LibreOffice frame comes here (office-shared.ts) while this tab is shown.
+        <div class="doc-office-body" ref={bodyRef}>
+          {loading && <OfficeLoading phase={phase} onTake={() => want.current()} />}
         </div>
       )}
     </div>
   );
 }
 
-function OfficeLoading({ phase }: { phase: Phase }) {
+function OfficeLoading({ phase, onTake }: { phase: Phase; onTake: () => void }) {
   const job = useJob(phase.at === "server" ? phase.job : undefined);
   const step = job?.steps.find((s) => s.state === "running") ?? job?.steps.at(-1);
   return (
@@ -365,8 +408,15 @@ function OfficeLoading({ phase }: { phase: Phase }) {
             ? t("officeBrowserCopy")
             : phase.at === "opening"
               ? t("officeOpening")
-              : t("officeChecking")}
+              : phase.at === "elsewhere"
+                ? t("officeElsewhere")
+                : t("officeChecking")}
       </strong>
+      {phase.at === "elsewhere" && (
+        <button type="button" class="vw-btn small" onClick={onTake}>
+          {t("officeShowHere")}
+        </button>
+      )}
       {phase.at === "server" &&
         (step?.progress ? (
           <Progress progress={step.progress} />
@@ -388,7 +438,7 @@ function OfficeLoading({ phase }: { phase: Phase }) {
         />
       )}
       {(phase.at === "checking" || phase.at === "opening") && <IconSpinner size={18} />}
-      <p class="dim">{t("officeFirstTime")}</p>
+      <p class="dim">{phase.at === "elsewhere" ? t("officeOneEngine") : t("officeFirstTime")}</p>
     </div>
   );
 }
