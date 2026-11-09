@@ -53,7 +53,7 @@ import {
   IconUpload,
 } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
-import { agents, attempt, getApi, getLive, openTab, projects } from "../state.js";
+import { agents, attempt, getApi, getLive, openCanvas, projects } from "../state.js";
 import { explain } from "./Brain.js";
 import { Chat } from "./Chat.js";
 import { KindRow } from "./Media.js";
@@ -1035,13 +1035,8 @@ function InstalledView({ x, onClose }: { x: Installed; onClose: () => void }) {
           type="button"
           class="wz-btn primary"
           onClick={() => {
-            openTab({
-              id: `edit:${x.scope}:${x.path}`,
-              type: "editor",
-              title: x.name,
-              scope: x.scope,
-              path: x.path,
-            });
+            // In the Canvas, like every file (p3.5.1).
+            openCanvas(x.name, { kind: "file", scope: x.scope, path: x.path });
             onClose();
           }}
         >

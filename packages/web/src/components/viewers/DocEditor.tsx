@@ -2,16 +2,35 @@
 // the rule for the agents' edits, the panel «Modifiche» with «Annulla questa modifica» and
 // «Annulla tutto il turno», the proposals to accept, the differences of a change, a turn or a
 // proposal) around the family's own editor. Text and code are the first (TextEditor.tsx, G37.2):
-// code, Markdown, JSON/YAML/XML and plain text. Nothing is saved from here: the host writes the file.
+// code, Markdown, JSON/YAML/XML and plain text. Nothing is saved from here: the host writes the file
+// after a pause, or at once on Ctrl+S (Cmd+S), and the bar says «Salvato» (p3.5.1).
 import type { EditorView } from "@codemirror/view";
 import type { DocChange, DocFile, DocSummary } from "@redgiant/protocol";
 import { PERSON } from "@redgiant/protocol";
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { type Key, t } from "../../i18n.js";
-import { IconCheck, IconClock, IconEye, IconList, IconUndo, IconUser, IconX } from "../../icons.js";
-import { agents, attempt, docView, sendDoc, setDocMode } from "../../state.js";
-import { viewerFor } from "../../viewers/kind.js";
+import {
+  IconAlert,
+  IconCheck,
+  IconClock,
+  IconEye,
+  IconList,
+  IconUndo,
+  IconUser,
+  IconX,
+} from "../../icons.js";
+import {
+  agents,
+  attempt,
+  type DocView as DocViewState,
+  dismissOutside,
+  docView,
+  saveDoc,
+  sendDoc,
+  setDocMode,
+} from "../../state.js";
+import { bareText, viewerFor } from "../../viewers/kind.js";
 import { isOfficeFile } from "../../viewers/office-bridge.js";
 import { sheetChangeText } from "../../viewers/sheet-words.js";
 import type { DocDiff as DiffView, DiffWhat } from "./DocDiff.js";
@@ -22,7 +41,8 @@ import { TextEditor } from "./TextEditor.js";
 /** The kinds of the viewer that are text the page edits (G37.2): code, Markdown, trees, text. */
 const TEXT_KINDS = new Set(["text", "code", "markdown", "tree"]);
 /** Whether the file is text or code the editor opens (by its name, as the server's text family). */
-export const textEditable = (path: string) => TEXT_KINDS.has(viewerFor(path).kind);
+export const textEditable = (path: string) =>
+  TEXT_KINDS.has(viewerFor(path).kind) || bareText(path);
 export const editableInCanvas = (file: { scope: string; path: string }) =>
   file.scope !== "outside" &&
   (textEditable(file.path) || SHEET_EDITABLE.test(file.path) || isOfficeFile(file.path));
@@ -147,6 +167,23 @@ export function groupChanges(
   return out;
 }
 
+/** What the bar says of the file on disk (p3.5.1): saving, saved, not yet, or why not. */
+export function saveState(
+  v: Pick<DocViewState, "revision" | "saved" | "opened" | "saving">,
+): "saving" | "saved" | "unsaved" | "failed" | undefined {
+  if (v.saved?.error) return "failed";
+  if (v.saving) return "saving";
+  const onDisk = v.saved?.revision ?? v.opened;
+  if (onDisk === undefined) return undefined;
+  if (v.revision > onDisk) return "unsaved";
+  return v.saved ? "saved" : undefined;
+}
+
+/** Ctrl+S or Cmd+S (not with Alt or Shift: those are the browser's or the person's own). */
+export const isSaveKey = (
+  e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">,
+) => (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "s";
+
 // ---- the shell -----------------------------------------------------------------------------
 
 let asks = 0;
@@ -222,6 +259,22 @@ export function DocEditor({
   const others =
     Date.now() - v.presenceAt < 60_000 ? v.presence.filter((p) => p.who !== PERSON) : [];
   const people = v.presence.filter((p) => p.who === PERSON).length;
+  const save = saveState(v);
+  // Ctrl+S anywhere in the tab saves now; the text editor sends its last keystrokes first (its
+  // own key binding, which marks the event as handled).
+  const shell = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = shell.current;
+    if (!el) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!isSaveKey(e)) return;
+      const handled = e.defaultPrevented;
+      e.preventDefault();
+      if (!handled) saveDoc(file);
+    };
+    el.addEventListener("keydown", onKey);
+    return () => el.removeEventListener("keydown", onKey);
+  });
   // The host cannot edit it (too big, not text): the viewer instead, and why.
   if (fallback && v.status === "loading" && v.refusal?.clientId === "open")
     return (
@@ -231,11 +284,24 @@ export function DocEditor({
       </div>
     );
   return (
-    <div class={`doc-shell ${panel ? "with-panel" : ""}`}>
+    <div class={`doc-shell ${panel ? "with-panel" : ""}`} ref={shell}>
       <div class="vw-bar doc-bar">
         <span class="doc-rev" title={t("docRevisionHint")}>
           {t("docRevision", { n: String(v.revision) })}
         </span>
+        {save && !sheet && (
+          <span class={`doc-save ${save}`} role="status" title={t("docSaveHint")} data-save={save}>
+            {save === "saved" && <IconCheck size={13} />}
+            {save === "failed" && <IconAlert size={13} />}
+            {save === "saved"
+              ? t("docSaved")
+              : save === "saving"
+                ? t("docSaving")
+                : save === "unsaved"
+                  ? t("docUnsaved")
+                  : t("docSaveFailed", { reason: v.saved?.error ?? "" })}
+          </span>
+        )}
         {people > 1 && (
           <span class="doc-who dim">
             <IconUser size={13} />
@@ -279,6 +345,26 @@ export function DocEditor({
           {v.proposals.length > 0 && <span class="doc-badge">{v.proposals.length}</span>}
         </button>
       </div>
+      {v.outside && (
+        <div class="doc-notice doc-outside" role="alert">
+          <IconAlert size={14} />
+          <span>{t("docOutside", { name })}</span>
+          <button
+            type="button"
+            class="vw-btn small"
+            onClick={() => {
+              undo({ revision: v.outside?.revision as number });
+              dismissOutside(file);
+            }}
+          >
+            <IconUndo size={13} />
+            {t("docOutsideUndo")}
+          </button>
+          <button type="button" class="vw-btn small" onClick={() => dismissOutside(file)}>
+            {t("docOutsideClose")}
+          </button>
+        </div>
+      )}
       {v.refusal && (
         <div class="doc-notice" role="alert">
           <span>{t("docRefused", { reason: v.refusal.reason })}</span>

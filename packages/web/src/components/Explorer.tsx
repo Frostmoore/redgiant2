@@ -17,7 +17,7 @@ import {
   IconTrash,
   IconUpload,
 } from "../icons.js";
-import { attempt, currentScope, getApi, openTab, toggleExplorer } from "../state.js";
+import { attempt, currentScope, getApi, openCanvas, openTab, toggleExplorer } from "../state.js";
 import { useSwipeAway } from "../swipe.js";
 
 /** A file's content as base64 (FileReader: fast even for large files). */
@@ -31,8 +31,15 @@ const asBase64 = (file: File) =>
 
 const HIDDEN_KEY = "rg.showHidden";
 
-const openFile = (scope: string, e: FileEntry) =>
-  openTab({ id: `edit:${scope}:${e.path}`, type: "editor", title: e.name, scope, path: e.path });
+/**
+ * A file opens in the Canvas (p3.5.1): the same tab an agent showing it would open. On a phone
+ * the list covers the Canvas: it steps aside to show the file.
+ */
+const openFile = (scope: string, e: FileEntry) => {
+  openCanvas(e.name, { kind: "file", scope, path: e.path });
+  if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 760px)").matches)
+    toggleExplorer(false);
+};
 
 function Folder({
   scope,

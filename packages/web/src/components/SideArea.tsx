@@ -5,7 +5,6 @@ import {
   IconCanvas,
   IconChat,
   IconClose,
-  IconFile,
   IconMaximize,
   IconMonitor,
   IconTerminal,
@@ -26,8 +25,8 @@ import {
 } from "../state.js";
 
 /**
- * Loads a heavy view (CodeMirror, xterm.js) the first time it is shown, not with the page:
- * most sessions never open an editor or a terminal.
+ * Loads a heavy view (xterm.js) the first time it is shown, not with the page: most sessions
+ * never open a terminal.
  */
 function lazy<P extends object>(load: () => Promise<(props: P) => JSX.Element | null>) {
   let loaded: ((props: P) => JSX.Element | null) | undefined;
@@ -45,13 +44,9 @@ function lazy<P extends object>(load: () => Promise<(props: P) => JSX.Element | 
 }
 
 import { Canvas } from "./Canvas.js";
-import { Preview, previewKind } from "./Preview.js";
 import { Screen } from "./Screen.js";
 import { FileIcon } from "./viewers/FileIcon.js";
 
-const Editor = lazy<{ scope: string; path: string }>(() =>
-  import("./Editor.js").then((m) => m.Editor),
-);
 const TerminalView = lazy<{ scope: string }>(() =>
   import("./TerminalView.js").then((m) => m.TerminalView),
 );
@@ -220,14 +215,10 @@ export function SideArea() {
                   <IconTerminal size={13} />
                 ) : v.type === "screen" ? (
                   <IconMonitor size={13} />
-                ) : v.type === "canvas" ? (
-                  v.target.kind === "file" ? (
-                    <FileIcon name={v.target.path} />
-                  ) : (
-                    <IconCanvas size={13} />
-                  )
+                ) : v.target.kind === "file" ? (
+                  <FileIcon name={v.target.path} />
                 ) : (
-                  <IconFile size={13} />
+                  <IconCanvas size={13} />
                 )}
                 <span>{v.title}</span>
               </button>
@@ -257,13 +248,7 @@ export function SideArea() {
       </div>
       {views.map((v) => (
         <div key={v.id} class="side-content" hidden={activeSide.value !== v.id}>
-          {v.type === "editor" ? (
-            previewKind(v.path) ? (
-              <Preview scope={v.scope} path={v.path} />
-            ) : (
-              <Editor scope={v.scope} path={v.path} />
-            )
-          ) : v.type === "screen" ? (
+          {v.type === "screen" ? (
             <Screen />
           ) : v.type === "canvas" ? (
             <Canvas title={v.title} target={v.target} />

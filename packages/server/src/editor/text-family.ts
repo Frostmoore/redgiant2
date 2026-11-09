@@ -23,6 +23,12 @@ const ENGINE_VERSION = "6";
 const TEXT_NAMES =
   /\.(txt|text|log|md|markdown|mdx|rst|adoc|org|ini|cfg|conf|env|toml|ya?ml|json|jsonc|json5|geojson|plist|xml|html?|css|scss|sass|less|[cm]?[jt]sx?|py|rb|go|rs|java|kt|kts|swift|c|h|cc|cpp|cxx|hpp|cs|php|pl|pm|lua|r|sql|sh|bash|zsh|fish|ps1|bat|cmd|tex|bib|srt|vtt|vue|svelte|dart|scala|clj|ex|exs|erl|hs|ml|fs|cmake|tf|hcl|proto|graphql|gql|diff|patch|vim|el|nix|zig|gitignore|dockerignore|editorconfig|properties|gradle|makefile|dockerfile|license|readme)$/i;
 const BARE_NAMES = /(^|[\\/])(makefile|dockerfile|readme|license|changelog|notes|todo)$/i;
+/**
+ * Names with no extension (`hosts`, `Procfile`), dotfiles (`.env`, `.npmrc`) and `.env.local`
+ * (p3.5.1): text until their bytes say otherwise (`load` refuses what is not UTF-8 text, and the
+ * page shows the viewer instead). The same rule as the page's `bareText` (`viewers/kind.ts`).
+ */
+const NO_EXTENSION = /(^|[\\/])(\.?[^.\\/]+|\.env(\.[\w-]+)+)$/i;
 
 type End = "\n" | "\r\n" | "\r";
 
@@ -294,7 +300,7 @@ export const textFamily: DocFamily<Text> = {
   id: "text",
   engine: ENGINE,
   engineVersion: ENGINE_VERSION,
-  accepts: (path) => TEXT_NAMES.test(path) || BARE_NAMES.test(path),
+  accepts: (path) => TEXT_NAMES.test(path) || BARE_NAMES.test(path) || NO_EXTENSION.test(path),
 
   load(bytes) {
     if (bytes.length > MAX_TEXT_BYTES)

@@ -485,6 +485,25 @@ export class EditorHost {
     if (doc.subs.size === 0 && doc.saved.revision < doc.revision) this.scheduleSave(doc, 0);
   }
 
+  /**
+   * Ctrl+S (p3.5.1): the file is written now, without waiting for the pause, after whatever this
+   * page sent before (the file's queue keeps the order). Every page is told `doc.saved`, even when
+   * nothing was left to write.
+   */
+  async save(ownerId: string, file: DocFile): Promise<void> {
+    const doc = this.docs.get(this.keyOf(ownerId, file));
+    if (!doc) return;
+    if (doc.saveTimer) clearTimeout(doc.saveTimer);
+    doc.saveTimer = undefined;
+    try {
+      const wrote = await this.enqueue(doc, () => this.saveNow(doc));
+      if (!wrote)
+        this.broadcast(doc, { type: "doc.saved", file: doc.file, revision: doc.saved.revision });
+    } catch (err) {
+      this.saveFailed(doc, err);
+    }
+  }
+
   /** The rule for the agents' edits changed: every page that has the file open is told. */
   modeChanged(ownerId: string): void {
     for (const d of this.docs.values())
@@ -1054,10 +1073,10 @@ export class EditorHost {
     doc.saveTimer.unref?.();
   }
 
-  /** Writes the file if it is behind (a change from outside first wins). */
-  private async saveNow(doc: Doc): Promise<void> {
+  /** Writes the file if it is behind (a change from outside first wins); true when it wrote. */
+  private async saveNow(doc: Doc): Promise<boolean> {
     await this.checkDisk(doc);
-    if (doc.saved.revision >= doc.revision) return;
+    if (doc.saved.revision >= doc.revision) return false;
     const f = doc.family;
     const ctx = {
       ownerId: doc.ownerId,
@@ -1091,8 +1110,8 @@ export class EditorHost {
     doc.saved = { revision: doc.revision, hash: sha256(bytes), size: st.size, mtimeMs: st.mtimeMs };
     await this.writeState(doc, bytes);
     if (f.saved) await f.saved(doc.model, ctx).catch(() => {});
-    if (f.saveTo || f.render)
-      this.broadcast(doc, { type: "doc.saved", file: doc.file, revision: doc.revision });
+    this.broadcast(doc, { type: "doc.saved", file: doc.file, revision: doc.revision });
+    return true;
   }
 
   /** A save that failed: the pages are told why, and it is tried again in a while. */

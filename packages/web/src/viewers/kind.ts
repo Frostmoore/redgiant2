@@ -62,6 +62,14 @@ const BY_NAME: Record<string, ViewerChoice> = {
   readme: { kind: "text", format: "txt" },
 };
 
+/**
+ * A name with no extension (`hosts`, `Procfile`), a dotfile (`.env`, `.npmrc`) or `.env.local`
+ * (p3.5.1): text the editor opens until its bytes say otherwise. The same rule as the server's
+ * text family (`NO_EXTENSION` in `editor/text-family.ts`).
+ */
+export const bareText = (name: string): boolean =>
+  /^(\.?[^.]+|\.env(\.[\w-]+)+)$/i.test(name.split(/[\\/]/).pop() ?? name);
+
 /** The lower-case extension ("tar.gz" counts as "tgz"), or "". */
 export function extensionOf(name: string): string {
   const base = (name.split(/[\\/]/).pop() ?? name).toLowerCase();

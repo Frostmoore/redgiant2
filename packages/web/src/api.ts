@@ -1361,7 +1361,9 @@ export class Api {
     target:
       | { kind: "file"; scope: string; path: string }
       | { kind: "port"; agentId: string; port: number; path?: string | undefined },
-  ) => this.call<{ url: string }>("POST", "/api/canvas/link", target);
+  ) =>
+    // `folder`: the path is a folder (its site), not a file (p3.5.1: `Makefile`, `hosts`).
+    this.call<{ url: string; folder?: boolean }>("POST", "/api/canvas/link", target);
   /** When what the canvas shows last changed (ms). */
   canvasVersion = (scope: string, path: string, fileOnly = false) =>
     this.call<{ version: number }>(

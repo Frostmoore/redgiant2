@@ -1317,6 +1317,15 @@ if (process.env.DEMO_CANVAS) {
     join(into, "spesa.txt"),
     "Spesa per sabato\n- latte\n- uova\n- farina\n\nRitiro in negozio alle 18, porta le borse.\n",
   );
+  // p3.5.1: text with no extension, opened from the list of files and edited like any text.
+  await writeFile(
+    join(into, ".env"),
+    "# Settings of the shop's site\nSHOP_NAME=Bottega di Ada\nOPEN_FROM=9\nOPEN_TO=19\n",
+  );
+  await writeFile(
+    join(into, "Makefile"),
+    "run:\n\tpython app.py\n\ntest:\n\tpython -m pytest\n",
+  );
   // G37.3: sheets: a CSV, an ODS with a chart and a pivot table, an XLSX edited on its ODS copy.
   await writeFile(
     join(into, "spese.csv"),

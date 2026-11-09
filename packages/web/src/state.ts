@@ -796,7 +796,6 @@ export type Tab =
 
 /** What the area on the right shows, next to the chat. */
 export type SideView =
-  | { id: string; type: "editor"; title: string; scope: string; path: string }
   | { id: string; type: "terminal"; title: string; scope: string }
   /** The personal agents' browser, live (G24.14b). */
   | { id: string; type: "screen"; title: string }
@@ -1021,7 +1020,7 @@ const SECTIONS: Record<string, SettingsSection> = {
 /** Opens something where it belongs: a tab in the middle, or a file or terminal on the right. */
 export function openTab(req: OpenRequest): void {
   drawerOpen.value = false;
-  if (req.type === "editor" || req.type === "terminal" || req.type === "screen") {
+  if (req.type === "terminal" || req.type === "screen") {
     if (!sideViews.value.some((v) => v.id === req.id)) sideViews.value = [...sideViews.value, req];
     activeSide.value = req.id;
     sideAside.value = false;
@@ -1425,10 +1424,16 @@ export interface DocView {
   modeOwn: boolean;
   /** The last refusal of something the person asked (an undo, a proposal), with the host's words. */
   refusal?: { clientId: string; code: string; reason: string; conflict?: number } | undefined;
-  /** G37.3: the last save told by a family that saves by itself (a sheet's «toppa»). */
+  /** The last save the host told (G37.3; every family since p3.5.1: «Salvato»). */
   saved?:
     | { revision: number; error?: string | undefined; waitsFor?: string | undefined }
     | undefined;
+  /** The revision the file opened at: what is on disk until a save says otherwise. */
+  opened?: number | undefined;
+  /** Ctrl+S asked, the host has not answered yet (p3.5.1). */
+  saving?: boolean | undefined;
+  /** The file changed on disk from outside the editor (p3.5.1): told until the person closes it. */
+  outside?: { revision: number; ts: string } | undefined;
 }
 
 export const emptyDocView = (): DocView => ({
@@ -1478,10 +1483,19 @@ export function reduceDoc(v: DocView, m: DocMessage): DocView {
         presenceAt: Date.now(),
         mode: m.mode,
         modeOwn: m.modeOwn,
+        opened: m.revision,
       };
     case "doc.changed":
-    case "doc.replaced":
       return { ...v, revision: m.revision, changes: withChange(v.changes, m.change) };
+    case "doc.replaced":
+      return {
+        ...v,
+        revision: m.revision,
+        changes: withChange(v.changes, m.change),
+        outside: { revision: m.revision, ts: m.change.ts },
+        // What is shown is the disk now.
+        saved: { revision: m.revision },
+      };
     case "doc.ack":
       return {
         ...v,
@@ -1507,6 +1521,7 @@ export function reduceDoc(v: DocView, m: DocMessage): DocView {
     case "doc.saved":
       return {
         ...v,
+        saving: false,
         saved: {
           revision: m.revision,
           ...(m.error && { error: m.error }),
@@ -1565,6 +1580,22 @@ export function openDoc(file: DocFile, peer: DocPeer): () => void {
 /** A message about an open file (operations, undo, presence, a proposal's answer). */
 export function sendDoc(m: Extract<ClientMessage, { file: DocFile }>): void {
   live?.send(m);
+}
+
+/**
+ * Ctrl+S (p3.5.1): the host writes the file now. `send: false` when the editor sends it itself a
+ * moment later (its last keystrokes still in flight): the indicator says «Salvataggio…» at once.
+ */
+export function saveDoc(file: DocFile, send = true): void {
+  const v = docView(file);
+  v.value = { ...v.value, saving: true };
+  if (send) live?.send({ type: "doc.save", file });
+}
+
+/** The notice of a change from outside, closed by the person. */
+export function dismissOutside(file: DocFile): void {
+  const v = docView(file);
+  v.value = { ...v.value, outside: undefined };
 }
 
 /** The person's rule for the agents' edits of one file (Settings keep it, with its history). */

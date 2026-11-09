@@ -1864,28 +1864,7 @@ img.logo {
   color: #c46b5f;
 }
 
-/* Files, editor, terminal */
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
-}
-.toolbar .path {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  flex: 1;
-  color: var(--text);
-}
-.files,
-.editor {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
+/* Files and terminal */
 .tree {
   flex: 1;
   overflow: auto;
@@ -1933,33 +1912,6 @@ img.logo {
   background: var(--accent-soft);
   font-size: 13px;
 }
-.preview {
-  flex: 1;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 12px;
-  background: var(--panel-2);
-}
-.preview img {
-  max-width: 100%;
-  height: auto;
-  background: repeating-conic-gradient(#8882 0 25%, transparent 0 50%) 0 0 / 16px 16px;
-}
-.pdf-pages {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.pdf-pages canvas {
-  box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
-  background: #fff;
-}
-.editor .empty .button,
-.editor .empty button {
-  margin-top: 8px;
-}
 .tree-row .icon {
   width: 12px;
   color: var(--dim);
@@ -1972,14 +1924,6 @@ img.logo {
 }
 .tree-row .size {
   font-size: 11px;
-}
-.cm-host {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-.cm-host .cm-editor {
-  height: 100%;
 }
 .terminal {
   flex: 1;
@@ -14827,6 +14771,29 @@ button.sub-tab {
   font-variant-numeric: tabular-nums;
   color: var(--dim);
   white-space: nowrap;
+}
+/* Whether the file on disk has the changes (p3.5.1): saved, saving, not yet, or why not. */
+.doc-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--dim);
+}
+.doc-save.saved {
+  color: var(--ok);
+}
+.doc-save.failed {
+  color: var(--warn-text, var(--warn));
+}
+/* The file changed on disk from outside: said plainly, above the text. */
+.doc-outside {
+  border-left: 3px solid var(--warn);
+}
+.doc-outside > span {
+  flex: 1 1 260px;
+  min-width: 0;
 }
 .doc-who {
   display: inline-flex;

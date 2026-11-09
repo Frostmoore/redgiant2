@@ -3,7 +3,8 @@
 // preview beside it or instead of it (renderMarkdown: sanitised, decision of 2026-11-08: no
 // WYSIWYG); JSON, YAML and XML checked as the person types (viewers/syntax.ts: marked, never
 // blocking) and shown as a tree on request. The person's Ctrl+Z undoes only their own typing; what
-// an agent wrote is highlighted for a few seconds. Nothing is saved from here: the host writes.
+// an agent wrote is highlighted for a few seconds. Nothing is saved from here: the host writes;
+// Ctrl+S (Cmd+S) sends the last keystrokes and asks it to write now (p3.5.1).
 import { syntaxHighlighting } from "@codemirror/language";
 import { type Diagnostic, lintGutter, setDiagnostics } from "@codemirror/lint";
 import {
@@ -15,7 +16,7 @@ import {
   StateField,
   Transaction,
 } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
+import { Decoration, type DecorationSet, EditorView, keymap } from "@codemirror/view";
 import type { DocFile } from "@redgiant/protocol";
 import { PERSON } from "@redgiant/protocol";
 import { basicSetup } from "codemirror";
@@ -23,7 +24,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
 import { IconAlert, IconCheck } from "../../icons.js";
 import { renderMarkdown } from "../../markdown.js";
-import { openDoc, sendDoc } from "../../state.js";
+import { openDoc, saveDoc, sendDoc } from "../../state.js";
 import { TextCollab } from "../../viewers/collab.js";
 import { viewerFor } from "../../viewers/kind.js";
 import { useOrders, useReport } from "../../viewers/live.js";
@@ -186,6 +187,8 @@ export function TextEditor({
     let checks = 0;
     let markId = 0;
     let citation = line;
+    /** Ctrl+S waits for the keystrokes in flight: the save is asked once the host has them. */
+    let saveAfter = false;
     const collab = new TextCollab((o) =>
       sendDoc({
         type: "doc.ops",
@@ -196,6 +199,21 @@ export function TextEditor({
         groupId: group,
       }),
     );
+    const saveNow = () => {
+      if (sendTimer) clearTimeout(sendTimer);
+      sendTimer = undefined;
+      collab.flush();
+      if (collab.pending) {
+        saveAfter = true;
+        saveDoc(file, false);
+      } else saveDoc(file);
+      return true;
+    };
+    const savePending = () => {
+      if (!saveAfter || collab.pending) return;
+      saveAfter = false;
+      sendDoc({ type: "doc.save", file });
+    };
     const remote = Transaction.remote.of(true);
     const noHistory = Transaction.addToHistory.of(false);
     const presence = (editing: boolean) => {
@@ -244,6 +262,7 @@ export function TextEditor({
           state: EditorState.create({
             doc,
             extensions: [
+              keymap.of([{ key: "Mod-s", preventDefault: true, run: saveNow }]),
               basicSetup,
               wrapping.current.of(wrap ? EditorView.lineWrapping : []),
               languages.of([]),
@@ -308,11 +327,13 @@ export function TextEditor({
         if (snapshot.family !== "text") return;
         collab.reset(revision);
         setTextNow(snapshot.text);
+        savePending();
       },
       replaced(m) {
         if (m.snapshot.family !== "text") return;
         collab.reset(m.revision);
         setTextNow(m.snapshot.text);
+        savePending();
       },
       changed(m) {
         const r = collab.remote(m.revision, m.ops, m.change.wrote ?? []);
@@ -326,6 +347,7 @@ export function TextEditor({
       },
       ack(m) {
         collab.ack(m.clientId, m.revision);
+        savePending();
       },
       rejected(m) {
         if (collab.rejected(m.clientId)) resync();

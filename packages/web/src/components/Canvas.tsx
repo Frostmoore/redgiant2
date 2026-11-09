@@ -3,7 +3,8 @@
 // in the viewer made for its kind (components/viewers: video and audio players, pictures, PDF,
 // documents, sheets, slides, 3D, archives, fonts, trees, code), everything drawn in the page. It
 // reloads by itself when the file changes. Office files are laid out by LibreOffice and closed
-// formats are seen through their open copy (viewers/OpenCopy.tsx, G34.4).
+// formats are seen through their open copy (viewers/OpenCopy.tsx, G34.4). It is the one place a file
+// opens (p3.5.1): the list of files and the Extensions open the same tab an agent would.
 
 import type { CanvasDo } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -16,7 +17,7 @@ import {
   IconRefresh,
 } from "../icons.js";
 import { type CanvasTarget, canvasViewId, getApi } from "../state.js";
-import { viewerFor } from "../viewers/kind.js";
+import { extensionOf, viewerFor } from "../viewers/kind.js";
 import { CanvasTab, lastMove, report, setTabKind } from "../viewers/live.js";
 import { hasOfficeCopy } from "../viewers/office-bridge.js";
 import { bytesText, download, type ViewerSource } from "../viewers/source.js";
@@ -90,9 +91,13 @@ const clockOf = (s: number) => {
 export const fileName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 
 export function Canvas({ title, target }: { title: string; target: CanvasTarget }) {
-  const site = canvasKind(target) === "site";
+  /** Whether the path is a folder (its site): a name with no extension can be either. */
+  const [folder, setFolder] = useState<boolean>();
+  const site =
+    canvasKind(target) === "site" &&
+    (target.kind === "port" || extensionOf(target.path) !== "" || folder === true);
   // A file the editor knows opens editable (G37.1): the host keeps it, no reloading here.
-  const editable = target.kind === "file" && editableInCanvas(target);
+  const editable = target.kind === "file" && folder === false && editableInCanvas(target);
   const id = canvasViewId(target);
   const [link, setLink] = useState<string>();
   const [error, setError] = useState<string>();
@@ -146,16 +151,20 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
   const key = JSON.stringify(target);
   useEffect(() => {
     setError(undefined);
+    setFolder(undefined);
     void getApi()
       .canvasLink(target)
       .then(
-        (r) => setLink(r.url),
+        (r) => {
+          setFolder(!!r.folder);
+          setLink(r.url);
+        },
         (e: unknown) => setError((e as Error).message),
       );
   }, [key]);
   // Files: when they change, what is shown follows (a viewer: the file alone; a site: its folder).
   useEffect(() => {
-    if (target.kind !== "file" || editable) return;
+    if (target.kind !== "file" || editable || folder === undefined) return;
     let stopped = false;
     const look = () =>
       void getApi()
@@ -170,7 +179,7 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
       stopped = true;
       clearInterval(timer);
     };
-  }, [key]);
+  }, [key, site, editable, folder]);
   const url = link && `${link}${link.includes("?") ? "&" : "?"}v=${version}-${reloads}`;
   const name = target.kind === "file" ? fileName(target.path) : title;
   return (

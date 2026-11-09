@@ -3068,9 +3068,11 @@ export class RedGiantCore implements OrchestrationHost {
     target:
       | { kind: "file"; scope: string; path: string }
       | { kind: "port"; agentId: string; port: number; path?: string | undefined },
-  ): Promise<{ url: string }> {
+  ): Promise<{ url: string; folder?: true }> {
     let t: PreviewTarget;
     let entry: string;
+    /** A workspace's folder (its site), not a file: a name with no extension can be either. */
+    let folder = false;
     if (target.kind === "file" && target.scope === "outside") {
       const abs = await this.outsideFile(ownerId, target.path);
       const st = await stat(abs).catch(() => undefined);
@@ -3085,6 +3087,7 @@ export class RedGiantCore implements OrchestrationHost {
       if (!st) throw new NotFoundError(`No such file "${target.path}"`);
       t = { kind: "dir", root: st.isDirectory() ? abs : dirname(abs) };
       entry = st.isDirectory() ? "" : basename(abs);
+      folder = st.isDirectory();
     } else {
       const agent = this.registry.get(target.agentId);
       if (!agent || agent.ownerId !== ownerId)
@@ -3092,7 +3095,10 @@ export class RedGiantCore implements OrchestrationHost {
       t = { kind: "port", host: await this.sandboxHost(agent), port: target.port };
       entry = (target.path ?? "").replace(/^\/+/, "");
     }
-    return { url: `/preview/${this.previews.sign(ownerId, t)}/${encodeURI(entry)}` };
+    return {
+      url: `/preview/${this.previews.sign(ownerId, t)}/${encodeURI(entry)}`,
+      ...(folder && { folder: true as const }),
+    };
   }
 
   /** When what the canvas shows last changed (ms): the page reloads it when this moves. */

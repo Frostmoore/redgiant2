@@ -203,15 +203,9 @@ describe("layout", () => {
     expect(tabs.value.filter((x) => x.type === "settings")).toEqual([
       { id: "settings", type: "settings", title: "", section: "extensions" },
     ]);
-    openTab({
-      id: "edit:project:p:a.txt",
-      type: "editor",
-      title: "a.txt",
-      scope: "project:p",
-      path: "a.txt",
-    });
-    expect(sideViews.value.map((v) => v.id)).toEqual(["edit:project:p:a.txt"]);
-    expect(activeSide.value).toBe("edit:project:p:a.txt");
+    openTab({ id: "term:project:p", type: "terminal", title: "T", scope: "project:p" });
+    expect(sideViews.value.map((v) => v.id)).toEqual(["term:project:p"]);
+    expect(activeSide.value).toBe("term:project:p");
     openTab({ id: "files", type: "files", title: "F" });
     expect(explorerOpen.value).toBe(true);
     closeTab("chat:s1");

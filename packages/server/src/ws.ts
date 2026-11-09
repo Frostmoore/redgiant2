@@ -250,6 +250,12 @@ export function attachWebSocket(
             await core.editor.unsubscribe(owner, msg.file, d.subId);
             return;
           }
+          case "doc.save": {
+            // Only a file this page opened (the host checked the person may edit it then).
+            if (!docSub(msg.file)) return fail("doc_closed", "Open the file first");
+            await core.editor.save(owner, msg.file);
+            return;
+          }
           case "doc.ops": {
             const d = docSub(msg.file);
             if (!d) return fail("doc_closed", "Open the file first");

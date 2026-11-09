@@ -321,3 +321,56 @@ describe("canvas_edit and the editor over the WebSocket (G37.1)", () => {
     page.close();
   });
 });
+
+describe("Ctrl+S and text with no extension (p3.5.1)", () => {
+  it("doc.save writes the file now, not after the pause; bare names are text, binaries are not", async () => {
+    s = await startServer(
+      (() => ({ text: "ok" })) as never,
+      { contextWindow: 65_536 },
+      // A pause no test waits for: only Ctrl+S can write the file in time.
+      { editor: { saveDelayMs: 600_000, watchMs: 0 } },
+    );
+    const root = await s.core.scopeFolder("me", "platform");
+    await mkdir(root, { recursive: true });
+    const env = { scope: "platform", path: ".env" };
+    await writeFile(join(root, ".env"), "A=1\n");
+    await writeFile(join(root, "hosts"), "127.0.0.1 here\n");
+    await writeFile(join(root, "tool"), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0xff, 0xfe, 0]));
+    const a = await wsClient(s.url);
+    await a.waitFor("welcome");
+    // Saving a file the page has not opened is refused.
+    a.send({ type: "doc.save", file: env });
+    expect(await a.waitFor("error")).toMatchObject({ code: "doc_closed" });
+    a.send({ type: "doc.open", file: env });
+    await a.waitFor("doc.opened", (m) => m.file.path === ".env");
+    a.send({
+      type: "doc.ops",
+      file: env,
+      clientId: "c0",
+      baseRevision: 0,
+      ops: [personOp("A=1\n", { from: 4, insert: "B=2\n" })],
+      groupId: "typing",
+    });
+    a.send({ type: "doc.save", file: env });
+    expect(await a.waitFor("doc.saved", (m) => m.file.path === ".env")).toEqual({
+      type: "doc.saved",
+      file: env,
+      revision: 1,
+    });
+    expect(await readFile(join(root, ".env"), "utf8")).toBe("A=1\nB=2\n");
+    // Saved again with nothing new: the page is still told, so «Salvato» shows.
+    a.send({ type: "doc.save", file: env });
+    await a.waitFor("doc.saved", (m) => m.revision === 1 && only(a, "doc.saved").length === 2);
+    // A name with no extension opens as text; one whose bytes are not text is refused.
+    a.send({ type: "doc.open", file: { scope: "platform", path: "hosts" } });
+    expect(await a.waitFor("doc.opened", (m) => m.file.path === "hosts")).toMatchObject({
+      family: "text",
+      snapshot: { family: "text", text: "127.0.0.1 here\n" },
+    });
+    a.send({ type: "doc.open", file: { scope: "platform", path: "tool" } });
+    expect(
+      await a.waitFor("doc.rejected", (m) => m.clientId === "open" && m.file.path === "tool"),
+    ).toMatchObject({ code: "invalid" });
+    a.close();
+  });
+});

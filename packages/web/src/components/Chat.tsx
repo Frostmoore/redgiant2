@@ -61,11 +61,40 @@ import { Composer, packMessage } from "./Composer.js";
 import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
 import { ModelMenu } from "./ModelMenu.js";
-import { WorkspaceImage } from "./Preview.js";
 import { QuestionCard } from "./QuestionCard.js";
 import { ToolRequestCard } from "./ToolRequestCard.js";
 import { TurnProgress } from "./TurnProgress.js";
 import { FileIcon } from "./viewers/FileIcon.js";
+
+/** A picture from the workspace inside the chat (generate_image's result); a click opens it. */
+function WorkspaceImage({ scope, path }: { scope: string; path: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let made: string | null = null;
+    let cancelled = false;
+    void attempt(() => getApi().download(scope, path)).then((blob) => {
+      if (cancelled) return;
+      if (!blob) return setFailed(true);
+      made = URL.createObjectURL(
+        // An SVG shown as an image runs no script; the right type makes it display.
+        path.toLowerCase().endsWith(".svg") ? new Blob([blob], { type: "image/svg+xml" }) : blob,
+      );
+      setUrl(made);
+    });
+    return () => {
+      cancelled = true;
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [scope, path]);
+  if (failed) return <div class="dim">{path}</div>;
+  if (!url) return <div class="drawing-frame" />;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" class="generated">
+      <img src={url} alt={path} />
+    </a>
+  );
+}
 
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });

@@ -44,7 +44,8 @@ for (const scheme of ["dark", "light"]) {
   await page.waitForSelector(".explorer .tree-row");
   await page.locator(".tree-row", { hasText: "src" }).click();
   await page.locator(".tree-row", { hasText: "app.py" }).click();
-  await page.waitForSelector(".cm-content");
+  // Files open in the Canvas (p3.5.1), the editor on the common model.
+  await page.waitForSelector(".canvas .cm-content");
   await page.waitForTimeout(300);
   await shot("03-files-editor");
   await page.locator('.explorer button[title="Terminale"]').click();
@@ -54,11 +55,11 @@ for (const scheme of ["dark", "light"]) {
   // Previews: a picture and a PDF.
   await page.locator(".tree-row", { hasText: "docs" }).click();
   await page.locator(".tree-row", { hasText: "report.pdf" }).click();
-  await page.waitForSelector(".pdf-pages canvas");
+  await page.waitForSelector(".canvas .vw-pdf-pages canvas");
   await page.waitForTimeout(500);
   await shot("04b-pdf");
   await page.locator(".tree-row", { hasText: "diagram.svg" }).click();
-  await page.waitForSelector(".preview img");
+  await page.waitForSelector(".canvas .vw-image img");
   await page.waitForTimeout(300);
   await shot("04c-image");
   await page.locator('.explorer button[title="Chiudi"]').click();

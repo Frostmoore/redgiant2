@@ -107,6 +107,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   // agent's change or a whole turn, says where the person is typing, answers a proposal.
   z.object({ type: z.literal("doc.open"), file: DocFile }),
   z.object({ type: z.literal("doc.close"), file: DocFile }),
+  /** Ctrl+S (p3.5.1): the file is written now, not after the pause; `doc.saved` answers. */
+  z.object({ type: z.literal("doc.save"), file: DocFile }),
   z.object({
     type: z.literal("doc.ops"),
     file: DocFile,
@@ -309,7 +311,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   }),
   /**
    * The file was written up to a revision, or could not be (G37.3: a sheet's save needs
-   * LibreOffice; the changes stay in the log and the save is tried again).
+   * LibreOffice; the changes stay in the log and the save is tried again). Every family says it
+   * (p3.5.1: the editor's «Salvato»).
    */
   z.object({
     type: z.literal("doc.saved"),
