@@ -1993,6 +1993,15 @@ const en = {
   limitWeekShort: "7d",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  news352Pdf: "PDF in the Canvas",
+  news352PdfText:
+    "Highlight, add notes, text boxes, drawings and signatures, fill in forms, and rotate, move or remove pages, you and the agent alike. The original stays untouched at the start of the file; removing or moving pages keeps the previous versions. Redaction really removes what lies under the area, and always asks you first.",
+  news352Svg: "Vector drawings",
+  news352SvgText:
+    "SVG files open in an editor with shapes, paths, text, groups, alignment and Inkscape's layers. Saving changes only what was touched: what Inkscape wrote stays. AI and EPS files are edited through an SVG copy.",
+  news352Docs: "Lighter documents",
+  news352DocsText:
+    "All open documents and slides now share one LibreOffice in the page, so more of them can stay open, and Ctrl+S saves at once inside them too.",
   news350Editor: "Edit in the Canvas, together with the agent",
   news350EditorText:
     "Files open in the Canvas can now be edited, by you and by the agents in the same editor. The Changes panel says who changed what and when: undo one change or the agent's whole turn, or let an agent only propose its changes for you to accept.",
@@ -6289,6 +6298,15 @@ const it: Record<Key, string> = {
   limitWeekShort: "7g",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  news352Pdf: "I PDF nel Canvas",
+  news352PdfText:
+    "Evidenzia, aggiungi note, caselle di testo, disegni e firme, compila i moduli, ruota, sposta o togli pagine: tu e l'agente allo stesso modo. L'originale resta intatto in testa al file; togliendo o spostando pagine le versioni di prima restano. L'oscuramento toglie davvero quello che c'è sotto l'area, e chiede sempre a te.",
+  news352Svg: "Grafica vettoriale",
+  news352SvgText:
+    "I file SVG si aprono in un editor con forme, tracciati, testo, gruppi, allineamenti e i livelli di Inkscape. Il salvataggio cambia solo quello che è stato toccato: ciò che ha scritto Inkscape resta. I file AI ed EPS si modificano attraverso una copia SVG.",
+  news352Docs: "Documenti più leggeri",
+  news352DocsText:
+    "Tutti i documenti e le presentazioni aperti condividono ora un solo LibreOffice nella pagina, così se ne possono tenere aperti di più, e Ctrl+S salva subito anche lì dentro.",
   news350Editor: "Modifica nel Canvas, insieme all'agente",
   news350EditorText:
     "I file aperti nel Canvas ora si modificano, da te e dagli agenti nello stesso editor. Il pannello Modifiche dice chi ha cambiato cosa e quando: annulla una modifica o tutto il turno dell'agente, oppure lascia che un agente proponga soltanto le sue modifiche, da accettare.",

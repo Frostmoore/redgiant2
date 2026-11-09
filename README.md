@@ -145,6 +145,9 @@ Options, updates, backups, uninstalling and every environment variable are in
   LibreOffice in the page (Chromium over HTTPS or on this computer; elsewhere a paged preview with the
   edits made by LibreOffice on the server). Every change, yours or the agent's, shows who made it and can
   be undone, one change or the agent's whole turn; agents can also just propose their changes.
+- PDF: highlight, notes, text boxes, drawings, signatures and forms; rotate, move and remove pages. The
+  original stays untouched at the start of the file, and redaction really removes what lies under it.
+  SVG: shapes, paths, text, groups and Inkscape layers, saved without losing what Inkscape wrote.
 - Agents work only on open formats. Closed files are converted beside the original, keeping the layout:
   IDML into Scribus or ODG, Sketch into SVG, PSD into OpenRaster with its layers, Office files into ODF.
   The free programs this needs are downloaded the first time
@@ -265,9 +268,9 @@ RedGiant is in pre-alpha. What comes next, in order:
 - **3.4 — Knowledge** (released): talk with your documents with citations; import from Claude Code,
   Codex, Cursor and exported chats; skills that write themselves; Matrix, Teams and iMessage; the
   Keychain in your browser; smaller, signed updates. The 3.4.x releases bring the fixes from real use.
-- **3.5 — Editor** (released: code and text, spreadsheets, documents and slides): a real editor in the
-  Canvas for every file it can open, with the agent working in the same editor as you. The 3.5.x
-  releases add layered images, vector drawings, 3D and PDF.
+- **3.5 — Editor** (released: code and text, spreadsheets, documents and slides, PDF, vector drawings):
+  a real editor in the Canvas for every file it can open, with the agent working in the same editor as
+  you. The next 3.5.x releases add layered images and 3D.
 - **3.6 — Long arms**: SSH to other machines, integrations and extensions created on request, email
   for the agents, hands-free voice, model evaluations, and ACP both ways (RedGiant inside editors,
   other agents as workers).
