@@ -15572,6 +15572,15 @@ fieldset.vw-seg {
 .pdfed-scroll .pdfViewer .page {
   box-shadow: 0 1px 5px rgb(0 0 0 / 0.18);
 }
+/* The form's fields are pdf.js's, not the app's inputs (no dark background, padding, corners). */
+.pdfed-scroll .annotationLayer :is(input, select, textarea) {
+  font: revert;
+  color: revert;
+  background: revert;
+  border-radius: 0;
+  padding: revert;
+  outline-offset: revert;
+}
 /* A page is paper: its form's fields stay light in the dark theme too. */
 .pdfed-scroll .pdfViewer,
 .pdfed-thumb canvas {
