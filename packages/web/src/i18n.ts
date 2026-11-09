@@ -1903,6 +1903,18 @@ const en = {
   limitWeekShort: "7d",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  news350Editor: "Edit in the Canvas, together with the agent",
+  news350EditorText:
+    "Files open in the Canvas can now be edited, by you and by the agents in the same editor. The Changes panel says who changed what and when: undo one change or the agent's whole turn, or let an agent only propose its changes for you to accept.",
+  news350Code: "Code and text",
+  news350CodeText:
+    "Code, Markdown (text with its preview), JSON, YAML and XML, with syntax colours and errors marked as you type. See the differences of any turn or proposal side by side.",
+  news350Sheets: "Spreadsheets",
+  news350SheetsText:
+    "CSV and ODS are edited directly; an XLSX through an open copy beside it. Charts, pivots and formats are kept when saving. Export as XLSX, ODS, CSV or PDF.",
+  news350Docs: "Documents and slides",
+  news350DocsText:
+    "Writer and Impress run in the page, in Chromium browsers with RedGiant over HTTPS or on this computer (downloaded the first time). Elsewhere you see the pages as they print, and LibreOffice makes the edits on the server. DOCX and PPTX are edited through an open copy; macros never run.",
   news340Knowledge: "Talk with your documents",
   news340KnowledgeText:
     "Give RedGiant folders, PDFs, web pages, mail and chats: they are indexed on your computer (scanned pages too, with OCR) and the agents search them and answer with clickable citations. The Knowledge page shows what is indexed, for one agent, a project or everyone.",
@@ -5987,6 +5999,18 @@ const it: Record<Key, string> = {
   limitWeekShort: "7g",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  news350Editor: "Modifica nel Canvas, insieme all'agente",
+  news350EditorText:
+    "I file aperti nel Canvas ora si modificano, da te e dagli agenti nello stesso editor. Il pannello Modifiche dice chi ha cambiato cosa e quando: annulla una modifica o tutto il turno dell'agente, oppure lascia che un agente proponga soltanto le sue modifiche, da accettare.",
+  news350Code: "Codice e testo",
+  news350CodeText:
+    "Codice, Markdown (testo con la sua anteprima), JSON, YAML e XML, con i colori della sintassi e gli errori segnati mentre scrivi. Vedi le differenze di ogni turno o proposta affiancate.",
+  news350Sheets: "Fogli di calcolo",
+  news350SheetsText:
+    "CSV e ODS si modificano direttamente, un XLSX attraverso una copia aperta accanto. Grafici, pivot e formati restano al salvataggio. Esporta in XLSX, ODS, CSV o PDF.",
+  news350Docs: "Documenti e presentazioni",
+  news350DocsText:
+    "Writer e Impress girano nella pagina, nei browser Chromium con RedGiant in HTTPS o su questo computer (scaricati la prima volta). Altrove vedi le pagine come in stampa, e le modifiche le fa LibreOffice sul server. DOCX e PPTX si modificano attraverso una copia aperta; le macro non partono mai.",
   news340Knowledge: "Parla con i tuoi documenti",
   news340KnowledgeText:
     "Dai a RedGiant cartelle, PDF, pagine web, posta e chat: vengono indicizzati sul tuo computer (anche le pagine scansionate, con l'OCR) e gli agenti li cercano e rispondono con le citazioni cliccabili. La pagina Conoscenza mostra cosa c'è, per un agente, un progetto o per tutti.",

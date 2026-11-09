@@ -140,6 +140,11 @@ Options, updates, backups, uninstalling and every environment variable are in
 - Ask an agent to show you a file and it opens beside the chat: video and audio with a player, PDF,
   Word, Excel and PowerPoint laid out as they print, 3D models to turn, archives, fonts, code and data.
   The agent can look at the Canvas too, and point you to a cell or a line.
+- Edit there too, with the agent in the same editor: code, Markdown, JSON, YAML and XML; spreadsheets
+  (CSV, ODS, and an open copy of an XLSX that keeps charts and pivots); documents and slides with
+  LibreOffice in the page (Chromium over HTTPS or on this computer; elsewhere a paged preview with the
+  edits made by LibreOffice on the server). Every change, yours or the agent's, shows who made it and can
+  be undone, one change or the agent's whole turn; agents can also just propose their changes.
 - Agents work only on open formats. Closed files are converted beside the original, keeping the layout:
   IDML into Scribus or ODG, Sketch into SVG, PSD into OpenRaster with its layers, Office files into ODF.
   The free programs this needs are downloaded the first time
@@ -260,8 +265,9 @@ RedGiant is in pre-alpha. What comes next, in order:
 - **3.4 — Knowledge** (released): talk with your documents with citations; import from Claude Code,
   Codex, Cursor and exported chats; skills that write themselves; Matrix, Teams and iMessage; the
   Keychain in your browser; smaller, signed updates. The 3.4.x releases bring the fixes from real use.
-- **3.5 — Editor**: a real editor in the Canvas for every file it can open (sheets, documents, slides,
-  layered images, vector drawings, 3D, PDF), with the agent working in the same editor as you.
+- **3.5 — Editor** (released: code and text, spreadsheets, documents and slides): a real editor in the
+  Canvas for every file it can open, with the agent working in the same editor as you. The 3.5.x
+  releases add layered images, vector drawings, 3D and PDF.
 - **3.6 — Long arms**: SSH to other machines, integrations and extensions created on request, email
   for the agents, hands-free voice, model evaluations, and ACP both ways (RedGiant inside editors,
   other agents as workers).
