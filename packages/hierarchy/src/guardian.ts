@@ -220,6 +220,80 @@ export function outsideWrites(call: ToolCallInfo, ctx: GuardianContext): string[
   return [];
 }
 
+/** A folder no agent may touch: an archived project's (p3.5.3), with its name for the answer. */
+export interface LockedFolder {
+  path: string;
+  project: string;
+}
+
+/** Whether `path` is `root` or inside it (no scratch space, no shortcuts: an exact check). */
+function within(path: string, root: string): boolean {
+  const win = isWindowsPath(root);
+  const lib = win ? win32 : posix;
+  const key = (x: string) => {
+    const n = lib.normalize(x).replace(/[\\/]+$/, "");
+    return win ? n.toLowerCase() : n;
+  };
+  const p = key(path);
+  const r = key(root);
+  return p === r || p.startsWith(`${r}${win ? "\\" : "/"}`);
+}
+
+/** Every string in a tool's input, however deep (paths hide in options and lists). */
+function strings(v: unknown, out: string[] = []): string[] {
+  if (typeof v === "string") out.push(v);
+  else if (Array.isArray(v)) for (const x of v) strings(x, out);
+  else if (v && typeof v === "object") for (const x of Object.values(v)) strings(x, out);
+  return out;
+}
+
+/**
+ * Where a call would touch a locked folder (an archived project, p3.5.3): every path in its
+ * input for the tools that change something, every path a shell command names (and the folders it
+ * goes into) for bash, which must not even start there. Reading tools are free (`readOnly`).
+ */
+export function lockedWrites(
+  call: ToolCallInfo,
+  ctx: GuardianContext & { locked: LockedFolder[]; readOnly?: (name: string) => boolean },
+): string[] {
+  if (ctx.locked.length === 0 || ctx.readOnly?.(call.name)) return [];
+  const input = (call.input ?? {}) as Record<string, unknown>;
+  if (call.name === "canvas_edit" && editReadsOnly(input)) return [];
+  const start = ctx.roots[0] ?? "/";
+  const found: string[] = [];
+  const check = (token: string, cwd: string) => {
+    const p = resolvePath(token, cwd, ctx);
+    if (p && p !== "$unknown" && ctx.locked.some((l) => within(p, l.path))) found.push(p);
+    return p;
+  };
+  if (call.name === "bash" && typeof input.command === "string") {
+    let cwd = start;
+    let first = true;
+    let isCd = false;
+    for (const w of words(input.command)) {
+      if (SEPARATORS.has(w)) {
+        first = true;
+        continue;
+      }
+      if (REDIRECTS.has(w)) continue;
+      if (first) {
+        isCd = w === "cd";
+        first = false;
+        continue;
+      }
+      // A word that names a place: a path, or an option's value after "=".
+      const value = w.includes("=") && !w.startsWith("/") ? w.slice(w.indexOf("=") + 1) : w;
+      const looksLikePath = /[\\/]/.test(value) || value.startsWith("~") || value === "..";
+      if (!looksLikePath) continue;
+      const p = check(value, cwd);
+      if (isCd && p && p !== "$unknown") cwd = p;
+    }
+    return [...new Set(found)];
+  }
+  for (const v of strings(input)) if (v.trim() && v.length < 4096) check(v.trim(), start);
+  return [...new Set(found)];
+}
+
 /** A canvas_edit call that changes nothing (G37.1): its catalog, or a dry run. */
 export function editReadsOnly(input: unknown): boolean {
   const i = (input ?? {}) as Record<string, unknown>;

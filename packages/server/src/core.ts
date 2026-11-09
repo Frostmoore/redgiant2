@@ -52,6 +52,7 @@ import {
   budgetKeys,
   can,
   hierarchyGuards,
+  type LockedFolder,
   migrateHierarchy,
   PermissionBroker,
   PersistentBudget,
@@ -998,6 +999,8 @@ export class RedGiantCore implements OrchestrationHost {
         // and for RedGiant's own files being touched.
         const withCritical = {
           ...base,
+          // Archived projects' folders (p3.5.3): refused at once, whatever the answer would be.
+          locked: this.lockedFolders.get(agent.ownerId) ?? [],
           critical: {
             knownSecrets: () => this.vault.values(agent.ownerId),
             protectedPaths: this.protectedPaths,
@@ -1101,8 +1104,10 @@ export class RedGiantCore implements OrchestrationHost {
     await core.browserLinks.load();
     await core.registry.load();
     // Archived projects (2026-11-09): their agents only read, from the first request on.
-    for (const p of await core.projects.archived())
+    for (const p of await core.projects.archived()) {
       core.registry.setProjectArchived(p.ownerId, p.id, true);
+      await core.lockFolders(p.ownerId);
+    }
     await core.moveSecretsToVault();
     await core.policies.load();
     await core.commandSettings.load();
@@ -4892,6 +4897,19 @@ export class RedGiantCore implements OrchestrationHost {
     this.assertActive(l.ownerId, this.registry.get(l.agentId)?.projectId);
   }
 
+  /** Archived projects' folders per owner (p3.5.3), as written and as they really are. */
+  private readonly lockedFolders = new Map<string, LockedFolder[]>();
+  private async lockFolders(ownerId: string): Promise<void> {
+    const out: LockedFolder[] = [];
+    for (const p of await this.projects.list(ownerId)) {
+      if (!p.archivedAt) continue;
+      out.push({ path: p.path, project: p.name });
+      const real = await realpath(p.path).catch(() => p.path);
+      if (real !== p.path) out.push({ path: real, project: p.name });
+    }
+    this.lockedFolders.set(ownerId, out);
+  }
+
   /** Whether the files of a scope are read only now: an archived project's (2026-11-09). */
   readOnlyScope(ownerId: string, scope: string): boolean {
     return this.registry.isProjectArchived(ownerId, scope.match(/^project:([a-z0-9-]+)$/)?.[1]);
@@ -5191,6 +5209,7 @@ export class RedGiantCore implements OrchestrationHost {
         paused.push(a.id);
       }
       await this.projects.setArchived(ownerId, projectId, { paused });
+      await this.lockFolders(ownerId);
     } catch (err) {
       // Nothing half done: what was paused comes back, and the project stays as it was.
       this.registry.setProjectArchived(ownerId, projectId, false);
@@ -5253,6 +5272,7 @@ export class RedGiantCore implements OrchestrationHost {
     const state = await this.projects.archivedState(ownerId, projectId);
     await this.projects.setArchived(ownerId, projectId, null);
     this.registry.setProjectArchived(ownerId, projectId, false);
+    await this.lockFolders(ownerId);
     const resumed: string[] = [];
     const existing = new Set((await this.automations.list(ownerId)).map((a) => a.id));
     for (const id of state?.paused ?? []) {

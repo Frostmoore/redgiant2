@@ -1,6 +1,13 @@
 import type { ToolCallInfo } from "@redgiant/agent";
 import { criticalOf } from "./critical.js";
-import { editReadsOnly, outsideShows, outsideWrites, readsIntoKnowledge } from "./guardian.js";
+import {
+  editReadsOnly,
+  type LockedFolder,
+  lockedWrites,
+  outsideShows,
+  outsideWrites,
+  readsIntoKnowledge,
+} from "./guardian.js";
 
 /** The guardian's danger: writing outside the agent's folders (only the human approves it). */
 export const OUTSIDE_PROJECT = "outside-project";
@@ -161,6 +168,11 @@ export interface PolicySettings {
    * (read when a call is checked, never stored here) and RedGiant's own files.
    */
   critical?: { knownSecrets?: () => readonly string[]; protectedPaths?: readonly string[] };
+  /**
+   * Archived projects' folders (p3.5.3): no agent writes there or runs a command there, whatever
+   * the rules, the mode or the person would answer. Refused at once, never asked.
+   */
+  locked?: LockedFolder[];
 }
 
 export const DEFAULT_POLICY: PolicySettings = {
@@ -281,6 +293,26 @@ export interface Evaluation {
  * modify, auto asks only for dangerous calls.
  */
 export function evaluate(mode: PermissionMode, call: ToolCallInfo, s: PolicySettings): Evaluation {
+  if (s.locked?.length) {
+    const hit = lockedWrites(call, {
+      roots: s.roots ?? [],
+      ...(s.home && { home: s.home }),
+      locked: s.locked,
+      readOnly: (name) => READ_ONLY_TOOLS.has(name),
+    });
+    const first = hit[0];
+    if (first) {
+      const project = s.locked.find((l) => first === l.path || first.startsWith(l.path))?.project;
+      return {
+        decision: "deny",
+        reasons: [
+          `The project "${project ?? "?"}" is archived: restore it first (nothing may change or run in ${first} until then)`,
+        ],
+        danger: [],
+        critical: [],
+      };
+    }
+  }
   const e = evaluateRules(mode, call, s);
   if (e.decision === "deny") return e;
   const hits = criticalOf(call, {

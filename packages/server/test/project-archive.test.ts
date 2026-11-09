@@ -291,10 +291,24 @@ describe("archiving a whole project (2026-11-09)", () => {
         ops: [{ op: "replace_text", find: "Notes", text: "Changed" }],
       },
     };
-    const edit = await say("edit");
-    expect(edit?.ok).toBe(false);
-    expect(edit?.output).toMatch(/archived project: its files are read only/);
-    expect(await readFile(join(project?.path ?? "", "notes.md"), "utf8")).toBe("# Notes\n");
+    const dir = project?.path ?? "";
+    steps.write = { name: "write_file", input: { path: join(dir, "new.txt"), content: "x" } };
+    steps.change = {
+      name: "edit_file",
+      input: { path: join(dir, "notes.md"), old_string: "Notes", new_string: "Changed" },
+    };
+    steps.shell = { name: "bash", input: { command: `cd ${dir} && touch made-by-bash` } };
+    // The person's yes is ready (decision "allow"), yet nothing is asked: refused at once.
+    const asked = requests.length;
+    for (const step of ["edit", "write", "change", "shell"]) {
+      const r = await say(step);
+      expect(r?.ok, step).toBe(false);
+      expect(r?.output, step).toMatch(/The project "Shop" is archived: restore it first/);
+    }
+    expect(requests.length).toBe(asked);
+    expect(await readFile(join(dir, "notes.md"), "utf8")).toBe("# Notes\n");
+    await expect(readFile(join(dir, "new.txt"), "utf8")).rejects.toThrow();
+    await expect(readFile(join(dir, "made-by-bash"), "utf8")).rejects.toThrow();
 
     // Undone: restored, the automations as they were.
     const change = (await server.core.changes.list("me")).find((c) => c.target === "project:shop");
@@ -303,6 +317,9 @@ describe("archiving a whole project (2026-11-09)", () => {
     expect(await archivedAt()).toBeUndefined();
     expect(await enabled(server)).toMatchObject({ "shop-on": true, "shop-off": false });
     expect((await server.core.changes.get("me", change?.id ?? ""))?.stage).toBe("undone");
+    // Restored: the same write goes through again (the guardian's rules as always).
+    expect((await say("write"))?.ok).toBe(true);
+    expect(await readFile(join(dir, "new.txt"), "utf8")).toBe("x");
   }, 30_000);
 
   it("is archived again after a restart: the mark comes from the database", async () => {
