@@ -293,6 +293,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
     /** The rule for the agents' edits on this file, and whether it is the file's own choice. */
     mode: AgentEditMode,
     modeOwn: z.boolean(),
+    /** The agents whose own rule is «come proposte» (p3.5.3: what «as set for the agent» means). */
+    agentsPropose: z.array(z.string().max(200)).max(500).optional(),
   }),
   z.object({
     type: z.literal("doc.changed"),
@@ -339,6 +341,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
     file: DocFile,
     mode: AgentEditMode,
     modeOwn: z.boolean(),
+    agentsPropose: z.array(z.string().max(200)).max(500).optional(),
   }),
   /**
    * The file was written up to a revision, or could not be (G37.3: a sheet's save needs

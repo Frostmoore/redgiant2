@@ -24,8 +24,8 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
 import { IconAlert, IconCheck } from "../../icons.js";
 import { renderMarkdown } from "../../markdown.js";
-import { openDoc, saveDoc, sendDoc } from "../../state.js";
-import { TextCollab } from "../../viewers/collab.js";
+import { docView, openDoc, saveDoc, sendDoc } from "../../state.js";
+import { freshAgentWrites, TextCollab } from "../../viewers/collab.js";
 import { viewerFor } from "../../viewers/kind.js";
 import { useOrders, useReport } from "../../viewers/live.js";
 import { type Problem, SYNTAX_NAMES, syntaxOf, syntaxProblems } from "../../viewers/syntax.js";
@@ -37,6 +37,8 @@ import { Branch } from "./TreeBranch.js";
 const GESTURE_MS = 2000;
 /** How long an agent's text stays highlighted. */
 const HIGHLIGHT_MS = 8000;
+/** The place the person typed in stays held this long after they leave the text (p3.5.3). */
+const HOLD_AFTER_BLUR_MS = 3000;
 /** The preview, the tree and the syntax check follow the text after this pause. */
 const DERIVE_MS = 250;
 
@@ -184,6 +186,7 @@ export function TextEditor({
     let sendTimer: ReturnType<typeof setTimeout> | undefined;
     let presenceTimer: ReturnType<typeof setTimeout> | undefined;
     let deriveTimer: ReturnType<typeof setTimeout> | undefined;
+    let blurTimer: ReturnType<typeof setTimeout> | undefined;
     let checks = 0;
     let markId = 0;
     let citation = line;
@@ -239,7 +242,7 @@ export function TextEditor({
         if (markdown || treeable) setText(now);
         if (!syntax) return;
         const n = ++checks;
-        void syntaxProblems(now, choice.format).then((list) => {
+        void syntaxProblems(now, choice.format, file.path).then((list) => {
           if (!live || n !== checks || !view) return;
           setProblems(list);
           view.dispatch(setDiagnostics(view.state, diagnostics(list, view.state.doc.length)));
@@ -292,7 +295,22 @@ export function TextEditor({
                 if (u.docChanged) derive();
                 if (u.docChanged || u.viewportChanged) tellPlace();
               }),
-              EditorView.domEventHandlers({ blur: () => presence(false) }),
+              // Leaving the text (to ask an agent in the chat, p3.5.3) sends what was typed at
+              // once and keeps the place held a moment more: the agent asked right away does
+              // not write over the line the person was just typing.
+              EditorView.domEventHandlers({
+                blur: () => {
+                  if (sendTimer) clearTimeout(sendTimer);
+                  sendTimer = undefined;
+                  collab.flush();
+                  if (Date.now() - lastKey < GESTURE_MS) presence(true);
+                  if (blurTimer) clearTimeout(blurTimer);
+                  blurTimer = setTimeout(() => {
+                    blurTimer = undefined;
+                    if (!view?.hasFocus) presence(false);
+                  }, HOLD_AFTER_BLUR_MS);
+                },
+              }),
             ],
           }),
         });
@@ -325,9 +343,12 @@ export function TextEditor({
     const close = openDoc(file, {
       opened(snapshot, revision) {
         if (snapshot.family !== "text") return;
+        const first = !view;
         collab.reset(revision);
         setTextNow(snapshot.text);
         savePending();
+        // Opened after an agent edited it: what it just wrote, highlighted as if seen live.
+        if (first) highlight(freshAgentWrites(docView(file).value.changes, revision, { max: 1 }));
       },
       replaced(m) {
         if (m.snapshot.family !== "text") return;
@@ -358,6 +379,7 @@ export function TextEditor({
       if (sendTimer) clearTimeout(sendTimer);
       if (presenceTimer) clearTimeout(presenceTimer);
       if (deriveTimer) clearTimeout(deriveTimer);
+      if (blurTimer) clearTimeout(blurTimer);
       collab.flush();
       close();
       editor.current = undefined;

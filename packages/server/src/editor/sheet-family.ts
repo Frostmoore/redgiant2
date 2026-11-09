@@ -9,11 +9,18 @@ import { basename, dirname, extname, join } from "node:path";
 import type { DocFile, DocOp, SheetMutation } from "@redgiant/protocol";
 import { type DocFamily, type Loaded, SaveWaits } from "./family.js";
 import { atomicWrite } from "./host.js";
-import { areaName, cellName } from "./sheet/a1.js";
+import { areaName, cellName, parseArea } from "./sheet/a1.js";
 import { SHEET_CATALOG, sheetFromAgent } from "./sheet/agent.js";
 import { type DelimitedFormat, readDelimited, writeDelimited } from "./sheet/csv.js";
 import { keepEngine, takeEngine, UNIVER_VERSION } from "./sheet/engine.js";
-import { type CellData, cellsOf, type SheetModel, styleOf, UNIT } from "./sheet/model.js";
+import {
+  type CellData,
+  cellsOf,
+  type SheetModel,
+  styleOf,
+  UNIT,
+  type WorkbookData,
+} from "./sheet/model.js";
 import { readOds } from "./sheet/ods.js";
 import {
   asSheet,
@@ -70,6 +77,65 @@ function run(model: SheetModel, mutations: readonly SheetMutation[]): SheetModel
   const next: SheetModel = { ...model, wb: e.snapshot() };
   keepEngine(next, e);
   return next;
+}
+
+/**
+ * The cells a chart or a pivot table reads are a fixed range (p3.5.3, the person's test: «Luglio»
+ * written in row 8 under a chart reading A1:B7 stayed out of it): an edit that writes just below
+ * or right of such a range is told how to grow it.
+ */
+export function chartAdvice(model: SheetModel, ops: readonly DocOp[]): string | undefined {
+  const written = ops.flatMap((op) => targetsOf(asSheet(op))).filter((t) => !t.shift);
+  if (!written.length) return undefined;
+  const notes: string[] = [];
+  for (const p of model.placeholders) {
+    if ((p.kind !== "chart" && p.kind !== "pivot") || !p.source) continue;
+    for (const src of p.source.split(/,\s*/)) {
+      const a = parseArea(src);
+      if (!a) continue;
+      const sheet = a.sheet
+        ? model.wb.sheetOrder.find(
+            (id) => model.wb.sheets[id]?.name.toLowerCase() === a.sheet?.toLowerCase(),
+          )
+        : p.sheet;
+      const r = a.area;
+      const below = written.find(
+        (t) => t.sheet === sheet && t.r0 === r.r1 + 1 && t.c0 <= r.c1 && r.c0 <= t.c1,
+      );
+      const right = written.find(
+        (t) => t.sheet === sheet && t.c0 === r.c1 + 1 && t.r0 <= r.r1 && r.r0 <= t.r1,
+      );
+      const what = `${p.kind === "chart" ? "The chart" : "The pivot table"}${p.name ? ` «${p.name}»` : ""} reads ${src}`;
+      if (below)
+        notes.push(
+          `${what}: what you wrote in row ${r.r1 + 2} (${areaName(below)}) is just below it, so it is NOT included. A chart's range grows only with rows inserted inside it: undo this edit, then insert_rows before row ${r.r1 + 1} (its last row; the range becomes ${cellName(r.r0, r.c0)}:${cellName(r.r1 + 1, r.c1)}) and write the rows ${r.r1 + 1}-${r.r1 + 2} in the order you want (the old last row moved to row ${r.r1 + 2}).`,
+        );
+      else if (right)
+        notes.push(
+          `${what}: what you wrote in column ${areaName(right).replace(/\d+.*$/, "")} is just right of it, so it is NOT included. To grow it, undo this edit and insert_cols before its last column, then write the columns in the order you want.`,
+        );
+    }
+  }
+  return notes.length ? notes.join("\n") : undefined;
+}
+
+/** The workbook with its formulas computed (what a CSV writes in their place). */
+async function calculated(model: SheetModel): Promise<WorkbookData | undefined> {
+  const hasFormula = model.wb.sheetOrder.some((id) =>
+    Object.values(model.wb.sheets[id]?.cellData ?? {}).some((row) =>
+      Object.values(row).some((c) => !!c?.f || !!c?.si),
+    ),
+  );
+  if (!hasFormula) return undefined;
+  const e = takeEngine(model);
+  try {
+    await e.calculate(2500);
+    return e.snapshot();
+  } catch {
+    return undefined;
+  } finally {
+    keepEngine(model, e);
+  }
 }
 
 /** The pivot table an operation would write into (their output is LibreOffice's, never ours). */
@@ -161,7 +227,9 @@ export function sheetFamily(d: SheetFamilyDeps): DocFamily<SheetModel> & {
     },
     async saveTo(ctx) {
       const f = ctx.format as Format;
-      if (f.kind === "delimited") return writeDelimited(ctx.model, f.f);
+      // A CSV keeps values only (p3.5.3): the formulas computed first, their values written.
+      if (f.kind === "delimited")
+        return writeDelimited(ctx.model, f.f, await calculated(ctx.model));
       if (!ctx.ops.length || !ctx.before) return ctx.bytes;
       const lo = soffice(ctx.ownerId);
       const patch = buildPatch(ctx.before, ctx.ops);
@@ -344,6 +412,7 @@ export function sheetFamily(d: SheetFamilyDeps): DocFamily<SheetModel> & {
     summarize: (model, ops, kind) => sheetSummary(model, ops.map(asSheet), kind),
     wrote: (ops) => wroteOf(ops.map(asSheet)),
     fromAgent: (model, ops) => sheetFromAgent(model, ops, (m, op) => pivotHit(m, op)),
+    advice: (model, ops) => chartAdvice(model, ops),
     catalog: () => SHEET_CATALOG,
     structure: (model, ask) => sheetStructure(model, ask),
   };

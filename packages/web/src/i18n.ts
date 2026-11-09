@@ -789,7 +789,8 @@ const en = {
   officeChecking: "Checking this browser…",
   officeDownloading:
     "Downloading the full editor (LibreOffice for the browser, {size}), only the first time…",
-  officeBrowserCopy: "Bringing the editor into this browser (kept for next time)…",
+  officeBrowserCopy:
+    "Bringing the editor into this browser (about {size}, the first time only: then it stays here)…",
   officeOpening: "Opening the document in LibreOffice…",
   officeFirstTime:
     "LibreOffice runs inside this page: its own menus are in English. The first time takes a little longer.",
@@ -819,6 +820,12 @@ const en = {
   officeReplaceAll: "Replace all",
   officeReplaced: "Done: the pages update as soon as LibreOffice has written the file.",
   officeEditCopy: "Edit",
+  officeEditNoteFirstShort: "About {size} the first time",
+  officeEditNoteFirst:
+    "The first time, «Edit» downloads the full editor (LibreOffice for the browser, about {size}); then it stays in this browser. Where it cannot start, you edit on the laid-out pages with Find and Replace.",
+  officeEditNoteFallbackShort: "Here: pages and Find",
+  officeEditNoteFallback:
+    "With «Edit» you see the laid-out pages and use Find and Replace; the agents' edits are made by LibreOffice on the server.",
   officeEditCopyHint:
     "Edit it on its open copy (ODT or ODP) beside it: the original stays as it is unless you choose to write it back",
   officeMakingCopy: "Making the copy…",
@@ -851,7 +858,8 @@ const en = {
   docOutsideClose: "Got it",
   docAgentEditing: "{name} is editing",
   docModeLabel: "Agents' edits",
-  docModeDefault: "As set for the agent",
+  docModeDefaultNow: "As for the agent: right away",
+  docModeDefaultSome: "As for the agent: proposals ({names})",
   docModeNow: "Right away",
   docModePropose: "As proposals to accept",
   docChanges: "Changes",
@@ -893,8 +901,10 @@ const en = {
   sheetEditorLabel: "Sheet of the file",
   sheetLoading: "Loading the sheet editor…",
   sheetCsvNote:
-    "A {kind} file keeps values only: formats, merges and other sheets are not saved in it. Export as ODS to keep them.",
+    "A {kind} file keeps values only: a formula is saved as its result; formats, merges and other sheets are not saved in it. Export as ODS to keep them.",
   sheetPhChart: "chart {name}on {sheet} {range}",
+  sheetPhChartReads:
+    "chart {name}on {sheet} {range}, reading the cells {source} (a row written below them is not in the chart)",
   sheetPhPivot: "pivot table {name}on {sheet} {range}",
   sheetPhImage: "picture on {sheet} {range}",
   sheetPhShape: "drawing on {sheet} {range}",
@@ -925,7 +935,8 @@ const en = {
   copyBarSafe: "the original stays as it is",
   copyBarRewrite: "Write the original too",
   copyBarKept: "{n} things stay in the file, not editable here",
-  sheetPlaceholdersHow: "Outlined in grey in the sheet; you see them in «Pages».",
+  sheetPlaceholdersHow:
+    "Pivot tables are outlined in grey in the sheet; you see everything in «Pages».",
   sheetReexportHint:
     "LibreOffice writes the whole file again: Excel's table styles and what LibreOffice does not know are lost in it.",
   sheetEditCopy: "Edit (ODS copy)",
@@ -5129,7 +5140,8 @@ const it: Record<Key, string> = {
   officeChecking: "Controllo questo browser…",
   officeDownloading:
     "Scarico l'editor completo (LibreOffice per il browser, {size}), solo la prima volta…",
-  officeBrowserCopy: "Porto l'editor in questo browser (resta per le prossime volte)…",
+  officeBrowserCopy:
+    "Porto l'editor in questo browser (circa {size}, solo la prima volta: poi resta qui)…",
   officeOpening: "Apro il documento in LibreOffice…",
   officeFirstTime:
     "LibreOffice gira dentro questa pagina: i suoi menu sono in inglese. La prima volta ci vuole un po' di più.",
@@ -5159,6 +5171,12 @@ const it: Record<Key, string> = {
   officeReplaceAll: "Sostituisci tutte",
   officeReplaced: "Fatto: le pagine si aggiornano appena LibreOffice ha scritto il file.",
   officeEditCopy: "Modifica",
+  officeEditNoteFirstShort: "Circa {size} la prima volta",
+  officeEditNoteFirst:
+    "La prima volta «Modifica» scarica l'editor completo (LibreOffice per il browser, circa {size}); poi resta in questo browser. Dove non può partire, si modifica sulle pagine impaginate con Trova e Sostituisci.",
+  officeEditNoteFallbackShort: "Qui: pagine e Trova",
+  officeEditNoteFallback:
+    "Con «Modifica» vedi le pagine impaginate e usi Trova e Sostituisci; le modifiche degli agenti le fa LibreOffice sul server.",
   officeEditCopyHint:
     "Modificalo sulla sua copia aperta (ODT o ODP) accanto: l'originale resta com'è, a meno che tu scelga di riscriverlo",
   officeMakingCopy: "Preparo la copia…",
@@ -5192,7 +5210,8 @@ const it: Record<Key, string> = {
   docOutsideClose: "Ho capito",
   docAgentEditing: "{name} sta modificando",
   docModeLabel: "Modifiche degli agenti",
-  docModeDefault: "Come scelto per l'agente",
+  docModeDefaultNow: "Come per l'agente: subito",
+  docModeDefaultSome: "Come per l'agente: proposte ({names})",
   docModeNow: "Subito",
   docModePropose: "Come proposte da accettare",
   docChanges: "Modifiche",
@@ -5234,8 +5253,10 @@ const it: Record<Key, string> = {
   sheetEditorLabel: "Foglio del file",
   sheetLoading: "Carico l'editor dei fogli…",
   sheetCsvNote:
-    "Un file {kind} conserva solo i valori: formati, unioni e altri fogli non si salvano. Esporta come ODS per tenerli.",
+    "Un file {kind} conserva solo i valori: una formula si salva come il suo risultato; formati, unioni e altri fogli non si salvano. Esporta come ODS per tenerli.",
   sheetPhChart: "grafico {name}su {sheet} {range}",
+  sheetPhChartReads:
+    "grafico {name}su {sheet} {range}, che legge le celle {source} (una riga scritta sotto non entra nel grafico)",
   sheetPhPivot: "tabella pivot {name}su {sheet} {range}",
   sheetPhImage: "immagine su {sheet} {range}",
   sheetPhShape: "disegno su {sheet} {range}",
@@ -5266,7 +5287,8 @@ const it: Record<Key, string> = {
   copyBarSafe: "l'originale resta com'è",
   copyBarRewrite: "Riscrivi anche l'originale",
   copyBarKept: "{n} cose restano nel file, non si modificano qui",
-  sheetPlaceholdersHow: "Contornate in grigio nel foglio; si vedono in «Pagine».",
+  sheetPlaceholdersHow:
+    "Le tabelle pivot sono contornate in grigio nel foglio; si vede tutto in «Pagine».",
   sheetReexportHint:
     "LibreOffice riscrive tutto il file: gli stili delle tabelle di Excel e ciò che LibreOffice non conosce vanno persi.",
   sheetEditCopy: "Modifica (copia ODS)",

@@ -285,6 +285,8 @@ const brain = (req) => {
           ? "Fatto: ho aggiunto la sezione sui resi, la vedi nell'anteprima accanto."
           : "Fatto: ho aggiunto le due voci e corretto l'orario. Le vedi evidenziate nel Canvas; dal pannello Modifiche puoi annullarle.",
     };
+  if (results && typeof toolOut === "string" && toolOut.startsWith("Refused"))
+    return { text: "Stai scrivendo proprio lì: non tocco niente, riprovo quando hai finito." };
   if (results && typeof toolOut === "string" && toolOut.startsWith("Proposed to the person"))
     return { text: "Te l'ho proposta: la trovi in Modifiche, da accettare o rifiutare." };
   const canvasMoves = [
@@ -449,6 +451,33 @@ const brain = (req) => {
       "Aggiungi il pane",
       "canvas_edit",
       { path: "canvas/spesa.txt", ops: [{ op: "insert", line: 2, text: "- pane integrale\n" }] },
+    ],
+    // p3.5.3: the person's test of 3.5.1, the total of a CSV with amounts like «23.50».
+    [
+      "Aggiungi il totale delle spese",
+      "canvas_edit",
+      {
+        path: "canvas/importi.csv",
+        ops: [{ op: "set_range", range: "A9", values: [["Totale", null, "=SUM(C2:C8)"]] }],
+      },
+    ],
+    // p3.5.3: a proposal far from where the person typed, accepted from the panel.
+    [
+      "Aggiungi l'intestazione",
+      "canvas_edit",
+      {
+        path: "canvas/app.py",
+        ops: [{ op: "insert", line: 1, text: "# Bottega di Ada: the cart's total.\n" }],
+      },
+    ],
+    // p3.5.3: an edit where the person is typing (line 15 of app.py).
+    [
+      "Correggi la riga 15",
+      "canvas_edit",
+      {
+        path: "canvas/app.py",
+        ops: [{ op: "replace", from_line: 15, to_line: 15, text: "    if net < 0:" }],
+      },
     ],
   ];
   for (const [words, name, input] of canvasMoves)
@@ -1439,6 +1468,11 @@ if (process.env.DEMO_CANVAS) {
   await writeFile(
     join(into, "spese.csv"),
     "Voce,Gennaio,Febbraio,Marzo\nAffitto,650,650,650\nLuce,82.4,77.1,69.8\nInternet,29.9,29.9,29.9\nTotale,=SUM(B2:B4),=SUM(C2:C4),=SUM(D2:D4)\n",
+  );
+  // p3.5.3: amounts with a final zero, as in the person's test of 3.5.1 (the right total: 383.54).
+  await writeFile(
+    join(into, "importi.csv"),
+    "Data,Voce,Importo\n2026-11-01,Pane,23.50\n2026-11-02,Latte,48.00\n2026-11-03,Frutta,62.30\n2026-11-04,Carne,95.00\n2026-11-05,Pesce,77.24\n2026-11-06,Vino,12\n2026-11-07,Olio,65.50\n",
   );
   const { copyFile } = await import("node:fs/promises");
   const sheets = new URL("../../server/test/fixtures/sheets/", import.meta.url);

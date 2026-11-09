@@ -25,6 +25,7 @@ import {
   attempt,
   type DocView as DocViewState,
   dismissOutside,
+  dismissRefusal,
   docView,
   saveDoc,
   sendDoc,
@@ -191,6 +192,13 @@ export function saveState(
   return v.saved ? "saved" : undefined;
 }
 
+/** The «as set for the agent» choice in words: what it means for this file now. */
+export function defaultModeLabel(proposing: readonly string[]): string {
+  if (!proposing.length) return t("docModeDefaultNow");
+  const names = proposing.slice(0, 3).join(", ") + (proposing.length > 3 ? "…" : "");
+  return t("docModeDefaultSome", { names });
+}
+
 /** Ctrl+S or Cmd+S (not with Alt or Shift: those are the browser's or the person's own). */
 export const isSaveKey = (
   e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">,
@@ -245,6 +253,7 @@ export function DocEditor({
   const groups = useMemo(() => groupChanges(v.changes), [v.changes]);
   const refusal = v.refusal && asked.current.get(v.refusal.clientId);
   const undo = (what: { revision?: number; toBefore?: boolean; groupId?: string }) => {
+    dismissRefusal(file);
     const clientId = askId();
     asked.current.set(clientId, what);
     sendDoc({ type: "doc.undo", file, clientId, ...what });
@@ -263,9 +272,11 @@ export function DocEditor({
       scrollIntoView: true,
     });
   };
+  // The differences of a proposal close when the host takes it off the list (below), not before:
+  // refused, they stay with the reason above them.
   const decide = (proposalId: string, accept: boolean) => {
+    dismissRefusal(file);
     sendDoc({ type: "doc.decide", file, clientId: askId(), proposalId, accept });
-    if (diff?.proposalId === proposalId) setDiff(undefined);
   };
   // A proposal shown that is not open anymore (decided elsewhere) closes its differences.
   useEffect(() => {
@@ -277,6 +288,12 @@ export function DocEditor({
     Date.now() - v.presenceAt < 60_000 ? v.presence.filter((p) => p.who !== PERSON) : [];
   const people = v.presence.filter((p) => p.who === PERSON).length;
   const save = saveState(v);
+  // «As set for the agent» says what that is (p3.5.3): right away, or which agents propose.
+  const proposing = (v.agentsPropose ?? []).map(
+    (id) => agents.value.find((a) => a.id === id)?.name ?? id,
+  );
+  const defaultLabel = defaultModeLabel(proposing);
+  const modeHint = v.modeOwn ? undefined : defaultLabel;
   // Ctrl+S anywhere in the tab saves now; the text editor sends its last keystrokes first (its
   // own key binding, which marks the event as handled).
   const shell = useRef<HTMLDivElement>(null);
@@ -336,6 +353,7 @@ export function DocEditor({
           <span>{t("docModeLabel")}</span>
           <select
             value={v.modeOwn ? v.mode : "default"}
+            title={modeHint}
             onChange={(e) =>
               void attempt(() =>
                 setDocMode(
@@ -345,7 +363,7 @@ export function DocEditor({
               )
             }
           >
-            <option value="default">{t("docModeDefault")}</option>
+            <option value="default">{defaultLabel}</option>
             <option value="now">{t("docModeNow")}</option>
             <option value="propose">{t("docModePropose")}</option>
           </select>
@@ -382,8 +400,8 @@ export function DocEditor({
           </button>
         </div>
       )}
-      {v.refusal && (
-        <div class="doc-notice" role="alert">
+      {v.refusal && v.refusal.clientId !== "open" && (
+        <div class="doc-notice doc-refused" role="alert">
           <span>{t("docRefused", { reason: v.refusal.reason })}</span>
           {refusal?.revision && !refusal.groupId && v.refusal.code === "conflict" && (
             <button
@@ -394,6 +412,9 @@ export function DocEditor({
               {t("docBackBefore")}
             </button>
           )}
+          <button type="button" class="vw-btn small" onClick={() => dismissRefusal(file)}>
+            {t("docOutsideClose")}
+          </button>
         </div>
       )}
       <div class="doc-main">
@@ -538,7 +559,7 @@ export function DocEditor({
                         <IconEye size={13} />
                       </button>
                     )}
-                    {agentTurn && open.length > 1 && (
+                    {agentTurn && open.length > 0 && (
                       <button
                         type="button"
                         class="link doc-undo-turn"

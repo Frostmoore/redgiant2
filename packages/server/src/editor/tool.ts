@@ -62,7 +62,10 @@ export function canvasEditTool(
       inputSchema: {
         type: "object",
         properties: {
-          path: { type: "string", description: "The file to edit (in your workspace)" },
+          path: {
+            type: "string",
+            description: "The file to edit (outside your workspace the person is asked first)",
+          },
           tab: { type: "number", description: "A canvas tab's number (the active one otherwise)" },
           ops: { type: "array", items: { type: "object" }, description: "Operations, see help" },
           dry_run: { type: "boolean" },
@@ -80,10 +83,8 @@ export function canvasEditTool(
       if (i.path) {
         const f = await fileAt(ws, i.path);
         if ("error" in f) return i.help ? catalogs(host.editor) : fail(f.error);
-        if (f.outside)
-          return fail(
-            `"${i.path}" is outside your workspace: canvas_edit edits files of your workspace only.`,
-          );
+        // Outside the agent's folders (God on a project's file): the guardian asked the person
+        // first, as for write_file and edit_file (p3.5.3); the file must be in a workspace.
         abs = f.abs;
       } else {
         const state = await host.state(agent.ownerId);
@@ -104,12 +105,20 @@ export function canvasEditTool(
           );
         file = { scope: tab.target.scope, path: tab.target.path };
         abs = await host.absOf(agent.ownerId, file).catch(() => undefined);
+        if (!abs) return fail(`The file of tab ${tab.title} is not there anymore.`);
         const root = await realpath(ws.root).catch(() => resolve(ws.root));
-        if (!abs || !within(root, await realpath(abs).catch(() => abs as string)))
-          return fail(`Tab ${tab.title} is not in your workspace: give a "path" of yours.`);
+        // A tab outside the agent's folders: its path, so the guardian can ask the person (the
+        // same rule as write_file and edit_file outside the workspace).
+        if (!within(root, await realpath(abs).catch(() => abs as string)))
+          return fail(
+            `Tab ${tab.title} is outside your workspace: to edit it, call canvas_edit with path "${abs}" (the person is asked first, as for edit_file).`,
+          );
       }
       file ??= await host.docFileOf(agent.ownerId, abs);
-      if (!file) return fail(`${basename(abs)} is in no workspace the editor knows.`);
+      if (!file)
+        return fail(
+          `${basename(abs)} is in no project or folder RedGiant knows: canvas_edit edits files of the projects; use edit_file or write_file.`,
+        );
       let family = host.editor.familyFor(file.path);
       let copied = "";
       if (!family && host.copyOf && !i.help) {
@@ -175,6 +184,9 @@ export function canvasEditTool(
           `Nothing applied: ${made.index !== undefined ? `operation ${made.index + 1}: ` : ""}${made.error}.`,
         );
       const notes = host.editor.notesFor(ctx.sessionId);
+      // The family's word when the edit likely missed its aim (p3.5.3: a row below a chart).
+      const advice = family.advice?.(model, made.ops);
+      if (advice) notes.unshift(advice);
       const tail = `${copied}${notes.length ? `\n\n${notes.join("\n")}` : ""}`;
       const author = { id: agent.id, name: agent.name, sessionId: ctx.sessionId };
       const mode = host.editor.modeFor(agent.ownerId, agent.id, file);
@@ -200,6 +212,19 @@ export function canvasEditTool(
         return `Dry run on revision ${base} (nothing changed): it would have ${out.summary.text}${mode === "propose" ? ", as a proposal for the person" : ""}.${preview}${tail}`;
       }
       if (mode === "propose") {
+        // A proposal follows the same rules as an edit (p3.5.3): where the person is typing, or
+        // on a place someone changed since the agent's revision, it is refused, not kept.
+        const check = await host.editor.apply(agent.ownerId, file, {
+          author,
+          baseRevision: base,
+          ops: made.ops,
+          groupId: host.editor.groupOf(ctx.sessionId),
+          dryRun: true,
+        });
+        if (!check.ok)
+          return fail(
+            `Refused (nothing proposed): ${check.reason}. The file is at revision ${check.revision}: canvas_look with view "structure" shows it.${tail}`,
+          );
         const p = await host.editor.propose(agent.ownerId, file, {
           author,
           baseRevision: base,

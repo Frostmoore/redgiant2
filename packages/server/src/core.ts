@@ -2944,23 +2944,21 @@ export class RedGiantCore implements OrchestrationHost {
       // The editor's model as words (G37.1): the conversation has seen this revision now.
       structure: async (ownerId, abs, ask, ctx) => {
         let file = await this.docFileOf(ownerId, abs);
-        // A closed document is read through its open copy when there is one (G37.4).
-        const copy =
-          file && !this.editor.familyFor(file.path)
-            ? (copyOfOriginal(file.path) ?? svgCopyOfOriginal(file.path))
-            : undefined;
-        if (file && copy) {
-          const root = await this.scopeRoot(ownerId, file.scope);
-          const here = await stat(await new LocalWorkspace(root).resolve(copy)).catch(
-            () => undefined,
-          );
-          if (here?.isFile()) file = { scope: file.scope, path: copy };
+        // A closed document is read through its open copy (G37.4), made now when it is missing
+        // (p3.5.3: canvas_look said «no editor» for a PPTX before canvas_edit made its copy).
+        let through = "";
+        if (file && !this.editor.familyFor(file.path)) {
+          const copy = await this.openCopy(ownerId, file);
+          if (copy) {
+            through = ` (${basename(file.path)} is in a closed format: this is its open copy ${copy.path}, which canvas_edit edits; the original stays as it is unless the person turned on writing it back)`;
+            file = copy;
+          }
         }
         if (!file || !this.editor.familyFor(file.path)) return undefined;
         const read = await this.editor.read(ownerId, file);
         this.editor.seen(ctx.sessionId, ownerId, file, read.revision);
         const mode = this.editor.modeFor(ownerId, agent.id, file);
-        return `revision ${read.revision}${mode === "propose" ? " (the person reviews your edits of it: canvas_edit makes proposals)" : ""}. ${await read.family.structure(read.model, ask)}`;
+        return `revision ${read.revision}${through}${mode === "propose" ? " (the person reviews your edits of it: canvas_edit makes proposals)" : ""}. ${await read.family.structure(read.model, ask)}`;
       },
     };
   }
@@ -2972,24 +2970,28 @@ export class RedGiantCore implements OrchestrationHost {
       state: (ownerId) => this.canvasLive.ask(ownerId),
       docFileOf: (ownerId, abs) => this.docFileOf(ownerId, abs),
       absOf: (ownerId, file) => this.docAbs(ownerId, file),
-      copyOf: async (ownerId, file) => {
-        // A DOCX's ODT (G37.4), an AI/EPS's SVG (G37.6).
-        const copy = copyOfOriginal(file.path) ?? svgCopyOfOriginal(file.path);
-        if (!copy) return undefined;
-        const root = await this.scopeRoot(ownerId, file.scope);
-        const ws = new LocalWorkspace(root);
-        const here = await stat(await ws.resolve(copy)).catch(() => undefined);
-        if (!here?.isFile()) {
-          if (!this.programs.find("libreoffice"))
-            await this.programs.ensure(ownerId, "libreoffice");
-          await this.converter.convert(root, file.path, {
-            owner: ownerId,
-            to: [copy.slice(copy.lastIndexOf(".") + 1)],
-          });
-        }
-        return { scope: file.scope, path: copy };
-      },
+      copyOf: (ownerId, file) => this.openCopy(ownerId, file),
     };
+  }
+
+  /**
+   * The open copy the editor works on for a closed file, made if missing: a DOCX's ODT (G37.4),
+   * an AI/EPS's SVG (G37.6); undefined when the file has none.
+   */
+  private async openCopy(ownerId: string, file: DocFile): Promise<DocFile | undefined> {
+    const copy = copyOfOriginal(file.path) ?? svgCopyOfOriginal(file.path);
+    if (!copy) return undefined;
+    const root = await this.scopeRoot(ownerId, file.scope);
+    const ws = new LocalWorkspace(root);
+    const here = await stat(await ws.resolve(copy)).catch(() => undefined);
+    if (!here?.isFile()) {
+      if (!this.programs.find("libreoffice")) await this.programs.ensure(ownerId, "libreoffice");
+      await this.converter.convert(root, file.path, {
+        owner: ownerId,
+        to: [copy.slice(copy.lastIndexOf(".") + 1)],
+      });
+    }
+    return { scope: file.scope, path: copy };
   }
 
   /** A file on disk as the editor names it (its workspace's scope and path), if it is in one. */
