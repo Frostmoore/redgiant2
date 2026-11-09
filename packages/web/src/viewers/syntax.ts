@@ -78,23 +78,47 @@ function jsonProblem(text: string, starts: number[], err: unknown): Problem {
   return at(text, starts, where, message);
 }
 
-function checkJson(text: string): Problem[] {
+/**
+ * The JSON files that allow comments and trailing commas (JSONC): VS Code's settings, tsconfig and
+ * the like. Every other .json is read by strict parsers (Python's json, JSON.parse): there a
+ * trailing comma is an error (p3.5.3, the person's config.json).
+ */
+const JSONC_NAMES =
+  /(^|[\\/])(tsconfig[^\\/]*|jsconfig[^\\/]*|\.?devcontainer|settings|launch|tasks|extensions|keybindings|\.eslintrc|\.babelrc|biome|deno|\.swcrc|typedoc)\.json$|\.code-workspace$|[\\/]\.vscode[\\/][^\\/]+\.json$/i;
+
+export const isJsonc = (name: string) => JSONC_NAMES.test(name);
+
+function checkJson(text: string, jsonc: boolean): Problem[] {
   if (!text.trim()) return [];
   try {
     JSON.parse(text);
     return [];
-  } catch {
-    // Comments and trailing commas are common in .json (tsconfig, settings): allowed.
+  } catch (strict) {
     const loose = looseJson(text);
+    let looseOk = false;
     try {
       JSON.parse(loose);
-      return [];
+      looseOk = true;
     } catch (err) {
       // One value per line (JSON Lines) is fine too.
       const lines = text.split(/\r?\n/).filter((l) => l.trim());
       if (lines.length > 1 && lines.every((l) => isJson(l))) return [];
       return [jsonProblem(text, lineStarts(text), err)];
     }
+    // Only comments or trailing commas are wrong: allowed in JSONC, said plainly otherwise.
+    if (jsonc && looseOk) return [];
+    let pos = 0;
+    while (pos < text.length && text[pos] === loose[pos]) pos++;
+    if (pos >= text.length) return [jsonProblem(text, lineStarts(text), strict)];
+    const comma = text[pos] === ",";
+    return [
+      at(
+        text,
+        lineStarts(text),
+        pos,
+        comma ? "Trailing comma (not allowed in JSON)" : "Comment (not allowed in JSON)",
+      ),
+    ];
   }
 }
 
@@ -147,10 +171,15 @@ function checkXml(text: string): Problem[] {
 }
 
 /** Where the text is not valid for its format (empty: valid, or a format not checked). */
-export async function syntaxProblems(text: string, format: string): Promise<Problem[]> {
+export async function syntaxProblems(
+  text: string,
+  format: string,
+  /** The file's name or path: some .json files are JSONC (`isJsonc`). */
+  name = "",
+): Promise<Problem[]> {
   const kind = syntaxOf(format);
   try {
-    if (kind === "json") return checkJson(text);
+    if (kind === "json") return checkJson(text, format.toLowerCase() === "jsonc" || isJsonc(name));
     if (kind === "yaml") return await checkYaml(text);
     if (kind === "xml") return checkXml(text);
   } catch {

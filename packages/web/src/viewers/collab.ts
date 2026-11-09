@@ -5,7 +5,34 @@
 // (`a.map(b, true)` there, `b.map(a)` here: CodeMirror's guarantee that both ends agree). Pure:
 // no view, no socket, tested on its own.
 import { ChangeSet } from "@codemirror/state";
-import type { DocOp, TextChanges, TextDocOp } from "@redgiant/protocol";
+import type { DocChange, DocOp, TextChanges, TextDocOp } from "@redgiant/protocol";
+import { PERSON } from "@redgiant/protocol";
+
+/**
+ * What agents just wrote, to highlight when the file is opened after it (p3.5.3: a CSV edited
+ * before the person opened it showed nothing): the agents' revisions at the head, one after the
+ * other back to the first that is not theirs, made in the last `withinMs`. `max`: how many
+ * revisions (text positions are true only for the head one).
+ */
+export function freshAgentWrites(
+  changes: readonly DocChange[],
+  revision: number,
+  o: { now?: number; withinMs?: number; max?: number } = {},
+): [number, number][] {
+  const now = o.now ?? Date.now();
+  const out: [number, number][] = [];
+  let expect = revision;
+  let n = 0;
+  for (const c of changes) {
+    if (c.revision !== expect || n >= (o.max ?? 50)) break;
+    if (c.author === PERSON || c.replaced || c.undoneBy || c.undoOf?.length) break;
+    if (now - Date.parse(c.ts) > (o.withinMs ?? 10 * 60_000)) break;
+    out.push(...(c.wrote ?? []));
+    expect--;
+    n++;
+  }
+  return out;
+}
 
 export interface Outgoing {
   clientId: string;

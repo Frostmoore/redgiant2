@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { OfficeEngine } from "../src/editor/office-engine.js";
 import { applyAction } from "../src/editor/office-ops.js";
 import { readOutline } from "../src/editor/office-outline.js";
-import { odfOfOutline, PNG, sampleOdt } from "./fixtures/office-samples.js";
+import { odfOfOutline, PNG, sampleOdp, sampleOdt } from "./fixtures/office-samples.js";
 import { startServer, TOKEN, wsClient } from "./helpers.js";
 
 type Server = Awaited<ReturnType<typeof startServer>>;
@@ -317,6 +317,32 @@ describe("documents in the editor (G37.4)", () => {
     );
     expect(m.sourceSize).toBe("converted odt to docx".length);
     expect(m.writtenBackAt).toBeTruthy();
+  });
+
+  it("canvas_look on a PPTX with no open copy yet makes it and reads it (p3.5.3)", async () => {
+    const seen: string[] = [];
+    const { sessionId, root } = await setup(
+      calls([{ name: "canvas_look", input: { path: "docs/piano.pptx", view: "structure" } }], seen),
+    );
+    const sv = s as Server;
+    await writeFile(join(root, "docs/piano.pptx"), new TextEncoder().encode("the person's pptx"));
+    // LibreOffice as the converter: the copy beside the original.
+    const made: string[] = [];
+    (sv.core.programs as unknown as { find: () => string }).find = () => "/fake/soffice";
+    (sv.core.converter as unknown as { convert: unknown }).convert = async (
+      at: string,
+      path: string,
+      o: { to: string[] },
+    ) => {
+      made.push(`${path} → ${o.to.join(",")}`);
+      await mkdir(join(at, `${path}.open`), { recursive: true });
+      await writeFile(join(at, `${path}.open/piano.odp`), sampleOdp());
+    };
+    await (await sv.core.send("me", sessionId, "Guarda le diapositive")).done;
+    expect(made).toEqual(["docs/piano.pptx → odp"]);
+    expect(seen[0]).not.toContain("There is no editor");
+    expect(seen[0]).toContain("this is its open copy docs/piano.pptx.open/piano.odp");
+    expect(seen[0]).toMatch(/revision 0/);
   });
 
   it("without the full editor: the person's find and replace; «Esporta come»; the engine's state", async () => {

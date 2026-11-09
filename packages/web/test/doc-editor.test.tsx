@@ -5,10 +5,23 @@
 import { ChangeSet, Text } from "@codemirror/state";
 import type { DocChange, DocOp, TextDocOp } from "@redgiant/protocol";
 import { render } from "@testing-library/preact";
-import { describe, expect, it } from "vitest";
-import { changeText, editableInCanvas, groupChanges } from "../src/components/viewers/DocEditor.js";
-import { emptyDocView, reduceDoc } from "../src/state.js";
-import { type Outgoing, TextCollab, textOp } from "../src/viewers/collab.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  changeText,
+  editableInCanvas,
+  groupChanges,
+  saveState,
+} from "../src/components/viewers/DocEditor.js";
+import { setLang } from "../src/i18n.js";
+import {
+  applyMessage,
+  docView,
+  emptyDocView,
+  reduceDoc,
+  SAVE_WATCH_MS,
+  saveDoc,
+} from "../src/state.js";
+import { freshAgentWrites, type Outgoing, TextCollab, textOp } from "../src/viewers/collab.js";
 
 const file = { scope: "platform", path: "a.txt" };
 const cs = (op: DocOp) => ChangeSet.fromJSON(op.family === "text" ? op.op.changes : []);
@@ -181,5 +194,77 @@ describe("the shell", () => {
     expect(container.querySelector(".doc-mode select")).toBeTruthy();
     const text = container.textContent ?? "";
     expect(text).not.toMatch(/[←-⇿☀-➿\u{1f300}-\u{1faff}]/u);
+  });
+});
+
+describe("p3.5.3: what agents just wrote, and what «Modifica» will do", () => {
+  const change = (revision: number, over: Partial<DocChange> = {}): DocChange => ({
+    revision,
+    ts: new Date(1_000_000).toISOString(),
+    author: "ada",
+    groupId: "turn:a",
+    summary: { text: "", kind: "insert" },
+    wrote: [[revision * 10, revision * 10 + 2]],
+    ...over,
+  });
+
+  it("highlights the agents' latest revisions at the head when the file opens", () => {
+    const now = 1_000_000 + 60_000;
+    const list = [change(5), change(4), change(3, { author: "person" }), change(2)];
+    expect(freshAgentWrites(list, 5, { now })).toEqual([
+      [50, 52],
+      [40, 42],
+    ]);
+    expect(freshAgentWrites(list, 5, { now, max: 1 })).toEqual([[50, 52]]);
+    // Not at the head, undone, or too old: nothing.
+    expect(freshAgentWrites(list, 6, { now })).toEqual([]);
+    expect(freshAgentWrites([change(5, { undoneBy: 6 })], 5, { now })).toEqual([]);
+    expect(freshAgentWrites(list, 5, { now: now + 20 * 60_000 })).toEqual([]);
+  });
+
+  it("says the download the first time, nothing once it is here, and the fallback where it cannot start", async () => {
+    const { editCopyNote } = await import("../src/components/viewers/OfficeEditor.js");
+    setLang("it");
+    const env = { secure: true, memory: 8, chromium: true, cached: async () => false };
+    const first = await editCopyNote(env);
+    expect(first?.short).toMatch(/^Circa \d+([.,]\d)? MB la prima volta$/);
+    expect(first?.long).toMatch(/LibreOffice per il browser.*Trova e Sostituisci/);
+    expect(await editCopyNote({ ...env, cached: async () => true })).toBeUndefined();
+    const firefox = await editCopyNote({ ...env, chromium: false });
+    expect(firefox?.short).toBe("Qui: pagine e Trova");
+    expect(firefox?.long).toMatch(/^Questo browser non può avviare l'editor completo/);
+    const http = await editCopyNote({ ...env, secure: false });
+    expect(http?.long).toMatch(/HTTPS/);
+  });
+
+  it("«Salvataggio…» never stays: asked again, then the revisions say it", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = { scope: "platform", path: "watch.txt" };
+      applyMessage({
+        type: "doc.opened",
+        file: f,
+        family: "text",
+        revision: 2,
+        snapshot: { family: "text", text: "x" },
+        changes: [],
+        proposals: [],
+        presence: [],
+        mode: "now",
+        modeOwn: false,
+      });
+      saveDoc(f, false);
+      expect(docView(f).value.saving).toBe(true);
+      vi.advanceTimersByTime(SAVE_WATCH_MS);
+      expect(docView(f).value.saving).toBe(true);
+      vi.advanceTimersByTime(SAVE_WATCH_MS);
+      expect(docView(f).value.saving).toBe(false);
+      // An answer in time ends it at once.
+      saveDoc(f);
+      applyMessage({ type: "doc.saved", file: f, revision: 2 });
+      expect(saveState(docView(f).value)).toBe("saved");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

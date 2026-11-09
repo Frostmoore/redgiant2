@@ -403,9 +403,9 @@ function OfficeLoading({ phase, onTake }: { phase: Phase; onTake: () => void }) 
     <div class="vw-empty vw-open-card doc-office-wait" aria-live="polite">
       <strong>
         {phase.at === "server"
-          ? t("officeDownloading", { size: bytesText(53_243_567) })
+          ? t("officeDownloading", { size: bytesText(ZETA_BYTES) })
           : phase.at === "browser"
-            ? t("officeBrowserCopy")
+            ? t("officeBrowserCopy", { size: bytesText(ZETA_BYTES) })
             : phase.at === "opening"
               ? t("officeOpening")
               : phase.at === "elsewhere"
@@ -648,31 +648,92 @@ function OfficeFallbackView({
   );
 }
 
+/** The full editor's files, brotli (zeta.ts): what the first «Modifica» brings down. */
+export const ZETA_BYTES = 53_243_567;
+
+/**
+ * What «Modifica» will do in this browser, said before it is pressed (p3.5.3: the person saw no
+ * word of the download nor of the fallback): the full editor and its size the first time, or why
+ * it cannot start here and what is used instead. Empty when the editor is already in this browser.
+ */
+export async function editCopyNote(env: {
+  secure: boolean;
+  memory: number | null;
+  chromium: boolean;
+  cached: () => Promise<boolean>;
+}): Promise<{ short: string; long: string } | undefined> {
+  const why =
+    fallbackOf({ secure: env.secure, memory: env.memory }) ??
+    (env.chromium ? undefined : "browser");
+  if (why)
+    return {
+      short: t("officeEditNoteFallbackShort"),
+      long: `${t(WHY[why], { reason: "" })} ${t("officeEditNoteFallback")}`,
+    };
+  if (await env.cached().catch(() => false)) return undefined;
+  const size = bytesText(ZETA_BYTES);
+  return {
+    short: t("officeEditNoteFirstShort", { size }),
+    long: t("officeEditNoteFirst", { size }),
+  };
+}
+
+const browserEnv = () => ({
+  secure: window.isSecureContext,
+  memory: (navigator as { deviceMemory?: number }).deviceMemory ?? null,
+  // Document-Isolation-Policy, which the frame needs, is Chromium's only (G37.4).
+  chromium:
+    !!(
+      navigator as { userAgentData?: { brands?: { brand: string }[] } }
+    ).userAgentData?.brands?.some((b) => /Chromium/i.test(b.brand)) ||
+    /\b(Chrome|Chromium|Edg)\//.test(navigator.userAgent),
+  cached: async () =>
+    typeof caches !== "undefined" && (await caches.keys()).some((k) => k.startsWith("rg-zeta-")),
+});
+
 /** «Modifica» on a DOCX/PPTX in the canvas: its open copy, made if missing, opened in a tab. */
 export function EditCopyButton({ scope, path }: { scope: string; path: string }) {
   const [job, setJob] = useState<{ id: string; copy: string }>();
+  const [note, setNote] = useState<{ short: string; long: string }>();
   const j = useJob(job?.id);
   useEffect(() => {
     if (!job || !j || j.state === "running") return;
     if (j.state === "done") openCanvas(nameOf(job.copy), { kind: "file", scope, path: job.copy });
     setJob(undefined);
   }, [j?.state]);
+  useEffect(() => {
+    let live = true;
+    void editCopyNote(browserEnv()).then(
+      (n) => live && setNote(n),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
   return (
-    <button
-      type="button"
-      class="button tiny canvas-edit-copy"
-      title={t("officeEditCopyHint")}
-      disabled={!!job}
-      onClick={() =>
-        void attempt(async () => {
-          const r = await getApi().officeCopy(scope, path);
-          if (r.job) setJob({ id: r.job, copy: r.path });
-          else openCanvas(nameOf(r.path), { kind: "file", scope, path: r.path });
-        })
-      }
-    >
-      {job ? <IconSpinner size={13} /> : <IconPencil size={13} />}
-      <span>{job ? t("officeMakingCopy") : t("officeEditCopy")}</span>
-    </button>
+    <>
+      {note && (
+        <span class="dim canvas-edit-note" title={note.long}>
+          {note.short}
+        </span>
+      )}
+      <button
+        type="button"
+        class="button tiny canvas-edit-copy"
+        title={note ? `${t("officeEditCopyHint")}. ${note.long}` : t("officeEditCopyHint")}
+        disabled={!!job}
+        onClick={() =>
+          void attempt(async () => {
+            const r = await getApi().officeCopy(scope, path);
+            if (r.job) setJob({ id: r.job, copy: r.path });
+            else openCanvas(nameOf(r.path), { kind: "file", scope, path: r.path });
+          })
+        }
+      >
+        {job ? <IconSpinner size={13} /> : <IconPencil size={13} />}
+        <span>{job ? t("officeMakingCopy") : t("officeEditCopy")}</span>
+      </button>
+    </>
   );
 }

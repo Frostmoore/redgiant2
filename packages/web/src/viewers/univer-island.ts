@@ -318,8 +318,11 @@ export function mountSheet(o: IslandOptions): Island {
     for (const id of outlines) marks()?.removeShape(id);
     outlines = [];
     const sheet = activeSheet();
+    // Only a pivot table's output is outlined (its cells cannot be edited here). A chart or a
+    // picture floats over cells it has nothing to do with: outlined, it looked like a strange
+    // selection over the data (p3.5.3); the notes above the grid name it and its cells.
     for (const p of placeholders)
-      if (p.sheet === sheet) {
+      if (p.sheet === sheet && p.kind === "pivot") {
         const id = shape(p, {
           strokeWidth: 1.5,
           stroke: "#8a8f98",

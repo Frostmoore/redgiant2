@@ -6,8 +6,9 @@
 // undo mutations are Univer's. The agent never needs to know the mutations.
 import type { DocOp, SheetMutation } from "@redgiant/protocol";
 import { columnIndex, parseArea } from "./a1.js";
+import { numberPattern, numberText, PLAIN_NUMBERS, readNumber } from "./csv.js";
 import { SheetEngine, UNIVER_VERSION, univer } from "./engine.js";
-import type { SheetModel } from "./model.js";
+import type { NumberStyle, SheetModel } from "./model.js";
 
 export const SHEET_CATALOG = `Sheets (csv, tsv, ods; an xlsx is edited on its ODS copy): canvas_edit "ops", applied in order. Cells are A1 names; "sheet" is a sheet's name (the first sheet when left out); rows are numbers from 1, columns letters.
 - {"op":"set","cell":"B2","value":42} or {"op":"set","cell":"B6","formula":"=SUM(B2:B5)"}: one cell. A value is a number, text, true/false or null (empty); text starting with "=" is a formula. Formulas are written as in Excel (commas, Sheet!A1).
@@ -21,7 +22,7 @@ export const SHEET_CATALOG = `Sheets (csv, tsv, ods; an xlsx is edited on its OD
 - {"op":"sort","range":"A2:F15","by":[{"col":"F","order":"desc"}],"header":false}: rows of the range sorted ("by" may be just "F").
 - {"op":"filter","range":"A1:F15"} turns the filter buttons on; {"op":"filter","off":true} off.
 - {"op":"width","cols":"A:C","px":120} / {"op":"height","rows":"2:5","px":30}.
-Charts, pivot tables and pictures are placeholders here: kept in the file, not editable; cells inside a pivot table's output cannot be changed. A CSV keeps values only (one sheet, no formats or merges). Read the sheet first with canvas_look view "structure" (cells, formulas with their values, merges, placeholders).`;
+Charts, pivot tables and pictures are placeholders here: kept in the file, not editable; cells inside a pivot table's output cannot be changed. A chart or a pivot table reads a fixed range of cells (canvas_look view "structure" lists it, e.g. "reading the cells Vendite!A1:B7"): a row written below that range is NOT in the chart. To add a row to its data, insert_rows inside the range (before its last row: the range grows with it), then write the rows in the order you want. A CSV keeps values only (one sheet, no formats or merges; a formula is saved as the value it computes); in a CSV a text like "23.50" (or "23,50" where the file writes numbers so) is a number. Read the sheet first with canvas_look view "structure" (cells, formulas with their values, merges, placeholders).`;
 
 type Plain = Record<string, unknown>;
 type Range = { startRow: number; endRow: number; startColumn: number; endColumn: number };
@@ -59,7 +60,7 @@ function rangeOf(text: unknown, rows: number, cols: number): { sheet?: string; r
 }
 
 /** A value of the agent as a cell. */
-function cellOf(v: unknown): Plain {
+function anyCellOf(v: unknown): Plain {
   if (v === null || v === undefined || v === "") return { v: null, f: null, si: null, p: null };
   if (typeof v === "number") {
     if (!Number.isFinite(v)) bad("a number must be finite");
@@ -71,6 +72,28 @@ function cellOf(v: unknown): Plain {
     return { v, f: null, si: null, p: null, t: 1 };
   }
   return bad("a value is a number, a text, true/false or null");
+}
+
+/**
+ * A value of the agent in a CSV (p3.5.3): a text that is a number the file's way («23.50»,
+ * «1.234,50» in an Italian file) is that number, with its decimals kept as its format.
+ */
+function csvCellOf(v: unknown, st: NumberStyle): Plain {
+  if (typeof v === "string" && !(v.startsWith("=") && v.length > 1)) {
+    const r = readNumber(v.trim(), st);
+    if (r)
+      return numberText(r.n, st) === v.trim()
+        ? { v: r.n, f: null, si: null, p: null, t: 2 }
+        : {
+            v: r.n,
+            f: null,
+            si: null,
+            p: null,
+            t: 2,
+            s: { n: { pattern: numberPattern(r.decimals, r.grouped) } },
+          };
+  }
+  return anyCellOf(v);
 }
 
 const rowNumber = (v: unknown, what: string): number => {
@@ -104,6 +127,8 @@ function commandsOf(model: SheetModel, o: Plain): { id: string; params: Plain }[
   const sheetName = (o.sheet as string | undefined) ?? undefined;
   const pick = (range?: { sheet?: string }) => sheetOf(model, range?.sheet ?? sheetName);
   const ods = model.kind === "ods";
+  const cellOf = (v: unknown) =>
+    ods ? anyCellOf(v) : csvCellOf(v, model.numbers ?? PLAIN_NUMBERS);
   const odsOnly = () => {
     if (!ods)
       bad(

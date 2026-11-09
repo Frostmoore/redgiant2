@@ -78,8 +78,9 @@ describe("CSV and TSV", () => {
     const { model, format } = readDelimited(enc(text), false);
     expect(format).toMatchObject({ sep: ";", eol: "\r\n", finalEol: true });
     expect(cell(model, "sheet1", 1, 1)).toMatchObject({ v: 60, t: 2 });
-    // «45,5» is not a number here: kept as text, as it was.
-    expect(cell(model, "sheet1", 2, 1)).toMatchObject({ v: "45,5", t: 1 });
+    // p3.5.3: this file writes decimals with a comma, so «45,5» is a number, written back alike.
+    expect(cell(model, "sheet1", 2, 1)).toMatchObject({ v: 45.5, t: 2 });
+    expect(model.numbers).toEqual({ decimal: ",", thousands: "" });
     // The decoder drops the mark: the bytes below show it is there.
     expect(dec(writeDelimited(model, format))).toBe(text.slice(1));
     expect(writeDelimited(model, format).subarray(0, 3)).toEqual(
@@ -94,8 +95,9 @@ describe("CSV and TSV", () => {
     expect(model.kind).toBe("tsv");
   });
 
-  it("edits with the agent's words and writes formulas as text", async () => {
-    const { model, format } = readDelimited(enc("Voce,Importo\nLuce,60\nGas,45\n"), false);
+  it("edits with the agent's words and writes a formula as the value it computes", async () => {
+    const bytes = enc("Voce,Importo\nLuce,60\nGas,45\n");
+    const { model, format } = readDelimited(bytes, false);
     const ops = await agent(model, [
       { op: "set", cell: "B3", value: 50 },
       { op: "set", cell: "B4", formula: "=SUM(B2:B3)" },
@@ -103,11 +105,86 @@ describe("CSV and TSV", () => {
       { op: "set_range", range: "A2", values: [["Acqua", 30]] },
     ]);
     const after = applyAll(model, ops);
-    const csv = dec(writeDelimited(after, format));
-    expect(csv).toBe("Voce,Importo\nAcqua,30\nLuce,60\nGas,50\n,=SUM(B3:B4)\n");
+    // p3.5.3: «A CSV keeps values only», on disk too: the sum, not its text.
+    const saved = await fam.saveTo?.({
+      ownerId: "me",
+      file: { scope: "platform", path: "c.csv" },
+      abs: "/nowhere/c.csv",
+      model: after,
+      format: { kind: "delimited", f: format },
+      before: model,
+      ops,
+      bytes,
+    });
+    expect(dec(saved as Uint8Array)).toBe("Voce,Importo\nAcqua,30\nLuce,60\nGas,50\n,110\n");
+    // Without a computed value (nothing calculated) the formula's text is all there is.
+    expect(dec(writeDelimited(after, format))).toContain(",=SUM(B3:B4)\n");
     // A CSV keeps no merges or other sheets.
     const no = await fam.fromAgent(model, [{ op: "merge", range: "A1:B1" }]);
     expect("error" in no && no.error).toMatch(/one sheet of values/);
+  });
+});
+
+describe("numbers in a CSV (p3.5.3)", () => {
+  const SPESE =
+    "Data,Voce,Importo\n2026-11-01,Pane,23.50\n2026-11-02,Latte,48.00\n2026-11-03,Frutta,62.30\n2026-11-04,Carne,95.00\n2026-11-05,Pesce,77.24\n2026-11-06,Vino,12\n2026-11-07,Olio,65.50\n";
+
+  it("reads amounts with a final zero as numbers and writes them back as they were", async () => {
+    const bytes = enc(SPESE);
+    const { model, format } = readDelimited(bytes, false);
+    expect(model.numbers).toBeUndefined();
+    for (const [r, v] of [
+      [1, 23.5],
+      [2, 48],
+      [3, 62.3],
+      [4, 95],
+      [5, 77.24],
+      [6, 12],
+      [7, 65.5],
+    ] as const)
+      expect(cell(model, "sheet1", r, 2)).toMatchObject({ v, t: 2 });
+    expect(dec(writeDelimited(model, format))).toBe(SPESE);
+    // The sum the person checked by hand: 383.54.
+    const ops = await agent(model, [
+      { op: "set_range", range: "A9", values: [["Totale", null, "=SUM(C2:C8)"]] },
+    ]);
+    const after = applyAll(model, ops);
+    expect(await fam.structure(after, { cells: "C9" })).toContain("=SUM(C2:C8) → 383.54");
+    const saved = await fam.saveTo?.({
+      ownerId: "me",
+      file: { scope: "platform", path: "spese.csv" },
+      abs: "/nowhere/spese.csv",
+      model: after,
+      format: { kind: "delimited", f: format },
+      before: model,
+      ops,
+      bytes,
+    });
+    expect(dec(saved as Uint8Array)).toBe(`${SPESE}Totale,,383.54\n`);
+  });
+
+  it("reads Italian decimals and thousands, and the agent's amounts as text alike", async () => {
+    const text = "Voce;Importo\nAffitto;1.250,00\nLuce;60,5\nGas;45\nCodice;00123\n";
+    const { model, format } = readDelimited(enc(text), false);
+    expect(model.numbers).toEqual({ decimal: ",", thousands: "." });
+    expect(cell(model, "sheet1", 1, 1)).toMatchObject({ v: 1250, t: 2 });
+    expect(cell(model, "sheet1", 2, 1)).toMatchObject({ v: 60.5, t: 2 });
+    // A code with leading zeros stays text.
+    expect(cell(model, "sheet1", 4, 1)).toMatchObject({ v: "00123", t: 1 });
+    expect(dec(writeDelimited(model, format))).toBe(text);
+    const ops = await agent(model, [
+      {
+        op: "set_range",
+        range: "A6",
+        values: [
+          ["Acqua", "32,40"],
+          ["Tassa", 7.5],
+        ],
+      },
+    ]);
+    const after = applyAll(model, ops);
+    expect(cell(after, "sheet1", 5, 1)).toMatchObject({ v: 32.4, t: 2 });
+    expect(dec(writeDelimited(after, format))).toBe(`${text}Acqua;32,40\nTassa;7,5\n`);
   });
 });
 
@@ -143,6 +220,21 @@ describe("ODS read for the editor", () => {
     expect(model.kept).toEqual(expect.arrayContaining(["conditional formats", "print ranges"]));
   });
 
+  it("tells the agent when a row it wrote is just outside a chart's cells (p3.5.3)", async () => {
+    const { model } = fam.load(new Uint8Array(await readFile(FIXTURE)), "vendite.ods");
+    const chart = model.placeholders.find((p) => p.kind === "chart");
+    const src = (chart?.source ?? "").split(", ").find((x) => x.includes("F4:F15")) as string;
+    expect(src).toBeTruthy();
+    const below = await agent(model, [{ op: "set", cell: "F16", value: 1 }]);
+    expect(fam.advice?.(model, below)).toMatch(
+      new RegExp(
+        `reads ${src.replace(/[!$:]/g, (c) => `\\${c}`)}: what you wrote in row 16 \\(F16\\) is just below it, so it is NOT included.*insert_rows before row 15`,
+      ),
+    );
+    const inside = await agent(model, [{ op: "set", cell: "F10", value: 1 }]);
+    expect(fam.advice?.(model, inside)).toBeUndefined();
+  });
+
   it("refuses to write into a pivot table's output", async () => {
     const { model } = fam.load(new Uint8Array(await readFile(FIXTURE)), "vendite.ods");
     const out = await fam.fromAgent(model, [{ op: "set", sheet: "Pivot", cell: "B5", value: 1 }]);
@@ -156,7 +248,10 @@ describe("ODS read for the editor", () => {
     const text = await fam.structure(after, { fromLine: 1, toLine: 6 });
     expect(text).toContain("Sheets: «Vendite» A1:F16, «Pivot»");
     expect(text).toContain("chart");
-    expect(text).toContain("pivot table «PivotRegioni» on «Pivot» A3:D9 (data Vendite!A3:F15)");
+    expect(text).toContain(
+      "pivot table «PivotRegioni» writing its output in «Pivot» A3:D9, reading the cells Vendite!A3:F15",
+    );
+    expect(text).toContain("insert_rows inside the range");
     expect(text).toMatch(
       /4\| A "gen" \| B "Nord" \| C "Alfa" \| D 30 \| E 19\.9 \[format [^\]]*\] \| F =D4\*E4 → 597/,
     );

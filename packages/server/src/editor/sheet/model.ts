@@ -72,11 +72,20 @@ export interface WorkbookData {
 
 export type SheetKind = "csv" | "tsv" | "ods";
 
+/** How a CSV writes its numbers (p3.5.3): «23.50» or «23,50», «1,234» or «1.234». */
+export interface NumberStyle {
+  decimal: "." | ",";
+  /** The thousands separator the file uses, "" when none. */
+  thousands: "" | "." | "," | " ";
+}
+
 export interface SheetModel {
   wb: WorkbookData;
   kind: SheetKind;
   placeholders: SheetPlaceholder[];
   kept: string[];
+  /** A CSV's way of writing numbers, read from the file (p3.5.3). */
+  numbers?: NumberStyle | undefined;
 }
 
 /** Rows and columns a new sheet shows beyond its data. */

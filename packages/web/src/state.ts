@@ -1422,6 +1422,8 @@ export interface DocView {
   presenceAt: number;
   mode: AgentEditMode;
   modeOwn: boolean;
+  /** The agents whose own rule is «come proposte» (when the file has no rule of its own). */
+  agentsPropose?: string[] | undefined;
   /** The last refusal of something the person asked (an undo, a proposal), with the host's words. */
   refusal?: { clientId: string; code: string; reason: string; conflict?: number } | undefined;
   /** The last save the host told (G37.3; every family since p3.5.1: «Salvato»). */
@@ -1483,6 +1485,7 @@ export function reduceDoc(v: DocView, m: DocMessage): DocView {
         presenceAt: Date.now(),
         mode: m.mode,
         modeOwn: m.modeOwn,
+        agentsPropose: m.agentsPropose,
         opened: m.revision,
       };
     case "doc.changed":
@@ -1517,7 +1520,7 @@ export function reduceDoc(v: DocView, m: DocMessage): DocView {
     case "doc.proposals":
       return { ...v, proposals: m.proposals };
     case "doc.mode":
-      return { ...v, mode: m.mode, modeOwn: m.modeOwn };
+      return { ...v, mode: m.mode, modeOwn: m.modeOwn, agentsPropose: m.agentsPropose };
     case "doc.saved":
       return {
         ...v,
@@ -1590,6 +1593,41 @@ export function saveDoc(file: DocFile, send = true): void {
   const v = docView(file);
   v.value = { ...v.value, saving: true };
   if (send) live?.send({ type: "doc.save", file });
+  watchSave(file, 0);
+}
+
+/** How long «Salvataggio…» waits for the host's answer before asking again (p3.5.3). */
+export const SAVE_WATCH_MS = 6000;
+const saveWatch = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * «Salvataggio…» never stays forever (p3.5.3, the person's test on Windows: the file was saved,
+ * the bar never said «Salvato»): with no answer the save is asked once more (an acknowledgement
+ * the editor waited for may have been lost), then the bar goes back to what the revisions say.
+ */
+function watchSave(file: DocFile, tries: number): void {
+  const key = docKey(file);
+  const was = saveWatch.get(key);
+  if (was) clearTimeout(was);
+  saveWatch.set(
+    key,
+    setTimeout(() => {
+      saveWatch.delete(key);
+      const v = docView(file);
+      if (!v.value.saving) return;
+      if (tries === 0) {
+        live?.send({ type: "doc.save", file });
+        watchSave(file, 1);
+      } else v.value = { ...v.value, saving: false };
+    }, SAVE_WATCH_MS),
+  );
+}
+
+/** The notice of a refusal (a conflict, a proposal that cannot apply), closed by the person. */
+export function dismissRefusal(file: DocFile): void {
+  const v = docView(file);
+  if (v.value.refusal && v.value.refusal.clientId !== "open")
+    v.value = { ...v.value, refusal: undefined };
 }
 
 /** The notice of a change from outside, closed by the person. */
