@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="210mm"
+   height="148mm"
+   viewBox="0 0 210 148"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.3.2 (091e20e, 2023-11-25)"
+   sodipodi:docname="poster-officina.svg"
+   inkscape:export-filename="poster-officina.png"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:acme="https://example.com/acme/1.0">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:zoom="0.8125"
+     inkscape:cx="396.92308"
+     inkscape:cy="280"
+     inkscape:window-width="1920"
+     inkscape:window-height="1011"
+     inkscape:window-x="0"
+     inkscape:window-y="32"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer2" />
+  <defs
+     id="defs1">
+    <linearGradient
+       id="linearGradient3"
+       inkscape:collect="always">
+      <stop
+         style="stop-color:#1f4e79;stop-opacity:1;"
+         offset="0"
+         id="stop3" />
+      <stop
+         style="stop-color:#2f6fde;stop-opacity:1;"
+         offset="1"
+         id="stop4" />
+    </linearGradient>
+    <linearGradient
+       inkscape:collect="always"
+       xlink:href="#linearGradient3"
+       id="linearGradient4"
+       x1="0"
+       y1="0"
+       x2="210"
+       y2="148"
+       gradientUnits="userSpaceOnUse" />
+    <radialGradient
+       id="radialSun"
+       cx="160.5"
+       cy="38.25"
+       r="22.75"
+       gradientUnits="userSpaceOnUse">
+      <stop
+         offset="0"
+         style="stop-color:#ffe08a;stop-opacity:1"
+         id="stop5" />
+      <stop
+         offset="1"
+         style="stop-color:#f2a516;stop-opacity:1"
+         id="stop6" />
+    </radialGradient>
+    <path
+       id="stella"
+       d="m 0,-10.123456 2.938926,5.954915 6.571639,0.954915 -4.755283,4.635255 1.122627,6.545085 L 0,5.0 -5.877853,8.0909 -4.755283,1.545085 -9.510565,-3.09017 -2.938926,-4.045085 Z"
+       sodipodi:nodetypes="ccccccccccc" />
+  </defs>
+  <metadata
+     id="metadata1">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:title>Poster di prova</dc:title>
+        <dc:creator>
+          <cc:Agent>
+            <dc:title>RedGiant</dc:title>
+          </cc:Agent>
+        </dc:creator>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     inkscape:label="Sfondo"
+     inkscape:groupmode="layer"
+     id="layer1"
+     sodipodi:insensitive="true">
+    <rect
+       style="fill:url(#linearGradient4);fill-opacity:1;stroke:none;stroke-width:0.264583"
+       id="sfondo"
+       width="210"
+       height="148"
+       x="0"
+       y="0"
+       data-role="background" />
+    <circle
+       style="fill:url(#radialSun);stroke:#f2a516;stroke-width:0.529167;stroke-opacity:1"
+       id="sole"
+       cx="160.5"
+       cy="38.25"
+       r="22.75"
+       acme:locked="yes" />
+  </g>
+  <g
+     inkscape:groupmode="layer"
+     id="layer2"
+     inkscape:label="Testi">
+    <text
+       xml:space="preserve"
+       style="font-size:16.9333px;line-height:1.25;font-family:'DejaVu Sans';fill:#ffffff;stroke-width:0.264583"
+       x="14.5"
+       y="40.25"
+       id="titolo"><tspan
+         sodipodi:role="line"
+         id="tspan1"
+         style="font-weight:bold;stroke-width:0.264583"
+         x="14.5"
+         y="40.25">Officina  2026</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:7.05556px;line-height:1.25;font-family:'DejaVu Sans';fill:#e8eefc;stroke-width:0.264583"
+       x="14.5"
+       y="58.5"
+       id="sottotitolo">Laboratorio <tspan
+         style="font-weight:bold"
+         id="tspan2">aperto</tspan> a tutti</text>
+    <g
+       id="gruppo1"
+       transform="translate(14.5,80)"
+       data-kind="badge">
+      <rect
+         style="fill:#ffcc00;stroke:#1f4e79;stroke-width:0.8"
+         width="58"
+         height="18"
+         x="0"
+         y="0"
+         rx="3" />
+      <text
+         xml:space="preserve"
+         style="font-size:7.05556px;font-family:'DejaVu Sans';fill:#1f4e79"
+         x="29"
+         y="11.75"
+         text-anchor="middle">12 novembre</text>
+    </g>
+    <use
+       xlink:href="#stella"
+       id="uso1"
+       transform="translate(120,110)"
+       style="fill:#ffffff" />
+    <use
+       xlink:href="#stella"
+       id="uso2"
+       transform="translate(145,118) scale(0.7)"
+       style="fill:#ffffff;opacity:0.8" />
+    <path
+       style="fill:none;stroke:#ffffff;stroke-width:0.79375;stroke-linecap:round;stroke-dasharray:2.38125,1.5875"
+       d="m 14.5,128.123456 c 30.25,-8.5 60.75,8.5 91.5,0"
+       id="onda"
+       sodipodi:nodetypes="cc" />
+    <acme:extra
+       acme:note="non toccare">elemento sconosciuto</acme:extra>
+  </g>
+</svg>
