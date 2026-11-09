@@ -10,10 +10,6 @@
 name: zetaoffice
 
 on:
-  # TEMPORARY (p3.5.2): the first run, before the workflow is on main (workflow_dispatch needs it there).
-  push:
-    branches: [p3.5.2-docsfix]
-    paths: [.github/workflows/zetaoffice.yml]
   workflow_dispatch:
     inputs:
       publish:
@@ -76,7 +72,7 @@ jobs:
             if [ "$s" -ge 2147483648 ]; then echo "::error::$f is $s bytes, over GitHub's 2 GiB per asset"; exit 1; fi
           done
       - name: Publish
-        if: (inputs.publish || github.event_name == 'push') && steps.missing.outputs.list != ''
+        if: inputs.publish && steps.missing.outputs.list != ''
         run: |
           set -e
           gh release view "$CACHE" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
