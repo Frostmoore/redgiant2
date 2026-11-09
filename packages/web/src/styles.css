@@ -15807,3 +15807,388 @@ fieldset.vw-seg {
     box-shadow: -6px 0 18px rgb(0 0 0 / 0.2);
   }
 }
+
+/* ---- The drawing editor (G37.6): svgcanvas in its island, our bar and panels around it ---- */
+.svg-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.svg-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  flex-wrap: wrap;
+}
+.svg-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+  border-right: 1px solid var(--line);
+}
+.svg-bar .vw-icon {
+  width: 30px;
+  min-height: 30px;
+  border-color: transparent;
+  background: transparent;
+}
+.svg-bar .vw-icon:hover:not(:disabled) {
+  background: var(--panel-2);
+}
+.svg-bar .vw-icon:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.svg-bar .svg-tool.on {
+  background: var(--accent-soft);
+  border-color: var(--accent-dim);
+  color: var(--accent-text);
+}
+.svg-zoom {
+  min-width: 42px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.svg-editor {
+  container-type: inline-size;
+}
+.svg-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 220px;
+  grid-template-rows: minmax(0, 1fr);
+}
+.svg-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  overflow-y: auto;
+}
+.svg-tools .vw-icon {
+  width: 32px;
+  min-height: 32px;
+  border-color: transparent;
+  background: transparent;
+}
+.svg-tools .vw-icon:hover {
+  background: var(--panel-2);
+}
+.svg-tools .svg-tool.on {
+  background: var(--accent-soft);
+  border-color: var(--accent-dim);
+  color: var(--accent-text);
+}
+.svg-sides {
+  width: 34px;
+  font-size: 11px;
+  text-align: center;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 1px 0;
+  margin-bottom: 4px;
+}
+.svg-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.svg-area {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  position: relative;
+  background: var(--panel-2);
+  outline: none;
+}
+.svg-menu {
+  position: relative;
+  display: inline-flex;
+}
+.svg-menu .vw-icon {
+  width: auto;
+  padding: 0 4px;
+  gap: 1px;
+}
+.svg-menu-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 230px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.svg-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.svg-menu-item:hover:not(:disabled) {
+  background: var(--panel-2);
+}
+.svg-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.svg-lock {
+  display: inline-flex;
+}
+.svg-area:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent-dim);
+}
+.svg-canvas-box {
+  position: relative;
+}
+.svg-area.tool-rect,
+.svg-area.tool-ellipse,
+.svg-area.tool-line,
+.svg-area.tool-path,
+.svg-area.tool-fhpath {
+  cursor: crosshair;
+}
+.svg-area.tool-text {
+  cursor: text;
+}
+/* The page of the drawing is the document: white in both themes, with a soft border. */
+.svg-area #canvasBackground rect {
+  stroke: var(--line);
+}
+.svg-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.svg-mark {
+  position: absolute;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  animation: svg-mark 8s ease-out forwards;
+}
+.svg-mark span {
+  position: absolute;
+  top: -20px;
+  left: -2px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+@keyframes svg-mark {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.svg-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.svg-side {
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  overflow: auto;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.svg-side h4 {
+  margin: 4px 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.svg-side section + section {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+.svg-sel {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+.svg-fields {
+  display: grid;
+  gap: 6px;
+}
+.svg-fields label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.svg-fields label > span {
+  flex: 0 0 76px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.svg-fields input[type="number"],
+.svg-fields input[type="text"] {
+  min-width: 0;
+  flex: 1;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 5px;
+  font: inherit;
+  font-size: 12px;
+}
+.svg-fields input[type="color"] {
+  width: 34px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+}
+.svg-fields input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+.svg-fields .svg-none {
+  width: 26px;
+  min-height: 24px;
+}
+.svg-fields .svg-none.on {
+  background: var(--accent-soft);
+  border-color: var(--accent-dim);
+  color: var(--accent-text);
+}
+.svg-checks {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+}
+.svg-layers {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+.svg-layers li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  padding: 1px 2px;
+}
+.svg-layers li.current {
+  background: var(--accent-soft);
+}
+.svg-layers .vw-icon {
+  width: 26px;
+  min-height: 26px;
+  border-color: transparent;
+  background: transparent;
+}
+.svg-layers .vw-icon.off {
+  opacity: 0.35;
+}
+.svg-layer-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.svg-kept {
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 14px;
+}
+.svg-text-input {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.svg-elsewhere {
+  flex-direction: column;
+  gap: 10px;
+}
+.doc-main .svg-editor {
+  flex: 1;
+}
+@container (max-width: 760px) {
+  .svg-bar {
+    padding: 3px 4px;
+    gap: 4px;
+  }
+  .svg-body {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .svg-side {
+    grid-column: 1 / -1;
+    max-height: 190px;
+    border-left: none;
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 14px;
+  }
+  .svg-side section + section {
+    margin-top: 0;
+    border-top: none;
+    padding-top: 0;
+  }
+  .svg-kept {
+    grid-column: 1 / -1;
+    margin-top: 6px;
+  }
+}
+.svg-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

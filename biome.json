@@ -7,7 +7,8 @@
       "!**/node_modules",
       "!memory",
       "!**/*.tsbuildinfo",
-      "!packages/web/public/zeta/zeta.js"
+      "!packages/web/public/zeta/zeta.js",
+      "!**/test/fixtures/**/*.svg"
     ]
   },
   "formatter": {

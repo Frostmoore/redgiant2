@@ -31,6 +31,7 @@ import { download, type ViewerSource } from "../../viewers/source.js";
 import { Choice, Progress, useJob } from "../ui.js";
 import { FileViewer, VIEWERS } from "./FileViewer.js";
 import { EditCopyButton } from "./SheetCopy.js";
+import { SVG_COPIES } from "./SvgEditor.js";
 
 interface FileProps {
   scope: string;
@@ -563,6 +564,8 @@ function ConvertView({
       <div class="vw-open-line">
         <strong>{title}</strong>
         <div class="spacer" />
+        {/* An Illustrator or PostScript drawing: edited on its SVG copy (G37.6). */}
+        {SVG_COPIES.test(path) && <EditCopyButton scope={scope} path={path} name={name} to="svg" />}
         {copy && lost.length > 0 && (
           <button type="button" class="vw-toggle" onClick={() => setDetails((d) => !d)}>
             {details ? t("vwOpenLessDetail") : t("vwOpenLost", { n: String(lost.length) })}

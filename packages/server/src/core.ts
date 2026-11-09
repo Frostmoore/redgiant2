@@ -153,6 +153,7 @@ import { LibreOfficeEngine, type OfficeEngine } from "./editor/office-engine.js"
 import { copyOfOriginal, OfficeFamily } from "./editor/office-family.js";
 import { PdfFamily } from "./editor/pdf-family.js";
 import { sheetFamily } from "./editor/sheet-family.js";
+import { svgCopyOfOriginal, svgFamily } from "./editor/svg-family.js";
 import { textFamily } from "./editor/text-family.js";
 import { type CanvasEditHost, canvasEditTool } from "./editor/tool.js";
 import { ZetaOffice } from "./editor/zeta.js";
@@ -736,7 +737,7 @@ export class RedGiantCore implements OrchestrationHost {
       dataDir: dirname(o.workspacesDir),
       resolve: (ownerId, file) => this.docAbs(ownerId, file),
       settings: (ownerId) => this.editorSettings.get(ownerId),
-      families: [textFamily, this.sheets, this.office.family, this.pdf],
+      families: [textFamily, this.sheets, this.office.family, svgFamily, this.pdf],
       ...o.editor,
     });
     // Background commands (p3.3.1): their start and end are events of the conversation that
@@ -2893,7 +2894,9 @@ export class RedGiantCore implements OrchestrationHost {
         let file = await this.docFileOf(ownerId, abs);
         // A closed document is read through its open copy when there is one (G37.4).
         const copy =
-          file && !this.editor.familyFor(file.path) ? copyOfOriginal(file.path) : undefined;
+          file && !this.editor.familyFor(file.path)
+            ? (copyOfOriginal(file.path) ?? svgCopyOfOriginal(file.path))
+            : undefined;
         if (file && copy) {
           const root = await this.scopeRoot(ownerId, file.scope);
           const here = await stat(await new LocalWorkspace(root).resolve(copy)).catch(
@@ -2918,7 +2921,8 @@ export class RedGiantCore implements OrchestrationHost {
       docFileOf: (ownerId, abs) => this.docFileOf(ownerId, abs),
       absOf: (ownerId, file) => this.docAbs(ownerId, file),
       copyOf: async (ownerId, file) => {
-        const copy = copyOfOriginal(file.path);
+        // A DOCX's ODT (G37.4), an AI/EPS's SVG (G37.6).
+        const copy = copyOfOriginal(file.path) ?? svgCopyOfOriginal(file.path);
         if (!copy) return undefined;
         const root = await this.scopeRoot(ownerId, file.scope);
         const ws = new LocalWorkspace(root);

@@ -34,10 +34,12 @@ import { bareText, viewerFor } from "../../viewers/kind.js";
 import { isOfficeFile } from "../../viewers/office-bridge.js";
 import { pdfChangeText } from "../../viewers/pdf-words.js";
 import { sheetChangeText } from "../../viewers/sheet-words.js";
+import { svgChangeText } from "../../viewers/svg-words.js";
 import type { DocDiff as DiffView, DiffWhat } from "./DocDiff.js";
 import { OfficeEditor } from "./OfficeEditor.js";
 import { isPdfFile, PdfEditor } from "./PdfEditor.js";
 import { SHEET_EDITABLE, SheetEditor } from "./SheetEditor.js";
+import { SVG_EDITABLE, SvgEditor } from "./SvgEditor.js";
 import { TextEditor } from "./TextEditor.js";
 
 /** The kinds of the viewer that are text the page edits (G37.2): code, Markdown, trees, text. */
@@ -50,6 +52,7 @@ export const editableInCanvas = (file: { scope: string; path: string }) =>
   (textEditable(file.path) ||
     SHEET_EDITABLE.test(file.path) ||
     isOfficeFile(file.path) ||
+    SVG_EDITABLE.test(file.path) ||
     isPdfFile(file.path));
 
 // ---- words ---------------------------------------------------------------------------------
@@ -74,6 +77,8 @@ export function linesText(s: DocSummary): string | undefined {
 export function changeText(s: DocSummary): string {
   // A sheet's change (G37.3) has its own words.
   if (s.sheet && s.kind !== "undo" && s.kind !== "replaced") return sheetChangeText(s);
+  // A drawing's change (G37.6) too.
+  if (s.svg && s.kind !== "undo" && s.kind !== "replaced") return svgChangeText(s);
   // A PDF's change (G37.8) too.
   if (s.pdf && s.kind !== "undo" && s.kind !== "replaced") return pdfChangeText(s);
   // Documents and presentations (G37.4) count paragraphs and slides.
@@ -407,6 +412,8 @@ export function DocEditor({
           <div class="doc-work">
             {sheet ? (
               <SheetEditor file={file} onReveal={(r) => (reveal.current = r)} />
+            ) : SVG_EDITABLE.test(file.path) ? (
+              <SvgEditor file={file} />
             ) : (
               <TextEditor file={file} name={name} line={line} onReady={(e) => (view.current = e)} />
             )}
