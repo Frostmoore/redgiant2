@@ -26,6 +26,19 @@ const ALLOWED = new Set([
   "BlueOak-1.0.0",
   "Python-2.0",
 ]);
+/**
+ * Packages whose `license` field is not an SPDX id, read from their LICENSE file instead (checked
+ * below): pathseg (svgcanvas' path polyfill, G37.6) writes «Chromium's License», a BSD-3-Clause.
+ */
+const READ_FROM_FILE: Record<string, { id: string; marks: string[] }> = {
+  pathseg: {
+    id: "BSD-3-Clause",
+    marks: [
+      "Redistribution and use in source and binary forms",
+      "Neither the name of Google Inc. nor the names of its",
+    ],
+  },
+};
 /** Packages loaded apart from the bundle (an iframe, a download): MPL-2.0 is fine there. */
 const LOADED_APART = new Set<string>([]);
 const COPYLEFT = /^(A|L)?GPL/i;
@@ -107,7 +120,13 @@ function runtimePackages(): Map<string, unknown> {
     };
     const key = `${p.name}@${p.version}`;
     if (seen.has(key)) return;
-    seen.set(key, p.license ?? p.licenses?.map((l) => l.type).join(" OR "));
+    const fromFile = READ_FROM_FILE[p.name];
+    if (fromFile) {
+      const text = readFileSync(join(dirname(pj), "LICENSE"), "utf8");
+      if (!fromFile.marks.every((m) => text.includes(m)))
+        throw new Error(`${p.name}: its LICENSE is not the ${fromFile.id} it was checked as`);
+    }
+    seen.set(key, fromFile?.id ?? p.license ?? p.licenses?.map((l) => l.type).join(" OR "));
     for (const n of Object.keys({ ...p.dependencies, ...p.optionalDependencies })) {
       const c = find(dirname(pj), n);
       // An optional dependency not installed here is not carried.
@@ -151,6 +170,21 @@ describe("licenses of the web bundle (G37.1)", () => {
     // The sheet editor (G37.3): Univer's free packages only, never its paid ones.
     expect([...pkgs.keys()].some((k) => k.startsWith("@univerjs/sheets-ui@"))).toBe(true);
     expect([...pkgs.keys()].filter((k) => k.startsWith("@univerjs-pro/"))).toEqual([]);
+    // The drawing editor (G37.6): only svgcanvas (MIT), never the full svgedit, which carries
+    // LGPL-3.0 code; svgcanvas' PDF export (jsPDF) is replaced by a stub, never carried.
+    const svgcanvas = [...pkgs].find(([k]) => k.startsWith("@svgedit/svgcanvas@"));
+    expect(svgcanvas?.[1]).toBe("MIT");
+    expect([...pkgs.keys()].filter((k) => /^(svgedit|@svgedit\/(?!svgcanvas@))/.test(k))).toEqual(
+      [],
+    );
+    expect([...pkgs.keys()].filter((k) => /^(jspdf|svg2pdf\.js)@/.test(k))).toEqual([]);
+    expect([...pkgs.keys()].some((k) => k.startsWith("pathseg@"))).toBe(true);
+  });
+
+  it("refuses the full svgedit and anything LGPL, whatever its name (G37.6)", () => {
+    expect(licenseVerdict("(MIT AND LGPL-3.0-or-later)", "svgedit").ok).toBe(false);
+    expect(licenseVerdict("LGPL-3.0-or-later", "svgedit").ok).toBe(false);
+    expect(licenseVerdict("Chromium's License", "pathseg").ok).toBe(false);
   });
 
   it("the document editor's frame carries only zetajs (MIT) and our own scripts (G37.4)", () => {

@@ -36,6 +36,7 @@ import {
   svgCopyOfOriginal,
   svgFamily,
 } from "../src/editor/svg-family.js";
+import { inkscapeCli, svgToPdf } from "../src/editor/svg-routes.js";
 import { startServer, wsClient } from "./helpers.js";
 import { memoryDb } from "./pglite.js";
 
@@ -433,6 +434,43 @@ describe("structure, copies, Inkscape", () => {
     ).toBe("/Applications/Inkscape.app");
   });
 
+  it("makes a PDF with Inkscape when it is there, with LibreOffice Draw otherwise", async () => {
+    const calls: { file: string; args: string[] }[] = [];
+    const run = async (file: string, args: string[]) => {
+      calls.push({ file, args });
+      const out = args.find((a) => a.startsWith("--export-filename="))?.slice(18);
+      if (out) await writeFile(out, "%PDF-ink");
+      const dir = args[args.indexOf("--outdir") + 1];
+      if (args.includes("--outdir") && dir) {
+        await mkdir(dir, { recursive: true });
+        await writeFile(join(dir, "drawing.pdf"), "%PDF-lo");
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    const tmp = await mkdtemp(join(tmpdir(), "rg-svgpdf-"));
+    const bytes = new TextEncoder().encode("<svg/>");
+    const ink = await svgToPdf(bytes, {
+      inkscape: "/usr/bin/inkscape",
+      soffice: "/lo/soffice",
+      tmpDir: tmp,
+      profileDir: tmp,
+      run,
+    });
+    expect(ink.by).toBe("inkscape");
+    expect(new TextDecoder().decode(ink.bytes)).toBe("%PDF-ink");
+    expect(calls[0]?.args.slice(0, 1)).toEqual(["--export-type=pdf"]);
+    const lo = await svgToPdf(bytes, { soffice: "/lo/soffice", tmpDir: tmp, profileDir: tmp, run });
+    expect(lo.by).toBe("libreoffice");
+    expect(calls[1]?.args).toContain("pdf:draw_pdf_Export");
+    await expect(svgToPdf(bytes, { tmpDir: tmp, profileDir: tmp, run })).rejects.toThrow(
+      /Inkscape or LibreOffice/,
+    );
+    expect(inkscapeCli("/Applications/Inkscape.app", "darwin")).toBe(
+      "/Applications/Inkscape.app/Contents/MacOS/inkscape",
+    );
+    await rm(tmp, { recursive: true, force: true });
+  });
+
   it("refuses what is not an SVG it can keep", () => {
     expect(() => svgFamily.load(new TextEncoder().encode("<html/>"))).toThrow(/not <svg>/);
     expect(() => svgFamily.load(new Uint8Array([0x1f, 0x8b, 0]))).toThrow(/svgz/);
@@ -670,6 +708,13 @@ describe("a drawing from end to end (FakeProvider)", () => {
     expect(seen[1]).toContain("text #titolo");
     expect(seen[2]).toMatch(/^Applied as revision 1: edited 3 elements/);
     expect(seen[3]).toMatch(/Nothing applied: operation 1: there is no element «nope»/);
+    const info = await s.api<{ inkscape: boolean; pdf: string }>(
+      "GET",
+      `/api/editor/svg/info?scope=platform&path=${encodeURIComponent(file.path)}`,
+    );
+    expect(info.status).toBe(200);
+    expect(typeof info.body.inkscape).toBe("boolean");
+    expect(["inkscape", "libreoffice", "download", "missing"]).toContain(info.body.pdf);
     const changed = page.messages.filter(
       (m): m is Extract<ServerMessage, { type: "doc.changed" }> => m.type === "doc.changed",
     );

@@ -231,6 +231,16 @@ const brain = (req) => {
     return {
       text: "Fatto: ho corretto la quantità di febbraio, aggiunto marzo e messo in grassetto i totali. Le celle cambiate sono evidenziate; dal pannello Modifiche puoi annullarle.",
     };
+  // G37.6 (DEMO_CANVAS): the agent edits the poster open in the drawing editor.
+  if (
+    results &&
+    typeof toolOut === "string" &&
+    toolOut.startsWith("Applied as revision") &&
+    /edited \d+ elements/.test(toolOut)
+  )
+    return {
+      text: "Fatto: ho aggiunto l'etichetta «Ingresso libero» sotto la data e reso il sole più caldo. Li vedi contornati nel disegno; dal pannello Modifiche puoi annullarli.",
+    };
   // G37.1 (DEMO_CANVAS): the agent edits the note open in the canvas, with canvas_edit.
   // G37.4 (DEMO_CANVAS): the agent edits the report and the slides, in the document editor.
   if (
@@ -365,6 +375,36 @@ const brain = (req) => {
             values: [["mar", "Nord", "Gamma", 40, 24.5, "=D10*E10"]],
           },
           { op: "format", range: "A17:F17", bold: true, background: "#ddebf7" },
+        ],
+      },
+    ],
+    // G37.6: the agent adds a label to the poster and warms up the sun.
+    [
+      "Aggiungi l'etichetta",
+      "canvas_edit",
+      {
+        path: "canvas/poster.svg",
+        ops: [
+          {
+            op: "add_shape",
+            kind: "rect",
+            x: 14.5,
+            y: 102,
+            w: 58,
+            h: 12,
+            rx: 6,
+            id: "etichetta",
+            style: { fill: "#ffffff", stroke: "#1f4e79", stroke_width: 0.6 },
+          },
+          {
+            op: "add_text",
+            x: 43.5,
+            y: 110.2,
+            text: "Ingresso libero",
+            id: "etichetta-testo",
+            style: { font_size: 6, font_family: "DejaVu Sans", fill: "#1f4e79", anchor: "middle" },
+          },
+          { op: "set_style", id: "sole", stroke: "#e8590c", stroke_width: 1.2 },
         ],
       },
     ],
@@ -1377,6 +1417,15 @@ if (process.env.DEMO_CANVAS) {
   const codeSession = await core.startSession("local", god.id);
   for (const f of ["config.json", "guida.md", "app.py"])
     await (await core.send("local", codeSession, `Mostra il file canvas/${f}`)).done;
+  // G37.6: a poster as Inkscape saves it (layers, metadata, Sodipodi's view, an unknown element).
+  await copyFile(
+    new URL("../../server/test/fixtures/svg/poster-inkscape.svg", import.meta.url),
+    join(into, "poster.svg"),
+  );
+  {
+    const s = await core.startSession("local", god.id);
+    await (await core.send("local", s, "Mostra il file canvas/poster.svg")).done;
+  }
   // G37.4: a realistic report (DOCX) and slides (PPTX), edited on their open copies.
   const { cp: copyDir } = await import("node:fs/promises");
   for (const f of ["relazione.docx", "piano.pptx"])

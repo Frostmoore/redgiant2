@@ -33,9 +33,11 @@ import {
 import { bareText, viewerFor } from "../../viewers/kind.js";
 import { isOfficeFile } from "../../viewers/office-bridge.js";
 import { sheetChangeText } from "../../viewers/sheet-words.js";
+import { svgChangeText } from "../../viewers/svg-words.js";
 import type { DocDiff as DiffView, DiffWhat } from "./DocDiff.js";
 import { OfficeEditor } from "./OfficeEditor.js";
 import { SHEET_EDITABLE, SheetEditor } from "./SheetEditor.js";
+import { SVG_EDITABLE, SvgEditor } from "./SvgEditor.js";
 import { TextEditor } from "./TextEditor.js";
 
 /** The kinds of the viewer that are text the page edits (G37.2): code, Markdown, trees, text. */
@@ -45,7 +47,10 @@ export const textEditable = (path: string) =>
   TEXT_KINDS.has(viewerFor(path).kind) || bareText(path);
 export const editableInCanvas = (file: { scope: string; path: string }) =>
   file.scope !== "outside" &&
-  (textEditable(file.path) || SHEET_EDITABLE.test(file.path) || isOfficeFile(file.path));
+  (textEditable(file.path) ||
+    SHEET_EDITABLE.test(file.path) ||
+    isOfficeFile(file.path) ||
+    SVG_EDITABLE.test(file.path));
 
 // ---- words ---------------------------------------------------------------------------------
 
@@ -69,6 +74,8 @@ export function linesText(s: DocSummary): string | undefined {
 export function changeText(s: DocSummary): string {
   // A sheet's change (G37.3) has its own words.
   if (s.sheet && s.kind !== "undo" && s.kind !== "replaced") return sheetChangeText(s);
+  // A drawing's change (G37.6) too.
+  if (s.svg && s.kind !== "undo" && s.kind !== "replaced") return svgChangeText(s);
   // Documents and presentations (G37.4) count paragraphs and slides.
   if (s.unit === "paragraph" || s.unit === "slide") {
     const para = s.unit === "paragraph";
@@ -393,6 +400,8 @@ export function DocEditor({
           <div class="doc-work">
             {sheet ? (
               <SheetEditor file={file} onReveal={(r) => (reveal.current = r)} />
+            ) : SVG_EDITABLE.test(file.path) ? (
+              <SvgEditor file={file} />
             ) : (
               <TextEditor file={file} name={name} line={line} onReady={(e) => (view.current = e)} />
             )}

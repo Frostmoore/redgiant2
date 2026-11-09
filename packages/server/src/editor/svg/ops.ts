@@ -660,7 +660,10 @@ export function describe(
   doc: XDoc,
   list: readonly SvgAction[],
 ): { change: SvgChange; text: string } {
-  const ops = list.flatMap(plainOf).filter((p) => p.t !== "name");
+  const all = list.flatMap(plainOf).filter((p) => p.t !== "name");
+  // What was added, then written or styled in the same batch, is one addition.
+  const added = new Set(all.flatMap((p) => (p.t === "insert" ? [idOfXml(p.xml) ?? ""] : [])));
+  const ops = all.filter((p) => p.t === "insert" || p.t === "doc" || !added.has(p.id));
   const tagOf = (id: string) => {
     const p = find(doc, id);
     return p ? local(at(doc, p).name) : undefined;

@@ -1567,6 +1567,34 @@ export class Api {
     return r.blob();
   }
 
+  // ---- drawings in the editor (G37.6) ----
+  /** Inkscape on this computer, how a PDF would be made, and the AI/EPS a copy came from. */
+  svgInfo = (scope: string, path: string) =>
+    this.call<{
+      inkscape: boolean;
+      pdf: "inkscape" | "libreoffice" | "download" | "missing";
+      original?: string;
+    }>(
+      "GET",
+      `/api/editor/svg/info?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+    );
+  /** «Apri in Inkscape»: the drawing as last saved, in the Inkscape installed here. */
+  openInInkscape = (scope: string, path: string) =>
+    this.call<{ opened: boolean }>("POST", "/api/editor/svg/inkscape", { scope, path });
+  /** «Esporta come PDF» (SVG and PNG are made in the page). */
+  async svgExport(scope: string, path: string, to: "pdf"): Promise<Blob> {
+    const r = await fetch("/api/editor/svg/export", {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ scope, path, to }),
+    });
+    if (!r.ok) {
+      const data = (await r.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
+    }
+    return r.blob();
+  }
+
   /** A web search service tried before it is saved: how many results, the first's title. */
   trySearch = (c: { provider: SearchProviderId; url?: string; key?: string }) =>
     this.call<{ results: number; first?: string }>("POST", "/api/setup/search/try", c);

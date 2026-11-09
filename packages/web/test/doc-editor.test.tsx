@@ -165,8 +165,11 @@ describe("reduceDoc: the panel as the host tells it", () => {
     // G37.3: sheets (csv, tsv, ods) open in the sheet editor; an xlsx through its ODS copy.
     for (const p of ["a.csv", "b.tsv", "c.ods"])
       expect(editableInCanvas({ scope: "platform", path: p }), p).toBe(true);
-    for (const p of ["a.xlsx", "index.html", "logo.svg", "a.png", "a.docx"])
+    for (const p of ["a.xlsx", "index.html", "a.png", "a.docx", "logo.ai"])
       expect(editableInCanvas({ scope: "platform", path: p }), p).toBe(false);
+    // G37.6: drawings open in the drawing editor; an AI/EPS through its SVG copy.
+    expect(editableInCanvas({ scope: "platform", path: "art/logo.svg" })).toBe(true);
+    expect(editableInCanvas({ scope: "outside", path: "/x/logo.svg" })).toBe(false);
   });
 });
 

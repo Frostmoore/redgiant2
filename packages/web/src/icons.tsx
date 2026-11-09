@@ -645,3 +645,135 @@ export const IconDatabase = ({ size = 20 }: P) => (
     <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
   </Svg>
 );
+
+// ---- the drawing editor's tools (G37.6) ----
+export const IconPointer = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M5 3l14 8-6 1.5L10 19z" />
+  </Svg>
+);
+export const IconSquare = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <rect x="4" y="5" width="16" height="14" rx="1.5" />
+  </Svg>
+);
+export const IconEllipse = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <ellipse cx="12" cy="12" rx="9" ry="7" />
+  </Svg>
+);
+export const IconLine = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M5 19L19 5" />
+  </Svg>
+);
+export const IconPolygon = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M12 3l8.5 6.2-3.2 9.8H6.7L3.5 9.2z" />
+  </Svg>
+);
+/** A curve with its nodes: editing a path's points. */
+export const IconNodes = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M5 18C8 6 16 18 19 6" />
+    <rect x="3" y="16" width="4" height="4" />
+    <rect x="17" y="4" width="4" height="4" />
+  </Svg>
+);
+export const IconGroup = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 2" />
+    <rect x="7" y="7" width="5" height="5" />
+    <rect x="12" y="12" width="5" height="5" />
+  </Svg>
+);
+export const IconUngroup = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <rect x="3" y="3" width="8" height="8" />
+    <rect x="13" y="13" width="8" height="8" />
+  </Svg>
+);
+/** Alignments: a guide line and two bars against it. */
+export const IconAlign = ({ size = 18, to }: P & { to: "l" | "c" | "r" | "t" | "m" | "b" }) => {
+  const v = to === "l" || to === "c" || to === "r";
+  const g = v
+    ? to === "l"
+      ? "M4 3v18"
+      : to === "r"
+        ? "M20 3v18"
+        : "M12 3v18"
+    : to === "t"
+      ? "M3 4h18"
+      : to === "b"
+        ? "M3 20h18"
+        : "M3 12h18";
+  const bars = v
+    ? to === "l"
+      ? ["M4 7h12", "M4 15h8"]
+      : to === "r"
+        ? ["M8 7h12", "M12 15h8"]
+        : ["M6 7h12", "M8 15h8"]
+    : to === "t"
+      ? ["M7 4v12", "M15 4v8"]
+      : to === "b"
+        ? ["M7 8v12", "M15 12v8"]
+        : ["M7 6v12", "M15 8v8"];
+  return (
+    <Svg size={size}>
+      <path d={g} />
+      {bars.map((d) => (
+        <path key={d} d={d} stroke-width="4" />
+      ))}
+    </Svg>
+  );
+};
+export const IconDistribute = ({ size = 18, axis }: P & { axis: "x" | "y" }) => (
+  <Svg size={size}>
+    {axis === "x" ? (
+      <>
+        <path d="M3 4v16M21 4v16" />
+        <rect x="9" y="7" width="6" height="10" />
+      </>
+    ) : (
+      <>
+        <path d="M4 3h16M4 21h16" />
+        <rect x="7" y="9" width="10" height="6" />
+      </>
+    )}
+  </Svg>
+);
+/** Order: a square over another, the arrow says where it goes. */
+export const IconOrder = ({ size = 18, to }: P & { to: "front" | "back" | "up" | "down" }) => (
+  <Svg size={size}>
+    <rect
+      x="3"
+      y="3"
+      width="11"
+      height="11"
+      stroke-dasharray={to === "front" || to === "up" ? "2 2" : undefined}
+    />
+    <rect
+      x="10"
+      y="10"
+      width="11"
+      height="11"
+      stroke-dasharray={to === "back" || to === "down" ? "2 2" : undefined}
+    />
+    {to === "front" || to === "back" ? (
+      <path d={to === "front" ? "M15.5 13v5M13 15.5h5" : "M5 8.5h5"} />
+    ) : null}
+  </Svg>
+);
+export const IconRedo = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M21 7v6h-6" />
+    <path d="M20.5 13A8.5 8.5 0 1 1 18 6.5l3 3" />
+  </Svg>
+);
+export const IconZoom = ({ size = 18, out = false }: P & { out?: boolean }) => (
+  <Svg size={size}>
+    <circle cx="11" cy="11" r="7" />
+    <path d="M21 21l-5-5" />
+    <path d={out ? "M8 11h6" : "M8 11h6M11 8v6"} />
+  </Svg>
+);

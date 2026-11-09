@@ -54,6 +54,7 @@ import {
 } from "./core.js";
 import { debugLog } from "./debug-log.js";
 import { officeRoutes } from "./editor/office-routes.js";
+import { svgRoutes } from "./editor/svg-routes.js";
 import { MailboxNotFoundError } from "./email.js";
 import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
@@ -1304,6 +1305,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   // Commands' limits and requests to the person (G36.16, G36.17).
   personRoutes(app, core, owner);
   sheetRoutes(app, core, owner);
+  svgRoutes(app, core, owner);
   browserRoutes(app, core.browserLinks, owner, clientAddress);
   // Mandatory and breaking updates (G36.19): the status, the safety backup, found backups.
   updateRoutes(app, core, owner, options.setup);

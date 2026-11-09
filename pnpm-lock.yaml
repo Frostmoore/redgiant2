@@ -673,6 +673,9 @@ importers:
       '@redgiant/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@svgedit/svgcanvas':
+        specifier: 7.4.2
+        version: 7.4.2
       '@univerjs/core':
         specifier: 1.4.0
         version: 1.4.0(react@19.3.1)(rxjs@7.8.2)
@@ -748,6 +751,9 @@ importers:
       marked:
         specifier: ^18.1.2
         version: 18.1.2
+      pathseg:
+        specifier: ^1.2.1
+        version: 1.2.1
       pdfjs-dist:
         specifier: ^5.7.284
         version: 5.7.284
@@ -2070,6 +2076,9 @@ packages:
   '@stablelib/base64@1.0.1':
     resolution: {integrity: sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ==}
 
+  '@svgedit/svgcanvas@7.4.2':
+    resolution: {integrity: sha512-18PixrbaGstEsZfijYeF+y69LDOfP/c68aVKR+Hh8S/YckbhxT4VpKJFf5Ang/Zd/Vvy63jPuf9O4pEDc4Gv+A==}
+
   '@testing-library/dom@10.4.2':
     resolution: {integrity: sha512-yzr2S9HyAIdhz2/6qHgbs665Q7PKVcDF05vsOlHPxG1mo36gKVesdYVeDLnXgfjJ03CrKRk08knc6+E/9m8v2Q==}
     engines: {node: '>=18'}
@@ -3283,6 +3292,9 @@ packages:
 
   path-to-regexp@8.4.2:
     resolution: {integrity: sha512-qRcuIdP69NPm4qbACK+aDogI5CBDMi1jKe0ry5rSQJz8JVLsC7jV8XpiJjGRLLol3N+R5ihGYcrPLTno6pAdBA==}
+
+  pathseg@1.2.1:
+    resolution: {integrity: sha512-LtvemzPvcGamWBbNWJaIrgfUzpynXfwYrP6SSFVRhNHVcCaq6SVm4kRGJNuIV8qzBKgCN3fEXFZZ16YETFIXoA==}
 
   pdfjs-dist@5.7.284:
     resolution: {integrity: sha512-h4EdYQczmGhbOlqc3PPZwxevn7ApdWPbovAuWXOB/DjIyigSnwfy2oze7c6mRcSr9XgLp3eN3EeL4DyySTPMFw==}
@@ -5276,6 +5288,8 @@ snapshots:
 
   '@stablelib/base64@1.0.1': {}
 
+  '@svgedit/svgcanvas@7.4.2': {}
+
   '@testing-library/dom@10.4.2':
     dependencies:
       '@babel/code-frame': 7.29.7
@@ -6737,6 +6751,8 @@ snapshots:
   path-key@3.1.1: {}
 
   path-to-regexp@8.4.2: {}
+
+  pathseg@1.2.1: {}
 
   pdfjs-dist@5.7.284:
     optionalDependencies:
