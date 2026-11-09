@@ -2003,6 +2003,18 @@ const en = {
   limitWeekShort: "7d",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  news353Archive: "Archive a whole project",
+  news353ArchiveText:
+    "A project you are done with goes to Archived: its agents stop, its automations pause, nothing can write into it, and you can still read its conversations, tasks and files. Restore it with one click, exactly as it was.",
+  news353Knowledge: "Knowledge, easier",
+  news353KnowledgeText:
+    "Agents can now create collections and add sources themselves. You add sources by picking files in RedGiant, uploading them or dropping them on the page, and the page tells you when search goes by words only and how to search by meaning too.",
+  news353Agents: "Agents that keep you in the loop",
+  news353AgentsText:
+    "When an agent works or asks you something in another conversation, the chat you are looking at says so, and files it shows open in your Canvas wherever it works. Agents talk to you with an informal «you», and the Tools page shows each tool's real name and has a search.",
+  news353Fixes: "Fixes from real use",
+  news353FixesText:
+    "One RedGiant page around an update, LibreOffice without error windows, switches instead of check boxes, our own dialogs instead of the browser's, numbers read right in CSV files, and many fixes to the editors.",
   news352Pdf: "PDF in the Canvas",
   news352PdfText:
     "Highlight, add notes, text boxes, drawings and signatures, fill in forms, and rotate, move or remove pages, you and the agent alike. The original stays untouched at the start of the file; removing or moving pages keeps the previous versions. Redaction really removes what lies under the area, and always asks you first.",
@@ -6421,6 +6433,18 @@ const it: Record<Key, string> = {
   limitWeekShort: "7g",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  news353Archive: "Archivia un progetto intero",
+  news353ArchiveText:
+    "Un progetto finito va in Archiviati: i suoi agenti si fermano, le automazioni vanno in pausa, nessuno può scriverci, e puoi ancora leggere conversazioni, compiti e file. Lo ripristini con un clic, esattamente com'era.",
+  news353Knowledge: "Conoscenza più facile",
+  news353KnowledgeText:
+    "Gli agenti ora possono creare raccolte e aggiungere fonti da soli. Tu aggiungi le fonti scegliendo i file in RedGiant, caricandoli o trascinandoli sulla pagina, e la pagina ti dice quando la ricerca va solo per parole e come attivare quella per significato.",
+  news353Agents: "Agenti che ti tengono al corrente",
+  news353AgentsText:
+    "Quando un agente lavora o ti chiede qualcosa in un'altra conversazione, la chat che stai guardando te lo dice, e i file che mostra si aprono nel tuo Canvas ovunque lavori. Gli agenti ti danno del tu, e la pagina Strumenti mostra il nome vero di ogni strumento e ha la ricerca.",
+  news353Fixes: "Correzioni dall'uso vero",
+  news353FixesText:
+    "Una sola pagina di RedGiant durante un aggiornamento, LibreOffice senza finestre d'errore, interruttori al posto delle caselle, le nostre finestre al posto di quelle del browser, i numeri dei CSV letti bene e tante correzioni agli editor.",
   news352Pdf: "I PDF nel Canvas",
   news352PdfText:
     "Evidenzia, aggiungi note, caselle di testo, disegni e firme, compila i moduli, ruota, sposta o togli pagine: tu e l'agente allo stesso modo. L'originale resta intatto in testa al file; togliendo o spostando pagine le versioni di prima restano. L'oscuramento toglie davvero quello che c'è sotto l'area, e chiede sempre a te.",

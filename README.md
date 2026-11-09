@@ -101,6 +101,8 @@ Options, updates, backups, uninstalling and every environment variable are in
   linked chat at once. A read-only _Inspector_ answers questions about a project without touching it,
   and rooms let several agents talk together.
 - Each agent can have its own model and effort; a backup model retries a task an agent gave up on.
+- A project you are done with can be archived: its agents stop, its automations pause, nothing can write
+  into it, and it stays readable until you restore it, exactly as it was.
 
 ### The Keychain
 
@@ -163,10 +165,11 @@ Options, updates, backups, uninstalling and every environment variable are in
 
 - Folders, files (scanned PDFs too, with OCR on your computer), web pages, and, if you want, mail and
   chats are indexed in RedGiant's own Postgres (pgvector, with the embeddings you choose, local or
-  cloud). Search mixes meaning and words; answers cite the file, page and line, and one click opens it
-  there.
-- A collection belongs to one agent, a project or everyone. After solving a problem an agent can propose
-  a skill from what it learned.
+  cloud). Search goes by words, and by meaning too once you pick an embedding model; answers cite the
+  file, page and line, and one click opens it there.
+- A collection belongs to one agent, a project or everyone. Agents can create collections and add
+  sources themselves; you add them by picking, uploading or dropping files. After solving a problem an
+  agent can propose a skill from what it learned.
 
 ### Tools and costs in plain sight
 
