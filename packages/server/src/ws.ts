@@ -26,10 +26,36 @@ const codeOf = (err: unknown): string | undefined => {
   return typeof code === "string" && /^[a-z_]+$/.test(code) ? code : undefined;
 };
 
+/**
+ * The pages connected now that reload by themselves on a new version (3.5.3), per owner. After an
+ * update the launcher asks for this (`GET /api/pages`): when a page came back it opens no other.
+ */
+export class OpenPages {
+  private readonly byOwner = new Map<string, number>();
+
+  /** One more page of `ownerId`; the function returned takes it away (once). */
+  add(ownerId: string): () => void {
+    this.byOwner.set(ownerId, this.count(ownerId) + 1);
+    let gone = false;
+    return () => {
+      if (gone) return;
+      gone = true;
+      const n = this.count(ownerId) - 1;
+      if (n > 0) this.byOwner.set(ownerId, n);
+      else this.byOwner.delete(ownerId);
+    };
+  }
+
+  count(ownerId: string): number {
+    return this.byOwner.get(ownerId) ?? 0;
+  }
+}
+
 export function attachWebSocket(
   server: Server,
   core: RedGiantCore,
   auth: AuthProvider,
+  live: { pages?: OpenPages; version?: string | null } = {},
 ): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 32 * 1024 * 1024 });
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -49,6 +75,7 @@ export function attachWebSocket(
     let offRooms: (() => void) | undefined;
     let offCanvas: (() => void) | undefined;
     let offScreen: (() => void) | undefined;
+    let offPage: (() => void) | undefined;
     const follows = new Map<string, () => void>();
     // Files open in the editor (G37.1): this page's subscriber id for each.
     const docs = new Map<string, { file: DocFile; subId: string }>();
@@ -143,7 +170,13 @@ export function attachWebSocket(
             send({ type: "canvas.query", requestId });
             return true;
           });
-          send({ type: "welcome", protocolVersion: PROTOCOL_VERSION, ownerId: principal.ownerId });
+          if (msg.reloads && live.pages) offPage = live.pages.add(principal.ownerId);
+          send({
+            type: "welcome",
+            protocolVersion: PROTOCOL_VERSION,
+            ownerId: principal.ownerId,
+            ...(live.version !== undefined && { version: live.version }),
+          });
           for (const r of core.approvals.list(principal.ownerId))
             send({ type: "permission.request", request: r });
           for (const q of core.questions.list(principal.ownerId))
@@ -415,6 +448,7 @@ export function attachWebSocket(
       offRooms?.();
       offCanvas?.();
       offScreen?.();
+      offPage?.();
     });
   }
   return wss;

@@ -77,6 +77,7 @@ import { updateRoutes } from "./update-routes.js";
 import { UpdateRequiredError } from "./updates.js";
 import { VaultError } from "./vault.js";
 import { MAX_AUDIO_BYTES, TranscriptionError } from "./voice.js";
+import type { OpenPages } from "./ws.js";
 
 type Env = { Variables: { principal: Principal } };
 
@@ -801,6 +802,8 @@ export interface AppOptions {
   loginOwner?: string;
   /** The models folder of the engine on Windows itself (G24.3b), when there is one. */
   winHf?: HuggingFace;
+  /** The pages connected now (3.5.3): the launcher asks after an update before opening one. */
+  pages?: OpenPages;
 }
 
 export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOptions = {}) {
@@ -1204,6 +1207,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   });
   // The plans' limits of the flat subscriptions (the header's bars).
   app.get("/api/limits", async (c) => c.json(await core.limits(), 200));
+  // How many of the person's pages are connected (3.5.3): after an update the launcher opens one
+  // only when none came back by itself. A number only, behind the sign-in.
+  app.get("/api/pages", (c) => c.json({ pages: options.pages?.count(owner(c)) ?? 0 }, 200));
   // Long actions (G24.1): the UI follows them and finds them again after a reload.
   app.get("/api/jobs", (c) => c.json(core.jobs.list(owner(c)), 200));
   app.get("/api/jobs/:id", (c) => {

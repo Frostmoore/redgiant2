@@ -9,8 +9,9 @@
 //   RedGiant.exe --engine-only only the engine on Windows (G24.3b), without the server
 //   RedGiant.exe --quit        asks the running RedGiant to stop (server and database), and waits
 //   RedGiant.exe --update-now  looks for an update now and installs it without asking (the CI)
-// Started by an update (G36.18): --after-update (the new version, on trial) and
-// --rolled-back <version> (the previous one again); both wait for the RedGiant that is leaving.
+// Started by an update (G36.18): --after-update (the new version, on trial, or after the
+// installer) and --rolled-back <version> (the previous one again); both wait for the RedGiant
+// that is leaving, and open the page only when no open page came back by itself (PageGate.cs).
 using System;
 using System.Diagnostics;
 using System.Collections.Generic;
@@ -72,7 +73,13 @@ static class Texts
 
 sealed class Launcher : ApplicationContext
 {
-    readonly bool background;
+    readonly bool handover;
+    // When the page opens (3.5.3, PageGate.cs): asked for, the update check over, an update running.
+    bool pageWanted;
+    bool updateDecided;
+    bool updateTimedOut;
+    bool updatingNow;
+    bool firstOpenDone;
     readonly NotifyIcon tray;
     readonly Form splash;
     readonly Label status;
@@ -85,9 +92,10 @@ sealed class Launcher : ApplicationContext
     string url;
     readonly StringBuilder log = new StringBuilder();
 
-    public Launcher(bool background, bool updateNow, string rolledBack)
+    public Launcher(bool background, bool updateNow, string rolledBack, bool handover)
     {
-        this.background = background;
+        this.handover = handover;
+        pageWanted = !background;
         Icon icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
 
         splash = new Form
@@ -145,9 +153,17 @@ sealed class Launcher : ApplicationContext
         Updates.Exit = () => { tray.Visible = false; ExitThread(); };
         // A mandatory update's «Close RedGiant», and a breaking one's guide in the page (G36.19).
         Updates.Quit = () => Ui(Quit);
-        Updates.OpenPage = () => Ui(OpenBrowser);
+        // A breaking release's «Open the guide»: the page, through the gate when it was not open yet.
+        Updates.OpenPage = () => Ui(() => { pageWanted = true; if (firstOpenDone) OpenBrowser(); else FirstOpen(); });
+        // The update check's answer for the page (3.5.3): nothing to do, later, or updating.
+        Updates.Decided = (updating) => Ui(() => { updateDecided = true; updatingNow = updating; FirstOpen(); });
+        // An automatic update of a start with Windows (the CI's --update-now) stays in the background.
+        Updates.CarryArgs = background && updateNow ? " --background" : "";
         if (rolledBack != null) Updates.RolledBack(splash, rolledBack);
         Updates.Start(splash, updateNow);
+        // The check gets a few seconds before the page opens anyway (slow or no network).
+        var limit = new Thread(() => { Thread.Sleep(PageGate.Limit * 1000); Ui(() => { updateTimedOut = true; FirstOpen(); }); }) { IsBackground = true };
+        limit.Start();
         Updates.Watch(splash, WinEngine.Dir);
     }
 
@@ -394,7 +410,7 @@ sealed class Launcher : ApplicationContext
                             {
                                 splash.Hide();
                                 tray.Text = Texts.Running;
-                                if (!background) OpenBrowser();
+                                FirstOpen();
                             });
                             return;
                         }
@@ -457,9 +473,59 @@ sealed class Launcher : ApplicationContext
 
     static string Tail(string s, int n) { return s.Length <= n ? s : s.Substring(s.Length - n); }
 
+    /**
+     * UI thread: the page of this start, once, when PageGate says so. Never while an update question
+     * is on screen or an update runs; after an update only when no open page came back by itself.
+     */
+    void FirstOpen()
+    {
+        if (firstOpenDone) return;
+        bool settled = PageGate.Settled(updateDecided, Updates.Asking, updateTimedOut);
+        var step = PageGate.Decide(pageWanted, url != null, settled, updatingNow, handover);
+        // Skip stays open too: a breaking release's guide may still ask for the page (OpenPage).
+        if (step == PageGate.Step.Wait || step == PageGate.Step.Skip) return;
+        firstOpenDone = true;
+        if (step == PageGate.Step.Open) { Diag.Log("page", "opening the page"); OpenBrowser(); return; }
+        string pagesUrl = url.Substring(0, url.IndexOf("/#", StringComparison.Ordinal)).Replace("localhost", "127.0.0.1") + "/api/pages";
+        string token = url.Substring(url.IndexOf("#token=", StringComparison.Ordinal) + 7);
+        var t = new Thread(() =>
+        {
+            int pages = 0;
+            var until = DateTime.UtcNow.AddSeconds(PageGate.Wait);
+            while (pages <= 0 && DateTime.UtcNow < until)
+            {
+                pages = OpenPages(pagesUrl, token);
+                if (pages <= 0) Thread.Sleep(500);
+            }
+            Diag.Log("page", pages > 0 ? "a page came back by itself: no other one" : "no page came back: opening one");
+            if (PageGate.OpenAfterWait(pages)) Ui(OpenBrowser);
+        }) { IsBackground = true };
+        t.Start();
+    }
+
+    /** How many of the person's pages are connected now (GET /api/pages); -1 when it cannot say. */
+    static int OpenPages(string pagesUrl, string token)
+    {
+        try
+        {
+            var req = (HttpWebRequest)WebRequest.Create(pagesUrl);
+            req.Timeout = 2000;
+            req.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;
+            using (var r = (HttpWebResponse)req.GetResponse())
+            using (var reader = new StreamReader(r.GetResponseStream()))
+            {
+                var m = Regex.Match(reader.ReadToEnd(), "\"pages\"\\s*:\\s*(\\d+)");
+                return m.Success ? int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) : -1;
+            }
+        }
+        catch (Exception) { return -1; }
+    }
+
     void OpenBrowser()
     {
         if (url == null) { splash.Show(); splash.Activate(); return; }
+        // Opened (the gate, the icon, the menu): the gate opens no other at this start.
+        firstOpenDone = true;
         try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch (Exception) { }
     }
 
@@ -539,10 +605,10 @@ sealed class Launcher : ApplicationContext
             }
             // A swap interrupted halfway, or a new version that already failed to start twice:
             // the previous version is put back and started instead of this one.
-            if (!Updates.BeforeStart(AppDir)) return;
+            if (!Updates.BeforeStart(AppDir, background)) return;
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            var launcher = new Launcher(background, Array.IndexOf(args, "--update-now") >= 0, rolledBack);
+            var launcher = new Launcher(background, Array.IndexOf(args, "--update-now") >= 0, rolledBack, handover);
             ListenForSignals(launcher);
             Application.Run(launcher);
         }

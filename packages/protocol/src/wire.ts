@@ -35,7 +35,16 @@ export const PermissionRequestInfo = z.object({
 export type PermissionRequestInfo = z.infer<typeof PermissionRequestInfo>;
 
 export const ClientMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("hello"), protocolVersion: z.number().int(), token: z.string() }),
+  z.object({
+    type: z.literal("hello"),
+    protocolVersion: z.number().int(),
+    token: z.string(),
+    /**
+     * This page reloads by itself when the server comes back as another version (3.5.3): it is
+     * counted among the pages a launcher finds after an update (`GET /api/pages`).
+     */
+    reloads: z.boolean().optional(),
+  }),
   z.object({ type: z.literal("session.follow"), sessionId: z.string() }),
   z.object({ type: z.literal("session.unfollow"), sessionId: z.string() }),
   z.object({
@@ -149,7 +158,13 @@ export const ClientMessage = z.discriminatedUnion("type", [
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
 export const ServerMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("welcome"), protocolVersion: z.number().int(), ownerId: z.string() }),
+  z.object({
+    type: z.literal("welcome"),
+    protocolVersion: z.number().int(),
+    ownerId: z.string(),
+    /** The installed version (null from the source): a page seeing it change reloads (3.5.3). */
+    version: z.string().nullable().optional(),
+  }),
   /** A persisted event of a followed session (history first, then live). */
   z.object({ type: z.literal("event"), sessionId: z.string(), event: Event }),
   /** Streaming text not yet persisted; the final message arrives as an event. */

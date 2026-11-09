@@ -75,6 +75,34 @@ static class Updates
     public static Action OpenPage;
     /** Where the installer put RedGiant (RedGiant.exe's folder). */
     public static string AppDir;
+    /**
+     * Set by the launcher (3.5.3, PageGate.cs): the update check's answer for the page. False:
+     * nothing to update, «Later», a window closed, or an update that gave up; true: updating
+     * (this RedGiant opens no page). Called on the UI thread.
+     */
+    public static Action<bool> Decided;
+    /** An update question is on screen: the page waits for its answer. */
+    public static bool Asking;
+    /** Added to the arguments of the RedGiant started after an update (" --background" or ""). */
+    public static string CarryArgs = "";
+    static bool updating;
+
+    /** The answer for the page; a «no» while an update runs counts for nothing (it gives up through GaveUp). */
+    static void Decide(bool update)
+    {
+        Asking = false;
+        if (update) updating = true;
+        else if (updating) return;
+        if (Decided != null) Decided(update);
+    }
+
+    /** UI thread: the update stopped here. A mandatory one asks again (the page still waits); otherwise the page opens. */
+    static void GaveUp(Release r)
+    {
+        updating = false;
+        if (r.Gate == "mandatory") { Required(r); return; }
+        Decide(false);
+    }
 
     /** The version the installer (or the last update) wrote, null before the first install. */
     public static string Installed { get { return Get("Version"); } }
@@ -302,15 +330,17 @@ static class Updates
         var t = new Thread(() =>
         {
             Release r = null;
-            try { r = Find(); } catch (Exception e) { Diag.Log("update", "check failed: " + e.Message); return; }
+            // Nothing to ask: the page may open (PageGate.cs).
+            Action nothing = () => { try { owner.BeginInvoke(new Action(() => Decide(false))); } catch (Exception) { } };
+            try { r = Find(); } catch (Exception e) { Diag.Log("update", "check failed: " + e.Message); nothing(); return; }
             if (askNormal) Set("UpdateLastCheck", Today);
             if (r == null || Compare(Get("Version"), r.Version) >= 0 || r.Gate == "none")
             {
                 Set("UpdatePending", null);
+                nothing();
                 return;
             }
-            if (r.Gate == "unchecked") return;
-            if (r.Gate == "normal" && !askNormal) return;
+            if (r.Gate == "unchecked" || (r.Gate == "normal" && !askNormal)) { nothing(); return; }
             try { owner.BeginInvoke(new Action(() => { if (askNow && r.Gate != "breaking") Update(r); else Offer(r); })); } catch (Exception) { }
         });
         t.IsBackground = true;
@@ -361,6 +391,7 @@ static class Updates
      */
     static void Required(Release r)
     {
+        Asking = true;
         var f = Dialog(It ? "È necessario aggiornare RedGiant" : "RedGiant must be updated", 500, 250);
         f.ControlBox = false;
         bool leaving = false;
@@ -376,7 +407,7 @@ static class Updates
         var now = Button(It ? "Aggiorna ora" : "Update now", 18, 196, 170, true);
         var close = Button(It ? "Chiudi RedGiant" : "Close RedGiant", 196, 196, 170, false);
         f.Controls.AddRange(new Control[] { text, now, close });
-        now.Click += (s, e) => { leaving = true; f.Close(); Update(r); };
+        now.Click += (s, e) => { leaving = true; Decide(true); f.Close(); Update(r); };
         close.Click += (s, e) => { leaving = true; f.Close(); if (Quit != null) Quit(); };
         f.Show();
         f.Activate();
@@ -385,6 +416,7 @@ static class Updates
     /** A breaking update (G36.19): never applied here; the page makes the backup and guides the clean install. */
     static void Breaking(Release r)
     {
+        Asking = true;
         var f = Dialog(It ? "Questa versione richiede un'installazione pulita" : "This version needs a clean install", 500, 250);
         var text = new Label
         {
@@ -397,8 +429,11 @@ static class Updates
         var open = Button(It ? "Apri la guida" : "Open the guide", 18, 196, 170, true);
         var later = Button(It ? "Più tardi" : "Later", 196, 196, 120, false);
         f.Controls.AddRange(new Control[] { text, open, later });
-        open.Click += (s, e) => { f.Close(); if (OpenPage != null) OpenPage(); };
+        bool guide = false;
+        open.Click += (s, e) => { guide = true; f.Close(); };
         later.Click += (s, e) => f.Close();
+        // However it closes, the page may open; the guide asks for it even at a start in the background.
+        f.FormClosed += (s, e) => { if (guide && OpenPage != null) OpenPage(); Decide(false); };
         f.Show();
         f.Activate();
     }
@@ -425,6 +460,7 @@ static class Updates
 
     static void Ask(Release r)
     {
+        Asking = true;
         var f = Dialog(It ? "Aggiornamento di RedGiant" : "RedGiant update", 470, 210);
         var text = new Label
         {
@@ -442,7 +478,7 @@ static class Updates
             : new object[] { "Snooze for…", "1 day", "3 days", "7 days" });
         days.SelectedIndex = 0;
         f.Controls.AddRange(new Control[] { text, now, later, days });
-        now.Click += (s, e) => { Set("UpdatePending", null); f.Close(); Update(r); };
+        now.Click += (s, e) => { Set("UpdatePending", null); Decide(true); f.Close(); Update(r); };
         // Later: asked again at the next start.
         later.Click += (s, e) => { Set("UpdatePending", r.Version); f.Close(); };
         days.SelectedIndexChanged += (s, e) =>
@@ -453,6 +489,8 @@ static class Updates
             Set("UpdatePending", r.Version);
             f.Close();
         };
+        // «Later», a snooze or the window closed: the page opens (after «Update now» this is ignored).
+        f.FormClosed += (s, e) => Decide(false);
         f.Show();
         f.Activate();
     }
@@ -544,7 +582,9 @@ static class Updates
     {
         // A breaking release is never put over the installed one (G36.19), not even by the installer.
         if (r.Gate == "breaking") { Breaking(r); return; }
-        if (r.Gate == "unchecked") return;
+        if (r.Gate == "unchecked") { Decide(false); return; }
+        // From here this RedGiant leaves for the new one: it opens no page (PageGate.cs).
+        Decide(true);
         if (r.ManifestUrl == null || r.ArchiveUrl == null || AppDir == null || Installed == null || Get("UpdateBroken") == r.Version)
         {
             Diag.Log("update", "the whole installer: " + (r.ManifestUrl == null ? "no manifest in the release" : Get("UpdateBroken") == r.Version ? "this version was rolled back once" : "no differential update here"));
@@ -627,8 +667,8 @@ static class Updates
             {
                 f.Close();
                 MessageBox.Show((It ? "Non sono riuscito a scaricare l'aggiornamento. Riprovo la prossima volta, da dove ero arrivato.\n\n" : "The update could not be downloaded. It is tried again next time, from where it stopped.\n\n") + e.Message, "RedGiant", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                // A mandatory update stays mandatory: its window comes back.
-                if (r.Gate == "mandatory") Required(r);
+                // A mandatory update stays mandatory: its window comes back. Otherwise the page opens.
+                GaveUp(r);
             }));
         }
         catch (Exception) { }
@@ -675,7 +715,8 @@ static class Updates
             try { File.Delete(StateFile); } catch (Exception) { }
             Set("UpdateBroken", m.Version);
             Set("UpdatePending", m.Version);
-            Relaunch("");
+            // Started by an update all the same: it waits for this one to leave, and for the open page.
+            Relaunch("--after-update");
             return;
         }
         SaveState("trial", m.Version, from, 0);
@@ -689,7 +730,7 @@ static class Updates
     /** RedGiant.exe of the folder (new or old, whichever is there now) starts; this one leaves. */
     static void Relaunch(string args)
     {
-        try { Process.Start(new ProcessStartInfo(Path.Combine(AppDir, "RedGiant.exe"), args) { UseShellExecute = false }); }
+        try { Process.Start(new ProcessStartInfo(Path.Combine(AppDir, "RedGiant.exe"), args + CarryArgs) { UseShellExecute = false }); }
         catch (Exception e) { Diag.Log("update", "could not start RedGiant again: " + e.Message); }
         if (Exit != null) Exit();
     }
@@ -702,7 +743,7 @@ static class Updates
      * already failed to start twice is rolled back. False: this RedGiant must leave (the one in the
      * folder now was started instead).
      */
-    public static bool BeforeStart(string appDir)
+    public static bool BeforeStart(string appDir, bool background)
     {
         AppDir = appDir;
         var s = LoadState();
@@ -725,7 +766,7 @@ static class Updates
         SetListedVersion(s["from"]);
         if (s["phase"] == "trial") Set("UpdateBroken", s["version"]);
         try { File.Delete(StateFile); } catch (Exception) { }
-        try { Process.Start(new ProcessStartInfo(Path.Combine(AppDir, "RedGiant.exe"), "--rolled-back " + s["version"]) { UseShellExecute = false }); }
+        try { Process.Start(new ProcessStartInfo(Path.Combine(AppDir, "RedGiant.exe"), "--rolled-back " + s["version"] + (background ? " --background" : "")) { UseShellExecute = false }); }
         catch (Exception) { return true; }
         return false;
     }
@@ -817,6 +858,7 @@ static class Updates
     static void Download(Release r)
     {
         if (r.Gate == "breaking" || r.Gate == "unchecked") return;
+        Decide(true);
         var f = Dialog(It ? "Scarico l'aggiornamento" : "Downloading the update", 470, 150);
         var what = new Label { Text = "RedGiant " + r.Version, Location = new Point(18, 16), Size = new Size(434, 24) };
         var detail = new Label { Text = "", Location = new Point(18, 48), Size = new Size(434, 40), ForeColor = Color.FromArgb(160, 166, 178), Font = new Font("Segoe UI", 9.5f) };
@@ -842,12 +884,13 @@ static class Updates
                 f.Close();
                 MessageBox.Show((It ? "Non sono riuscito a scaricare l'aggiornamento. Riprovo la prossima volta.\n\n" : "The update could not be downloaded. It is tried again next time.\n\n") + (e.Error != null ? e.Error.Message : ""), "RedGiant", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 Set("UpdatePending", r.Version);
-                if (r.Gate == "mandatory") Required(r);
+                GaveUp(r);
                 return;
             }
             Diag.Log("update", "downloaded in " + (int) (DateTime.Now - downloadStarted).TotalSeconds + " s, starting the installer");
             detail.Text = It ? "Apro l'installazione…" : "Opening the installer…";
-            // The installer closes this RedGiant, updates without questions and opens it again.
+            // The installer closes this RedGiant, updates without questions and opens it again
+            // (--after-update: a page still open comes back by itself, otherwise it opens one).
             Process.Start(new ProcessStartInfo(file, "/SILENT /SUPPRESSMSGBOXES /NORESTART") { UseShellExecute = true });
         };
         w.DownloadFileAsync(new Uri(r.Url), file);

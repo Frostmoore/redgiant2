@@ -61,7 +61,7 @@ jobs:
         shell: pwsh
         working-directory: packaging/windows
         run: |
-          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Management.dll /r:System.Web.Extensions.dll launcher\RedGiant.cs launcher\Updates.cs launcher\Moves.cs launcher\Memory.cs launcher\Diag.cs launcher\Delta.cs launcher\UpdateKey.cs launcher\ReleaseInfo.cs
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Management.dll /r:System.Web.Extensions.dll launcher\RedGiant.cs launcher\Updates.cs launcher\Moves.cs launcher\Memory.cs launcher\Diag.cs launcher\Delta.cs launcher\UpdateKey.cs launcher\ReleaseInfo.cs launcher\PageGate.cs
           if ($LASTEXITCODE -ne 0) { exit 1 }
           # Differential updates (G36.18): Delta.cs's tests and the tool the checks below use.
           & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /out:DeltaTests.exe /r:System.IO.Compression.dll /r:System.Web.Extensions.dll /r:System.Core.dll launcher\test\DeltaTests.cs launcher\Delta.cs
@@ -74,6 +74,11 @@ jobs:
           & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /out:ReleaseInfoTests.exe /r:System.IO.Compression.dll /r:System.Web.Extensions.dll /r:System.Core.dll launcher\test\ReleaseInfoTests.cs launcher\ReleaseInfo.cs launcher\Delta.cs
           if ($LASTEXITCODE -ne 0) { exit 1 }
           .\ReleaseInfoTests.exe
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # When the page opens (3.5.3): not during an update question, once after an update.
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /out:PageGateTests.exe launcher\test\PageGateTests.cs launcher\PageGate.cs
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          .\PageGateTests.exe
           if ($LASTEXITCODE -ne 0) { exit 1 }
       # The engine on Windows (G24.3b): RedGiant.exe downloads llama.cpp's Vulkan build, starts it
       # and reports. The runner has no GPU: the engine must be found and that must be said (no_gpu).
@@ -206,6 +211,23 @@ jobs:
           $orphans = @(Get-Process postgres -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$app*" } | ForEach-Object { $_.Id })
           "Postgres left running on purpose: $($orphans.Count) processes"
           if ($orphans.Count -eq 0) { "the test needs a Postgres left running"; exit 1 }
+          # 3.5.3: a RedGiant page left open during the update (here a stand-in that reconnects every
+          # second, as the page does) comes back by itself, and the new RedGiant opens no other.
+          $env:PAGE_TOKEN_FILE = "$app\data\token.txt"
+          $env:PAGE_PROTOCOL = (Select-String -Path packages\protocol\src\wire.ts -Pattern 'PROTOCOL_VERSION = (\d+)').Matches[0].Groups[1].Value
+          @'
+          const fs = require("node:fs");
+          const token = fs.readFileSync(process.env.PAGE_TOKEN_FILE, "utf8").trim();
+          const connect = () => {
+            const ws = new WebSocket("ws://127.0.0.1:7600/ws");
+            ws.onopen = () => ws.send(JSON.stringify({ type: "hello", protocolVersion: +process.env.PAGE_PROTOCOL, token, reloads: true }));
+            ws.onmessage = (e) => { if (JSON.parse(e.data).type === "welcome") console.log("page connected"); };
+            ws.onerror = () => {};
+            ws.onclose = () => setTimeout(connect, 1000);
+          };
+          connect();
+          '@ | Set-Content "$env:RUNNER_TEMP\page.cjs"
+          $page = Start-Process node -ArgumentList "$env:RUNNER_TEMP\page.cjs" -RedirectStandardOutput "$env:RUNNER_TEMP\page.txt" -PassThru
           $again = Start-Process packaging\windows\dist\RedGiant-Setup.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LANG=en", '/TASKS=""' -PassThru
           if (-not $again.WaitForExit(600000)) { "setup over a running Postgres did not finish"; exit 1 }
           if ($again.ExitCode -ne 0) { "setup over a running Postgres failed: $($again.ExitCode)"; exit 1 }
@@ -219,6 +241,15 @@ jobs:
             try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:7600/api/health -TimeoutSec 3 | Out-Null; $up = $true; break } catch {}
           }
           if (-not $up) { "RedGiant did not come back after the update"; exit 1 }
+          $came = $false
+          for ($i = 0; $i -lt 30 -and -not $came; $i++) {
+            Start-Sleep 1
+            $came = [bool](Get-Content "$app\engine\launcher-*.log" -ErrorAction SilentlyContinue | Select-String "a page came back by itself")
+          }
+          Stop-Process $page -Force
+          Get-Content "$app\engine\launcher-*.log" -ErrorAction SilentlyContinue | Select-String "\[page\]" | Select-Object -Last 5
+          if (-not $came) { "the RedGiant after the update did not see the open page come back"; Get-Content "$env:RUNNER_TEMP\page.txt" -ErrorAction SilentlyContinue; exit 1 }
+          if (Get-Content "$app\engine\launcher-*.log" -ErrorAction SilentlyContinue | Select-String "no page came back") { "a second page was opened after the update"; exit 1 }
           # Differential update (G36.18), the real launcher end to end: a release of its own
           # (range-server.mjs: 302 then 206 as GitHub, the API's digest), RedGiant.exe --update-now.
           # 0.0.1 changes two files: only those come down, the swap restarts RedGiant as 0.0.1.

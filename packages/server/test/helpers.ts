@@ -107,7 +107,7 @@ export async function startServer(
 }
 
 /** A WebSocket client that records every message and can wait for one. */
-export async function wsClient(url: string, token = TOKEN) {
+export async function wsClient(url: string, token = TOKEN, hello: Record<string, unknown> = {}) {
   const ws = new WebSocket(`${url.replace(/^http/, "ws")}/ws`);
   const messages: ServerMessage[] = [];
   const waiters: { pred: (m: ServerMessage) => boolean; ok: (m: ServerMessage) => void }[] = [];
@@ -149,6 +149,6 @@ export async function wsClient(url: string, token = TOKEN) {
         },
       });
     });
-  send({ type: "hello", protocolVersion: PROTOCOL_VERSION, token });
+  send({ type: "hello", protocolVersion: PROTOCOL_VERSION, token, ...hello });
   return { ws, messages, send, waitFor, closed: () => closed, close: () => ws.close() };
 }

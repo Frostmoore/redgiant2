@@ -284,9 +284,10 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   Code: Integer;
 begin
-  { An update opens RedGiant again by itself, in the background as it was. }
+  { An update opens RedGiant again by itself. --after-update (3.5.3): a RedGiant page still open
+    reloads by itself on the new version, and only when none comes back is a page opened. }
   if (CurStep = ssDone) and Updating then
-    Exec(ExpandConstant('{app}\RedGiant.exe'), '', '', SW_SHOW, ewNoWait, Code);
+    Exec(ExpandConstant('{app}\RedGiant.exe'), '--after-update', '', SW_SHOW, ewNoWait, Code);
 end;
 
 { An update ends by itself: RedGiant was opened again at ssDone (CurStepChanged). }

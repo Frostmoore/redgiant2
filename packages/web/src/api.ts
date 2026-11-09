@@ -1751,9 +1751,32 @@ export const wsUrl = (path: string) =>
   `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${path}`;
 
 /**
- * The live channel, with automatic reconnection (1 s … 30 s) and a queue for messages sent
- * while offline. After a reconnection followed sessions are followed again (the server
- * replays their history).
+ * A page whose server came back as another version (3.5.3, an update) loads again, so it runs
+ * the new page. `seen` is the version of the first welcome (undefined before it); a server that
+ * says no version (an older one) never makes the page reload.
+ */
+export function versionChanged(
+  seen: string | null | undefined,
+  now: string | null | undefined,
+): boolean {
+  return seen !== undefined && now !== undefined && now !== seen;
+}
+
+/**
+ * The longest wait between two reconnections: 5 s for a RedGiant on this computer (the desktop
+ * launchers: after an update the page comes back within seconds, and the launcher opens no
+ * other), 30 s elsewhere.
+ */
+export function reconnectCap(hostname: string): number {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
+    ? 5_000
+    : 30_000;
+}
+
+/**
+ * The live channel, with automatic reconnection (1 s … 30 s, 5 s on this computer) and a queue
+ * for messages sent while offline. After a reconnection followed sessions are followed again (the
+ * server replays their history); a server back as another version reloads the page.
  */
 export class Live {
   private ws: WebSocket | undefined;
@@ -1762,11 +1785,14 @@ export class Live {
   private closed = false;
   private readonly followed = new Set<string>();
   private readonly docs = new Map<string, ClientMessage>();
+  private version: string | null | undefined;
+  private readonly cap = reconnectCap(location.hostname);
 
   constructor(
     private readonly token: string,
     private readonly onMessage: (m: ServerMessage) => void,
     private readonly onStatus: (s: "online" | "offline" | "connecting") => void,
+    private readonly onNewVersion: () => void = () => location.reload(),
   ) {
     this.connect();
   }
@@ -1777,11 +1803,23 @@ export class Live {
     this.ws = ws;
     ws.onopen = () =>
       ws.send(
-        JSON.stringify({ type: "hello", protocolVersion: PROTOCOL_VERSION, token: this.token }),
+        JSON.stringify({
+          type: "hello",
+          protocolVersion: PROTOCOL_VERSION,
+          token: this.token,
+          reloads: true,
+        }),
       );
     ws.onmessage = (e) => {
       const m = JSON.parse(String(e.data)) as ServerMessage;
       if (m.type === "welcome") {
+        if (versionChanged(this.version, m.version)) {
+          this.closed = true;
+          ws.close();
+          this.onNewVersion();
+          return;
+        }
+        if (this.version === undefined) this.version = m.version;
         this.delay = 1000;
         this.onStatus("online");
         for (const s of this.followed)
@@ -1795,7 +1833,7 @@ export class Live {
       this.onStatus("offline");
       if (this.closed || e.code === 4003) return;
       setTimeout(() => this.connect(), this.delay);
-      this.delay = Math.min(this.delay * 2, 30_000);
+      this.delay = Math.min(this.delay * 2, this.cap);
     };
   }
 
