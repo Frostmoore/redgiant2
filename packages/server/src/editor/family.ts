@@ -62,6 +62,8 @@ export interface DocFamily<M = unknown> {
   accepts(path: string): boolean;
   /** Bytes to a model; throws with a reason when the file is not one it edits. */
   load(bytes: Uint8Array, path?: string): Loaded<M>;
+  /** Optional (G37.8): the same, for a family whose reader is asynchronous (the host prefers it). */
+  loadAsync?(bytes: Uint8Array, path?: string): Promise<Loaded<M>>;
   save(model: M, format: unknown): Uint8Array;
   /** A save of its own (G37.3), used instead of `save` when there: the bytes to write. */
   saveTo?(ctx: SaveContext<M>): Promise<Uint8Array>;

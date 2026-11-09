@@ -258,6 +258,7 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
             <DocEditor
               file={{ scope: target.scope, path: target.path }}
               line={target.at?.line}
+              page={target.at?.page}
               fallback={() => (
                 <CanvasFile
                   scope={target.scope}

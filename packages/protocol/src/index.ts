@@ -7,6 +7,7 @@ export * from "./critical.js";
 export * from "./dangers.js";
 export * from "./doc.js";
 export * from "./doc-office.js";
+export * from "./doc-pdf.js";
 export * from "./events.js";
 export * from "./imports.js";
 export * from "./jobs.js";

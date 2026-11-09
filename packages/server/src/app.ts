@@ -54,6 +54,7 @@ import {
 } from "./core.js";
 import { debugLog } from "./debug-log.js";
 import { officeRoutes } from "./editor/office-routes.js";
+import { pdfRoutes } from "./editor/pdf-routes.js";
 import { MailboxNotFoundError } from "./email.js";
 import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
@@ -1299,6 +1300,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   // Closed formats into open ones (G34.3): what a file is, and a conversion as a job.
   convertRoutes(app, core, owner);
   officeRoutes(app, core, owner, options.webDir);
+  pdfRoutes(app, core, owner);
   // Import from other agents (G36.7): previews, the import as a job, undo.
   importRoutes(app, core, owner, options.setup);
   // Commands' limits and requests to the person (G36.16, G36.17).

@@ -32,9 +32,11 @@ import {
 } from "../../state.js";
 import { bareText, viewerFor } from "../../viewers/kind.js";
 import { isOfficeFile } from "../../viewers/office-bridge.js";
+import { pdfChangeText } from "../../viewers/pdf-words.js";
 import { sheetChangeText } from "../../viewers/sheet-words.js";
 import type { DocDiff as DiffView, DiffWhat } from "./DocDiff.js";
 import { OfficeEditor } from "./OfficeEditor.js";
+import { isPdfFile, PdfEditor } from "./PdfEditor.js";
 import { SHEET_EDITABLE, SheetEditor } from "./SheetEditor.js";
 import { TextEditor } from "./TextEditor.js";
 
@@ -45,7 +47,10 @@ export const textEditable = (path: string) =>
   TEXT_KINDS.has(viewerFor(path).kind) || bareText(path);
 export const editableInCanvas = (file: { scope: string; path: string }) =>
   file.scope !== "outside" &&
-  (textEditable(file.path) || SHEET_EDITABLE.test(file.path) || isOfficeFile(file.path));
+  (textEditable(file.path) ||
+    SHEET_EDITABLE.test(file.path) ||
+    isOfficeFile(file.path) ||
+    isPdfFile(file.path));
 
 // ---- words ---------------------------------------------------------------------------------
 
@@ -69,6 +74,8 @@ export function linesText(s: DocSummary): string | undefined {
 export function changeText(s: DocSummary): string {
   // A sheet's change (G37.3) has its own words.
   if (s.sheet && s.kind !== "undo" && s.kind !== "replaced") return sheetChangeText(s);
+  // A PDF's change (G37.8) too.
+  if (s.pdf && s.kind !== "undo" && s.kind !== "replaced") return pdfChangeText(s);
   // Documents and presentations (G37.4) count paragraphs and slides.
   if (s.unit === "paragraph" || s.unit === "slide") {
     const para = s.unit === "paragraph";
@@ -192,11 +199,14 @@ const askId = () => `u${Date.now().toString(36)}${(asks++).toString(36)}`;
 export function DocEditor({
   file,
   line,
+  page,
   fallback,
 }: {
   file: DocFile;
   /** A citation's line (G36.4). */
   line?: number | undefined;
+  /** A citation's page, in a PDF (G37.8). */
+  page?: number | undefined;
   /** What to show when the host cannot edit this file (too big, not UTF-8): the viewer. */
   fallback?: () => ComponentChildren;
 }) {
@@ -218,6 +228,7 @@ export function DocEditor({
   const view = useRef<EditorView | undefined>(undefined);
   const reveal = useRef<((c: DocChange) => void) | undefined>(undefined);
   const sheet = SHEET_EDITABLE.test(file.path);
+  const pdf = isPdfFile(file.path);
   /** What each of the person's requests was about (to offer «Torna a prima» after a refusal). */
   const asked = useRef(new Map<string, { revision?: number; groupId?: string }>());
   const [, tick] = useState(0);
@@ -235,6 +246,7 @@ export function DocEditor({
   };
   const show = (c: DocChange) => {
     if (sheet) return c.revision === v.revision ? reveal.current?.(c) : undefined;
+    if (pdf) return reveal.current?.(c);
     const ed = view.current;
     const r = c.wrote?.[0];
     if (!ed || !r || c.revision !== v.revision) return;
@@ -389,6 +401,8 @@ export function DocEditor({
         )}
         {isOfficeFile(file.path) ? (
           <OfficeEditor file={file} />
+        ) : pdf ? (
+          <PdfEditor file={file} page={page} onReveal={(r) => (reveal.current = r)} />
         ) : (
           <div class="doc-work">
             {sheet ? (

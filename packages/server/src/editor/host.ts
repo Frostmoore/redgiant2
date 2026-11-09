@@ -173,6 +173,10 @@ export async function atomicWrite(abs: string, bytes: Uint8Array): Promise<void>
   }
 }
 
+/** A family's model of the bytes: read in the background when the family needs to (G37.8). */
+const loadWith = (f: DocFamily, bytes: Uint8Array, path: string) =>
+  f.loadAsync ? f.loadAsync(bytes, path) : f.load(bytes, path);
+
 const projectOf = (file: DocFile) => file.scope.match(/^project:(.+)$/)?.[1] ?? null;
 
 export class EditorHost {
@@ -238,7 +242,7 @@ export class EditorHost {
     const abs = await this.o.resolve(ownerId, file);
     const bytes = await readFile(abs);
     const st = await stat(abs);
-    const disk = family.load(bytes, file.path);
+    const disk = await loadWith(family, bytes, file.path);
     const hash = sha256(bytes);
     const dir = this.stateDir(ownerId, file);
     const state = await readFile(join(dir, "state.json"), "utf8")
@@ -279,7 +283,7 @@ export class EditorHost {
       if (state?.hash === hash) base = disk;
       else if (state) {
         const last = await readFile(join(dir, "content")).catch(() => undefined);
-        if (last && sha256(last) === state.hash) base = family.load(last, file.path);
+        if (last && sha256(last) === state.hash) base = await loadWith(family, last, file.path);
       }
       const replay = base && state ? this.after(doc, state.revision) : undefined;
       if (base && state && replay) {
@@ -985,7 +989,7 @@ export class EditorHost {
     const f = doc.family;
     let next: { model: unknown; format: unknown };
     try {
-      next = f.load(bytes, doc.file.path);
+      next = await loadWith(f, bytes, doc.file.path);
     } catch {
       // Not a file this family edits anymore: the editor keeps what it had, unsaved.
       doc.saved = { ...doc.saved, size: st.size, mtimeMs: st.mtimeMs };
