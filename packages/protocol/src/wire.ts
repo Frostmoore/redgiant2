@@ -307,6 +307,18 @@ export const ServerMessage = z.discriminatedUnion("type", [
     mode: AgentEditMode,
     modeOwn: z.boolean(),
   }),
+  /**
+   * The file was written up to a revision, or could not be (G37.3: a sheet's save needs
+   * LibreOffice; the changes stay in the log and the save is tried again).
+   */
+  z.object({
+    type: z.literal("doc.saved"),
+    file: DocFile,
+    revision: z.number().int().nonnegative(),
+    error: z.string().max(2000).optional(),
+    /** A program the save waits for (it is coming down: the person sees its bar). */
+    waitsFor: z.string().max(40).optional(),
+  }),
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

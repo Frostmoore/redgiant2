@@ -509,6 +509,7 @@ export function applyMessage(m: ServerMessage): void {
     case "doc.presence":
     case "doc.proposals":
     case "doc.mode":
+    case "doc.saved":
       docMessage(m);
       return;
     // An agent looks at the canvas (G36.12): what it shows and where the person is, once.
@@ -1424,6 +1425,10 @@ export interface DocView {
   modeOwn: boolean;
   /** The last refusal of something the person asked (an undo, a proposal), with the host's words. */
   refusal?: { clientId: string; code: string; reason: string; conflict?: number } | undefined;
+  /** G37.3: the last save told by a family that saves by itself (a sheet's «toppa»). */
+  saved?:
+    | { revision: number; error?: string | undefined; waitsFor?: string | undefined }
+    | undefined;
 }
 
 export const emptyDocView = (): DocView => ({
@@ -1448,7 +1453,8 @@ type DocMessage = Extract<
       | "doc.replaced"
       | "doc.presence"
       | "doc.proposals"
-      | "doc.mode";
+      | "doc.mode"
+      | "doc.saved";
   }
 >;
 
@@ -1498,6 +1504,15 @@ export function reduceDoc(v: DocView, m: DocMessage): DocView {
       return { ...v, proposals: m.proposals };
     case "doc.mode":
       return { ...v, mode: m.mode, modeOwn: m.modeOwn };
+    case "doc.saved":
+      return {
+        ...v,
+        saved: {
+          revision: m.revision,
+          ...(m.error && { error: m.error }),
+          ...(m.waitsFor && { waitsFor: m.waitsFor }),
+        },
+      };
   }
 }
 

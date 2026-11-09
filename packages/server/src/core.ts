@@ -65,6 +65,7 @@ import {
   DEFAULT_EDITOR_SETTINGS,
   DEFAULT_REQUEST_SETTINGS,
   type DocFile,
+  docKey,
   EditorSettings,
   type Event,
   type ImagePart,
@@ -148,6 +149,8 @@ import { Programs } from "./convert-programs.js";
 import { convertTools, vaultFigma } from "./convert-tools.js";
 import { debugLog } from "./debug-log.js";
 import { EditorHost, type EditorHostOptions } from "./editor/host.js";
+import { sheetFamily } from "./editor/sheet-family.js";
+import { textFamily } from "./editor/text-family.js";
 import { type CanvasEditHost, canvasEditTool } from "./editor/tool.js";
 import {
   type EmailAccount,
@@ -538,6 +541,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly canvasLive = new CanvasLive();
   /** The editor (G37.1): one owner of every open file, the person's and the agents' edits. */
   readonly editor: EditorHost;
+  /** The sheet family (G37.3): CSV/TSV in place, ODS with LibreOffice's «toppa». */
+  readonly sheets: ReturnType<typeof sheetFamily>;
   /** The rule for the agents' edits, for an agent or a file (G37.1). */
   readonly editorSettings: OwnerSettings<EditorSettings>;
   /** Background commands of every conversation (p3.3.1): bash with background, bash_output. */
@@ -689,8 +694,18 @@ export class RedGiantCore implements OrchestrationHost {
       EditorSettings,
       DEFAULT_EDITOR_SETTINGS,
     );
+    this.sheets = sheetFamily({
+      libreoffice: () => this.programs.find("libreoffice"),
+      fetchLibreOffice: (ownerId) =>
+        void this.programs.ensure(ownerId, "libreoffice").catch(() => {}),
+      profileDir: join(dirname(o.workspacesDir), "tools", "libreoffice-profile-edit"),
+      tmpDir: join(dirname(o.workspacesDir), "cache", "sheet-save"),
+      reexport: (ownerId, file) =>
+        this.editorSettings.get(ownerId).reexport?.[docKey(file)] === true,
+    });
     this.editor = new EditorHost({
       store: this.store,
+      families: [textFamily, this.sheets],
       dataDir: dirname(o.workspacesDir),
       resolve: (ownerId, file) => this.docAbs(ownerId, file),
       settings: (ownerId) => this.editorSettings.get(ownerId),
@@ -2852,7 +2867,7 @@ export class RedGiantCore implements OrchestrationHost {
         const read = await this.editor.read(ownerId, file);
         this.editor.seen(ctx.sessionId, ownerId, file, read.revision);
         const mode = this.editor.modeFor(ownerId, agent.id, file);
-        return `revision ${read.revision}${mode === "propose" ? " (the person reviews your edits of it: canvas_edit makes proposals)" : ""}. ${read.family.structure(read.model, ask)}`;
+        return `revision ${read.revision}${mode === "propose" ? " (the person reviews your edits of it: canvas_edit makes proposals)" : ""}. ${await read.family.structure(read.model, ask)}`;
       },
     };
   }

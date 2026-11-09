@@ -30,6 +30,7 @@ import { pagedKind, viewerFor } from "../../viewers/kind.js";
 import { download, type ViewerSource } from "../../viewers/source.js";
 import { Choice, Progress, useJob } from "../ui.js";
 import { FileViewer, VIEWERS } from "./FileViewer.js";
+import { EditCopyButton } from "./SheetCopy.js";
 
 interface FileProps {
   scope: string;
@@ -220,6 +221,7 @@ export function PagedView({ scope, path, name, url, onKind, at }: FileProps) {
           <span class="dim vw-paged-hint">
             {mode === "page" ? t("vwPagedPagesHint") : t("vwPagedTableHint")}
           </span>
+          <EditCopyButton scope={scope} path={path} name={name} />
         </div>
       )}
       <div class="vw-paged-body">{body}</div>

@@ -220,6 +220,16 @@ const brain = (req) => {
     };
   if (results && typeof toolOut === "string" && toolOut.startsWith("Done: the person's canvas"))
     return { text: "Fatto: guarda nel Canvas, qui accanto." };
+  // G37.3 (DEMO_CANVAS): the agent edits the sheet open in the canvas.
+  if (
+    results &&
+    typeof toolOut === "string" &&
+    toolOut.startsWith("Applied as revision") &&
+    /cell|row|sheet/.test(toolOut)
+  )
+    return {
+      text: "Fatto: ho corretto la quantità di febbraio, aggiunto marzo e messo in grassetto i totali. Le celle cambiate sono evidenziate; dal pannello Modifiche puoi annullarle.",
+    };
   // G37.1 (DEMO_CANVAS): the agent edits the note open in the canvas, with canvas_edit.
   if (results && typeof toolOut === "string" && toolOut.startsWith("Applied as revision"))
     return {
@@ -276,6 +286,23 @@ const brain = (req) => {
             line: 9,
             text: "## Resi\n\nUn reso si accetta entro **14 giorni**, con lo scontrino.\n\n",
           },
+        ],
+      },
+    ],
+    [
+      "Aggiorna le vendite",
+      "canvas_edit",
+      {
+        path: "canvas/vendite.ods",
+        ops: [
+          { op: "set", cell: "D6", value: 12 },
+          { op: "insert_rows", before: 10 },
+          {
+            op: "set_range",
+            range: "A10",
+            values: [["mar", "Nord", "Gamma", 40, 24.5, "=D10*E10"]],
+          },
+          { op: "format", range: "A17:F17", bold: true, background: "#ddebf7" },
         ],
       },
     ],
@@ -1228,6 +1255,15 @@ if (process.env.DEMO_CANVAS) {
     join(into, "spesa.txt"),
     "Spesa per sabato\n- latte\n- uova\n- farina\n\nRitiro in negozio alle 18, porta le borse.\n",
   );
+  // G37.3: sheets: a CSV, an ODS with a chart and a pivot table, an XLSX edited on its ODS copy.
+  await writeFile(
+    join(into, "spese.csv"),
+    "Voce,Gennaio,Febbraio,Marzo\nAffitto,650,650,650\nLuce,82.4,77.1,69.8\nInternet,29.9,29.9,29.9\nTotale,=SUM(B2:B4),=SUM(C2:C4),=SUM(D2:D4)\n",
+  );
+  const { copyFile } = await import("node:fs/promises");
+  const sheets = new URL("../../server/test/fixtures/sheets/", import.meta.url);
+  await copyFile(new URL("vendite.ods", sheets), join(into, "vendite.ods"));
+  await copyFile(new URL("bilancio.xlsx", sheets), join(into, "bilancio.xlsx"));
   // G37.2: Markdown and JSON edited as text, beside the code (app.py).
   await writeFile(
     join(into, "guida.md"),
@@ -1267,6 +1303,9 @@ if (process.env.DEMO_CANVAS) {
   );
   canvasSession = await core.startSession("local", god.id);
   await (await core.send("local", canvasSession, "Mostra il file canvas/spesa.txt")).done;
+  await (await core.send("local", canvasSession, "Mostra il file canvas/vendite.ods")).done;
+  await (await core.send("local", canvasSession, "Mostra il file canvas/spese.csv")).done;
+  await (await core.send("local", canvasSession, "Mostra il file canvas/bilancio.xlsx")).done;
   const codeSession = await core.startSession("local", god.id);
   for (const f of ["config.json", "guida.md", "app.py"])
     await (await core.send("local", codeSession, `Mostra il file canvas/${f}`)).done;

@@ -69,6 +69,7 @@ import { RefineError } from "./prompt-refiner.js";
 import { RoomError } from "./rooms.js";
 import type { SetupService } from "./setup.js";
 import { MEMORY_ENTRY_LIMIT, MemoryError } from "./shared-memory.js";
+import { sheetRoutes } from "./sheet-routes.js";
 import { updateRoutes } from "./update-routes.js";
 import { UpdateRequiredError } from "./updates.js";
 import { VaultError } from "./vault.js";
@@ -1300,6 +1301,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   importRoutes(app, core, owner, options.setup);
   // Commands' limits and requests to the person (G36.16, G36.17).
   personRoutes(app, core, owner);
+  sheetRoutes(app, core, owner);
   browserRoutes(app, core.browserLinks, owner, clientAddress);
   // Mandatory and breaking updates (G36.19): the status, the safety backup, found backups.
   updateRoutes(app, core, owner, options.setup);
