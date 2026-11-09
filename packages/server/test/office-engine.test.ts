@@ -2,7 +2,8 @@
 // is the outline the host computed (the JavaScript and LibreOffice count paragraphs, tables,
 // slides and shapes alike); the inverses bring the file back; an action that does not fit is
 // skipped and said. Needs LibreOffice with its Python (`uno`): skipped where they are missing
-// (the CI), run with REDGIANT_LIBREOFFICE pointing at soffice (the G37.4 image has both).
+// (the CI), run with REDGIANT_LIBREOFFICE pointing at soffice. On Severino: docker run g37-lo-node:trixie
+// (from g37-lo-full:trixie + node:24-trixie-slim + git; screenshots with mcr.microsoft.com/playwright:v1.64.1-noble).
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
