@@ -288,6 +288,23 @@ export function lockedWrites(
       const p = check(value, cwd);
       if (isCd && p && p !== "$unknown") cwd = p;
     }
+    // The command's own text too: a Windows path loses its backslashes when read as a shell
+    // would (they escape), and a folder may be written with either slash or in another case.
+    const text = input.command.replace(/\\/g, "/");
+    for (const l of ctx.locked) {
+      if (found.some((f) => within(f, l.path))) continue;
+      const win = isWindowsPath(l.path);
+      const root = l.path.replace(/\\/g, "/").replace(/\/+$/, "");
+      const hay = win ? text.toLowerCase() : text;
+      const needle = win ? root.toLowerCase() : root;
+      for (let i = hay.indexOf(needle); i >= 0; i = hay.indexOf(needle, i + 1)) {
+        const after = hay[i + needle.length];
+        if (after === undefined || /[/\s"';&|)>]/.test(after)) {
+          found.push(l.path);
+          break;
+        }
+      }
+    }
     return [...new Set(found)];
   }
   for (const v of strings(input)) if (v.trim() && v.length < 4096) check(v.trim(), start);

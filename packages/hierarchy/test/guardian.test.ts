@@ -238,6 +238,32 @@ describe("the archived projects' folders (p3.5.3)", () => {
       ).toEqual(expected);
     });
 
+  it("Windows: a bash command naming the folder with either slash, any case (CI on Windows)", () => {
+    const win = {
+      roots: ["C:\\Users\\me\\RedGiant\\platform"],
+      locked: [{ path: "C:\\Users\\me\\RedGiant\\workspaces\\shop", project: "Shop" }],
+    };
+    for (const command of [
+      "cd C:\\Users\\me\\RedGiant\\workspaces\\shop && touch x",
+      'cd "c:/users/me/redgiant/workspaces/Shop" && ls',
+      "rm C:/Users/me/RedGiant/workspaces/shop/a.txt",
+    ])
+      expect(
+        lockedWrites({ callId: "c", name: "bash", input: { command } }, win),
+        command,
+      ).not.toEqual([]);
+    expect(
+      lockedWrites(
+        {
+          callId: "c",
+          name: "bash",
+          input: { command: "ls C:/Users/me/RedGiant/workspaces/shopping" },
+        },
+        win,
+      ),
+    ).toEqual([]);
+  });
+
   it("is refused at once, before any rule, mode or question: never asked", () => {
     const base = { ...DEFAULT_POLICY, roots: god.roots, home: "/root", locked };
     for (const mode of ["auto", "manual"] as const) {
