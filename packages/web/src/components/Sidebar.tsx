@@ -36,6 +36,7 @@ import {
   subprojects,
 } from "../state.js";
 import { assistantState } from "./Assistants.js";
+import { askConfirm } from "./dialogs.js";
 import { FolderMenu } from "./FolderMenu.js";
 
 const SHOWN = 8;
@@ -319,7 +320,7 @@ function Subprojects({
   const others = projects.value.filter((p) => p.id !== projectId);
   const create = async (e: Event) => {
     e.preventDefault();
-    if (from && !confirm(t("subAdoptConfirm"))) return;
+    if (from && !(await askConfirm(t("subAdoptConfirm")))) return;
     const made = await attempt(() =>
       from
         ? getApi().adoptProject(projectId, from, dir.trim() || undefined)

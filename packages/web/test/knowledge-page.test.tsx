@@ -9,6 +9,7 @@ import { dictionaries, lang } from "../src/i18n.js";
 
 const calls: [string, unknown[]][] = [];
 const STATUS: KnowledgeStatus = {
+  meaning: { on: true },
   vector: { ok: true, version: "0.8.7" },
   settings: {
     embedding: { provider: "local", model: "embeddinggemma-300m" },
@@ -149,6 +150,13 @@ const answers: Record<string, (...a: unknown[]) => unknown> = {
         : [],
   }),
   knowledgeMailboxes: () => ({ mailboxes: [{ id: "mb1", name: "Lavoro" }] }),
+  list: (scope: unknown, path: unknown) =>
+    scope === "project:alpha" && path === "."
+      ? [
+          { name: "docs", path: "docs", type: "dir", size: 0, modifiedAt: "" },
+          { name: "note.md", path: "note.md", type: "file", size: 9, modifiedAt: "" },
+        ]
+      : [],
   knowledgeSearch: () => ({ hits: [HIT], strategy: "exact", indexId: 1, ms: 12 }),
   agentKnowledge: () => ({ collections: agentCols }),
   setAgentKnowledge: (_a, _c, pick) => {
@@ -270,6 +278,90 @@ describe("Settings › Knowledge (G36.5)", () => {
         { kind: "mail", mailbox: "mb1", days: 365, consent: true },
       ]),
     );
+  });
+});
+
+// 3.5.3 (collaudo della 3.5.1, punti 7a e 7b).
+describe("Settings › Knowledge: files without typing, and the search by meaning (3.5.3)", () => {
+  it("says the search goes by words only, why, and turns it on only with the person's yes", async () => {
+    const off: KnowledgeStatus = {
+      ...STATUS,
+      meaning: { on: false, off: "no_model", detail: "No embedding model chosen" },
+      settings: { ...STATUS.settings, embedding: null },
+      indexes: [],
+    };
+    answers.knowledgeStatus = () => off;
+    try {
+      const r = render(<Knowledge />);
+      await waitFor(() =>
+        expect(r.getByText("La ricerca per significato è spenta: solo per parole")).toBeTruthy(),
+      );
+      expect(r.getByText(/Nessun modello legge ancora i tuoi documenti/)).toBeTruthy();
+      await waitFor(() => expect(r.getByText("Attiva la ricerca per significato")).toBeTruthy());
+      // Nothing is downloaded before the person says so.
+      expect(
+        calls.some(([n]) => n === "setKnowledgeSettings" || n === "downloadKnowledgeModel"),
+      ).toBe(false);
+      fireEvent.click(r.getByText("Attiva la ricerca per significato"));
+      await waitFor(() =>
+        expect(r.getByText(/Quello consigliato è Qwen3-Embedding 0.6B: 639 MB/)).toBeTruthy(),
+      );
+      fireEvent.click(r.getByText("Scarica Qwen3-Embedding 0.6B (639 MB) e attivala"));
+      await waitFor(() =>
+        expect(calls.find(([n]) => n === "setKnowledgeSettings")?.[1]).toEqual([
+          { embedding: { provider: "local", model: "qwen3-embedding-0.6b" } },
+        ]),
+      );
+    } finally {
+      answers.knowledgeStatus = () => STATUS;
+    }
+  });
+
+  it("adds a folder chosen among RedGiant's own, as the project's files", async () => {
+    const { projects } = await import("../src/state.js");
+    projects.value = [{ id: "alpha", name: "Alpha" } as never];
+    const r = render(<Knowledge />);
+    await waitFor(() => expect(r.getByText("Manuali")).toBeTruthy());
+    fireEvent.click(r.getByLabelText("Apri la raccolta Manuali"));
+    await waitFor(() => expect(r.getByText("Aggiungi una fonte")).toBeTruthy());
+    fireEvent.click(r.getByText("Aggiungi una fonte"));
+    fireEvent.click(r.getAllByText("Scegli una cartella in RedGiant")[0] as Element);
+    await waitFor(() => expect(r.getByText("La cartella di God")).toBeTruthy());
+    fireEvent.click(r.getByText("Alpha"));
+    await waitFor(() => expect(r.getByText("docs")).toBeTruthy());
+    fireEvent.click(r.getByText("docs"));
+    fireEvent.click(r.getByText("Scegli questa cartella"));
+    await waitFor(() => expect(r.getByText("Alpha · docs")).toBeTruthy());
+    fireEvent.click(r.getByText("Aggiungi").closest("button") as HTMLButtonElement);
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "addKnowledgeSource")?.[1]).toEqual([
+        "kc_1",
+        { kind: "workspace", scope: "project:alpha", path: "docs" },
+      ]),
+    );
+    projects.value = [];
+  });
+
+  it("takes files dropped on a collection: written to God's folder, then one source", async () => {
+    const r = render(<Knowledge />);
+    await waitFor(() => expect(r.getByText("Manuali")).toBeTruthy());
+    const card = r.container.querySelector(".kb-drop-card") as HTMLElement;
+    const file = new File(["# Faro\n"], "faro.md", { type: "text/markdown" });
+    const dataTransfer = { types: ["Files"], files: [file] };
+    fireEvent.dragOver(card, { dataTransfer });
+    await waitFor(() =>
+      expect(r.getByText("Lascia qui per aggiungerli alla Conoscenza")).toBeTruthy(),
+    );
+    fireEvent.drop(card, { dataTransfer });
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "addKnowledgeSource")?.[1]).toEqual([
+        "kc_1",
+        { kind: "workspace", scope: "platform", path: "knowledge/kc_1" },
+      ]),
+    );
+    const write = calls.find(([n]) => n === "write")?.[1];
+    expect(write?.slice(0, 2)).toEqual(["platform", "knowledge/kc_1/faro.md"]);
+    expect(write?.[3]).toBe("base64");
   });
 });
 

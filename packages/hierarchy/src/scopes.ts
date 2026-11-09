@@ -136,6 +136,70 @@ export function can(
   }
 }
 
+/**
+ * The knowledge (3.5.3, decision «Gli agenti possono creare tutto da sé»): what an agent may do
+ * with the person's collections. "make": create a collection for a scope (every agent, a project,
+ * one agent) or add sources to a collection of that scope. "source": read the files of a place
+ * (a project, God's folder, the assistants' desk) into a collection. A folder elsewhere on the
+ * computer is not here: the guardian asks the person for it.
+ */
+export type KnowledgeAction = "make" | "source";
+export type KnowledgeTarget =
+  | { kind: "all" }
+  | { kind: "agent"; agent: AgentNode }
+  | { kind: "project"; projectId: string }
+  | { kind: "platform" }
+  | { kind: "assistants" };
+
+/** The projects an agent works in: its own and those it is assigned to. */
+const worksIn = (a: AgentNode): string[] => [
+  ...(a.projectId ? [a.projectId] : []),
+  ...(a.projects ?? []),
+];
+
+/**
+ * The knowledge's scope table: God every scope and place; an orchestrator its project, itself and
+ * its project's agents; an agent its projects and itself; an assistant itself, the assistants'
+ * desk and the projects it is assigned to. Sub-agents, Demi-God and inspectors make nothing.
+ */
+export function canKnowledge(
+  actor: Actor,
+  action: KnowledgeAction,
+  target: KnowledgeTarget,
+): boolean {
+  const owner = actor.type === "human" ? actor.ownerId : actor.agent.ownerId;
+  if (target.kind === "agent" && target.agent.ownerId !== owner) return false;
+  if (action === "make" && (target.kind === "platform" || target.kind === "assistants"))
+    return false;
+  if (action === "source" && (target.kind === "all" || target.kind === "agent")) return false;
+  if (actor.type === "human") return true;
+  const a = actor.agent;
+  const projects = worksIn(a);
+  switch (a.kind) {
+    case "god":
+      return true;
+    case "orchestrator":
+      if (target.kind === "project") return projects.includes(target.projectId);
+      if (target.kind === "agent")
+        return (
+          target.agent.id === a.id ||
+          (target.agent.projectId !== null &&
+            target.agent.projectId === a.projectId &&
+            (target.agent.kind === "agent" || target.agent.kind === "subagent"))
+        );
+      return false;
+    case "agent":
+      if (target.kind === "project") return projects.includes(target.projectId);
+      return target.kind === "agent" && target.agent.id === a.id;
+    case "assistant":
+      if (target.kind === "project") return projects.includes(target.projectId);
+      if (target.kind === "agent") return target.agent.id === a.id;
+      return target.kind === "assistants" && action === "source";
+    default:
+      return false;
+  }
+}
+
 /** Kinds a parent may create below itself. */
 export const CHILD_KINDS: Record<AgentKind, AgentKind[]> = {
   god: ["demigod", "orchestrator", "inspector", "assistant"],

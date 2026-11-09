@@ -30,6 +30,7 @@ import {
   sysmemAdviceDue,
 } from "../wizard.js";
 import { explain } from "./Brain.js";
+import { askConfirm } from "./dialogs.js";
 import { Gallery, GalleryCard } from "./Gallery.js";
 import { Acts, Sub, Switch } from "./SettingsKit.js";
 import { Advanced, Field, JobView, Modal, Pick, Progress, useJob } from "./ui.js";
@@ -400,16 +401,17 @@ function DownloadedModels({
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState<string>();
   if (files.length === 0) return <p class="ui-help">{t("lmDownloadedEmpty")}</p>;
-  const remove = (f: LocalFile) => {
+  const remove = async (f: LocalFile) => {
     const name = names.get(f.file) ?? f.file;
     const inUse = active === f.file;
     if (
-      !confirm(
+      !(await askConfirm(
         t(inUse ? "lmDownloadedConfirmActive" : "lmDownloadedConfirm", {
           name,
           size: bytes(f.bytes),
         }),
-      )
+        { danger: true },
+      ))
     )
       return;
     setError(undefined);
@@ -652,9 +654,10 @@ function FileActions({
             <button
               type="button"
               class="link"
-              onClick={() => {
+              onClick={async () => {
                 // The model in use goes too (2026-11-04): the engine stops first.
-                if (active && !confirm(t("lmDeleteActiveConfirm"))) return;
+                if (active && !(await askConfirm(t("lmDeleteActiveConfirm"), { danger: true })))
+                  return;
                 act(async () => {
                   if (active) await getApi().setupEngine(null);
                   await getApi().removeModel(name, variant);

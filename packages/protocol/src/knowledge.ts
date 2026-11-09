@@ -586,7 +586,34 @@ export interface KnowledgeAgentCollection {
   chunks: number;
 }
 
+/**
+ * Whether the search goes by meaning too (3.5.3: an agent got «words only» and nobody knew why).
+ * Off: no pgvector, no model chosen, the local model not downloaded yet (or downloading), or the
+ * model failing; `detail` is the reason as the search tells it.
+ */
+export type KnowledgeMeaningOff = "no_vector" | "no_model" | "downloading" | "failed";
+export interface KnowledgeMeaning {
+  on: boolean;
+  off?: KnowledgeMeaningOff;
+  detail?: string;
+}
+
+/** The line an agent reads when the search went by words only (the tool, its state). */
+export function meaningOffLine(m: KnowledgeMeaning): string {
+  const why =
+    m.off === "no_model"
+      ? "no model for the meaning is chosen yet"
+      : m.off === "downloading"
+        ? "the model for the meaning is not on this computer yet (downloading, or waiting for the person's yes)"
+        : m.off === "no_vector"
+          ? `the vector extension is missing${m.detail ? ` (${m.detail})` : ""}`
+          : `the model for the meaning failed${m.detail ? `: ${m.detail}` : ""}`;
+  return `Search by meaning is off: ${why}. Words still match; to find by meaning the person turns it on in Settings > Knowledge («Search by meaning»). Tell them once if it matters; nothing is downloaded without their yes.`;
+}
+
 export interface KnowledgeStatus {
+  /** Whether searches go by meaning too, or why not (3.5.3). */
+  meaning: KnowledgeMeaning;
   /** pgvector is there and loaded (`version`), or why not. */
   vector: { ok: true; version: string } | { ok: false; reason: string };
   settings: KnowledgeSettings;
@@ -673,6 +700,8 @@ export interface KnowledgeSearchResult {
   ms: number;
   /** Search done with words only, and why (no model chosen, the model failing…). */
   wordsOnly?: string;
+  /** The same, as a state the page and the agents can act on (3.5.3). */
+  meaningOff?: KnowledgeMeaningOff;
 }
 
 /** Postgres text search configuration for a BCP-47 language (`simple` when Postgres has none). */

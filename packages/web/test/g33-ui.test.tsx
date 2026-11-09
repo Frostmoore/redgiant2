@@ -99,11 +99,14 @@ describe("the agent's window", () => {
     expect(win.textContent).toContain("Sola lettura");
     fireEvent.click(r.getByText("Memoria"));
     expect(win.querySelectorAll(".kit-slider input[type=range]")).toHaveLength(2);
-    // Stopping still asks, then calls the server.
-    vi.stubGlobal("confirm", () => true);
+    // Stopping still asks, in our own window (never the browser's), then calls the server.
+    const { asking } = await import("../src/components/dialogs.js");
     fireEvent.click(r.getByText("Ferma"));
+    await waitFor(() => expect(asking.value).toHaveLength(1));
+    const question = asking.value[0];
+    asking.value = [];
+    if (question?.kind === "confirm") question.done(true);
     await waitFor(() => expect(calls.map((c) => c[0])).toContain("stopAgent"));
-    vi.unstubAllGlobals();
     // The X closes it.
     fireEvent.click(win.querySelector(".ui-modal-x") as HTMLElement);
     expect(r.container.querySelector(".agent-panel-modal")).toBeNull();

@@ -3849,6 +3849,21 @@ const en = {
   tool_request_tool: "Ask for a tool",
   toolDo_request_tool: "Asks you to switch on a tool that is off for it, saying why.",
   toolWhy_request_tool: "so an agent can ask for a switched-off tool instead of working around it",
+  toolsExceptOn: "Still on for: {names} (their own choice)",
+  toolsExceptOff: "Off for: {names} (their own choice)",
+  toolsExceptReset: "As for every agent",
+  tool_knowledge_create: "Make knowledge collections",
+  toolDo_knowledge_create:
+    "Makes a collection of documents for the agents to search, as you do in Knowledge.",
+  tool_knowledge_add_source: "Add sources to the knowledge",
+  toolDo_knowledge_add_source:
+    "Gives a collection a folder, a file, a project's files or a web page; outside its folders it asks you.",
+  tool_knowledge_status: "See the knowledge's state",
+  toolDo_knowledge_status:
+    "Tells which collections there are, what was read and whether the search goes by meaning.",
+  dlgOk: "OK",
+  dlgMake: "Make",
+  dlgPath: "Name, with its folder if you want one (docs/note.md)",
   toolReqTitle: "{name} asks to switch on «{tool}»",
   toolReqWhy: "Why: {why}",
   toolReqSession: "Switch on for this conversation",
@@ -3907,6 +3922,8 @@ const en = {
   rqModeQ: "Do you want to answer the agents' requests yourself?",
   rqModeAsk: "Ask me",
   rqModeClassifier: "Don't ask me anything",
+  rqAlwaysYou:
+    "Even with «Don't ask me anything», the truly dangerous requests always reach you, everywhere: deletions for good, system files, secrets leaving, real payments and RedGiant's own protections.",
   rqModeAskText:
     "Requests reach you everywhere: here and on the chats you connected. Answer where it suits you: the first answer counts, and the other copies close by themselves.",
   rqModeClassifierText:
@@ -4067,6 +4084,40 @@ const en = {
   kbTryExample: "When does the warranty end?",
   kbTrySearch: "Search",
   kbTryHow: "{n} pieces in {ms} ms, by meaning and by words.",
+  kbMeaningOffTitle: "Searching by meaning is off: only by words",
+  kbMeaningOff_no_model:
+    "No model reads your documents by meaning yet, so the agents find a piece only when it has the same words they ask with.",
+  kbMeaningOff_downloading:
+    "The model you chose is not on this computer yet: until it arrives the search goes by words.",
+  kbMeaningOff_failed:
+    "The model for the meaning does not answer: the search goes by words. Choose it again or another one.",
+  kbMeaningOff_no_vector:
+    "The part of the database that searches by meaning is missing on this computer: the search goes by words.",
+  kbMeaningTurnOn: "Turn on searching by meaning",
+  kbMeaningWhy:
+    "With a model that reads by meaning, «when does the warehouse open» also finds «it opens at 7:30». It runs on this computer: your documents do not leave it.",
+  kbMeaningBest:
+    "The recommended one is {name}: {size} MB, downloaded once, only now that you say so.",
+  kbMeaningDownload: "Download {name} ({size} MB) and turn it on",
+  kbMeaningUse: "Use {name}",
+  kbMeaningOther: "Choose another model",
+  kbPlacePlatform: "God's folder",
+  kbPlaceAssistants: "The assistants' desk",
+  kbPickFolder: "Choose a folder in RedGiant",
+  kbPickFile: "Choose a file in RedGiant",
+  kbPickWhere: "Your projects and RedGiant's folders",
+  kbPickPlaces: "Back to the projects",
+  kbPickUp: "Up one folder",
+  kbPickEmpty: "Nothing here in {name}.",
+  kbPickThis: "Choose this folder",
+  kbPickOther: "Choose another",
+  kbUploadFiles: "Send files from this computer",
+  kbUploadFolder: "Send a folder from this computer",
+  kbUploadSay: "Or drop files here. Sent files are kept in God's folder, under knowledge.",
+  kbDropSay: "You can also drop files on this window.",
+  kbDropOnCard: "Drop files on a collection to add them.",
+  kbDropHere: "Drop to add them to the knowledge",
+  kbUploading: "Sending the files…",
   kbTryWordsOnly: "Searched by words only (no model for the meaning yet).",
   kbTryNothing: "Nothing found. Try other words.",
   kbPage: "page {n}",
@@ -8177,6 +8228,21 @@ const it: Record<Key, string> = {
   tool_request_tool: "Chiedere uno strumento",
   toolDo_request_tool: "Ti chiede di accendere uno strumento spento per lui, spiegando perché.",
   toolWhy_request_tool: "perché un agente possa chiedere uno strumento spento invece di aggirarlo",
+  toolsExceptOn: "Acceso lo stesso per: {names} (scelta loro)",
+  toolsExceptOff: "Spento per: {names} (scelta loro)",
+  toolsExceptReset: "Come per tutti",
+  tool_knowledge_create: "Creare raccolte di Conoscenza",
+  toolDo_knowledge_create:
+    "Crea una raccolta di documenti da far cercare agli agenti, come fai tu in Conoscenza.",
+  tool_knowledge_add_source: "Aggiungere fonti alla Conoscenza",
+  toolDo_knowledge_add_source:
+    "Dà a una raccolta una cartella, un file, i file di un progetto o una pagina web; fuori dalle sue cartelle chiede a te.",
+  tool_knowledge_status: "Vedere lo stato della Conoscenza",
+  toolDo_knowledge_status:
+    "Dice quali raccolte ci sono, cosa è stato letto e se la ricerca va per significato.",
+  dlgOk: "OK",
+  dlgMake: "Crea",
+  dlgPath: "Nome, con la cartella se ti serve (docs/nota.md)",
   toolReqTitle: "{name} chiede di accendere «{tool}»",
   toolReqWhy: "Perché: {why}",
   toolReqSession: "Accendi per questa conversazione",
@@ -8236,6 +8302,8 @@ const it: Record<Key, string> = {
   rqModeQ: "Vuoi rispondere tu alle richieste degli agenti?",
   rqModeAsk: "Chiedimelo",
   rqModeClassifier: "Non chiedermi niente",
+  rqAlwaysYou:
+    "Anche con «Non chiedermi niente», le richieste davvero pericolose arrivano sempre a te, ovunque: cancellazioni definitive, file di sistema, segreti che escono, pagamenti veri e le protezioni di RedGiant.",
   rqModeAskText:
     "Le richieste ti arrivano ovunque: qui e sulle chat collegate. Rispondi dove ti è comodo: vale la prima risposta, e le altre copie si chiudono da sole.",
   rqModeClassifierText:
@@ -8401,6 +8469,41 @@ const it: Record<Key, string> = {
   kbTryExample: "Quando scade la garanzia?",
   kbTrySearch: "Cerca",
   kbTryHow: "{n} pezzi in {ms} ms, per significato e per parole.",
+  kbMeaningOffTitle: "La ricerca per significato è spenta: solo per parole",
+  kbMeaningOff_no_model:
+    "Nessun modello legge ancora i tuoi documenti per significato: così gli agenti trovano un pezzo solo se contiene le stesse parole che cercano.",
+  kbMeaningOff_downloading:
+    "Il modello che hai scelto non è ancora su questo computer: finché non arriva la ricerca va per parole.",
+  kbMeaningOff_failed:
+    "Il modello per il significato non risponde: la ricerca va per parole. Sceglilo di nuovo o scegline un altro.",
+  kbMeaningOff_no_vector:
+    "Su questo computer manca la parte del database che cerca per significato: la ricerca va per parole.",
+  kbMeaningTurnOn: "Attiva la ricerca per significato",
+  kbMeaningWhy:
+    "Con un modello che legge per significato, «quando apre il magazzino» trova anche «apre alle 7:30». Gira su questo computer: i tuoi documenti non escono.",
+  kbMeaningBest:
+    "Quello consigliato è {name}: {size} MB, scaricato una volta sola, solo adesso che lo dici tu.",
+  kbMeaningDownload: "Scarica {name} ({size} MB) e attivala",
+  kbMeaningUse: "Usa {name}",
+  kbMeaningOther: "Scegli un altro modello",
+  kbPlacePlatform: "La cartella di God",
+  kbPlaceAssistants: "La scrivania degli assistenti",
+  kbPickFolder: "Scegli una cartella in RedGiant",
+  kbPickFile: "Scegli un file in RedGiant",
+  kbPickWhere: "I tuoi progetti e le cartelle di RedGiant",
+  kbPickPlaces: "Torna ai progetti",
+  kbPickUp: "Su di una cartella",
+  kbPickEmpty: "Qui in {name} non c'è niente.",
+  kbPickThis: "Scegli questa cartella",
+  kbPickOther: "Scegline un'altra",
+  kbUploadFiles: "Carica file da questo computer",
+  kbUploadFolder: "Carica una cartella da questo computer",
+  kbUploadSay:
+    "Oppure trascina qui i file. I file caricati restano nella cartella di God, sotto knowledge.",
+  kbDropSay: "Puoi anche trascinare i file su questa finestra.",
+  kbDropOnCard: "Trascina dei file su una raccolta per aggiungerli.",
+  kbDropHere: "Lascia qui per aggiungerli alla Conoscenza",
+  kbUploading: "Invio dei file…",
   kbTryWordsOnly: "Cercato solo per parole (manca ancora il modello per il significato).",
   kbTryNothing: "Non ho trovato niente. Prova con altre parole.",
   kbPage: "pagina {n}",

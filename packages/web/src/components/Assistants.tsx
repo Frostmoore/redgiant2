@@ -28,6 +28,7 @@ import { substantialChange } from "../word-diff.js";
 import { Editor, recipeWhen } from "./Automations.js";
 import { explain, providerName } from "./Brain.js";
 import { CompactionSettings } from "./CompactionSettings.js";
+import { askConfirm } from "./dialogs.js";
 import { modelName } from "./ModelMenu.js";
 import { NotesEditor } from "./NotesEditor.js";
 import { PromptEditor } from "./PromptEditor.js";
@@ -517,8 +518,9 @@ export function AssistantPage({ agentId }: { agentId: string | null }) {
         <button
           type="button"
           class="danger"
-          onClick={() => {
-            if (!confirm(t("asstStopConfirm", { name: a.name }))) return;
+          onClick={async () => {
+            if (!(await askConfirm(t("asstStopConfirm", { name: a.name }), { danger: true })))
+              return;
             void attempt(() => getApi().stopAgent(a.id)).then(refresh);
           }}
         >

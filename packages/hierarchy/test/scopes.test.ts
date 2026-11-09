@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { type Action, type AgentNode, approvalChain, can } from "../src/index.js";
+import {
+  type Action,
+  type AgentNode,
+  approvalChain,
+  can,
+  canKnowledge,
+  type KnowledgeAction,
+  type KnowledgeTarget,
+} from "../src/index.js";
 
 const n = (
   id: string,
@@ -97,6 +105,49 @@ describe("scope table", () => {
     expect(can({ type: "human", ownerId: "me" }, "read", byId.get("X") as AgentNode, resolve)).toBe(
       false,
     );
+  });
+});
+
+// The knowledge (3.5.3, «Gli agenti possono creare tutto da sé»): who makes a collection for whom
+// ("make": every agent, a project, one agent), and whose files it may read into one ("source": a
+// project, God's folder, the assistants' desk). Folders elsewhere on the computer are the guardian's.
+const KNOWLEDGE_TABLE = `
+G  make   all yes | G  make   p1 yes | G  make   A1 yes | G  make   G  yes | G  make P1 yes
+O1 make   p1  yes | O1 make   p2 no  | O1 make   all no | O1 make   O1 yes | O1 make A1 yes | O1 make A3 no | O1 make P1 no
+A1 make   p1  yes | A1 make   A1 yes | A1 make   all no | A1 make   A2 no  | A1 make p2 no  | A1 make S1 no
+A4 make   p1  yes | A6 make   p1 yes | A6 make   p2 yes | A6 make   p3 no
+P1 make   P1  yes | P1 make   all no | P1 make   p1 no  | P1 make   P2 no  | P3 make p1 yes
+S1 make   S1  no  | S1 make   p1 no  | D  make   all no | D  make   D  no  | I1 make p1 no  | I1 make I1 no
+G  source platform yes | G source assistants yes | G source p1 yes | G source p2 yes
+O1 source p1 yes | O1 source p2 no | O1 source platform no | O1 source assistants no
+A1 source p1 yes | A1 source p2 no | A6 source p1 yes | A6 source p2 yes | A1 source platform no
+P1 source assistants yes | P1 source p1 no | P1 source platform no | P3 source p1 yes
+S1 source p1 no | D source platform no | I1 source p1 no
+`
+  .trim()
+  .split(/\s*[|\n]\s*/)
+  .map((row) => row.trim().split(/\s+/) as [string, KnowledgeAction, string, "yes" | "no"]);
+
+const knowledgeTarget = (id: string): KnowledgeTarget => {
+  if (id === "all") return { kind: "all" };
+  if (id === "platform" || id === "assistants") return { kind: id };
+  const a = byId.get(id);
+  return a ? { kind: "agent", agent: a } : { kind: "project", projectId: id };
+};
+
+describe("knowledge scope table (3.5.3)", () => {
+  it.each(KNOWLEDGE_TABLE)("%s %s %s → %s", (actor, action, target, expected) => {
+    expect(canKnowledge(agent(actor), action, knowledgeTarget(target))).toBe(expected === "yes");
+  });
+
+  it("lets the person make anything", () => {
+    const me = { type: "human" as const, ownerId: "me" };
+    for (const t of ["all", "p1", "A1", "platform"])
+      for (const action of ["make", "source"] as const)
+        if (action === "make" ? t !== "platform" : t !== "all" && t !== "A1")
+          expect(canKnowledge(me, action, knowledgeTarget(t))).toBe(true);
+    // Another owner's agent is never a target.
+    expect(canKnowledge(me, "make", knowledgeTarget("X"))).toBe(false);
   });
 });
 

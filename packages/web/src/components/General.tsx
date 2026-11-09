@@ -29,6 +29,7 @@ import {
 import { attempt, getApi, signOut } from "../state.js";
 import { setTheme, theme } from "../theme.js";
 import { explain } from "./Brain.js";
+import { askConfirm } from "./dialogs.js";
 import { AgentLanguagePicker } from "./LanguagePicker.js";
 import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
 import { PromptRefiner } from "./PromptRefiner.js";
@@ -211,8 +212,8 @@ function Diagnostics({ st, setSt }: { st: DebugState; setSt: (x: DebugState) => 
           type="button"
           class="wz-btn quiet"
           disabled={st.files === 0}
-          onClick={() => {
-            if (!confirm(t("dbgClearConfirm"))) return;
+          onClick={async () => {
+            if (!(await askConfirm(t("dbgClearConfirm"), { danger: true }))) return;
             void attempt(() => getApi().clearDebugLogs()).then((x) => x && setSt(x));
           }}
         >

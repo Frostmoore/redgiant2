@@ -57,7 +57,7 @@ import {
   type VectorState,
   vecTable,
 } from "./schema.js";
-import { searchKnowledge } from "./search.js";
+import { meaningOf, searchKnowledge } from "./search.js";
 
 export class KnowledgeError extends Error {
   constructor(
@@ -96,6 +96,12 @@ export interface KnowledgeDeps {
   keyedFetch: (owner: string, provider: string, credential?: string) => KeyedFetch;
   /** The folder behind a workspace scope (`project:<id>`, `assistants`, `platform`). */
   scopeRoot: (owner: string, scope: string) => Promise<string>;
+  /**
+   * The person's workspaces with their names (3.5.3): God's folder, the assistants' desk and each
+   * project. A scope may then be given by a project's name or id, and a path inside one of them
+   * becomes that workspace's source (a project lives inside RedGiant's data, and must be a source).
+   */
+  places?: (owner: string) => Promise<KnowledgePlace[]>;
   /** The agents' language (BCP-47), for a collection's words. */
   agentLanguage?: () => string | undefined;
   /** The PDF of an Office file made by LibreOffice when it is on this computer. */
@@ -113,6 +119,13 @@ export interface KnowledgeDeps {
   /** Pieces in a scope searched exactly (default `EXACT_MAX`, 20 000; tests lower it). */
   exactMax?: number;
   now?: () => Date;
+}
+
+/** A workspace a source can read: its scope (`project:<id>`, `platform`, `assistants`). */
+export interface KnowledgePlace {
+  scope: string;
+  name: string;
+  root: string;
 }
 
 /** What the knowledge needs from the OCR (G36.6). */
@@ -644,7 +657,7 @@ export class KnowledgeService {
   async createCollection(owner: string, raw: unknown, by = "human"): Promise<KnowledgeCollection> {
     const input = KnowledgeCollectionInput.parse(raw);
     const id = `kc_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
-    const scope = input.scope;
+    const scope = await this.projectScope(owner, input.scope);
     await this.db.query(
       `INSERT INTO rg_kb_collections (id, owner_id, name, scope_kind, scope_id, language, description)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -677,7 +690,7 @@ export class KnowledgeService {
     const now = await this.collection(owner, id);
     const input = KnowledgeCollectionInput.partial().parse(raw);
     const language = input.language ? this.language(input.language) : now.language;
-    const scope = input.scope ?? scopeOfRow(now);
+    const scope = input.scope ? await this.projectScope(owner, input.scope) : scopeOfRow(now);
     await this.db.query(
       `UPDATE rg_kb_collections SET name = $2, scope_kind = $3, scope_id = $4, language = $5,
               description = $6 WHERE id = $1`,
@@ -714,17 +727,80 @@ export class KnowledgeService {
     });
   }
 
+  /** A collection's project given by name or id becomes its id (3.5.3). */
+  private async projectScope(owner: string, scope: KnowledgeScope): Promise<KnowledgeScope> {
+    if (scope.kind !== "project" || !this.deps.places) return scope;
+    const id = (await this.resolveScope(owner, `project:${scope.projectId}`)).slice(
+      "project:".length,
+    );
+    return { kind: "project", projectId: id };
+  }
+
+  /**
+   * A workspace scope as written by a person or an agent (3.5.3): `platform`, `assistants`, or a
+   * project as `project:<id>`, its id or its name. Unknown ones say what can be given.
+   */
+  async resolveScope(owner: string, raw: string): Promise<string> {
+    const given = raw.trim();
+    if (given === "platform" || given === "assistants") return given;
+    const places = (await this.deps.places?.(owner)) ?? [];
+    if (!this.deps.places) return given;
+    const want = given
+      .replace(/^project:/i, "")
+      .trim()
+      .toLowerCase();
+    const projects = places.filter((p) => p.scope.startsWith("project:"));
+    const hit =
+      projects.find((p) => p.scope.slice(8).toLowerCase() === want) ??
+      projects.find((p) => p.name.trim().toLowerCase() === want);
+    if (hit) return hit.scope;
+    const list = projects.map((p) => `${p.name} (${p.scope})`).join(", ");
+    throw new KnowledgeError(
+      "bad_source",
+      `No project "${given.replace(/^project:/i, "")}". Give a project's name or id${list ? ` (${list})` : " (there is no project yet)"}, or "platform" for God's folder, "assistants" for the assistants' desk.`,
+    );
+  }
+
+  /** The workspace an absolute path is in, with the path inside it (3.5.3). */
+  async placeOf(owner: string, abs: string): Promise<{ scope: string; path: string } | undefined> {
+    if (!this.deps.places || !isAbsolute(abs)) return undefined;
+    const real = await realpath(resolve(abs)).catch(() => resolve(abs));
+    // The deepest first: a project inside God's folder is the project.
+    const places = await Promise.all(
+      (await this.deps.places(owner)).map(async (p) => ({
+        ...p,
+        root: await realpath(resolve(p.root)).catch(() => resolve(p.root)),
+      })),
+    );
+    places.sort((a, b) => b.root.length - a.root.length);
+    for (const p of places)
+      if (within(p.root, real)) {
+        const inside = relative(p.root, real).split(sep).join("/");
+        return { scope: p.scope, path: inside === "" ? "." : inside };
+      }
+    return undefined;
+  }
+
   // ---- Sources ----
 
   /** Refuses folders RedGiant keeps for itself (data, keychain, database). */
   private async checkFolder(path: string): Promise<string> {
-    if (!isAbsolute(path)) throw new KnowledgeError("bad_source", "Give the folder's full path");
+    if (!isAbsolute(path))
+      throw new KnowledgeError(
+        "bad_source",
+        `Give the folder's full path ("${path}" is relative), or a project's files as kind "workspace" with its scope`,
+      );
     const real = await realpath(resolve(path)).catch(() => undefined);
     if (!real) throw new KnowledgeError("bad_source", `No such folder or file: ${path}`);
     for (const f of [this.deps.dataDir, ...(this.deps.forbidden ?? [])]) {
       const keep = await realpath(resolve(f)).catch(() => resolve(f));
       if (within(keep, real) || within(real, keep))
-        throw new KnowledgeError("bad_source", "That folder holds RedGiant's own data");
+        throw new KnowledgeError(
+          "bad_source",
+          within(keep, real)
+            ? `${path} is inside RedGiant's own data (its database, keychain and downloads are never read). A project's files can be: add them as kind "workspace" with scope "project:<id>"`
+            : `${path} holds RedGiant's own data (its database, keychain and downloads are never read): choose a folder inside it`,
+        );
     }
     return real;
   }
@@ -792,9 +868,38 @@ export class KnowledgeService {
     }));
   }
 
+  /**
+   * A source as given, made exact (3.5.3): a scope by a project's name or id, and a folder or file
+   * by a full path inside a workspace (a project lives inside RedGiant's data) read as that
+   * workspace's files.
+   */
+  async normalizeSource(
+    owner: string,
+    spec: KnowledgeSource["spec"],
+  ): Promise<KnowledgeSource["spec"]> {
+    if (spec.kind === "workspace")
+      return { ...spec, scope: await this.resolveScope(owner, spec.scope) };
+    if (spec.kind === "file" && spec.scope)
+      return { ...spec, scope: await this.resolveScope(owner, spec.scope) };
+    if (spec.kind === "folder" || spec.kind === "file") {
+      const place = await this.placeOf(owner, spec.path);
+      if (!place) return spec;
+      return spec.kind === "folder"
+        ? {
+            kind: "workspace",
+            scope: place.scope,
+            path: place.path,
+            exclude: spec.exclude,
+            gitignore: spec.gitignore,
+          }
+        : { kind: "file", scope: place.scope, path: place.path };
+    }
+    return spec;
+  }
+
   async addSource(owner: string, collectionId: string, raw: unknown, by = "human") {
     await this.collection(owner, collectionId);
-    const spec = KnowledgeSourceInput.parse(raw);
+    const spec = await this.normalizeSource(owner, KnowledgeSourceInput.parse(raw));
     const root = await this.sourceRoot(owner, spec);
     if (spec.kind === "folder" || spec.kind === "workspace") {
       const st = await stat(root).catch(() => undefined);
@@ -930,6 +1035,7 @@ export class KnowledgeService {
       [owner],
     );
     return {
+      meaning: (await meaningOf(this, owner)).meaning,
       vector: this.vector,
       settings,
       indexes: infos,

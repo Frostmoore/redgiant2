@@ -46,6 +46,8 @@ export {
   whenWords,
 } from "./AutomationEditor.js";
 
+import { askConfirm } from "./dialogs.js";
+
 const STATUSES: AutomationRun["status"][] = ["running", "ok", "failed", "timeout", "skipped"];
 const TRIGGERS: AutomationRun["trigger"][] = ["cron", "webhook", "manual", "missed"];
 /** The triggers added later (G33.3), with their own words. */
@@ -312,8 +314,8 @@ function AutoView({
         <button
           type="button"
           class="wz-btn quiet aw-del"
-          onClick={() => {
-            if (!confirm(t("deleteAutomationConfirm"))) return;
+          onClick={async () => {
+            if (!(await askConfirm(t("deleteAutomationConfirm"), { danger: true }))) return;
             void attempt(() => getApi().deleteAutomation(a.id)).then(onDeleted);
           }}
         >
