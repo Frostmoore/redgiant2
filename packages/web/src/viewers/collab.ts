@@ -5,7 +5,7 @@
 // (`a.map(b, true)` there, `b.map(a)` here: CodeMirror's guarantee that both ends agree). Pure:
 // no view, no socket, tested on its own.
 import { ChangeSet } from "@codemirror/state";
-import type { DocOp, TextChanges } from "@redgiant/protocol";
+import type { DocOp, TextChanges, TextDocOp } from "@redgiant/protocol";
 
 export interface Outgoing {
   clientId: string;

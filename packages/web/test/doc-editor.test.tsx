@@ -3,7 +3,7 @@
 // order of typing and of others' revisions (the client does what EditorHost does on the server);
 // the panel's state as a table of the host's messages; the words of a change; the shell drawn.
 import { ChangeSet, Text } from "@codemirror/state";
-import type { DocChange, DocOp } from "@redgiant/protocol";
+import type { DocChange, DocOp, TextDocOp } from "@redgiant/protocol";
 import { render } from "@testing-library/preact";
 import { describe, expect, it } from "vitest";
 import { changeText, editableInCanvas, groupChanges } from "../src/components/viewers/DocEditor.js";

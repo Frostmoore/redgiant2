@@ -14,6 +14,21 @@ export interface Loaded<M> {
 /** An agent's operations turned into the engine's, or why not (the op's index, from 0). */
 export type FromAgent = { ops: DocOp[] } | { error: string; index?: number };
 
+/** What a family that writes through an outside engine knows when it renders (G37.4). */
+export interface RenderContext {
+  ownerId: string;
+  file: DocFile;
+  abs: string;
+  /** Big data kept apart (a page's saved file, a picture), by its sha256. */
+  blob(hash: string): Promise<Uint8Array | undefined>;
+}
+
+/** What preparing an agent's operations may use (G37.4: a picture of the workspace as a blob). */
+export interface PrepareContext {
+  read(path: string): Promise<Uint8Array>;
+  putBlob(bytes: Uint8Array): Promise<string>;
+}
+
 /** What a family's own saving gets (G37.3: a sheet's «toppa» applies the changes to the file). */
 export interface SaveContext<M> {
   ownerId: string;
@@ -93,4 +108,13 @@ export interface DocFamily<M = unknown> {
       sheet?: string | undefined;
     },
   ): string | Promise<string>;
+  /**
+   * Optional (G37.4): the file written by an outside engine (LibreOffice) instead of `save`, and
+   * the model its bytes make (the host keeps it).
+   */
+  render?(model: M, format: unknown, ctx: RenderContext): Promise<{ bytes: Uint8Array; model?: M }>;
+  /** Optional (G37.4): after the file was written (a closed format written back). */
+  saved?(model: M, ctx: RenderContext): Promise<void>;
+  /** Optional (G37.4): an agent's operations made ready before `fromAgent` (pictures to blobs). */
+  prepare?(ops: readonly unknown[], ctx: PrepareContext): Promise<unknown[]>;
 }

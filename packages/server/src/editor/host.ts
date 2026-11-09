@@ -1059,8 +1059,19 @@ export class EditorHost {
     await this.checkDisk(doc);
     if (doc.saved.revision >= doc.revision) return;
     const f = doc.family;
+    const ctx = {
+      ownerId: doc.ownerId,
+      file: doc.file,
+      abs: doc.abs,
+      blob: (hash: string) => this.blob(hash),
+    };
     let bytes: Uint8Array;
-    if (f.saveTo) {
+    if (f.render) {
+      // A family with an outside engine (G37.4) writes through it, and may say what it made.
+      const r = await f.render(doc.model, doc.format, ctx);
+      bytes = r.bytes;
+      if (r.model !== undefined) doc.model = r.model;
+    } else if (f.saveTo) {
       // A family that saves by itself (a sheet's «toppa»): the model as last saved and the
       // operations since then.
       const later = this.after(doc, doc.saved.revision) ?? [];
@@ -1079,7 +1090,8 @@ export class EditorHost {
     const st = await stat(doc.abs);
     doc.saved = { revision: doc.revision, hash: sha256(bytes), size: st.size, mtimeMs: st.mtimeMs };
     await this.writeState(doc, bytes);
-    if (f.saveTo)
+    if (f.saved) await f.saved(doc.model, ctx).catch(() => {});
+    if (f.saveTo || f.render)
       this.broadcast(doc, { type: "doc.saved", file: doc.file, revision: doc.revision });
   }
 

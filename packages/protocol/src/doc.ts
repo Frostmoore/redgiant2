@@ -6,6 +6,7 @@
 // log (`docStreamId`); a change made from outside (write_file, bash, another program) is a
 // `doc.replaced`. The file on disk is the snapshot, the log is the history.
 import { z } from "zod";
+import { OfficeDocOp, OfficeSnapshot } from "./doc-office.js";
 
 /** A file the editor works on: a workspace's scope and the path inside it. */
 export const DocFile = z.object({
@@ -15,7 +16,7 @@ export const DocFile = z.object({
 export type DocFile = z.infer<typeof DocFile>;
 
 /** The families of files with an editor. G37.2-G37.8 add theirs. */
-export const DOC_FAMILIES = ["text", "sheet"] as const;
+export const DOC_FAMILIES = ["text", "sheet", "document"] as const;
 export const DocFamilyId = z.enum(DOC_FAMILIES);
 export type DocFamilyId = z.infer<typeof DocFamilyId>;
 
@@ -140,6 +141,8 @@ export const DocSummary = z.object({
   linesRemoved: z.number().int().nonnegative().optional(),
   /** Operations in the batch, when more than one («3 modifiche»). */
   count: z.number().int().positive().optional(),
+  /** What `line` counts: lines of text (the default), paragraphs or slides (G37.4). */
+  unit: z.enum(["line", "paragraph", "slide"]).optional(),
   /** A sheet's change (G37.3), for the page's own words: «Cambiate 3 celle in B2:B4». */
   sheet: z
     .object({
@@ -226,7 +229,7 @@ export const SheetDocOp = z.object({
 export type SheetDocOp = z.infer<typeof SheetDocOp>;
 
 /** The envelope of every family's operation. */
-export const DocOp = z.discriminatedUnion("family", [TextDocOp, SheetDocOp]);
+export const DocOp = z.discriminatedUnion("family", [TextDocOp, SheetDocOp, OfficeDocOp]);
 export type DocOp = z.infer<typeof DocOp>;
 
 /** Who made a revision: the person, an agent (its id), or a program from outside. */
@@ -370,6 +373,7 @@ export type SheetPlaceholder = z.infer<typeof SheetPlaceholder>;
 
 export const DocSnapshot = z.discriminatedUnion("family", [
   z.object({ family: z.literal("text"), text: z.string() }),
+  OfficeSnapshot,
   z.object({
     family: z.literal("sheet"),
     /** csv, tsv or ods: what saving keeps (a CSV keeps values only). */

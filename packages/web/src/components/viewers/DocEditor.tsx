@@ -12,8 +12,10 @@ import { type Key, t } from "../../i18n.js";
 import { IconCheck, IconClock, IconEye, IconList, IconUndo, IconUser, IconX } from "../../icons.js";
 import { agents, attempt, docView, sendDoc, setDocMode } from "../../state.js";
 import { viewerFor } from "../../viewers/kind.js";
+import { isOfficeFile } from "../../viewers/office-bridge.js";
 import { sheetChangeText } from "../../viewers/sheet-words.js";
 import type { DocDiff as DiffView, DiffWhat } from "./DocDiff.js";
+import { OfficeEditor } from "./OfficeEditor.js";
 import { SHEET_EDITABLE, SheetEditor } from "./SheetEditor.js";
 import { TextEditor } from "./TextEditor.js";
 
@@ -22,7 +24,8 @@ const TEXT_KINDS = new Set(["text", "code", "markdown", "tree"]);
 /** Whether the file is text or code the editor opens (by its name, as the server's text family). */
 export const textEditable = (path: string) => TEXT_KINDS.has(viewerFor(path).kind);
 export const editableInCanvas = (file: { scope: string; path: string }) =>
-  file.scope !== "outside" && (textEditable(file.path) || SHEET_EDITABLE.test(file.path));
+  file.scope !== "outside" &&
+  (textEditable(file.path) || SHEET_EDITABLE.test(file.path) || isOfficeFile(file.path));
 
 // ---- words ---------------------------------------------------------------------------------
 
@@ -46,6 +49,35 @@ export function linesText(s: DocSummary): string | undefined {
 export function changeText(s: DocSummary): string {
   // A sheet's change (G37.3) has its own words.
   if (s.sheet && s.kind !== "undo" && s.kind !== "replaced") return sheetChangeText(s);
+  // Documents and presentations (G37.4) count paragraphs and slides.
+  if (s.unit === "paragraph" || s.unit === "slide") {
+    const para = s.unit === "paragraph";
+    const span = s.lines && s.lines > 1;
+    const at =
+      s.line === undefined
+        ? ""
+        : span
+          ? t(para ? "docAtParas" : "docAtSlides", {
+              from: String(s.line),
+              to: String(s.line + (s.lines ?? 1) - 1),
+            })
+          : t(para ? "docAtPara" : "docAtSlide", { n: String(s.line) });
+    const what =
+      s.kind === "undo"
+        ? t("docUndid")
+        : s.kind === "replaced"
+          ? t("docReplaced")
+          : s.count && s.count > 1
+            ? t("docEdits", { n: String(s.count) })
+            : s.kind === "insert"
+              ? t("docOfficeInsert")
+              : s.kind === "delete"
+                ? t("docOfficeDelete")
+                : s.kind === "replace"
+                  ? t("docOfficeReplace")
+                  : t("docOfficeEdit");
+    return at ? `${what} ${at}` : what;
+  }
   const at =
     s.line === undefined
       ? ""
@@ -269,43 +301,47 @@ export function DocEditor({
               : t("loading")}
           </div>
         )}
-        <div class="doc-work">
-          {sheet ? (
-            <SheetEditor file={file} onReveal={(r) => (reveal.current = r)} />
-          ) : (
-            <TextEditor file={file} name={name} line={line} onReady={(e) => (view.current = e)} />
-          )}
-          {diff && Diff && (
-            <Diff
-              file={file}
-              name={name}
-              what={diff.what}
-              title={diff.title}
-              onClose={() => setDiff(undefined)}
-            >
-              {diff.proposalId && (
-                <>
-                  <button
-                    type="button"
-                    class="vw-btn small primary"
-                    onClick={() => decide(diff.proposalId as string, true)}
-                  >
-                    <IconCheck size={14} />
-                    {t("docAccept")}
-                  </button>
-                  <button
-                    type="button"
-                    class="vw-btn small"
-                    onClick={() => decide(diff.proposalId as string, false)}
-                  >
-                    <IconX size={14} />
-                    {t("docReject")}
-                  </button>
-                </>
-              )}
-            </Diff>
-          )}
-        </div>
+        {isOfficeFile(file.path) ? (
+          <OfficeEditor file={file} />
+        ) : (
+          <div class="doc-work">
+            {sheet ? (
+              <SheetEditor file={file} onReveal={(r) => (reveal.current = r)} />
+            ) : (
+              <TextEditor file={file} name={name} line={line} onReady={(e) => (view.current = e)} />
+            )}
+            {diff && Diff && (
+              <Diff
+                file={file}
+                name={name}
+                what={diff.what}
+                title={diff.title}
+                onClose={() => setDiff(undefined)}
+              >
+                {diff.proposalId && (
+                  <>
+                    <button
+                      type="button"
+                      class="vw-btn small primary"
+                      onClick={() => decide(diff.proposalId as string, true)}
+                    >
+                      <IconCheck size={14} />
+                      {t("docAccept")}
+                    </button>
+                    <button
+                      type="button"
+                      class="vw-btn small"
+                      onClick={() => decide(diff.proposalId as string, false)}
+                    >
+                      <IconX size={14} />
+                      {t("docReject")}
+                    </button>
+                  </>
+                )}
+              </Diff>
+            )}
+          </div>
+        )}
         {panel && (
           <aside class="doc-panel" id="doc-changes" aria-label={t("docChanges")}>
             {v.proposals.length > 0 && (

@@ -692,6 +692,50 @@ const en = {
   canvasOpen: "Open it in the canvas",
   canvasShown: "In the canvas: press to open it again",
   canvasReload: "Reload",
+  // Documents and presentations (G37.4).
+  docAtPara: "in paragraph {n}",
+  docAtParas: "in paragraphs {from}-{to}",
+  docAtSlide: "on slide {n}",
+  docAtSlides: "on slides {from}-{to}",
+  docOfficeInsert: "Added",
+  docOfficeDelete: "Removed",
+  docOfficeReplace: "Text changed",
+  docOfficeEdit: "Edited",
+  officeFrameTitle: "LibreOffice: the document",
+  officeChecking: "Checking this browser…",
+  officeDownloading:
+    "Downloading the full editor (LibreOffice for the browser, {size}), only the first time…",
+  officeBrowserCopy: "Bringing the editor into this browser (kept for next time)…",
+  officeOpening: "Opening the document in LibreOffice…",
+  officeFirstTime:
+    "LibreOffice runs inside this page: its own menus are in English. The first time takes a little longer.",
+  officeCopyOf: "Open copy of {name}",
+  officeWriteBack: "Write the {ext} too",
+  officeWriteBackHint:
+    "{name} is written again from this copy each time it is saved; its previous version stays in the copy's folder (versions).",
+  officeSaving: "Saving…",
+  officeExport: "Export as…",
+  officeExporting: "Exporting…",
+  officeWhyInsecure:
+    "The full document editor works with RedGiant open in HTTPS or on this computer.",
+  officeWhyBrowser:
+    "This browser cannot run the full document editor inside the canvas: it works in Chrome, Edge and the other Chromium browsers.",
+  officeWhyWebgl:
+    "This browser has no WebGL in the background, which LibreOffice needs to draw the document.",
+  officeWhyMemory:
+    "This device has little memory for the full document editor (it needs about 1.5 GB).",
+  officeWhyFailed: "The full document editor did not start ({reason}).",
+  officeWhyTail:
+    "Here you see the pages as printed; the agents' changes and your replacements are made by LibreOffice on the server.",
+  officeFind: "Find",
+  officeReplaceWith: "Replace with",
+  officeReplace: "Replace",
+  officeReplaceAll: "Replace all",
+  officeReplaced: "Done: the pages update as soon as LibreOffice has written the file.",
+  officeEditCopy: "Edit",
+  officeEditCopyHint:
+    "Edit it on its open copy (ODT or ODP) beside it: the original stays as it is unless you choose to write it back",
+  officeMakingCopy: "Making the copy…",
   // The editor (G37.1).
   docAtLine: "at line {n}",
   docAtLines: "at lines {from}-{to}",
@@ -1946,6 +1990,8 @@ const en = {
   job_download_ffmpeg: "Downloading ffmpeg, to read every kind of voice message (only once)",
   job_download_libreoffice:
     "Downloading LibreOffice, to turn Office and other closed files into open ones (only once)",
+  job_download_zetaoffice:
+    "Downloading LibreOffice for the browser, the full document editor (only once)",
   job_download_scribus:
     "Downloading Scribus, to keep the layout of InDesign files in an open format (only once)",
   job_download_blender: "Downloading Blender, for 3D files and renders (only once)",
@@ -4714,6 +4760,50 @@ const it: Record<Key, string> = {
   canvasOpen: "Aprilo nel canvas",
   canvasShown: "Nel canvas: premi per riaprirlo",
   canvasReload: "Ricarica",
+  // Documenti e presentazioni (G37.4).
+  docAtPara: "al paragrafo {n}",
+  docAtParas: "ai paragrafi {from}-{to}",
+  docAtSlide: "alla diapositiva {n}",
+  docAtSlides: "alle diapositive {from}-{to}",
+  docOfficeInsert: "Aggiunto",
+  docOfficeDelete: "Tolto",
+  docOfficeReplace: "Testo cambiato",
+  docOfficeEdit: "Modificato",
+  officeFrameTitle: "LibreOffice: il documento",
+  officeChecking: "Controllo questo browser…",
+  officeDownloading:
+    "Scarico l'editor completo (LibreOffice per il browser, {size}), solo la prima volta…",
+  officeBrowserCopy: "Porto l'editor in questo browser (resta per le prossime volte)…",
+  officeOpening: "Apro il documento in LibreOffice…",
+  officeFirstTime:
+    "LibreOffice gira dentro questa pagina: i suoi menu sono in inglese. La prima volta ci vuole un po' di più.",
+  officeCopyOf: "Copia aperta di {name}",
+  officeWriteBack: "Riscrivi anche il {ext}",
+  officeWriteBackHint:
+    "{name} viene riscritto da questa copia a ogni salvataggio; la sua versione precedente resta nella cartella della copia (versions).",
+  officeSaving: "Salvo…",
+  officeExport: "Esporta come…",
+  officeExporting: "Esporto…",
+  officeWhyInsecure:
+    "L'editor completo dei documenti funziona con RedGiant aperto in HTTPS o su questo computer.",
+  officeWhyBrowser:
+    "Questo browser non può avviare l'editor completo dei documenti dentro il Canvas: funziona in Chrome, Edge e negli altri browser Chromium.",
+  officeWhyWebgl:
+    "Questo browser non ha il WebGL in sottofondo che serve a LibreOffice per disegnare il documento.",
+  officeWhyMemory:
+    "Questo dispositivo ha poca memoria per l'editor completo dei documenti (serve circa 1,5 GB).",
+  officeWhyFailed: "L'editor completo dei documenti non è partito ({reason}).",
+  officeWhyTail:
+    "Qui vedi le pagine come in stampa; le modifiche degli agenti e le tue sostituzioni le fa LibreOffice sul server.",
+  officeFind: "Trova",
+  officeReplaceWith: "Sostituisci con",
+  officeReplace: "Sostituisci",
+  officeReplaceAll: "Sostituisci tutte",
+  officeReplaced: "Fatto: le pagine si aggiornano appena LibreOffice ha scritto il file.",
+  officeEditCopy: "Modifica",
+  officeEditCopyHint:
+    "Modificalo sulla sua copia aperta (ODT o ODP) accanto: l'originale resta com'è, a meno che tu scelga di riscriverlo",
+  officeMakingCopy: "Preparo la copia…",
   // L'editor (G37.1).
   docAtLine: "alla riga {n}",
   docAtLines: "alle righe {from}-{to}",
@@ -5984,6 +6074,8 @@ const it: Record<Key, string> = {
   job_download_ffmpeg: "Scarico ffmpeg, per leggere ogni tipo di vocale (una volta sola)",
   job_download_libreoffice:
     "Scarico LibreOffice, per trasformare i file di Office e altri formati chiusi in formati aperti (una volta sola)",
+  job_download_zetaoffice:
+    "Scarico LibreOffice per il browser, l'editor completo dei documenti (una volta sola)",
   job_download_scribus:
     "Scarico Scribus, per tenere l'impaginazione dei file di InDesign in un formato aperto (una volta sola)",
   job_download_blender: "Scarico Blender, per i file 3D e i rendering (una volta sola)",

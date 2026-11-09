@@ -5,7 +5,7 @@
 // public domain). MPL-2.0 is file-level copyleft: only packages loaded apart (their own files,
 // never mixed into ours) may be MPL-2.0 alone. GPL, AGPL and LGPL, or a licence nobody can read,
 // fail. An expression with OR passes when one side does; with AND when both do.
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -151,5 +151,16 @@ describe("licenses of the web bundle (G37.1)", () => {
     // The sheet editor (G37.3): Univer's free packages only, never its paid ones.
     expect([...pkgs.keys()].some((k) => k.startsWith("@univerjs/sheets-ui@"))).toBe(true);
     expect([...pkgs.keys()].filter((k) => k.startsWith("@univerjs-pro/"))).toEqual([]);
+  });
+
+  it("the document editor's frame carries only zetajs (MIT) and our own scripts (G37.4)", () => {
+    const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "zeta");
+    const files = readdirSync(dir).sort();
+    expect(files).toEqual(["frame.html", "frame.js", "office-thread.js", "zeta.js"]);
+    expect(readFileSync(join(dir, "zeta.js"), "utf8").slice(0, 200)).toContain(
+      "SPDX-License-Identifier: MIT",
+    );
+    // LibreOffice itself (MPL-2.0, Qt LGPL-3.0) is never in the package: the server downloads it.
+    expect(files.some((f) => /\.(wasm|data)$/.test(f))).toBe(false);
   });
 });

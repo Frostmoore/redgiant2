@@ -149,9 +149,12 @@ import { Programs } from "./convert-programs.js";
 import { convertTools, vaultFigma } from "./convert-tools.js";
 import { debugLog } from "./debug-log.js";
 import { EditorHost, type EditorHostOptions } from "./editor/host.js";
+import { LibreOfficeEngine, type OfficeEngine } from "./editor/office-engine.js";
+import { copyOfOriginal, OfficeFamily } from "./editor/office-family.js";
 import { sheetFamily } from "./editor/sheet-family.js";
 import { textFamily } from "./editor/text-family.js";
 import { type CanvasEditHost, canvasEditTool } from "./editor/tool.js";
+import { ZetaOffice } from "./editor/zeta.js";
 import {
   type EmailAccount,
   EmailWatcher,
@@ -268,6 +271,8 @@ export interface CoreOptions {
   db: SqlClient;
   /** The editor's timings (G37.1): tests save at once and hold the person's place briefly. */
   editor?: Pick<EditorHostOptions, "saveDelayMs" | "lockMs" | "watchMs" | "now">;
+  /** What applies the document editor's actions on the server (tests: a fake; LibreOffice otherwise). */
+  officeEngine?: OfficeEngine;
   /** Where the mailbox for email routines is kept (default: next to the workspaces). */
   emailDir?: string;
   /** How mailboxes are read (tests use a fake; IMAP otherwise). */
@@ -545,6 +550,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly sheets: ReturnType<typeof sheetFamily>;
   /** The rule for the agents' edits, for an agent or a file (G37.1). */
   readonly editorSettings: OwnerSettings<EditorSettings>;
+  /** Documents and presentations (G37.4): LibreOffice on the server, ZetaOffice for the page. */
+  readonly office: { engine: OfficeEngine; family: OfficeFamily; zeta: ZetaOffice };
   /** Background commands of every conversation (p3.3.1): bash with background, bash_output. */
   readonly commands: BackgroundCommands;
   /** Mandatory and breaking updates (G36.19), set by main: while one is mandatory no new turn starts. */
@@ -694,6 +701,23 @@ export class RedGiantCore implements OrchestrationHost {
       EditorSettings,
       DEFAULT_EDITOR_SETTINGS,
     );
+    // Documents and presentations (G37.4): LibreOffice applies the edits on the server when no
+    // page has the full editor open; the page's editor (ZetaOffice) is served from the data folder.
+    const officeEngine =
+      o.officeEngine ??
+      new LibreOfficeEngine({ programs: this.programs, dataDir: dirname(o.workspacesDir) });
+    this.office = {
+      engine: officeEngine,
+      family: new OfficeFamily({
+        dataDir: dirname(o.workspacesDir),
+        engine: officeEngine,
+        reexport: (ownerId, file) =>
+          this.editorSettings.get(ownerId).reexport?.[docKey(file)] === true,
+        onSkipped: (file, skipped) =>
+          debugLog.write("editor", "LibreOffice skipped edits", { path: file.path, skipped }),
+      }),
+      zeta: new ZetaOffice({ dataDir: dirname(o.workspacesDir), jobs: this.jobs }),
+    };
     this.sheets = sheetFamily({
       libreoffice: () => this.programs.find("libreoffice"),
       fetchLibreOffice: (ownerId) =>
@@ -705,10 +729,10 @@ export class RedGiantCore implements OrchestrationHost {
     });
     this.editor = new EditorHost({
       store: this.store,
-      families: [textFamily, this.sheets],
       dataDir: dirname(o.workspacesDir),
       resolve: (ownerId, file) => this.docAbs(ownerId, file),
       settings: (ownerId) => this.editorSettings.get(ownerId),
+      families: [textFamily, this.sheets, this.office.family],
       ...o.editor,
     });
     // Background commands (p3.3.1): their start and end are events of the conversation that
@@ -2862,7 +2886,17 @@ export class RedGiantCore implements OrchestrationHost {
       },
       // The editor's model as words (G37.1): the conversation has seen this revision now.
       structure: async (ownerId, abs, ask, ctx) => {
-        const file = await this.docFileOf(ownerId, abs);
+        let file = await this.docFileOf(ownerId, abs);
+        // A closed document is read through its open copy when there is one (G37.4).
+        const copy =
+          file && !this.editor.familyFor(file.path) ? copyOfOriginal(file.path) : undefined;
+        if (file && copy) {
+          const root = await this.scopeRoot(ownerId, file.scope);
+          const here = await stat(await new LocalWorkspace(root).resolve(copy)).catch(
+            () => undefined,
+          );
+          if (here?.isFile()) file = { scope: file.scope, path: copy };
+        }
         if (!file || !this.editor.familyFor(file.path)) return undefined;
         const read = await this.editor.read(ownerId, file);
         this.editor.seen(ctx.sessionId, ownerId, file, read.revision);
@@ -2879,6 +2913,22 @@ export class RedGiantCore implements OrchestrationHost {
       state: (ownerId) => this.canvasLive.ask(ownerId),
       docFileOf: (ownerId, abs) => this.docFileOf(ownerId, abs),
       absOf: (ownerId, file) => this.docAbs(ownerId, file),
+      copyOf: async (ownerId, file) => {
+        const copy = copyOfOriginal(file.path);
+        if (!copy) return undefined;
+        const root = await this.scopeRoot(ownerId, file.scope);
+        const ws = new LocalWorkspace(root);
+        const here = await stat(await ws.resolve(copy)).catch(() => undefined);
+        if (!here?.isFile()) {
+          if (!this.programs.find("libreoffice"))
+            await this.programs.ensure(ownerId, "libreoffice");
+          await this.converter.convert(root, file.path, {
+            owner: ownerId,
+            to: [copy.slice(copy.lastIndexOf(".") + 1)],
+          });
+        }
+        return { scope: file.scope, path: copy };
+      },
     };
   }
 
