@@ -894,11 +894,21 @@ function fileRules(input: Record<string, unknown>, name: string, w: Where, add: 
  * workspace, the tool checks it), the text its operations write. Its catalog and dry runs write
  * nothing. Emptying a file is not a deletion for good: the log keeps the inverse and the panel
  * «Modifiche» undoes it. A re-export over a closed original (G37.3-4) needs the file's own switch
- * and keeps the version before: not critical either.
+ * and keeps the version before: not critical either. A PDF's redaction (G37.8) is: it takes text
+ * and pictures out of the file for good (that is its purpose), so the person always says yes.
  */
 function editorRules(input: Record<string, unknown>, w: Where, add: Add) {
   if (input.help === true || input.dry_run === true) return;
   const ops = Array.isArray(input.ops) ? input.ops : [];
+  const redacts = ops.some((o) => {
+    const x = (o ?? {}) as Record<string, unknown>;
+    return String(x.op ?? x.action ?? x.type ?? "").toLowerCase() === "redact";
+  });
+  if (redacts)
+    add(
+      "critical-delete",
+      `redacts ${typeof input.path === "string" ? input.path : "a PDF"}: what is under the areas leaves the file for good`,
+    );
   const text = ops
     .map((o) =>
       (o as { text?: unknown })?.text === undefined ? "" : String((o as { text: unknown }).text),

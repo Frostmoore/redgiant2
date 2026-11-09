@@ -645,6 +645,43 @@ export const IconDatabase = ({ size = 20 }: P) => (
     <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
   </Svg>
 );
+// The PDF editor's tools (G37.8).
+export const IconCursor = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M5 3l13 7.5-5.6 1.6L10 18z" />
+  </Svg>
+);
+export const IconHighlighter = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M14.5 4.5l5 5-8 8H6.5v-5z" />
+    <path d="M4 20h16" />
+  </Svg>
+);
+export const IconNote = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M4 4h16v10l-6 6H4z" />
+    <path d="M14 20v-6h6" />
+    <path d="M8 9h8M8 13h4" />
+  </Svg>
+);
+export const IconRotate = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M20 4v5h-5" />
+    <path d="M19.5 9A8 8 0 1 0 20 15" />
+  </Svg>
+);
+export const IconRedact = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <rect x="3" y="9" width="18" height="6" rx="1" fill="currentColor" />
+    <path d="M3 5h11M3 19h15" />
+  </Svg>
+);
+export const IconSignature = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M3 17c3-7 5-9 6-7s-2 7 0 7 3-5 5-5 1 4 3 4 2-2 4-2" />
+    <path d="M3 21h18" />
+  </Svg>
+);
 
 // ---- the drawing editor's tools (G37.6) ----
 export const IconPointer = ({ size = 18 }: P) => (

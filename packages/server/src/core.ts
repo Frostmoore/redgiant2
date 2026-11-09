@@ -151,6 +151,7 @@ import { debugLog } from "./debug-log.js";
 import { EditorHost, type EditorHostOptions } from "./editor/host.js";
 import { LibreOfficeEngine, type OfficeEngine } from "./editor/office-engine.js";
 import { copyOfOriginal, OfficeFamily } from "./editor/office-family.js";
+import { PdfFamily } from "./editor/pdf-family.js";
 import { sheetFamily } from "./editor/sheet-family.js";
 import { svgCopyOfOriginal, svgFamily } from "./editor/svg-family.js";
 import { textFamily } from "./editor/text-family.js";
@@ -549,6 +550,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly editor: EditorHost;
   /** The sheet family (G37.3): CSV/TSV in place, ODS with LibreOffice's «toppa». */
   readonly sheets: ReturnType<typeof sheetFamily>;
+  /** PDFs in the editor (G37.8). */
+  readonly pdf: PdfFamily;
   /** The rule for the agents' edits, for an agent or a file (G37.1). */
   readonly editorSettings: OwnerSettings<EditorSettings>;
   /** Documents and presentations (G37.4): LibreOffice on the server, ZetaOffice for the page. */
@@ -728,12 +731,13 @@ export class RedGiantCore implements OrchestrationHost {
       reexport: (ownerId, file) =>
         this.editorSettings.get(ownerId).reexport?.[docKey(file)] === true,
     });
+    this.pdf = new PdfFamily({ dataDir: dirname(o.workspacesDir) });
     this.editor = new EditorHost({
       store: this.store,
       dataDir: dirname(o.workspacesDir),
       resolve: (ownerId, file) => this.docAbs(ownerId, file),
       settings: (ownerId) => this.editorSettings.get(ownerId),
-      families: [textFamily, this.sheets, this.office.family, svgFamily],
+      families: [textFamily, this.sheets, this.office.family, svgFamily, this.pdf],
       ...o.editor,
     });
     // Background commands (p3.3.1): their start and end are events of the conversation that

@@ -49,7 +49,7 @@
     "mammoth": "^1.13.0",
     "marked": "^18.1.2",
     "pathseg": "^1.2.1",
-    "pdfjs-dist": "^5.7.284",
+    "pdfjs-dist": "6.5.438",
     "preact": "^11.1.1",
     "qrcode-generator": "^2.0.4",
     "react": "^19.3.1",

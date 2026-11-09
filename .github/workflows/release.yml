@@ -141,6 +141,16 @@ jobs:
     with:
       publish: ${{ startsWith(github.ref, 'refs/tags/') }}
 
+  # Our copy of ZetaOffice (3.5.2, zetaoffice.yml): a version tag publishes the files missing from
+  # the zetaoffice-cache pre-release (RedGiant's first source for LibreOffice in the browser).
+  zetaoffice:
+    if: ${{ !inputs.only && !inputs.dry_run }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/zetaoffice.yml
+    with:
+      publish: ${{ startsWith(github.ref, 'refs/tags/') }}
+
   # What the release is (G36.19): release.json from packaging/release-kind.json and the tag,
   # signed with UPDATE_SIGNING_KEY (the update key) and attached FIRST: the release exists with it
   # before any installer or app is attached, so no launcher or server ever meets this release's

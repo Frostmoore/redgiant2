@@ -1594,6 +1594,55 @@ export class Api {
     }
     return r.blob();
   }
+  // ---- PDFs in the editor (G37.8) ----
+  /** The PDF at its head revision (what the page shows). */
+  pdfFile = (scope: string, path: string) =>
+    this.bytes(
+      "GET",
+      `/api/editor/pdf/file?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+    );
+  /** Its pages, annotations and fields at the head, and the head's revision. */
+  pdfOutline = (scope: string, path: string) =>
+    this.call<{ revision: number; outline: import("@redgiant/protocol").PdfOutline }>(
+      "GET",
+      `/api/editor/pdf/outline?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+    );
+  /** A picture the person puts on a page (a stamp, a signature): kept apart, cited by hash. */
+  async pdfBlob(scope: string, path: string, bytes: Uint8Array) {
+    const r = await fetch(
+      `/api/editor/pdf/blob?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${this.token}` },
+        body: bytes as BodyInit,
+      },
+    );
+    const data = (await r.json().catch(() => ({}))) as {
+      error?: string;
+      blob: string;
+      mime: "image/png" | "image/jpeg";
+    };
+    if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
+    return data;
+  }
+  /** The person's redaction: checked on the written file, then applied. */
+  pdfRedact = (b: {
+    scope: string;
+    path: string;
+    page: number;
+    rects: [number, number, number, number][];
+  }) => this.call<{ revision: number }>("POST", "/api/editor/pdf/redact", b);
+  /** The versions kept before the file was written anew (pages taken out or moved, redactions). */
+  pdfVersions = (scope: string, path: string) =>
+    this.call<{ versions: { name: string; size: number; at: string }[] }>(
+      "GET",
+      `/api/editor/pdf/versions?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+    );
+  pdfVersion = (scope: string, path: string, name: string) =>
+    this.bytes(
+      "GET",
+      `/api/editor/pdf/version?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}&name=${encodeURIComponent(name)}`,
+    );
 
   /** A web search service tried before it is saved: how many results, the first's title. */
   trySearch = (c: { provider: SearchProviderId; url?: string; key?: string }) =>

@@ -18,7 +18,7 @@
   const post = (m) => channel.postMessage({ ...m, from: "frame" });
   const canvas = document.getElementById("qtcanvas");
   let port;
-  let started = false;
+  let started;
   let opens = 0;
   const waiting = new Map();
   let nextId = 1;
@@ -136,6 +136,21 @@
     } catch {}
   };
 
+  // Ctrl+S or Cmd+S (not with Alt or Shift) while the person types in the document: the page
+  // saves now (its shortcut, which never reaches it from inside this frame). LibreOffice's own
+  // Save never runs: it would only write the engine's private copy.
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      if (String(e.key).toLowerCase() !== "s") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (!e.repeat) post({ t: "save-key" });
+    },
+    true,
+  );
+
   let lastTyping = 0;
   canvas.addEventListener("keydown", () => {
     const now = Date.now();
@@ -162,11 +177,10 @@
           memory: navigator.deviceMemory ?? null,
         });
       } else if (m.t === "start") {
-        if (started) return;
-        started = true;
-        const urls = await prefetch();
-        await boot(urls);
-        post({ t: "ready" });
+        // Started once; asked again (another tab of the page), it answers when ready.
+        started ??= prefetch().then(boot);
+        await started;
+        post({ t: "ready", req: m.req });
       } else if (m.t === "open") {
         fsDir();
         // A new name each time: LibreOffice hands back a document already open at the same path.
