@@ -3,6 +3,7 @@
 // viewers/sheet-collab.ts. Around it: what saving keeps (a CSV keeps values only), the
 // placeholders for charts and pivot tables (outlined in the grid, seen in «Pagine»), the open
 // copy of a closed original with its switch to write it back, «Esporta come…», the save's state.
+
 import type { DocChange, DocFile, DocSnapshot, SheetPlaceholder } from "@redgiant/protocol";
 import { docKey, PERSON } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -13,6 +14,7 @@ import { theme } from "../../theme.js";
 import { cellPos, columnLetters, SheetCollab, wroteAreas } from "../../viewers/sheet-collab.js";
 import { download } from "../../viewers/source.js";
 import type { Island } from "../../viewers/univer-island.js";
+import { CopyBar, KeptInFile } from "./CopyBar.js";
 import { PagedView } from "./OpenCopy.js";
 
 /** The sheets the page edits (G37.3); an XLSX/XLS/Numbers is edited on its ODS copy. */
@@ -248,6 +250,12 @@ export function SheetEditor({
     });
   const saved = v.saved;
   const kept = (snap?.kept ?? []).map((k) => tOptional(KEPT[k] ?? "") ?? k);
+  // What stays in the file, not edited here: the objects outlined in grey, then the rest kept.
+  const keptItems = [
+    ...(snap?.placeholders ?? []).slice(0, 8).map((p) => placeholderText(p, sheetName)),
+    ...kept,
+  ];
+  const keptHow = snap?.placeholders.length ? t("sheetPlaceholdersHow") : undefined;
   return (
     <div class="sheet-editor">
       <div class="sheet-bar">
@@ -301,43 +309,24 @@ export function SheetEditor({
           </select>
         </label>
       </div>
-      {(snap && snap.format !== "ods") ||
-      info?.original ||
-      snap?.placeholders.length ||
-      kept.length ||
-      failed ? (
+      {info?.original && (
+        <CopyBar
+          original={info.original}
+          rewrite={
+            info.noReexport
+              ? undefined
+              : { on: reexport, onChange: toggleReexport, help: t("sheetReexportHint") }
+          }
+        >
+          <KeptInFile items={keptItems} how={keptHow} />
+        </CopyBar>
+      )}
+      {(snap && snap.format !== "ods") || (!info?.original && keptItems.length) || failed ? (
         <div class="sheet-notes">
           {snap && snap.format !== "ods" && (
             <p class="sheet-note">{t("sheetCsvNote", { kind: snap.format.toUpperCase() })}</p>
           )}
-          {info?.original && (
-            <p class="sheet-note">
-              {t("sheetCopyOf", { name: info.original })}{" "}
-              {!info.noReexport && (
-                <label class="sheet-switch" title={t("sheetReexportHint")}>
-                  <input
-                    type="checkbox"
-                    checked={reexport}
-                    onChange={(e) => toggleReexport((e.target as HTMLInputElement).checked)}
-                  />
-                  {t("sheetReexport", { name: info.original })}
-                </label>
-              )}
-            </p>
-          )}
-          {snap && snap.placeholders.length > 0 && (
-            <p class="sheet-note">
-              {t("sheetPlaceholders", {
-                list: snap.placeholders
-                  .slice(0, 8)
-                  .map((p) => placeholderText(p, sheetName))
-                  .join("; "),
-              })}
-            </p>
-          )}
-          {kept.length > 0 && (
-            <p class="sheet-note dim">{t("sheetKept", { list: kept.join(", ") })}</p>
-          )}
+          {!info?.original && <KeptInFile items={keptItems} how={keptHow} />}
           {failed && (
             <p class="sheet-note warn" role="alert">
               {failed}

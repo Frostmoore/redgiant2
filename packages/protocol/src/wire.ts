@@ -181,6 +181,22 @@ export const ServerMessage = z.discriminatedUnion("type", [
      */
     stopReason: z.string().optional(),
   }),
+  /**
+   * To every page of the owner (p3.5.3): one of their conversations started or stopped working,
+   * also when the page does not follow it (a task handed to an agent while another of its
+   * conversations is open). The page learns of conversations it has not listed yet.
+   */
+  z.object({
+    type: z.literal("session.activity"),
+    sessionId: z.string(),
+    agentId: z.string(),
+    state: z.enum(["idle", "running"]),
+  }),
+  /**
+   * To every page of the owner that does not follow the conversation (p3.5.3): an agent showed a
+   * file or acted on the canvas from there (a `canvas.show` or `canvas.act` event, live only).
+   */
+  z.object({ type: z.literal("canvas.open"), sessionId: z.string(), event: Event }),
   /** Sent after a follow, once the stored history has been replayed. */
   z.object({ type: z.literal("session.synced"), sessionId: z.string(), lastSeq: z.number().int() }),
   /** A summary of the conversation is being made while the person waits (G24.14). */

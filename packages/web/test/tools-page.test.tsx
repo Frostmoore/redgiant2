@@ -201,3 +201,55 @@ describe("words (G34.5)", () => {
     ]);
   });
 });
+
+describe("finding a tool (p3.5.3)", () => {
+  it("shows each tool's real name and filters by words, name and what it does", async () => {
+    const view = render(<ToolsPage />);
+    await waitFor(() => expect(view.container.querySelectorAll(".tl-row")).toHaveLength(5));
+    // The command beside its name in words, as the chat's lines and request_tool say it.
+    const ids = [...view.container.querySelectorAll(".tl-id")].map((x) => x.textContent);
+    expect(ids).toEqual(["read_file", "grep", "web_search", "browser", "complete_task"]);
+    const box = view.container.querySelector(".tl-search input") as HTMLInputElement;
+    const shown = () =>
+      [...view.container.querySelectorAll(".tl-row")].map((r) => r.getAttribute("data-tool"));
+    // The real name, with or without its underscore; case does not matter.
+    fireEvent.input(box, { target: { value: "WEB_search" } });
+    expect(shown()).toEqual(["web_search"]);
+    fireEvent.input(box, { target: { value: "complete task" } });
+    expect(shown()).toEqual(["complete_task"]);
+    // Groups without any go.
+    expect(view.container.querySelectorAll(".tl-section")).toHaveLength(1);
+    // Nothing found: a line says so.
+    fireEvent.input(box, { target: { value: "zzz" } });
+    expect(shown()).toEqual([]);
+    expect(view.container.querySelector(".tl-none")?.textContent).toBe(
+      "Nessuno strumento per «zzz».",
+    );
+    fireEvent.input(box, { target: { value: "" } });
+    expect(shown()).toHaveLength(5);
+  });
+
+  it("ignores accents and finds by the name in words and by what it does", async () => {
+    const { findTools, toolName, toolDoes } = await import("../src/components/ToolsPage.js");
+    const name = toolName("grep");
+    const plain = name.normalize("NFD").replace(/\p{M}/gu, "").toUpperCase();
+    expect(findTools(ALL.entries, plain).map((e) => e.id)).toContain("grep");
+    const word =
+      toolDoes("web_search")
+        .split(/\s+/)
+        .find((w) => w.length > 5) ?? "";
+    expect(findTools(ALL.entries, word).map((e) => e.id)).toContain("web_search");
+    // An accented query on plain words («Cercare dentro i file»): still found.
+    expect(findTools(ALL.entries, "cércàre dentro").map((e) => e.id)).toEqual(["grep"]);
+  });
+
+  it("has the same search in an agent's Tools tab", async () => {
+    const view = render(<AgentTools agent={{ id: "a1", name: "Ada" } as never} />);
+    await waitFor(() => expect(view.container.querySelectorAll(".tl-row")).toHaveLength(5));
+    expect(view.container.querySelector('[data-tool="grep"] .tl-id')?.textContent).toBe("grep");
+    fireEvent.input(view.container.querySelector(".tl-search input") as HTMLInputElement, {
+      target: { value: "grep" },
+    });
+    expect(view.container.querySelectorAll(".tl-row")).toHaveLength(1);
+  });
+});

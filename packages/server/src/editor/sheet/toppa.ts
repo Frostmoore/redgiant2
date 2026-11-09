@@ -6,12 +6,14 @@
 // rewritten: LibreOffice keeps it, and moves its ranges with inserted rows by itself (G37.0 prova
 // 2). Only ODS: an XLSX of other programs written back by LibreOffice would lose Excel's table
 // styles, so an XLSX is edited on its ODS copy (decision of 2026-11-07). Macros never run.
+
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, posix, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DocOp, SheetMutation } from "@redgiant/protocol";
+import { LO_QUIET, profileArg } from "../../lo-profiles.js";
 import { excelToCalc } from "./a1.js";
 import { SheetEngine } from "./engine.js";
 import type { CellData, SheetModel, Style } from "./model.js";
@@ -704,9 +706,8 @@ export function exportWith(
       await (d.run ?? execRun)(
         d.soffice,
         [
-          `-env:UserInstallation=${pathToFileURL(d.profileDir).href}`,
-          "--headless",
-          "--norestore",
+          ...LO_QUIET,
+          profileArg(d.profileDir),
           "--convert-to",
           filter,
           "--outdir",

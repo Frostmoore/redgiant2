@@ -29,7 +29,7 @@ import {
   IconTrash,
   IconWallet,
 } from "../icons.js";
-import { getApi, openSession } from "../state.js";
+import { getApi, openSessionById } from "../state.js";
 import { explain } from "./Brain.js";
 import { spanWords } from "./CommandLimits.js";
 import { modelName } from "./ModelMenu.js";
@@ -114,9 +114,7 @@ function Decision({ d }: { d: UnattendedDecision }) {
           <button
             type="button"
             class="wz-btn small quiet"
-            onClick={() =>
-              openSession({ id: d.sessionId as string, agentId: d.agentId, title: null })
-            }
+            onClick={() => void openSessionById(d.sessionId as string, d.agentId)}
           >
             {t("rqOpenChat")}
           </button>

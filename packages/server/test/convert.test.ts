@@ -23,6 +23,7 @@ import {
 } from "../src/convert-programs.js";
 import { convertFileTool, editPackageTool, xmlProblem } from "../src/convert-tools.js";
 import { Jobs } from "../src/jobs.js";
+import { LO_QUIET } from "../src/lo-profiles.js";
 import {
   affinitySample,
   aviSample,
@@ -431,11 +432,7 @@ describe("outside programs", () => {
     expect(calls[0]).toEqual({
       file: "/bin/soffice",
       args: [
-        "--headless",
-        "--norestore",
-        "--nolockcheck",
-        "--nodefault",
-        "--nofirststartwizard",
+        ...LO_QUIET,
         `-env:UserInstallation=${pathToFileURL("/data/lo-profile").href}`,
         "--convert-to",
         "odt",

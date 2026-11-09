@@ -48,6 +48,7 @@ export function attachWebSocket(
     let offPlatform: (() => void) | undefined;
     let offRooms: (() => void) | undefined;
     let offCanvas: (() => void) | undefined;
+    let offActivity: (() => void) | undefined;
     let offScreen: (() => void) | undefined;
     const follows = new Map<string, () => void>();
     // Files open in the editor (G37.1): this page's subscriber id for each.
@@ -142,6 +143,13 @@ export function attachWebSocket(
             if (principal?.ownerId !== ownerId || ws.readyState !== ws.OPEN) return false;
             send({ type: "canvas.query", requestId });
             return true;
+          });
+          // All the owner's conversations, followed or not (p3.5.3): a followed one already
+          // brings its canvas events, so only the others' are sent here.
+          offActivity = core.onOwnerActivity((ownerId, m) => {
+            if (principal?.ownerId !== ownerId) return;
+            if (m.type === "canvas.open" && follows.has(m.sessionId)) return;
+            send(m);
           });
           send({ type: "welcome", protocolVersion: PROTOCOL_VERSION, ownerId: principal.ownerId });
           for (const r of core.approvals.list(principal.ownerId))
@@ -414,6 +422,7 @@ export function attachWebSocket(
       offPlatform?.();
       offRooms?.();
       offCanvas?.();
+      offActivity?.();
       offScreen?.();
     });
   }

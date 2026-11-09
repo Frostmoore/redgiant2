@@ -584,6 +584,19 @@ export class RedGiantCore implements OrchestrationHost {
     this.noticeListeners.add(listener);
     return () => this.noticeListeners.delete(listener);
   }
+  private readonly ownerListeners = new Set<(ownerId: string, m: ServerMessage) => void>();
+  /**
+   * What every page of an owner hears about all their conversations, followed or not (p3.5.3):
+   * a conversation starting or stopping (`session.activity`) and an agent opening the canvas
+   * (`canvas.open`, live events only, never a replayed log).
+   */
+  onOwnerActivity(listener: (ownerId: string, m: ServerMessage) => void): () => void {
+    this.ownerListeners.add(listener);
+    return () => this.ownerListeners.delete(listener);
+  }
+  private toOwner(ownerId: string, m: ServerMessage): void {
+    for (const f of this.ownerListeners) f(ownerId, m);
+  }
   /** Connected MCP servers, by owner and name. */
   private readonly mcp = new Map<string, McpConnection>();
   /** Sign-ins and keys of MCP servers (G24.9): private files, never the database. */
@@ -1025,6 +1038,9 @@ export class RedGiantCore implements OrchestrationHost {
         });
       const l = e.sessionId ? this.live.get(e.sessionId) : undefined;
       if (l) for (const f of l.listeners) f({ type: "event", sessionId: l.id, event: e });
+      // The canvas opens on the person's pages also for a conversation none of them follows.
+      if (l && (e.type === "canvas.show" || e.type === "canvas.act"))
+        this.toOwner(l.ownerId, { type: "canvas.open", sessionId: l.id, event: e });
       if (e.type === "extension.proposed" && e.payload?.status === "pending" && e.ownerId)
         this.alert(e.ownerId, {
           kind: "proposal",
@@ -4367,13 +4383,37 @@ export class RedGiantCore implements OrchestrationHost {
       }
   }
 
-  /** A live session, resumed from the log when the server restarted since. */
+  /**
+   * A live session, resumed from the log when the server restarted since (or it left memory).
+   * Callers at the same moment share one resume (p3.5.3: a page following the orchestrator's
+   * conversation while God handed it two tasks got three copies; the page listened to one that
+   * was then replaced, and two turns ran at once on the others).
+   */
   private async open(ownerId: string, sessionId: string): Promise<Live> {
     const l = this.live.get(sessionId);
     if (l) {
       if (l.ownerId !== ownerId) throw new NotFoundError(`Session "${sessionId}" not found`);
       return l;
     }
+    const pending = this.opening.get(sessionId);
+    if (pending) {
+      const built = await pending;
+      if (built.ownerId !== ownerId) throw new NotFoundError(`Session "${sessionId}" not found`);
+      return built;
+    }
+    const p = this.resume(ownerId, sessionId);
+    this.opening.set(sessionId, p);
+    try {
+      return await p;
+    } finally {
+      this.opening.delete(sessionId);
+    }
+  }
+
+  /** Resumes being built now, by session (one at a time for each). */
+  private readonly opening = new Map<string, Promise<Live>>();
+
+  private async resume(ownerId: string, sessionId: string): Promise<Live> {
     const [row] = await this.o.db.query<{
       agent_id: string;
       owner_id: string;
@@ -4792,6 +4832,7 @@ export class RedGiantCore implements OrchestrationHost {
     const notify = (state: "idle" | "running", stopReason?: string) => {
       for (const f of l.listeners)
         f({ type: "session.state", sessionId, state, ...(stopReason && { stopReason }) });
+      this.toOwner(l.ownerId, { type: "session.activity", sessionId, agentId: l.agentId, state });
     };
     notify("running");
     // "/compact [what to keep]" (G24.14): a summary now, asked by the person; no message.
