@@ -1,0 +1,96 @@
+# Our copy of ZetaOffice (LibreOffice in WebAssembly, G37.4; decision of 2026-11-09): the four files
+# of the build tried in G37.0, kept unchanged in the pre-release `zetaoffice-cache`, where RedGiant
+# downloads them first (packages/server/src/editor/zeta.ts, `zetaSources`; ZetaOffice's CDN is the
+# second source). Names, sizes and sha256 come from zeta.ts itself (packaging/zetaoffice/fetch.mjs).
+#
+# Only missing files are fetched: from the CDN, as they come (brotli kept as brotli), each checked
+# against its sha256. A published file is never replaced; if the CDN already moved to another
+# build the run fails with a clear message and publishes nothing. LICENSES.txt (MPL-2.0 and
+# LGPL-3.0, with the sources) goes with them. release.yml calls it on version tags.
+name: zetaoffice
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the missing files in the zetaoffice-cache pre-release"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      publish:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CACHE: zetaoffice-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: What is missing from the pre-release
+        id: missing
+        run: |
+          set -e
+          node packaging/zetaoffice/fetch.mjs --list > files.json
+          have=$(gh release view "$CACHE" -R "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[] | "\(.name) \(.size)"' 2>/dev/null || true)
+          missing=""
+          for row in $(node -e 'for (const f of require("./files.json").files) console.log(`${f.stored}:${f.size}`)'); do
+            n=${row%%:*}; size=${row##*:}
+            got=$(awk -v n="$n" '$1 == n { print $2 }' <<<"$have")
+            if [ -z "$got" ]; then
+              missing="$missing,$n"
+            elif [ "$got" != "$size" ]; then
+              echo "::error::$n is published with $got bytes, zeta.ts wants $size: a published file is never replaced. Use a new build (new ZETA_VERSION) instead."
+              exit 1
+            else
+              echo "::notice::$n is already published ($got bytes, kept as it is)"
+            fi
+          done
+          echo "list=${missing#,}" >> "$GITHUB_OUTPUT"
+      - name: Fetch and check the missing files (stops if the CDN changed build)
+        if: steps.missing.outputs.list != ''
+        run: node packaging/zetaoffice/fetch.mjs out --only "${{ steps.missing.outputs.list }}"
+      - name: Size limit of a release asset (2 GiB)
+        if: steps.missing.outputs.list != ''
+        run: |
+          set -e
+          for f in out/*; do
+            s=$(stat -c %s "$f")
+            if [ "$s" -ge 2147483648 ]; then echo "::error::$f is $s bytes, over GitHub's 2 GiB per asset"; exit 1; fi
+          done
+      - name: Publish
+        if: inputs.publish && steps.missing.outputs.list != ''
+        run: |
+          set -e
+          gh release view "$CACHE" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$CACHE" -R "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$GITHUB_SHA" \
+              --title "ZetaOffice cache (not a release)" \
+              --notes "LibreOffice in the browser (ZetaOffice build zeta-24-2, published at cdn.zetaoffice.net on 2025-05-13), kept unchanged for RedGiant (workflow zetaoffice.yml). Files are never replaced: their sha256 is fixed in packages/server/src/editor/zeta.ts. Licences and sources: LICENSES.txt (LibreOffice MPL-2.0 with LGPL-3.0 parts, Qt for WebAssembly LGPL-3.0)."
+          IFS=, read -ra names <<<"${{ steps.missing.outputs.list }}"
+          for n in "${names[@]}"; do
+            gh release upload "$CACHE" -R "$GITHUB_REPOSITORY" "out/$n" "out/$n.sha256"
+            echo "::notice::published $n $(cut -d' ' -f1 "out/$n.sha256")"
+          done
+          # The licences' note follows zeta.ts (text only, not one of the engine's files).
+          gh release upload "$CACHE" -R "$GITHUB_REPOSITORY" out/LICENSES.txt --clobber
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ZetaOffice copy ($CACHE)"
+            echo "Missing before this run: ${{ steps.missing.outputs.list || 'none' }}"
+            if [ -d out ]; then echo '```'; cat out/*.sha256; echo '```'; fi
+          } >> "$GITHUB_STEP_SUMMARY"

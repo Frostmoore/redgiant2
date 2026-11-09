@@ -61,10 +61,50 @@ export const ZETA_FILES: readonly ZetaFile[] = [
 ];
 export const ZETA_SIZE = ZETA_FILES.reduce((n, f) => n + f.size, 0);
 
-const CDN = () =>
-  (
-    process.env.REDGIANT_ZETAOFFICE_MIRROR ?? "https://cdn.zetaoffice.net/zetaoffice_latest"
-  ).replace(/\/+$/, "");
+/** Where the engine's files come from (G37.4, 3.5.2): tried one after the other, every file
+ * checked against the same sha256 above, so a source that changed its build is skipped, never kept.
+ * `cdn` asks for each file with its encoding (brotli as content-encoding); `stored` holds the bytes
+ * as we keep them (`soffice.wasm.br`…), plain files: our pre-release is one. */
+export interface ZetaSource {
+  name: string;
+  base: string;
+  layout: "cdn" | "stored";
+}
+
+/** Our own copy: the pre-release `zetaoffice-cache` (workflow zetaoffice.yml), files never replaced. */
+export const ZETA_RELEASE =
+  "https://github.com/Frostmoore/redgiant2/releases/download/zetaoffice-cache";
+export const ZETA_CDN = "https://cdn.zetaoffice.net/zetaoffice_latest";
+
+/** The order: the administrator's mirror if set, our pre-release, then ZetaOffice's own CDN. */
+export function zetaSources(env: NodeJS.ProcessEnv = process.env): ZetaSource[] {
+  const out: ZetaSource[] = [];
+  const mirror = env.REDGIANT_ZETAOFFICE_MIRROR?.trim();
+  if (mirror) out.push({ name: "mirror", base: mirror, layout: "cdn" });
+  out.push({ name: "redgiant", base: ZETA_RELEASE, layout: "stored" });
+  out.push({ name: "zetaoffice", base: ZETA_CDN, layout: "cdn" });
+  return out.map((x) => ({ ...x, base: x.base.replace(/\/+$/, "") }));
+}
+
+/** A file's name as we store it (and as our pre-release holds it). */
+export const storedName = (f: ZetaFile) => (f.encoding === "br" ? `${f.name}.br` : f.name);
+
+/** One file's request from one source: its address and the encoding the answer must have. */
+export function sourceRequest(
+  src: ZetaSource,
+  f: ZetaFile,
+): { url: string; encoding: "br" | "identity" } {
+  return src.layout === "stored"
+    ? { url: `${src.base}/${storedName(f)}`, encoding: "identity" }
+    : { url: `${src.base}/${f.name}`, encoding: f.encoding };
+}
+
+/** Downloads one address to a file as it comes (no decompression); the caller checks the hash. */
+export type ZetaFetch = (
+  req: { url: string; encoding: "br" | "identity"; to: string },
+  progress: (n: number) => void,
+  signal: AbortSignal,
+) => Promise<void>;
 
 /** The headers that isolate the frame (and only it): SharedArrayBuffer for LibreOffice's threads. */
 export const ISOLATION_HEADERS: Record<string, string> = {
@@ -77,37 +117,44 @@ export const ISOLATION_HEADERS: Record<string, string> = {
 
 export const ZETA_LICENSES = `LibreOffice in the browser (ZetaOffice), served by RedGiant as a separate program.
 
-- LibreOffice (zeta-24-2 build by allotropia): Mozilla Public License 2.0, parts LGPL-3.0.
+- LibreOffice (zeta-24-2 build by allotropia): Mozilla Public License 2.0 (MPL-2.0), parts LGPL-3.0.
   Sources: https://git.libreoffice.org/core/+/refs/heads/distro/allotropia/zeta-24-2
 - Qt 5.15 for WebAssembly (allotropia's fork): LGPL-3.0. Sources: https://github.com/allotropia/qt5
 - Emscripten: MIT. Sources: https://github.com/allotropia/emscripten
 - zetajs 1.2.0: MIT. https://github.com/allotropia/zetajs
 
 The files are the ones published at cdn.zetaoffice.net on 2025-05-13 (ZetaOffice is now by Collabora
-Productivity), downloaded once by RedGiant, checked by their sha256 and served from this computer.
+Productivity), kept unchanged by RedGiant in the pre-release zetaoffice-cache of
+https://github.com/Frostmoore/redgiant2 (the CDN is the second source), downloaded once, checked by
+their sha256 and served from this computer.
 `;
 
-/** Downloads one file as it comes (no decompression), its sha256 checked. */
-function fetchRaw(
-  url: string,
-  file: string,
-  f: ZetaFile,
+/** The real download: HTTPS, redirects followed, the encoding asked and checked. */
+export const fetchRaw: ZetaFetch = (req, progress, signal) => fetchOne(req, progress, signal, 0);
+
+function fetchOne(
+  req: { url: string; encoding: "br" | "identity"; to: string },
   progress: (n: number) => void,
   signal: AbortSignal,
-  redirects = 0,
+  redirects: number,
 ): Promise<void> {
   return new Promise((done, failed) => {
-    const req = httpsGet(
-      url,
-      { headers: { "accept-encoding": f.encoding === "br" ? "br" : "identity" }, signal },
+    const name = req.url.split("/").pop();
+    const r = httpsGet(
+      req.url,
+      {
+        headers: {
+          "accept-encoding": req.encoding === "br" ? "br" : "identity",
+          "user-agent": "RedGiant (zetaoffice; +https://github.com/Frostmoore/redgiant2)",
+        },
+        signal,
+      },
       (res) => {
         const code = res.statusCode ?? 0;
         if (code >= 300 && code < 400 && res.headers.location && redirects < 5) {
           res.resume();
-          fetchRaw(
-            new URL(res.headers.location, url).href,
-            file,
-            f,
+          fetchOne(
+            { ...req, url: new URL(res.headers.location, req.url).href },
             progress,
             signal,
             redirects + 1,
@@ -116,40 +163,27 @@ function fetchRaw(
         }
         if (code !== 200) {
           res.resume();
-          failed(new Error(`${new URL(url).host} answered ${code} for ${f.name}`));
+          failed(new Error(`${new URL(req.url).host} answered ${code} for ${name}`));
           return;
         }
         const enc = String(res.headers["content-encoding"] ?? "identity");
-        if (enc !== f.encoding) {
+        if (enc !== req.encoding) {
           res.resume();
-          failed(new Error(`${f.name} came as ${enc}, not ${f.encoding}`));
+          failed(new Error(`${name} came as ${enc}, not ${req.encoding}`));
           return;
         }
-        const hash = createHash("sha256");
-        res.on("data", (b: Buffer) => {
-          hash.update(b);
-          progress(b.length);
-        });
-        const part = `${file}.part`;
-        pipeline(res, createWriteStream(part))
-          .then(async () => {
-            const got = hash.digest("hex");
-            if (got !== f.sha256) {
-              await rm(part, { force: true });
-              throw new Error(
-                `${f.name} is not the file RedGiant knows (sha256 ${got.slice(0, 12)}…): it was not kept`,
-              );
-            }
-            await rename(part, file);
-          })
-          .then(done, async (err: unknown) => {
-            await rm(part, { force: true }).catch(() => {});
-            failed(err);
-          });
+        res.on("data", (b: Buffer) => progress(b.length));
+        pipeline(res, createWriteStream(req.to)).then(done, failed);
       },
     );
-    req.on("error", failed);
+    r.on("error", failed);
   });
+}
+
+async function sha256Of(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  await pipeline(createReadStream(path), hash);
+  return hash.digest("hex");
 }
 
 export class ZetaOffice {
@@ -160,22 +194,70 @@ export class ZetaOffice {
     private readonly o: {
       dataDir: string;
       jobs: Jobs;
-      /** Tests: where the files come from. */
-      fetch?: typeof fetchRaw;
+      /** Tests: how a file is fetched, from where, and which files. */
+      fetch?: ZetaFetch;
+      sources?: ZetaSource[];
+      files?: readonly ZetaFile[];
     },
   ) {}
+
+  private get files(): readonly ZetaFile[] {
+    return this.o.files ?? ZETA_FILES;
+  }
+
+  /**
+   * One file from the first source that gives exactly it: a source that fails or gives other
+   * bytes (another build) is skipped and said; nothing that does not match is ever kept.
+   */
+  async fetchFile(
+    f: ZetaFile,
+    target: string,
+    progress: (n: number) => void,
+    signal: AbortSignal,
+  ): Promise<string> {
+    const errors: string[] = [];
+    for (const src of this.o.sources ?? zetaSources()) {
+      const req = sourceRequest(src, f);
+      const part = `${target}.part`;
+      let got = 0;
+      try {
+        await (this.o.fetch ?? fetchRaw)(
+          { ...req, to: part },
+          (n) => {
+            got += n;
+            progress(n);
+          },
+          signal,
+        );
+        const hash = await sha256Of(part);
+        if (hash !== f.sha256)
+          throw new Error(
+            `${f.name} is not the file RedGiant knows (sha256 ${hash.slice(0, 12)}…): it was not kept`,
+          );
+        await rename(part, target);
+        return src.name;
+      } catch (err) {
+        await rm(part, { force: true }).catch(() => {});
+        // The bar goes back by what this source gave.
+        if (got) progress(-got);
+        if (signal.aborted) throw err;
+        errors.push(`${src.name}: ${(err as Error).message}`);
+      }
+    }
+    throw new Error(`${f.name}: no source gave it (${errors.join("; ")})`);
+  }
 
   get dir(): string {
     return join(this.o.dataDir, "tools", "zetaoffice", ZETA_VERSION);
   }
 
   private stored(f: ZetaFile) {
-    return join(this.dir, f.encoding === "br" ? `${f.name}.br` : f.name);
+    return join(this.dir, storedName(f));
   }
 
   /** Every file is here with its size (its hash was checked when it came). */
   async ready(): Promise<boolean> {
-    for (const f of ZETA_FILES) {
+    for (const f of this.files) {
       const st = await stat(this.stored(f)).catch(() => undefined);
       if (st?.size !== f.size) return false;
     }
@@ -188,7 +270,7 @@ export class ZetaOffice {
     return {
       ready,
       version: ZETA_VERSION,
-      size: ZETA_SIZE,
+      size: this.files.reduce((n, f) => n + f.size, 0),
       ...(job && job.state === "running" && { job: job.id }),
       ...(!ready && this.lastError && { error: this.lastError }),
       serverEngine,
@@ -211,22 +293,22 @@ export class ZetaOffice {
       async (h: JobHandle) => {
         h.step("tool_download");
         await mkdir(this.dir, { recursive: true });
+        const total = this.files.reduce((n, f) => n + f.size, 0);
         let done = 0;
-        for (const f of ZETA_FILES) {
+        for (const f of this.files) {
           const target = this.stored(f);
           const st = await stat(target).catch(() => undefined);
           if (st?.size === f.size) {
             done += f.size;
-            h.progress(done, ZETA_SIZE);
+            h.progress(done, total);
             continue;
           }
-          await (this.o.fetch ?? fetchRaw)(
-            `${CDN()}/${f.name}`,
-            target,
+          await this.fetchFile(
             f,
+            target,
             (n) => {
               done += n;
-              h.progress(done, ZETA_SIZE);
+              h.progress(done, total);
             },
             h.signal,
           );
@@ -247,7 +329,7 @@ export class ZetaOffice {
       return new Response(ZETA_LICENSES, {
         headers: { ...ISOLATION_HEADERS, "content-type": "text/plain; charset=utf-8" },
       });
-    const f = ZETA_FILES.find((x) => x.name === name);
+    const f = this.files.find((x) => x.name === name);
     if (!f) return undefined;
     const path = this.stored(f);
     if (!existsSync(path)) return undefined;
