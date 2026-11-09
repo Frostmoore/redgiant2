@@ -225,7 +225,8 @@ const brain = (req) => {
     results &&
     typeof toolOut === "string" &&
     toolOut.startsWith("Applied as revision") &&
-    /cell|row|sheet/.test(toolOut)
+    /cell|row|sheet/.test(toolOut) &&
+    !/relazione|piano/.test(toolOut)
   )
     return {
       text: "Fatto: ho corretto la quantità di febbraio, aggiunto marzo e messo in grassetto i totali. Le celle cambiate sono evidenziate; dal pannello Modifiche puoi annullarle.",
