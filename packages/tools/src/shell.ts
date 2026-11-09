@@ -37,7 +37,7 @@ export function bashTool(
           "Stay in the project: never search a whole disk (find /, ls -R /, grep -r /, Get-ChildItem C:\\ -Recurse); inside the project use glob and grep, and to find files or programs elsewhere on this computer use find_files. " +
           "Default timeout 120 s; a longer timeout_ms is cut to the person's maximum (10 min unless they changed it). Long output keeps its beginning and end. " +
           "background: true for servers, watchers, long builds: returns an id at once; read it with bash_output. Keep commands verbose (no -q/--silent, no >/dev/null): every line is logged with its time. " +
-          "Run on this computer (not in a container), RedGiant's own ffmpeg, and Blender, LibreOffice and Scribus once downloaded, are on the PATH; ffmpeg's drawtext needs fontfile=.",
+          "Run on this computer (not in a container), RedGiant's own ffmpeg, and Blender, LibreOffice and Scribus once downloaded, are on the PATH (call LibreOffice as plain soffice: it gets a profile of its own and no windows); ffmpeg's drawtext needs fontfile=.",
         compact:
           "Run a shell command in the workspace root (a new shell each call). Never search a whole disk (find /): use find_files. background: true returns an id (bash_output); keep it verbose.",
       }),

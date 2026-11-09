@@ -28,6 +28,7 @@ import { pipeline } from "node:stream/promises";
 import { agentEnv, shareProgramDir } from "@redgiant/tools";
 import { ensureFfmpeg, findFfmpeg } from "./ffmpeg.js";
 import type { JobHandle, Jobs } from "./jobs.js";
+import { installOfficeLaunchers } from "./lo-agents.js";
 
 export type ProgramId = "libreoffice" | "scribus" | "blender" | "ghostscript" | "ffmpeg";
 
@@ -642,12 +643,23 @@ export class MissingProgramError extends Error {
   }
 }
 
+/** The soffice the agents' launchers were last written for. */
+let launchersFor: string | undefined;
 /**
  * A program's folder on the agents' PATH, through links (a WinGet link refuses to start from
  * Git's bash: «Permission denied»). ffmpeg's goes first, so the agents get the one RedGiant
- * uses; the others go last (LibreOffice's folder also holds a python.exe).
+ * uses; the others go last (LibreOffice's folder also holds a python.exe). LibreOffice itself is
+ * reached through RedGiant's launchers, which go first.
  */
-function shareProgram(id: ProgramId, exe: string): void {
+function shareProgram(id: ProgramId, exe: string, dataDir: string): void {
+  // LibreOffice through RedGiant's launchers (p3.5.3): a profile of its own for each command.
+  if (id === "libreoffice" && launchersFor !== `${dataDir}\0${exe}`) {
+    const bin = installOfficeLaunchers(dataDir, exe);
+    if (bin) {
+      shareProgramDir(bin, "first");
+      launchersFor = `${dataDir}\0${exe}`;
+    }
+  }
   let real = exe;
   try {
     real = realpathSync(exe);
@@ -683,7 +695,7 @@ export class Programs {
         : id === "ffmpeg"
           ? findFfmpeg(this.o.dataDir)
           : findProgram(id, this.o.dataDir);
-    if (p && this.o.share) shareProgram(id, p);
+    if (p && this.o.share) shareProgram(id, p, this.o.dataDir);
     return p;
   }
 
@@ -721,7 +733,7 @@ export class Programs {
     if (id === "ffmpeg")
       return ensureFfmpeg(this.o.jobs, owner, this.o.dataDir).then((p) => {
         if (!p) throw new MissingProgramError("ffmpeg", this.platform);
-        if (this.o.share) shareProgram(id, p);
+        if (this.o.share) shareProgram(id, p, this.o.dataDir);
         return p;
       });
     if (!DOWNLOADABLE.includes(id) || !this.canDownload(id))
@@ -756,7 +768,7 @@ export class Programs {
       return exe;
     })()
       .then((exe) => {
-        if (this.o.share) shareProgram(id, exe);
+        if (this.o.share) shareProgram(id, exe, this.o.dataDir);
         return exe;
       })
       .finally(() => this.pending.delete(id));

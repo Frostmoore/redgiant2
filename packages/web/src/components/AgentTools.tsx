@@ -10,9 +10,9 @@ import { attempt, getApi, openTab } from "../state.js";
 import { Seg } from "./SettingsKit.js";
 import {
   aboutTokens,
-  byGroup,
-  GroupHead,
   NewOnly,
+  ToolGroups,
+  ToolSearch,
   ToolText,
   toolName,
   useToolsView,
@@ -62,6 +62,7 @@ export function AgentEditRule({ agent }: { agent: Agent }) {
 export function AgentTools({ agent }: { agent: Agent }) {
   const { view, setView, error, setError, load } = useToolsView(agent.id);
   const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState("");
   const choose = async (e: ToolView, pick: Pick) => {
     if (!view || e.essential) return;
     const own = pick === "default" ? null : pick;
@@ -111,40 +112,38 @@ export function AgentTools({ agent }: { agent: Agent }) {
           >
             {t("toolsOpenAll")} <IconArrowRight size={16} />
           </button>
-          {byGroup(view.entries).map(([group, entries]) => (
-            <section class="tl-section" key={group}>
-              <GroupHead group={group} />
-              <div class="tl-list">
-                {entries.map((e) => (
-                  <div
-                    key={e.id}
-                    class={`tl-row tl-row-agent${e.on ? " on" : ""}${e.essential ? " locked" : ""}`}
-                    data-tool={e.id}
-                  >
-                    <ToolText e={e} />
-                    {e.essential ? (
-                      <span class="tl-locked">
-                        <IconLock size={16} /> {t("toolsLocked")}
-                      </span>
-                    ) : (
-                      <div class={`tl-pick${busy ? " busy" : ""}`}>
-                        <Seg<Pick>
-                          label={toolName(e.id)}
-                          value={e.own ?? "default"}
-                          onChange={(p) => void choose(e, p)}
-                          options={[
-                            ["default", e.global ? t("toolsDefaultOn") : t("toolsDefaultOff")],
-                            ["on", t("toolsAlways")],
-                            ["off", t("toolsOff")],
-                          ]}
-                        />
-                      </div>
-                    )}
+          <ToolSearch q={q} onChange={setQ} />
+          <ToolGroups
+            entries={view.entries}
+            q={q}
+            row={(e) => (
+              <div
+                key={e.id}
+                class={`tl-row tl-row-agent${e.on ? " on" : ""}${e.essential ? " locked" : ""}`}
+                data-tool={e.id}
+              >
+                <ToolText e={e} />
+                {e.essential ? (
+                  <span class="tl-locked">
+                    <IconLock size={16} /> {t("toolsLocked")}
+                  </span>
+                ) : (
+                  <div class={`tl-pick${busy ? " busy" : ""}`}>
+                    <Seg<Pick>
+                      label={toolName(e.id)}
+                      value={e.own ?? "default"}
+                      onChange={(p) => void choose(e, p)}
+                      options={[
+                        ["default", e.global ? t("toolsDefaultOn") : t("toolsDefaultOff")],
+                        ["on", t("toolsAlways")],
+                        ["off", t("toolsOff")],
+                      ]}
+                    />
                   </div>
-                ))}
+                )}
               </div>
-            </section>
-          ))}
+            )}
+          />
         </>
       )}
     </div>

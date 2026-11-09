@@ -74,6 +74,7 @@ export function attachWebSocket(
     let offPlatform: (() => void) | undefined;
     let offRooms: (() => void) | undefined;
     let offCanvas: (() => void) | undefined;
+    let offActivity: (() => void) | undefined;
     let offScreen: (() => void) | undefined;
     let offPage: (() => void) | undefined;
     const follows = new Map<string, () => void>();
@@ -171,6 +172,13 @@ export function attachWebSocket(
             return true;
           });
           if (msg.reloads && live.pages) offPage = live.pages.add(principal.ownerId);
+          // All the owner's conversations, followed or not (p3.5.3): a followed one already
+          // brings its canvas events, so only the others' are sent here.
+          offActivity = core.onOwnerActivity((ownerId, m) => {
+            if (principal?.ownerId !== ownerId) return;
+            if (m.type === "canvas.open" && follows.has(m.sessionId)) return;
+            send(m);
+          });
           send({
             type: "welcome",
             protocolVersion: PROTOCOL_VERSION,
@@ -467,6 +475,7 @@ export function attachWebSocket(
       offPlatform?.();
       offRooms?.();
       offCanvas?.();
+      offActivity?.();
       offScreen?.();
       offPage?.();
     });
