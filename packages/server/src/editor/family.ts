@@ -119,4 +119,9 @@ export interface DocFamily<M = unknown> {
   saved?(model: M, ctx: RenderContext): Promise<void>;
   /** Optional (G37.4): an agent's operations made ready before `fromAgent` (pictures to blobs). */
   prepare?(ops: readonly unknown[], ctx: PrepareContext): Promise<unknown[]>;
+  /**
+   * Optional (p3.5.3): a line for the agent after its edit, when the edit likely missed its aim
+   * (a sheet: a row written just below the cells a chart reads).
+   */
+  advice?(model: M, ops: readonly DocOp[]): string | undefined;
 }
