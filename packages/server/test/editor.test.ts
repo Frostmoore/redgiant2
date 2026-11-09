@@ -4,7 +4,7 @@
 // each revision in order and its own batches acknowledged in order; the person's change on the same
 // place refuses the agent's; the person's change reaches the agent's next message as a note; with
 // the rule «come proposte» the agent's edit waits for the person.
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ChangeSet } from "@codemirror/state";
 import type { DocOp, ServerMessage } from "@redgiant/protocol";
@@ -372,5 +372,225 @@ describe("Ctrl+S and text with no extension (p3.5.1)", () => {
       await a.waitFor("doc.rejected", (m) => m.clientId === "open" && m.file.path === "tool"),
     ).toMatchObject({ code: "invalid" });
     a.close();
+  });
+});
+
+/** One tool call per message of the person, chosen by its words; each result kept. */
+function turns(byText: Record<string, { name: string; input: unknown }>, seen: string[]) {
+  return (req: Req) => {
+    const r = resultOf(req);
+    if (r !== undefined) {
+      seen.push(r);
+      return { text: "ok" };
+    }
+    // The person's words, maybe after the editor's notes in the same message.
+    const texts = (req.messages.at(-1)?.parts ?? []).map((p) => p.text?.trim() ?? "");
+    const said = Object.keys(byText).find((k) =>
+      texts.some((t) => t === k || t.startsWith(`${k}\n`) || t.endsWith(`\n${k}`)),
+    );
+    const call = said ? byText[said] : undefined;
+    return call ? { toolCalls: [call] } : { text: "ok" };
+  };
+}
+
+describe("p3.5.3: God on a project's file; the person typing; proposals", () => {
+  it("God edits a project's file with its path once the person allows it, and is told the path of a tab", async () => {
+    const seen: string[] = [];
+    let projectFile = "";
+    s = await startServer(
+      ((req: Req) => {
+        const r = resultOf(req);
+        if (r !== undefined) {
+          seen.push(r);
+          return seen.length === 1
+            ? { toolCalls: [{ name: "canvas_edit", input: {} }] }
+            : seen.length === 2
+              ? {
+                  toolCalls: [
+                    {
+                      name: "canvas_edit",
+                      input: {
+                        path: projectFile,
+                        ops: [{ op: "replace", find: "totale_pezz", text: "totale_pezzi" }],
+                      },
+                    },
+                  ],
+                }
+              : { text: "Done." };
+        }
+        return {
+          toolCalls: [{ name: "canvas_look", input: { path: projectFile, view: "structure" } }],
+        };
+      }) as never,
+      { contextWindow: 65_536 },
+      { editor: { saveDelayMs: 0, watchMs: 0 } },
+    );
+    const p = await s.api<{ id: string; path: string }>("POST", "/api/projects", {
+      name: "Collaudo",
+    });
+    projectFile = join(p.body.path, "app.py");
+    await writeFile(projectFile, "pezzi = 3\nprint(totale_pezz)\n");
+    const g = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const sessionId = (
+      await s.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: g.body.id })
+    ).body.sessionId;
+    const c = await wsClient(s.url);
+    await c.waitFor("welcome");
+    c.send({ type: "session.follow", sessionId });
+    await c.waitFor("session.synced");
+    // The person's canvas: the project's app.py in the active tab.
+    const scope = `project:${p.body.id}`;
+    const answered = new Set<string>();
+    void (async () => {
+      for (;;) {
+        const q = await c
+          .waitFor("canvas.query", (m) => !answered.has(m.requestId), 20_000)
+          .catch(() => undefined);
+        if (!q) return;
+        answered.add(q.requestId);
+        c.send({
+          type: "canvas.state",
+          requestId: q.requestId,
+          state: {
+            visible: true,
+            tabs: [
+              { title: "app.py", target: { kind: "file", scope, path: "app.py" }, active: true },
+            ],
+          },
+        });
+      }
+    })();
+    // Every call outside God's folders asks the person: the look, then the edit.
+    void (async () => {
+      for (let n = 0; n < 2; n++) {
+        const req = await c.waitFor(
+          "permission.request",
+          (m) => !answered.has(m.request.requestId),
+          20_000,
+        );
+        answered.add(req.request.requestId);
+        if (req.request.tool === "canvas_edit")
+          expect(req.request.reasons[0]).toMatch(/^writes outside the project: .*app\.py/);
+        c.send({
+          type: "permission.resolve",
+          requestId: req.request.requestId,
+          decision: "allow",
+          remember: false,
+        });
+      }
+    })();
+    c.send({ type: "session.send", sessionId, text: "Correggi app.py" });
+    await c.waitFor(
+      "event",
+      (m) => m.event.type === "message.assistant" && m.event.payload?.stopReason === "end_turn",
+      30_000,
+    );
+    expect(seen[0]).toMatch(/app\.py: revision 0\. Plain text/);
+    expect(seen[1]).toContain(
+      `Tab app.py is outside your workspace: to edit it, call canvas_edit with path "${await realpath(projectFile)}"`,
+    );
+    expect(seen[2]).toMatch(/^Applied as revision 1: changed line 2/);
+    await (s as Server).core.editor.flush();
+    expect(await readFile(projectFile, "utf8")).toBe("pezzi = 3\nprint(totale_pezzi)\n");
+    c.close();
+  });
+
+  it("as proposals: refused where the person types or changed it; accepted anywhere, applied in the canvas and on disk", async () => {
+    const seen: string[] = [];
+    const edit = (find: string, text: string, extra: Record<string, unknown> = {}) => ({
+      name: "canvas_edit",
+      input: { path: file.path, ops: [{ op: "replace", find, text }], ...extra },
+    });
+    s = await startServer(
+      turns(
+        {
+          Guarda: { name: "canvas_look", input: { path: file.path, view: "structure" } },
+          "Sposta la chiamata": edit("call Ann", "call Ann at 5"),
+          "Riprova sulla 0": edit("call Ann", "call Ann at 6", { expect_revision: 0 }),
+          "Cambia il report": edit("write the report", "write the report today"),
+        },
+        seen,
+      ) as never,
+      { contextWindow: 65_536 },
+      { editor: { saveDelayMs: 0, watchMs: 0, lockMs: 60_000 } },
+    );
+    const g = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const sessionId = (
+      await s.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: g.body.id })
+    ).body.sessionId;
+    const abs = join(await s.core.scopeFolder("me", "platform"), file.path);
+    await mkdir(dirname(abs), { recursive: true });
+    await writeFile(abs, TEXT);
+    await s.api("PUT", "/api/settings/editor", {
+      agents: {},
+      files: { [`file:${file.scope}:${file.path}`]: "propose" },
+    });
+    const page = await wsClient(s.url);
+    await page.waitFor("welcome");
+    page.send({ type: "doc.open", file });
+    await page.waitFor("doc.opened");
+    const say = async (text: string) => (await (s as Server).core.send("me", sessionId, text)).done;
+    await say("Guarda");
+    // The person types in line 2 («call Ann», offsets 9-17): the agent is stopped, nothing kept.
+    page.send({ type: "doc.presence", file, editing: true, from: 12, to: 12, revision: 0 });
+    await say("Sposta la chiamata");
+    expect(seen[1]).toMatch(/^Refused \(nothing proposed\): the person is typing at line 2/);
+    // The person changes line 2 and stops typing: the agent's edit there, on revision 0, is refused.
+    page.send({
+      type: "doc.ops",
+      file,
+      clientId: "p1",
+      baseRevision: 0,
+      ops: [personOp(TEXT, { from: 9, to: 17, insert: "call Bea" })],
+      groupId: "g",
+    });
+    await page.waitFor("doc.ack", (m) => m.clientId === "p1");
+    page.send({ type: "doc.presence", file, editing: false });
+    await say("Riprova sulla 0");
+    expect(seen[2]).toMatch(
+      /^Refused \(nothing proposed\): the person changed the same place at revision 1/,
+    );
+    expect(only(page, "doc.proposals").every((m) => m.proposals.length === 0)).toBe(true);
+    // Another place: a proposal. Then the person edits that same line before accepting it.
+    await say("Cambia il report");
+    expect(seen[3]).toMatch(/^Proposed to the person \(proposal [a-z0-9-]+, on revision 0\)/);
+    const proposals = await page.waitFor("doc.proposals", (m) => m.proposals.length === 1);
+    const id = proposals.proposals[0]?.proposalId as string;
+    const now = "buy milk\ncall Bea\nwrite the report\n";
+    page.send({
+      type: "doc.ops",
+      file,
+      clientId: "p2",
+      baseRevision: 1,
+      ops: [personOp(now, { from: now.length - 1, insert: "!" })],
+      groupId: "g2",
+    });
+    await page.waitFor("doc.ack", (m) => m.clientId === "p2");
+    // Accepted from the page (the panel or the differences: the same message): applied.
+    page.send({ type: "doc.decide", file, clientId: "d1", proposalId: id, accept: true });
+    const ack = await page.waitFor("doc.ack", (m) => m.clientId === "d1");
+    expect(ack.revision).toBe(3);
+    expect(only(page, "doc.changed").at(-1)).toMatchObject({ revision: 3 });
+    expect(only(page, "doc.rejected").filter((m) => m.clientId === "d1")).toHaveLength(0);
+    await page.waitFor("doc.proposals", (m) => m.proposals.length === 0);
+    const after = "buy milk\ncall Bea\nwrite the report today!\n";
+    expect((await (s as Server).core.editor.read("me", file)).model?.toString()).toBe(after);
+    await (s as Server).core.editor.flush();
+    expect(await readFile(abs, "utf8")).toBe(after);
+    await say("Ancora");
+    const users = await (s as Server).core.store.list({ sessionId, types: ["message.user"] });
+    const notes = (users.at(-1)?.payload as { notes?: string[] } | undefined)?.notes ?? [];
+    expect(notes.join("\n")).toMatch(
+      /accepted your proposed edit of notes\/todo\.txt .*revision 3, moved over the changes made since your revision 0/,
+    );
+    page.close();
   });
 });

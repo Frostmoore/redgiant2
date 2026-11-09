@@ -445,10 +445,15 @@ export class EditorHost {
     return out.slice(0, 50);
   }
 
-  private modeOf(doc: Doc): { mode: AgentEditMode; modeOwn: boolean } {
-    const files = this.o.settings(doc.ownerId).files;
-    const own = files[docKey(doc.file)];
-    return { mode: own ?? "now", modeOwn: own !== undefined };
+  private modeOf(doc: Doc): { mode: AgentEditMode; modeOwn: boolean; agentsPropose: string[] } {
+    const s = this.o.settings(doc.ownerId);
+    const own = s.files[docKey(doc.file)];
+    // Without the file's own choice each agent's rule counts: the page says which propose.
+    const agentsPropose = Object.entries(s.agents ?? {})
+      .filter(([, m]) => m === "propose")
+      .map(([id]) => id)
+      .slice(0, 500);
+    return { mode: own ?? "now", modeOwn: own !== undefined, agentsPropose };
   }
 
   private broadcast(doc: Doc, m: ServerMessage, except?: string) {
@@ -621,7 +626,9 @@ export class EditorHost {
       for (const l of later) {
         const lc = f.compose(l.ops);
         if (!lc) return refuse("stale", "a later revision cannot be read back");
-        if (!person && l.author !== req.author.id && f.conflicts(one, lc))
+        // A proposal the person accepts is their decision (p3.5.3): moved over the later
+        // changes like their own edits, never refused for touching the same place.
+        if (!person && !req.proposalId && l.author !== req.author.id && f.conflicts(one, lc))
           return refuse(
             "conflict",
             `${l.author === PERSON ? "the person" : (l.authorName ?? l.author)} changed the same place at revision ${l.revision} (${l.summary.text}) after your revision ${req.baseRevision}: look again and redo it on revision ${doc.revision}`,
@@ -631,7 +638,9 @@ export class EditorHost {
         if (!moved)
           return refuse(
             person ? "stale" : "conflict",
-            `revision ${l.revision} (${l.summary.text}) moved what these operations touch: look again and redo it on revision ${doc.revision}`,
+            req.proposalId
+              ? `revision ${l.revision} (${l.summary.text}) changed what this proposal touches so that it cannot be applied anymore: reject it and ask the agent again`
+              : `revision ${l.revision} (${l.summary.text}) moved what these operations touch: look again and redo it on revision ${doc.revision}`,
             l.revision,
           );
         one = moved;
@@ -957,7 +966,7 @@ export class EditorHost {
           p.sessionId,
           docKey(file),
           accept
-            ? `The person accepted your proposed edit of ${file.path} (${p.summary.text}): it is revision ${out.revision}.`
+            ? `The person accepted your proposed edit of ${file.path} (${p.summary.text}): it is revision ${out.revision}${out.ok && out.rebased ? `, moved over the changes made since your revision ${p.baseRevision}` : ""}.`
             : `The person rejected your proposed edit of ${file.path} (${p.summary.text}).`,
         );
       return out;

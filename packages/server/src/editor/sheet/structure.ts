@@ -48,7 +48,7 @@ export async function sheetStructure(model: SheetModel, ask: StructureAsk): Prom
   const lines: string[] = [];
   const kind = model.kind.toUpperCase();
   lines.push(
-    `Sheet file (${kind}${model.kind === "ods" ? "" : ": values only, one sheet"}). Sheets: ${wb.sheetOrder
+    `Sheet file (${kind}${model.kind === "ods" ? "" : `: values only, one sheet; a formula is saved as the value it computes${model.numbers ? `; numbers written with «${model.numbers.decimal}» for decimals${model.numbers.thousands ? ` and «${model.numbers.thousands}» for thousands` : ""}` : ""}`}). Sheets: ${wb.sheetOrder
       .map((id) => {
         const s = wb.sheets[id];
         if (!s) return "?";
@@ -57,15 +57,22 @@ export async function sheetStructure(model: SheetModel, ask: StructureAsk): Prom
       })
       .join(", ")}.`,
   );
-  if (model.placeholders.length)
+  if (model.placeholders.length) {
     lines.push(
       `Placeholders, kept in the file and not editable here: ${model.placeholders
-        .map(
-          (p) =>
-            `${p.kind === "pivot" ? "pivot table" : p.kind}${p.name ? ` «${p.name}»` : ""} on «${wb.sheets[p.sheet]?.name ?? "?"}» ${areaName(p)}${p.source ? ` (data ${p.source})` : ""}`,
+        .map((p) =>
+          p.kind === "pivot"
+            ? `pivot table${p.name ? ` «${p.name}»` : ""} writing its output in «${wb.sheets[p.sheet]?.name ?? "?"}» ${areaName(p)}${p.source ? `, reading the cells ${p.source}` : ""}`
+            : `${p.kind}${p.name ? ` «${p.name}»` : ""} drawn over «${wb.sheets[p.sheet]?.name ?? "?"}» ${areaName(p)}${p.source ? `, reading the cells ${p.source}` : ""}`,
         )
         .join("; ")}.`,
     );
+    // p3.5.3: a row written below a chart's cells stayed out of it.
+    if (model.placeholders.some((p) => p.source && (p.kind === "chart" || p.kind === "pivot")))
+      lines.push(
+        "A chart or pivot table reads exactly the cells listed: a row or column written next to them is NOT included. To add a row to its data, insert_rows inside the range (before its last row) and write the rows in the order you want: the range grows with the inserted rows.",
+      );
+  }
   if (model.kept.length) lines.push(`Also kept untouched: ${model.kept.join(", ")}.`);
   // Which sheet and which rows.
   let sheetId = wb.sheetOrder[0];

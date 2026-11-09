@@ -14956,7 +14956,7 @@ button.sub-tab {
   border-radius: 8px;
   min-height: 30px;
   padding: 0 6px;
-  max-width: 190px;
+  max-width: 230px;
 }
 .doc-badge {
   min-width: 18px;
@@ -16374,4 +16374,21 @@ fieldset.vw-seg {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* p3.5.3: what «Modifica» does in this browser, beside it (the full text in its title). */
+.canvas-edit-note {
+  /* It gives way first: the file's name keeps its room. */
+  flex: 0 1000 auto;
+  min-width: 0;
+  max-width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82em;
+}
+@media (max-width: 760px) {
+  .canvas-edit-note {
+    display: none;
+  }
 }

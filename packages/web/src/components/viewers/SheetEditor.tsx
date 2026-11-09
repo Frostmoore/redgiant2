@@ -11,6 +11,7 @@ import { lang, t, tOptional } from "../../i18n.js";
 import { IconDownload, IconSpinner } from "../../icons.js";
 import { attempt, docView, getApi, openDoc, sendDoc } from "../../state.js";
 import { theme } from "../../theme.js";
+import { freshAgentWrites } from "../../viewers/collab.js";
 import { cellPos, columnLetters, SheetCollab, wroteAreas } from "../../viewers/sheet-collab.js";
 import { download } from "../../viewers/source.js";
 import type { Island } from "../../viewers/univer-island.js";
@@ -51,10 +52,13 @@ export function placeholderText(p: SheetPlaceholder, sheetName: (id: string) => 
     name: p.name ? `«${p.name}» ` : "",
     sheet: sheetName(p.sheet),
     range: area(p),
+    source: p.source ?? "",
   };
   const key =
     p.kind === "chart"
-      ? "sheetPhChart"
+      ? p.source
+        ? "sheetPhChartReads"
+        : "sheetPhChart"
       : p.kind === "pivot"
         ? "sheetPhPivot"
         : p.kind === "image"
@@ -120,6 +124,15 @@ export function SheetEditor({
       }),
     );
     const resync = () => sendDoc({ type: "doc.open", file });
+    /** Opened after an agent edited it (p3.5.3): its cells highlighted as if seen live, once. */
+    let marked = false;
+    const markFresh = () => {
+      if (marked || !island) return;
+      marked = true;
+      const fresh = freshAgentWrites(docView(file).value.changes, collab.revision);
+      if (fresh.length)
+        setTimeout(() => island?.mark(wroteAreas(fresh, sheets), HIGHLIGHT_MS), 400);
+    };
     const show = (s: Snap, revision: number) => {
       collab.reset(revision);
       sheets = (s.workbook.sheetOrder as string[] | undefined) ?? [];
@@ -127,6 +140,7 @@ export function SheetEditor({
       if (island) island.load(s.workbook, s.placeholders);
       else if (mount) mount(s);
       else latest = { snap: s, revision };
+      markFresh();
     };
     const agentColor =
       getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#2f6fde";
@@ -168,6 +182,7 @@ export function SheetEditor({
         if (latest) {
           mount(latest.snap);
           latest = undefined;
+          markFresh();
         }
       },
       (e: unknown) => setFailed((e as Error).message),
