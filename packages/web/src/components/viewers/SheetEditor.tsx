@@ -73,7 +73,7 @@ export function SheetEditor({
   /** The shell's «show me» for a change of the panel. */
   onReveal: (reveal: ((c: DocChange) => void) | undefined) => void;
 }) {
-  const host = useRef<HTMLDivElement>(null);
+  const host = useRef<HTMLElement>(null);
   const [snap, setSnap] = useState<Snap>();
   const [mode, setMode] = useState<"edit" | "pages">("edit");
   const [info, setInfo] = useState<Awaited<ReturnType<ReturnType<typeof getApi>["sheetInfo"]>>>();
@@ -346,10 +346,9 @@ export function SheetEditor({
         </div>
       ) : null}
       <div class="sheet-body">
-        <div
+        <section
           class="sheet-grid"
           ref={host}
-          role="region"
           aria-label={t("sheetEditorLabel")}
           style={mode === "edit" ? undefined : { display: "none" }}
         />
