@@ -15565,6 +15565,10 @@ fieldset.vw-seg {
   overflow: auto;
   background: var(--bg);
 }
+/* Focusable for Ctrl+Z, without a ring around the whole document. */
+.pdfed-scroll:focus {
+  outline: none;
+}
 .pdfed-scroll .pdfViewer .page {
   box-shadow: 0 1px 5px rgb(0 0 0 / 0.18);
 }

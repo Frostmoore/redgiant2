@@ -16,6 +16,7 @@ import type {
   PdfPlainAction,
   PdfRect,
 } from "@redgiant/protocol";
+import { PERSON } from "@redgiant/protocol";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { type Key, t } from "../../i18n.js";
@@ -565,6 +566,27 @@ export function PdfEditor({
     return true;
   }, !!doc);
 
+  // Ctrl+Z (Cmd+Z) outside a field or a text box: the person's own last change, taken back (their
+  // stack, never an agent's: those are undone from the panel «Modifiche»).
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const key = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "z")
+        return;
+      const tgt = e.target as HTMLElement;
+      if (tgt.matches?.("input,textarea,select") || tgt.isContentEditable) return;
+      const mine = docView(file).value.changes.find(
+        (c) => c.author === PERSON && !c.undoneBy && !c.undoOf && !c.replaced,
+      );
+      if (!mine) return;
+      e.preventDefault();
+      sendDoc({ type: "doc.undo", file, clientId: askId(), revision: mine.revision });
+    };
+    el.addEventListener("keydown", key);
+    return () => el.removeEventListener("keydown", key);
+  }, [file.scope, file.path]);
+
   // The person typing in a field or a text box holds the file a moment against the agents.
   useEffect(() => {
     const el = scroller.current;
@@ -929,7 +951,7 @@ export function PdfEditor({
       )}
       <div class="pdfed-main">
         <div class="pdfed-view">
-          <div class="pdfed-scroll" ref={scroller}>
+          <div class="pdfed-scroll" ref={scroller} tabIndex={-1}>
             <div class="pdfViewer" />
           </div>
           {!doc && <div class="vw-empty dim pdfed-loading">{t("loading")}</div>}
