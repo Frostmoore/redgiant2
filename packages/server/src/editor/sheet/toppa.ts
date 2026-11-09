@@ -9,7 +9,7 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, posix, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DocOp, SheetMutation } from "@redgiant/protocol";
 import { excelToCalc } from "./a1.js";
@@ -584,25 +584,19 @@ export function pythonFor(
   soffice: string,
   exists: (p: string) => boolean = existsSync,
 ): string | undefined {
-  const dir = dirname(soffice);
+  // Windows paths joined as Windows does, the others with slashes, whatever runs this.
+  const path = /^[A-Za-z]:|\\/.test(soffice) ? win32 : posix;
+  const dir = path.dirname(soffice);
+  const mac = ["..", "Frameworks", "LibreOfficePython.framework", "Versions", "Current", "bin"];
   for (const p of [
-    join(dir, "python.exe"),
-    join(dir, "python"),
-    join(dir, "..", "Resources", "python"),
-    join(
-      dir,
-      "..",
-      "Frameworks",
-      "LibreOfficePython.framework",
-      "Versions",
-      "Current",
-      "bin",
-      "python3",
-    ),
+    path.join(dir, "python.exe"),
+    path.join(dir, "python"),
+    path.join(dir, "..", "Resources", "python"),
+    path.join(dir, ...mac, "python3"),
   ])
     if (exists(p)) return p;
   // A system LibreOffice (Debian's) uses the system's Python with python3-uno.
-  return process.platform === "win32" ? undefined : "python3";
+  return path === win32 ? undefined : "python3";
 }
 
 export interface ToppaDeps {

@@ -254,9 +254,10 @@ describe("the toppa", () => {
     expect(pythonFor("/lo/program/soffice", has(["/lo/program/python"]))).toBe(
       "/lo/program/python",
     );
-    expect(pythonFor("C:/LO/program/soffice.exe", has(["C:/LO/program/python.exe"]))).toBe(
-      "C:/LO/program/python.exe",
+    expect(pythonFor("C:\\LO\\program\\soffice.exe", has(["C:\\LO\\program\\python.exe"]))).toBe(
+      "C:\\LO\\program\\python.exe",
     );
+    expect(pythonFor("C:\\LO\\program\\soffice.exe", has([]))).toBeUndefined();
   });
 });
 
