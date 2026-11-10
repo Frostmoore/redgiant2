@@ -33,6 +33,7 @@ import {
   IconX,
 } from "../../icons.js";
 import { attempt, getApi, openCanvas, openDoc, sendDoc } from "../../state.js";
+import { holdMark } from "../../viewers/agent-marks.js";
 import type { GizmoMode, ModelIsland } from "../../viewers/model-island.js";
 import {
   type AddWhat,
@@ -63,7 +64,7 @@ import {
   type Trs,
   transformActions,
 } from "../../viewers/model-ops.js";
-import { afterSeen, elementShown, HIGHLIGHT_SEEN_MS } from "../../viewers/seen.js";
+import { OwnUndo } from "../../viewers/own-undo.js";
 import { download } from "../../viewers/source.js";
 import { SmallSwitch, useJob } from "../ui.js";
 import { CopyBar } from "./CopyBar.js";
@@ -74,6 +75,9 @@ export const MODEL_EDITABLE = /\.(glb|gltf)$/i;
 export const MODEL_COPIES = /\.(obj|stl|ply|fbx|blend|usd|usda|usdc|usdz|abc)$/i;
 
 const GESTURE_MS = 2000;
+/** How many times a model is read while another program may still be writing it. */
+const MODEL_LOAD_TRIES = 6;
+const MODEL_RETRY_MS = 700;
 let asks = 0;
 const askId = () => `m${Date.now().toString(36)}${(asks++).toString(36)}`;
 const newGroup = () => `g-${Math.random().toString(36).slice(2, 10)}`;
@@ -188,15 +192,21 @@ export function ModelEditor({
     let json: unknown;
     let selected: number | undefined;
     let first = true;
+    /** The latest showing: an older one still retrying gives way. */
+    let showing = 0;
     let pending: { text: string; revision: number; container: "glb" | "gltf" } | undefined;
     let group = newGroup();
     let last = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const fading = new Set<() => void>();
-    const done: number[] = [];
-    const undone: number[] = [];
-    const asked = new Map<number, "undo" | "redo">();
-    const collab = new ModelCollab((o) =>
+    /** The highlights waiting to be seen, by revision: dropped when the editor closes. */
+    const fading = new Map<number, () => void>();
+    /** The outlines of each highlighted revision. */
+    const outlines = new Map<number, () => void>();
+    /** The person's revisions, to undo the last gesture; the undos, to redo (p3.5.6). */
+    const own = new OwnUndo();
+    const sentIn = new Map<string, string>();
+    const collab = new ModelCollab((o) => {
+      sentIn.set(o.clientId, group);
       sendDoc({
         type: "doc.ops",
         file,
@@ -204,8 +214,8 @@ export function ModelEditor({
         baseRevision: o.baseRevision,
         ops: o.actions.map(modelDocOp),
         groupId: group,
-      }),
-    );
+      });
+    });
     const resync = () => sendDoc({ type: "doc.open", file });
     const refresh = () => {
       setRoot(json);
@@ -229,20 +239,34 @@ export function ModelEditor({
         pending = { text, revision, container: kind };
         return;
       }
-      try {
-        const bits = await fileBits();
-        let bin: Uint8Array | undefined;
-        if (kind === "glb") {
-          const m = await import("../../viewers/model-island.js");
-          bin = m.binOfGlb(new Uint8Array(await (await fetch(bits.url)).arrayBuffer()));
+      const shown = ++showing;
+      // A file another program is still writing (Blender saving, p3.5.6) is read again a moment
+      // later: a GLB until it is whole, any model until it loads (a few tries).
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const bits = await fileBits();
+          let bin: Uint8Array | undefined;
+          if (kind === "glb") {
+            const m = await import("../../viewers/model-island.js");
+            const bytes = new Uint8Array(await (await fetch(bits.url)).arrayBuffer());
+            if (!m.glbComplete(bytes)) throw new Error("the GLB is not whole yet");
+            bin = m.binOfGlb(bytes);
+          }
+          if (closed || shown !== showing) return;
+          await island.load(text, bin, bits.base, first);
+          first = false;
+          setFailed(undefined);
+          setStats(island.stats());
+          break;
+        } catch (e) {
+          if (closed || shown !== showing) return;
+          if (attempt < MODEL_LOAD_TRIES - 1) {
+            await new Promise((r) => setTimeout(r, MODEL_RETRY_MS));
+            continue;
+          }
+          setFailed(t("model3dFailed", { reason: (e as Error).message }));
+          break;
         }
-        if (closed) return;
-        await island.load(text, bin, bits.base, first);
-        first = false;
-        setFailed(undefined);
-        setStats(island.stats());
-      } catch (e) {
-        setFailed(t("model3dFailed", { reason: (e as Error).message }));
       }
       setLoading(false);
       refresh();
@@ -309,11 +333,13 @@ export function ModelEditor({
         if (collab.remote(m.revision, actions) === "reload") return resync();
         json = applyAll(json, actions);
         island.changed(json, actions);
+        own.changed(m.change);
+        // An undone change loses its highlight (and its «Annulla questa modifica»).
         for (const r of m.change.undoOf ?? []) {
-          const k = asked.get(r);
-          asked.delete(r);
-          if (k === "undo") undone.push(m.change.revision);
-          else if (k === "redo") done.push(m.change.revision);
+          fading.get(r)?.();
+          fading.delete(r);
+          outlines.get(r)?.();
+          outlines.delete(r);
         }
         setTimeout(refresh, 80);
         refresh();
@@ -321,27 +347,33 @@ export function ModelEditor({
           const who = m.change.authorName ?? m.change.author;
           const nodes = [...modelTouchedNodes(actions)];
           const stamp = Date.now();
+          const rev = m.change.revision;
           // After a rebuild the new objects are there a moment later.
           setTimeout(() => {
-            const off = island?.outline(nodes) ?? (() => {});
+            if (closed) return;
+            outlines.set(rev, island?.outline(nodes) ?? (() => {}));
             setMark({ who, id: stamp });
-            const cancel = afterSeen(
-              HIGHLIGHT_SEEN_MS,
-              () => {
-                fading.delete(cancel);
-                off();
-                setMark((x) => (x && x.id <= stamp ? undefined : x));
-              },
-              elementShown(() => el),
+            fading.set(
+              rev,
+              holdMark(
+                file,
+                rev,
+                () => el,
+                () => {
+                  fading.delete(rev);
+                  outlines.get(rev)?.();
+                  outlines.delete(rev);
+                  setMark((x) => (x && x.id <= stamp ? undefined : x));
+                },
+              ),
             );
-            fading.add(cancel);
           }, 120);
         }
       },
       ack(m) {
         if (!collab.ack(m.clientId, m.revision)) return;
-        done.push(m.revision);
-        undone.length = 0;
+        own.made(m.revision, sentIn.get(m.clientId) ?? `r${m.revision}`);
+        sentIn.delete(m.clientId);
       },
       rejected(m) {
         if (collab.rejected(m.clientId)) resync();
@@ -350,16 +382,12 @@ export function ModelEditor({
     api.current = {
       undo() {
         collab.flush();
-        const r = done.pop();
-        if (r === undefined) return;
-        asked.set(r, "undo");
-        sendDoc({ type: "doc.undo", file, clientId: askId(), revision: r });
+        const ask = own.undo();
+        if (ask) sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
       },
       redo() {
-        const r = undone.pop();
-        if (r === undefined) return;
-        asked.set(r, "redo");
-        sendDoc({ type: "doc.undo", file, clientId: askId(), revision: r });
+        const ask = own.redo();
+        if (ask) sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
       },
       save() {
         collab.flush();
@@ -384,7 +412,7 @@ export function ModelEditor({
     return () => {
       closed = true;
       if (timer) clearTimeout(timer);
-      for (const cancel of fading) cancel();
+      for (const cancel of fading.values()) cancel();
       collab.flush();
       close();
       onReveal?.(undefined);

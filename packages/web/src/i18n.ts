@@ -885,6 +885,9 @@ const en = {
   docNoChanges: "No changes yet. What you and the agents change shows up here.",
   docUndoTurn: "Undo the whole turn",
   docUndoThis: "Undo this change",
+  docMarkBy: "{who} changed this",
+  docMarked: "Highlighted, by {who}:",
+  docMarkedMore: "and {n} more",
   docUndone: "undone",
   // The sheet editor (G37.3).
   docSheetCell: "Changed {range}",
@@ -5630,6 +5633,9 @@ const it: Record<Key, string> = {
   docNoChanges: "Ancora nessuna modifica. Qui compare quello che cambiate tu e gli agenti.",
   docUndoTurn: "Annulla tutto il turno",
   docUndoThis: "Annulla questa modifica",
+  docMarkBy: "{who} ha cambiato qui",
+  docMarked: "Evidenziate, di {who}:",
+  docMarkedMore: "e altre {n}",
   docUndone: "annullata",
   // The sheet editor (G37.3).
   docSheetCell: "Cambiata la cella {range}",

@@ -85,10 +85,52 @@ export function binOfGlb(bytes: Uint8Array): Uint8Array | undefined {
   let at = 12;
   while (at + 8 <= bytes.length) {
     const len = dv.getUint32(at, true);
-    if (dv.getUint32(at + 4, true) === 0x004e4942) return bytes.subarray(at + 8, at + 8 + len);
+    if (dv.getUint32(at + 4, true) === 0x004e4942)
+      // A chunk cut short (the file still being written, p3.5.6) is no chunk.
+      return at + 8 + len <= bytes.length ? bytes.subarray(at + 8, at + 8 + len) : undefined;
     at += 8 + len;
   }
   return undefined;
+}
+
+/** Whether a GLB's bytes are whole: its declared length there, and every chunk inside it. */
+export function glbComplete(bytes: Uint8Array): boolean {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (bytes.length < 12 || dv.getUint32(0, true) !== GLB_MAGIC) return false;
+  if (dv.getUint32(8, true) > bytes.length) return false;
+  let at = 12;
+  while (at + 8 <= bytes.length) at += 8 + dv.getUint32(at, true);
+  return at === bytes.length || at === dv.getUint32(8, true);
+}
+
+/**
+ * Which three.js object is which glTF node and material (GLTFLoader's associations). Tolerant
+ * (p3.5.6, a model saved by Blender: «Cannot read properties of undefined (reading 'nodes')»):
+ * GLTFLoader leaves an entry without mapping for the variant of its default material (vertex
+ * colours, flat shading on a primitive without a material).
+ */
+export function indexAssociations(associations: ReadonlyMap<unknown, unknown>): {
+  byNode: Map<number, THREE.Object3D>;
+  nodeOf: Map<THREE.Object3D, number>;
+  mats: Map<number, THREE.Material[]>;
+} {
+  const byNode = new Map<number, THREE.Object3D>();
+  const nodeOf = new Map<THREE.Object3D, number>();
+  const mats = new Map<number, THREE.Material[]>();
+  for (const [o, a] of associations) {
+    if (!o || !a || typeof a !== "object") continue;
+    const x = a as { nodes?: number; materials?: number };
+    if (typeof x.nodes === "number" && (o as THREE.Object3D).isObject3D) {
+      byNode.set(x.nodes, o as THREE.Object3D);
+      nodeOf.set(o as THREE.Object3D, x.nodes);
+    }
+    if (typeof x.materials === "number" && (o as THREE.Material).isMaterial) {
+      const list = mats.get(x.materials) ?? [];
+      list.push(o as THREE.Material);
+      mats.set(x.materials, list);
+    }
+  }
+  return { byNode, nodeOf, mats };
 }
 
 type Obj = Record<string, unknown>;
@@ -177,21 +219,7 @@ export function mountModel(area: HTMLElement, hooks: ModelIslandHooks): ModelIsl
   loop();
 
   const index = (g: GLTF) => {
-    byNode = new Map();
-    nodeOf = new Map();
-    mats = new Map();
-    for (const [o, a] of g.parser.associations) {
-      const x = a as { nodes?: number; materials?: number };
-      if (typeof x.nodes === "number" && (o as THREE.Object3D).isObject3D) {
-        byNode.set(x.nodes, o as THREE.Object3D);
-        nodeOf.set(o as THREE.Object3D, x.nodes);
-      }
-      if (typeof x.materials === "number" && (o as THREE.Material).isMaterial) {
-        const list = mats.get(x.materials) ?? [];
-        list.push(o as THREE.Material);
-        mats.set(x.materials, list);
-      }
-    }
+    ({ byNode, nodeOf, mats } = indexAssociations(g.parser.associations));
   };
 
   const bounds = () => {
@@ -247,7 +275,8 @@ export function mountModel(area: HTMLElement, hooks: ModelIslandHooks): ModelIsl
       });
     }
     gltf = g;
-    content = g.scene;
+    // A glTF without scenes (allowed) shows nothing rather than failing.
+    content = g.scene ?? g.scenes?.[0] ?? new THREE.Group();
     scene.add(content);
     index(g);
     showSelection();

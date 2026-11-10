@@ -334,6 +334,47 @@ describe("EditorHost: undo", () => {
     expect((await h.read(ME, file)).model?.toString()).toBe("ONE\ntwo\nthree\nfour\nfive\nsix");
   });
 
+  it("p3.5.6: a later change already undone is no conflict; the person's Ctrl+Z walks back in order", async () => {
+    const h = host();
+    await three(h);
+    // The person edits what the agent wrote at revision 3, twice, then types elsewhere.
+    const t = "ONE\ntwo\nTHREE\nfour\nfive\nsix";
+    await h.apply(ME, file, {
+      author: PERSONA,
+      baseRevision: 3,
+      ops: [personOp(t, { from: 8, to: 13, insert: "Three" })],
+      groupId: "p2",
+    });
+    const t5 = "ONE\ntwo\nThree\nfour\nfive\nsix";
+    await h.apply(ME, file, {
+      author: PERSONA,
+      baseRevision: 4,
+      ops: [personOp(t5, { from: 8, to: 13, insert: "tHREE" })],
+      groupId: "p3",
+    });
+    const t6 = "ONE\ntwo\ntHREE\nfour\nfive\nsix";
+    await h.apply(ME, file, {
+      author: PERSONA,
+      baseRevision: 5,
+      ops: [personOp(t6, { from: 0, insert: "> " })],
+      groupId: "p4",
+    });
+    // Ctrl+Z: the latest first, then the two edits of THREE.
+    for (const r of [6, 5, 4])
+      expect(await h.undo(ME, file, { revision: r }, PERSONA)).toMatchObject({ ok: true });
+    expect((await h.read(ME, file)).model?.toString()).toBe(t);
+    // Then «Annulla questa modifica» on the agent's THREE: the undone edits do not hold it.
+    expect(await h.undo(ME, file, { revision: 3 }, PERSONA)).toMatchObject({ ok: true });
+    expect((await h.read(ME, file)).model?.toString()).toBe("ONE\ntwo\nthree\nfour\nfive\nsix");
+    // A redo of the first edit puts it back: then the agent's line is held by it again.
+    const redo = await h.undo(ME, file, { revision: 10 }, PERSONA);
+    expect(redo.ok).toBe(true);
+    const u4 = (await store.list({ types: ["doc.ops"] })).find((e) =>
+      e.payload?.undoOf?.revisions.includes(4),
+    );
+    expect(u4).toBeDefined();
+  });
+
   it("«Annulla tutto il turno» takes back the whole group, the person's change in between stays", async () => {
     const h = host();
     await three(h);

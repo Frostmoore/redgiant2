@@ -21,6 +21,7 @@ import {
   IconX,
 } from "../../icons.js";
 import {
+  agentEditingNow,
   agents,
   attempt,
   type DocView as DocViewState,
@@ -29,6 +30,7 @@ import {
   dismissRefusal,
   docView,
   HELD_NOTICE_MS,
+  markedChanges,
   saveDoc,
   sendDoc,
   setDocMode,
@@ -314,8 +316,12 @@ export function DocEditor({
       setDiff(undefined);
   }, [v.proposals]);
   const canDiff = textEditable(file.path);
-  const others =
-    Date.now() - v.presenceAt < 60_000 ? v.presence.filter((p) => p.who !== PERSON) : [];
+  const others = agentEditingNow(v) ? v.presence.filter((p) => p.who !== PERSON && p.editing) : [];
+  // The agents' changes highlighted now in the editor (p3.5.6): «Annulla questa modifica» on each.
+  const marked = markedChanges(file).value;
+  const fresh = v.changes.filter(
+    (c) => marked.includes(c.revision) && !c.undoneBy && !c.undoOf && c.author !== PERSON,
+  );
   const people = v.presence.filter((p) => p.who === PERSON).length;
   const save = saveState(v);
   // «As set for the agent» says what that is (p3.5.3): right away, or which agents propose.
@@ -460,6 +466,35 @@ export function DocEditor({
           <button type="button" class="vw-btn small" onClick={() => dismissRefusal(file)}>
             {t("docOutsideClose")}
           </button>
+        </div>
+      )}
+      {fresh.length > 0 && (
+        <div class="doc-notice doc-marks" role="status">
+          <span class="doc-dot" aria-hidden="true" />
+          <span>{t("docMarked", { who: whoText(fresh[0] as DocChange) })}</span>
+          {fresh.slice(0, 3).map((c) => (
+            <span key={c.revision} class="doc-mark-item">
+              <button
+                type="button"
+                class="link doc-mark-what"
+                title={t("docRevision", { n: String(c.revision) })}
+                onClick={() => show(c)}
+              >
+                {changeText(c.summary)}
+              </button>
+              <button
+                type="button"
+                class="vw-btn small doc-mark-undo"
+                onClick={() => undo({ revision: c.revision })}
+              >
+                <IconUndo size={13} />
+                {t("docUndoThis")}
+              </button>
+            </span>
+          ))}
+          {fresh.length > 3 && (
+            <span class="dim">{t("docMarkedMore", { n: String(fresh.length - 3) })}</span>
+          )}
         </div>
       )}
       <div class="doc-main">

@@ -600,6 +600,17 @@ export class ModelCollab {
 export function modelChangeText(s: DocSummary): string {
   const c = s.model;
   if (!c) return s.text;
+  // A combined change (p3.5.6): every part, «Spostato: mesh «Cubo» e cambiato il materiale…».
+  if (c.also?.length) {
+    const low = (x: string) => x.charAt(0).toLocaleLowerCase() + x.slice(1);
+    const words = [partText(c), ...c.also.map((p) => low(partText(p)))];
+    const last = words.pop() as string;
+    return t("docAnd", { a: words.join(", "), b: last });
+  }
+  return partText(c);
+}
+
+function partText(c: NonNullable<DocSummary["model"]>): string {
   const kind = t(`model3dKind_${c.kind ?? "object"}` as Key);
   const what = c.name ? `${kind} «${c.name}»` : kind;
   const one = c.n <= 1;

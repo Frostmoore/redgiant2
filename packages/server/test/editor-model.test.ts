@@ -610,6 +610,136 @@ describe("a model in the editor's host", () => {
     expect((await h2.read("me", file)).revision).toBe(6);
   });
 
+  it("successive Ctrl+Z walk back in order: the agent adds a cube, the person moves it twice (p3.5.6)", async () => {
+    const file: DocFile = { scope: "platform", path: "cubo.gltf" };
+    await writeFile(join(dir, "ws", "cubo.gltf"), SCENE);
+    const h = host();
+    const m0 = (await h.read("me", file)).model as ModelModel;
+    const add = await h.apply("me", file, {
+      author: ADA,
+      baseRevision: 0,
+      ops: opsOf(m0, [{ op: "add_primitive", shape: "box", name: "Cubo" }]),
+      groupId: "turn:1",
+    });
+    expect(add).toMatchObject({ ok: true, revision: 1 });
+    const move = (rev: number, to: number[]) =>
+      h.apply("me", file, {
+        author: { id: PERSON },
+        baseRevision: rev,
+        ops: [
+          {
+            family: "model",
+            engine: "gltf-json",
+            engineVersion: "1",
+            op: { t: "set", path: ["nodes", 3, "translation"], value: to },
+          },
+        ],
+        groupId: `g${rev}`,
+      });
+    expect(await move(1, [1, 0, 0])).toMatchObject({ ok: true, revision: 2 });
+    expect(await move(2, [2, 0, 0])).toMatchObject({ ok: true, revision: 3 });
+    // Ctrl+Z, Ctrl+Z: the person's own, the latest first.
+    expect(await h.undo("me", file, { revision: 3 }, { id: PERSON })).toMatchObject({
+      ok: true,
+      revision: 4,
+    });
+    expect(await h.undo("me", file, { revision: 2 }, { id: PERSON })).toMatchObject({
+      ok: true,
+      revision: 5,
+    });
+    // Then «Annulla questa modifica» on the agent's cube: the moves undone are no conflict.
+    expect(await h.undo("me", file, { revision: 1 }, { id: PERSON })).toMatchObject({
+      ok: true,
+      revision: 6,
+    });
+    await h.flush();
+    expect(await readFile(join(dir, "ws", "cubo.gltf"), "utf8")).not.toContain("Cubo");
+    // Redo, the latest undo first: the cube, then the first move, then the second.
+    expect(await h.undo("me", file, { revision: 6 }, { id: PERSON })).toMatchObject({
+      ok: true,
+      revision: 7,
+    });
+    expect(await h.undo("me", file, { revision: 5 }, { id: PERSON })).toMatchObject({
+      ok: true,
+      revision: 8,
+    });
+    expect(await h.undo("me", file, { revision: 4 }, { id: PERSON })).toMatchObject({
+      ok: true,
+      revision: 9,
+    });
+    await h.flush();
+    expect(await readFile(join(dir, "ws", "cubo.gltf"), "utf8")).toContain(
+      '"translation": [2, 0, 0]',
+    );
+    // Redone, the moves stand again: undone again, the latest first, then the cube.
+    expect(await h.undo("me", file, { revision: 2 }, { id: PERSON })).toMatchObject({
+      ok: false,
+      code: "conflict",
+      conflict: 3,
+    });
+    expect(await h.undo("me", file, { revision: 3 }, { id: PERSON })).toMatchObject({ ok: true });
+    expect(await h.undo("me", file, { revision: 2 }, { id: PERSON })).toMatchObject({ ok: true });
+    expect(await h.undo("me", file, { revision: 1 }, { id: PERSON })).toMatchObject({ ok: true });
+    // A new host reads the same from the log.
+    const again = host();
+    expect(await again.undo("me", file, { revision: 1 }, { id: PERSON })).toMatchObject({
+      ok: false,
+      code: "nothing",
+    });
+  });
+
+  it("a combined change is told in all its parts (p3.5.6)", () => {
+    const m = load();
+    const d = describeOps(m, [
+      agent(m, [
+        { op: "set_transform", id: "n0", position: [0, 1, 0] },
+        { op: "set_material", id: "n0", color: "#ffffff" },
+      ]),
+    ]);
+    expect(d.text).toBe('Moved mesh "Cube" and changed material "Red"');
+    expect(d.change).toMatchObject({
+      action: "transform",
+      name: "Cube",
+      also: [{ action: "material", name: "Red" }],
+    });
+  });
+
+  it("Blender's save comes back whole (p3.5.6): a glTF without nodes or scenes, a GLB written in two steps", async () => {
+    // A glTF with no nodes and no scenes (allowed): opened, told, edited.
+    const bare: DocFile = { scope: "platform", path: "vuoto.gltf" };
+    await writeFile(join(dir, "ws", "vuoto.gltf"), '{"asset":{"version":"2.0"}}');
+    const h = host();
+    const r0 = await h.read("me", bare);
+    expect(modelStructure((r0.model as ModelModel).file.json.root, "gltf", {})).toBeTruthy();
+    const add = await h.apply("me", bare, {
+      author: ADA,
+      baseRevision: 0,
+      ops: opsOf(r0.model as ModelModel, [{ op: "add_primitive", shape: "box", name: "Cubo" }]),
+      groupId: "turn:1",
+    });
+    expect(add).toMatchObject({ ok: true, summary: { model: { action: "add", name: "Cubo" } } });
+    // A GLB another program writes in two steps: the first half is not read as the model.
+    const file: DocFile = { scope: "platform", path: "b.glb" };
+    const glb = jsModelToGlb(
+      new TextEncoder().encode("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"),
+      "b.obj",
+    );
+    await writeFile(join(dir, "ws", "b.glb"), glb);
+    expect((await h.read("me", file)).revision).toBe(0);
+    const saved = readGltf(glb);
+    const next = packGlb(
+      writeJson(saved.json).replace('"asset":{', '"asset":{"copyright":"x",'),
+      saved.bin,
+    );
+    expect(() => readGltf(next.subarray(0, next.length - 8))).toThrow(/cut short/);
+    await writeFile(join(dir, "ws", "b.glb"), next.subarray(0, Math.floor(next.length / 2)));
+    expect((await h.read("me", file)).revision).toBe(0);
+    await writeFile(join(dir, "ws", "b.glb"), next);
+    const whole = await h.read("me", file);
+    expect(whole.revision).toBe(1);
+    expect(writeJson((whole.model as ModelModel).file.json)).toContain('"copyright":"x"');
+  });
+
   it("a GLB edited and saved keeps its binary chunk; a change from outside can be undone", async () => {
     const file: DocFile = { scope: "platform", path: "t.glb" };
     const glb = jsModelToGlb(

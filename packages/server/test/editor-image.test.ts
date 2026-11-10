@@ -638,6 +638,46 @@ describe("a picture in the editor's host", () => {
     expect(again.revision).toBe(6);
   });
 
+  it("the person undoes the agent's layer, text, blur and mask one by one, the latest first and not (p3.5.6)", async () => {
+    const file: DocFile = { scope: "platform", path: "quadro.png" };
+    await writeFile(join(dir, "ws", "quadro.png"), pngOf(solid(64, 48, [200, 200, 200, 255])));
+    const h = host();
+    const step = async (list: unknown[]) => {
+      const r = await h.read("me", file);
+      const out = await h.apply("me", file, {
+        author: ADA,
+        baseRevision: r.revision,
+        ops: opsOf(r.model as ImageModel, list),
+        groupId: "t-ada",
+      });
+      expect(out).toMatchObject({ ok: true });
+      return out.revision;
+    };
+    const layer = await step([{ op: "add_layer", name: "Sopra" }]);
+    const text = await step([
+      { op: "add_text", layer: "Sopra", text: "Ciao", x: 4, y: 4, size: 16, color: "#000" },
+    ]);
+    const blur = await step([{ op: "filter", layer: "Sopra", name: "blur", radius: 2 }]);
+    const mask = await step([
+      { op: "add_mask", layer: "Sopra", area: { ellipse: [0, 0, 32, 24] } },
+    ]);
+    // The blur first (not the last), then the rest from the latest.
+    expect(await h.undo("me", file, { revision: blur }, { id: PERSON })).toMatchObject({
+      ok: true,
+    });
+    expect(await h.undo("me", file, { revision: mask }, { id: PERSON })).toMatchObject({
+      ok: true,
+    });
+    expect(await h.undo("me", file, { revision: text }, { id: PERSON })).toMatchObject({
+      ok: true,
+    });
+    expect(await h.undo("me", file, { revision: layer }, { id: PERSON })).toMatchObject({
+      ok: true,
+    });
+    const end = (await h.read("me", file)).model as ImageModel;
+    expect(imageStructure(end, {})).not.toContain("Sopra");
+  });
+
   it("an OpenRaster file keeps its layers on disk, and a change from outside can be undone", async () => {
     const file: DocFile = { scope: "platform", path: "art/p.ora" };
     await mkdir(join(dir, "ws", "art"), { recursive: true });

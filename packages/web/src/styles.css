@@ -15760,6 +15760,50 @@ button.sub-tab {
   border-radius: 2px;
   transition: background 0.6s;
 }
+/* The agents' changes highlighted now (p3.5.6): each with «Annulla questa modifica». */
+.doc-notice.doc-marks {
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 5px 12px;
+  gap: 6px 10px;
+}
+.doc-marks .doc-dot {
+  animation: none;
+  background: var(--doc-agent-line, var(--accent));
+}
+.doc-mark-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.doc-mark-what {
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-mark-undo {
+  gap: 4px;
+}
+/* The same, under the pointer on the agent's highlight in the text. */
+.cm-tooltip.cm-tooltip-hover:has(.doc-mark-tip) {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.doc-mark-tip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 10px;
+  font-size: 12px;
+  color: var(--text);
+}
+.doc-mark-tip .vw-btn {
+  gap: 4px;
+}
 .doc-panel {
   flex: none;
   width: min(300px, 42%);
