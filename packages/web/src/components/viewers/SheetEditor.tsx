@@ -12,6 +12,7 @@ import { IconDownload, IconSpinner } from "../../icons.js";
 import { attempt, docView, getApi, openDoc, sendDoc } from "../../state.js";
 import { theme } from "../../theme.js";
 import { freshAgentWrites } from "../../viewers/collab.js";
+import { afterSeen, elementShown, HIGHLIGHT_SEEN_MS } from "../../viewers/seen.js";
 import { cellPos, columnLetters, SheetCollab, wroteAreas } from "../../viewers/sheet-collab.js";
 import { download } from "../../viewers/source.js";
 import type { Island } from "../../viewers/univer-island.js";
@@ -22,7 +23,6 @@ import { PagedView } from "./OpenCopy.js";
 export const SHEET_EDITABLE = /\.(csv|tsv|ods)$/i;
 
 const GESTURE_MS = 2000;
-const HIGHLIGHT_MS = 8000;
 
 const dark = () =>
   theme.value === "dark" ||
@@ -113,6 +113,22 @@ export function SheetEditor({
     let lastKey = 0;
     let sendTimer: ReturnType<typeof setTimeout> | undefined;
     let closed = false;
+    /** The highlights waiting to be seen (p3.5.4): cancelled when the editor closes. */
+    const fading = new Set<() => void>();
+    /** The agent's cells, highlighted until the person could see them a while. */
+    const mark = (areas: Parameters<Island["mark"]>[0]) => {
+      if (!island || !areas.length) return;
+      const off = island.mark(areas);
+      const cancel = afterSeen(
+        HIGHLIGHT_SEEN_MS,
+        () => {
+          fading.delete(cancel);
+          off();
+        },
+        elementShown(() => el),
+      );
+      fading.add(cancel);
+    };
     const collab = new SheetCollab((o) =>
       sendDoc({
         type: "doc.ops",
@@ -124,14 +140,20 @@ export function SheetEditor({
       }),
     );
     const resync = () => sendDoc({ type: "doc.open", file });
-    /** Opened after an agent edited it (p3.5.3): its cells highlighted as if seen live, once. */
-    let marked = false;
+    /**
+     * Opened after an agent edited it (p3.5.3), or opened again with revisions this page had not
+     * seen (p3.5.4: they came by a resynchronisation, not live): its cells highlighted as if seen
+     * live, once per revision.
+     */
+    let markedAt = -1;
     const markFresh = () => {
-      if (marked || !island) return;
-      marked = true;
-      const fresh = freshAgentWrites(docView(file).value.changes, collab.revision);
-      if (fresh.length)
-        setTimeout(() => island?.mark(wroteAreas(fresh, sheets), HIGHLIGHT_MS), 400);
+      if (!island || collab.revision <= markedAt) return;
+      const seen = markedAt;
+      markedAt = collab.revision;
+      const fresh = freshAgentWrites(docView(file).value.changes, collab.revision, {
+        ...(seen >= 0 && { max: collab.revision - seen }),
+      });
+      if (fresh.length) setTimeout(() => mark(wroteAreas(fresh, sheets)), 400);
     };
     const show = (s: Snap, revision: number) => {
       collab.reset(revision);
@@ -200,11 +222,12 @@ export function SheetEditor({
         if (r === "resync") return resync();
         const ok = island.remote(m.ops.flatMap((o) => (o.family === "sheet" ? o.op.redo : [])));
         if (!ok) return resync();
-        if (m.change.author !== PERSON)
-          island.mark(wroteAreas(m.change.wrote ?? [], sheets), HIGHLIGHT_MS);
+        if (m.change.author !== PERSON) mark(wroteAreas(m.change.wrote ?? [], sheets));
+        markedAt = m.revision;
       },
       ack(m) {
         collab.ack(m.clientId, m.revision);
+        markedAt = Math.max(markedAt, m.revision);
       },
       rejected(m) {
         if (collab.rejected(m.clientId)) resync();
@@ -218,6 +241,7 @@ export function SheetEditor({
     return () => {
       closed = true;
       if (sendTimer) clearTimeout(sendTimer);
+      for (const cancel of fading) cancel();
       collab.flush();
       unsub();
       close();

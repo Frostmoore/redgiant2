@@ -25,6 +25,7 @@ import { readOds } from "./sheet/ods.js";
 import {
   asSheet,
   MUTATIONS,
+  movePlaceholders,
   posCell,
   refusedMutation,
   sheetCompose,
@@ -40,6 +41,20 @@ import { sheetStructure } from "./sheet/structure.js";
 import { applyPatch, buildPatch, exportWith, pythonFor } from "./sheet/toppa.js";
 
 export const SHEET_FILES = /\.(csv|tsv|ods)$/i;
+
+/** Closed sheets: edited on their ODS copy beside them (the page's «Modifica (copia ODS)»). */
+export const SHEET_COPIES = /\.(xlsx|xlsm|xls|numbers)$/i;
+
+/**
+ * Where the open copy of a closed sheet is (`x.xlsx` → `x.xlsx.open/x.ods`, as the converter
+ * names it): agents edit it too (p3.5.4, the person's test of 3.5.3: «There is no editor for
+ * bilancio.xlsx yet»).
+ */
+export function sheetCopyOfOriginal(path: string): string | undefined {
+  if (!SHEET_COPIES.test(path)) return undefined;
+  const b = basename(path);
+  return `${path}.open/${b.slice(0, b.lastIndexOf("."))}.ods`;
+}
 
 export interface SheetFamilyDeps {
   /** LibreOffice's soffice, if it is here. */
@@ -74,7 +89,11 @@ function run(model: SheetModel, mutations: readonly SheetMutation[]): SheetModel
     e.dispose();
     throw new Error(`${r.id}: ${r.why}`);
   }
-  const next: SheetModel = { ...model, wb: e.snapshot() };
+  const next: SheetModel = {
+    ...model,
+    wb: e.snapshot(),
+    placeholders: movePlaceholders(model, mutations),
+  };
   keepEngine(next, e);
   return next;
 }

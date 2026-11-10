@@ -24,9 +24,11 @@ import {
   agents,
   attempt,
   type DocView as DocViewState,
+  dismissHeld,
   dismissOutside,
   dismissRefusal,
   docView,
+  HELD_NOTICE_MS,
   saveDoc,
   sendDoc,
   setDocMode,
@@ -150,6 +152,17 @@ export function changeText(s: DocSummary): string {
   return where ? `${what} ${where}` : what;
 }
 
+/** Why an agent's edit stopped, in the person's words (p3.5.4). */
+export function heldText(
+  h: { code: "busy" | "conflict"; line?: number | undefined },
+  name: string,
+): string {
+  const line = h.line === undefined ? undefined : String(h.line);
+  if (h.code === "busy")
+    return line ? t("docHeldBusyLine", { name, line }) : t("docHeldBusy", { name });
+  return line ? t("docHeldConflictLine", { name, line }) : t("docHeldConflict", { name });
+}
+
 export function whoText(c: {
   author: string;
   authorName?: string | undefined;
@@ -251,6 +264,13 @@ export function DocEditor({
     return () => clearInterval(timer);
   }, []);
   const groups = useMemo(() => groupChanges(v.changes), [v.changes]);
+  // An agent stopped by the person (p3.5.4): the notice goes after a moment.
+  const heldAt = v.held?.at;
+  useEffect(() => {
+    if (heldAt === undefined) return;
+    const timer = setTimeout(() => dismissHeld(file, heldAt), HELD_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [heldAt]);
   const refusal = v.refusal && asked.current.get(v.refusal.clientId);
   const undo = (what: { revision?: number; toBefore?: boolean; groupId?: string }) => {
     dismissRefusal(file);
@@ -397,6 +417,21 @@ export function DocEditor({
           </button>
           <button type="button" class="vw-btn small" onClick={() => dismissOutside(file)}>
             {t("docOutsideClose")}
+          </button>
+        </div>
+      )}
+      {v.held && (
+        <div class="doc-notice doc-held" role="status">
+          <IconUser size={14} />
+          <span>{heldText(v.held, whoText({ author: v.held.who, authorName: v.held.name }))}</span>
+          <button
+            type="button"
+            class="vw-icon doc-held-close"
+            title={t("close")}
+            aria-label={t("close")}
+            onClick={() => dismissHeld(file)}
+          >
+            <IconX size={13} />
           </button>
         </div>
       )}

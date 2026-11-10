@@ -36,6 +36,7 @@ import {
 } from "./api.js";
 import { t, tOptional } from "./i18n.js";
 import { forgetTab, kindOfTab, order, placeOf } from "./viewers/live.js";
+import { copyOriginal } from "./viewers/office-bridge.js";
 
 /** What the canvas shows (G25.1): a file or folder of a workspace, or a port of an agent. */
 export type CanvasTarget =
@@ -527,6 +528,7 @@ export function applyMessage(m: ServerMessage): void {
     case "doc.proposals":
     case "doc.mode":
     case "doc.saved":
+    case "doc.held":
       docMessage(m);
       return;
     // An agent looks at the canvas (G36.12): what it shows and where the person is, once.
@@ -942,8 +944,19 @@ const loadCanvas = (): { views: SideView[]; active: string | null } => {
       views: SideView[];
       active: string | null;
     };
-    const views = Array.isArray(saved.views) ? saved.views.filter((v) => v.type === "canvas") : [];
-    return { views, active: views.some((v) => v.id === saved.active) ? saved.active : null };
+    const kept = Array.isArray(saved.views) ? saved.views.filter((v) => v.type === "canvas") : [];
+    // Ids as they are now (p3.5.4: an open copy's old tab joins its original's), each once.
+    const views: SideView[] = [];
+    const renamed = new Map<string, string>();
+    for (const v of kept) {
+      const id = v.type === "canvas" ? canvasViewId(v.target) : v.id;
+      renamed.set(v.id, id);
+      const at = views.findIndex((x) => x.id === id);
+      if (at >= 0) views[at] = { ...v, id };
+      else views.push({ ...v, id });
+    }
+    const active = saved.active ? (renamed.get(saved.active) ?? null) : null;
+    return { views, active };
   } catch {
     return { views: [], active: null };
   }
@@ -1139,10 +1152,12 @@ export function closeSide(id: string): void {
 }
 
 /** A canvas tab's id: one tab per file (wherever it opens) or per port and page. */
-export const canvasViewId = (target: CanvasTarget): string =>
-  target.kind === "file"
-    ? `canvas:${target.scope}:${target.path}`
+/** A tab's id: an open copy shares its original's (p3.5.4, one tab per document). */
+export function canvasViewId(target: CanvasTarget): string {
+  return target.kind === "file"
+    ? `canvas:${target.scope}:${copyOriginal(target.path) ?? target.path}`
     : `canvas:${target.agentId}:${target.port}:${target.path ?? ""}`;
+}
 
 /**
  * Opens (or brings forward) what an agent showed, in the area on the right (G25.1). `keep`: a
@@ -1150,6 +1165,9 @@ export const canvasViewId = (target: CanvasTarget): string =>
  */
 export function openCanvas(title: string, target: CanvasTarget, keep = false): string {
   const id = canvasViewId(target);
+  // An open copy is shown in its original's tab, under the original's name (p3.5.4).
+  const original = target.kind === "file" ? copyOriginal(target.path) : undefined;
+  if (original) title = original.split(/[\\/]/).pop() ?? title;
   const view: SideView = { id, type: "canvas", title, target };
   const open = sideViews.value.some((v) => v.id === id);
   if (!(open && keep))
@@ -1578,6 +1596,19 @@ export interface DocView {
   saving?: boolean | undefined;
   /** The file changed on disk from outside the editor (p3.5.1): told until the person closes it. */
   outside?: { revision: number; ts: string } | undefined;
+  /**
+   * An agent's edit stopped because of the person (p3.5.4): typing there now (`busy`) or having
+   * changed the same place (`conflict`). Shown a moment, or until closed.
+   */
+  held?:
+    | {
+        who: string;
+        name?: string | undefined;
+        code: "busy" | "conflict";
+        line?: number | undefined;
+        at: number;
+      }
+    | undefined;
 }
 
 export const emptyDocView = (): DocView => ({
@@ -1603,7 +1634,8 @@ type DocMessage = Extract<
       | "doc.presence"
       | "doc.proposals"
       | "doc.mode"
-      | "doc.saved";
+      | "doc.saved"
+      | "doc.held";
   }
 >;
 
@@ -1663,6 +1695,17 @@ export function reduceDoc(v: DocView, m: DocMessage): DocView {
       return { ...v, proposals: m.proposals };
     case "doc.mode":
       return { ...v, mode: m.mode, modeOwn: m.modeOwn, agentsPropose: m.agentsPropose };
+    case "doc.held":
+      return {
+        ...v,
+        held: {
+          who: m.who,
+          ...(m.name && { name: m.name }),
+          code: m.code,
+          ...(m.line !== undefined && { line: m.line }),
+          at: Date.now(),
+        },
+      };
     case "doc.saved":
       return {
         ...v,
@@ -1770,6 +1813,16 @@ export function dismissRefusal(file: DocFile): void {
   const v = docView(file);
   if (v.value.refusal && v.value.refusal.clientId !== "open")
     v.value = { ...v.value, refusal: undefined };
+}
+
+/** How long the notice of an agent stopped by the person stays (p3.5.4). */
+export const HELD_NOTICE_MS = 12_000;
+
+/** The notice of an agent stopped by the person, closed (by them, or after a moment). */
+export function dismissHeld(file: DocFile, at?: number): void {
+  const v = docView(file);
+  if (v.value.held && (at === undefined || v.value.held.at === at))
+    v.value = { ...v.value, held: undefined };
 }
 
 /** The notice of a change from outside, closed by the person. */

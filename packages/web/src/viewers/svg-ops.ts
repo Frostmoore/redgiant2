@@ -497,3 +497,13 @@ export const svgDocOp = (op: SvgAction) => ({
   engineVersion: SVG_ENGINE_VERSION,
   op,
 });
+
+/** Where a viewBox starts ("-20 -10 400 300" → -20, -10); 0, 0 when it has none or is wrong. */
+export function viewBoxOrigin(viewBox: string | null): { x: number; y: number } {
+  const v = (viewBox ?? "")
+    .trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  if (v.length !== 4 || v.some((n) => !Number.isFinite(n))) return { x: 0, y: 0 };
+  return { x: v[0] as number, y: v[1] as number };
+}

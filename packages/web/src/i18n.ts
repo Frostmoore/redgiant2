@@ -864,6 +864,19 @@ const en = {
   docModePropose: "As proposals to accept",
   docChanges: "Changes",
   docRefused: "Not done: {reason}",
+  docTreeBad:
+    "Line {line}: {why}. The tree is read leniently; the marked value is where the error is.",
+  docTreeLines: "The lines around the error",
+  docTreeBadNoTree:
+    "Line {line}: {why}. The tree cannot be built: here are the lines around the error.",
+  docHeldBusyLine:
+    "{name} wanted to change line {line} while you were typing there: it stopped, your edit comes first.",
+  docHeldBusy:
+    "{name} wanted to change the place where you are typing: it stopped, your edit comes first.",
+  docHeldConflictLine:
+    "{name} wanted to change line {line}, which you just changed: it stopped and will read it again.",
+  docHeldConflict:
+    "{name} wanted to change a place you just changed: it stopped and will read it again.",
   docBackBefore: "Go back to before this change",
   docProposals: "Proposals waiting",
   docAccept: "Accept",
@@ -5313,6 +5326,19 @@ const it: Record<Key, string> = {
   docModePropose: "Come proposte da accettare",
   docChanges: "Modifiche",
   docRefused: "Non fatto: {reason}",
+  docTreeBad:
+    "Riga {line}: {why}. L'albero è letto senza badare all'errore; il valore segnato è dove sta.",
+  docTreeLines: "Le righe attorno all'errore",
+  docTreeBadNoTree:
+    "Riga {line}: {why}. L'albero non si può costruire: ecco le righe attorno all'errore.",
+  docHeldBusyLine:
+    "{name} voleva cambiare la riga {line} mentre ci scrivevi: si è fermato, la tua modifica viene prima.",
+  docHeldBusy:
+    "{name} voleva cambiare il punto in cui stai scrivendo: si è fermato, la tua modifica viene prima.",
+  docHeldConflictLine:
+    "{name} voleva cambiare la riga {line}, che hai appena cambiato tu: si è fermato e la rilegge.",
+  docHeldConflict:
+    "{name} voleva cambiare un punto che hai appena cambiato tu: si è fermato e lo rilegge.",
   docBackBefore: "Torna a prima di questa modifica",
   docProposals: "Proposte in attesa",
   docAccept: "Accetta",

@@ -42,6 +42,7 @@ import {
   IconZoom,
 } from "../../icons.js";
 import { attempt, getApi, openDoc, sendDoc } from "../../state.js";
+import { afterSeen, elementShown, HIGHLIGHT_SEEN_MS } from "../../viewers/seen.js";
 import { download } from "../../viewers/source.js";
 import type { SvgIsland, SvgLayer, SvgSelection, SvgTool } from "../../viewers/svg-island.js";
 import { SvgCollab, svgActionsOf, svgDocOp, touchedIds } from "../../viewers/svg-ops.js";
@@ -54,7 +55,6 @@ export const SVG_EDITABLE = /\.svg$/i;
 export const SVG_COPIES = /\.(ai|eps|epsf|epsi|ps)$/i;
 
 const GESTURE_MS = 2000;
-const MARK_MS = 8000;
 
 /** Which drawing has the engine now (svgcanvas is one per page). */
 const engineOwner = signal<string | undefined>(undefined);
@@ -137,6 +137,8 @@ export function SvgEditor({
     let group = `g-${Math.random().toString(36).slice(2, 10)}`;
     let last = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    /** The highlights waiting to be seen (p3.5.4): cancelled when the editor closes. */
+    const fading = new Set<() => void>();
     /** The person's revisions, to undo the last; the undos, to redo. */
     const done: number[] = [];
     const undone: number[] = [];
@@ -222,7 +224,15 @@ export function SvgEditor({
             const boxes = island?.boxesOf(ids) ?? [];
             const stamp = Date.now();
             setMarks(boxes.map((b, i) => ({ ...b, name: who, id: stamp + i })));
-            setTimeout(() => setMarks((x) => x.filter((b) => b.id < stamp)), MARK_MS);
+            const cancel = afterSeen(
+              HIGHLIGHT_SEEN_MS,
+              () => {
+                fading.delete(cancel);
+                setMarks((x) => x.filter((b) => b.id < stamp));
+              },
+              elementShown(() => el),
+            );
+            fading.add(cancel);
           });
         }
       },
@@ -258,6 +268,7 @@ export function SvgEditor({
     return () => {
       closed = true;
       if (timer) clearTimeout(timer);
+      for (const cancel of fading) cancel();
       collab.flush();
       close();
       onReveal?.(undefined);

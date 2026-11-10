@@ -55,6 +55,20 @@ export function originalOf(path: string): string | undefined {
   return m?.[1];
 }
 
+/**
+ * The closed original of any open copy the editor works on (p3.5.4): a document's ODT/ODP, a
+ * sheet's ODS (`x.xlsx.open/x.ods`), a drawing's SVG (`x.ai.open/x.svg`). The copy lives in its
+ * original's tab: the canvas never opens it as a tab of its own.
+ */
+export function copyOriginal(path: string): string | undefined {
+  const p = path.replace(/\\/g, "/");
+  return (
+    originalOf(p) ??
+    p.match(/^(.*\.(xlsx|xlsm|xls|numbers))\.open\/[^/]+\.ods$/i)?.[1] ??
+    p.match(/^(.*\.(ai|eps|epsf|epsi|ps))\.open\/[^/]+\.svg$/i)?.[1]
+  );
+}
+
 /** Whether the editor's document family takes this file (the canvas opens it editable). */
 export const isOfficeFile = (path: string) => /\.(odt|odp)$/i.test(path);
 
