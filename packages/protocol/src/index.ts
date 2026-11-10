@@ -6,6 +6,7 @@ export * from "./chat-tools.js";
 export * from "./critical.js";
 export * from "./dangers.js";
 export * from "./doc.js";
+export * from "./doc-model.js";
 export * from "./doc-office.js";
 export * from "./doc-pdf.js";
 export * from "./doc-svg.js";

@@ -563,6 +563,9 @@ importers:
       tesseract.js:
         specifier: 7.0.0
         version: 7.0.0
+      three:
+        specifier: ^0.187.0
+        version: 0.187.0
       ws:
         specifier: ^8.22.1
         version: 8.22.1
@@ -582,6 +585,9 @@ importers:
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
+      '@types/three':
+        specifier: ^0.187.0
+        version: 0.187.0
       '@types/ws':
         specifier: ^8.18.2
         version: 8.18.2

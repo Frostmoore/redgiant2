@@ -64,6 +64,7 @@
     "rxjs": "^7.8.2",
     "smol-toml": "^1.9.1",
     "tesseract.js": "7.0.0",
+    "three": "^0.187.0",
     "ws": "^8.22.1",
     "yaml": "^2.9.1",
     "zod": "^4.6.7"
@@ -72,6 +73,7 @@
     "@types/dockerode": "^4.0.2",
     "@types/mailparser": "^3.9.0",
     "@types/pg": "^8.23.1",
+    "@types/three": "^0.187.0",
     "@types/ws": "^8.18.2"
   }
 }

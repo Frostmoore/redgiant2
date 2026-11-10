@@ -152,6 +152,9 @@ import { Programs } from "./convert-programs.js";
 import { convertTools, vaultFigma } from "./convert-tools.js";
 import { debugLog } from "./debug-log.js";
 import { EditorHost, type EditorHostOptions } from "./editor/host.js";
+import { JS_COPIES } from "./editor/model/convert.js";
+import { modelCopyOfOriginal, modelFamily } from "./editor/model-family.js";
+import { writeJsCopy } from "./editor/model-routes.js";
 import { LibreOfficeEngine, type OfficeEngine } from "./editor/office-engine.js";
 import { copyOfOriginal, OfficeFamily } from "./editor/office-family.js";
 import { PdfFamily } from "./editor/pdf-family.js";
@@ -798,7 +801,7 @@ export class RedGiantCore implements OrchestrationHost {
       dataDir: dirname(o.workspacesDir),
       resolve: (ownerId, file) => this.docAbs(ownerId, file),
       settings: (ownerId) => this.editorSettings.get(ownerId),
-      families: [textFamily, this.sheets, this.office.family, svgFamily, this.pdf],
+      families: [textFamily, this.sheets, this.office.family, svgFamily, this.pdf, modelFamily],
       ...o.editor,
     });
     // Background commands (p3.3.1): their start and end are events of the conversation that
@@ -3075,6 +3078,23 @@ export class RedGiantCore implements OrchestrationHost {
    * an AI/EPS's SVG (G37.6); undefined when the file has none.
    */
   private async openCopy(ownerId: string, file: DocFile): Promise<DocFile | undefined> {
+    // A 3D file's GLB copy (G37.7): OBJ/STL/PLY made here, the others through Blender.
+    const model = modelCopyOfOriginal(file.path);
+    if (model) {
+      const abs = await this.docAbs(ownerId, file);
+      const here = await stat(join(dirname(abs), `${basename(abs)}.open`, basename(model)))
+        .then((s) => s.isFile())
+        .catch(() => false);
+      if (!here) {
+        if (JS_COPIES.test(file.path) && !this.programs.find("blender")) await writeJsCopy(abs);
+        else
+          await this.converter.convert(await this.scopeRoot(ownerId, file.scope), file.path, {
+            owner: ownerId,
+            to: ["glb"],
+          });
+      }
+      return { scope: file.scope, path: model };
+    }
     const copy =
       copyOfOriginal(file.path) ?? svgCopyOfOriginal(file.path) ?? sheetCopyOfOriginal(file.path);
     if (!copy) return undefined;
