@@ -53,6 +53,7 @@
     "fflate": "^0.8.3",
     "hono": "^4.13.14",
     "imapflow": "^2.10.0",
+    "jpeg-js": "0.4.4",
     "mailparser": "^3.14.1",
     "nodemailer": "10.3.1",
     "ogg-opus-decoder": "1.7.5",

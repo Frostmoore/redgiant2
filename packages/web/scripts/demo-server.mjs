@@ -448,6 +448,26 @@ const brain = (req) => {
         ],
       },
     ],
+    // G37.5: the agent puts a generated picture in the poster as a layer, and a line of text.
+    [
+      "Metti il fiore come livello",
+      "canvas_edit",
+      {
+        path: "canvas/poster.ora",
+        ops: [
+          { op: "add_layer", name: "Fiore", image: "canvas/fiore.png", x: 60, y: 150 },
+          {
+            op: "add_text",
+            text: "Ingresso libero",
+            x: 44,
+            y: 110,
+            size: 30,
+            color: "#ffe9a8",
+            name: "Sottotitolo",
+          },
+        ],
+      },
+    ],
     [
       "Aggiungi il pane",
       "canvas_edit",
@@ -1606,6 +1626,13 @@ if (process.env.DEMO_CANVAS) {
   {
     const s = await core.startSession("local", god.id);
     await (await core.send("local", s, "Mostra il file canvas/modulo.pdf")).done;
+  }
+  // G37.5: a layered poster (OpenRaster) and a generated picture to put in it as a layer.
+  await copyFile(new URL("./demo-files/poster.ora", import.meta.url), join(into, "poster.ora"));
+  await copyFile(new URL("./demo-files/fiore.png", import.meta.url), join(into, "fiore.png"));
+  {
+    const s = await core.startSession("local", god.id);
+    await (await core.send("local", s, "Mostra il file canvas/poster.ora")).done;
   }
   // DEMO_ZETA: the engine's files already here (the folder of a G37.0 copy), no download.
   if (process.env.DEMO_ZETA)

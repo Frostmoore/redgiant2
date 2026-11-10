@@ -22,6 +22,7 @@ import { CanvasTab, lastMove, report, setTabKind } from "../viewers/live.js";
 import { hasOfficeCopy } from "../viewers/office-bridge.js";
 import { bytesText, download, type ViewerSource } from "../viewers/source.js";
 import { DocEditor, editableInCanvas } from "./viewers/DocEditor.js";
+import { EditPictureButton, IMAGE_FLAT, pictureEditable } from "./viewers/ImageEditor.js";
 import { EditCopyButton, EditCopyNote } from "./viewers/OfficeEditor.js";
 import { CanvasFile } from "./viewers/OpenCopy.js";
 
@@ -198,6 +199,11 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
         {target.kind === "file" && target.scope !== "outside" && hasOfficeCopy(target.path) && (
           <EditCopyButton scope={target.scope} path={target.path} />
         )}
+        {target.kind === "file" &&
+          target.scope !== "outside" &&
+          folder === false &&
+          IMAGE_FLAT.test(target.path) &&
+          !pictureEditable(target) && <EditPictureButton scope={target.scope} path={target.path} />}
         {move && moveShown === move.n && (
           <span class="canvas-agent" role="status" title={moveText(move.do)}>
             {moveText(move.do)}

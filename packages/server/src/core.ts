@@ -152,6 +152,7 @@ import { Programs } from "./convert-programs.js";
 import { convertTools, vaultFigma } from "./convert-tools.js";
 import { debugLog } from "./debug-log.js";
 import { EditorHost, type EditorHostOptions } from "./editor/host.js";
+import { ImageFamily, oraCopyOfOriginal } from "./editor/image-family.js";
 import { LibreOfficeEngine, type OfficeEngine } from "./editor/office-engine.js";
 import { copyOfOriginal, OfficeFamily } from "./editor/office-family.js";
 import { PdfFamily } from "./editor/pdf-family.js";
@@ -598,6 +599,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly sheets: ReturnType<typeof sheetFamily>;
   /** PDFs in the editor (G37.8). */
   readonly pdf: PdfFamily;
+  /** The layered picture family (G37.5): its blobs serve the page's exports. */
+  readonly pictures: ImageFamily;
   /** The rule for the agents' edits, for an agent or a file (G37.1). */
   readonly editorSettings: OwnerSettings<EditorSettings>;
   /** Documents and presentations (G37.4): LibreOffice on the server, ZetaOffice for the page. */
@@ -793,12 +796,13 @@ export class RedGiantCore implements OrchestrationHost {
         this.editorSettings.get(ownerId).reexport?.[docKey(file)] === true,
     });
     this.pdf = new PdfFamily({ dataDir: dirname(o.workspacesDir) });
+    this.pictures = new ImageFamily({ dataDir: dirname(o.workspacesDir) });
     this.editor = new EditorHost({
       store: this.store,
       dataDir: dirname(o.workspacesDir),
       resolve: (ownerId, file) => this.docAbs(ownerId, file),
       settings: (ownerId) => this.editorSettings.get(ownerId),
-      families: [textFamily, this.sheets, this.office.family, svgFamily, this.pdf],
+      families: [textFamily, this.sheets, this.office.family, svgFamily, this.pdf, this.pictures],
       ...o.editor,
     });
     // Background commands (p3.3.1): their start and end are events of the conversation that
@@ -3072,17 +3076,22 @@ export class RedGiantCore implements OrchestrationHost {
 
   /**
    * The open copy the editor works on for a closed file, made if missing: a DOCX's ODT (G37.4),
-   * an AI/EPS's SVG (G37.6); undefined when the file has none.
+   * an AI/EPS's SVG (G37.6), a PSD's OpenRaster (G37.5); undefined when the file has none.
    */
   private async openCopy(ownerId: string, file: DocFile): Promise<DocFile | undefined> {
     const copy =
-      copyOfOriginal(file.path) ?? svgCopyOfOriginal(file.path) ?? sheetCopyOfOriginal(file.path);
+      copyOfOriginal(file.path) ??
+      svgCopyOfOriginal(file.path) ??
+      sheetCopyOfOriginal(file.path) ??
+      oraCopyOfOriginal(file.path);
     if (!copy) return undefined;
     const root = await this.scopeRoot(ownerId, file.scope);
     const ws = new LocalWorkspace(root);
     const here = await stat(await ws.resolve(copy)).catch(() => undefined);
     if (!here?.isFile()) {
-      if (!this.programs.find("libreoffice")) await this.programs.ensure(ownerId, "libreoffice");
+      // A Photoshop file's OpenRaster copy is made by our own code (G37.5): nothing to download.
+      if (!copy.endsWith(".ora") && !this.programs.find("libreoffice"))
+        await this.programs.ensure(ownerId, "libreoffice");
       await this.converter.convert(root, file.path, {
         owner: ownerId,
         to: [copy.slice(copy.lastIndexOf(".") + 1)],
