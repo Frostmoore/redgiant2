@@ -279,6 +279,8 @@ RedGiant is in pre-alpha. What comes next, in order:
   other agents as workers).
 - **3.7 and 3.8 — Video and 3D**: a video editor shared by you and the agent, and 3D generation with
   local or cloud engines, finished in Blender.
+- **3.9 — Emulators in the Canvas**: an Android emulator or the iOS simulator found on the computer opens
+  in the Canvas, for you and for the agents trying the apps they build.
 - **4.0 — Alpha**: native apps for Windows, Linux and macOS, companion apps for Android and iOS, and a
   Linux distribution for mini-PCs and virtual machines.
 - **Then** the beta (community, documentation site) and the production release.

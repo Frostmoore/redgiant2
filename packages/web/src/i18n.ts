@@ -2035,6 +2035,21 @@ const en = {
   limitWeekShort: "7d",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  news354Live: "Conversations that keep up",
+  news354LiveText:
+    "The chat follows every turn as it happens again, files an agent shows open in your Canvas, and the page notices a lost connection and reconnects by itself. Reloading the page draws even a long conversation at once, already at the bottom.",
+  news354Models: "New models without waiting",
+  news354ModelsText:
+    "Claude Fable 5.2 is here. New models from Anthropic now show up by themselves, and their prices and limits come from a signed catalog that updates without a new RedGiant. A provider that stops answering is retried and then you are told, instead of waiting forever.",
+  news354Bar: "Projects and the message box",
+  news354BarText:
+    "Clicking a project opens its orchestrator, and the tasks it hands out appear at once in the list. Mode, model, effort, side questions, summary and adding an agent are now in the … button next to Attach.",
+  news354Critical: "Dangerous requests stand out",
+  news354CriticalText:
+    "A request that cannot be undone, like deleting for good or redacting a PDF, is red and says in plain words what will happen, on the page and in the chats.",
+  news354Updates: "Smoother updates",
+  news354UpdatesText:
+    "One update window at a time, and the look at what changed is much faster. Plus many fixes from real use: paths like /c/… on Windows, archived projects really read-only, redaction that removes every letter, and the editors.",
   news353Archive: "Archive a whole project",
   news353ArchiveText:
     "A project you are done with goes to Archived: its agents stop, its automations pause, nothing can write into it, and you can still read its conversations, tasks and files. Restore it with one click, exactly as it was.",
@@ -6515,6 +6530,21 @@ const it: Record<Key, string> = {
   limitWeekShort: "7g",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  news354Live: "Conversazioni che stanno al passo",
+  news354LiveText:
+    "La chat segue di nuovo ogni turno mentre succede, i file che un agente ti mostra si aprono nel tuo Canvas, e la pagina si accorge di aver perso il collegamento e si ricollega da sola. Ricaricando la pagina anche una conversazione lunga compare in un colpo, già in fondo.",
+  news354Models: "Modelli nuovi senza aspettare",
+  news354ModelsText:
+    "C'è Claude Fable 5.2. I modelli nuovi di Anthropic ora compaiono da soli, e i loro prezzi e limiti arrivano da un catalogo firmato che si aggiorna senza una versione nuova di RedGiant. Un fornitore che smette di rispondere viene riprovato e poi ti avvisa, invece di aspettare per sempre.",
+  news354Bar: "Progetti e casella dei messaggi",
+  news354BarText:
+    "Un clic su un progetto apre il suo orchestratore, e i compiti che affida compaiono subito nell'elenco. Modalità, modello, effort, Intanto, Riassumi e Aggiungi un agente stanno ora nel pulsante … accanto ad Allega.",
+  news354Critical: "Le richieste pericolose si notano",
+  news354CriticalText:
+    "Una richiesta che non si può annullare, come cancellare per sempre o oscurare un PDF, è rossa e dice in parole semplici cosa succede, nella pagina e nelle chat.",
+  news354Updates: "Aggiornamenti più lisci",
+  news354UpdatesText:
+    "Una finestra di aggiornamento alla volta, e il controllo di cosa è cambiato è molto più veloce. In più tante correzioni dall'uso vero: i percorsi /c/… su Windows, i progetti archiviati davvero in sola lettura, l'oscuramento che toglie ogni lettera e gli editor.",
   news353Archive: "Archivia un progetto intero",
   news353ArchiveText:
     "Un progetto finito va in Archiviati: i suoi agenti si fermano, le automazioni vanno in pausa, nessuno può scriverci, e puoi ancora leggere conversazioni, compiti e file. Lo ripristini con un clic, esattamente com'era.",
