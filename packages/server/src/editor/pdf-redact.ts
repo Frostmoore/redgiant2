@@ -52,6 +52,9 @@ function boxOf(m: M, x1: number, y1: number, x2: number, y2: number): PdfRect {
 }
 const hits = (b: PdfRect, rects: readonly PdfRect[]) =>
   rects.some((r) => b[0] < r[2] && r[0] < b[2] && b[1] < r[3] && r[1] < b[3]);
+/** A glyph that touches an area, even on its edge, goes (p3.5.4). */
+const touches = (b: PdfRect, rects: readonly PdfRect[]) =>
+  rects.some((r) => b[0] <= r[2] && r[0] <= b[2] && b[1] <= r[3] && r[1] <= b[3]);
 const area = (r: PdfRect) => Math.max(0, r[2] - r[0]) * Math.max(0, r[3] - r[1]);
 const inside = (b: PdfRect, r: PdfRect, d: number) =>
   b[0] >= r[0] - d && b[1] >= r[1] - d && b[2] <= r[2] + d && b[3] <= r[3] + d;
@@ -524,7 +527,7 @@ function rewrite(
       const w = n * 1.1 * fs * th + Math.abs(gs.tc) * n * th + Math.abs(gs.tw) * n * th;
       const trm = mul([1, 0, 0, 1, 0, gs.ts], mul(tm, gs.ctm));
       const env = boxOf(trm, -0.1 * fs, -0.5 * fs, w, 1.5 * fs);
-      if (hits(env, run.rects)) {
+      if (touches(env, run.rects)) {
         run.report.glyphs += bytes.length;
         return "whole";
       }
@@ -548,7 +551,7 @@ function rewrite(
       const trm = mul([fs * th, 0, 0, fs, 0, gs.ts], mul(tm, gs.ctm));
       const box = boxOf(trm, 0, f.desc, Math.max(w0, 0.001), f.asc);
       const tx = (w0 * fs + gs.tc + (f.bytes === 1 && code === 32 ? gs.tw : 0)) * th;
-      if (hits(box, run.rects)) {
+      if (touches(box, run.rects)) {
         flushKept();
         gap += tx;
         removed = true;
@@ -961,16 +964,236 @@ export const pdfjs = (): Promise<PdfJs> => {
   return pdfjsLoaded;
 };
 
+/** A glyph pdf.js draws: its text, its box on the page, its run of text (for spaces between). */
+export interface PageGlyph {
+  c: string;
+  box: PdfRect;
+  /** Its baseline's start and the text size, for telling words and lines apart. */
+  x: number;
+  y: number;
+  size: number;
+  space: boolean;
+  /** The glyph's run (one string shown): a new run may start a new word or line. */
+  run: number;
+}
+
+type PdfJsPage = Awaited<
+  ReturnType<Awaited<ReturnType<PdfJs["getDocument"]>["promise"]>["getPage"]>
+>;
+type OperatorList = Awaited<ReturnType<PdfJsPage["getOperatorList"]>>;
+
+/**
+ * Every glyph of a page as pdf.js reads it (p3.5.4): its operators replayed with the font's own
+ * widths, the spacing and the matrices, so each character has its true box. A word's place in a
+ * run of text is no longer guessed from its share of the characters (wide capitals after narrow
+ * letters left «Z» of «ZEBRA-77» outside the area), and the check sees a single letter.
+ */
+export function glyphsOf(lib: PdfJs, page: PdfJsPage, ops: OperatorList): PageGlyph[] {
+  const OPS = lib.OPS as Record<string, number>;
+  const out: PageGlyph[] = [];
+  interface St {
+    ctm: M;
+    fs: number;
+    tc: number;
+    tw: number;
+    th: number;
+    tl: number;
+    rise: number;
+    fm: number;
+    vertical: boolean;
+  }
+  let st: St = { ctm: ID, fs: 0, tc: 0, tw: 0, th: 1, tl: 0, rise: 0, fm: 0.001, vertical: false };
+  const stack: St[] = [];
+  let tm: M = ID;
+  let x = 0;
+  let y = 0;
+  let lineX = 0;
+  let lineY = 0;
+  let runs = 0;
+  const move = (dx: number, dy: number) => {
+    lineX += dx;
+    lineY += dy;
+    x = lineX;
+    y = lineY;
+  };
+  const font = (id: unknown) => {
+    try {
+      const f = page.commonObjs.get(String(id)) as
+        | { fontMatrix?: number[]; vertical?: boolean }
+        | undefined;
+      return { fm: f?.fontMatrix?.[0] ?? 0.001, vertical: f?.vertical === true };
+    } catch {
+      return { fm: 0.001, vertical: false };
+    }
+  };
+  for (let k = 0; k < ops.fnArray.length; k++) {
+    const fn = ops.fnArray[k] as number;
+    const a = (ops.argsArray[k] ?? []) as unknown[];
+    if (fn === OPS.save) stack.push({ ...st });
+    else if (fn === OPS.restore) st = stack.pop() ?? st;
+    else if (fn === OPS.transform) st.ctm = mul(a.slice(0, 6) as M, st.ctm);
+    else if (fn === OPS.paintFormXObjectBegin) {
+      stack.push({ ...st });
+      const m = a[0] as number[] | null;
+      if (m && m.length === 6) st.ctm = mul(m as M, st.ctm);
+    } else if (fn === OPS.paintFormXObjectEnd) st = stack.pop() ?? st;
+    else if (fn === OPS.beginText) {
+      tm = ID;
+      x = y = lineX = lineY = 0;
+    } else if (fn === OPS.setFont) {
+      st.fs = Number(a[1]) || 0;
+      Object.assign(st, font(a[0]));
+    } else if (fn === OPS.setCharSpacing) st.tc = Number(a[0]) || 0;
+    else if (fn === OPS.setWordSpacing) st.tw = Number(a[0]) || 0;
+    else if (fn === OPS.setHScale) st.th = (Number(a[0]) || 100) / 100;
+    else if (fn === OPS.setLeading) st.tl = Number(a[0]) || 0;
+    else if (fn === OPS.setTextRise) st.rise = Number(a[0]) || 0;
+    else if (fn === OPS.moveText) move(Number(a[0]) || 0, Number(a[1]) || 0);
+    else if (fn === OPS.setLeadingMoveText) {
+      st.tl = -(Number(a[1]) || 0);
+      move(Number(a[0]) || 0, Number(a[1]) || 0);
+    } else if (fn === OPS.setTextMatrix) {
+      const m = a[0] && typeof a[0] === "object" ? Object.values(a[0] as object) : a.slice(0, 6);
+      tm = m.slice(0, 6).map(Number) as M;
+      x = y = lineX = lineY = 0;
+    } else if (fn === OPS.nextLine) move(0, -st.tl);
+    else if (fn === OPS.showText || fn === OPS.showSpacedText) {
+      const glyphs = (Array.isArray(a[0]) ? a[0] : []) as unknown[];
+      const m = mul(tm, st.ctm);
+      const fs = st.fs;
+      const dir = fs < 0 ? -1 : 1;
+      const run = runs++;
+      for (const g of glyphs) {
+        if (typeof g === "number") {
+          const d = (g * fs) / 1000;
+          if (st.vertical) y -= d;
+          else x -= d * st.th;
+          continue;
+        }
+        if (!g || typeof g !== "object") continue;
+        const gl = g as { unicode?: string; width?: number; isSpace?: boolean };
+        const w = (gl.width ?? 0) * fs * st.fm;
+        const spacing = (gl.isSpace ? st.tw : 0) + st.tc;
+        const c = (gl.unicode ?? "").normalize("NFKC");
+        if (st.vertical) {
+          const adv = w - spacing * dir;
+          const box = boxOf(
+            m,
+            x - 0.5 * Math.abs(fs),
+            y - Math.abs(adv),
+            x + 0.5 * Math.abs(fs),
+            y,
+          );
+          const [px, py] = at(m, x, y);
+          out.push({ c, box, x: px, y: py, size: Math.abs(fs), space: gl.isSpace === true, run });
+          y -= adv;
+        } else {
+          const adv = (w + spacing * dir) * st.th;
+          const lo = y + st.rise - 0.15 * Math.abs(fs);
+          const hi = y + st.rise + 0.85 * Math.abs(fs);
+          const box = boxOf(m, x, lo, x + Math.max(w * st.th, 0.001), hi);
+          const [px, py] = at(m, x, y + st.rise);
+          const size = Math.abs(fs) * Math.hypot(m[2], m[3]);
+          out.push({ c, box, x: px, y: py, size, space: gl.isSpace === true, run });
+          x += adv;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** A page's glyphs from a file (0-based), as pdf.js reads them. */
+export async function pageGlyphs(bytes: Uint8Array, pageIndex: number): Promise<PageGlyph[]> {
+  const lib = await pdfjs();
+  const task = lib.getDocument({
+    data: new Uint8Array(bytes),
+    verbosity: 0,
+    disableFontFace: true,
+    useSystemFonts: false,
+    isOffscreenCanvasSupported: false,
+    isImageDecoderSupported: false,
+  });
+  try {
+    const doc = await task.promise;
+    if (pageIndex < 0 || pageIndex >= doc.numPages) return [];
+    const page = await doc.getPage(pageIndex + 1);
+    return glyphsOf(lib, page, await page.getOperatorList());
+  } finally {
+    await task.destroy().catch(() => {});
+  }
+}
+
+/** The glyphs of a page that are words: their text, with a space between words and lines. */
+export function glyphText(glyphs: readonly PageGlyph[]): { c: string; glyph: number }[] {
+  const out: { c: string; glyph: number }[] = [];
+  let prev: PageGlyph | undefined;
+  glyphs.forEach((g, k) => {
+    if (prev && !g.space) {
+      const size = Math.max(prev.size, g.size, 1);
+      const sameLine = Math.abs(prev.y - g.y) < size * 0.5;
+      const gap = g.box[0] - prev.box[2];
+      if (!sameLine || gap > size * 0.25 || gap < -size * 2) out.push({ c: " ", glyph: -1 });
+    }
+    if (g.space || !g.c.trim()) out.push({ c: " ", glyph: -1 });
+    else for (const ch of g.c) out.push({ c: ch, glyph: k });
+    prev = g;
+  });
+  return out;
+}
+
+/** Words in a page's glyphs (case and runs of white space do not count): each match's glyphs. */
+export function matchGlyphs(glyphs: readonly PageGlyph[], words: string): number[][] {
+  const want = words.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+  if (!want) return [];
+  const kept: { c: string; glyph: number }[] = [];
+  for (const ch of glyphText(glyphs)) {
+    const space = /\s/.test(ch.c);
+    if (space && (!kept.length || kept.at(-1)?.c === " ")) continue;
+    if (space) kept.push({ c: " ", glyph: -1 });
+    else for (const low of ch.c.toLowerCase()) kept.push({ c: low, glyph: ch.glyph });
+  }
+  const text = kept.map((k) => k.c).join("");
+  const out: number[][] = [];
+  for (let i = text.indexOf(want); i >= 0 && out.length < 500; i = text.indexOf(want, i + 1))
+    out.push([
+      ...new Set(kept.slice(i, i + want.length).flatMap((k) => (k.glyph >= 0 ? [k.glyph] : []))),
+    ]);
+  return out;
+}
+
+/** Where some words' glyphs are on a page (0-based): one box per glyph, from pdf.js. */
+async function wordBoxes(bytes: Uint8Array, pageIndex: number, words: string): Promise<PdfRect[]> {
+  const glyphs = await pageGlyphs(bytes, pageIndex);
+  return matchGlyphs(glyphs, words).flatMap((ids) =>
+    ids.flatMap((id) => {
+      const g = glyphs[id];
+      return g && !g.space ? [g.box] : [];
+    }),
+  );
+}
+
 /**
  * Whether pdf.js finds text, a picture or an annotation under the areas of a page of the written
- * file (they are shrunk by half a point, so what only touches their edges is not counted).
+ * file (they are shrunk by a quarter of a point, so what only touches their edges is not counted).
+ * Every glyph is checked on its own (p3.5.4: one letter left is a failed redaction), and the
+ * words a redaction was asked for (`words`) must be nowhere on the page anymore.
  * Undefined: nothing is there; otherwise what was found.
  */
 export async function verifyRedaction(
   bytes: Uint8Array,
   pageIndex: number,
   rects: readonly PdfRect[],
+  words: readonly string[] = [],
+  /**
+   * The file before (a redaction by words): the words' own glyphs are found there again, and
+   * nothing may be left where they were, whatever areas were made from them.
+   */
+  before?: Uint8Array,
 ): Promise<string | undefined> {
+  const where: PdfRect[] = [];
+  if (before)
+    for (const w of words) if (w.trim()) where.push(...(await wordBoxes(before, pageIndex, w)));
   const lib = await pdfjs();
   const task = lib.getDocument({
     data: new Uint8Array(bytes),
@@ -983,7 +1206,9 @@ export async function verifyRedaction(
   try {
     const doc = await task.promise;
     const page = await doc.getPage(pageIndex + 1);
-    const shrunk = rects.map((r) => [r[0] + 0.5, r[1] + 0.5, r[2] - 0.5, r[3] - 0.5] as PdfRect);
+    const shrunk = rects.map(
+      (r) => [r[0] + 0.25, r[1] + 0.25, r[2] - 0.25, r[3] - 0.25] as PdfRect,
+    );
     const content = await page.getTextContent();
     for (const it of content.items) {
       if (!("str" in it) || !it.str.trim()) continue;
@@ -1008,6 +1233,32 @@ export async function verifyRedaction(
       if (hits(box, shrunk)) return `text «${it.str.slice(0, 40)}»`;
     }
     const ops = await page.getOperatorList();
+    // Glyph by glyph: a single character under an area is enough to refuse.
+    const glyphs = glyphsOf(lib, page, ops);
+    const at = [
+      ...shrunk,
+      ...where.map((r) => [r[0] + 0.25, r[1] + 0.25, r[2] - 0.25, r[3] - 0.25] as PdfRect),
+    ];
+    const under = glyphs.filter((g) => !g.space && g.c.trim() && hits(g.box, at));
+    if (under.length)
+      return `text «${under
+        .map((g) => g.c)
+        .join("")
+        .slice(0, 40)}»`;
+    // The words asked for, anywhere on the page (both readers' text).
+    const norm = (t: string) => t.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+    const pageText = [
+      norm(
+        glyphText(glyphs)
+          .map((x) => x.c)
+          .join(""),
+      ),
+      norm(
+        content.items.map((it) => ("str" in it ? `${it.str}${it.hasEOL ? " " : ""}` : "")).join(""),
+      ),
+    ];
+    for (const w of words.map(norm).filter(Boolean))
+      if (pageText.some((t) => t.includes(w))) return `text «${w.slice(0, 40)}»`;
     const OPS = lib.OPS;
     const images = new Set<number>([
       OPS.paintImageXObject,

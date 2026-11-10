@@ -172,8 +172,11 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || version=0.0.0
           node packaging/update/release-info.mjs --version "$version" --out dist-info
+          # The models catalog (3.5.4) rides with every release, signed with the same key.
+          node packaging/models/check.mjs packaging/models/catalog.json dist-info/models-catalog.json
           if [ -n "$UPDATE_SIGNING_KEY" ]; then
             node packaging/update/sign.mjs dist-info/release.json
+            node packaging/update/sign.mjs dist-info/models-catalog.json
           elif grep -q 'PublicKeyXml = ""' packaging/windows/launcher/UpdateKey.cs; then
             echo "::warning::release.json not signed (no key yet): its kind counts for nothing"
           else
@@ -191,6 +194,8 @@ jobs:
           files: |
             dist-info/release.json
             dist-info/release.json.sig
+            dist-info/models-catalog.json
+            dist-info/models-catalog.json.sig
           fail_on_unmatched_files: false
           generate_release_notes: true
 
@@ -275,7 +280,7 @@ jobs:
         shell: pwsh
         working-directory: packaging/windows
         run: |
-          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Management.dll /r:System.Web.Extensions.dll launcher\RedGiant.cs launcher\Updates.cs launcher\Moves.cs launcher\Memory.cs launcher\Diag.cs launcher\Delta.cs launcher\UpdateKey.cs launcher\ReleaseInfo.cs launcher\PageGate.cs
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /out:RedGiant.exe /win32icon:redgiant.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll /r:System.Management.dll /r:System.Web.Extensions.dll launcher\RedGiant.cs launcher\Updates.cs launcher\Moves.cs launcher\Memory.cs launcher\Diag.cs launcher\Delta.cs launcher\UpdateKey.cs launcher\ReleaseInfo.cs launcher\PageGate.cs launcher\AskGate.cs
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Build the installer (Inno Setup)
         shell: pwsh

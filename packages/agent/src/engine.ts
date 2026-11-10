@@ -5,7 +5,7 @@ import type {
   ModelSpec,
   StopReason,
 } from "@redgiant/protocol";
-import type { StreamEvent, ToolDef } from "@redgiant/providers";
+import type { StallLimits, StreamEvent, ToolDef } from "@redgiant/providers";
 
 /** One of RedGiant's tools run for the engine: validated, permitted, hooked and logged as usual. */
 export type RunTool = (call: {
@@ -32,6 +32,11 @@ export interface EngineTurn {
     model: string;
   }): Promise<void>;
   live?: ((e: StreamEvent) => void) | undefined;
+  /**
+   * Called at every message the engine sends, whatever it is (3.5.4): the session's watch for
+   * an engine that stopped answering.
+   */
+  alive?: (() => void) | undefined;
   /** The engine summarised its own conversation (shown in the chat; RedGiant's history stays). */
   onCompaction?: ((info: { trigger: string; preTokens?: number | undefined }) => void) | undefined;
 }
@@ -43,5 +48,7 @@ export interface EngineTurn {
  */
 export interface Engine {
   readonly id: string;
+  /** How long it may stay silent (3.5.4); default `ENGINE_STALL`. */
+  readonly stall?: StallLimits | undefined;
   turn(t: EngineTurn): Promise<{ resume: string; stopReason: StopReason }>;
 }

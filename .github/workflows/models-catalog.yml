@@ -1,0 +1,61 @@
+# The models catalog without a new version (3.5.4, decision of 2026-11-10 «I modelli nuovi arrivano
+# senza aspettare una versione»): when packaging/models/catalog.json changes on main (or by hand),
+# it is checked, signed with UPDATE_SIGNING_KEY (the update key, as release.json) and published in
+# the fixed pre-release `models-catalog`, where every RedGiant looks at start and once a day
+# (packages/server/src/models-catalog.ts). A version that is not above the published one is
+# refused: an older catalog never replaces a newer one. The pre-release is never "latest", so the
+# updates' check (releases/latest) never sees it.
+name: models-catalog
+
+on:
+  push:
+    branches: [main]
+    paths: [packaging/models/catalog.json]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the catalog in the models-catalog pre-release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: models-catalog
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check (and above the published version)
+        run: |
+          set -e
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p models-catalog.json -D published 2>/dev/null || true
+          if [ -f published/models-catalog.json ]; then
+            node packaging/models/check.mjs packaging/models/catalog.json out/models-catalog.json --newer-than published/models-catalog.json
+          else
+            node packaging/models/check.mjs packaging/models/catalog.json out/models-catalog.json
+          fi
+      - name: Sign
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then echo "::error::UPDATE_SIGNING_KEY is missing: an unsigned catalog is never published"; exit 1; fi
+          node packaging/update/sign.mjs out/models-catalog.json
+      - name: Publish
+        if: github.event_name == 'push' || inputs.publish
+        run: |
+          set -e
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$GITHUB_SHA" \
+              --title "Models catalog (not a release)" \
+              --notes "The signed models catalog RedGiant downloads (names, limits and prices of the models). Updated by models-catalog.yml."
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber out/models-catalog.json out/models-catalog.json.sig

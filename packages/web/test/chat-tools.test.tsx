@@ -255,6 +255,8 @@ describe("in the page", () => {
     set("s1", events, "running");
     answers.aside = { aside: { id: "x2", answer: "yes" } };
     const { container } = render(<Chat sessionId="s1" agentId="god" />);
+    // In the composer's «…» (p3.5.4).
+    fireEvent.click(screen.getByLabelText(/^Altri comandi/));
     fireEvent.click(screen.getByText("Intanto"));
     const panel = container.querySelector(".aside-panel") as HTMLElement;
     expect(panel.textContent).toContain("which port?");

@@ -6,6 +6,7 @@ import type {
   NativeContent,
   StopReason,
 } from "@redgiant/protocol";
+import type { StallLimits } from "./stall.js";
 
 export type {
   AssistantPart,
@@ -91,6 +92,11 @@ export type StreamEvent =
    * in all, those found in its cache, those processed so far (cache included), milliseconds.
    */
   | { type: "prefill_progress"; total: number; cached: number; processed: number; ms: number }
+  /**
+   * A sign of life that carries nothing to show (3.5.4): a tool call's arguments being written,
+   * a keep-alive. It keeps the stall watch quiet; `streamWithFallback` never passes it on.
+   */
+  | { type: "alive" }
   | { type: "done"; completion: Completion };
 
 export interface ModelInfo {
@@ -101,6 +107,15 @@ export interface ModelInfo {
   pricing?: Pricing | undefined;
   /** It reads images (screenshots from tools are offered only then). */
   vision?: boolean | undefined;
+  /** The name people know it by (from the catalog or the provider's own list). */
+  name?: string | undefined;
+  /**
+   * Listed by the provider but unknown to the models catalog (3.5.4): its limits are guesses or
+   * the provider's own, its prices are not known (costs show as unknown, never as zero).
+   */
+  unconfirmed?: boolean | undefined;
+  /** Released in the last weeks, per the catalog: the menus say "new". */
+  isNew?: boolean | undefined;
 }
 
 /** USD per million tokens. */
@@ -124,6 +139,8 @@ export interface Pricing extends PriceSet {
 }
 
 export interface Provider {
+  /** How long it may stay silent (3.5.4); default `CLOUD_STALL`. */
+  readonly stall?: StallLimits | undefined;
   readonly id: string;
   modelInfo(model: string): ModelInfo;
   /** The models one can pick (the composer's menu); best known first. */

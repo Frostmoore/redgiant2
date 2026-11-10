@@ -10,6 +10,7 @@ import type { Redactor, SqlClient } from "@redgiant/events";
 import { keyProvider, OWN_SERVER_ID } from "@redgiant/protocol";
 import {
   AnthropicProvider,
+  LOCAL_STALL,
   OpenAICompatProvider,
   type ProviderRegistry,
 } from "@redgiant/providers";
@@ -354,6 +355,8 @@ export function runtimeHooks(o: RuntimeOptions): SetupHooks {
         id: OWN_SERVER_ID,
         baseURL: cfg.baseUrl,
         ...(cfg.key && { apiKey: cfg.key }),
+        // One's own server (LM Studio, Ollama, vLLM...): local limits (3.5.4).
+        stall: LOCAL_STALL,
       });
       const models = await p.discover(AbortSignal.timeout(20_000));
       if (cfg.key) o.redactor.addSecret(OWN_SERVER_ID, cfg.key);

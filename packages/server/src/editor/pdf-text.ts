@@ -1,10 +1,11 @@
 // The words of a PDF's pages for the agent (G37.8): the lines with their boxes (canvas_look
 // "structure") and where some words are (an agent highlights or redacts by the words, not by
-// coordinates). pdf.js reads the text, as in the page; a word's place inside a run of text is
-// taken in proportion to its characters, enough for a highlight. A redaction found by words is
-// checked afterwards on the written file (pdf-redact.ts).
+// coordinates). pdf.js reads the text, as in the page; a word's place is its glyphs' own boxes
+// (p3.5.4, `pageGlyphs`), and only when they cannot be matched is it taken in proportion to its
+// run's characters, enough for a highlight but never for a redaction (`exact`). A redaction
+// found by words is checked afterwards on the written file (pdf-redact.ts).
 import type { PdfRect } from "@redgiant/protocol";
-import { pdfjs } from "./pdf-redact.js";
+import { matchGlyphs, pageGlyphs, pdfjs } from "./pdf-redact.js";
 
 interface Item {
   str: string;
@@ -141,14 +142,67 @@ export async function pageLines(
   return out;
 }
 
+/** The words matched on the glyphs themselves: their true boxes, one per line they are on. */
+async function glyphMatches(
+  bytes: Uint8Array,
+  page: number,
+  want: string,
+): Promise<{ quads: number[]; rects: PdfRect[] }[]> {
+  const glyphs = await pageGlyphs(bytes, page);
+  const out: { quads: number[]; rects: PdfRect[] }[] = [];
+  for (const ids of matchGlyphs(glyphs, want)) {
+    // One box per line: glyphs on the same baseline together.
+    const lines: PdfRect[] = [];
+    let last: { y: number; size: number } | undefined;
+    for (const id of ids) {
+      const g = glyphs[id];
+      if (!g) continue;
+      const cur = lines.at(-1);
+      if (cur && last && Math.abs(last.y - g.y) < Math.max(last.size, g.size, 1) * 0.5) {
+        lines[lines.length - 1] = [
+          Math.min(cur[0], g.box[0]),
+          Math.min(cur[1], g.box[1]),
+          Math.max(cur[2], g.box[2]),
+          Math.max(cur[3], g.box[3]),
+        ];
+      } else lines.push([...g.box] as PdfRect);
+      last = { y: g.y, size: g.size };
+    }
+    if (!lines.length) continue;
+    const quads = lines.flatMap((r) => [r[0], r[3], r[2], r[3], r[0], r[1], r[2], r[1]].map(r1));
+    out.push({ quads, rects: lines.map((r) => r.map(r1) as PdfRect) });
+  }
+  return out;
+}
+
 /**
  * Where the words are on a page (0-based): every match, one quadrilateral and box per run of
- * text it covers. Case and runs of white space do not count.
+ * text it covers. Case and runs of white space do not count. Their glyphs' own boxes first; with
+ * `exact` (a redaction) a place only guessed is refused rather than given.
  */
 export async function findWords(
   bytes: Uint8Array,
   page: number,
   words: string,
+  o: { exact?: boolean } = {},
+): Promise<{ quads: number[]; rects: PdfRect[] }[]> {
+  const want = words.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+  if (!want) return [];
+  const exact = await glyphMatches(bytes, page, want).catch(() => []);
+  if (exact.length) return exact;
+  const guessed = await guessedMatches(bytes, page, want);
+  if (guessed.length && o.exact)
+    throw new Error(
+      `«${words.trim()}» is on page ${page + 1}, but where exactly its letters are cannot be read: give "rects" for the area instead`,
+    );
+  return guessed;
+}
+
+/** The words matched on pdf.js's runs of text, their place in a run taken by its characters. */
+async function guessedMatches(
+  bytes: Uint8Array,
+  page: number,
+  want: string,
 ): Promise<{ quads: number[]; rects: PdfRect[] }[]> {
   const items = (await itemsOf(bytes, [page])).get(page) ?? [];
   // The page's text, character by character, each with its run and place in it.
@@ -165,8 +219,6 @@ export async function findWords(
     kept.push(space ? { ...ch, c: " " } : ch);
   }
   const text = kept.map((k) => k.c.toLowerCase()).join("");
-  const want = words.trim().replace(/\s+/g, " ").toLowerCase();
-  if (!want) return [];
   const out: { quads: number[]; rects: PdfRect[] }[] = [];
   for (let i = text.indexOf(want); i >= 0 && out.length < 500; i = text.indexOf(want, i + 1)) {
     const span = kept.slice(i, i + want.length).filter((k) => k.item >= 0);

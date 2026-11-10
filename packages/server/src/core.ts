@@ -60,6 +60,7 @@ import {
   READ_ONLY_TOOLS,
 } from "@redgiant/hierarchy";
 import {
+  type AgentKind,
   agentLanguage,
   CommandSettings,
   DEFAULT_COMMAND_SETTINGS,
@@ -77,6 +78,7 @@ import {
   type MessageQuote,
   type ModelSpec,
   type NotifyReport,
+  nativePaths,
   notedText,
   ownWords,
   type Recipe,
@@ -188,6 +190,7 @@ import {
   migrateMagic,
 } from "./magic.js";
 import { type MediaRequest, type MediaResult, makeMedia } from "./media.js";
+import type { CatalogWatcher } from "./models-catalog.js";
 import { memoryTool, type NoteOwner, Notes } from "./notes.js";
 import {
   completeTaskTool,
@@ -501,6 +504,23 @@ export function yourFolder(ws: Workspace, findFiles = true): string {
   return `## Your folder\nYour project is ${both}. Every bash call is a new shell that starts there: cd and variables, $OLDPWD too, do not carry over, so write this folder in full when you need it again. Stay in it: never search a whole disk (find /, grep -r /); use glob and grep inside it${findFiles ? ", and find_files for files or programs elsewhere on this computer" : ""}.`;
 }
 
+/** One model in the menus (`GET /api/models`). */
+export interface ModelChoice {
+  provider: string;
+  model: string;
+  effort: boolean;
+  name?: string;
+  /** "new": released in the last weeks; "unconfirmed": not in the models catalog yet. */
+  status?: "new" | "unconfirmed";
+}
+
+/** A tool call's paths in Git Bash's way (/c/Users/…, ~) as Windows names them (p3.5.4). */
+const gitBashPaths: NonNullable<Hooks["preToolUse"]>[number] = (call) => {
+  if (process.platform !== "win32") return { action: "allow" };
+  const input = nativePaths(call.input, { windows: true, home: homedir() });
+  return input === call.input ? { action: "allow" } : { action: "modify", input };
+};
+
 export class RedGiantCore implements OrchestrationHost {
   readonly store: EventStore;
   readonly registry: AgentRegistry;
@@ -585,6 +605,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly commands: BackgroundCommands;
   /** Mandatory and breaking updates (G36.19), set by main: while one is mandatory no new turn starts. */
   updates: UpdateWatcher | undefined;
+  /** The models catalog's updates (3.5.4); absent in tests. */
+  catalog: CatalogWatcher | undefined;
   /** Backups made or being imported (2026-11-03): next to the workspaces, in the data volume. */
   get backupsDir(): string {
     return join(dirname(this.o.workspacesDir), "backups");
@@ -1696,16 +1718,19 @@ export class RedGiantCore implements OrchestrationHost {
         .filter(Boolean)
         .join("\n\n"),
       tools,
-      ...((receivesTasks || (agent.kind !== "demigod" && agent.kind !== "inspector")) && {
-        hooks: {
+      hooks: {
+        // Git Bash's paths on Windows (p3.5.4): every tool's paths as Windows names them, before
+        // the guardian and the tool read them (`nativePaths`, the guardian uses the same rule).
+        preToolUse: [gitBashPaths],
+        ...((receivesTasks || (agent.kind !== "demigod" && agent.kind !== "inspector")) && {
           // G36.8: one quiet nudge to propose a skill after a problem solved.
           ...(agent.kind !== "demigod" &&
             agent.kind !== "inspector" && {
               postToolUse: [this.skillNudge.hook(), this.editorNotesHook()],
             }),
           ...(receivesTasks && { stop: [this.tasks.stopHook(agentId)] }),
-        },
-      }),
+        }),
+      },
       ...(toolsOff.length > 0 && { toolsOff }),
       sessionId,
       ownerId,
@@ -3031,6 +3056,8 @@ export class RedGiantCore implements OrchestrationHost {
           },
         });
       },
+      personApproved: (sessionId, callId) =>
+        this.broker.personApproved(sessionId, callId, "critical-delete"),
     };
   }
 
@@ -3158,13 +3185,13 @@ export class RedGiantCore implements OrchestrationHost {
 
   /** Who an agent is for the knowledge (G36.5): itself, and the projects it works on. */
   knowledgeAsker(
-    agent: { id: string; projectId?: string | null },
+    agent: { id: string; kind?: AgentKind; projectId?: string | null },
     assignedTo?: string | null,
   ): Extract<KnowledgeAsker, { kind: "agent" }> {
     const projectIds = [agent.projectId, assignedTo].filter(
       (p, i, all): p is string => typeof p === "string" && p !== "" && all.indexOf(p) === i,
     );
-    return { kind: "agent", agentId: agent.id, projectIds };
+    return { kind: "agent", agentId: agent.id, projectIds, agentKind: agent.kind };
   }
 
   /** The folder behind a scope on disk (the knowledge's workspace sources, G36.3). */
@@ -4689,13 +4716,27 @@ export class RedGiantCore implements OrchestrationHost {
     return out;
   }
 
-  /** The models one can pick, by provider; a provider that does not answer offers none. */
-  async models(): Promise<{ provider: string; model: string; effort: boolean }[]> {
-    const out: { provider: string; model: string; effort: boolean }[] = [];
+  /**
+   * The models one can pick, by provider; a provider that does not answer offers none. Each says
+   * its name and whether it is new or not in the models catalog yet (3.5.4: "data to be
+   * confirmed"); choosing one stays the person's doing.
+   */
+  async models(): Promise<ModelChoice[]> {
+    const out: ModelChoice[] = [];
     for (const p of this.o.providers.list()) {
       const ids = (await p.models?.(AbortSignal.timeout(5000)).catch(() => [])) ?? [];
-      for (const model of ids)
-        out.push({ provider: p.id, model, effort: p.modelInfo(model).supportsEffort });
+      for (const model of ids) {
+        const info = p.modelInfo(model);
+        out.push({
+          provider: p.id,
+          model,
+          effort: info.supportsEffort,
+          ...(info.name && { name: info.name }),
+          ...(info.unconfirmed
+            ? { status: "unconfirmed" as const }
+            : info.isNew && { status: "new" as const }),
+        });
+      }
     }
     return out;
   }
@@ -5884,7 +5925,11 @@ export class RedGiantCore implements OrchestrationHost {
     ownerId: string,
     sessionId: string,
     listener: (m: ServerMessage) => void,
+    /** The last event the follower already has (a page that reconnects, p3.5.4). */
+    afterSeq?: number,
   ): Promise<() => void> {
+    const after = (all: Event[]) =>
+      afterSeq === undefined ? all : all.filter((e) => e.seq > afterSeq);
     let l: Live;
     try {
       l = await this.open(ownerId, sessionId);
@@ -5895,9 +5940,9 @@ export class RedGiantCore implements OrchestrationHost {
       const set = this.waiting.get(sessionId) ?? new Set();
       set.add(listener);
       this.waiting.set(sessionId, set);
-      const past = await sessionLog(this.store, sessionId);
+      const past = after(await sessionLog(this.store, sessionId));
       for (const e of past) listener({ type: "event", sessionId, event: e });
-      listener({ type: "session.synced", sessionId, lastSeq: past.at(-1)?.seq ?? -1 });
+      listener({ type: "session.synced", sessionId, lastSeq: past.at(-1)?.seq ?? afterSeq ?? -1 });
       listener({ type: "session.state", sessionId, state: "idle" });
       return () => {
         set.delete(listener);
@@ -5909,9 +5954,9 @@ export class RedGiantCore implements OrchestrationHost {
     const relay = (m: ServerMessage) => (replaying ? buffered.push(m) : listener(m));
     l.listeners.add(relay);
     l.usedAt = Date.now();
-    const past = await sessionLog(this.store, sessionId);
+    const past = after(await sessionLog(this.store, sessionId));
     for (const e of past) listener({ type: "event", sessionId, event: e });
-    const lastSeq = past.at(-1)?.seq ?? -1;
+    const lastSeq = past.at(-1)?.seq ?? afterSeq ?? -1;
     listener({ type: "session.synced", sessionId, lastSeq });
     replaying = false;
     for (const m of buffered) if (m.type !== "event" || m.event.seq > lastSeq) listener(m);

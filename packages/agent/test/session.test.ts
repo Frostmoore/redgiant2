@@ -5,10 +5,12 @@ import {
   FakeProvider,
   type FakeScript,
   ProviderRegistry,
+  ProviderStalledError,
   type Recording,
   RecordingProvider,
   ReplayProvider,
   type StreamEvent,
+  setStallLog,
 } from "@redgiant/providers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -344,6 +346,135 @@ describe("AgentSession", () => {
     expect(
       types(await store.list({ sessionId: "s1" })).filter((t) => t === "engine.session"),
     ).toHaveLength(1);
+  });
+
+  describe("an engine that stops answering (3.5.4)", () => {
+    const quick = { firstTokenMs: 40, idleMs: 40 };
+    const metrics = {
+      startedAt: "2026-11-01T10:00:00.000Z",
+      inputTokens: 1,
+      cachedReadTokens: 0,
+      cacheWriteTokens: 0,
+      outputTokens: 1,
+      contextUsed: 2,
+      contextWindow: 200_000,
+      prefillMs: 0,
+      decodeMs: 0,
+      tokPerSec: 0,
+      source: "server" as const,
+    };
+    /** Silent (until cancelled) for the first `silent` turns, then it answers. */
+    const engineOf = (silent: number, seen: { text: string; model: string; aborted: boolean }[]) =>
+      ({
+        id: "fake-engine",
+        stall: quick,
+        async turn(t) {
+          const entry = { text: t.text, model: t.model.model, aborted: false };
+          seen.push(entry);
+          if (seen.length <= silent) {
+            await new Promise<void>((ok) =>
+              t.signal?.addEventListener("abort", () => ok(), { once: true }),
+            );
+            entry.aborted = true;
+            return { resume: "", stopReason: "aborted" };
+          }
+          t.alive?.();
+          await t.onMessage({
+            parts: [{ type: "text", text: "here" }],
+            metrics,
+            stopReason: "end_turn",
+            model: t.model.model,
+          });
+          return { resume: "thread-1", stopReason: "end_turn" };
+        },
+      }) satisfies Engine;
+
+    it("cancels the silent turn for real and makes it again, then goes on", async () => {
+      const seen: { text: string; model: string; aborted: boolean }[] = [];
+      const lines: string[] = [];
+      setStallLog((l) => lines.push(l));
+      const { options } = setup([], { engine: engineOf(2, seen), stallDelaysMs: [5, 10] });
+      const s = await AgentSession.start(options);
+      expect(await s.send("go")).toMatchObject({ stopReason: "end_turn" });
+      expect(seen.map((x) => [x.text, x.aborted])).toEqual([
+        ["go", true],
+        ["go", true],
+        ["go", false],
+      ]);
+      // The conversation's model is the same at every try.
+      expect(new Set(seen.map((x) => x.model))).toEqual(new Set(["m1"]));
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toMatch(/fake-engine\/m1: no first token .* trying again/);
+      setStallLog((l) => console.warn(l));
+    });
+
+    it("stops the turn after two new tries with a clear error", async () => {
+      const seen: { text: string; model: string; aborted: boolean }[] = [];
+      setStallLog(() => {});
+      const { options } = setup([], { engine: engineOf(9, seen), stallDelaysMs: [5, 10] });
+      const s = await AgentSession.start(options);
+      const err = await s.send("go").catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ProviderStalledError);
+      expect((err as ProviderStalledError).retries).toBe(2);
+      expect(seen).toHaveLength(3);
+      setStallLog((l) => console.warn(l));
+    });
+
+    it("moves to the agent's fallback on the same engine after the tries", async () => {
+      const seen: { text: string; model: string; aborted: boolean }[] = [];
+      setStallLog(() => {});
+      const { options } = setup([], {
+        engine: engineOf(3, seen),
+        stallDelaysMs: [5, 10],
+        model: {
+          provider: "fake-engine",
+          model: "m1",
+          fallback: { provider: "fake-engine", model: "m2" },
+        },
+      });
+      const s = await AgentSession.start(options);
+      expect(await s.send("go")).toMatchObject({ stopReason: "end_turn" });
+      expect(seen.map((x) => x.model)).toEqual(["m1", "m1", "m1", "m2"]);
+      setStallLog((l) => console.warn(l));
+    });
+
+    it("does not count the time of RedGiant's tools (a long command is not a silent provider)", async () => {
+      const slow: Tool = {
+        def: { name: "slow", description: "Takes its time", inputSchema: { type: "object" } },
+        async run() {
+          await new Promise((r) => setTimeout(r, 150));
+          return "ok";
+        },
+      };
+      let turns = 0;
+      const engine: Engine = {
+        id: "fake-engine",
+        stall: quick,
+        async turn(t) {
+          turns++;
+          t.alive?.();
+          await t.onMessage({
+            parts: [{ type: "tool_call", callId: "c1", name: "slow", input: {}, rawInput: "{}" }],
+            metrics,
+            stopReason: "tool_use",
+            model: "m1",
+          });
+          const r = await t.runTool({ callId: "c1", name: "slow", input: {} });
+          t.alive?.();
+          await t.onMessage({
+            parts: [{ type: "text", text: r.content }],
+            metrics,
+            stopReason: "end_turn",
+            model: "m1",
+          });
+          return { resume: "thread-1", stopReason: "end_turn" };
+        },
+      };
+      const { options } = setup([], { engine, tools: [slow], stallDelaysMs: [5, 10] });
+      const s = await AgentSession.start(options);
+      expect(await s.send("go")).toMatchObject({ stopReason: "end_turn" });
+      expect(turns).toBe(1);
+    });
   });
 
   it("compacts when the context is nearly full and records it", async () => {

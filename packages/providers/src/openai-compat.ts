@@ -1,6 +1,7 @@
 import { type EffortStyle, openAiEffortFields } from "./effort.js";
 import { MetricsClock } from "./metrics.js";
 import { sseData } from "./sse.js";
+import type { StallLimits } from "./stall.js";
 import {
   type AssistantPart,
   type ChatMessage,
@@ -37,6 +38,8 @@ export interface OpenAICompatOptions {
   extraBody?: (request: CompletionRequest) => Record<string, unknown>;
   headers?: Record<string, string>;
   fetch?: typeof fetch;
+  /** How long it may stay silent (3.5.4): `LOCAL_STALL` for engines on this machine or network. */
+  stall?: StallLimits;
 }
 
 type WireMessage =
@@ -105,10 +108,12 @@ const STOP_REASONS: Record<string, StopReason> = {
  */
 export class OpenAICompatProvider implements Provider {
   readonly id: string;
+  readonly stall: StallLimits | undefined;
   private readonly fetchImpl: typeof fetch;
 
   constructor(private readonly options: OpenAICompatOptions) {
     this.id = options.id ?? "openai-compat";
+    this.stall = options.stall;
     this.fetchImpl = options.fetch ?? globalThis.fetch;
   }
 
@@ -229,6 +234,8 @@ export class OpenAICompatProvider implements Provider {
 
       for await (const data of sseData(response.body)) {
         if (data.trim() === "[DONE]") break;
+        // Every chunk is a sign of life, even one with only a tool call's arguments (3.5.4).
+        yield { type: "alive" };
         const chunk = JSON.parse(data) as Chunk;
         if (chunk.model) servedModel = chunk.model;
         if (chunk.usage) usageChunk = chunk.usage;

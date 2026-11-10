@@ -45,7 +45,14 @@ export const ClientMessage = z.discriminatedUnion("type", [
      */
     reloads: z.boolean().optional(),
   }),
-  z.object({ type: z.literal("session.follow"), sessionId: z.string() }),
+  z.object({
+    type: z.literal("session.follow"),
+    sessionId: z.string(),
+    /** The last event the page already has (p3.5.4, after a reconnection): only later ones. */
+    afterSeq: z.number().int().optional(),
+  }),
+  /** The page's heartbeat (p3.5.4): answered at once with `pong`. */
+  z.object({ type: z.literal("ping") }),
   z.object({ type: z.literal("session.unfollow"), sessionId: z.string() }),
   z.object({
     type: z.literal("session.send"),
@@ -158,6 +165,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
 export const ServerMessage = z.discriminatedUnion("type", [
+  /** The answer to the page's heartbeat (p3.5.4). */
+  z.object({ type: z.literal("pong") }),
   z.object({
     type: z.literal("welcome"),
     protocolVersion: z.number().int(),
@@ -373,6 +382,12 @@ export const ServerMessage = z.discriminatedUnion("type", [
     /** A program the save waits for (it is coming down: the person sees its bar). */
     waitsFor: z.string().max(40).optional(),
   }),
-  z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
+  z.object({
+    type: z.literal("error"),
+    code: z.string(),
+    message: z.string(),
+    /** Values for the page's own words of `err_<code>` (3.5.4: minutes, tries). */
+    params: z.record(z.string(), z.string()).optional(),
+  }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

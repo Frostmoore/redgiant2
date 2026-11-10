@@ -9,6 +9,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { FakeProvider, ProviderError, ProviderRegistry } from "@redgiant/providers";
 import {
   Browsers,
+  CatalogWatcher,
   DockerBrowserLauncher,
   debugLog,
   exportBackup,
@@ -605,7 +606,8 @@ const core = await RedGiantCore.create({
         new FakeProvider(brain, {
           id: "claude-subscription",
           contextWindow: 200_000,
-          models: ["claude-opus-5-5", "claude-sonnet-5-5"],
+          // 3.5.4: a model just released ("new") and one the catalog does not know yet.
+          models: ["claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5", "claude-nova-6"],
           // REDGIANT_DEMO_SLOW=1: God writes slowly, reading its context like a local engine
           // (to look at the progress line).
           ...(process.env.REDGIANT_DEMO_SLOW && {
@@ -618,6 +620,14 @@ const core = await RedGiantCore.create({
             { id: "7d", label: "7g", usedPct: 36, resetsAt: "2026-11-03T18:00:00.000Z" },
             { id: "model:Fable", label: "Fable", usedPct: 30 },
           ],
+          modelInfo: (model) => ({
+            id: model,
+            contextWindow: 200_000,
+            maxOutputTokens: 64_000,
+            supportsEffort: true,
+            ...(model === "claude-fable-5-2" && { isNew: true }),
+            ...(model === "claude-nova-6" && { unconfirmed: true }),
+          }),
         },
       ),
     ),
@@ -626,6 +636,8 @@ const core = await RedGiantCore.create({
   defaultModel: { provider: "fake", model: "demo-model" },
   askAgent: async () => "escalate",
 });
+// The models catalog row (3.5.4): the built-in catalog, GitHub never asked.
+core.catalog = new CatalogWatcher({ dataDir: dir, sources: [], feed: null });
 const me = { type: "human", ownerId: "local" };
 const project = await core.projects.create("local", "Demo");
 await mkdir(join(project.path, "src"), { recursive: true });
@@ -752,6 +764,17 @@ await (await core.send("local", sid, "Give me a quick tour of the project.")).do
 await (await core.send("local", sid, "And the tests?")).done;
 await (await core.send("local", sid, "/compact keep the file list")).done;
 await core.budget.setLimit({ scope: "global", id: "local" }, { usd: 20 });
+// p3.5.4: a task the orchestrator handed to the Coder, still open: «Compito: …» in the bar.
+const coderSid = await core.workSession(coder);
+await core.tasks.open(
+  coder,
+  coderSid,
+  "Add the --json flag",
+  { agentId: orch.id, sessionId: sid, name: orch.name },
+  undefined,
+  { brief: "Print the result as JSON with --json, with tests." },
+);
+await core.nameSession(coderSid, `${orch.name}: Add the --json flag`);
 // Left waiting on purpose: the question card in God's conversation.
 const godSid = await core.startSession("local", god.id);
 void (await core.send("local", godSid, "Plan the export feature for the reports.")).done.catch(

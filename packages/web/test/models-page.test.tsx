@@ -22,6 +22,20 @@ const fakeApi = new Proxy(
         if (name === "jobs") return Promise.resolve([]);
         if (name === "models")
           return Promise.resolve([{ provider: "anthropic", model: "claude-opus-5", effort: true }]);
+        if (name === "modelsCatalog")
+          return Promise.resolve({
+            version: 1,
+            updatedAt: "2026-11-10",
+            source: "builtin",
+            checkedAt: null,
+          });
+        if (name === "refreshModelsCatalog")
+          return Promise.resolve({
+            version: 2,
+            updatedAt: "2026-12-01",
+            source: "downloaded",
+            checkedAt: "2026-12-01T10:00:00.000Z",
+          });
         if (name === "claudeStatus" || name === "chatgptStatus")
           return Promise.resolve({ on: false, account: null, program: "bundled" });
         void args;
@@ -96,6 +110,21 @@ describe("Settings > Models and subscriptions, as the wizard", () => {
       SEARCH_PROVIDERS.length,
     );
     expect(tile(/^Brave/).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("says which models catalog is in use and updates it on request (3.5.4)", async () => {
+    const r = render(<ModelsPage s={state()} reload={() => {}} />);
+    const day = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString();
+    await waitFor(() =>
+      expect(r.getByText(`Catalogo dei modelli: aggiornato il ${day("2026-11-10")}`)).toBeTruthy(),
+    );
+    expect(r.getByText(/quello incluso in RedGiant · versione 1/)).toBeTruthy();
+    fireEvent.click(r.getByRole("button", { name: "Aggiorna ora" }));
+    await waitFor(() =>
+      expect(r.getByText(`Catalogo dei modelli: aggiornato il ${day("2026-12-01")}`)).toBeTruthy(),
+    );
+    expect(r.getByText(/scaricato e firmato · versione 2/)).toBeTruthy();
+    expect(calls).toContain("refreshModelsCatalog");
   });
 
   it("opens the real panels in a window: subscription, keys, server, agents' model, search", async () => {

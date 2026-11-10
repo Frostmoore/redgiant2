@@ -75,3 +75,121 @@ export async function samplePdf(
   doc.catalog.set(PDFName.of("Lang"), doc.context.obj("it") as never);
   return doc.save({ useObjectStreams: o.streams === true });
 }
+
+/** Helvetica's widths for the characters of the tricky page (space to «z»). */
+const HELV: Record<string, number> = {
+  " ": 278,
+  "-": 333,
+  ".": 278,
+  ...Object.fromEntries([..."0123456789"].map((c) => [c, 556])),
+  ...Object.fromEntries(
+    [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].map((c, i) => [
+      c,
+      [
+        667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722,
+        667, 611, 722, 667, 944, 667, 667, 611,
+      ][i] as number,
+    ]),
+  ),
+  ...Object.fromEntries(
+    [..."abcdefghijklmnopqrstuvwxyz"].map((c, i) => [
+      c,
+      [
+        556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333,
+        500, 278, 556, 500, 722, 500, 500, 500,
+      ][i] as number,
+    ]),
+  ),
+};
+
+/**
+ * A page written the ways other programs write text (p3.5.4, the 3.5.3 test's PDF came from
+ * LibreOffice and PyMuPDF): a secret after narrow letters in one Tj (its place in the run is not
+ * its share of the characters), the same in a TJ with kerning, character and word spacing and
+ * horizontal scaling, and in a Type0 font with two-byte codes (Identity-H) and a ToUnicode map.
+ * Each line keeps «ZEBRA-77» and words around it.
+ */
+export async function trickyPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const ctx = doc.context;
+  const page = doc.addPage([595, 842]);
+  const hex = (s: string, two = false) =>
+    `<${[...s]
+      .map((c) => {
+        const code = c === "è" ? 0xe8 : (c.codePointAt(0) as number);
+        return code.toString(16).padStart(two ? 4 : 2, "0");
+      })
+      .join("")}>`;
+  const cmap = [
+    "/CIDInit /ProcSet findresource begin",
+    "12 dict begin",
+    "begincmap",
+    "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
+    "/CMapName /Adobe-Identity-UCS def",
+    "/CMapType 2 def",
+    "1 begincodespacerange",
+    "<0000> <FFFF>",
+    "endcodespacerange",
+    "1 beginbfrange",
+    "<0020> <007E> <0020>",
+    "endbfrange",
+    "endcmap",
+    "CMapName currentdict /CMap defineresource pop",
+    "end",
+    "end",
+  ].join("\n");
+  const widths: number[] = [];
+  for (let c = 32; c <= 126; c++) widths.push(HELV[String.fromCharCode(c)] ?? 500);
+  const cid = ctx.obj({
+    Type: "Font",
+    Subtype: "CIDFontType2",
+    BaseFont: "Helvetica",
+    CIDSystemInfo: { Registry: ctx.obj("Adobe"), Ordering: ctx.obj("Identity"), Supplement: 0 },
+    DW: 500,
+    W: [32, widths],
+    FontDescriptor: ctx.register(
+      ctx.obj({
+        Type: "FontDescriptor",
+        FontName: "Helvetica",
+        Flags: 32,
+        FontBBox: [-166, -225, 1000, 931],
+        ItalicAngle: 0,
+        Ascent: 718,
+        Descent: -207,
+        CapHeight: 718,
+        StemV: 88,
+      }),
+    ),
+  });
+  const type0 = ctx.obj({
+    Type: "Font",
+    Subtype: "Type0",
+    BaseFont: "Helvetica",
+    Encoding: "Identity-H",
+    DescendantFonts: [ctx.register(cid)],
+    ToUnicode: ctx.register(ctx.flateStream(cmap)),
+  });
+  const helv = ctx.obj({
+    Type: "Font",
+    Subtype: "Type1",
+    BaseFont: "Helvetica",
+    Encoding: "WinAnsiEncoding",
+  });
+  page.node.set(
+    PDFName.of("Resources"),
+    ctx.obj({ Font: { F1: ctx.register(helv), F2: ctx.register(type0) } }),
+  );
+  const content = [
+    "BT /F1 12 Tf 72 720 Td",
+    `${hex("Il codice riservato è ZEBRA-77 e basta.")} Tj`,
+    "ET",
+    "BT /F1 12 Tf 0.4 Tc 1.5 Tw 92 Tz 1 0 0 1 72 690 Tm",
+    `[${hex("Il codice ")} -250 ${hex("riservato ")} 120 ${hex("è Z")} -80 ${hex("EBRA-77")} 40 ${hex(" fine.")}] TJ`,
+    "ET",
+    "BT /F2 12 Tf 72 660 Td",
+    `[${hex("Codice ", true)} -120 ${hex("ZEBRA-77", true)} ${hex(" qui.", true)}] TJ`,
+    "ET",
+  ].join("\n");
+  page.node.set(PDFName.of("Contents"), ctx.register(ctx.flateStream(content)));
+  return doc.save({ useObjectStreams: false });
+}

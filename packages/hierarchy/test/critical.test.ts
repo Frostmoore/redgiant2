@@ -123,6 +123,36 @@ const TABLE: Case[] = [
   ],
   ["format a drive", ...bash("format D: /q"), "critical-delete", WIN],
   ["Get-ChildItem only reads", ...bash("Get-ChildItem C:\\Windows -Recurse"), null, WIN],
+  // Git Bash's paths on Windows (p3.5.4): the same places, written as /c/….
+  [
+    "Git Bash: rm in /c/Windows",
+    ...bash("rm /c/Windows/System32/drivers/etc/hosts"),
+    "critical-system",
+    WIN,
+  ],
+  ["Git Bash: rm -rf the home", ...bash("rm -rf /c/Users/Pixel"), "critical-delete", WIN],
+  [
+    "Git Bash: rm -rf Documents",
+    ...bash("rm -rf /cygdrive/c/Users/Pixel/Documents"),
+    "critical-delete",
+    WIN,
+  ],
+  ["Git Bash: rm -rf a disk", ...bash("rm -rf /d/"), "critical-delete", WIN],
+  ["Git Bash: rm -rf in the project", ...bash("rm -rf /c/Users/Pixel/proj/dist"), null, WIN],
+  [
+    "Git Bash: write_file into Program Files",
+    "write_file",
+    { path: "/c/Program Files/App/app.ini", content: "x" },
+    "critical-system",
+    WIN,
+  ],
+  [
+    "Git Bash: write_file in the project",
+    "write_file",
+    { path: "/c/Users/Pixel/proj/app.ini", content: "x" },
+    null,
+    WIN,
+  ],
   ["registry", ...bash("reg add HKLM\\Software\\Policies\\X /v Y /d 1"), "critical-system", WIN],
   [
     "registry with PowerShell",

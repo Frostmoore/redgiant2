@@ -133,7 +133,7 @@ export class Inspector {
       (e) => e.type !== "message.assistant.delta",
     );
     if (fresh.length === 0) return saved.summary || "Nothing has happened in this project yet.";
-    const model = (await this.settings(ownerId, projectId)).model ?? this.core.defaultModel;
+    const model = await this.modelFor(ownerId, projectId).catch(() => undefined);
     // Without a model, the latest events themselves are the summary.
     if (!model) return fresh.slice(-40).map(describeEvent).join("\n");
     let summary = saved.summary;
@@ -184,6 +184,37 @@ export class Inspector {
   }
 
   constructor(private readonly core: RedGiantCore) {}
+
+  /**
+   * The model the inspector answers with (p3.5.4: «Unknown provider "local"», a default left by
+   * the setup wizard for an engine no longer there). Its own, if it can be used; then the
+   * project's agents' (its orchestrator first); then God's; then the person's default. Only a
+   * model whose provider is here; none at all is said plainly.
+   */
+  async modelFor(ownerId: string, projectId: string): Promise<ModelSpec> {
+    const usable = (m: ModelSpec | undefined) =>
+      m && this.core.providers.has(m.provider) ? m : undefined;
+    const own = usable((await this.settings(ownerId, projectId)).model);
+    if (own) return own;
+    const reg = this.core.registry;
+    const agents = reg
+      .list({ ownerId, projectId, activeOnly: true })
+      .filter((a) => a.kind !== "inspector")
+      .sort((a, b) => Number(b.kind === "orchestrator") - Number(a.kind === "orchestrator"));
+    const god = reg.list({ ownerId, activeOnly: true }).filter((a) => a.kind === "god");
+    for (const a of [...agents, ...god]) {
+      const m = usable(reg.effectiveModel(a.id));
+      if (m) return m;
+    }
+    const fallback = usable(this.core.defaultModel);
+    if (fallback) return fallback;
+    const left = (await this.settings(ownerId, projectId)).model ?? this.core.defaultModel;
+    throw new InspectorError(
+      left
+        ? `The inspector has no model it can use: ${left.provider}/${left.model} is not available on this computer. Choose a model for the project's inspector, or a default model in Settings`
+        : "The inspector has no model: choose one for the project's inspector, or a default model in Settings",
+    );
+  }
 
   async settings(ownerId: string, projectId: string): Promise<InspectorSettings> {
     const [r] = await this.core.db.query<{ value: unknown }>(
@@ -416,7 +447,7 @@ export class Inspector {
     return {
       system: PROMPT(p.name, p.path),
       tools: canonicalTools(tools),
-      ...(settings.model && { model: settings.model }),
+      model: await this.modelFor(ownerId, projectId),
     };
   }
 

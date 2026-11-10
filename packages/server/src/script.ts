@@ -8,10 +8,11 @@ import { randomBytes } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Tool, ToolContext } from "@redgiant/agent";
 import type { AgentRecord, PermissionBroker } from "@redgiant/hierarchy";
+import { nativePaths } from "@redgiant/protocol";
 import type { Workspace } from "@redgiant/tools";
 import { z } from "zod";
 
@@ -128,9 +129,14 @@ export function scriptTool(
           const tool = tools().find((t) => t.def.name === name);
           if (!tool || NOT_FROM_SCRIPTS.has(name))
             return reply(200, { content: `No tool "${name}" for scripts.`, isError: true });
+          // Git Bash's paths on Windows as Windows names them, as for the model's calls (p3.5.4).
+          const native =
+            process.platform === "win32"
+              ? nativePaths(input, { windows: true, home: homedir() })
+              : input;
           const parsed = tool.schema
-            ? tool.schema.safeParse(input)
-            : { success: true, data: input };
+            ? tool.schema.safeParse(native)
+            : { success: true, data: native };
           if (!parsed.success)
             return reply(200, { content: `Invalid input for ${name}.`, isError: true });
           const call = { callId: `script-${calls}`, name, input: parsed.data };

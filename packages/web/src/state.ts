@@ -71,6 +71,8 @@ export type ChatItem =
       parts: AssistantPart[];
       metrics: MessageMetrics;
       costUsd: number;
+      /** The model's price is not known (3.5.4): the cost shows as "not known". */
+      costUnknown?: boolean;
       model: string;
       stopReason: string;
       /** Brought in from another assistant (G36.7): no figures to show. */
@@ -163,7 +165,11 @@ function notifyHidden(body: string, tag?: string): void {
 
 export function buildItems(events: Event[]): ChatItem[] {
   const items: ChatItem[] = [];
-  const tools = new Map<string, Extract<ChatItem, { kind: "tool" }>>();
+  // Calls by id, oldest first: an id given twice (an engine's two calls in the same instant,
+  // 3.5.4) still pairs each result with its own call instead of leaving one spinning.
+  const tools = new Map<string, Extract<ChatItem, { kind: "tool" }>[]>();
+  /** Calls with no result yet: once the model speaks again they cannot be running any more. */
+  const open = new Set<Extract<ChatItem, { kind: "tool" }>>();
   const asked = new Map<string, Extract<ChatItem, { kind: "question" }>>();
   for (const e of events) {
     const key = `e${e.seq}`;
@@ -195,6 +201,13 @@ export function buildItems(events: Event[]): ChatItem[] {
         });
         break;
       case "message.assistant":
+        // A final answer after these calls (no tool asked for): whatever they were, they are
+        // over, their result was lost (a turn cancelled while they ran). A message that asks
+        // for tools may be recorded after its own calls started (an engine), so it does not.
+        if (e.payload.stopReason !== "tool_use") {
+          for (const c of open) c.result = { ok: false, output: t("toolNoResult") };
+          open.clear();
+        }
         items.push({
           kind: "assistant",
           key,
@@ -203,6 +216,7 @@ export function buildItems(events: Event[]): ChatItem[] {
           parts: e.payload.parts.filter((p) => p.type !== "tool_call"),
           metrics: e.payload.metrics,
           costUsd: e.payload.costUsd,
+          ...(e.payload.costUnknown && { costUnknown: true }),
           model: e.payload.model,
           stopReason: e.payload.stopReason,
           // Older or hand-made events may lack the provider.
@@ -239,12 +253,15 @@ export function buildItems(events: Event[]): ChatItem[] {
           tool: e.payload.tool,
           input: e.payload.input,
         };
-        tools.set(e.payload.callId, item);
+        tools.set(e.payload.callId, [...(tools.get(e.payload.callId) ?? []), item]);
+        open.add(item);
         items.push(item);
         break;
       }
       case "tool.result": {
-        const call = tools.get(e.payload.callId);
+        const same = tools.get(e.payload.callId) ?? [];
+        const call = same.find((c) => !c.result) ?? same.at(-1);
+        if (call) open.delete(call);
         if (call)
           call.result = {
             ok: e.payload.ok,
@@ -521,7 +538,7 @@ export function applyMessage(m: ServerMessage): void {
     case "error":
       if (m.code === "unavailable")
         browserScreen.value = { ...browserScreen.value, unavailable: true };
-      else lastError.value = tOptional(`err_${m.code}`) ?? m.message;
+      else lastError.value = tOptional(`err_${m.code}`, m.params ?? {}) ?? m.message;
       return;
     case "event": {
       const v = sessionView(m.sessionId);
@@ -550,13 +567,17 @@ export function applyMessage(m: ServerMessage): void {
       canvasEvent(m.sessionId, m.event);
       return;
     // One of the person's conversations started or stopped (p3.5.3), followed or not.
-    case "session.activity":
-      if (sessionRows.value.some((r) => r.id === m.sessionId))
+    // A conversation the list does not have (a task just handed over) is fetched at once; a
+    // known one may have just taken a task or closed one (p3.5.4): fetched again for its title.
+    case "session.activity": {
+      const known = sessionRows.value.find((r) => r.id === m.sessionId);
+      if (known)
         sessionRows.value = sessionRows.value.map((r) =>
           r.id === m.sessionId ? { ...r, running: m.state === "running" } : r,
         );
-      else refreshSoon();
+      if (!known || (m.state === "running") !== !!known.task) refreshSoon();
       return;
+    }
     case "image.progress": {
       const v = sessionView(m.sessionId);
       v.value = {
@@ -611,8 +632,16 @@ export function applyMessage(m: ServerMessage): void {
     case "session.compacting":
       sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, compacting: m.busy };
       return;
+    // Followed (again, after a reconnection): what was streaming before is stale (p3.5.4); what
+    // comes next and the state that follows say where the conversation really is.
     case "session.synced":
-      sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, synced: true };
+      sessionView(m.sessionId).value = {
+        ...sessionView(m.sessionId).value,
+        synced: true,
+        text: "",
+        thinking: "",
+        drawing: undefined,
+      };
       return;
     case "permission.request":
       if (!approvals.value.some((r) => r.requestId === m.request.requestId)) {
@@ -665,6 +694,8 @@ export function applyMessage(m: ServerMessage): void {
 
 export const token = signal<string | null>(localStorage.getItem("rg.token"));
 export const status = signal<"online" | "offline" | "connecting">("offline");
+/** The page was connected once: losing it now is news (p3.5.4, «Collegamento perso»). */
+export const everOnline = signal(false);
 /** The projects in use: every list and choice shows these. */
 export const projects = signal<Project[]>([]);
 /** Archived projects (2026-11-09): only in their own section, read only. */
@@ -783,6 +814,7 @@ export async function signIn(t: string): Promise<void> {
   live?.close();
   live = new Live(t, applyMessage, (s) => {
     status.value = s;
+    if (s === "online") everOnline.value = true;
   });
   await refresh();
   firstRun.value = !(await api.setup().catch(() => ({ config: { completed: true } }))).config
@@ -1267,6 +1299,8 @@ export interface SessionRow {
   folder?: string | null;
   /** The conversation it goes on from (G36.23). */
   forkedFrom?: string | null;
+  /** The title of the task it works on, while one is open (p3.5.4). */
+  task?: string | null;
 }
 
 export const sessionRows = signal<SessionRow[]>([]);
@@ -1346,6 +1380,18 @@ export async function newSession(agent: Agent): Promise<void> {
   const { sessionId } = await getApi().startSession(agent.id);
   await refreshConversations();
   openSession({ id: sessionId, agentId: agent.id, title: null });
+}
+
+/**
+ * A project's name clicked in the left bar (p3.5.4): its orchestrator's latest conversation
+ * (pinned or not, never an archived one) opens, or a new one starts when there is none.
+ */
+export async function openOrchestrator(agent: Agent): Promise<void> {
+  const latest = sessionRows.value
+    .filter((r) => r.agentId === agent.id && !r.archived)
+    .sort((a, b) => (b.lastAt ?? b.createdAt).localeCompare(a.lastAt ?? a.createdAt))[0];
+  if (latest) openSession(latest);
+  else await newSession(agent);
 }
 
 /** Opens the latest conversation with an agent, or starts one. */

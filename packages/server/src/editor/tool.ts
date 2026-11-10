@@ -33,6 +33,21 @@ export interface CanvasEditHost {
    * seeing the original's pages, «page 1 of 2» with three slides in the copy).
    */
   showCopy?(sessionId: string, original: DocFile, copy: DocFile): Promise<void>;
+  /**
+   * Whether the person said yes to this very call as a deletion for good (G36.17b, the broker's
+   * record). A redaction (G37.8) never runs without it: without this, it is refused.
+   */
+  personApproved?(sessionId: string, callId: string | undefined): boolean;
+}
+
+/** Whether operations redact (the agent's words, or the family's actions made from them). */
+function redacts(ops: readonly unknown[]): boolean {
+  return ops.some((o) => {
+    const x = (o ?? {}) as Record<string, unknown>;
+    const name = String(x.op ?? x.action ?? x.type ?? x.t ?? "").toLowerCase();
+    const inner = (x.op && typeof x.op === "object" ? x.op : {}) as Record<string, unknown>;
+    return name === "redact" || String(inner.t ?? "").toLowerCase() === "redact";
+  });
 }
 
 const Input = z.object({
@@ -224,6 +239,15 @@ export function canvasEditTool(
               : "";
         return `Dry run on revision ${base} (nothing changed): it would have ${out.summary.text}${mode === "propose" ? ", as a proposal for the person" : ""}.${preview}${tail}`;
       }
+      // A redaction takes text out of the file for good (G37.8): only with the person's own yes
+      // to this call, whatever the rules, the mode or the way the call came (p3.5.4).
+      if (
+        (redacts(i.ops) || redacts(made.ops)) &&
+        host.personApproved?.(ctx.sessionId, ctx.callId) !== true
+      )
+        return fail(
+          "Nothing applied: a redaction removes text for good, so it needs the person's own yes to this call, and they were not asked or did not say yes. Call canvas_edit again with the redaction (not from a script): the person is asked first.",
+        );
       if (mode === "propose") {
         // A proposal follows the same rules as an edit (p3.5.3): where the person is typing, or
         // on a place someone changed since the agent's revision, it is refused, not kept.

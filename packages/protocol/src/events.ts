@@ -96,6 +96,8 @@ export const EventBody = z.discriminatedUnion("type", [
       model: z.string(),
       metrics: MessageMetrics,
       costUsd: z.number().nonnegative(),
+      /** A model the catalog does not know (3.5.4): `costUsd` is 0 because the price is unknown. */
+      costUnknown: z.boolean().optional(),
     }),
   }),
   z.object({
