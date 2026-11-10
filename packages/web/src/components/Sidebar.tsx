@@ -26,6 +26,7 @@ import {
   chatAgentId,
   getApi,
   newSession,
+  openOrchestrator,
   openSession,
   openTab,
   projects,
@@ -65,8 +66,11 @@ function Folder({ name, children }: { name: string; children: preact.ComponentCh
   );
 }
 
-/** One conversation: open it, pin it, archive it (the log is never touched). */
-function SessionLine({ row, folders }: { row: SessionRow; folders: string[] }) {
+/**
+ * One conversation: open it, pin it, archive it (the log is never touched). One working on a
+ * task says so (p3.5.4: «Compito: …»); `who` names the agent when the list mixes several.
+ */
+function SessionLine({ row, folders, who }: { row: SessionRow; folders: string[]; who?: string }) {
   const active = activeTab.value === `chat:${row.id}`;
   const origin = row.forkedFrom
     ? sessionRows.value.find((r) => r.id === row.forkedFrom)
@@ -74,15 +78,27 @@ function SessionLine({ row, folders }: { row: SessionRow; folders: string[] }) {
   const update = (change: { pinned?: boolean; archived?: boolean; folder?: string | null }) =>
     void attempt(() => getApi().updateSession(row.id, change)).then(refreshConversations);
   return (
-    <div class={`session-row ${active ? "active" : ""}`}>
+    <div class={`session-row ${active ? "active" : ""}${row.task ? " task" : ""}`}>
       <button type="button" class="open" onClick={() => openSession(row)}>
-        {row.running && <span class="dot running" />}
+        {row.running && (
+          <span
+            class="dot running"
+            role="img"
+            aria-label={t("barWorking")}
+            title={t("barWorking")}
+          />
+        )}
         {row.pinned && (
           <span class="pinned">
             <IconPin size={11} filled />
           </span>
         )}
-        <span class="title">{row.title ?? t("newConversation")}</span>
+        <span class={`title${who ? " with-who" : ""}`}>
+          {who && <span class="who">{who}</span>}
+          <span class="what">
+            {row.task ? t("barTask", { title: row.task }) : (row.title ?? t("newConversation"))}
+          </span>
+        </span>
         <span class="date">{shortDate(row.lastAt ?? row.createdAt)}</span>
       </button>
       {origin && (
@@ -184,6 +200,57 @@ function Sessions({ agent }: { agent: Agent }) {
       {(archivedCount > 0 || archived) && (
         <button type="button" class="more" onClick={() => setArchived(!archived)}>
           {archived ? t("backToConversations") : t("archivedN", { n: String(archivedCount) })}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The conversations of a project's other agents (p3.5.4): the tasks handed over show up here
+ * as soon as they start (`session.activity`), open tasks first; the subprojects' own agents
+ * stay under their subproject unless they are working on a task.
+ */
+function TeamSessions({
+  projectId,
+  orchestratorId,
+}: {
+  projectId: string;
+  orchestratorId?: string;
+}) {
+  const [all, setAll] = useState(false);
+  const inSub = new Set(agents.value.filter((a) => a.subprojectId).map((a) => a.id));
+  const rows = sessionRows.value
+    .filter(
+      (r) =>
+        r.projectId === projectId &&
+        r.agentId !== orchestratorId &&
+        !r.archived &&
+        (r.task || !inSub.has(r.agentId)) &&
+        agents.value.some((a) => a.id === r.agentId),
+    )
+    .sort(
+      (a, b) =>
+        Number(!!b.task) - Number(!!a.task) ||
+        Number(b.running) - Number(a.running) ||
+        (b.lastAt ?? b.createdAt).localeCompare(a.lastAt ?? a.createdAt),
+    );
+  if (rows.length === 0) return null;
+  const shown = all ? rows : rows.slice(0, SHOWN);
+  return (
+    <div class="sessions team" data-testid="team-sessions">
+      <span class="dim team-head">{t("barTeam")}</span>
+      {shown.map((r) => (
+        <SessionLine
+          key={r.id}
+          row={r}
+          folders={[]}
+          who={agents.value.find((a) => a.id === r.agentId)?.name}
+        />
+      ))}
+      {rows.length > SHOWN && (
+        <button type="button" class="more" onClick={() => setAll(!all)}>
+          {all ? t("showLess") : t("showAll", { n: String(rows.length) })}
         </button>
       )}
     </div>
@@ -595,18 +662,40 @@ export function Sidebar() {
                 (a) => a.kind === "orchestrator" && a.projectId === p.id,
               );
               const running = sessionRows.value.some((r) => r.projectId === p.id && r.running);
+              // The name opens the orchestrator's chat and shows the conversations (p3.5.4);
+              // the arrow only folds and unfolds.
+              const openProject = () => {
+                if (!open.has(key)) setOpen(new Set([...open, key]));
+                if (orchestrator) void attempt(() => openOrchestrator(orchestrator));
+              };
               return (
                 <div key={p.id}>
-                  <div class="bar-row">
+                  <div class="bar-row project-row">
                     <button
                       type="button"
-                      class="bar-item"
-                      onClick={() => toggle(key)}
+                      class="bar-fold"
+                      title={open.has(key) ? t("collapse") : t("expand")}
+                      aria-label={`${open.has(key) ? t("collapse") : t("expand")}: ${p.name}`}
                       aria-expanded={open.has(key)}
+                      onClick={() => toggle(key)}
                     >
                       <IconChevron open={open.has(key)} />
+                    </button>
+                    <button
+                      type="button"
+                      class="bar-item project-name"
+                      title={orchestrator ? t("barOpenOrchestrator", { name: p.name }) : p.name}
+                      onClick={openProject}
+                    >
                       <span class="name">{p.name}</span>
-                      {running && <span class="dot running" />}
+                      {running && (
+                        <span
+                          class="dot running"
+                          role="img"
+                          aria-label={t("barWorking")}
+                          title={t("barWorking")}
+                        />
+                      )}
                     </button>
                     <span class="project-actions">
                       <button
@@ -666,7 +755,10 @@ export function Sidebar() {
                   </div>
                   {open.has(key) &&
                     (orchestrator ? (
-                      <Sessions agent={orchestrator} />
+                      <>
+                        <Sessions agent={orchestrator} />
+                        <TeamSessions projectId={p.id} orchestratorId={orchestrator.id} />
+                      </>
                     ) : (
                       <div class="sessions">
                         <span class="dim">{t("noOrchestrator")}</span>

@@ -427,6 +427,47 @@ button.bar-settings {
 .bar-item.strong {
   font-weight: 600;
 }
+/* A project (p3.5.4): the arrow folds, the name opens the orchestrator's chat. */
+.bar-fold {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--dim);
+}
+.bar-fold:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.project-row .bar-item.project-name {
+  padding-left: 4px;
+}
+.sessions.team .team-head {
+  font-size: 11px;
+  padding: 6px 8px 2px;
+}
+.session-row .title.with-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.session-row .title.with-who > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-row .who {
+  font-size: 11px;
+  color: var(--dim);
+}
+.session-row.task .what {
+  font-weight: 600;
+}
 .bar-item .name {
   flex: 1;
   overflow: hidden;
@@ -1357,7 +1398,144 @@ button.bar-settings {
   padding: 4px 6px 6px;
   min-width: 0;
   flex-wrap: nowrap;
-  overflow: hidden;
+}
+/* The «…» next to Attach (p3.5.4): the conversation's commands in a panel above it. */
+.more-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.more-button {
+  position: relative;
+}
+.more-button[aria-expanded="true"] {
+  color: var(--accent);
+  background: var(--panel-2);
+}
+.more-mark {
+  position: absolute;
+  top: 5px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.more-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: -4px;
+  z-index: 30;
+  width: min(320px, calc(100vw - 72px));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
+}
+.more-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 6px 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+fieldset.more-row {
+  margin: 0 0 4px;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+}
+fieldset.more-row > legend {
+  float: left;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+}
+.more-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dim);
+}
+.more-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.more-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12px;
+}
+.more-seg.on {
+  font-weight: 600;
+  background: var(--panel);
+}
+.more-seg:hover:not(.on) {
+  border-color: var(--accent-dim);
+}
+.more-model {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.more-panel select.model {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  min-height: 0;
+  height: 30px;
+  font-size: 13px;
+  padding: 0 26px 0 10px;
+  border-radius: 8px;
+}
+.more-panel select.model.effort {
+  flex: 0 0 auto;
+}
+.more-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  font-size: 14px;
+}
+.more-item .icon {
+  color: var(--dim);
+}
+.more-item:hover:not(:disabled),
+.more-item:focus-visible {
+  background: var(--panel-2);
+}
+.more-item:disabled {
+  opacity: 0.45;
+}
+.more-item .more-name {
+  flex: 1;
+}
+.more-item .more-state {
+  font-size: 12px;
+  color: var(--dim);
+}
+.more-item[aria-pressed="true"] .more-state {
+  color: var(--accent);
+  font-weight: 600;
 }
 .box-bar .icon-button {
   width: 32px;

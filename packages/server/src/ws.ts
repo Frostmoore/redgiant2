@@ -26,6 +26,8 @@ const paramsOf = (err: unknown): Record<string, string> | undefined => {
   const p = (err as { params?: unknown } | null)?.params;
   return p && typeof p === "object" ? (p as Record<string, string>) : undefined;
 };
+/** The page's heartbeat, exactly as `Live` sends it (p3.5.4). */
+const PING = JSON.stringify({ type: "ping" });
 
 const codeOf = (err: unknown): string | undefined => {
   const code = (err as { code?: unknown }).code;
@@ -132,6 +134,11 @@ export function attachWebSocket(
     // and `session.follow` back to back without waiting).
     let queue: Promise<void> = Promise.resolve();
     ws.on("message", (raw) => {
+      // The page's heartbeat (p3.5.4) is answered at once, never behind a slow message.
+      if (principal && raw.toString() === PING) {
+        send({ type: "pong" });
+        return;
+      }
       queue = queue
         .then(async () => {
           await handle(raw);
@@ -224,8 +231,13 @@ export function attachWebSocket(
             return fail("bad_message", "Already authenticated");
           case "session.follow":
             if (!follows.has(msg.sessionId))
-              follows.set(msg.sessionId, await core.follow(owner, msg.sessionId, send));
+              follows.set(
+                msg.sessionId,
+                await core.follow(owner, msg.sessionId, send, msg.afterSeq),
+              );
             return;
+          case "ping":
+            return send({ type: "pong" });
           case "session.unfollow":
             follows.get(msg.sessionId)?.();
             follows.delete(msg.sessionId);

@@ -182,8 +182,14 @@ async function run(parallel: boolean, follow = true) {
     );
     expect(shown.length).toBe(1);
     // The list has the conversation of the tasks (the bell's «apri» finds it).
-    const list = await server.api<{ id: string; agentId: string }[]>("GET", "/api/sessions");
+    const list = await server.api<{ id: string; agentId: string; task?: string | null }[]>(
+      "GET",
+      "/api/sessions",
+    );
     expect(list.body.some((r) => r.id === orchSession)).toBe(true);
+    // …with the task it works on, for the left bar's «Compito: …» (p3.5.4).
+    expect(["Alpha", "Beta"]).toContain(list.body.find((r) => r.id === orchSession)?.task);
+    expect(list.body.find((r) => r.id === body.sessionId)?.task).toBe(null);
     page.send({ type: "question.answer", requestId: q.request.requestId, answers: [["Yes"]] });
     // The command of the first task ends and the page still hears it.
     const bash = await waitSeen(

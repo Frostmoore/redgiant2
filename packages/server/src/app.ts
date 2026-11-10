@@ -350,6 +350,8 @@ const routes = {
             /** The conversation it goes on from (G36.23). */
             forkedFrom: z.string().nullable().optional(),
             running: z.boolean(),
+            /** The title of the task it works on, while one is open (p3.5.4). */
+            task: z.string().nullable().optional(),
             /** The session's own model, when it does not use the agent's. */
             model: ModelSpec.nullable(),
           }),
@@ -1136,6 +1138,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         folder: r.folder ?? null,
         forkedFrom: r.forked_from ?? null,
         running: core.isRunning(r.id),
+        task: core.tasks.openFor(r.agent_id, r.id)?.title ?? null,
         model: (typeof r.model === "string"
           ? JSON.parse(r.model)
           : r.model) as ModelSpecType | null,

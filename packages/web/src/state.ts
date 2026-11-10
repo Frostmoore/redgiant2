@@ -565,13 +565,17 @@ export function applyMessage(m: ServerMessage): void {
       canvasEvent(m.sessionId, m.event);
       return;
     // One of the person's conversations started or stopped (p3.5.3), followed or not.
-    case "session.activity":
-      if (sessionRows.value.some((r) => r.id === m.sessionId))
+    // A conversation the list does not have (a task just handed over) is fetched at once; a
+    // known one may have just taken a task or closed one (p3.5.4): fetched again for its title.
+    case "session.activity": {
+      const known = sessionRows.value.find((r) => r.id === m.sessionId);
+      if (known)
         sessionRows.value = sessionRows.value.map((r) =>
           r.id === m.sessionId ? { ...r, running: m.state === "running" } : r,
         );
-      else refreshSoon();
+      if (!known || (m.state === "running") !== !!known.task) refreshSoon();
       return;
+    }
     case "image.progress": {
       const v = sessionView(m.sessionId);
       v.value = {
@@ -626,8 +630,16 @@ export function applyMessage(m: ServerMessage): void {
     case "session.compacting":
       sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, compacting: m.busy };
       return;
+    // Followed (again, after a reconnection): what was streaming before is stale (p3.5.4); what
+    // comes next and the state that follows say where the conversation really is.
     case "session.synced":
-      sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, synced: true };
+      sessionView(m.sessionId).value = {
+        ...sessionView(m.sessionId).value,
+        synced: true,
+        text: "",
+        thinking: "",
+        drawing: undefined,
+      };
       return;
     case "permission.request":
       if (!approvals.value.some((r) => r.requestId === m.request.requestId)) {
@@ -680,6 +692,8 @@ export function applyMessage(m: ServerMessage): void {
 
 export const token = signal<string | null>(localStorage.getItem("rg.token"));
 export const status = signal<"online" | "offline" | "connecting">("offline");
+/** The page was connected once: losing it now is news (p3.5.4, «Collegamento perso»). */
+export const everOnline = signal(false);
 /** The projects in use: every list and choice shows these. */
 export const projects = signal<Project[]>([]);
 /** Archived projects (2026-11-09): only in their own section, read only. */
@@ -798,6 +812,7 @@ export async function signIn(t: string): Promise<void> {
   live?.close();
   live = new Live(t, applyMessage, (s) => {
     status.value = s;
+    if (s === "online") everOnline.value = true;
   });
   await refresh();
   firstRun.value = !(await api.setup().catch(() => ({ config: { completed: true } }))).config
@@ -1266,6 +1281,8 @@ export interface SessionRow {
   folder?: string | null;
   /** The conversation it goes on from (G36.23). */
   forkedFrom?: string | null;
+  /** The title of the task it works on, while one is open (p3.5.4). */
+  task?: string | null;
 }
 
 export const sessionRows = signal<SessionRow[]>([]);
@@ -1345,6 +1362,18 @@ export async function newSession(agent: Agent): Promise<void> {
   const { sessionId } = await getApi().startSession(agent.id);
   await refreshConversations();
   openSession({ id: sessionId, agentId: agent.id, title: null });
+}
+
+/**
+ * A project's name clicked in the left bar (p3.5.4): its orchestrator's latest conversation
+ * (pinned or not, never an archived one) opens, or a new one starts when there is none.
+ */
+export async function openOrchestrator(agent: Agent): Promise<void> {
+  const latest = sessionRows.value
+    .filter((r) => r.agentId === agent.id && !r.archived)
+    .sort((a, b) => (b.lastAt ?? b.createdAt).localeCompare(a.lastAt ?? a.createdAt))[0];
+  if (latest) openSession(latest);
+  else await newSession(agent);
 }
 
 /** Opens the latest conversation with an agent, or starts one. */
