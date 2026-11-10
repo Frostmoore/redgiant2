@@ -21,6 +21,12 @@ import { handleTerminal } from "./terminal.js";
  * Sessions never depend on a connection: closing it only stops the following.
  */
 /** The code an error carries for the UI (`no_model`…), when it has one. */
+/** An error's values for the page's words (a stalled provider: minutes and tries). */
+const paramsOf = (err: unknown): Record<string, string> | undefined => {
+  const p = (err as { params?: unknown } | null)?.params;
+  return p && typeof p === "object" ? (p as Record<string, string>) : undefined;
+};
+
 const codeOf = (err: unknown): string | undefined => {
   const code = (err as { code?: unknown }).code;
   return typeof code === "string" && /^[a-z_]+$/.test(code) ? code : undefined;
@@ -82,7 +88,8 @@ export function attachWebSocket(
     const docs = new Map<string, { file: DocFile; subId: string }>();
     const docSub = (file: DocFile) => docs.get(docKey(file));
     const send = (m: ServerMessage) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
-    const fail = (code: string, message: string) => send({ type: "error", code, message });
+    const fail = (code: string, message: string, params?: Record<string, string>) =>
+      send({ type: "error", code, message, ...(params && { params }) });
 
     const onRequest = (
       ownerId: string,
@@ -233,7 +240,7 @@ export function attachWebSocket(
               steer: true,
               ...(msg.clientId && { clientId: msg.clientId }),
             });
-            done.catch((err) => fail(codeOf(err) ?? "session_failed", String(err)));
+            done.catch((err) => fail(codeOf(err) ?? "session_failed", String(err), paramsOf(err)));
             return;
           }
           case "session.unqueue":

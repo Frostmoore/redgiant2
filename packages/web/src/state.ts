@@ -70,6 +70,8 @@ export type ChatItem =
       parts: AssistantPart[];
       metrics: MessageMetrics;
       costUsd: number;
+      /** The model's price is not known (3.5.4): the cost shows as "not known". */
+      costUnknown?: boolean;
       model: string;
       stopReason: string;
       /** Brought in from another assistant (G36.7): no figures to show. */
@@ -162,7 +164,11 @@ function notifyHidden(body: string, tag?: string): void {
 
 export function buildItems(events: Event[]): ChatItem[] {
   const items: ChatItem[] = [];
-  const tools = new Map<string, Extract<ChatItem, { kind: "tool" }>>();
+  // Calls by id, oldest first: an id given twice (an engine's two calls in the same instant,
+  // 3.5.4) still pairs each result with its own call instead of leaving one spinning.
+  const tools = new Map<string, Extract<ChatItem, { kind: "tool" }>[]>();
+  /** Calls with no result yet: once the model speaks again they cannot be running any more. */
+  const open = new Set<Extract<ChatItem, { kind: "tool" }>>();
   const asked = new Map<string, Extract<ChatItem, { kind: "question" }>>();
   for (const e of events) {
     const key = `e${e.seq}`;
@@ -194,6 +200,13 @@ export function buildItems(events: Event[]): ChatItem[] {
         });
         break;
       case "message.assistant":
+        // A final answer after these calls (no tool asked for): whatever they were, they are
+        // over, their result was lost (a turn cancelled while they ran). A message that asks
+        // for tools may be recorded after its own calls started (an engine), so it does not.
+        if (e.payload.stopReason !== "tool_use") {
+          for (const c of open) c.result = { ok: false, output: t("toolNoResult") };
+          open.clear();
+        }
         items.push({
           kind: "assistant",
           key,
@@ -202,6 +215,7 @@ export function buildItems(events: Event[]): ChatItem[] {
           parts: e.payload.parts.filter((p) => p.type !== "tool_call"),
           metrics: e.payload.metrics,
           costUsd: e.payload.costUsd,
+          ...(e.payload.costUnknown && { costUnknown: true }),
           model: e.payload.model,
           stopReason: e.payload.stopReason,
           // Older or hand-made events may lack the provider.
@@ -238,12 +252,15 @@ export function buildItems(events: Event[]): ChatItem[] {
           tool: e.payload.tool,
           input: e.payload.input,
         };
-        tools.set(e.payload.callId, item);
+        tools.set(e.payload.callId, [...(tools.get(e.payload.callId) ?? []), item]);
+        open.add(item);
         items.push(item);
         break;
       }
       case "tool.result": {
-        const call = tools.get(e.payload.callId);
+        const same = tools.get(e.payload.callId) ?? [];
+        const call = same.find((c) => !c.result) ?? same.at(-1);
+        if (call) open.delete(call);
         if (call)
           call.result = {
             ok: e.payload.ok,
@@ -519,7 +536,7 @@ export function applyMessage(m: ServerMessage): void {
     case "error":
       if (m.code === "unavailable")
         browserScreen.value = { ...browserScreen.value, unavailable: true };
-      else lastError.value = tOptional(`err_${m.code}`) ?? m.message;
+      else lastError.value = tOptional(`err_${m.code}`, m.params ?? {}) ?? m.message;
       return;
     case "event": {
       const v = sessionView(m.sessionId);

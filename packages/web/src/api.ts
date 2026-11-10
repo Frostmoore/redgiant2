@@ -27,6 +27,7 @@ import {
   type LocalRerankModel,
   type MagicAutomation,
   type Mailbox as MailboxInfo,
+  type ModelsCatalogStatus,
   type OcrLanguage,
   type PermissionRequestInfo,
   PROTOCOL_VERSION,
@@ -396,6 +397,10 @@ export interface ModelChoice {
   provider: string;
   model: string;
   effort: boolean;
+  /** As people know it (from the models catalog or the provider). */
+  name?: string;
+  /** "new": released in the last weeks; "unconfirmed": not in the models catalog yet (3.5.4). */
+  status?: "new" | "unconfirmed";
 }
 
 export interface SearchHit {
@@ -650,6 +655,10 @@ export class Api {
     },
   ) => this.call("PATCH", `/api/sessions/${id}`, change);
   models = () => this.call<ModelChoice[]>("GET", "/api/models");
+  /** The models catalog in use (3.5.4): its date, and «Update now». */
+  modelsCatalog = () => this.call<ModelsCatalogStatus | null>("GET", "/api/models/catalog");
+  refreshModelsCatalog = () =>
+    this.call<ModelsCatalogStatus | null>("POST", "/api/models/catalog/refresh");
   search = (q: string) => this.call<SearchHit[]>("GET", `/api/search?q=${encodeURIComponent(q)}`);
   startSession = (agentId: string) =>
     this.call<{ sessionId: string }>("POST", "/api/sessions", { agentId });

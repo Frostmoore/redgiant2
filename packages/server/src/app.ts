@@ -1234,6 +1234,11 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   );
   // What the composer offers: every provider's models, and whether they take an effort.
   app.get("/api/models", async (c) => c.json(await core.models(), 200));
+  // The models catalog in use (3.5.4) and «Update now».
+  app.get("/api/models/catalog", (c) => c.json(core.catalog?.status() ?? null, 200));
+  app.post("/api/models/catalog/refresh", async (c) =>
+    c.json((await core.catalog?.check()) ?? null, 200),
+  );
   app.get("/api/search", async (c) =>
     c.json(await core.search(owner(c), c.req.query("q") ?? ""), 200),
   );

@@ -7,7 +7,7 @@ import type { ModelChoice } from "../api.js";
 import { t } from "../i18n.js";
 import { agents, getApi, projects, refresh, subprojects } from "../state.js";
 import { explain, providerName } from "./Brain.js";
-import { modelName } from "./ModelMenu.js";
+import { modelName, modelNote } from "./ModelMenu.js";
 import {
   DraftEstimate,
   DraftInstructions,
@@ -190,6 +190,7 @@ export function AgentWizard({ onDone }: { onDone: () => void }) {
                   .map((m) => (
                     <option key={m.model} value={`${m.provider}/${m.model}`}>
                       {modelName(m.model)}
+                      {modelNote(m)}
                     </option>
                   ))}
               </optgroup>

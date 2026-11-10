@@ -47,6 +47,7 @@ export * from "./shared-memory.js";
 export * from "./site-match.js";
 export * from "./terminal.js";
 export * from "./tool-choice.js";
+export * from "./models-catalog.js";
 export * from "./updates.js";
 export * from "./vault.js";
 export * from "./voice.js";

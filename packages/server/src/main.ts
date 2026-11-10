@@ -7,7 +7,13 @@ import { fileURLToPath } from "node:url";
 import { KvStore, LocalEngineProvider } from "@redgiant/engine-local";
 import { pgPoolClient, Redactor, type SqlClient } from "@redgiant/events";
 import type { ModelSpec } from "@redgiant/protocol";
-import { AnthropicProvider, OpenAICompatProvider, ProviderRegistry } from "@redgiant/providers";
+import {
+  AnthropicProvider,
+  LOCAL_STALL,
+  OpenAICompatProvider,
+  ProviderRegistry,
+  setStallLog,
+} from "@redgiant/providers";
 import { DockerSandboxProvider, HostSandboxProvider } from "@redgiant/sandbox";
 import { RESTART_EXIT_CODE } from "@redgiant/supervisor";
 import type { TelegramGateway } from "@redgiant/telegram";
@@ -29,6 +35,7 @@ import { mailSource } from "./knowledge/mail.js";
 import { LocalOcr } from "./knowledge/ocr.js";
 import { ensurePgvector } from "./knowledge/pgvector.js";
 import { KnowledgeService } from "./knowledge/service.js";
+import { CatalogWatcher } from "./models-catalog.js";
 import { NativeLauncher } from "./native-launcher.js";
 import { ensureGit } from "./portable-git.js";
 import { backgroundPuller, runtimeHooks } from "./runtime.js";
@@ -95,6 +102,8 @@ if (env.REDGIANT_OPENAI_BASE_URL) {
     id: env.REDGIANT_OPENAI_ID ?? "local",
     baseURL: env.REDGIANT_OPENAI_BASE_URL,
     ...(env.OPENAI_API_KEY && { apiKey: env.OPENAI_API_KEY }),
+    // A server of one's own: probably a local engine, slow to read a long prompt (3.5.4).
+    stall: LOCAL_STALL,
   });
   await local
     .discover()
@@ -502,6 +511,26 @@ if (sandbox.kind === "host")
   core.updates = updates;
   if (env.REDGIANT_UPDATE_CHECK !== "0") updates.start();
   shutdownHooks.push(async () => updates.stop());
+}
+// The models catalog (3.5.4): the signed copy kept from an earlier run, then GitHub's newest,
+// at start and every day. A provider that stops answering leaves a line here for every try.
+setStallLog((line) => {
+  console.warn(line);
+  debugLog.write("provider", line);
+});
+{
+  const catalog = new CatalogWatcher({
+    dataDir,
+    ...(env.REDGIANT_MODELS_CATALOG_URL && {
+      sources: [
+        { url: env.REDGIANT_MODELS_CATALOG_URL, sig: `${env.REDGIANT_MODELS_CATALOG_URL}.sig` },
+      ],
+    }),
+  });
+  core.catalog = catalog;
+  if (env.REDGIANT_MODELS_CATALOG !== "0") await catalog.start();
+  else await catalog.loadStored();
+  shutdownHooks.push(async () => catalog.stop());
 }
 await core.automations.start();
 // Windows without Git (RedGiant 3.0): the portable one comes down once, with its bar.

@@ -5,13 +5,19 @@
 import { KEY_PROVIDERS, OWN_SERVER_ID } from "@redgiant/protocol";
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import { ApiError, type ClaudeAccount, type SetupState, type SubscriptionProgram } from "../api.js";
+import {
+  ApiError,
+  type ClaudeAccount,
+  type ModelChoice,
+  type SetupState,
+  type SubscriptionProgram,
+} from "../api.js";
 import { BrandIcon, brandOr, hasBrand } from "../brands.js";
 import { t, tOptional } from "../i18n.js";
 import { IconChat, IconKey, IconMonitor, IconServer, IconSpark } from "../icons.js";
 import { getApi, refreshLimits } from "../state.js";
 import type { Way } from "../wizard.js";
-import { modelName } from "./ModelMenu.js";
+import { modelName, modelNote } from "./ModelMenu.js";
 import { Acts } from "./SettingsKit.js";
 import { Field, Pick } from "./ui.js";
 
@@ -498,7 +504,7 @@ const EFFORTS = ["low", "medium", "high", "max"] as const;
 
 /** The model agents use when nobody chose another, among those connected, and its effort. */
 export function DefaultModel({ s, onSaved }: { s: SetupState; onSaved: () => void }) {
-  const [models, setModels] = useState<{ provider: string; model: string; effort: boolean }[]>();
+  const [models, setModels] = useState<ModelChoice[]>();
   const current = s.config.defaultModel;
   const [model, setModel] = useState(current ? `${current.provider}/${current.model}` : "");
   const [effort, setEffort] = useState(current?.effort ?? "medium");
@@ -547,6 +553,7 @@ export function DefaultModel({ s, onSaved }: { s: SetupState; onSaved: () => voi
                   .map((m) => (
                     <option key={m.model} value={`${m.provider}/${m.model}`}>
                       {modelName(m.model)}
+                      {modelNote(m)}
                     </option>
                   ))}
               </optgroup>

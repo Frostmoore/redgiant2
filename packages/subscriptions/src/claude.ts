@@ -8,7 +8,9 @@
 import type { Engine, EngineTurn } from "@redgiant/agent";
 import type { AssistantPart, MessageMetrics, ModelSpec } from "@redgiant/protocol";
 import {
-  ANTHROPIC_MODELS,
+  anthropicModel,
+  catalogModel,
+  catalogModels,
   type ModelInfo,
   type Provider,
   ProviderError,
@@ -28,6 +30,7 @@ export interface ClaudeSdk {
   > & {
     usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?(): Promise<unknown>;
     interrupt?(): Promise<void>;
+    supportedModels?(): Promise<unknown>;
   };
   createSdkMcpServer(o: { name: string; tools: unknown[] }): unknown;
   tool(
@@ -91,7 +94,7 @@ function metricsOf(
   const read = usage?.cache_read_input_tokens ?? 0;
   const write = usage?.cache_creation_input_tokens ?? 0;
   const out = usage?.output_tokens ?? 0;
-  const window = ANTHROPIC_MODELS[model]?.contextWindow ?? 200_000;
+  const window = anthropicModel(model)?.contextWindow ?? 200_000;
   return {
     startedAt: new Date(started).toISOString(),
     endedAt: new Date(now).toISOString(),
@@ -111,6 +114,10 @@ function metricsOf(
 /** One SDK turn: prompt in, assistant messages out, RedGiant's tools in between. */
 export class ClaudeEngine implements Engine {
   readonly id = CLAUDE_SUBSCRIPTION;
+  /** Full model ids the engine said the plan offers (`supportedModels`), newest reading. */
+  offered: string[] = [];
+  readonly offeredInfo = new Map<string, { displayName?: string; supportsEffort?: boolean }>();
+  private askedModels = false;
   /** The plan's windows, as the turns report them (the provider shows them). */
   onLimits: ((w: SubscriptionWindow[]) => void) | undefined;
   constructor(private readonly o: ClaudeSubscriptionOptions) {}
@@ -151,17 +158,69 @@ export class ClaudeEngine implements Engine {
     };
   }
 
+  /**
+   * Once per run, the models the plan offers, as the engine itself lists them (3.5.4): asked of
+   * the query already running, so it costs no model call. Aliases ("opus") count through the id
+   * they resolve to; only full `claude-` ids are kept.
+   */
+  private learnModels(q: { supportedModels?(): Promise<unknown> }): void {
+    if (this.askedModels || !q.supportedModels) return;
+    this.askedModels = true;
+    void Promise.race([
+      q.supportedModels(),
+      new Promise<undefined>((r) => setTimeout(() => r(undefined), 5000).unref?.()),
+    ])
+      .then((list) => {
+        if (!Array.isArray(list)) return;
+        const ids: string[] = [];
+        for (const raw of list as {
+          value?: unknown;
+          resolvedModel?: unknown;
+          displayName?: unknown;
+          supportsEffort?: unknown;
+        }[]) {
+          const id = [raw.resolvedModel, raw.value].find(
+            (v): v is string => typeof v === "string" && /^claude-[a-z0-9-]+$/.test(v),
+          );
+          if (!id || ids.includes(id)) continue;
+          ids.push(id);
+          this.offeredInfo.set(id, {
+            ...(typeof raw.displayName === "string" && { displayName: raw.displayName }),
+            ...(typeof raw.supportsEffort === "boolean" && { supportsEffort: raw.supportsEffort }),
+          });
+        }
+        if (ids.length) this.offered = ids;
+      })
+      .catch(() => {});
+  }
+
   async turn(t: EngineTurn): Promise<{ resume: string; stopReason: "end_turn" | "aborted" }> {
     const sdk = this.o.sdk ?? (await loadSdk());
     const now = this.o.now ?? Date.now;
     // The SDK's tool calls reach our handlers without their tool_use id: each call takes the
     // oldest announced id with that name (the assistant message always comes first).
     const pending = new Map<string, string[]>();
+    let calls = 0;
+    // Ids already given to a call: announced later, they are not handed out again.
+    const used = new Set<string>();
     const native = this.o.nativeWebSearch !== false;
     const offered = native ? t.tools.filter((d) => d.name !== OWN_SEARCH) : t.tools;
     const tools = offered.map((d) =>
-      sdk.tool(d.name, d.description, shapeOf(d.inputSchema), async (args) => {
-        const callId = pending.get(d.name)?.shift() ?? `call_${d.name}_${now()}`;
+      sdk.tool(d.name, d.description, shapeOf(d.inputSchema), async (args, extra) => {
+        // The call's own id when the engine passes it along; otherwise the oldest announced one
+        // with that name; otherwise a unique one, even for two calls in the same millisecond
+        // (sharing an id, the first line would never show its result).
+        const own = (extra as { _meta?: Record<string, unknown> } | undefined)?._meta?.[
+          "claudecode/toolUseId"
+        ];
+        const announced = pending.get(d.name);
+        if (typeof own === "string" && announced?.includes(own))
+          announced.splice(announced.indexOf(own), 1);
+        const callId =
+          (typeof own === "string" && own) ||
+          announced?.shift() ||
+          `call_${d.name}_${now()}_${++calls}`;
+        used.add(callId);
         const r = await t.runTool({ callId, name: d.name, input: args });
         return {
           content: [{ type: "text", text: r.content }],
@@ -207,12 +266,15 @@ export class ClaudeEngine implements Engine {
           // Only RedGiant's tools are allowed, and RedGiant asks its own permissions inside
           // each of them; anything else the engine would refuse without asking.
           permissionMode: "dontAsk",
-          includePartialMessages: Boolean(t.live),
+          // Always: every piece of the answer tells the session the engine is alive (3.5.4).
+          includePartialMessages: true,
           abortController: abort,
           ...(t.resume && { resume: t.resume }),
         }),
       });
+      this.learnModels(q);
       for await (const m of q) {
+        t.alive?.();
         if (typeof m.session_id === "string") session = m.session_id;
         // The engine summarised its own context (Claude Agent SDK "compact_boundary").
         if (m.type === "system" && (m as { subtype?: string }).subtype === "compact_boundary") {
@@ -251,7 +313,7 @@ export class ClaudeEngine implements Engine {
             else if (b.type === "tool_use" && typeof b.name === "string") {
               const name = b.name.startsWith(PREFIX) ? b.name.slice(PREFIX.length) : b.name;
               const callId = String(b.id);
-              pending.set(name, [...(pending.get(name) ?? []), callId]);
+              if (!used.has(callId)) pending.set(name, [...(pending.get(name) ?? []), callId]);
               parts.push({
                 type: "tool_call",
                 callId,
@@ -377,17 +439,32 @@ export class ClaudeSubscriptionProvider implements Provider {
     this.engine.onLimits = (w) => this.merge(w);
   }
 
+  /**
+   * The models to offer (3.5.4): the catalog's current generation, and the models the engine
+   * itself says the plan has (`supportedModels`, read during a turn, no extra call) that the
+   * catalog does not know yet ("data to be confirmed"). Without a turn yet, the catalog's.
+   */
   async models(): Promise<string[]> {
-    return ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"];
+    const current = catalogModels("anthropic")
+      .filter(([, m]) => m.status === "current")
+      .map(([id]) => id);
+    const extra = this.engine.offered.filter(
+      (id) => !catalogModel("anthropic", id) && !current.includes(id),
+    );
+    return [...current, ...extra];
   }
 
   modelInfo(model: string): ModelInfo {
-    const e = ANTHROPIC_MODELS[model];
+    const e = anthropicModel(model);
+    const seen = this.engine.offeredInfo.get(model);
     return {
       id: model,
       contextWindow: e?.contextWindow ?? 200_000,
       maxOutputTokens: e?.maxOutputTokens ?? 64_000,
-      supportsEffort: e?.supportsEffort ?? true,
+      supportsEffort: e?.supportsEffort ?? seen?.supportsEffort ?? true,
+      ...((e?.name ?? seen?.displayName) && { name: e?.name ?? seen?.displayName }),
+      ...(!e && { unconfirmed: true }),
+      ...(e?.isNew && { isNew: true }),
     };
   }
 

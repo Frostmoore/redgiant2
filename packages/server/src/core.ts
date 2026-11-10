@@ -188,6 +188,7 @@ import {
   migrateMagic,
 } from "./magic.js";
 import { type MediaRequest, type MediaResult, makeMedia } from "./media.js";
+import type { CatalogWatcher } from "./models-catalog.js";
 import { memoryTool, type NoteOwner, Notes } from "./notes.js";
 import {
   completeTaskTool,
@@ -501,6 +502,16 @@ export function yourFolder(ws: Workspace, findFiles = true): string {
   return `## Your folder\nYour project is ${both}. Every bash call is a new shell that starts there: cd and variables, $OLDPWD too, do not carry over, so write this folder in full when you need it again. Stay in it: never search a whole disk (find /, grep -r /); use glob and grep inside it${findFiles ? ", and find_files for files or programs elsewhere on this computer" : ""}.`;
 }
 
+/** One model in the menus (`GET /api/models`). */
+export interface ModelChoice {
+  provider: string;
+  model: string;
+  effort: boolean;
+  name?: string;
+  /** "new": released in the last weeks; "unconfirmed": not in the models catalog yet. */
+  status?: "new" | "unconfirmed";
+}
+
 export class RedGiantCore implements OrchestrationHost {
   readonly store: EventStore;
   readonly registry: AgentRegistry;
@@ -585,6 +596,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly commands: BackgroundCommands;
   /** Mandatory and breaking updates (G36.19), set by main: while one is mandatory no new turn starts. */
   updates: UpdateWatcher | undefined;
+  /** The models catalog's updates (3.5.4); absent in tests. */
+  catalog: CatalogWatcher | undefined;
   /** Backups made or being imported (2026-11-03): next to the workspaces, in the data volume. */
   get backupsDir(): string {
     return join(dirname(this.o.workspacesDir), "backups");
@@ -4670,13 +4683,27 @@ export class RedGiantCore implements OrchestrationHost {
     return out;
   }
 
-  /** The models one can pick, by provider; a provider that does not answer offers none. */
-  async models(): Promise<{ provider: string; model: string; effort: boolean }[]> {
-    const out: { provider: string; model: string; effort: boolean }[] = [];
+  /**
+   * The models one can pick, by provider; a provider that does not answer offers none. Each says
+   * its name and whether it is new or not in the models catalog yet (3.5.4: "data to be
+   * confirmed"); choosing one stays the person's doing.
+   */
+  async models(): Promise<ModelChoice[]> {
+    const out: ModelChoice[] = [];
     for (const p of this.o.providers.list()) {
       const ids = (await p.models?.(AbortSignal.timeout(5000)).catch(() => [])) ?? [];
-      for (const model of ids)
-        out.push({ provider: p.id, model, effort: p.modelInfo(model).supportsEffort });
+      for (const model of ids) {
+        const info = p.modelInfo(model);
+        out.push({
+          provider: p.id,
+          model,
+          effort: info.supportsEffort,
+          ...(info.name && { name: info.name }),
+          ...(info.unconfirmed
+            ? { status: "unconfirmed" as const }
+            : info.isNew && { status: "new" as const }),
+        });
+      }
     }
     return out;
   }

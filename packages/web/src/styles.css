@@ -16818,3 +16818,12 @@ fieldset.vw-seg {
     display: none;
   }
 }
+
+/* «Models catalog: updated on …» (3.5.4): one row under the ways of thinking. */
+.models-wz .mp-catalog {
+  margin: 18px auto 0;
+  max-width: 760px;
+}
+.models-wz .mp-catalog .mp-catalog-problem {
+  color: var(--warn, var(--muted));
+}

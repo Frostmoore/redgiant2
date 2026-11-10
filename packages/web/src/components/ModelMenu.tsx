@@ -17,6 +17,17 @@ export function modelName(id: string): string {
   return `${family} ${m[2]}${m[3] ? `.${m[3]}` : ""}`;
 }
 
+/**
+ * What the menus add after a model's name (3.5.4): "new" for a model just released, "data to be
+ * confirmed" for one the provider lists and the models catalog does not know yet.
+ */
+export const modelNote = (m: { status?: "new" | "unconfirmed" | undefined }) =>
+  m.status === "new"
+    ? ` · ${t("modelNew")}`
+    : m.status === "unconfirmed"
+      ? ` · ${t("modelUnconfirmed")}`
+      : "";
+
 /** How a model is reached, in a word next to its name. */
 export const via = (provider: string) =>
   provider.endsWith("-subscription")
@@ -102,6 +113,7 @@ export function ModelMenu({
           <option key={key(m)} value={key(m)}>
             {modelName(m.model)}
             {models.some((x) => x.provider !== m.provider) ? ` · ${via(m.provider)}` : ""}
+            {modelNote(m)}
           </option>
         ))}
       </select>

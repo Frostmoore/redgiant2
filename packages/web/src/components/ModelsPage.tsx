@@ -24,6 +24,7 @@ import {
   wayTiles,
 } from "./Brain.js";
 import { LocalModels } from "./LocalModels.js";
+import { ModelsCatalogRow } from "./ModelsCatalogRow.js";
 import { SearchSettings } from "./SearchSettings.js";
 import { OwnSearch } from "./Services.js";
 import { Acts, Head, Sub, Tile } from "./SettingsKit.js";
@@ -94,6 +95,7 @@ export function ModelsPage({ s, reload }: { s: SetupState; reload: () => void })
             {t("wzWhich")}
           </button>
         </p>
+        <ModelsCatalogRow />
 
         <Sub title={t("brainDefault")} lead={t("brainDefaultHint")} />
         <div class="wz-brain mp-one">
