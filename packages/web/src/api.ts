@@ -383,6 +383,8 @@ export interface SessionInfo {
   pinned: boolean;
   archived: boolean;
   running: boolean;
+  /** The title of the task it works on, while one is open (p3.5.4). */
+  task?: string | null;
   model: { provider: string; model: string; effort?: string } | null;
 }
 

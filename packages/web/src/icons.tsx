@@ -200,6 +200,14 @@ export const IconPaperclip = ({ size = 17 }: P) => (
     <path d="M21.4 11.1l-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8" />
   </Svg>
 );
+/** Three dots: more commands (the composer's menu, p3.5.4). */
+export const IconMore = ({ size = 18 }: P) => (
+  <Svg size={size} fill>
+    <circle cx="5" cy="12" r="2" />
+    <circle cx="12" cy="12" r="2" />
+    <circle cx="19" cy="12" r="2" />
+  </Svg>
+);
 export const IconMic = ({ size = 18 }: P) => (
   <Svg size={size}>
     <rect x="9" y="2" width="6" height="12" rx="3" />

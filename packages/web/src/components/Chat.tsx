@@ -63,7 +63,7 @@ import { Composer, packMessage } from "./Composer.js";
 import { askText } from "./dialogs.js";
 import { Images } from "./Images.js";
 import { MetricsBar } from "./MetricsBar.js";
-import { ModelMenu } from "./ModelMenu.js";
+import { ModelMenu, modelName } from "./ModelMenu.js";
 import { ArchivedNotice } from "./ProjectArchive.js";
 import { QuestionCard } from "./QuestionCard.js";
 import { ToolRequestCard } from "./ToolRequestCard.js";
@@ -1340,47 +1340,76 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
             ]);
         }}
         onStop={() => getLive().send({ type: "session.interrupt", sessionId })}
-        chips={
-          agent && (
+        moreChanged={mode !== "auto" || own !== undefined || asideOpen}
+        more={
+          agent &&
+          ((close) => (
             <>
-              <button
-                type="button"
-                class={`mode mode-${mode}`}
-                title={t("modeHint")}
-                onClick={() => {
-                  const next =
-                    MODES[(MODES.indexOf(mode as (typeof MODES)[number]) + 1) % MODES.length];
-                  void attempt(() => getApi().configureAgent(agent.id, { mode: next })).then(
-                    refresh,
-                  );
-                }}
-              >
-                <IconShield size={13} /> <span class="mode-name">{t(`mode_${mode}` as never)}</span>
-              </button>
-              <ModelMenu
-                sessionId={sessionId}
-                current={model}
-                own={own !== undefined}
-                disabled={v.state === "running"}
-              />
+              <fieldset class="more-row">
+                <legend class="more-label">
+                  {t("moreMode", { mode: t(`mode_${mode}` as never) })}
+                </legend>
+                <div class="more-modes">
+                  {MODES.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      class={`more-seg${m === mode ? ` on mode-${m}` : ""}`}
+                      aria-pressed={m === mode}
+                      onClick={() => {
+                        if (m === mode) return;
+                        void attempt(() => getApi().configureAgent(agent.id, { mode: m })).then(
+                          refresh,
+                        );
+                      }}
+                    >
+                      {m === mode && <IconShield size={12} />}
+                      {t(`mode_${m}` as never)}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              <div class="more-row">
+                <span class="more-label">
+                  {t("moreModel", {
+                    model: model
+                      ? `${modelName(model.model)}${model.effort ? ` · ${t(`effort_${model.effort}` as never)}` : ""}`
+                      : t("modelPick"),
+                  })}
+                </span>
+                <div class="more-model">
+                  <ModelMenu
+                    sessionId={sessionId}
+                    current={model}
+                    own={own !== undefined}
+                    disabled={v.state === "running"}
+                  />
+                </div>
+              </div>
               {items.value.some((i) => i.kind === "assistant") && (
                 <button
                   type="button"
-                  class={`mode${asideOpen ? " on" : ""}`}
+                  class="more-item"
                   title={t("asideHint")}
                   aria-pressed={asideOpen}
-                  onClick={() => setAsideOpen(!asideOpen)}
+                  onClick={() => {
+                    setAsideOpen(!asideOpen);
+                    close();
+                  }}
                 >
-                  <IconAside size={13} /> <span class="mode-name">{t("asideChip")}</span>
+                  <IconAside size={15} />
+                  <span class="more-name">{t("asideChip")}</span>
+                  <span class="more-state">{asideOpen ? t("moreOpen") : t("moreClosed")}</span>
                 </button>
               )}
               {items.value.length > 2 && (
                 <button
                   type="button"
-                  class="mode"
+                  class="more-item"
                   title={t("compactNowHint")}
                   disabled={v.state === "running"}
                   onClick={async () => {
+                    close();
                     const keep = await askText(t("compactNowAsk"));
                     if (keep === null) return;
                     getLive().send({
@@ -1390,16 +1419,18 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
                     });
                   }}
                 >
-                  <IconLayers size={13} /> <span class="mode-name">{t("compactNow")}</span>
+                  <IconLayers size={15} />
+                  <span class="more-name">{t("compactNow")}</span>
                 </button>
               )}
               {agent.kind !== "demigod" && agent.kind !== "subagent" && (
                 <button
                   type="button"
-                  class="mode"
+                  class="more-item"
                   title={t("roomFromChatHint")}
                   disabled={v.state === "running"}
-                  onClick={() =>
+                  onClick={() => {
+                    close();
                     // This conversation becomes a group chat: its agent leads, nothing is lost.
                     void attempt(() =>
                       getApi().createRoom({ members: [], from: { agentId: agent.id, sessionId } }),
@@ -1407,14 +1438,15 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
                       if (!r) return;
                       await refreshRooms();
                       openTab({ id: `room:${r.id}`, type: "room", title: r.title, roomId: r.id });
-                    })
-                  }
+                    });
+                  }}
                 >
-                  <IconUsers size={13} /> <span class="mode-name">{t("roomFromChat")}</span>
+                  <IconUsers size={15} />
+                  <span class="more-name">{t("roomFromChat")}</span>
                 </button>
               )}
             </>
-          )
+          ))
         }
       />
     </div>

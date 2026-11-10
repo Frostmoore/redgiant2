@@ -7,6 +7,7 @@ import {
   IconFile,
   IconFileText,
   IconMic,
+  IconMore,
   IconPaperclip,
   IconSend,
   IconSpinner,
@@ -239,7 +240,8 @@ export function Composer({
   running,
   onSend,
   onStop,
-  chips,
+  more,
+  moreChanged,
   lang,
   mentions,
   queues,
@@ -258,7 +260,13 @@ export function Composer({
   running: boolean;
   onSend: (text: string, attachments: Attachment[]) => void | Promise<void>;
   onStop?: () => void;
-  chips?: ComponentChildren;
+  /**
+   * The conversation's other commands (p3.5.4: mode, model, effort, Meanwhile, Summarise, Add an
+   * agent), in the panel the «…» button next to Attach opens; `close` puts it away.
+   */
+  more?: (close: () => void) => ComponentChildren;
+  /** Something in that panel is not as it starts (a mode other than Automatic…): a mark on «…». */
+  moreChanged?: boolean;
   lang: string;
 }) {
   const [text, setText] = useState("");
@@ -547,7 +555,7 @@ export function Composer({
               }}
             />
           </label>
-          {chips}
+          {more && <MoreMenu changed={moreChanged}>{more}</MoreMenu>}
           <div class="spacer" />
           {running && onStop && (
             <button type="button" class="stop" title={t("interrupt")} onClick={onStop}>
@@ -604,6 +612,89 @@ export function Composer({
         />
       )}
     </div>
+  );
+}
+
+/** What the arrows move between in the «…» panel. */
+const MENU_ITEMS = "button:not([disabled]), select:not([disabled])";
+
+/**
+ * The «…» next to Attach (p3.5.4, the person: «metti tutto in un tasto vicino all'allega»): a
+ * panel above it with the conversation's commands, each with its state. Esc closes it and gives
+ * the focus back to «…»; the arrows go from one command to the next (a menu keeps its own
+ * arrows); a click elsewhere closes it.
+ */
+export function MoreMenu({
+  changed,
+  children,
+}: {
+  changed?: boolean;
+  children: (close: () => void) => ComponentChildren;
+}) {
+  const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const items = () => [...(panel.current?.querySelectorAll<HTMLElement>(MENU_ITEMS) ?? [])];
+  const close = () => {
+    setOpen(false);
+    button.current?.focus();
+  };
+  useEffect(() => {
+    if (!open) return;
+    items()[0]?.focus();
+    const away = (e: PointerEvent) => {
+      const at = e.target as Node;
+      if (!panel.current?.contains(at) && !button.current?.contains(at)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [open]);
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+      return;
+    }
+    if (e.target instanceof HTMLSelectElement) return;
+    const all = items();
+    const at = all.indexOf(document.activeElement as HTMLElement);
+    const to =
+      e.key === "ArrowDown" || e.key === "ArrowRight"
+        ? (at + 1) % all.length
+        : e.key === "ArrowUp" || e.key === "ArrowLeft"
+          ? (at - 1 + all.length) % all.length
+          : e.key === "Home"
+            ? 0
+            : e.key === "End"
+              ? all.length - 1
+              : -1;
+    if (to < 0 || all.length === 0) return;
+    e.preventDefault();
+    all[to]?.focus();
+  };
+  return (
+    <span class="more-wrap">
+      <button
+        ref={button}
+        type="button"
+        class={`icon-button more-button${open ? " on" : ""}`}
+        title={changed ? t("moreChanged") : t("more")}
+        aria-label={changed ? t("moreChanged") : t("more")}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <IconMore />
+        {changed && <span class="more-mark" />}
+      </button>
+      {open && (
+        // biome-ignore lint/a11y/noStaticElementInteractions: the keys move between its commands.
+        <div ref={panel} class="more-panel" role="dialog" aria-label={t("more")} onKeyDown={onKey}>
+          {children(close)}
+        </div>
+      )}
+    </span>
   );
 }
 

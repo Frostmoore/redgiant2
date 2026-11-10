@@ -548,13 +548,17 @@ export function applyMessage(m: ServerMessage): void {
       canvasEvent(m.sessionId, m.event);
       return;
     // One of the person's conversations started or stopped (p3.5.3), followed or not.
-    case "session.activity":
-      if (sessionRows.value.some((r) => r.id === m.sessionId))
+    // A conversation the list does not have (a task just handed over) is fetched at once; a
+    // known one may have just taken a task or closed one (p3.5.4): fetched again for its title.
+    case "session.activity": {
+      const known = sessionRows.value.find((r) => r.id === m.sessionId);
+      if (known)
         sessionRows.value = sessionRows.value.map((r) =>
           r.id === m.sessionId ? { ...r, running: m.state === "running" } : r,
         );
-      else refreshSoon();
+      if (!known || (m.state === "running") !== !!known.task) refreshSoon();
       return;
+    }
     case "image.progress": {
       const v = sessionView(m.sessionId);
       v.value = {
@@ -1249,6 +1253,8 @@ export interface SessionRow {
   folder?: string | null;
   /** The conversation it goes on from (G36.23). */
   forkedFrom?: string | null;
+  /** The title of the task it works on, while one is open (p3.5.4). */
+  task?: string | null;
 }
 
 export const sessionRows = signal<SessionRow[]>([]);
@@ -1328,6 +1334,18 @@ export async function newSession(agent: Agent): Promise<void> {
   const { sessionId } = await getApi().startSession(agent.id);
   await refreshConversations();
   openSession({ id: sessionId, agentId: agent.id, title: null });
+}
+
+/**
+ * A project's name clicked in the left bar (p3.5.4): its orchestrator's latest conversation
+ * (pinned or not, never an archived one) opens, or a new one starts when there is none.
+ */
+export async function openOrchestrator(agent: Agent): Promise<void> {
+  const latest = sessionRows.value
+    .filter((r) => r.agentId === agent.id && !r.archived)
+    .sort((a, b) => (b.lastAt ?? b.createdAt).localeCompare(a.lastAt ?? a.createdAt))[0];
+  if (latest) openSession(latest);
+  else await newSession(agent);
 }
 
 /** Opens the latest conversation with an agent, or starts one. */

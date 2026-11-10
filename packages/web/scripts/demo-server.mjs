@@ -752,6 +752,17 @@ await (await core.send("local", sid, "Give me a quick tour of the project.")).do
 await (await core.send("local", sid, "And the tests?")).done;
 await (await core.send("local", sid, "/compact keep the file list")).done;
 await core.budget.setLimit({ scope: "global", id: "local" }, { usd: 20 });
+// p3.5.4: a task the orchestrator handed to the Coder, still open: «Compito: …» in the bar.
+const coderSid = await core.workSession(coder);
+await core.tasks.open(
+  coder,
+  coderSid,
+  "Add the --json flag",
+  { agentId: orch.id, sessionId: sid, name: orch.name },
+  undefined,
+  { brief: "Print the result as JSON with --json, with tests." },
+);
+await core.nameSession(coderSid, `${orch.name}: Add the --json flag`);
 // Left waiting on purpose: the question card in God's conversation.
 const godSid = await core.startSession("local", god.id);
 void (await core.send("local", godSid, "Plan the export feature for the reports.")).done.catch(
