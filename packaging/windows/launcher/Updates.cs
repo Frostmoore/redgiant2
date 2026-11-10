@@ -314,13 +314,13 @@ static class Updates
     {
         watcher = new System.Threading.Timer(_ =>
         {
-            string json, file = Path.Combine(folder, "update.json");
+            string json, request = Path.Combine(folder, "update.json");
             try
             {
                 // Left by an earlier session (3.5.4: it opened a second question at every start,
                 // and an old «quit» would have closed RedGiant): only this session's server asks.
-                if (!AskGate.Fresh(File.GetLastWriteTimeUtc(file), startedUtc)) return;
-                json = File.ReadAllText(file);
+                if (!AskGate.Fresh(File.GetLastWriteTimeUtc(request), startedUtc)) return;
+                json = File.ReadAllText(request);
             }
             catch (Exception) { return; }
             var m = Regex.Match(json, "\"id\"\\s*:\\s*\"([^\"]+)\"");
