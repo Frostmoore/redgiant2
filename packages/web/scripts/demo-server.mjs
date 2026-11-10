@@ -113,13 +113,12 @@ const brain = (req) => {
         text: "Ho rinominato in snake_case le colonne di **3 report su 8** (vendite, resi, magazzino). Restano acquisti, clienti, fornitori, cassa e personale. Al prossimo giro comincio da acquisti e poi rilancio i test dei report.",
       };
     const goOn = req.messages.findLastIndex((m) => /^(Vai avanti|Go on)$/.test(userText(m)));
-    const steps = req.messages
-      .slice(goOn + 1)
-      .filter((m) => m.role === "assistant").length;
+    const steps = req.messages.slice(goOn + 1).filter((m) => m.role === "assistant").length;
     if (goOn >= 0 && steps >= 2)
       return { text: "Fatto: tutti gli 8 report hanno le colonne in snake_case e i test passano." };
     return {
-      text: steps > 0 ? "" : goOn >= 0 ? "Riprendo da acquisti." : "Comincio dai report delle vendite.",
+      text:
+        steps > 0 ? "" : goOn >= 0 ? "Riprendo da acquisti." : "Comincio dai report delle vendite.",
       toolCalls: [{ name: "grep", input: { pattern: `report_${steps + 1}`, path: "." } }],
     };
   }
