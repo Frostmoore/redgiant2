@@ -31,6 +31,8 @@ export class HumanQuestions extends EventEmitter<{
   closed: [ownerId: string, requestId: string, via: string | undefined];
 }> {
   private readonly pending = new Map<string, Pending>();
+  /** Where each closed question was answered, until it is recorded (`takeVia`). */
+  private readonly answered = new Map<string, string>();
 
   ask(ownerId: string, info: QuestionRequestInfo, signal?: AbortSignal): Promise<Answers | null> {
     return new Promise((resolve) => {
@@ -67,8 +69,22 @@ export class HumanQuestions extends EventEmitter<{
     const p = this.pending.get(requestId);
     if (!p) return;
     this.pending.delete(requestId);
+    if (via) {
+      this.answered.set(requestId, via);
+      for (const old of this.answered.keys()) {
+        if (this.answered.size <= 1000) break;
+        this.answered.delete(old);
+      }
+    }
     p.resolve(answers);
     this.emit("closed", p.ownerId, requestId, via);
+  }
+
+  /** Where a closed question was answered ("web", a chat platform, "timeout"); taken once. */
+  takeVia(requestId: string): string | undefined {
+    const via = this.answered.get(requestId);
+    this.answered.delete(requestId);
+    return via;
   }
 
   /** Shutdown: every open question ends unanswered. */
@@ -133,6 +149,8 @@ async function askHuman(
         .then((answers) =>
           answers ? { by: "human" as const, answers } : { by: "nobody" as const },
         );
+  // Where the person answered (p3.5.4), like the approvals.
+  const via = host.questions.takeVia(info.requestId);
   await host.store.append({
     ...where,
     body: {
@@ -141,6 +159,7 @@ async function askHuman(
         requestId: info.requestId,
         answers: "answers" in outcome ? outcome.answers : null,
         by: outcome.by,
+        ...(via && outcome.by === "human" && { via }),
       },
     },
   });

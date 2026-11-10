@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PermissionDecision, ToolCallInfo } from "@redgiant/agent";
 import type { EventStore } from "@redgiant/events";
-import type { PermissionMode } from "@redgiant/protocol";
+import type { CriticalDetail, PermissionMode } from "@redgiant/protocol";
 import { evaluate, type PolicySettings } from "./policy.js";
 import { type AgentNode, approvalChain, type Resolve } from "./scopes.js";
 
@@ -11,6 +11,8 @@ export interface ApprovalRequest {
   call: ToolCallInfo;
   reasons: string[];
   danger: string[];
+  /** What a truly dangerous call does (G36.17b, p3.5.4), for the person's red card. */
+  critical?: CriticalDetail[];
   /** The conversation that asked (2026-11-05: "allow for this conversation"). */
   sessionId?: string;
 }
@@ -51,6 +53,11 @@ export interface PermissionBrokerOptions {
   askAgent: (approver: AgentNode, request: ApprovalRequest) => Promise<AgentAnswer>;
   /** Asks the human (web UI, or Telegram via Demi-God); resolves when they answer. */
   askHuman: (request: ApprovalRequest, signal: AbortSignal) => Promise<HumanAnswer>;
+  /**
+   * Where the person's answer to a request came from ("web", "telegram"…, "timeout"), taken
+   * once after `askHuman` (p3.5.4): `permission.resolved` records it.
+   */
+  answeredVia?: (requestId: string) => string | undefined;
 }
 
 /**
@@ -88,6 +95,7 @@ export class PermissionBroker {
       call,
       reasons: ev.reasons,
       danger: ev.danger,
+      ...(ev.criticalDetail?.length && { critical: ev.criticalDetail }),
       ...(sessionId && { sessionId }),
     };
     // Parent agents never decide a danger the person kept for themself, nor a truly dangerous one.
@@ -107,6 +115,8 @@ export class PermissionBroker {
       const answer = approver
         ? await this.o.askAgent(approver, request).catch(() => "escalate" as const)
         : await this.human(request, settings);
+      // Where the person answered (p3.5.4): the page, a chat, or their time running out.
+      const via = approver ? undefined : this.o.answeredVia?.(request.requestId);
       if (typeof answer === "object" && "by" in answer) {
         const yes = allows(answer);
         await this.log(agent, sessionId, {
@@ -115,6 +125,7 @@ export class PermissionBroker {
             requestId: request.requestId,
             decision: yes ? "allow" : "deny",
             by: answer.by,
+            ...(via && { via }),
           },
         });
         if (yes) return { allow: true };
@@ -133,6 +144,7 @@ export class PermissionBroker {
           requestId: request.requestId,
           decision: typeof answer === "object" ? "deny" : answer,
           by: approver?.id ?? "human",
+          ...(via && { via }),
         },
       });
       if (said !== undefined)

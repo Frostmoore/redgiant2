@@ -4,6 +4,7 @@ import type { SqlClient } from "@redgiant/events";
 import {
   type Answers,
   CHANNEL_NAMES,
+  criticalChatLines,
   dangerWords,
   type ImagePart,
   type MessageQuote,
@@ -585,6 +586,8 @@ export class TelegramGateway {
     const input = JSON.stringify(info.input);
     const s = (key: TextKey, vars?: Record<string, string>) => this.say(ownerId, key, vars);
     const text = [
+      // A truly dangerous request starts with its danger, in words (p3.5.4).
+      ...criticalChatLines(this.language(ownerId), info),
       s("approvalNeeded", {
         agent: info.agentName,
         project: info.projectId ? ` (${info.projectId})` : "",

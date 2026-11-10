@@ -260,6 +260,85 @@ describe("Demi-God on Telegram", () => {
     expect(tg?.calls.find((c) => c.method === "editMessageText")?.body.text).toMatch(/Allowed$/);
   });
 
+  it("a truly dangerous request starts with its danger; the log says where each answer came from (p3.5.4)", async () => {
+    // Every answer to the forced push is a no: nothing runs for real.
+    const results = (req: CompletionRequest) =>
+      req.messages.filter((m) => m.parts.some((p) => p.type === "tool_result")).length;
+    const forced = { name: "bash", input: { command: "git push --force origin main" } };
+    const { god } = await setup((req) =>
+      results(req) < 2
+        ? { toolCalls: [forced] }
+        : results(req) === 2
+          ? {
+              toolCalls: [
+                {
+                  name: "ask_user",
+                  input: {
+                    questions: [
+                      { question: "Colore?", options: [{ label: "Rosso" }, { label: "Blu" }] },
+                    ],
+                  },
+                },
+              ],
+            }
+          : { text: "done" },
+    );
+    await pair();
+    (s as Server).core.setLanguage("it");
+    const sid =
+      (await s?.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: god }))?.body
+        .sessionId ?? "";
+    const turn = (await s?.core.send("me", sid, "go"))?.done;
+    const dangers = () =>
+      tg?.sent(USER).filter((m) => String(m.text).startsWith("PERICOLO:")) ?? [];
+    for (let i = 0; i < 100 && dangers().length < 1; i++)
+      await new Promise((r) => setTimeout(r, 30));
+    const [first] = dangers();
+    const lines = String(first?.text).split("\n");
+    expect(lines[0]).toBe("PERICOLO: azione che non si può annullare");
+    expect(lines[1]).toBe("Riscrive per tutti la storia del ramo condiviso main.");
+    expect(String(first?.text)).not.toMatch(/\p{Extended_Pictographic}/u);
+    // The page gets the same details for its red card.
+    const [pending] = s?.core.approvals.list("me") ?? [];
+    expect(pending?.critical).toEqual([
+      { id: "critical-delete", action: "push-force", target: "main" },
+    ]);
+    const keyboard = (
+      first?.reply_markup as { inline_keyboard: { callback_data: string }[][] } | undefined
+    )?.inline_keyboard[0];
+    // A no from Telegram.
+    await s?.gateway?.handleUpdate(tg?.button(USER, keyboard?.[1]?.callback_data ?? "") as never);
+    // The second one: a no from the page.
+    for (let i = 0; i < 100 && dangers().length < 2; i++)
+      await new Promise((r) => setTimeout(r, 30));
+    const [second] = s?.core.approvals.list("me") ?? [];
+    expect(second?.requestId).not.toBe(pending?.requestId);
+    await s?.api("POST", `/api/permissions/${second?.requestId}`, { decision: "deny" });
+    // The question, answered on Telegram.
+    let asked: Record<string, unknown> | undefined;
+    for (let i = 0; i < 100 && !asked; i++) {
+      await new Promise((r) => setTimeout(r, 30));
+      asked = tg?.sent(USER).find((m) => /chiede/.test(String(m.text)));
+    }
+    const choice = (
+      asked?.reply_markup as { inline_keyboard: { callback_data: string }[][] } | undefined
+    )?.inline_keyboard.flat()[1];
+    await s?.gateway?.handleUpdate(tg?.button(USER, choice?.callback_data ?? "") as never);
+    expect((await turn)?.stopReason).toBe("end_turn");
+    const events = (await s?.core.history("me", sid)) ?? [];
+    expect(
+      events.flatMap((e) =>
+        e.type === "permission.resolved" ? [[e.payload.decision, e.payload.by, e.payload.via]] : [],
+      ),
+    ).toEqual([
+      ["deny", "human", "telegram"],
+      ["deny", "human", "web"],
+    ]);
+    expect(events.flatMap((e) => (e.type === "question.answered" ? [e.payload.via] : []))).toEqual([
+      "telegram",
+    ]);
+  });
+
   it("a request answered on the web page: Telegram's copy says where it was decided (G36.17)", async () => {
     const { god } = await setup((req) =>
       toolResult(req) === undefined
