@@ -17137,6 +17137,156 @@ fieldset.vw-seg {
   white-space: nowrap;
 }
 
+/* The 3D editor (G37.7): the drawing editor's bar and panels, a scene tree on the left. */
+.model-body {
+  grid-template-columns: 200px minmax(0, 1fr) 240px;
+}
+.model-tree {
+  border-left: none;
+  border-right: 1px solid var(--line);
+}
+.model-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.model-tree li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+  min-height: 26px;
+}
+.model-tree li.current {
+  background: var(--accent-soft);
+}
+.model-fold {
+  flex: 0 0 18px;
+  width: 18px;
+  min-height: 18px;
+  border-color: transparent;
+  background: transparent;
+}
+.model-node {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.model-node span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.model-stats {
+  font-size: 11px;
+  margin-top: 10px;
+}
+.model-area {
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 35%, var(--panel), var(--panel-2));
+}
+.model-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+.model-mark {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  line-height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  pointer-events: none;
+  animation: svg-mark 0.4s ease-out;
+}
+.model-vec {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.model-vec > span {
+  flex: 0 0 76px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.model-vec input {
+  width: 0;
+  flex: 1;
+  min-width: 0;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 4px;
+  font: inherit;
+  font-size: 12px;
+}
+.model-editor .svg-fields select {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 4px;
+  font: inherit;
+  font-size: 12px;
+}
+.model-texture {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.model-original {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.model-copy-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 12px;
+}
+@container (max-width: 760px) {
+  .model-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto auto;
+  }
+  .model-tree {
+    max-height: 150px;
+    border-right: none;
+    border-top: 1px solid var(--line);
+    grid-row: 2;
+    display: block;
+  }
+  .model-body .svg-stage {
+    grid-row: 1;
+  }
+}
+
 /* «Models catalog: updated on …» (3.5.4): one row under the ways of thinking. */
 .models-wz .mp-catalog {
   margin: 18px auto 0;

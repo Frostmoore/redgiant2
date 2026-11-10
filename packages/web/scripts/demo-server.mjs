@@ -260,6 +260,17 @@ const brain = (req) => {
     return {
       text: "Fatto: ho aggiunto l'etichetta «Ingresso libero» sotto la data e reso il sole più caldo. Li vedi contornati nel disegno; dal pannello Modifiche puoi annullarli.",
     };
+  // G37.7 (DEMO_CANVAS): the agent furnishes the room open in the 3D editor.
+  if (
+    results &&
+    typeof toolOut === "string" &&
+    /^Applied as revision \d+[^:]*: (Added|Moved|Changed|Deleted|Duplicated|Renamed) .*(objects?|mesh|light|camera|group|material)/.test(
+      toolOut,
+    )
+  )
+    return {
+      text: "Fatto: ho messo un vaso sul tavolo, scaldato il legno e acceso un faretto sopra. Li vedi contornati nella scena; dal pannello Modifiche puoi annullarli.",
+    };
   // G37.1 (DEMO_CANVAS): the agent edits the note open in the canvas, with canvas_edit.
   // G37.4 (DEMO_CANVAS): the agent edits the report and the slides, in the document editor.
   if (
@@ -445,6 +456,37 @@ const brain = (req) => {
             style: { font_size: 6, font_family: "DejaVu Sans", fill: "#1f4e79", anchor: "middle" },
           },
           { op: "set_style", id: "sole", stroke: "#e8590c", stroke_width: 1.2 },
+        ],
+      },
+    ],
+    // G37.7: the agent furnishes the room open in the 3D editor.
+    [
+      "Arreda la stanza",
+      "canvas_edit",
+      {
+        path: "canvas/stanza.gltf",
+        ops: [
+          {
+            op: "add_primitive",
+            shape: "cylinder",
+            name: "Vaso",
+            radius: 0.08,
+            height: 0.25,
+            position: [0.35, 0.905, 0.1],
+            color: "#2f6db5",
+            roughness: 0.3,
+          },
+          { op: "set_material", id: "n3", color: "#a86b3c" },
+          {
+            op: "add_light",
+            kind: "spot",
+            name: "Faretto",
+            position: [1.6, 2.6, 1.6],
+            look_at: [0, 0.8, 0],
+            color: "#fff1d6",
+            intensity: 30,
+            outer_cone: 35,
+          },
         ],
       },
     ],
@@ -1592,6 +1634,98 @@ if (process.env.DEMO_CANVAS) {
   {
     const s = await core.startSession("local", god.id);
     await (await core.send("local", s, "Mostra il file canvas/poster.svg")).done;
+  }
+  // G37.7: a small room as glTF (text), with an extension and extras no editor here knows.
+  {
+    const P = await import("@redgiant/protocol");
+    const T = await import("three");
+    const lin = (hex) =>
+      [0, 2, 4].map((i) => {
+        const c = Number.parseInt(hex.slice(1 + i, 3 + i), 16) / 255;
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      });
+    const arrays = (g) => ({
+      position: g.attributes.position.array,
+      normal: g.attributes.normal.array,
+      uv: g.attributes.uv.array,
+      index: g.index?.array,
+    });
+    let root = {
+      asset: { version: "2.0", generator: "RedGiant demo (three.js)" },
+      extensionsUsed: ["OFFICINA_note"],
+      extras: { progetto: "Stanza di prova", autore: "Ada" },
+      scene: 0,
+      scenes: [{ name: "Stanza" }],
+    };
+    const run = (acts) => {
+      root = P.applyModelAction(root, { t: "batch", ops: acts });
+    };
+    const mesh = (g, name, at, material, parent) => {
+      const r = P.modelAddMesh(root, arrays(g), {
+        node: { name, ...(at && { translation: at }) },
+        material,
+        parent,
+        meshName: name,
+      });
+      run(r.acts);
+      return r;
+    };
+    mesh(new T.PlaneGeometry(6, 6).rotateX(-Math.PI / 2), "Pavimento", undefined, {
+      name: "Parquet",
+      color: [...lin("#c8b9a6"), 1],
+      roughness: 0.9,
+    });
+    mesh(new T.BoxGeometry(6, 3, 0.1), "Parete", [0, 1.5, -3], {
+      name: "Intonaco",
+      color: [...lin("#e9e4dc"), 1],
+      roughness: 0.95,
+    });
+    const table = P.modelAddNode(root, {
+      name: "Tavolo",
+      extensions: { OFFICINA_note: { pezzo: "T-160" } },
+    });
+    run(table.acts);
+    const top = mesh(
+      new T.BoxGeometry(1.6, 0.06, 0.9),
+      "Piano",
+      [0, 0.75, 0],
+      {
+        name: "Legno",
+        color: [...lin("#8b5a2b"), 1],
+        roughness: 0.7,
+      },
+      table.index,
+    );
+    for (const [x, z] of [
+      [-0.74, -0.39],
+      [0.74, -0.39],
+      [-0.74, 0.39],
+      [0.74, 0.39],
+    ])
+      mesh(new T.BoxGeometry(0.06, 0.72, 0.06), "Gamba", [x, 0.36, z], top.material, table.index);
+    mesh(new T.BoxGeometry(0.45, 0.05, 0.45), "Sedile", [0, 0.45, 0.8], {
+      name: "Rosso",
+      color: [...lin("#b03a2e"), 1],
+      roughness: 0.5,
+    });
+    const lamp = P.modelPush(root, ["extensions", "KHR_lights_punctual", "lights"], {
+      name: "Lampada",
+      type: "point",
+      color: lin("#ffe2b8"),
+      intensity: 12,
+    });
+    run(lamp.acts);
+    run(P.modelUseExtension(root, "KHR_lights_punctual"));
+    run(
+      P.modelAddNode(root, {
+        name: "Lampada",
+        translation: [0, 2.4, 0],
+        extensions: { KHR_lights_punctual: { light: lamp.index } },
+      }).acts,
+    );
+    await writeFile(join(into, "stanza.gltf"), `${JSON.stringify(root, null, 2)}\n`);
+    const s = await core.startSession("local", god.id);
+    await (await core.send("local", s, "Mostra il file canvas/stanza.gltf")).done;
   }
   // G37.4: a realistic report (DOCX) and slides (PPTX), edited on their open copies.
   const { cp: copyDir } = await import("node:fs/promises");

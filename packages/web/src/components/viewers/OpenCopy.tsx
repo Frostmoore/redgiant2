@@ -30,6 +30,7 @@ import { pagedKind, viewerFor } from "../../viewers/kind.js";
 import { download, type ViewerSource } from "../../viewers/source.js";
 import { Choice, Progress, useJob } from "../ui.js";
 import { FileViewer, VIEWERS } from "./FileViewer.js";
+import { MODEL_COPIES, ModelCopyButton } from "./ModelEditor.js";
 import { EditCopyButton } from "./SheetCopy.js";
 import { SVG_COPIES } from "./SvgEditor.js";
 
@@ -286,8 +287,20 @@ function MaybeConverted(p: FileProps) {
     report &&
     report.targets.length > 0 &&
     (report.needsConversion || (report.suggested && (media || report.format?.kind === "image")));
-  if (!report || !wanted)
+  if (!report || !wanted) {
+    // A 3D file the browser shows (OBJ, STL, PLY): edited on its GLB copy (G37.7).
+    if (MODEL_COPIES.test(p.path) && p.scope !== "outside")
+      return (
+        <div class="model-original">
+          <div class="model-copy-bar">
+            <span class="dim">{t("model3dCopyLead")}</span>
+            <ModelCopyButton scope={p.scope} path={p.path} />
+          </div>
+          <FileViewer name={p.name} url={p.url} onKind={p.onKind} at={p.at} />
+        </div>
+      );
     return <FileViewer name={p.name} url={p.url} onKind={p.onKind} at={p.at} />;
+  }
   return <ConvertView {...p} report={report} media={media} refresh={setReport} />;
 }
 
@@ -566,6 +579,8 @@ function ConvertView({
         <div class="spacer" />
         {/* An Illustrator or PostScript drawing: edited on its SVG copy (G37.6). */}
         {SVG_COPIES.test(path) && <EditCopyButton scope={scope} path={path} name={name} to="svg" />}
+        {/* Another 3D format: edited on its GLB copy (G37.7). */}
+        {MODEL_COPIES.test(path) && <ModelCopyButton scope={scope} path={path} />}
         {copy && lost.length > 0 && (
           <button type="button" class="vw-toggle" onClick={() => setDetails((d) => !d)}>
             {details ? t("vwOpenLessDetail") : t("vwOpenLost", { n: String(lost.length) })}

@@ -65,7 +65,8 @@ export function copyOriginal(path: string): string | undefined {
   return (
     originalOf(p) ??
     p.match(/^(.*\.(xlsx|xlsm|xls|numbers))\.open\/[^/]+\.ods$/i)?.[1] ??
-    p.match(/^(.*\.(ai|eps|epsf|epsi|ps))\.open\/[^/]+\.svg$/i)?.[1]
+    p.match(/^(.*\.(ai|eps|epsf|epsi|ps))\.open\/[^/]+\.svg$/i)?.[1] ??
+    p.match(/^(.*\.(obj|stl|ply|fbx|blend|usd|usda|usdc|usdz|abc))\.open\/[^/]+\.glb$/i)?.[1]
   );
 }
 
