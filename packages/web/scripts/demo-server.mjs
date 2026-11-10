@@ -85,6 +85,26 @@ const brain = (req) => {
   // DEMO_ARCHIVE (2026-11-09): a long piece of work, still running when the person archives.
   if (said.includes("Rifai tutte le schede prodotto"))
     return { text: "Riscrivo le schede una per una. ".repeat(4000) };
+  // 3.5.6: a long rename that reaches the step limit and says where it got to; «Vai avanti»
+  // finishes it in two more steps.
+  const userText = (m) =>
+    m.role === "user" ? (m.parts.find((p) => p.type === "text")?.text ?? "") : "";
+  if (req.messages.some((m) => userText(m).includes("Rinomina le colonne di ogni report"))) {
+    if (said.includes("limit of steps"))
+      return {
+        text: "Ho rinominato in snake_case le colonne di **3 report su 8** (vendite, resi, magazzino). Restano acquisti, clienti, fornitori, cassa e personale. Al prossimo giro comincio da acquisti e poi rilancio i test dei report.",
+      };
+    const goOn = req.messages.findLastIndex((m) => /^(Vai avanti|Go on)$/.test(userText(m)));
+    const steps = req.messages
+      .slice(goOn + 1)
+      .filter((m) => m.role === "assistant").length;
+    if (goOn >= 0 && steps >= 2)
+      return { text: "Fatto: tutti gli 8 report hanno le colonne in snake_case e i test passano." };
+    return {
+      text: steps > 0 ? "" : goOn >= 0 ? "Riprendo da acquisti." : "Comincio dai report delle vendite.",
+      toolCalls: [{ name: "grep", input: { pattern: `report_${steps + 1}`, path: "." } }],
+    };
+  }
   // G36.5: a question on the person's documents, searched and answered with its citations.
   const found = last?.parts.find(
     (p) => p.type === "tool_result" && String(p.content).includes("(#kb:"),
@@ -837,6 +857,16 @@ await core.tasks.open(
   { brief: "Print the result as JSON with --json, with tests." },
 );
 await core.nameSession(coderSid, `${orch.name}: Add the --json flag`);
+// 3.5.6: a turn of God's that reached the step limit (set to 5 just for it), «Continua» under
+// its summary.
+{
+  const before = core.commandSettings.get("local");
+  await core.commandSettings.set("local", { ...before, maxTurns: 5 });
+  const stepSid = await core.startSession("local", god.id);
+  await (await core.send("local", stepSid, "Rinomina le colonne di ogni report in snake_case."))
+    .done;
+  await core.commandSettings.set("local", before);
+}
 // Left waiting on purpose: the question card in God's conversation.
 const godSid = await core.startSession("local", god.id);
 void (await core.send("local", godSid, "Plan the export feature for the reports.")).done.catch(

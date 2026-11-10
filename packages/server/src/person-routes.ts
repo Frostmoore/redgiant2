@@ -40,7 +40,8 @@ export function personRoutes<E extends { Variables: any }>(
     c.json(
       {
         settings: core.commandSettings.get(owner(c)),
-        // The steps of a turn default to the server's (REDGIANT_MAX_TURNS, else 50).
+        // The steps of a turn the person did not start (automations, tasks) default to the
+        // server's (REDGIANT_MAX_TURNS, else 200); the person's own turns have none (3.5.6).
         defaults: DEFAULT_COMMAND_SETTINGS,
         serverMaxTurns: core.serverMaxTurns,
       },

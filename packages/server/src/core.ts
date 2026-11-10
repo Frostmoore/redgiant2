@@ -94,6 +94,7 @@ import {
   textLanguage,
   toolsSwitchedOff,
   type UiLanguage,
+  UNATTENDED_MAX_TURNS,
   type VaultEntry,
   type VaultSystemEntry,
 } from "@redgiant/protocol";
@@ -298,7 +299,11 @@ export interface CoreOptions {
   providers: ProviderRegistry;
   /** Root of the project workspaces. */
   workspacesDir: string;
-  /** Model calls in one turn when the person set none (`REDGIANT_MAX_TURNS`; default 50). */
+  /**
+   * Model calls in a turn nobody started (automations, tasks, reminders) when the person set
+   * none (`REDGIANT_MAX_TURNS`; default `UNATTENDED_MAX_TURNS`, 200). Turns the person started
+   * have no limit unless they set one (3.5.6).
+   */
   maxTurns?: number;
   /**
    * Projects that adopt an existing folder (G36.15) must pick one under this folder: the Docker
@@ -1778,8 +1783,9 @@ export class RedGiantCore implements OrchestrationHost {
         }));
       },
       priority: PRIORITY[agent.kind],
-      // Read at each message: a new setting applies to live conversations too (G36.15).
-      maxTurns: () => this.maxTurnsFor(ownerId),
+      // Read at each message: a new setting applies to live conversations too (G36.15); the
+      // default depends on who started the turn (3.5.6).
+      maxTurns: ({ person }: { person: boolean }) => this.maxTurnsFor(ownerId, person),
       ...this.compactionOptions(model, agent),
       // Demi-God only relays (RD8): its one tool is ask_god.
       ...(agent.kind === "demigod" && { historyTool: false }),
@@ -5149,7 +5155,12 @@ export class RedGiantCore implements OrchestrationHost {
     this.editor.turnStarted(sessionId);
     const notes = this.editor.notesFor(sessionId);
     const done = l.session
-      .send(text, controller.signal, { ...message, ...(notes.length > 0 && { notes }) })
+      .send(text, controller.signal, {
+        ...message,
+        ...(notes.length > 0 && { notes }),
+        // The person started it (3.5.6): no step limit unless they chose one.
+        ...(human && { person: true }),
+      })
       .then(
         (r) => {
           ended(
@@ -5180,15 +5191,20 @@ export class RedGiantCore implements OrchestrationHost {
     return { done };
   }
 
-  /** Model calls in one turn for this person (G36.15): their setting, the server's, or 50. */
-  maxTurnsFor(ownerId: string): number | null {
+  /**
+   * Model calls in one turn for this person (G36.15, 3.5.6): their setting when they chose one;
+   * else none in a turn they started (as Claude Code), the server's in one nobody started
+   * (automations, delegated tasks, reminders, webhooks).
+   */
+  maxTurnsFor(ownerId: string, person: boolean): number | null {
     const set = this.commandSettings.get(ownerId).maxTurns;
-    return set === undefined ? this.serverMaxTurns : set;
+    if (set !== undefined) return set;
+    return person ? null : this.serverMaxTurns;
   }
 
-  /** Model calls in one turn when the person set none: `REDGIANT_MAX_TURNS`, else 50. */
+  /** Model calls in an unattended turn when the person set none: `REDGIANT_MAX_TURNS`, else 200. */
   get serverMaxTurns(): number {
-    return this.o.maxTurns ?? 50;
+    return this.o.maxTurns ?? UNATTENDED_MAX_TURNS;
   }
 
   /** "Teach a task" (G24.14b): the person shows a personal agent how, in the browser. */

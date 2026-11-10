@@ -273,17 +273,21 @@ describe("live sessions", () => {
   });
 });
 
-describe("the steps of a turn (G36.15)", () => {
-  it("follows the person's setting over the server's, and says why a turn stopped", async () => {
-    // Always one more tool call: only the step limit ends the turn (then a closing summary).
+describe("the steps of a turn (G36.15, 3.5.6)", () => {
+  it("has no limit in the person's turns, the server's in the others, the person's setting over both", async () => {
+    // Tool calls while `left` lasts, then an answer; the closing summary when asked.
+    let left = 0;
     s = await startServer(
       (req) =>
         req.messages
           .at(-1)
           ?.parts.some((p) => p.type === "text" && p.text.includes("limit of steps"))
           ? { text: "Where I got to." }
-          : { toolCalls: [{ name: "write_file", input: { path: "a.txt", content: "x" } }] },
+          : left-- > 0
+            ? { toolCalls: [{ name: "write_file", input: { path: "a.txt", content: "x" } }] }
+            : { text: "Done." },
       {},
+      // REDGIANT_MAX_TURNS=7: the server's default for unattended turns.
       { maxTurns: 7 },
     );
     const t = await tree(s);
@@ -293,6 +297,8 @@ describe("the steps of a turn (G36.15)", () => {
     );
     expect(settings.body.serverMaxTurns).toBe(7);
     expect(settings.body.settings.maxTurns).toBeUndefined();
+    expect(s.core.maxTurnsFor("me", true)).toBeNull();
+    expect(s.core.maxTurnsFor("me", false)).toBe(7);
     const { body } = await s.api<{ sessionId: string }>("POST", "/api/sessions", {
       agentId: t.agent,
     });
@@ -300,8 +306,11 @@ describe("the steps of a turn (G36.15)", () => {
     await c.waitFor("welcome");
     c.send({ type: "session.follow", sessionId: body.sessionId });
     await c.waitFor("session.synced");
+    const core = s.core;
     const calls = () => s?.provider.requests.length ?? 0;
-    const turn = async () => {
+    // The person writes in the page.
+    const turn = async (steps: number) => {
+      left = steps;
       const before = calls();
       const seen = c.messages.length;
       c.send({ type: "session.send", sessionId: body.sessionId, text: "go" });
@@ -316,19 +325,39 @@ describe("the steps of a turn (G36.15)", () => {
       );
       return { calls: calls() - before, stopReason: idle.stopReason };
     };
-    // The server's limit (REDGIANT_MAX_TURNS): 7 steps and the closing summary.
-    expect(await turn()).toEqual({ calls: 8, stopReason: "max_turns" });
-    // The person's, from Settings > Commands: the live conversation follows it at once.
+    // Nobody wrote it (an automation, a task, a reminder): no `watch`, no `human`.
+    const unattended = async (steps: number) => {
+      left = steps;
+      const before = calls();
+      const { done } = await core.send("me", body.sessionId, "go on");
+      const r = await done;
+      return { calls: calls() - before, stopReason: r.stopReason };
+    };
+    // The person's own turn: past the server's 7 steps, until the model is done.
+    expect(await turn(12)).toEqual({ calls: 13, stopReason: "end_turn" });
+    // An unattended one: the server's limit, 7 steps and the closing summary, marked for the page.
+    expect(await unattended(20)).toEqual({ calls: 8, stopReason: "max_turns" });
+    const last = (await s.core.history("me", body.sessionId)).at(-1);
+    expect(last?.type === "message.assistant" && last.payload.stepLimit).toBe(true);
+    // The person's, from Settings > Commands: both kinds of turn follow it at once.
     const put = await s.api("PUT", "/api/settings/commands", {
       ...settings.body.settings,
       maxTurns: 5,
     });
     expect(put.status).toBe(200);
-    expect(await turn()).toEqual({ calls: 6, stopReason: "max_turns" });
+    expect(await turn(20)).toEqual({ calls: 6, stopReason: "max_turns" });
+    expect(await unattended(20)).toEqual({ calls: 6, stopReason: "max_turns" });
     expect(
       (await s.api("PUT", "/api/settings/commands", { ...settings.body.settings, maxTurns: 2 }))
         .status,
     ).toBe(400);
     c.close();
+  });
+
+  it("allows 200 steps in an unattended turn when the server sets none", async () => {
+    s = await startServer([{ text: "hi" }]);
+    expect(s.core.serverMaxTurns).toBe(200);
+    expect(s.core.maxTurnsFor("me", false)).toBe(200);
+    expect(s.core.maxTurnsFor("me", true)).toBeNull();
   });
 });

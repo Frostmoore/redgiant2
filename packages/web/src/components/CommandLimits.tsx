@@ -1,9 +1,9 @@
 // Settings > Commands (G36.16, the person: «i comandi in background devono poter essere infiniti»):
 // how many background commands at once in a conversation, how long one runs, how big its log
 // grows, how long an ordinary command may wait, and how many model calls one turn may make
-// (G36.15). Each a row of chips; "No limit" is always
+// (G36.15; by default none in the person's own conversations, 3.5.6). Each a row of chips; "No limit" is always
 // there, with a plain warning (never a block). Saved as configuration: in the history, undoable.
-import type { CommandSettings } from "@redgiant/protocol";
+import { type CommandSettings, UNATTENDED_MAX_TURNS } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { PlatformChange } from "../api.js";
 import { t } from "../i18n.js";
@@ -40,7 +40,7 @@ function options(ready: (number | null)[], now: number | null, label: (v: number
 export function CommandLimits() {
   const [s, setS] = useState<CommandSettings>();
   const [defaults, setDefaults] = useState<CommandSettings>();
-  const [serverTurns, setServerTurns] = useState(50);
+  const [serverTurns, setServerTurns] = useState(UNATTENDED_MAX_TURNS);
   const [saved, setSaved] = useState<PlatformChange | "undone">();
   const [error, setError] = useState<string>();
   const load = () =>
@@ -49,7 +49,7 @@ export function CommandLimits() {
       .then((r) => {
         setS(r.settings);
         setDefaults(r.defaults);
-        setServerTurns(r.serverMaxTurns ?? 50);
+        setServerTurns(r.serverMaxTurns ?? UNATTENDED_MAX_TURNS);
       })
       .catch((err) => setError(explain(err)));
   useEffect(() => void load(), []);
@@ -130,19 +130,14 @@ export function CommandLimits() {
       </Box>
       <Sub title={t("cmdStepsTitle")} lead={t("cmdStepsLead")} />
       <Box>
-        <Row title={t("cmdSteps")} help={t("cmdStepsHelp")}>
+        <Row title={t("cmdSteps")} help={t("cmdStepsHelp", { n: String(serverTurns) })}>
+          {/* Default (3.5.6): none in the person's own conversations, the server's for the rest. */}
           <Chips
             options={[
-              { id: "default", label: t("cmdStepsDefault", { n: String(serverTurns) }) },
-              ...options(
-                [25, 100, 200, 500, null].filter((n) => n !== serverTurns),
-                s.maxTurns === undefined || s.maxTurns === serverTurns ? 25 : s.maxTurns,
-                String,
-              ),
+              { id: "default", label: t("cmdStepsDefault") },
+              ...options([25, 100, 200, 500, null], s.maxTurns ?? 25, String),
             ]}
-            value={[
-              s.maxTurns === undefined || s.maxTurns === serverTurns ? "default" : id(s.maxTurns),
-            ]}
+            value={[s.maxTurns === undefined ? "default" : id(s.maxTurns)]}
             onChange={([v]) => {
               const { maxTurns: _old, ...rest } = s;
               setSaved(undefined);

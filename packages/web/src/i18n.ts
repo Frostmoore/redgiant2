@@ -4056,12 +4056,16 @@ const en = {
     "The agent can ask for less; never for more. For longer work it uses the background.",
   cmdStepsTitle: "Steps in one turn",
   cmdStepsLead:
-    "In one turn an agent thinks, uses a tool, reads the result and goes on. Past this many steps it stops and tells you where it got to; you can tell it to go on.",
+    "In one turn an agent thinks, uses a tool, reads the result and goes on. Past the limit it stops and tells you where it got to; a «Continue» button under its message lets it go on.",
   cmdSteps: "Steps at most",
-  cmdStepsHelp: "One step is one call to the model. For long jobs choose more.",
-  cmdStepsDefault: "{n} (default)",
+  cmdStepsHelp:
+    "One step is one call to the model. Default: no limit in your conversations with the agents; {n} for automations and tasks, which nobody watches. A number or «No limit» counts for every turn.",
+  cmdStepsDefault: "Default",
   cmdStepsWarn:
-    "No limit: an agent can work for hours in one turn. Only the budgets stop it, so keep one set (Settings, Budgets) if the model costs money.",
+    "No limit, automations and tasks included: an agent can work for hours in one turn. Only the budgets stop it, so keep one set (Settings, Budgets) if the model costs money.",
+  stepLimitContinue: "Continue",
+  stepLimitContinueHint: "The agent reached the limit of steps: let it go on from where it stopped",
+  stepLimitGoOn: "Go on",
   cmdDefaults: "Back to the defaults",
   cmdSaved: "Saved: it counts from the next command and the next message.",
   cmdUndo: "Undo",
@@ -8843,12 +8847,17 @@ const it: Record<Key, string> = {
   cmdBashHelp: "L'agente può chiedere meno, mai di più. Per lavori più lunghi usa il sottofondo.",
   cmdStepsTitle: "Passi in un turno",
   cmdStepsLead:
-    "In un turno un agente ragiona, usa uno strumento, legge il risultato e va avanti. Dopo questi passi si ferma e ti dice a che punto è; puoi dirgli di continuare.",
+    "In un turno un agente ragiona, usa uno strumento, legge il risultato e va avanti. Oltre il limite si ferma e ti dice a che punto è; il pulsante «Continua» sotto il suo messaggio lo fa andare avanti.",
   cmdSteps: "Passi al massimo",
-  cmdStepsHelp: "Un passo è una chiamata al modello. Per i lavori lunghi scegline di più.",
-  cmdStepsDefault: "{n} (predefinito)",
+  cmdStepsHelp:
+    "Un passo è una chiamata al modello. Predefinito: nessun limite nelle conversazioni con te; {n} per automazioni e compiti, che nessuno guarda. Un numero o «Nessun limite» vale per tutti i turni.",
+  cmdStepsDefault: "Predefinito",
   cmdStepsWarn:
-    "Senza limite: un agente può lavorare per ore in un solo turno. Lo fermano solo i budget: tienine uno attivo (Impostazioni, Budget) se il modello costa.",
+    "Senza limite, anche per automazioni e compiti: un agente può lavorare per ore in un solo turno. Lo fermano solo i budget: tienine uno attivo (Impostazioni, Budget) se il modello costa.",
+  stepLimitContinue: "Continua",
+  stepLimitContinueHint:
+    "L'agente ha raggiunto il limite di passi: fallo andare avanti da dove si è fermato",
+  stepLimitGoOn: "Vai avanti",
   cmdDefaults: "Torna ai predefiniti",
   cmdSaved: "Salvato: vale dal prossimo comando e dal prossimo messaggio.",
   cmdUndo: "Annulla",

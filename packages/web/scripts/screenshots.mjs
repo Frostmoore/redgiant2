@@ -37,6 +37,11 @@ for (const scheme of ["dark", "light"]) {
   await page
     .locator(".top .limits")
     .screenshot({ path: `${out}/${scheme}-02d-limits-subscription.png` });
+  // 3.5.6: a turn that reached the step limit, «Continua» under its summary.
+  await page.locator(".session-row .open", { hasText: "Rinomina le colonne" }).click();
+  await page.waitForSelector(".step-continue");
+  await page.waitForTimeout(300);
+  await shot("02e-step-limit");
   await page.locator(".session-row .open", { hasText: "Give me a quick tour" }).click();
 
   // The project's files on the right, a file and a terminal next to the chat.
@@ -107,6 +112,7 @@ for (const scheme of ["dark", "light"]) {
     ["Modelli e abbonamenti", "16-settings-models"],
     ["Dove sta il codice", "17-settings-code"],
     ["Accesso da fuori", "18-settings-remote"],
+    ["Comandi", "20-settings-commands"],
   ]) {
     await page.locator(".settings-nav button", { hasText: section }).click();
     await page.waitForTimeout(500);

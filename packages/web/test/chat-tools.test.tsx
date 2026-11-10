@@ -283,3 +283,65 @@ describe("in the page", () => {
     expect(calls.find(([n]) => n === "promoteAside")?.[1]).toEqual(["s1", "x1"]);
   });
 });
+
+describe("«Continua» at the step limit (3.5.6)", () => {
+  const summary = (text: string) =>
+    ev("message.assistant", {
+      parts: [{ type: "text", text }],
+      metrics,
+      costUsd: 0,
+      provider: "fake",
+      model: "m",
+      stopReason: "end_turn",
+      stepLimit: true,
+    });
+
+  it("marks the closing summary until something is written after it", () => {
+    const first = summary("Done: A. Left: B.");
+    const events = [
+      user("do A and B"),
+      ev("message.user", { text: "[RedGiant: limit of steps]", steer: true, from: "redgiant" }),
+      first,
+    ];
+    // RedGiant's own note to the model does not count as written after it.
+    expect(buildItems(events).filter((i) => i.kind === "assistant" && i.stepLimit)).toHaveLength(1);
+    const later = [...events, user("Vai avanti"), said("B done."), summary("Again: C left.")];
+    const marked = buildItems(later).flatMap((i) =>
+      i.kind === "assistant" && i.stepLimit ? [i.seq] : [],
+    );
+    // Only the newest summary still offers it: the first was answered.
+    expect(marked).toEqual([later.at(-1)?.seq]);
+    expect(
+      buildItems([...later, user("stop")]).some((i) => i.kind === "assistant" && i.stepLimit),
+    ).toBe(false);
+    // Ordinary answers never do.
+    expect(
+      buildItems([user("hi"), said("hello")]).some((i) => i.kind === "assistant" && i.stepLimit),
+    ).toBe(false);
+  });
+
+  it("sends «Vai avanti» from the person in their language, once", async () => {
+    set("s1", [user("do A and B"), summary("Done: A. Left: B.")]);
+    const { container } = render(<Chat sessionId="s1" agentId="god" />);
+    const button = screen.getByText("Continua").closest("button") as HTMLButtonElement;
+    expect(container.querySelectorAll(".step-continue")).toHaveLength(1);
+    fireEvent.click(button);
+    expect(sent.at(-1)).toMatchObject({
+      type: "session.send",
+      sessionId: "s1",
+      text: "Vai avanti",
+    });
+    expect(button.disabled).toBe(true);
+    // The message is in the log: the button goes away.
+    cleanup();
+    set("s1", [user("do A and B"), summary("Done: A. Left: B."), user("Vai avanti")]);
+    const again = render(<Chat sessionId="s1" agentId="god" />);
+    expect(again.container.querySelector(".step-continue")).toBe(null);
+    cleanup();
+    lang.value = "en";
+    set("s1", [user("do A and B"), summary("Done: A. Left: B.")]);
+    render(<Chat sessionId="s1" agentId="god" />);
+    fireEvent.click(screen.getByText("Continue"));
+    expect(sent.at(-1)).toMatchObject({ text: "Go on" });
+  });
+});

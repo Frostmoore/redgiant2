@@ -98,6 +98,8 @@ export const EventBody = z.discriminatedUnion("type", [
       costUsd: z.number().nonnegative(),
       /** A model the catalog does not know (3.5.4): `costUsd` is 0 because the price is unknown. */
       costUnknown: z.boolean().optional(),
+      /** The closing summary at the step limit (3.5.6): the page offers to go on. */
+      stepLimit: z.boolean().optional(),
     }),
   }),
   z.object({

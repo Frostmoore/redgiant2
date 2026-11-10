@@ -77,6 +77,11 @@ export type ChatItem =
       stopReason: string;
       /** Brought in from another assistant (G36.7): no figures to show. */
       imported?: boolean;
+      /**
+       * The closing summary at the step limit, nothing written after it yet (3.5.6): the page
+       * offers «Continue» under it.
+       */
+      stepLimit?: boolean;
     }
   | {
       kind: "tool";
@@ -171,6 +176,8 @@ export function buildItems(events: Event[]): ChatItem[] {
   /** Calls with no result yet: once the model speaks again they cannot be running any more. */
   const open = new Set<Extract<ChatItem, { kind: "tool" }>>();
   const asked = new Map<string, Extract<ChatItem, { kind: "question" }>>();
+  /** The last closing summary at the step limit: a message after it takes its «Continue» away. */
+  let limited: Extract<ChatItem, { kind: "assistant" }> | undefined;
   for (const e of events) {
     const key = `e${e.seq}`;
     if (e.payload === null) {
@@ -181,6 +188,10 @@ export function buildItems(events: Event[]): ChatItem[] {
       case "message.user":
         // RedGiant's own note to the model (the step limit): the answer is what the person reads.
         if (e.payload.from === "redgiant") break;
+        if (limited) {
+          delete limited.stepLimit;
+          limited = undefined;
+        }
         items.push({
           kind: "user",
           key,
@@ -222,6 +233,10 @@ export function buildItems(events: Event[]): ChatItem[] {
           // Older or hand-made events may lack the provider.
           ...((e.payload.provider ?? "").startsWith("import:") && { imported: true }),
         });
+        if (e.payload.stepLimit) {
+          limited = items.at(-1) as Extract<ChatItem, { kind: "assistant" }>;
+          limited.stepLimit = true;
+        }
         break;
       // A conversation brought in from ChatGPT or Claude (G36.7): said once, at its top.
       case "session.imported": {

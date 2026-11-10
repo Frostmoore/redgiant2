@@ -37,11 +37,17 @@ export const CommandSettings = z.object({
     .max(4 * HOUR)
     .default(10 * MINUTE),
   /**
-   * Model calls in one turn of an agent (G36.15); absent: the server's default
-   * (`REDGIANT_MAX_TURNS`, else 50); null: no limit (the budgets still hold).
+   * Model calls in one turn of an agent (G36.15, 3.5.6); absent: the default for the turn's
+   * origin (no limit in a turn the person started, `UNATTENDED_MAX_TURNS` or `REDGIANT_MAX_TURNS`
+   * in one nobody started: automations, tasks, reminders); null: no limit (the budgets still hold).
    */
   maxTurns: z.number().int().min(5).max(10_000).nullable().optional(),
 });
+/**
+ * Model calls in one turn nobody is watching (3.5.6, as Claude Code): automations, delegated
+ * tasks, reminders, webhooks. A turn the person started has no limit unless they set one.
+ */
+export const UNATTENDED_MAX_TURNS = 200;
 export type CommandSettings = z.infer<typeof CommandSettings>;
 export const DEFAULT_COMMAND_SETTINGS: CommandSettings = CommandSettings.parse({});
 

@@ -1097,7 +1097,7 @@ export class Api {
     this.call<{
       settings: import("@redgiant/protocol").CommandSettings;
       defaults: import("@redgiant/protocol").CommandSettings;
-      /** The steps of a turn when none is chosen (REDGIANT_MAX_TURNS, else 50; G36.15). */
+      /** The steps of a turn nobody started when none is chosen (REDGIANT_MAX_TURNS, else 200; 3.5.6). */
       serverMaxTurns?: number;
     }>("GET", "/api/settings/commands");
   setCommandSettings = (s: import("@redgiant/protocol").CommandSettings) =>

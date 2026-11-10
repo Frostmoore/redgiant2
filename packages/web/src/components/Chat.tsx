@@ -19,6 +19,7 @@ import {
   IconFile,
   IconInfo,
   IconLayers,
+  IconPlay,
   IconShield,
   IconSpinner,
   IconStop,
@@ -638,6 +639,36 @@ function CompactionMark({
   );
 }
 
+/**
+ * Under the closing summary at the step limit (3.5.6): one click says «Go on» for the person.
+ * It goes away once anything is written after the summary (`buildItems`).
+ */
+function GoOn({ sessionId }: { sessionId: string }) {
+  const [sent, setSent] = useState(false);
+  return (
+    <div class="step-limit">
+      <button
+        type="button"
+        class="step-continue"
+        title={t("stepLimitContinueHint")}
+        disabled={sent}
+        onClick={() => {
+          setSent(true);
+          getLive().send({
+            type: "session.send",
+            sessionId,
+            text: t("stepLimitGoOn"),
+            clientId: `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+          });
+        }}
+      >
+        <IconPlay size={11} />
+        {t("stepLimitContinue")}
+      </button>
+    </div>
+  );
+}
+
 function Item({
   item,
   agentId,
@@ -673,6 +704,7 @@ function Item({
               <ContinueHere sessionId={sessionId} agentId={agentId} seq={item.seq} />
             </div>
           )}
+          {actions && item.stepLimit && <GoOn sessionId={sessionId} />}
         </>
       );
     case "fork":

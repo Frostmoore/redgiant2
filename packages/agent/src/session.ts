@@ -13,6 +13,7 @@ import {
   notedText,
   quotedText,
   type StopReason,
+  UNATTENDED_MAX_TURNS,
   type UserPart,
 } from "@redgiant/protocol";
 import {
@@ -109,10 +110,12 @@ export interface AgentSessionOptions {
   /** A summary is being made in the foreground (the chat says so) or done. */
   onCompacting?: (busy: boolean) => void;
   /**
-   * Maximum model calls per `send` (default 50). A function is read at each `send`, so the
-   * person's setting applies to the next message of a live session; null: no limit.
+   * Maximum model calls per `send`; null: no limit. A function is read at each `send`, with
+   * whether the person started it (`send`'s `person`), so the person's setting applies to the
+   * next message of a live session. Default (3.5.6): none in a turn the person started,
+   * `UNATTENDED_MAX_TURNS` in any other.
    */
-  maxTurns?: number | (() => number | null);
+  maxTurns?: number | ((origin: { person: boolean }) => number | null);
   maxTokens?: number;
   /** Scheduling priority on shared local engines; set from the agent kind. */
   priority?: number;
@@ -419,10 +422,11 @@ export class AgentSession {
   }
 
   /** The step limit of one `send`, read when it starts (Infinity: none). */
-  private turnLimit(): number {
+  private turnLimit(person: boolean): number {
     const m = this.o.maxTurns;
-    const v = typeof m === "function" ? m() : m;
-    return v === null ? Number.POSITIVE_INFINITY : (v ?? 50);
+    const v = typeof m === "function" ? m({ person }) : m;
+    if (v === null) return Number.POSITIVE_INFINITY;
+    return v ?? (person ? Number.POSITIVE_INFINITY : UNATTENDED_MAX_TURNS);
   }
 
   /** Sends a user message and runs the model/tool loop until the model stops. */
@@ -437,6 +441,8 @@ export class AgentSession {
       notes?: string[];
       /** The report of a task this agent handed over (3.5.6): an open list of steps is shown again. */
       taskReport?: boolean;
+      /** The person started this turn (3.5.6): it has no step limit unless they set one. */
+      person?: boolean;
     } = {},
   ): Promise<SendResult> {
     const ctx = { ...this.ctx, signal };
@@ -466,12 +472,12 @@ export class AgentSession {
       firstSeq: first.seq,
     });
 
-    if (this.o.engine) return this.sendToEngine(this.o.engine, said, images, ctx);
+    const limit = this.turnLimit(extra.person === true);
+    if (this.o.engine) return this.sendToEngine(this.o.engine, said, images, ctx, limit);
 
     let last: Completion | undefined;
     // Calls cut by the output limit, answered with an error and retried (at most twice).
     let cutCalls = 0;
-    const limit = this.turnLimit();
     for (let turn = 1; turn <= limit; turn++) {
       const gate = await this.o.beforeModelCall?.();
       if (gate && !gate.allow) {
@@ -596,6 +602,8 @@ export class AgentSession {
           metrics: completion.metrics,
           costUsd: await this.priced(completion),
           ...(this.unpriced(completion) && { costUnknown: true }),
+          // The page offers «Continue» under it (3.5.6); the model never sees this mark.
+          stepLimit: true,
         },
       });
       this.history.push({
@@ -626,10 +634,10 @@ export class AgentSession {
     text: string,
     images: ImagePart[],
     ctx: ToolContext,
+    limit: number,
   ): Promise<SendResult> {
     let message = text;
     let pictures = images;
-    const limit = this.turnLimit();
     for (let turn = 1; turn <= limit; turn++) {
       const gate = await this.o.beforeModelCall?.();
       if (gate && !gate.allow)

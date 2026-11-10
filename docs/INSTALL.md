@@ -133,9 +133,11 @@ created or rewired). The folder must exist and may not be a whole drive, the hom
 system folder, RedGiant's own data, or overlap another project's folder; in the Docker image it must
 be inside the data volume's `workspaces`, the only place the sandboxes can see.
 
-**Steps in one turn.** An agent makes at most 50 model calls in one turn, then stops and says where it
-got to. Settings > Commands > Steps in one turn changes it (or "No limit"; the budgets still hold);
-`REDGIANT_MAX_TURNS` sets the server's default. The WebSocket's `session.state` message with
+**Steps in one turn.** In a conversation with the person (a turn started by their message) an agent
+has no step limit, as in Claude Code. A turn nobody started (automations, delegated tasks, reminders,
+webhooks) makes at most 200 model calls, then stops and says where it got to; the page then offers
+«Continue». Settings > Commands > Steps in one turn sets one number for every turn (or "No limit";
+the budgets still hold); `REDGIANT_MAX_TURNS` sets the server's default for unattended turns. The WebSocket's `session.state` message with
 `state: "idle"` carries `stopReason` (`end_turn`, `max_turns`, `budget`, `aborted`, `error`…).
 
 ## Options

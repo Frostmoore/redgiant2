@@ -635,6 +635,61 @@ describe("AgentSession", () => {
     expect(rebuilt.at(-2)).toEqual(seen.at(-1)?.messages.at(-1));
   });
 
+  it("has no step limit when the person started the turn, 200 otherwise (3.5.6)", async () => {
+    // Tool calls until `left` runs out, then a final answer; the closing summary when asked.
+    let left = 0;
+    let n = 0;
+    const { fake, options } = setup((req) => {
+      const last = req.messages.at(-1);
+      if (last?.parts.some((p) => p.type === "text" && p.text.includes("limit of steps")))
+        return { text: "Where I got to." };
+      if (left-- <= 0) return { text: "Done." };
+      n++;
+      return { toolCalls: [{ name: "echo", input: { text: `step ${n}` } }] };
+    });
+    const s = await AgentSession.start(options);
+    // The person's own turn: past 200 steps, until the model is done.
+    left = 230;
+    expect(await s.send("go", undefined, { person: true })).toMatchObject({
+      stopReason: "end_turn",
+      turns: 231,
+    });
+    // A turn nobody started (an automation, a task): 200 steps, then the closing summary.
+    left = 1000;
+    const before = fake.requests.length;
+    expect(await s.send("go on")).toMatchObject({ stopReason: "max_turns", turns: 200 });
+    expect(fake.requests.length - before).toBe(201);
+    const events = await store.list({ sessionId: "s1" });
+    const summary = events.at(-1);
+    expect(summary?.type).toBe("message.assistant");
+    // Marked for the page's «Continue»; ordinary answers are not.
+    expect(summary?.type === "message.assistant" && summary.payload.stepLimit).toBe(true);
+    expect(events.filter((e) => e.type === "message.assistant" && e.payload.stepLimit).length).toBe(
+      1,
+    );
+    // The mark stays in the log only: the rebuilt history is what the model saw.
+    expect(JSON.stringify(rebuildHistory(events).at(-1)?.message)).not.toContain("stepLimit");
+  }, 60_000);
+
+  it("reads the limit with the turn's origin (the person's setting, 3.5.6)", async () => {
+    const seen: boolean[] = [];
+    const { options } = setup(() => ({ toolCalls: [{ name: "echo", input: { text: "x" } }] }), {
+      maxTurns: ({ person }) => {
+        seen.push(person);
+        return person ? 3 : 2;
+      },
+    });
+    const s = await AgentSession.start(options);
+    expect(await s.send("go", undefined, { person: true })).toMatchObject({ turns: 3 });
+    expect(await s.send("go")).toMatchObject({ turns: 2 });
+    expect(seen).toEqual([true, false]);
+    // The flag is not part of the message.
+    const users = (await store.list({ sessionId: "s1" })).filter(
+      (e) => e.type === "message.user" && e.payload.from !== "redgiant",
+    );
+    expect(users.every((e) => !("person" in (e.payload as object)))).toBe(true);
+  });
+
   it("replays a recorded session into an identical log", async () => {
     const recordings: Recording[] = [];
     const script: FakeScript = [

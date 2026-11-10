@@ -183,7 +183,8 @@ const core = await RedGiantCore.create({
     ...(vaultEgress && { egress: vaultEgress.egress }),
   },
   workspacesDir: join(dataDir, "workspaces"),
-  // Model calls in one turn when the person set none in Settings (G36.15).
+  // Model calls in one turn nobody started (automations, tasks) when the person set none in
+  // Settings (G36.15, 3.5.6); the person's own turns have no limit unless they set one.
   ...(Number(env.REDGIANT_MAX_TURNS) >= 1 && {
     maxTurns: Math.floor(Number(env.REDGIANT_MAX_TURNS)),
   }),
