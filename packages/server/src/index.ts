@@ -32,6 +32,7 @@ export {
 } from "./knowledge/service.js";
 export * from "./local-models.js";
 export * from "./login.js";
+export * from "./models-catalog.js";
 export * from "./notes.js";
 export * from "./orchestration.js";
 export * from "./platform.js";
@@ -47,7 +48,6 @@ export * from "./shared-memory.js";
 export * from "./site-match.js";
 export * from "./terminal.js";
 export * from "./tool-choice.js";
-export * from "./models-catalog.js";
 export * from "./updates.js";
 export * from "./vault.js";
 export * from "./voice.js";
