@@ -3,8 +3,9 @@
 // preview beside it or instead of it (renderMarkdown: sanitised, decision of 2026-11-08: no
 // WYSIWYG); JSON, YAML and XML checked as the person types (viewers/syntax.ts: marked, never
 // blocking) and shown as a tree on request. The person's Ctrl+Z undoes only their own typing; what
-// an agent wrote is highlighted for a few seconds. Nothing is saved from here: the host writes;
-// Ctrl+S (Cmd+S) sends the last keystrokes and asks it to write now (p3.5.1).
+// an agent wrote stays highlighted until the person could see it a while (viewers/seen.ts).
+// Nothing is saved from here: the host writes; Ctrl+S (Cmd+S) sends the last keystrokes and asks
+// it to write now (p3.5.1).
 import { syntaxHighlighting } from "@codemirror/language";
 import { type Diagnostic, lintGutter, setDiagnostics } from "@codemirror/lint";
 import {
@@ -28,15 +29,14 @@ import { docView, openDoc, saveDoc, sendDoc } from "../../state.js";
 import { freshAgentWrites, TextCollab } from "../../viewers/collab.js";
 import { viewerFor } from "../../viewers/kind.js";
 import { useOrders, useReport } from "../../viewers/live.js";
+import { afterSeen, elementShown, HIGHLIGHT_SEEN_MS } from "../../viewers/seen.js";
 import { type Problem, SYNTAX_NAMES, syntaxOf, syntaxProblems } from "../../viewers/syntax.js";
-import { parseTree, type TreeNode } from "../../viewers/tree.js";
+import { jsonPathAt, linesAround, parseTree, type TreeNode } from "../../viewers/tree.js";
 import { codeClasses, languageFor, languageOf } from "./code-style.js";
 import { Branch } from "./TreeBranch.js";
 
 /** A pause in typing longer than this starts another gesture (another line of the panel). */
 const GESTURE_MS = 2000;
-/** How long an agent's text stays highlighted. */
-const HIGHLIGHT_MS = 8000;
 /** The place the person typed in stays held this long after they leave the text (p3.5.3). */
 const HOLD_AFTER_BLUR_MS = 3000;
 /** The preview, the tree and the syntax check follow the text after this pause. */
@@ -189,6 +189,8 @@ export function TextEditor({
     let blurTimer: ReturnType<typeof setTimeout> | undefined;
     let checks = 0;
     let markId = 0;
+    /** The highlights waiting to be seen (p3.5.4): cancelled when the editor closes. */
+    const fading = new Set<() => void>();
     let citation = line;
     /** Ctrl+S waits for the keystrokes in flight: the save is asked once the host has them. */
     let saveAfter = false;
@@ -337,18 +339,32 @@ export function TextEditor({
       if (!view || !ranges.length) return;
       const id = ++markId;
       view.dispatch({ effects: addMarks.of({ ranges, id }) });
-      setTimeout(() => view?.dispatch({ effects: dropMarks.of(id) }), HIGHLIGHT_MS);
+      // It fades after the person could see it a while (p3.5.4), not after a fixed time: an
+      // agent's edit made while they read the chat or looked at another tab stays marked.
+      const cancel = afterSeen(
+        HIGHLIGHT_SEEN_MS,
+        () => {
+          fading.delete(cancel);
+          view?.dispatch({ effects: dropMarks.of(id) });
+        },
+        elementShown(() => view?.dom),
+      );
+      fading.add(cancel);
     };
     const resync = () => sendDoc({ type: "doc.open", file });
     const close = openDoc(file, {
       opened(snapshot, revision) {
         if (snapshot.family !== "text") return;
         const first = !view;
+        const before = collab.revision;
         collab.reset(revision);
         setTextNow(snapshot.text);
         savePending();
-        // Opened after an agent edited it: what it just wrote, highlighted as if seen live.
-        if (first) highlight(freshAgentWrites(docView(file).value.changes, revision, { max: 1 }));
+        // Opened after an agent edited it, or opened again with an agent's revision this page
+        // had not seen (p3.5.4: a change that came by a resynchronisation, not live): what it
+        // just wrote, highlighted as if seen live.
+        if (first || revision > before)
+          highlight(freshAgentWrites(docView(file).value.changes, revision, { max: 1 }));
       },
       replaced(m) {
         if (m.snapshot.family !== "text") return;
@@ -380,6 +396,7 @@ export function TextEditor({
       if (presenceTimer) clearTimeout(presenceTimer);
       if (deriveTimer) clearTimeout(deriveTimer);
       if (blurTimer) clearTimeout(blurTimer);
+      for (const cancel of fading) cancel();
       collab.flush();
       close();
       editor.current = undefined;
@@ -411,6 +428,15 @@ export function TextEditor({
     [markdown, mode, text],
   );
   const first = problems?.[0];
+  // Where the text stops being valid, in the tree too (p3.5.4): the node there marked, or, when
+  // no tree can be built, the lines around the error.
+  const treeMark = useMemo(
+    () =>
+      mode === "tree" && first && syntax === "json" && text !== undefined
+        ? jsonPathAt(text, first.from)
+        : undefined,
+    [mode, first?.from, syntax, text],
+  );
   const seg = (list: [TextMode, string][]) => (
     <div class="vw-seg">
       {list.map(([m, label]) => (
@@ -498,10 +524,29 @@ export function TextEditor({
         )}
         {treeable && mode === "tree" && (
           <div class="vw-tree doc-tree">
-            {tree?.error && <p class="vw-note">{t("vwTreeNo", { why: tree.error })}</p>}
+            {first && (
+              <p class="vw-note doc-tree-bad" role="status">
+                <IconAlert size={13} />
+                {t(tree?.error ? "docTreeBadNoTree" : "docTreeBad", {
+                  line: String(first.line),
+                  why: first.message,
+                })}
+              </p>
+            )}
+            {tree?.error && !first && <p class="vw-note">{t("vwTreeNo", { why: tree.error })}</p>}
+            {tree?.error && first && text !== undefined && (
+              <pre class="doc-tree-lines" title={t("docTreeLines")}>
+                {linesAround(text, first.line).map((l) => (
+                  <div key={l.n} class={l.bad ? "bad" : ""}>
+                    <span class="n">{l.n}</span>
+                    {l.text}
+                  </div>
+                ))}
+              </pre>
+            )}
             {tree?.node && (
               <div class="vw-tree-body">
-                <Branch node={tree.node} depth={0} open={2} />
+                <Branch node={tree.node} depth={0} open={2} mark={treeMark} why={first?.message} />
               </div>
             )}
             {!tree && <div class="vw-empty dim">{t("loading")}</div>}

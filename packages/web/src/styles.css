@@ -15408,6 +15408,81 @@ button.sub-tab {
   border-bottom: 1px solid var(--line);
   font-size: 13px;
 }
+/* Where a JSON stops being valid, in the tree view (p3.5.4). */
+.doc-tree-bad {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--warn-text);
+}
+.doc-tree-bad .icon {
+  flex: none;
+  margin-top: 2px;
+}
+.vw-tree-leaf.bad,
+.vw-tree-head.bad {
+  background: var(--warn-soft, var(--panel-2));
+  outline: 1px solid var(--warn-text);
+  border-radius: 4px;
+}
+.vw-tree-leaf.bad > .icon,
+.vw-tree-head.bad > .icon {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 4px;
+  color: var(--warn-text);
+  flex: none;
+}
+.doc-tree-lines {
+  margin: 0 12px 12px;
+  padding: 6px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 12px;
+  overflow-x: auto;
+}
+.doc-tree-lines > div {
+  padding: 0 10px 0 0;
+  white-space: pre;
+  color: var(--text);
+  border-left: 3px solid transparent;
+}
+.doc-tree-lines > div.bad {
+  background: var(--warn-soft, var(--panel-2));
+  border-left-color: var(--warn-text);
+}
+.doc-tree-lines .n {
+  display: inline-block;
+  min-width: 3.5em;
+  padding-right: 10px;
+  text-align: right;
+  color: var(--dim);
+  user-select: none;
+}
+/* An agent stopped by the person (p3.5.4): discreet, it goes by itself. */
+.doc-notice.doc-held {
+  background: var(--panel-2);
+  color: var(--text);
+  flex-wrap: nowrap;
+  padding: 6px 8px 6px 12px;
+}
+.doc-held > span {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+.doc-held > .icon {
+  flex: none;
+  color: var(--accent);
+}
+.doc-held-close.vw-icon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0;
+}
 .doc-main {
   flex: 1;
   min-height: 0;
@@ -15510,21 +15585,18 @@ button.doc-change-what {
 .doc-undone {
   font-size: 12px;
 }
+/* A fixed size (p3.5.4): the words stay in its title; growing on hover squeezed the line beside. */
 .doc-undo.vw-icon {
-  width: auto;
+  width: 28px;
+  height: 28px;
   min-width: 28px;
-  min-height: 28px;
-  padding: 0 7px;
+  padding: 0;
   font-size: 12px;
   gap: 4px;
   flex: none;
 }
 .doc-undo span {
   display: none;
-}
-.doc-change:hover .doc-undo span,
-.doc-undo:focus-visible span {
-  display: inline;
 }
 .doc-proposals .doc-change {
   flex-direction: column;
@@ -15800,8 +15872,10 @@ button.doc-change-what {
   .doc-change {
     flex-wrap: wrap;
   }
-  .doc-undo {
+  .doc-undo.vw-icon {
     margin-left: auto;
+    width: auto;
+    padding: 0 7px;
   }
   .doc-undo span {
     display: inline;
@@ -16122,6 +16196,26 @@ fieldset.vw-seg {
 }
 .canvas-edit-copy {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+/* What «Modifica» brings down the first time, or the fallback (p3.5.4): a line of its own. */
+.canvas-edit-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--dim);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.canvas-edit-strip .icon {
+  flex: none;
+  margin-top: 2px;
 }
 @media (max-width: 760px) {
   .canvas-edit-copy > span {
@@ -16602,7 +16696,8 @@ fieldset.vw-seg {
   border: 2px solid var(--accent);
   border-radius: 4px;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
-  animation: svg-mark 8s ease-out forwards;
+  /* It stays until the person could see it a while (viewers/seen.ts, p3.5.4), then goes. */
+  animation: svg-mark 0.4s ease-out;
 }
 .svg-mark span {
   position: absolute;
@@ -16617,12 +16712,11 @@ fieldset.vw-seg {
   white-space: nowrap;
 }
 @keyframes svg-mark {
-  0%,
-  70% {
-    opacity: 1;
-  }
-  100% {
+  from {
     opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 .svg-loading {
@@ -16800,21 +16894,4 @@ fieldset.vw-seg {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
-}
-
-/* p3.5.3: what «Modifica» does in this browser, beside it (the full text in its title). */
-.canvas-edit-note {
-  /* It gives way first: the file's name keeps its room. */
-  flex: 0 1000 auto;
-  min-width: 0;
-  max-width: 16em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.82em;
-}
-@media (max-width: 760px) {
-  .canvas-edit-note {
-    display: none;
-  }
 }

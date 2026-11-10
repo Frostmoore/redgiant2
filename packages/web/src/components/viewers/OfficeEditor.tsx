@@ -694,16 +694,9 @@ const browserEnv = () => ({
     typeof caches !== "undefined" && (await caches.keys()).some((k) => k.startsWith("rg-zeta-")),
 });
 
-/** «Modifica» on a DOCX/PPTX in the canvas: its open copy, made if missing, opened in a tab. */
-export function EditCopyButton({ scope, path }: { scope: string; path: string }) {
-  const [job, setJob] = useState<{ id: string; copy: string }>();
+/** What «Modifica» will do in this browser, once worked out (shared by the button and its line). */
+function useEditCopyNote(): { short: string; long: string } | undefined {
   const [note, setNote] = useState<{ short: string; long: string }>();
-  const j = useJob(job?.id);
-  useEffect(() => {
-    if (!job || !j || j.state === "running") return;
-    if (j.state === "done") openCanvas(nameOf(job.copy), { kind: "file", scope, path: job.copy });
-    setJob(undefined);
-  }, [j?.state]);
   useEffect(() => {
     let live = true;
     void editCopyNote(browserEnv()).then(
@@ -714,13 +707,39 @@ export function EditCopyButton({ scope, path }: { scope: string; path: string })
       live = false;
     };
   }, []);
+  return note;
+}
+
+/**
+ * The sentence about «Modifica» on a line of its own under the canvas's head (p3.5.4: squeezed
+ * beside the button it vanished on the person's screen): the first download, or the fallback.
+ */
+export function EditCopyNote() {
+  const note = useEditCopyNote();
+  if (!note) return null;
+  return (
+    <div class="canvas-edit-strip" role="note">
+      <IconDownload size={13} />
+      <span>{note.long}</span>
+    </div>
+  );
+}
+
+/**
+ * «Modifica» on a DOCX/PPTX in the canvas: its open copy, made if missing, opened in the same tab
+ * (p3.5.4: the copy lives in its original's tab).
+ */
+export function EditCopyButton({ scope, path }: { scope: string; path: string }) {
+  const [job, setJob] = useState<{ id: string; copy: string }>();
+  const note = useEditCopyNote();
+  const j = useJob(job?.id);
+  useEffect(() => {
+    if (!job || !j || j.state === "running") return;
+    if (j.state === "done") openCanvas(nameOf(job.copy), { kind: "file", scope, path: job.copy });
+    setJob(undefined);
+  }, [j?.state]);
   return (
     <>
-      {note && (
-        <span class="dim canvas-edit-note" title={note.long}>
-          {note.short}
-        </span>
-      )}
       <button
         type="button"
         class="button tiny canvas-edit-copy"

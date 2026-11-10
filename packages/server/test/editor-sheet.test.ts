@@ -15,7 +15,7 @@ import { parseRows, readDelimited, writeDelimited } from "../src/editor/sheet/cs
 import { dropEngines } from "../src/editor/sheet/engine.js";
 import type { SheetModel } from "../src/editor/sheet/model.js";
 import { readOds } from "../src/editor/sheet/ods.js";
-import { sheetConflicts, sheetMap } from "../src/editor/sheet/ops.js";
+import { movePlaceholders, sheetConflicts, sheetMap } from "../src/editor/sheet/ops.js";
 import { buildPatch, pythonFor } from "../src/editor/sheet/toppa.js";
 import { sheetFamily } from "../src/editor/sheet-family.js";
 import { memoryDb } from "./pglite.js";
@@ -255,6 +255,44 @@ describe("ODS read for the editor", () => {
     expect(text).toMatch(
       /4\| A "gen" \| B "Nord" \| C "Alfa" \| D 30 \| E 19\.9 \[format [^\]]*\] \| F =D4\*E4 → 597/,
     );
+  });
+});
+
+describe("charts and pivot tables follow inserted rows (p3.5.4)", () => {
+  it("moves their cells and their place with the rows; structure says the new range", async () => {
+    const { model } = fam.load(new Uint8Array(await readFile(FIXTURE)), "vendite.ods");
+    const chartOf = (m: Pick<SheetModel, "placeholders">) =>
+      m.placeholders.find((p) => p.kind === "chart");
+    const pivotOf = (m: Pick<SheetModel, "placeholders">) =>
+      m.placeholders.find((p) => p.kind === "pivot");
+    const moved = async (ops: unknown[]) => ({
+      placeholders: movePlaceholders(
+        model,
+        (await agent(model, ops)).flatMap((o) => (o.family === "sheet" ? o.op.redo : [])),
+      ),
+    });
+    // Inside the range (before its last row): it grows; LibreOffice does the same in the file.
+    const inside = await moved([{ op: "insert_rows", before: 15, count: 1 }]);
+    expect(chartOf(inside)?.source).toBe("Vendite!F3:F3, Vendite!F4:F16");
+    expect(pivotOf(inside)?.source).toBe("Vendite!A3:F16");
+    // The pivot's output is on another sheet: it stays where it is.
+    expect(pivotOf(inside)).toMatchObject({ r0: 2, r1: 8 });
+    // Rows above a range move it down; rows removed inside shrink it.
+    expect(pivotOf(await moved([{ op: "insert_rows", before: 2, count: 2 }]))?.source).toBe(
+      "Vendite!A5:F17",
+    );
+    expect(chartOf(await moved([{ op: "delete_rows", from: 10, count: 2 }]))?.source).toBe(
+      "Vendite!F3:F3, Vendite!F4:F13",
+    );
+    // Applied for real, the agent's reading says the new range, not the old one.
+    const after = applyAll(
+      model,
+      await agent(model, [{ op: "insert_rows", before: 15, count: 1 }]),
+    );
+    expect(chartOf(after)?.source).toBe("Vendite!F3:F3, Vendite!F4:F16");
+    const text = await fam.structure(after, { fromLine: 1, toLine: 2 });
+    expect(text).toContain("reading the cells Vendite!F3:F3, Vendite!F4:F16");
+    expect(text).not.toContain("F4:F15");
   });
 });
 

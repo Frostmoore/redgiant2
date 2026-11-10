@@ -345,6 +345,69 @@ describe("documents in the editor (G37.4)", () => {
     expect(seen[0]).toMatch(/revision 0/);
   });
 
+  it("p3.5.4: an XLSX gets its ODS copy for the agent too; the person's tab of it shows the copy", async () => {
+    const seen: string[] = [];
+    const { sessionId, root } = await setup(
+      calls(
+        [
+          { name: "canvas_look", input: { path: "docs/bilancio.xlsx", view: "structure" } },
+          {
+            name: "canvas_edit",
+            input: { path: "docs/bilancio.xlsx", ops: [{ op: "set", cell: "D4", value: 30 }] },
+          },
+        ],
+        seen,
+      ),
+    );
+    const sv = s as Server;
+    await writeFile(
+      join(root, "docs/bilancio.xlsx"),
+      new TextEncoder().encode("the person's xlsx"),
+    );
+    const made: string[] = [];
+    (sv.core.programs as unknown as { find: () => string }).find = () => "/fake/soffice";
+    (sv.core.converter as unknown as { convert: unknown }).convert = async (
+      at: string,
+      path: string,
+      o: { to: string[] },
+    ) => {
+      made.push(`${path} → ${o.to.join(",")}`);
+      await mkdir(join(at, `${path}.open`), { recursive: true });
+      await writeFile(
+        join(at, `${path}.open/bilancio.ods`),
+        await readFile(join(import.meta.dirname, "fixtures", "sheets", "vendite.ods")),
+      );
+    };
+    // The person has the XLSX open in the canvas.
+    (sv.core.canvasLive as unknown as { ask: unknown }).ask = async () => ({
+      visible: true,
+      tabs: [
+        {
+          title: "bilancio.xlsx",
+          target: { kind: "file", scope: "platform", path: "docs/bilancio.xlsx" },
+          active: true,
+        },
+      ],
+    });
+    await (await sv.core.send("me", sessionId, "Correggi il bilancio")).done;
+    // Made once, read and edited as its copy.
+    expect(made).toEqual(["docs/bilancio.xlsx → ods"]);
+    expect(seen[0]).not.toContain("There is no editor");
+    expect(seen[0]).toContain("this is its open copy docs/bilancio.xlsx.open/bilancio.ods");
+    expect(seen[1]).toMatch(/^Applied as revision 1: /);
+    expect(seen[1]).toContain("you edited its open copy docs/bilancio.xlsx.open/bilancio.ods");
+    // The tab of the original shows the copy now (its original's name, the copy's target).
+    const shows = (await sv.core.store.list({ sessionId, types: ["canvas.show"] })).map(
+      (e) => e.type === "canvas.show" && e.payload,
+    );
+    expect(shows).toEqual([
+      {
+        title: "bilancio.xlsx",
+        target: { kind: "file", scope: "platform", path: "docs/bilancio.xlsx.open/bilancio.ods" },
+      },
+    ]);
+  });
+
   it("without the full editor: the person's find and replace; «Esporta come»; the engine's state", async () => {
     await setup(() => ({ text: "ok" }));
     const sv = s as Server;

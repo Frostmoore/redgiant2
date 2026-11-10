@@ -28,6 +28,11 @@ export interface CanvasEditHost {
   copyOf?(ownerId: string, file: DocFile): Promise<DocFile | undefined>;
   /** Whether a scope's files are read only now (an archived project's, 2026-11-09). */
   readOnly?(ownerId: string, scope: string): boolean;
+  /**
+   * The open copy an agent just edited, shown in its original's tab (p3.5.4: the person kept
+   * seeing the original's pages, «page 1 of 2» with three slides in the copy).
+   */
+  showCopy?(sessionId: string, original: DocFile, copy: DocFile): Promise<void>;
 }
 
 const Input = z.object({
@@ -127,11 +132,13 @@ export function canvasEditTool(
         );
       let family = host.editor.familyFor(file.path);
       let copied = "";
+      let original: DocFile | undefined;
       if (!family && host.copyOf && !i.help) {
         try {
           const copy = await host.copyOf(agent.ownerId, file);
           if (copy) {
             copied = ` (${basename(file.path)} is in a closed format: you edited its open copy ${copy.path}; the original stays as it is unless the person turned on writing it back)`;
+            original = file;
             file = copy;
             family = host.editor.familyFor(copy.path);
           }
@@ -226,6 +233,7 @@ export function canvasEditTool(
           ops: made.ops,
           groupId: host.editor.groupOf(ctx.sessionId),
           dryRun: true,
+          tell: true,
         });
         if (!check.ok)
           return fail(
@@ -252,6 +260,18 @@ export function canvasEditTool(
         );
       }
       host.editor.seen(ctx.sessionId, agent.ownerId, file, out.revision);
+      // The person has the original open: its tab shows the copy now, with the edit in it.
+      if (original && host.showCopy) {
+        const state = await host.state(agent.ownerId).catch(() => undefined);
+        const from = original;
+        const open = state?.tabs.some(
+          (t) =>
+            t.target.kind === "file" &&
+            t.target.scope === from.scope &&
+            (t.target.path === from.path || t.target.path === file?.path),
+        );
+        if (open) await host.showCopy(ctx.sessionId, from, file).catch(() => {});
+      }
       return `Applied as revision ${out.revision}${out.rebased ? ` (made on revision ${base}, moved over the later changes)` : ""}: ${out.summary.text}. The person sees it highlighted and can undo it (undo_id ${out.revision}).${tail}`;
     },
   };

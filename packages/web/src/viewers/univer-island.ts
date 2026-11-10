@@ -98,8 +98,8 @@ export interface Island {
   remote(mutations: readonly SheetMutation[]): boolean;
   /** The workbook again (opened, replaced, resynchronised). */
   load(workbook: Record<string, unknown>, placeholders: SheetPlaceholder[]): void;
-  /** The agent's cells, highlighted a few seconds. */
-  mark(areas: readonly Area[], ms: number): void;
+  /** The agent's cells highlighted; the function returned takes the highlight off. */
+  mark(areas: readonly Area[]): () => void;
   /** Shows an area (the panel «Modifiche»: «show me»). */
   reveal(area: Area): void;
   setDark(dark: boolean): void;
@@ -371,7 +371,7 @@ export function mountSheet(o: IslandOptions): Island {
       }
       setTimeout(outline, 300);
     },
-    mark(areas, ms) {
+    mark(areas) {
       const sheet = activeSheet();
       const ids: string[] = [];
       for (const a of areas.slice(0, 50))
@@ -387,9 +387,9 @@ export function mountSheet(o: IslandOptions): Island {
           });
           if (id) ids.push(id);
         }
-      setTimeout(() => {
+      return () => {
         if (!disposed) for (const id of ids) marks()?.removeShape(id);
-      }, ms);
+      };
     },
     reveal(a) {
       void cmd

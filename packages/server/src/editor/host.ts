@@ -97,7 +97,15 @@ interface Rev {
   undoneBy?: number;
   replaced?: boolean;
   wrote: [number, number][];
+  /** When this server applied it (the host's clock; absent for revisions read from the log). */
+  at?: number;
 }
+
+/**
+ * A person's revision this recent, while they are still typing, means they are typing there right
+ * now (p3.5.4): the agent is told so, not that the place changed at an old revision.
+ */
+const TYPING_RECENT_MS = 15_000;
 
 interface Person {
   editing: boolean;
@@ -544,15 +552,48 @@ export class EditorHost {
       this.broadcast(doc, { type: "doc.presence", file, presence: this.presenceOf(doc) }, subId);
   }
 
-  /** The place the person holds now, if they are typing. */
-  private heldBy(doc: Doc, op: DocOp): string | undefined {
+  /** The place the person holds now, if they are typing: in words, and its line (or row). */
+  private heldBy(doc: Doc, op: DocOp): { place: string; line: number } | undefined {
     const now = this.now();
     for (const p of doc.people.values())
-      if (p.editing && p.until > now && doc.family.touches(op, p.from, p.to))
-        return (
-          doc.family.placeOf?.(doc.model, p.from) ?? `line ${doc.family.lineOf(doc.model, p.from)}`
-        );
+      if (p.editing && p.until > now && doc.family.touches(op, p.from, p.to)) {
+        const line = doc.family.lineOf(doc.model, p.from);
+        return { place: doc.family.placeOf?.(doc.model, p.from) ?? `line ${line}`, line };
+      }
     return undefined;
+  }
+
+  /**
+   * Whether the person made this revision moments ago and is still in the editor (p3.5.4): their
+   * page says «editing» until they leave the text, even between two keys.
+   */
+  private typingNow(doc: Doc, r: Rev): boolean {
+    const now = this.now();
+    if (r.author !== PERSON || r.at === undefined || now - r.at > TYPING_RECENT_MS) return false;
+    for (const p of doc.people.values()) if (p.editing) return true;
+    return false;
+  }
+
+  /**
+   * An agent's edit stopped because of the person (p3.5.4, the person's test of 3.5.3: the agent
+   * was told, the person saw nothing): the pages show a discreet notice.
+   */
+  private tellHeld(
+    doc: Doc,
+    author: Author,
+    code: "busy" | "conflict",
+    line: number | undefined,
+    revision?: number,
+  ) {
+    this.broadcast(doc, {
+      type: "doc.held",
+      file: doc.file,
+      who: author.id,
+      ...(author.name && { name: author.name }),
+      code,
+      ...(line !== undefined && { line }),
+      ...(revision !== undefined && { revision }),
+    });
   }
 
   // ---- applying -----------------------------------------------------------------------------
@@ -573,6 +614,8 @@ export class EditorHost {
       /** The page that sent it: it gets `doc.ack` in its place in the order. */
       origin?: { subId: string; clientId: string };
       dryRun?: boolean;
+      /** A dry run that stands for the real thing (a proposal's check): its refusal is told. */
+      tell?: boolean;
       proposalId?: string;
     },
   ): Promise<Outcome> {
@@ -593,6 +636,7 @@ export class EditorHost {
       groupId: string;
       origin?: { subId: string; clientId: string };
       dryRun?: boolean;
+      tell?: boolean;
       proposalId?: string;
       undoOf?: { revisions: number[]; toBefore?: boolean };
       kind?: DocSummary["kind"];
@@ -607,6 +651,8 @@ export class EditorHost {
     });
     const f = doc.family;
     const person = req.author.id === PERSON;
+    /** The person sees why an agent's edit stopped, unless it was only the agent's dry run. */
+    const tell = !person && (!req.dryRun || req.tell === true);
     if (req.baseRevision > doc.revision)
       return refuse(
         "invalid",
@@ -628,12 +674,24 @@ export class EditorHost {
         if (!lc) return refuse("stale", "a later revision cannot be read back");
         // A proposal the person accepts is their decision (p3.5.3): moved over the later
         // changes like their own edits, never refused for touching the same place.
-        if (!person && !req.proposalId && l.author !== req.author.id && f.conflicts(one, lc))
+        if (!person && !req.proposalId && l.author !== req.author.id && f.conflicts(one, lc)) {
+          // The person still typing there (p3.5.4): said as such, not as an old revision.
+          if (this.typingNow(doc, l)) {
+            if (tell) this.tellHeld(doc, req.author, "busy", l.summary.line, l.revision);
+            return refuse(
+              "busy",
+              `the person is typing there right now (${l.summary.text}, revision ${l.revision}, after your revision ${req.baseRevision}): their edit comes first. Wait a few seconds, look again with canvas_look view "structure" and redo it on the new revision, or change another place`,
+              l.revision,
+            );
+          }
+          if (tell && l.author === PERSON)
+            this.tellHeld(doc, req.author, "conflict", l.summary.line, l.revision);
           return refuse(
             "conflict",
             `${l.author === PERSON ? "the person" : (l.authorName ?? l.author)} changed the same place at revision ${l.revision} (${l.summary.text}) after your revision ${req.baseRevision}: look again and redo it on revision ${doc.revision}`,
             l.revision,
           );
+        }
         const moved = f.map(one, lc);
         if (!moved)
           return refuse(
@@ -660,12 +718,14 @@ export class EditorHost {
     // Where the person is typing, the whole batch (G37.2: every operation of it, not the first).
     if (!person && !req.undoOf && !req.proposalId) {
       const all = ops.length > 1 ? f.compose(ops) : ops[0];
-      const line = all ? this.heldBy(doc, all) : undefined;
-      if (line !== undefined)
+      const held = all ? this.heldBy(doc, all) : undefined;
+      if (held) {
+        if (tell) this.tellHeld(doc, req.author, "busy", held.line);
         return refuse(
           "busy",
-          `the person is typing at ${line} right now: their edit comes first. Try again in a few seconds, or change another place`,
+          `the person is typing at ${held.place} right now: their edit comes first. Try again in a few seconds, or change another place`,
         );
+      }
     }
     const summary = f.summarize(doc.model, ops, req.kind);
     if (req.dryRun) return { ok: true, revision: doc.revision, summary, rebased };
@@ -714,6 +774,7 @@ export class EditorHost {
       summary,
       ...(req.undoOf && { undoOf: req.undoOf.revisions }),
       wrote: f.wrote(ops),
+      at: this.now(),
     };
     for (const u of req.undoOf?.revisions ?? []) {
       const t = doc.history.find((r) => r.revision === u);
