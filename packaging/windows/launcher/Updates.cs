@@ -634,25 +634,29 @@ static class Updates
     static void StartWarm()
     {
         if (warmer != null || AppDir == null) return;
-        // A minute and a half after the server answered (the CI sets it shorter).
+        // A minute and a half after the server answered. The CI sets it shorter, and its runner is
+        // always busy starting things: there the fill does not wait for a quiet PC.
         int delay;
-        if (!int.TryParse(Environment.GetEnvironmentVariable("REDGIANT_WARM_DELAY_MS"), out delay)) delay = 90000;
+        bool ci = int.TryParse(Environment.GetEnvironmentVariable("REDGIANT_WARM_DELAY_MS"), out delay);
+        if (!ci) delay = 90000;
         var t = new Thread(() =>
         {
             Thread.Sleep(Math.Max(0, delay));
             if (warmStop || updating || trial || File.Exists(StateFile)) return;
             Delta.BackgroundMode();
             var started = DateTime.Now;
-            int looked = 0;
+            int looked = 0, pauses = 0;
+            Diag.Log("update", "filling hashes.txt in the background");
             int hashed = Delta.Warm(AppDir, HashesFile, () =>
             {
                 if (warmStop || updating) return false;
-                // Every 200 files: wait while the PC is busy (an agent, a build, a game).
-                if (++looked % 200 == 0)
-                    for (int i = 0; i < 20 && !warmStop && Busy(); i++) Thread.Sleep(15000);
+                // Every 500 files: while the PC is busy (an agent, a build, a game) wait a little,
+                // a minute at most each time and half an hour in all, then go on anyway.
+                if (++looked % 500 == 0 && !ci)
+                    for (int i = 0; i < 6 && pauses < 180 && !warmStop && Busy(); i++, pauses++) Thread.Sleep(10000);
                 return !warmStop && !updating;
             });
-            Diag.Log("update", "hashes of the installed files: " + hashed + " hashed now, " + looked + " looked at, in " + (int)(DateTime.Now - started).TotalSeconds + " s" + (warmStop ? " (stopped for an update)" : ""));
+            Diag.Log("update", "hashes of the installed files: " + hashed + " hashed now, " + looked + " looked at, in " + (int)(DateTime.Now - started).TotalSeconds + " s, " + pauses + " pauses" + (warmStop ? " (stopped for an update)" : ""));
         });
         t.IsBackground = true;
         t.Priority = ThreadPriority.Lowest;
@@ -663,7 +667,7 @@ static class Updates
     [System.Runtime.InteropServices.DllImport("kernel32.dll")]
     static extern bool GetSystemTimes(out long idle, out long kernel, out long user);
 
-    /** The processors more than half busy over the last second (false when Windows cannot say). */
+    /** The processors more than three quarters busy over the last second (false when Windows cannot say). */
     static bool Busy()
     {
         try
@@ -673,7 +677,7 @@ static class Updates
             Thread.Sleep(1000);
             if (!GetSystemTimes(out i2, out k2, out u2)) return false;
             long all = (k2 - k1) + (u2 - u1), idle = i2 - i1;
-            return all > 0 && idle * 2 < all;
+            return all > 0 && idle * 4 < all;
         }
         catch (Exception) { return false; }
     }
