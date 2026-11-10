@@ -50,6 +50,7 @@ import {
   type ApprovalRequest,
   allows,
   budgetKeys,
+  CONCURRENT_TOOLS,
   can,
   canKnowledge,
   hierarchyGuards,
@@ -59,7 +60,6 @@ import {
   PermissionBroker,
   PersistentBudget,
   type PolicySettings,
-  READ_ONLY_TOOLS,
 } from "@redgiant/hierarchy";
 import {
   type AgentKind,
@@ -1780,7 +1780,7 @@ export class RedGiantCore implements OrchestrationHost {
       agentId,
       // What the person writes while the agent works joins its turn (as in Officina); what other
       // agents send waits for a turn of its own.
-      readOnlyTools: READ_ONLY_TOOLS,
+      readOnlyTools: CONCURRENT_TOOLS,
       interject: () => {
         const l = this.live.get(sessionId);
         if (!l?.queue?.length) return [];
@@ -3021,7 +3021,7 @@ export class RedGiantCore implements OrchestrationHost {
   private canvasHost(agent: AgentRecord): CanvasToolsHost {
     const data = dirname(this.o.workspacesDir);
     return {
-      state: (ownerId) => this.canvasLive.ask(ownerId),
+      state: (ownerId) => this.canvasLive.see(ownerId),
       targetOf: async (ownerId, abs) => {
         const where = await this.scopeOf(ownerId, abs).catch(() => undefined);
         if (where) return { kind: "file", ...where };
@@ -3033,8 +3033,16 @@ export class RedGiantCore implements OrchestrationHost {
         t.scope === "outside"
           ? t.path
           : new LocalWorkspace(await this.scopeRoot(ownerId, t.scope)).resolve(t.path),
-      look: (abs, ask, ctx) =>
-        lookAt(abs, ask, {
+      look: async (abs, ask, ctx) => {
+        // An edit not on disk yet is written first: the picture and the pages are the file's as
+        // the person sees it (p3.5.6). Never more than a while: then the file as it is.
+        const file = await this.docFileOf(agent.ownerId, abs);
+        if (file)
+          await Promise.race([
+            this.editor.writeNow(agent.ownerId, file).catch(() => {}),
+            new Promise((r) => setTimeout(r, 20_000).unref?.()),
+          ]);
+        return lookAt(abs, ask, {
           owner: agent.ownerId,
           programs: this.programs,
           converter: this.converter,
@@ -3042,7 +3050,8 @@ export class RedGiantCore implements OrchestrationHost {
           profileDir: join(data, "tools", "libreoffice-profile-look"),
           tmpDir: join(data, "cache", "look"),
           signal: ctx.signal,
-        }),
+        });
+      },
       act: async (ctx, title, target, d) => {
         await this.store.append({
           ownerId: agent.ownerId,

@@ -1,5 +1,6 @@
 // Demo server for screenshots and UI development: the real server and UI, an in-process
 // Postgres and a scripted model. Usage: node packages/web/scripts/demo-server.mjs [port]
+import { appendFileSync } from "node:fs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { hostname, tmpdir } from "node:os";
@@ -82,6 +83,23 @@ const brain = (req) => {
     last.parts.every((p) => p.type === "tool_result" || p.type === "image");
   turn++;
   const said = last?.parts.find((p) => p.type === "text")?.text ?? "";
+  // p3.5.6 (DEMO_CANVAS): «Esegui [{"name":…,"input":…},…]» makes exactly these calls in one
+  // answer (they may run together, as a model's do); their results go to DEMO_LOOK_LOG.
+  if (said.startsWith("Esegui [") && !results)
+    return { text: "Eseguo.", toolCalls: JSON.parse(said.slice("Esegui ".length)) };
+  if (
+    results &&
+    req.messages.at(-2)?.parts.some((p) => p.type === "text" && p.text === "Eseguo.")
+  ) {
+    if (process.env.DEMO_LOOK_LOG)
+      for (const p of last.parts)
+        if (p.type === "tool_result")
+          appendFileSync(
+            process.env.DEMO_LOOK_LOG,
+            `----- ${new Date().toISOString()}\n${p.content}\n`,
+          );
+    return { text: "Fatto." };
+  }
   // DEMO_ARCHIVE (2026-11-09): a long piece of work, still running when the person archives.
   if (said.includes("Rifai tutte le schede prodotto"))
     return { text: "Riscrivo le schede una per una. ".repeat(4000) };

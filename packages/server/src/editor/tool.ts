@@ -11,6 +11,7 @@ import type { CanvasState, DocFile } from "@redgiant/protocol";
 import type { Workspace } from "@redgiant/tools";
 import { z } from "zod";
 import { fileAt, tabOf, within } from "../canvas-tools.js";
+import { originalOfAnyCopy } from "./copies.js";
 import type { EditorHost } from "./host.js";
 
 export interface CanvasEditHost {
@@ -292,10 +293,14 @@ export function canvasEditTool(
         );
       }
       host.editor.seen(ctx.sessionId, agent.ownerId, file, out.revision);
-      // The person has the original open: its tab shows the copy now, with the edit in it.
-      if (original && host.showCopy) {
+      // The person has the original open: its tab shows the copy now, with the edit in it. Also
+      // when the agent named the copy itself (p3.5.6: bilancio.xlsx kept showing the original
+      // after edits of bilancio.xlsx.open/bilancio.ods).
+      const copyOf = originalOfAnyCopy(file.path);
+      const source = original ?? (copyOf ? { scope: file.scope, path: copyOf } : undefined);
+      if (source && host.showCopy) {
         const state = await host.state(agent.ownerId).catch(() => undefined);
-        const from = original;
+        const from = source;
         const open = state?.tabs.some(
           (t) =>
             t.target.kind === "file" &&

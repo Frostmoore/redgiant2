@@ -375,6 +375,42 @@ describe("Ctrl+S and text with no extension (p3.5.1)", () => {
   });
 });
 
+describe("canvas_look right after an edit (p3.5.6)", () => {
+  it("draws the file with the edit in it, written now rather than after the pause", async () => {
+    const seen: string[] = [];
+    s = await startServer(
+      calls(
+        [
+          {
+            name: "canvas_edit",
+            input: { path: file.path, ops: [{ op: "insert", line: 1, text: "slide four\n" }] },
+          },
+          { name: "canvas_look", input: { path: file.path } },
+        ],
+        seen,
+      ) as never,
+      { contextWindow: 65_536 },
+      // A pause no test waits for: only the look can have written the file.
+      { editor: { saveDelayMs: 600_000, watchMs: 0 } },
+    );
+    const g = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const sessionId = (
+      await s.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: g.body.id })
+    ).body.sessionId;
+    const abs = join(await s.core.scopeFolder("me", "platform"), file.path);
+    await mkdir(dirname(abs), { recursive: true });
+    await writeFile(abs, TEXT);
+    await (await s.core.send("me", sessionId, "add it and look")).done;
+    expect(seen[0]).toMatch(/^Applied as revision 1/);
+    expect(seen[1]).toContain("Lines 1-5 of 5:\n1| slide four\n2| buy milk");
+    expect(await readFile(abs, "utf8")).toBe(`slide four\n${TEXT}`);
+  });
+});
+
 /** One tool call per message of the person, chosen by its words; each result kept. */
 function turns(byText: Record<string, { name: string; input: unknown }>, seen: string[]) {
   return (req: Req) => {

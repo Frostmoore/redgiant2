@@ -216,12 +216,16 @@ export function attachWebSocket(
           });
           offPlatform = core.changes.onChange(onPlatform);
           offRooms = core.rooms.onChange(onRoom);
-          // The canvas is asked for only when an agent looks (G36.12).
-          offCanvas = core.canvasLive.onQuery((ownerId, requestId) => {
-            if (principal?.ownerId !== ownerId || ws.readyState !== ws.OPEN) return false;
-            send({ type: "canvas.query", requestId });
-            return true;
-          });
+          // The canvas is asked for only when an agent looks (G36.12). A page (not the CLI nor a
+          // gateway) is named: a question waiting reaches it when it comes back (p3.5.6).
+          offCanvas = core.canvasLive.onQuery(
+            (ownerId, requestId) => {
+              if (principal?.ownerId !== ownerId || ws.readyState !== ws.OPEN) return false;
+              send({ type: "canvas.query", requestId });
+              return true;
+            },
+            msg.reloads ? principal.ownerId : undefined,
+          );
           if (msg.reloads && live.pages) offPage = live.pages.add(principal.ownerId);
           // All the owner's conversations, followed or not (p3.5.3): a followed one already
           // brings its canvas events, so only the others' are sent here.
