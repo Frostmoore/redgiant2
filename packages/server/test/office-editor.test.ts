@@ -408,6 +408,47 @@ describe("documents in the editor (G37.4)", () => {
     ]);
   });
 
+  it("p3.5.6: an edit of the ODS copy named by its own path shows the copy in the XLSX's tab too", async () => {
+    const seen: string[] = [];
+    const ods = "docs/bilancio.xlsx.open/bilancio.ods";
+    const { sessionId, root } = await setup(
+      calls(
+        [
+          {
+            name: "canvas_edit",
+            input: { path: ods, ops: [{ op: "set", cell: "D4", value: 30 }] },
+          },
+        ],
+        seen,
+      ),
+    );
+    const sv = s as Server;
+    await writeFile(join(root, "docs/bilancio.xlsx"), new TextEncoder().encode("the xlsx"));
+    await mkdir(join(root, "docs/bilancio.xlsx.open"), { recursive: true });
+    await writeFile(
+      join(root, ods),
+      await readFile(join(import.meta.dirname, "fixtures", "sheets", "vendite.ods")),
+    );
+    (sv.core.canvasLive as unknown as { ask: unknown }).ask = async () => ({
+      visible: true,
+      tabs: [
+        {
+          title: "bilancio.xlsx",
+          target: { kind: "file", scope: "platform", path: "docs/bilancio.xlsx" },
+          active: true,
+        },
+      ],
+    });
+    await (await sv.core.send("me", sessionId, "Correggi il bilancio")).done;
+    expect(seen[0]).toMatch(/^Applied as revision 1: /);
+    const shows = (await sv.core.store.list({ sessionId, types: ["canvas.show"] })).map(
+      (e) => e.type === "canvas.show" && e.payload,
+    );
+    expect(shows).toEqual([
+      { title: "bilancio.xlsx", target: { kind: "file", scope: "platform", path: ods } },
+    ]);
+  });
+
   it("without the full editor: the person's find and replace; «Esporta come»; the engine's state", async () => {
     await setup(() => ({ text: "ok" }));
     const sv = s as Server;

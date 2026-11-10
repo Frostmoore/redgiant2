@@ -243,6 +243,15 @@ export const READ_ONLY_TOOLS = new Set([
   "request_tool",
 ]);
 
+/**
+ * The read-only tools that may run together within one answer (the session's batches). The
+ * canvas's moves are read only but run in the model's order (p3.5.6): a show_file or a canvas_act
+ * next to a canvas_look went at the same time, and the look saw the canvas from before the move.
+ */
+export const CONCURRENT_TOOLS: ReadonlySet<string> = new Set(
+  [...READ_ONLY_TOOLS].filter((t) => t !== "show_file" && t !== "canvas_act"),
+);
+
 const toolMatches = (pattern: string, tool: string) =>
   pattern === "*" ||
   pattern === tool ||

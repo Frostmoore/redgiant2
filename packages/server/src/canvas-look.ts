@@ -91,6 +91,9 @@ export interface Looked {
   kind: LookKind;
   text: string;
   image?: LookPicture;
+  /** A paged file's page drawn and its pages, counted now on the file as it is (p3.5.6). */
+  page?: number;
+  pages?: number;
 }
 
 /** The longest side of a picture sent to the model: big enough to read, light to send. */
@@ -213,7 +216,7 @@ async function lookPdf(
   ask: LookAsk,
   d: LookDeps,
   what: string,
-): Promise<{ text: string; image?: LookPicture }> {
+): Promise<{ text: string; image?: LookPicture; page: number; pages: number }> {
   const info = await pdfPage(new Uint8Array(await readFile(pdf)), ask.page ?? 1);
   const pic = await pdfPicture(pdf, info.page, info, sideOf(ask), d);
   const words = info.text.trim();
@@ -227,6 +230,8 @@ async function lookPdf(
         : "No text on this page (a picture or a scan).",
     ].join("\n"),
     ...(pic.image && { image: pic.image }),
+    page: info.page,
+    pages: info.pages,
   };
 }
 
@@ -601,10 +606,17 @@ export async function lookAt(abs: string, ask: LookAsk, d: LookDeps): Promise<Lo
   const kind = lookKindOf(name);
   const st = await stat(abs);
   const head = `${name} (${size(st.size)}).`;
-  const done = (r: { text: string; image?: LookPicture | undefined }): Looked => ({
+  const done = (r: {
+    text: string;
+    image?: LookPicture | undefined;
+    page?: number | undefined;
+    pages?: number | undefined;
+  }): Looked => ({
     kind,
     text: `${head} ${r.text}`,
     ...(r.image && { image: r.image }),
+    ...(r.page !== undefined && { page: r.page }),
+    ...(r.pages !== undefined && { pages: r.pages }),
   });
   const big = st.size > 200 * 1024 * 1024;
   switch (kind) {

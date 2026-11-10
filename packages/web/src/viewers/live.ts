@@ -24,6 +24,8 @@ export function setTabKind(id: string, kind: string | undefined): void {
 
 /** Merges what a viewer knows (undefined values clear theirs). */
 export function report(id: string, p: Partial<Record<keyof CanvasPlace, unknown>>): void {
+  // A viewer's word after it took an agent's move: the move is where the person is now.
+  if (!orders.value.has(id)) moving.delete(id);
   const next: Record<string, unknown> = { ...places.get(id) };
   for (const [k, v] of Object.entries(p)) {
     if (v === undefined || v === "" || (typeof v === "number" && !Number.isFinite(v)))
@@ -33,10 +35,20 @@ export function report(id: string, p: Partial<Record<keyof CanvasPlace, unknown>
   places.set(id, next as CanvasPlace);
 }
 
+/**
+ * A tab shows another file now (an open copy in its original's tab, p3.5.6): what its viewer
+ * said of the other file goes (the original's «page 1 of 3» stayed beside a copy of 4 slides).
+ */
+export function forgetPlace(id: string): void {
+  places.delete(id);
+}
+
 /** A tab closed: what was known about it goes. */
 export function forgetTab(id: string): void {
   places.delete(id);
   kinds.delete(id);
+  moving.delete(id);
+  opened.delete(id);
   if (orders.value.has(id)) {
     const m = new Map(orders.value);
     m.delete(id);
@@ -55,7 +67,18 @@ export const orders = signal<ReadonlyMap<string, Order>>(new Map());
 export const lastMove = signal<{ id: string; n: number; do: CanvasDo } | undefined>(undefined);
 let counter = 0;
 
+/** Tabs an agent moved whose viewer has not said where it is since (p3.5.6). */
+const moving = new Set<string>();
+/** Tabs just opened (or given another file), with when: their viewer may not have said its kind. */
+const opened = new Map<string, number>();
+
+/** A tab opened now: an agent that looks gives its viewer a moment to start (p3.5.6). */
+export function tabOpened(id: string): void {
+  opened.set(id, Date.now());
+}
+
 export function order(id: string, d: CanvasDo): void {
+  moving.add(id);
   counter++;
   orders.value = new Map(orders.value).set(id, { n: counter, do: d });
   lastMove.value = { id, n: counter, do: d };
@@ -66,6 +89,11 @@ function consume(id: string, n: number): void {
   const m = new Map(orders.value);
   m.delete(id);
   orders.value = m;
+  // A move that changed nothing the viewer reports (already on that page) is done in a moment.
+  void (async () => {
+    for (let i = 0; i < 6; i++) await frame();
+    if (!orders.value.has(id)) moving.delete(id);
+  })();
 }
 
 /** A viewer's way to say where the person is (a no-op outside the canvas). */
@@ -109,4 +137,40 @@ export function cellRange(
     c1: Math.max(a.c, b.c),
     r1: Math.max(a.r, b.r),
   };
+}
+
+/** The next frame (or a short pause where frames do not come, a page in the background). */
+const frame = () =>
+  new Promise<void>((done) => {
+    const timer = setTimeout(done, 50);
+    if (typeof requestAnimationFrame === "function")
+      requestAnimationFrame(() => {
+        clearTimeout(timer);
+        done();
+      });
+  });
+
+/**
+ * Waits, at most `maxMs`, until the canvas says what the person sees (p3.5.6: canvas_look right
+ * after canvas_act read «page 1» while the PDF was turning to page 2, and right after show_file
+ * the new tab had no viewer yet): every agent's move taken and reported, every tab just opened
+ * knowing its kind. `open` lists the tabs there now. Never waits longer: a move no viewer can use
+ * (a page for a video) only costs the wait.
+ */
+export async function settled(open: readonly string[], maxMs = 1500): Promise<void> {
+  const end = Date.now() + maxMs;
+  const busy = () =>
+    open.some(
+      (id) =>
+        orders.value.has(id) ||
+        moving.has(id) ||
+        (!kinds.has(id) && Date.now() - (opened.get(id) ?? 0) < maxMs),
+    );
+  let moved = false;
+  while (busy() && Date.now() < end) {
+    moved = true;
+    await frame();
+  }
+  // The viewer's last word comes in an effect after its render: a few frames more.
+  if (moved) for (let i = 0; i < 3 && Date.now() < end; i++) await frame();
 }

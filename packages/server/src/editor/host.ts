@@ -521,6 +521,21 @@ export class EditorHost {
     }
   }
 
+  /**
+   * Writes the file now when an edit is not on disk yet (p3.5.6: canvas_look drew a presentation
+   * from before the agent's new slide, still waiting for the pause before saving). Nothing when
+   * the file is not open here or is written already.
+   */
+  async writeNow(ownerId: string, file: DocFile): Promise<void> {
+    const doc = this.docs.get(this.keyOf(ownerId, file));
+    if (!doc || doc.saved.revision >= doc.revision) return;
+    if (doc.saveTimer) clearTimeout(doc.saveTimer);
+    doc.saveTimer = undefined;
+    await this.enqueue(doc, () => this.saveNow(doc)).catch((err: unknown) =>
+      this.saveFailed(doc, err),
+    );
+  }
+
   /** The rule for the agents' edits changed: every page that has the file open is told. */
   modeChanged(ownerId: string): void {
     for (const d of this.docs.values())

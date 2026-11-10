@@ -7,7 +7,7 @@
 // A path outside the agent's folders passes the guardian first (as show_file); a tab the person
 // opened outside them is described, never drawn, unless the agent asks for its path.
 import { realpath, stat } from "node:fs/promises";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { Tool, ToolContext } from "@redgiant/agent";
 import type {
   CanvasDo,
@@ -18,14 +18,16 @@ import type {
 } from "@redgiant/protocol";
 import type { Workspace } from "@redgiant/tools";
 import { z } from "zod";
+import type { CanvasSeen } from "./canvas-live.js";
 import type { LookAsk, Looked } from "./canvas-look.js";
+import { originalOfAnyCopy } from "./editor/copies.js";
 import { MODEL_VIEWS } from "./model-render.js";
 
 type FileTarget = Extract<CanvasTargetInfo, { kind: "file" }>;
 
 export interface CanvasToolsHost {
-  /** The person's canvas now (undefined: no page open, or none answered). */
-  state(ownerId: string): Promise<CanvasState | undefined>;
+  /** The person's canvas now, or as their page last said it when it is too busy to answer. */
+  state(ownerId: string): Promise<CanvasSeen>;
   /** A file on disk as the canvas names it: its scope and path (or "outside" and the path). */
   targetOf(ownerId: string, abs: string): Promise<FileTarget>;
   /** The file behind a tab, on disk. */
@@ -102,14 +104,27 @@ const targetText = (t: CanvasTargetInfo) =>
   t.kind === "file" ? t.path : `the site on port ${t.port}${t.path ?? ""}`;
 
 /** The canvas as words: every tab numbered, the active one first in the reader's mind. */
-export function stateText(s: CanvasState | undefined): string {
-  if (!s) return "The person has no RedGiant page open now: their canvas cannot be seen.";
-  if (s.tabs.length === 0) return "The person's canvas is empty (no tab open).";
+export function stateText(seen: CanvasSeen | CanvasState | undefined): string {
+  const {
+    state: s,
+    pages,
+    ageMs,
+  } = seen && "tabs" in seen ? { state: seen, pages: 1, ageMs: undefined } : (seen ?? { pages: 0 });
+  // p3.5.6: «no page open» only when none is connected, never for a page slow to answer.
+  if (!s)
+    return pages > 0
+      ? "The person has a RedGiant page open, but it did not answer in time (it may be busy loading an editor): look again in a moment."
+      : "The person has no RedGiant page open now: their canvas cannot be seen.";
+  const late =
+    ageMs !== undefined
+      ? `The person's page did not answer in time (it may be busy); this is what it showed ${Math.max(1, Math.round(ageMs / 1000))} s ago. `
+      : "";
+  if (s.tabs.length === 0) return `${late}The person's canvas is empty (no tab open).`;
   const lines = s.tabs.map((tab, i) => {
     const where = placeText(tab.place);
     return `${i + 1}. ${tab.active ? "[active] " : ""}${tab.title} (${tab.kind ?? tab.target.kind}: ${targetText(tab.target)})${where ? `: ${where}` : ""}`;
   });
-  return `The person's canvas (${s.visible ? "in view" : "hidden behind the chat"}), ${s.tabs.length} tab${s.tabs.length === 1 ? "" : "s"}:\n${lines.join("\n")}`;
+  return `${late}The person's canvas (${s.visible ? "in view" : "hidden behind the chat"}), ${s.tabs.length} tab${s.tabs.length === 1 ? "" : "s"}:\n${lines.join("\n")}`;
 }
 
 const LookInput = z.object({
@@ -149,6 +164,32 @@ export function tabOf(
   return n ? s.tabs[n - 1] : (s.tabs.find((t) => t.active) ?? s.tabs.at(-1));
 }
 
+/**
+ * The tab that shows a file (its own, or its open copy's, G37.4): the active one first. A tab's
+ * file is found as the canvas names it, so links and copies lead to the same file on disk.
+ */
+export async function tabShowing(
+  s: CanvasState | undefined,
+  abs: string,
+  fileOf: (t: FileTarget) => Promise<string>,
+): Promise<CanvasTabInfo | undefined> {
+  if (!s) return undefined;
+  const real = await realpath(abs).catch(() => resolve(abs));
+  const tabs = [...s.tabs].sort((a, b) => Number(b.active) - Number(a.active));
+  for (const t of tabs) {
+    if (t.target.kind !== "file") continue;
+    const target = t.target;
+    const file = await fileOf(target).catch(() => undefined);
+    if (!file) continue;
+    const there = await realpath(file).catch(() => resolve(file));
+    if (there === real) return t;
+    // The tab follows the open copy of the file asked for (`x.pptx.open/x.odp` for `x.pptx`).
+    const original = originalOfAnyCopy(target.path);
+    if (original && resolve(dirname(there), "..", basename(original)) === real) return t;
+  }
+  return undefined;
+}
+
 export function canvasTools(
   agent: { ownerId: string },
   ws: Workspace,
@@ -181,14 +222,21 @@ export function canvasTools(
     },
     schema: LookInput,
     async run(i, ctx) {
-      const state = await host.state(agent.ownerId);
-      const said = stateText(state);
+      const seenNow = await host.state(agent.ownerId);
+      const state = seenNow.state;
+      let said = stateText(seenNow);
       let abs: string;
       let place: CanvasPlace | undefined;
+      /** The tab the picture is of, when it is one (its place is corrected after the look). */
+      let shown: CanvasTabInfo | undefined;
       if (i.path) {
         const f = await fileAt(ws, i.path);
         if ("error" in f) return { content: `${said}\n\n${f.error}`, isError: true };
         abs = f.abs;
+        // A file the person has open (p3.5.6: canvas_look on "modulo.pdf" drew page 1 while the
+        // person was on page 2): what was not asked comes from where they are in its tab.
+        shown = await tabShowing(state, abs, (t) => host.fileOf(agent.ownerId, t));
+        place = shown?.place;
       } else {
         const tab = tabOf(state, i.tab);
         if (!tab)
@@ -207,6 +255,7 @@ export function canvasTools(
           return `${said}\n\nTab ${tab.title} is outside your workspace: to see it, call canvas_look with path "${file}" (the person is asked first).`;
         abs = file;
         place = tab.place;
+        shown = tab;
       }
       // The editor's model (G37.1): words and the revision, no picture.
       if (i.view === "structure") {
@@ -240,8 +289,25 @@ export function canvasTools(
       };
       try {
         const seen = await host.look(abs, ask, ctx);
+        // The pages counted now, on the file as it is (p3.5.6: a fourth slide added, and the tab
+        // still said «page 1 of 3», as its viewer had counted before the edit).
+        if (shown && state && seen.pages !== undefined) {
+          const tab = shown;
+          const recounted: CanvasPlace = {
+            ...tab.place,
+            pages: seen.pages,
+            ...(i.page === undefined && seen.page !== undefined && { page: seen.page }),
+          };
+          said = stateText({
+            ...seenNow,
+            state: {
+              ...state,
+              tabs: state.tabs.map((t) => (t === tab ? { ...t, place: recounted } : t)),
+            },
+          });
+        }
         return {
-          content: `${said}\n\nLooking at ${i.path ?? basename(abs)}: ${seen.text}`,
+          content: `${said}\n\nLooking at ${i.path ?? basename(abs)}${i.path && shown ? ` (open in the person's tab ${shown.title})` : ""}: ${seen.text}`,
           ...(seen.image && {
             images: [
               {
@@ -311,7 +377,8 @@ export function canvasTools(
             content: "Say what to do: a path to open, or a page, line, time, zoom…",
             isError: true,
           };
-        const state = await host.state(agent.ownerId);
+        const seen = await host.state(agent.ownerId);
+        const state = seen.state;
         const tab = tabOf(state, i.tab);
         if (!tab)
           return {
@@ -319,7 +386,9 @@ export function canvasTools(
               ? i.tab
                 ? `There is no tab ${i.tab}.`
                 : "The person's canvas is empty: give a path to open."
-              : "The person has no RedGiant page open: nothing to move.",
+              : seen.pages > 0
+                ? "The person's page did not answer in time (it may be busy): give the file's path to open it, or try again in a moment."
+                : "The person has no RedGiant page open: nothing to move.",
             isError: true,
           };
         target = tab.target;

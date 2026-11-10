@@ -35,7 +35,15 @@ import {
   type Subproject,
 } from "./api.js";
 import { t, tOptional } from "./i18n.js";
-import { forgetTab, kindOfTab, order, placeOf } from "./viewers/live.js";
+import {
+  forgetPlace,
+  forgetTab,
+  kindOfTab,
+  order,
+  placeOf,
+  settled,
+  tabOpened,
+} from "./viewers/live.js";
 import { copyOriginal } from "./viewers/office-bridge.js";
 
 /** What the canvas shows (G25.1): a file or folder of a workspace, or a port of an agent. */
@@ -560,9 +568,15 @@ export function applyMessage(m: ServerMessage): void {
       docMessage(m);
       return;
     // An agent looks at the canvas (G36.12): what it shows and where the person is, once.
-    case "canvas.query":
-      live?.send({ type: "canvas.state", requestId: m.requestId, state: canvasSnapshot() });
+    // After the moves and the tabs it just got (p3.5.6), never more than a moment later.
+    case "canvas.query": {
+      const requestId = m.requestId;
+      const open = sideViews.value.filter((v) => v.type === "canvas").map((v) => v.id);
+      void settled(open).then(() =>
+        live?.send({ type: "canvas.state", requestId, state: canvasSnapshot() }),
+      );
       return;
+    }
     case "error":
       if (m.code === "unavailable")
         browserScreen.value = { ...browserScreen.value, unavailable: true };
@@ -1212,7 +1226,18 @@ export function openCanvas(title: string, target: CanvasTarget, keep = false): s
   const original = target.kind === "file" ? copyOriginal(target.path) : undefined;
   if (original) title = original.split(/[\\/]/).pop() ?? title;
   const view: SideView = { id, type: "canvas", title, target };
-  const open = sideViews.value.some((v) => v.id === id);
+  const was = sideViews.value.find((v) => v.id === id);
+  const open = !!was;
+  // The tab gets another file (an open copy in its original's tab): its old place goes.
+  if (!open) tabOpened(id);
+  else if (
+    !keep &&
+    was.type === "canvas" &&
+    was.target.kind === "file" &&
+    target.kind === "file" &&
+    was.target.path !== target.path
+  )
+    forgetPlace(id);
   if (!(open && keep))
     sideViews.value = open
       ? sideViews.value.map((v) => (v.id === id ? view : v))
