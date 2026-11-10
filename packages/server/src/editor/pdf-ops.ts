@@ -531,7 +531,11 @@ export const normRect = (r: PdfRect): PdfRect => [
 /** What the agent's operations need from the file itself. */
 export interface AgentHelp {
   /** The words on a page (0-based): one box per line of each match, as quads and rects. */
-  find(page: number, words: string): Promise<{ quads: number[]; rects: PdfRect[] }[]>;
+  find(
+    page: number,
+    words: string,
+    o?: { exact?: boolean },
+  ): Promise<{ quads: number[]; rects: PdfRect[] }[]>;
   /** An id for a new annotation. */
   newId(): string;
   /** The agent's name, written as the annotation's author. */
@@ -776,7 +780,8 @@ async function oneFromAgent(
       const page = pageIndex(o, x.page);
       let rects: PdfRect[] = [];
       if (typeof x.find === "string" && x.find.trim()) {
-        const found = await help.find(page, x.find);
+        // Their glyphs' own boxes, never a place guessed (p3.5.4).
+        const found = await help.find(page, x.find, { exact: true });
         if (!found.length) throw new Error(`«${x.find}» is not on page ${page + 1}`);
         rects = found.flatMap((f) => f.rects).map((r) => pad(r, 0.5));
       }

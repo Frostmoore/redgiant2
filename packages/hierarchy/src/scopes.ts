@@ -150,9 +150,10 @@ export function can(
  * with the person's collections. "make": create a collection for a scope (every agent, a project,
  * one agent) or add sources to a collection of that scope. "source": read the files of a place
  * (a project, God's folder, the assistants' desk) into a collection. A folder elsewhere on the
- * computer is not here: the guardian asks the person for it.
+ * computer is not here: the guardian asks the person for it. "read" (p3.5.4): search a collection
+ * of that scope by the scope alone (the person's choice in the agent's window comes first).
  */
-export type KnowledgeAction = "make" | "source";
+export type KnowledgeAction = "make" | "source" | "read";
 export type KnowledgeTarget =
   | { kind: "all" }
   | { kind: "agent"; agent: AgentNode }
@@ -179,6 +180,7 @@ export function canKnowledge(
 ): boolean {
   const owner = actor.type === "human" ? actor.ownerId : actor.agent.ownerId;
   if (target.kind === "agent" && target.agent.ownerId !== owner) return false;
+  if (action === "read") return canRead(actor, target);
   if (action === "make" && (target.kind === "platform" || target.kind === "assistants"))
     return false;
   if (action === "source" && (target.kind === "all" || target.kind === "agent")) return false;
@@ -215,6 +217,20 @@ export function canKnowledge(
     default:
       return false;
   }
+}
+
+/**
+ * Reading a collection by its scope (p3.5.4): every agent reads what is for every agent, its own
+ * and its projects' (an archived project's too: reading changes nothing); God reads every one of
+ * the person's, as it acts with their authority on every project.
+ */
+function canRead(actor: Actor, target: KnowledgeTarget): boolean {
+  if (target.kind === "platform" || target.kind === "assistants") return false;
+  if (actor.type === "human" || target.kind === "all") return true;
+  const a = actor.agent;
+  if (a.kind === "god") return true;
+  if (target.kind === "project") return worksIn(a).includes(target.projectId);
+  return target.agent.id === a.id;
 }
 
 /** Kinds a parent may create below itself. */

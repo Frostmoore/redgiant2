@@ -438,6 +438,7 @@ const knowledge = new KnowledgeService({
     const a = core.registry.get(agentId);
     return a?.projectId ? [a.projectId] : [];
   },
+  agentKind: (_who, agentId) => core.registry.get(agentId)?.kind,
   agentLanguage: () => core.agentLanguageOf(owner) ?? core.uiLanguageOf(owner),
   // Office files read through the PDF LibreOffice makes, only when it is already here.
   officePdf: async (who, abs, signal) =>

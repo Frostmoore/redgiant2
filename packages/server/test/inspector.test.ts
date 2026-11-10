@@ -161,6 +161,44 @@ describe("the project inspector", () => {
     expect(asked).toEqual([]);
   });
 
+  // p3.5.4, the 3.5.3 test: «Tool failed: Unknown provider "local"», the default model left by
+  // the setup wizard for a local engine that is not there anymore.
+  it("a default model whose engine is gone: it answers with God's model, or says it has none", async () => {
+    const seen: CompletionRequest[] = [];
+    s = await startServer(brain(seen), {}, { defaultModel: { provider: "local", model: "gemma" } });
+    const core = s.core;
+    await core.projects.create("me", "Shop");
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    // Nobody has a model of their own yet: said plainly, never «Unknown provider».
+    await expect(core.inspector.modelFor("me", "shop")).rejects.toThrow(
+      /The inspector has no model it can use: local\/gemma is not available on this computer/,
+    );
+    await s.api("PATCH", `/api/agents/${god.body.id}`, { model: { provider: "fake", model: "m" } });
+    expect(await core.inspector.modelFor("me", "shop")).toEqual({ provider: "fake", model: "m" });
+    const sid = await core.startSession("me", god.body.id);
+    await (await core.send("me", sid, "Check the shop project")).done;
+    const result = (await core.history("me", sid)).find((e) => e.type === "tool.result")
+      ?.payload as { ok: boolean; output: string };
+    expect(result.output).toMatch(/^INSPECTOR: /);
+    expect(result.ok).toBe(true);
+    // The project's own agents come first: its orchestrator's model.
+    await s.api("POST", "/api/agents", {
+      kind: "orchestrator",
+      parentId: god.body.id,
+      projectId: "shop",
+      name: "Shop lead",
+      model: { provider: "fake", model: "lead" },
+    });
+    expect(await core.inspector.modelFor("me", "shop")).toEqual({
+      provider: "fake",
+      model: "lead",
+    });
+  });
+
   it("tells the owner about trouble and sends a daily summary, only when asked", async () => {
     const { core } = await setup();
     const notes: string[] = [];
