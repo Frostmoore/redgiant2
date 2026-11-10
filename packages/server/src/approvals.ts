@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { ApprovalRequest, HumanAnswer } from "@redgiant/hierarchy";
-import type { PermissionRequestInfo } from "@redgiant/protocol";
+import { type PermissionRequestInfo, requestNameIds } from "@redgiant/protocol";
 
 interface Pending {
   info: PermissionRequestInfo;
@@ -21,7 +21,35 @@ export class HumanApprovals extends EventEmitter<{
   /** Where each closed request was answered, until the broker records it (`takeVia`). */
   private readonly answered = new Map<string, string>();
 
+  /**
+   * The names of the projects and agents a request mentions (3.5.6): every channel says them
+   * instead of ids. A lookup that fails only leaves the ids.
+   */
+  nameOf?: (ownerId: string, ids: string[]) => Promise<Record<string, string>>;
+
   ask(request: ApprovalRequest, signal: AbortSignal): Promise<HumanAnswer> {
+    // The ids in the input, and the requester's project (the chats' first line names it).
+    const ids = [
+      ...new Set([
+        ...requestNameIds(request.call.name, request.call.input),
+        ...(request.requester.projectId ? [request.requester.projectId] : []),
+      ]),
+    ];
+    const lookup = this.nameOf;
+    if (!lookup || ids.length === 0) return this.open(request, signal);
+    return lookup(request.requester.ownerId, ids)
+      .catch(() => ({}))
+      .then((names) =>
+        // Stopped while the names were looked up: never asked, so it is a no.
+        signal.aborted ? ("deny" as const) : this.open(request, signal, names),
+      );
+  }
+
+  private open(
+    request: ApprovalRequest,
+    signal: AbortSignal,
+    names: Record<string, string> = {},
+  ): Promise<HumanAnswer> {
     const info: PermissionRequestInfo = {
       requestId: request.requestId,
       agentId: request.requester.id,
@@ -32,6 +60,7 @@ export class HumanApprovals extends EventEmitter<{
       reasons: request.reasons,
       danger: request.danger,
       ...(request.critical?.length && { critical: request.critical }),
+      ...(Object.keys(names).length > 0 && { names }),
       createdAt: new Date().toISOString(),
       ...(request.sessionId && { sessionId: request.sessionId }),
     };

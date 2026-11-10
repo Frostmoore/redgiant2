@@ -17618,3 +17618,35 @@ fieldset.vw-seg {
 .models-wz .mp-catalog .mp-catalog-problem {
   color: var(--warn, var(--muted));
 }
+/* What a request does, first and in words (3.5.6); the raw input is folded in the details. */
+.permission .permission-who {
+  font-weight: 600;
+}
+.permission .permission-what {
+  margin-top: 4px;
+  margin-bottom: 6px;
+  font-size: 1.02rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.permission .permission-because {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.permission .permission-details {
+  margin-top: 6px;
+}
+.permission .permission-details summary {
+  cursor: pointer;
+  color: var(--dim);
+  font-size: 0.85rem;
+}
+/* The buttons are off for a moment once in view (3.5.6), then turn on. */
+.permission-actions button {
+  transition: opacity 0.25s ease;
+}
+.permission-actions.arming button {
+  cursor: progress;
+}

@@ -31,6 +31,11 @@ export const PermissionRequestInfo = z.object({
   danger: z.array(z.string()),
   /** What a truly dangerous call does (p3.5.4), from `criticalOf`: the red card's sentences. */
   critical: z.array(CriticalDetail).optional(),
+  /**
+   * The names of the projects and agents the input mentions by id (3.5.6), so every channel can
+   * say «Archivia il progetto «Collaudo»» instead of its id (`requestSentence`).
+   */
+  names: z.record(z.string(), z.string()).optional(),
   createdAt: z.iso.datetime(),
   /** The conversation that asked, when there is one (allow for this conversation). */
   sessionId: z.string().optional(),

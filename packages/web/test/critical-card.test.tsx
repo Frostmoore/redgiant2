@@ -3,7 +3,7 @@
 // bell: red, a drawn danger icon, a title and what happens in words. One click still decides
 // (the person: «va bene rosse, ma non in due step sennò diventa un incubo»).
 import type { PermissionRequestInfo } from "@redgiant/protocol";
-import { cleanup, fireEvent, render } from "@testing-library/preact";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lang } from "../src/i18n.js";
 
@@ -92,9 +92,13 @@ function checkCards(root: Element) {
 }
 
 describe("the red card of a truly dangerous request (p3.5.4)", () => {
-  it("stands out in the chat, and one click allows it", () => {
+  it("stands out in the chat, and one click allows it", async () => {
     const { container } = render(<Chat sessionId="sess_a" agentId="orch" />);
     const [allow] = checkCards(container);
+    // One click, once the buttons are on (3.5.6: off for a moment after they appear).
+    await waitFor(() => expect((allow as HTMLButtonElement).disabled).toBe(false), {
+      timeout: 2000,
+    });
     fireEvent.click(allow as HTMLElement);
     expect(sent.filter((m) => m.type === "permission.resolve")).toEqual([
       {

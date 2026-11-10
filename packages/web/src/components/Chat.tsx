@@ -5,6 +5,8 @@ import {
   isCriticalRequest,
   ownWords,
   type PermissionRequestInfo,
+  requestReasons,
+  requestSentence,
 } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { duration, kTokens } from "../format.js";
@@ -29,6 +31,7 @@ import { renderAnswer, renderMarkdown, renderStreamingMarkdown } from "../markdo
 import {
   agents,
   approvals,
+  archivedProjects,
   attempt,
   buildItems,
   type ChatItem,
@@ -44,6 +47,7 @@ import {
   openSessionById,
   openSubPath,
   openTab,
+  projects,
   questions,
   refresh,
   refreshRooms,
@@ -56,6 +60,7 @@ import {
   subSeen,
   subStatus,
 } from "../state.js";
+import { noEnter, useArmed } from "./armed.js";
 import { canvasKind } from "./Canvas.js";
 import {
   AsidePanel,
@@ -478,16 +483,25 @@ export function PermissionCard({ r }: { r: PermissionRequestInfo }) {
   return <ToolPermission r={r} />;
 }
 
+/** A project's or agent's name, from the request itself or from what the page knows. */
+const knownName = (r: PermissionRequestInfo) => (id: string) =>
+  r.names?.[id] ??
+  agents.value.find((a) => a.id === id)?.name ??
+  [...projects.value, ...archivedProjects.value].find((p) => p.id === id)?.name;
+
 function ToolPermission({ r }: { r: PermissionRequestInfo }) {
   const [all, setAll] = useState(false);
   // Denied with words the agent reads (2026-11-05).
   const [why, setWhy] = useState<string | null>(null);
+  // Off for a moment once in view (3.5.6): a click meant for something else decides nothing.
+  const { ref, armed } = useArmed<HTMLDivElement>(r.requestId);
   const input = JSON.stringify(r.input, null, 2);
   const resolve = (
     decision: "allow" | "deny",
     scope: "once" | "session" | "always" = "once",
     reason?: string,
-  ) =>
+  ) => {
+    if (!armed) return;
     getLive().send({
       type: "permission.resolve",
       requestId: r.requestId,
@@ -496,9 +510,14 @@ function ToolPermission({ r }: { r: PermissionRequestInfo }) {
       scope,
       ...(reason?.trim() && { reason: reason.trim() }),
     });
+  };
   // A truly dangerous request (G36.17b) is red and says what happens, in words (p3.5.4: an
   // approval given in four seconds without noticing it). One click still decides: no second step.
   const critical = isCriticalRequest(r);
+  // Every request says first what happens, with its arguments, in the person's language (3.5.6);
+  // the policy's English reasons and the raw input stay folded in the details.
+  const what = requestSentence(lang.value, r.tool, r.input, knownName(r));
+  const reasons = requestReasons(lang.value, r);
   return (
     <div class={critical ? "permission permission-critical" : "permission"}>
       {critical && (
@@ -517,28 +536,52 @@ function ToolPermission({ r }: { r: PermissionRequestInfo }) {
           </ul>
         </div>
       )}
-      <div class="row">
+      <div class="row permission-who">
         <IconShield />
-        <strong>
-          {r.agentName} {t("wants")} {r.tool}
-        </strong>
+        <span>{t("permAsks", { agent: r.agentName })}</span>
       </div>
-      <pre style={all ? { maxHeight: "none" } : undefined}>{input}</pre>
-      {input.split("\n").length > 8 && (
-        <button type="button" class="link" onClick={() => setAll(!all)}>
-          {all ? t("showLess") : t("showAllInput")}
-        </button>
+      <p class="permission-what">{what}</p>
+      {(reasons.length > 0 || r.danger.length > 0) && (
+        <div class="dim permission-because">
+          {reasons.length > 0 && (
+            <span>
+              {t("permWhy")}: {reasons.join("; ")}
+            </span>
+          )}
+          {r.danger.map((d) => (
+            <span key={d} class="chip danger">
+              {danger(d).name}
+            </span>
+          ))}
+        </div>
       )}
-      <div class="dim">
-        {t("because")}: {r.reasons.join("; ")}
-        {r.danger.length > 0 && (
-          <span class="chip danger">{r.danger.map((d) => danger(d).name).join(", ")}</span>
+      <details class="permission-details">
+        <summary>{t("permDetails")}</summary>
+        <div class="dim">
+          {t("permTool")}: <code>{r.tool}</code>
+        </div>
+        {r.reasons.length > 0 && (
+          <div class="dim">
+            {t("permRawReasons")}: {r.reasons.join("; ")}
+          </div>
         )}
-      </div>
-      <div class="permission-actions" style={{ marginTop: "8px" }}>
+        <pre style={all ? { maxHeight: "none" } : undefined}>{input}</pre>
+        {input.split("\n").length > 8 && (
+          <button type="button" class="link" onClick={() => setAll(!all)}>
+            {all ? t("showLess") : t("showAllInput")}
+          </button>
+        )}
+      </details>
+      <div
+        ref={ref}
+        class={armed ? "permission-actions" : "permission-actions arming"}
+        style={{ marginTop: "8px" }}
+      >
         <button
           type="button"
           class={critical ? "yes critical-yes" : "yes"}
+          disabled={!armed}
+          onKeyDown={noEnter}
           onClick={() => resolve("allow")}
         >
           {t("allow")}
@@ -547,6 +590,8 @@ function ToolPermission({ r }: { r: PermissionRequestInfo }) {
           <button
             type="button"
             class="always"
+            disabled={!armed}
+            onKeyDown={noEnter}
             title={t("thisChatHint", { tool: r.tool })}
             onClick={() => resolve("allow", "session")}
           >
@@ -557,17 +602,19 @@ function ToolPermission({ r }: { r: PermissionRequestInfo }) {
           <button
             type="button"
             class="always"
+            disabled={!armed}
+            onKeyDown={noEnter}
             title={t("alwaysHint", { tool: r.tool })}
             onClick={() => resolve("allow", "always")}
           >
             {t("always")}
           </button>
         )}
-        <button type="button" class="no" onClick={() => resolve("deny")}>
+        <button type="button" class="no" disabled={!armed} onClick={() => resolve("deny")}>
           {t("deny")}
         </button>
         {why === null && (
-          <button type="button" class="link" onClick={() => setWhy("")}>
+          <button type="button" class="link" disabled={!armed} onClick={() => setWhy("")}>
             {t("denyWhy")}
           </button>
         )}
