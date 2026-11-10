@@ -25,8 +25,13 @@ static class PageGate
 
     /** Seconds the page waits for the update check when no question is on screen. */
     public const int Limit = 4;
-    /** Seconds a launcher started by an update waits for an open page to come back (5 s at most between its tries). */
-    public const int Wait = 7;
+    /**
+     * Seconds a launcher started by an update waits for an open page to come back (5 s at most
+     * between its tries). 15 (3.5.5, was 7): three of the page's tries, so a slow PC or a browser
+     * slow to wake a tab in the background does not get a second page; the wait ends as soon as a
+     * page is back, so only a person with no page open waits the whole of it.
+     */
+    public const int Wait = 15;
 
     /** The update check is over for the page: an answer, or Limit seconds with no question on screen. */
     public static bool Settled(bool decided, bool asking, bool timedOut)

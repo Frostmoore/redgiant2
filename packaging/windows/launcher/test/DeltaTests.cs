@@ -470,6 +470,28 @@ static class DeltaTests
             Check(new Delta.HashCache(cache).Known == 7, "all seven");
         });
 
+        Run("warm: a file held by someone else is tried again, then named, and filled next time", () =>
+        {
+            var s = Prepare();
+            string cache = Path.Combine(s.App, "update", "hashes.txt");
+            string held = Path.Combine(s.App, "web", "index.html");
+            var unread = new List<string>();
+            using (new FileStream(held, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                Check(Delta.Warm(s.App, cache, null, unread) == 6, "the six others hashed");
+            Check(unread.Count == 1 && unread[0].StartsWith("web/index.html: "), "the held one named: " + string.Join(", ", unread));
+            Check(new Delta.HashCache(cache).Known == 6, "six remembered, not the held one");
+            unread.Clear();
+            Check(Delta.Warm(s.App, cache, null, unread) == 1 && unread.Count == 0, "released: hashed next time");
+            Check(new Delta.HashCache(cache).Known == 7, "all seven");
+            // Held only for a moment (an antivirus): the retries get it in the same fill.
+            File.Delete(cache);
+            var hold = new FileStream(held, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            var release = new System.Threading.Thread(() => { System.Threading.Thread.Sleep(300); hold.Dispose(); });
+            release.Start();
+            Check(Delta.Warm(s.App, cache, null, unread) == 7 && unread.Count == 0, "held for a moment: still hashed");
+            release.Join();
+        });
+
         // With pack.mjs's real output (the CI passes it): its zip and manifest as the launcher reads them.
         if (args.Length >= 2)
             Run("pack.mjs: its manifest parses and every entry comes out right", () =>

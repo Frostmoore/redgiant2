@@ -43,7 +43,8 @@ static class PageGateTests
         Check(!PageGate.OpenAfterWait(1), "a page came back: no second one");
         Check(!PageGate.OpenAfterWait(3), "pages came back: no other one");
         Check(PageGate.OpenAfterWait(-1), "the server could not say: open one");
-        Check(PageGate.Wait >= 6, "the wait covers the page's 5 s between tries");
+        Check(PageGate.Wait >= 15, "the wait covers three of the page's tries, 5 s apart");
+        Check(PageGate.Wait <= 20, "a person with no page open does not wait long for one");
         Check(PageGate.Limit >= 3 && PageGate.Limit <= 5, "the update check delays the page a few seconds at most");
 
         Console.WriteLine(passed + " passed, " + failed + " failed");

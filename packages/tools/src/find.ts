@@ -16,6 +16,7 @@ import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
 import type { Tool } from "@redgiant/agent";
+import { type FindSource, findTimingLine } from "@redgiant/protocol";
 import { z } from "zod";
 import { describe, type ModelProfile } from "./profiles.js";
 import { agentEnv, type Workspace } from "./workspace.js";
@@ -35,7 +36,7 @@ export interface FindQuery {
   signal?: AbortSignal | undefined;
 }
 
-export type FindSource = "everything" | "spotlight" | "locate" | "walk" | "path" | "container";
+export type { FindSource };
 
 export interface FindOutcome {
   paths: string[];
@@ -905,18 +906,23 @@ export function findFilesTool(
       }
       return findReport(r, {
         maxResults,
-        seconds: Math.round((Date.now() - t0) / 1000),
+        ms: Date.now() - t0,
+        timeLimitMs,
         exact: i.executable === true && !hasWild(i.name ?? ""),
       });
     },
   };
 }
 
-/** The tool's answer: what was found, how, and whether the search was complete. */
+/**
+ * The tool's answer: what was found, how, whether the search was complete, and last how it
+ * searched and how long it took (3.5.5, `findTimingLine`: the page shows it in the person's language).
+ */
 export function findReport(
   r: FindOutcome,
-  o: { maxResults: number; seconds: number; exact?: boolean },
+  o: { maxResults: number; ms: number; timeLimitMs: number; exact?: boolean },
 ): string {
+  const seconds = Math.round(o.ms / 1000);
   const how = SOURCES[r.source];
   const lines: string[] = [];
   if (r.paths.length === 0) lines.push(`Nothing found (${how}).`);
@@ -930,11 +936,19 @@ export function findReport(
   else if (r.cut === "time" || r.cut === "interrupted") {
     const not = r.notSearched.slice(0, 8);
     lines.push(
-      `${r.cut === "time" ? `Stopped by the time limit after about ${o.seconds} s` : "Interrupted"}: the search was not complete.` +
+      `${r.cut === "time" ? `Stopped by the time limit after about ${seconds} s` : "Interrupted"}: the search was not complete.` +
         (not.length
           ? ` Not searched (or not to the end): ${not.join(", ")}${r.notSearched.length > not.length ? `, and ${r.notSearched.length - not.length} more` : ""}. Give under to search one of them, or a longer time_limit_s.`
           : ""),
     );
   } else lines.push("The search was complete.");
+  lines.push(
+    findTimingLine({
+      source: r.source,
+      seconds: Math.round(o.ms / 100) / 10,
+      cutAtSeconds: r.cut === "time" ? Math.round(o.timeLimitMs / 1000) : undefined,
+      interrupted: r.cut === "interrupted",
+    }),
+  );
   return lines.join("\n");
 }

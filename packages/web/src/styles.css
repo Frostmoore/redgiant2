@@ -8471,6 +8471,14 @@ button.pick-tile.on {
   padding: 0 5px;
 }
 
+/* How find_files searched and how long it took (3.5.5). */
+.tool .ttook {
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* A file tool's change in the chat (2026-11-05). */
 .tool .tdiff {
   margin-left: auto;

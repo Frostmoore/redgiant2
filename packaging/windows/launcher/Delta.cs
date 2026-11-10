@@ -501,8 +501,12 @@ public static class Delta
      * waited (2 minutes on the user's PC). One file at a time on the calling thread (the caller
      * lowers its priority); `keepGoing` is asked before each file (false: stop, what was hashed is
      * kept). Returns the files hashed now (the remembered ones are not read).
+     *
+     * A file that cannot be opened (an antivirus, or the update's clean-up deleting the other name
+     * of a hard-linked file: 3.5.5, the CI's «27393 of 27395») is tried again a few times; one that
+     * still cannot be read goes into `unread` ("path: why") and stays out of hashes.txt.
      */
-    public static int Warm(string appDir, string cacheFile, Func<bool> keepGoing)
+    public static int Warm(string appDir, string cacheFile, Func<bool> keepGoing, List<string> unread)
     {
         var cache = new HashCache(cacheFile);
         int hashed = 0;
@@ -511,18 +515,35 @@ public static class Delta
         {
             if (keepGoing != null && !keepGoing()) { stopped = true; break; }
             string p = Local(appDir, rel);
-            try
+            for (int attempt = 1; ; attempt++)
             {
-                var info = new FileInfo(p);
-                if (!info.Exists) continue;
-                if (!cache.Has(p, info)) hashed++;
-                cache.Of(p, info);
+                try
+                {
+                    var info = new FileInfo(p);
+                    if (!info.Exists) break;
+                    bool known = cache.Has(p, info);
+                    cache.Of(p, info);
+                    if (!known) hashed++;
+                    break;
+                }
+                catch (Exception e)
+                {
+                    if (attempt >= WarmAttempts) { if (unread != null) unread.Add(rel + ": " + e.Message); break; }
+                    Thread.Sleep(250 * attempt);
+                }
             }
-            catch (Exception) { }
         }
         cache.Save(stopped);
         return hashed;
     }
+
+    public static int Warm(string appDir, string cacheFile, Func<bool> keepGoing)
+    {
+        return Warm(appDir, cacheFile, keepGoing, null);
+    }
+
+    /** Tries per file in Warm before it counts as unread (250 ms, 500 ms, 750 ms between them). */
+    public const int WarmAttempts = 4;
 
     [DllImport("kernel32.dll")]
     static extern IntPtr GetCurrentThread();

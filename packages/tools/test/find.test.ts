@@ -4,6 +4,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, posix, win32 } from "node:path";
+import { parseFindTiming } from "@redgiant/protocol";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   baseTools,
@@ -12,6 +13,7 @@ import {
   diskWideRefusal,
   type ExecOptions,
   type FindDeps,
+  type FindOutcome,
   type FindQuery,
   findFilesTool,
   findOnHost,
@@ -235,7 +237,7 @@ describe("find_files walk", () => {
     expect(r.paths.length).toBeGreaterThan(0);
     expect(r.paths.length).toBeLessThan(200);
     expect(r.notSearched).toContain("/");
-    const text = findReport(r, { maxResults: 100, seconds: 0 });
+    const text = findReport(r, { maxResults: 100, ms: 0, timeLimitMs: 20_000 });
     expect(text).toContain("Stopped by the time limit");
     expect(text).toContain("Not searched (or not to the end): /");
   });
@@ -256,7 +258,7 @@ describe("find_files walk", () => {
     });
     expect(Date.now() - t0).toBeLessThan(1_000);
     expect(r).toMatchObject({ cut: "interrupted", paths: ["/a.log"] });
-    expect(findReport(r, { maxResults: 100, seconds: 0 })).toContain("Interrupted");
+    expect(findReport(r, { maxResults: 100, ms: 0, timeLimitMs: 20_000 })).toContain("Interrupted");
   });
 
   it("skips Windows' own folders and the recycle bin", async () => {
@@ -324,8 +326,8 @@ describe("find_files programs (like which)", () => {
     expect(await findPrograms("readme", deps)).toEqual([]);
     const tool = findFilesTool(new LocalWorkspace(tmpdir()), "full", { host: true, deps });
     const out = await tool.run({ name: "clang++", executable: true }, ctx);
-    expect(out).toBe(
-      "2 found (the PATH):\n/usr/bin/clang++\n/opt/bin/clang++\n(The first one is what runs.)\nThe search was complete.",
+    expect(out).toMatch(
+      /^2 found \(the PATH\):\n\/usr\/bin\/clang\+\+\n\/opt\/bin\/clang\+\+\n\(The first one is what runs\.\)\nThe search was complete\.\nSearch: the programs on the PATH, \d+\.\d s\.$/,
     );
   });
 });
@@ -477,6 +479,7 @@ describe("find_files in a container", () => {
     expect(calls[0]?.o.timeoutMs).toBe(5_000);
     expect(out).toContain("2 found (find in the container):\nlib/a.jar\n/usr/share/java/b.jar");
     expect(out).toContain("Stopped by the time limit");
+    expect(out).toMatch(/\nSearch: find in the container, \d+\.\d s \(cut at 5 s\)\.$/);
   });
 
   it("lists the container's programs with a fixed script, nothing of the model in it", async () => {
@@ -487,6 +490,58 @@ describe("find_files in a container", () => {
     expect(calls[0]?.file).toBe("sh");
     expect(calls[0]?.args[1]).not.toContain("g++");
     expect(out).toContain("2 found (the PATH):\n/usr/bin/g++\n/usr/local/bin/g++-13");
+  });
+});
+
+describe("find_files says how it searched and how long it took (3.5.5)", () => {
+  const found = (source: FindOutcome["source"], cut?: FindOutcome["cut"]): FindOutcome => ({
+    paths: ["/a"],
+    source,
+    cut,
+    notSearched: cut === "time" ? ["/"] : [],
+  });
+
+  it("ends every answer with one line: the source and the time, and the limit when cut", () => {
+    const last = (r: FindOutcome, ms: number, timeLimitMs = 20_000) =>
+      findReport(r, { maxResults: 100, ms, timeLimitMs }).split("\n").at(-1);
+    expect(last(found("everything"), 213)).toBe("Search: Everything's index, 0.2 s.");
+    expect(last(found("spotlight"), 1_049)).toBe("Search: Spotlight's index, 1.0 s.");
+    expect(last(found("locate"), 40)).toBe("Search: the locate database, 0.0 s.");
+    expect(last(found("walk"), 3_140)).toBe("Search: walked the folders, 3.1 s.");
+    expect(last(found("walk", "time"), 20_310)).toBe(
+      "Search: walked the folders, 20.3 s (cut at 20 s).",
+    );
+    expect(last(found("walk", "interrupted"), 1_500)).toBe(
+      "Search: walked the folders, 1.5 s (interrupted).",
+    );
+    expect(last(found("walk", "max"), 900)).toBe("Search: walked the folders, 0.9 s.");
+    expect(last(found("container", "time"), 5_020, 5_000)).toBe(
+      "Search: find in the container, 5.0 s (cut at 5 s).",
+    );
+  });
+
+  it("the page reads the line back", () => {
+    const text = findReport(found("walk", "time"), {
+      maxResults: 100,
+      ms: 20_310,
+      timeLimitMs: 20_000,
+    });
+    expect(parseFindTiming(text)).toEqual({ source: "walk", seconds: 20.3, cutAtSeconds: 20 });
+  });
+
+  it("the real tool, Everything answering: its line", async () => {
+    const { deps } = fake(
+      { "C:\\": ["x"], "C:\\x": [], "C:\\Everything": ["es.exe"] },
+      {
+        platform: "win32",
+        env: { Path: "C:\\Everything" },
+        run: async () => ({ stdout: "", exitCode: 0 }),
+      },
+    );
+    const tool = findFilesTool(new LocalWorkspace(tmpdir()), "full", { host: true, deps });
+    const out = await tool.run({ name: "gregorian.hpp" }, ctx);
+    expect(out).toMatch(/\nSearch: Everything's index, \d+\.\d s\.$/);
+    expect(parseFindTiming(String(out))?.source).toBe("everything");
   });
 });
 

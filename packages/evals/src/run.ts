@@ -7,6 +7,7 @@ import type { ModelSpec } from "@redgiant/protocol";
 import type { ProviderRegistry } from "@redgiant/providers";
 import { commitAll, ensureRepo, HostSandboxProvider } from "@redgiant/sandbox";
 import { RedGiantCore } from "@redgiant/server";
+import { commandLine } from "./python.js";
 import { type EvalTask, TASKS } from "./tasks.js";
 
 export interface EvalOptions {
@@ -48,7 +49,14 @@ async function memoryDb(): Promise<SqlClient> {
 
 function verify(cwd: string, command: string): Promise<{ ok: boolean; output: string }> {
   return new Promise((resolve) => {
-    const [cmd = "", ...args] = command.split(" ");
+    let cmd: string;
+    let args: string[];
+    try {
+      [cmd, args] = commandLine(command);
+    } catch (e) {
+      resolve({ ok: false, output: (e as Error).message });
+      return;
+    }
     execFile(cmd, args, { cwd, timeout: 120_000 }, (err, stdout, stderr) =>
       resolve({ ok: !err, output: `${stdout}${stderr}`.trim().slice(-2000) }),
     );

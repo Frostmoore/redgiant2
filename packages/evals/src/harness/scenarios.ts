@@ -6,6 +6,7 @@
 // checks are about the program.
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { type Python, python } from "../python.js";
 import { type AgentRecord, HUMAN, OWNER, runCheck, type ScenarioContext } from "./context.js";
 import { callsOf, harnessMetrics, visibleText } from "./metrics.js";
 
@@ -45,7 +46,15 @@ const outcome = (name: string, ok: boolean, detail?: string): Check => ({
   ...(detail !== undefined && { detail }),
 });
 const left = (deadline: number) => Math.max(10_000, deadline - Date.now());
-const py = (cwd: string, code: string) => runCheck(cwd, "python3", ["-c", code]);
+const py = (cwd: string, code: string) => {
+  let p: Python;
+  try {
+    p = python();
+  } catch (e) {
+    return Promise.resolve({ ok: false, output: (e as Error).message });
+  }
+  return runCheck(cwd, p.cmd, [...p.args, "-c", code]);
+};
 const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 const agentsOf = (ctx: ScenarioContext, projectId: string) =>
   ctx.core.registry.list({ ownerId: OWNER, projectId });

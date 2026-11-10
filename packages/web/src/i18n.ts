@@ -1,5 +1,5 @@
 import { signal } from "@preact/signals";
-import { dangerWords } from "@redgiant/protocol";
+import { dangerWords, parseFindTiming } from "@redgiant/protocol";
 
 export type Lang = "it" | "en";
 
@@ -3802,6 +3802,15 @@ const en = {
   tool_find_files: "Find files on the computer",
   toolDo_find_files:
     "Finds files, folders and programs anywhere on the computer by name, with the system's index or a short search that never loads the computer.",
+  findVia_everything: "Everything's index",
+  findVia_spotlight: "Spotlight's index",
+  findVia_locate: "the locate database",
+  findVia_walk: "searched the folders",
+  findVia_path: "programs on the PATH",
+  findVia_container: "searched in the container",
+  findTook: "{via}, {seconds} s",
+  findTookCut: "{via}, {seconds} s (stopped at {limit} s)",
+  findTookInterrupted: "{via}, {seconds} s (interrupted)",
   tool_update_todos: "To-do list",
   toolDo_update_todos: "Keeps a list of the steps of a long piece of work.",
   tool_run_script: "Chains of steps",
@@ -8319,6 +8328,15 @@ const it: Record<Key, string> = {
   tool_find_files: "Trovare file sul computer",
   toolDo_find_files:
     "Trova file, cartelle e programmi ovunque sul computer per nome, con l'indice del sistema o una ricerca breve che non carica mai il computer.",
+  findVia_everything: "indice di Everything",
+  findVia_spotlight: "indice di Spotlight",
+  findVia_locate: "database di locate",
+  findVia_walk: "ricerca nelle cartelle",
+  findVia_path: "programmi nel PATH",
+  findVia_container: "ricerca nel container",
+  findTook: "{via}, {seconds} s",
+  findTookCut: "{via}, {seconds} s (fermata a {limit} s)",
+  findTookInterrupted: "{via}, {seconds} s (interrotta)",
   tool_update_todos: "Lista delle cose da fare",
   toolDo_update_todos: "Tiene l'elenco dei passi di un lavoro lungo.",
   tool_run_script: "Passi in fila",
@@ -9012,6 +9030,33 @@ export function setLang(l: Lang): void {
 
 /** A danger of the permission policy in plain words: its name and a line with an example. */
 export const danger = (id: string) => dangerWords(lang.value, id);
+
+/**
+ * find_files' last line (3.5.5, «Search: Everything's index, 0.2 s.») in the page's language:
+ * «indice di Everything, 0,2 s»; undefined for an answer without it.
+ */
+export function findTimingText(output: string): string | undefined {
+  const f = parseFindTiming(output);
+  if (!f) return undefined;
+  const n = (v: number, digits: number) =>
+    v.toLocaleString(lang.value === "it" ? "it-IT" : "en-US", {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+  const vars = {
+    via: t(`findVia_${f.source}` as Key),
+    seconds: n(f.seconds, 1),
+    limit: n(f.cutAtSeconds ?? 0, 0),
+  };
+  return t(
+    f.cutAtSeconds !== undefined
+      ? "findTookCut"
+      : f.interrupted
+        ? "findTookInterrupted"
+        : "findTook",
+    vars,
+  );
+}
 
 /** Translates a key; `{name}` placeholders are filled from `vars`. */
 export function t(key: Key, vars: Record<string, string> = {}): string {

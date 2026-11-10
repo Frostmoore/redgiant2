@@ -8,7 +8,7 @@ import {
 } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { duration, kTokens } from "../format.js";
-import { danger, lang, t } from "../i18n.js";
+import { danger, findTimingText, lang, t } from "../i18n.js";
 import {
   IconAlert,
   IconArrowDown,
@@ -321,6 +321,9 @@ function ToolLine({
   const removed = diff?.split("\n").filter((l) => l.startsWith("-")).length ?? 0;
   // Sub-agents' conversations, even once they are stopped (their reports end with this line).
   const talks = [...(item.result?.output.matchAll(/^Conversation: (\S+) \((\S+)\)$/gm) ?? [])];
+  // How find_files searched and how long it took (3.5.5), in the page's language.
+  const took =
+    item.tool === "find_files" && item.result ? findTimingText(item.result.output) : undefined;
   return (
     <div class={`tool ${state}${item.viaScript ? " via-script" : ""}`}>
       <button type="button" class="tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -337,6 +340,7 @@ function ToolLine({
         <span class="tname">{item.tool}</span>
         {item.viaScript && <span class="tvia">{t("viaScript")}</span>}
         <span class="tsum">{summary.replace(/\s+/g, " ").slice(0, 140)}</span>
+        {took && <span class="ttook">{took}</span>}
         {diff && (
           <span class="tdiff">
             <span class="plus">+{added}</span> <span class="minus">-{removed}</span>

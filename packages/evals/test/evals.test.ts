@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { FakeProvider, ProviderRegistry } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
-import { report, runEvals, TASKS } from "../src/index.js";
+import { commandLine, findPython, NO_PYTHON, report, runEvals, TASKS } from "../src/index.js";
 
 let dirs: string[] = [];
 afterEach(async () => {
@@ -158,7 +158,8 @@ async function materialise(dir: string, files: Record<string, string>) {
   }
 }
 const passes = (dir: string, command: string) => {
-  const [cmd = "", ...args] = command.split(" ");
+  // Python 3 as python3, python or py -3 (3.5.5: Windows); none at all fails with NO_PYTHON.
+  const [cmd, args] = commandLine(command);
   try {
     execFileSync(cmd, args, { cwd: dir, stdio: "pipe" });
     return true;
@@ -215,5 +216,49 @@ describe("runEvals", () => {
     expect(md).toMatch(/\| Fix a bug \| ✅ \d+ s/);
     expect(md).toMatch(/\| Implement a function from a spec \| ❌/);
     expect(md).toMatch(/\*\*1\/2\*\*/);
+  });
+});
+
+describe("the Python the verifiers run", () => {
+  const probe =
+    (answers: Record<string, string | undefined>) =>
+    (cmd: string, args: string[]): string | undefined =>
+      answers[[cmd, ...args.slice(0, args.indexOf("-c"))].join(" ")];
+
+  it("tries python3, then python, then py -3, and takes the first that is Python 3", () => {
+    expect(findPython(probe({ python3: "3\n", python: "3\n" }))).toEqual({
+      cmd: "python3",
+      args: [],
+    });
+    // Windows: no python3, or the Store's stand-in that prints nothing on stdout and fails.
+    expect(findPython(probe({ python3: undefined, python: "3\r\n" }))).toEqual({
+      cmd: "python",
+      args: [],
+    });
+    expect(findPython(probe({ python3: "", python: "2\n", "py -3": "3\n" }))).toEqual({
+      cmd: "py",
+      args: ["-3"],
+    });
+  });
+
+  it("finds none when only Python 2 or nothing is there", () => {
+    expect(findPython(probe({ python: "2\n" }))).toBeUndefined();
+    expect(findPython(() => undefined)).toBeUndefined();
+  });
+
+  it("turns a verifier's python3 into the Python found, and says clearly when there is none", () => {
+    expect(commandLine("python3 _verify.py", () => ({ cmd: "py", args: ["-3"] }))).toEqual([
+      "py",
+      ["-3", "_verify.py"],
+    ]);
+    expect(commandLine("node check.js", () => ({ cmd: "py", args: ["-3"] }))).toEqual([
+      "node",
+      ["check.js"],
+    ]);
+    expect(() =>
+      commandLine("python3 _verify.py", () => {
+        throw new Error(NO_PYTHON);
+      }),
+    ).toThrow(/No Python 3 found: tried python3, python, py -3/);
   });
 });

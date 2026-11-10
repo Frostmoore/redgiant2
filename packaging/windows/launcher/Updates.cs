@@ -647,6 +647,7 @@ static class Updates
             var started = DateTime.Now;
             int looked = 0, pauses = 0;
             Diag.Log("update", "filling hashes.txt in the background");
+            var unread = new List<string>();
             int hashed = Delta.Warm(AppDir, HashesFile, () =>
             {
                 if (warmStop || updating) return false;
@@ -655,8 +656,8 @@ static class Updates
                 if (++looked % 500 == 0 && !ci)
                     for (int i = 0; i < 6 && pauses < 180 && !warmStop && Busy(); i++, pauses++) Thread.Sleep(10000);
                 return !warmStop && !updating;
-            });
-            Diag.Log("update", "hashes of the installed files: " + hashed + " hashed now, " + looked + " looked at, in " + (int)(DateTime.Now - started).TotalSeconds + " s, " + pauses + " pauses" + (warmStop ? " (stopped for an update)" : ""));
+            }, unread);
+            Diag.Log("update", "hashes of the installed files: " + hashed + " hashed now, " + looked + " looked at, in " + (int)(DateTime.Now - started).TotalSeconds + " s, " + pauses + " pauses" + (warmStop ? " (stopped for an update)" : "") + (unread.Count > 0 ? ", " + unread.Count + " could not be read (" + string.Join("; ", unread.GetRange(0, Math.Min(3, unread.Count))) + ")" : ""));
         });
         t.IsBackground = true;
         t.Priority = ThreadPriority.Lowest;
@@ -985,11 +986,13 @@ static class Updates
         {
             // The old RedGiant.exe may still be closing.
             for (int i = 0; i < 10 && !Delta.Commit(staging); i++) Thread.Sleep(3000);
+            // The files that came with the update are not in hashes.txt yet. Only now: they are
+            // hard links to staging's blobs, and hashing one while Commit deletes its other name
+            // fails (3.5.5, the CI's «hashes.txt holds 27393 of 27395 files»).
+            StartWarm();
         });
         t.IsBackground = true;
         t.Start();
-        // The files that came with the update are not in hashes.txt yet.
-        StartWarm();
     }
 
     /**
