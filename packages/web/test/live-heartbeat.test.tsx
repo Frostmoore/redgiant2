@@ -113,8 +113,8 @@ describe("the heartbeat (p3.5.4)", () => {
     expect(statuses.at(-1)).toBe("online");
     const follows = last().sent.filter((m) => m.type === "session.follow");
     expect(follows).toEqual([
-      { type: "session.follow", sessionId: "s1", afterSeq: 3 },
-      { type: "session.follow", sessionId: "s2" },
+      { type: "session.follow", sessionId: "s1", history: true, afterSeq: 3 },
+      { type: "session.follow", sessionId: "s2", history: true },
     ]);
     // The old socket's late words change nothing.
     dead.onclose?.({ code: 1006 });

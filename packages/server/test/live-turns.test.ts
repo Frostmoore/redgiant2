@@ -405,4 +405,37 @@ describe("a followed conversation, turn after turn (p3.5.4)", () => {
     empty.close();
     person.close();
   });
+
+  it("the history of a long conversation in one message, and then only what is new", async () => {
+    const { server, godId } = await boot();
+    const id = await newSession(server, godId);
+    for (let i = 0; i < 12; i++) await (await server.core.send("me", id, `turn ${i}`)).done;
+    const log = await logOf(server, id);
+    expect(log.length).toBeGreaterThan(50);
+    // A page that reloads (F5): everything, in one message, then the state.
+    const p = await open(server);
+    p.send({ type: "session.follow", sessionId: id, history: true });
+    const h = await p.waitFor("session.history", (m) => m.sessionId === id);
+    expect(h.events.map((e) => e.seq)).toEqual(log.map((e) => e.seq));
+    expect(h.lastSeq).toBe(log.at(-1)?.seq);
+    expect(h.incremental).toBe(false);
+    await p.waitFor("session.state", (m) => m.sessionId === id);
+    expect(p.messages.filter((m) => m.type === "event" || m.type === "session.synced")).toEqual([]);
+    // Live events after it come one by one, as always.
+    resumedAfter.set(p, h.lastSeq);
+    await turn(server, [p], id, "live");
+    expect(eventsOf(p, id).length).toBeGreaterThan(0);
+    const had = (await logOf(server, id)).at(-1)?.seq as number;
+    p.close();
+    // Reconnected with what it has: only what came since, said to be incremental.
+    await (await server.core.send("me", id, "while away")).done;
+    const again = await open(server);
+    again.send({ type: "session.follow", sessionId: id, afterSeq: had, history: true });
+    const more = await again.waitFor("session.history", (m) => m.sessionId === id);
+    expect(more.incremental).toBe(true);
+    expect(more.events.map((e) => e.seq)).toEqual(
+      (await logOf(server, id)).filter((e) => e.seq > had).map((e) => e.seq),
+    );
+    again.close();
+  });
 });

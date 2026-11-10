@@ -501,6 +501,23 @@ export function withEvent(events: Event[], e: Event): Event[] {
   return [...events.slice(0, at), e, ...events.slice(at)];
 }
 
+/**
+ * The events with many more (a history), once each and in the log's order. The usual case, all
+ * after the last one the view has, costs one copy.
+ */
+export function withEvents(events: Event[], more: Event[]): Event[] {
+  if (more.length === 0) return events;
+  const last = events.at(-1)?.seq ?? -1;
+  let sorted = true;
+  for (let i = 0; i < more.length; i++)
+    if ((more[i] as Event).seq <= (i === 0 ? last : (more[i - 1] as Event).seq)) sorted = false;
+  if (sorted) return events.length === 0 ? more : [...events, ...more];
+  const bySeq = new Map<number, Event>();
+  for (const e of events) bySeq.set(e.seq, e);
+  for (const e of more) if (!bySeq.has(e.seq)) bySeq.set(e.seq, e);
+  return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+}
+
 /** Applies one server message to the views (events deduplicated by sequence number). */
 /** The agents' browser (G24.14b): its latest frame and who drives it. */
 export const browserScreen = signal<{
@@ -641,6 +658,21 @@ export function applyMessage(m: ServerMessage): void {
     case "session.compacting":
       sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, compacting: m.busy };
       return;
+    // The stored history in one message (p3.5.4, as Officina's H14): one update, so one drawing
+    // and one scroll, never one per event. Merged with what the view has (it is never emptied
+    // first); a replay opens no canvas and rings nothing.
+    case "session.history": {
+      const v = sessionView(m.sessionId);
+      v.value = {
+        ...v.value,
+        events: withEvents(v.value.events, m.events),
+        synced: true,
+        text: "",
+        thinking: "",
+        drawing: undefined,
+      };
+      return;
+    }
     // Followed (again, after a reconnection): what was streaming before is stale (p3.5.4); what
     // comes next and the state that follows say where the conversation really is.
     case "session.synced":

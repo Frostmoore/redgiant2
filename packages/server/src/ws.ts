@@ -270,7 +270,9 @@ export function attachWebSocket(
             if (!follows.has(msg.sessionId))
               follows.set(
                 msg.sessionId,
-                await core.follow(owner, msg.sessionId, send, msg.afterSeq),
+                await core.follow(owner, msg.sessionId, send, msg.afterSeq, {
+                  history: msg.history === true,
+                }),
               );
             return;
           case "ping":

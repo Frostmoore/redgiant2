@@ -1884,6 +1884,8 @@ export class Live {
       if (m.type === "pong") return;
       if (m.type === "event" && this.followed.has(m.sessionId))
         this.seen.set(m.sessionId, Math.max(this.seen.get(m.sessionId) ?? -1, m.event.seq));
+      if (m.type === "session.history" && this.followed.has(m.sessionId) && m.events.length > 0)
+        this.seen.set(m.sessionId, Math.max(this.seen.get(m.sessionId) ?? -1, m.lastSeq));
       if (m.type === "welcome") {
         if (versionChanged(this.version, m.version)) {
           this.closed = true;
@@ -1900,6 +1902,7 @@ export class Live {
             JSON.stringify({
               type: "session.follow",
               sessionId: s,
+              history: true,
               ...(afterSeq !== undefined && { afterSeq }),
             }),
           );
@@ -2016,8 +2019,13 @@ export class Live {
     const afterSeq = this.seen.get(id);
     this.ws.send(
       JSON.stringify(
-        m.type === "session.follow" && afterSeq !== undefined && m.afterSeq === undefined
-          ? { ...m, afterSeq }
+        m.type === "session.follow"
+          ? {
+              ...m,
+              // The history in one message (H14 in Officina): one drawing, not one per event.
+              history: true,
+              ...(afterSeq !== undefined && m.afterSeq === undefined && { afterSeq }),
+            }
           : m,
       ),
     );

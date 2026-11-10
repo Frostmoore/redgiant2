@@ -104,7 +104,9 @@ describe("following a conversation from several parts of the page (p3.5.4)", () 
     l.send({ type: "session.follow", sessionId: "s1" });
     l.send({ type: "session.unfollow", sessionId: "s1" });
     // One part still follows it: the server keeps sending.
-    expect(socket().follows()).toEqual([{ type: "session.follow", sessionId: "s1" }]);
+    expect(socket().follows()).toEqual([
+      { type: "session.follow", sessionId: "s1", history: true },
+    ]);
     socket().hear({
       type: "event",
       sessionId: "s1",
@@ -120,6 +122,7 @@ describe("following a conversation from several parts of the page (p3.5.4)", () 
     expect(socket().follows().at(-1)).toEqual({
       type: "session.follow",
       sessionId: "s1",
+      history: true,
       afterSeq: 7,
     });
   });
@@ -140,11 +143,13 @@ describe("following a conversation from several parts of the page (p3.5.4)", () 
     return vi.waitFor(
       () => {
         expect(socket()).not.toBe(first);
-        socket().open();
-        socket().welcome();
+        if (socket().readyState !== 1) {
+          socket().open();
+          socket().welcome();
+        }
         expect(socket().follows()).toEqual([
-          { type: "session.follow", sessionId: "s1", afterSeq: 4 },
-          { type: "session.follow", sessionId: "s2" },
+          { type: "session.follow", sessionId: "s1", history: true, afterSeq: 4 },
+          { type: "session.follow", sessionId: "s2", history: true },
         ]);
       },
       { timeout: 3000 },
@@ -245,5 +250,110 @@ describe("God's chat says what the agents under it do (p3.5.4)", () => {
       again.getByText("Lead ti chiede qualcosa in un'altra conversazione: «Bilancio»"),
     ).toBeTruthy();
     expect(again.queryByText(/sta lavorando in un'altra conversazione/)).toBe(null);
+  });
+});
+
+describe("the history in one message (p3.5.4, as Officina's H14)", () => {
+  const long = (sessionId: string, from: number, n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      ev(
+        sessionId,
+        i % 2 ? "message.assistant" : "message.user",
+        { text: `m${i}` },
+        "god",
+        from + i,
+      ),
+    );
+
+  it("a long conversation reopened: one update of the view, nothing emptied first", () => {
+    sessionView("h1").value = {
+      events: long("h1", 1, 3),
+      text: "half",
+      thinking: "",
+      state: "idle",
+      synced: false,
+    };
+    const view = sessionView("h1");
+    let updates = 0;
+    const off = view.subscribe(() => updates++);
+    updates = 0;
+    applyMessage({
+      type: "session.history",
+      sessionId: "h1",
+      events: long("h1", 1, 3000),
+      lastSeq: 3000,
+      incremental: false,
+    });
+    off();
+    expect(updates).toBe(1);
+    expect(view.value.events).toHaveLength(3000);
+    expect(view.value.events.map((e) => e.seq)).toEqual(
+      Array.from({ length: 3000 }, (_, i) => i + 1),
+    );
+    expect(view.value.synced).toBe(true);
+    expect(view.value.text).toBe("");
+  });
+
+  it("an incremental history adds only what was missing, in its place", () => {
+    sessionView("h2").value = {
+      events: long("h2", 1, 10),
+      text: "",
+      thinking: "",
+      state: "idle",
+      synced: true,
+    };
+    applyMessage({
+      type: "session.history",
+      sessionId: "h2",
+      events: long("h2", 9, 6),
+      lastSeq: 14,
+      incremental: true,
+    });
+    expect(sessionView("h2").value.events.map((e) => e.seq)).toEqual(
+      Array.from({ length: 14 }, (_, i) => i + 1),
+    );
+  });
+
+  it("a replay opens no canvas and sends no notification", () => {
+    state.sideViews.value = [];
+    const notify = vi.fn();
+    vi.stubGlobal("Notification", Object.assign(notify, { permission: "granted" }));
+    Object.defineProperty(document, "hidden", { value: true, configurable: true });
+    sessionView("h3").value = { events: [], text: "", thinking: "", state: "idle", synced: true };
+    applyMessage({
+      type: "session.history",
+      sessionId: "h3",
+      events: [
+        ev("h3", "canvas.show", {
+          title: "report.pdf",
+          target: { kind: "file", scope: "project:alpha", path: "report.pdf" },
+        }),
+      ],
+      lastSeq: seq,
+      incremental: true,
+    });
+    Object.defineProperty(document, "hidden", { value: false, configurable: true });
+    expect(state.sideViews.value).toEqual([]);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("Live remembers the history's last event for the next follow", () => {
+    const l = live as Live;
+    l.send({ type: "session.follow", sessionId: "h4" });
+    socket().hear({
+      type: "session.history",
+      sessionId: "h4",
+      events: long("h4", 1, 5),
+      lastSeq: 5,
+      incremental: false,
+    });
+    l.send({ type: "session.unfollow", sessionId: "h4" });
+    l.send({ type: "session.follow", sessionId: "h4" });
+    expect(socket().follows().at(-1)).toEqual({
+      type: "session.follow",
+      sessionId: "h4",
+      history: true,
+      afterSeq: 5,
+    });
   });
 });

@@ -50,6 +50,11 @@ export const ClientMessage = z.discriminatedUnion("type", [
     sessionId: z.string(),
     /** The last event the page already has (p3.5.4, after a reconnection): only later ones. */
     afterSeq: z.number().int().optional(),
+    /**
+     * The stored history in one `session.history` message instead of one `event` each (p3.5.4,
+     * as Officina's H14): a reload draws a long conversation once, not once per event.
+     */
+    history: z.boolean().optional(),
   }),
   /** The page's heartbeat (p3.5.4): answered at once with `pong`. */
   z.object({ type: z.literal("ping") }),
@@ -223,6 +228,18 @@ export const ServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("canvas.open"), sessionId: z.string(), event: Event }),
   /** Sent after a follow, once the stored history has been replayed. */
   z.object({ type: z.literal("session.synced"), sessionId: z.string(), lastSeq: z.number().int() }),
+  /**
+   * The stored history of a followed conversation in one message (p3.5.4, asked with
+   * `session.follow.history`), instead of its events one by one and `session.synced`.
+   * `incremental`: only the events after the follow's `afterSeq` (the page has the others).
+   */
+  z.object({
+    type: z.literal("session.history"),
+    sessionId: z.string(),
+    events: z.array(Event),
+    lastSeq: z.number().int(),
+    incremental: z.boolean(),
+  }),
   /** A summary of the conversation is being made while the person waits (G24.14). */
   z.object({ type: z.literal("session.compacting"), sessionId: z.string(), busy: z.boolean() }),
   /** A request that waits for the human; answered with `permission.resolve`. */
