@@ -6,9 +6,11 @@ import {
   type EventBody,
   type ImagePart,
   LOCAL_OWNER_ID,
+  MAX_NOTES,
   type MessageMetrics,
   type MessageQuote,
   type ModelSpec,
+  notedText,
   quotedText,
   type StopReason,
   type UserPart,
@@ -40,6 +42,7 @@ import { sessionLog } from "./forks.js";
 import type { Hooks, ToolCallInfo } from "./hooks.js";
 import { type HistoryEntry, rebuildHistory, summaryMessage } from "./rebuild.js";
 import { repairJson } from "./repair.js";
+import { TodoWatch } from "./todos.js";
 import { canonicalTools, type Tool, type ToolContext, type ToolOutput } from "./tools.js";
 
 export interface PermissionDecision {
@@ -273,6 +276,8 @@ export class AgentSession {
   private prevPrompt = 0;
   /** This provider has read from its cache in this session: a miss means something. */
   private sawCache = false;
+  /** The agent's list of steps and the calls since it changed (3.5.6), rebuilt from the log. */
+  private todos = new TodoWatch();
 
   constructor(private readonly o: AgentSessionOptions) {
     this.tools = canonicalTools(
@@ -321,6 +326,7 @@ export class AgentSession {
       started?.type === "session.started" && started.payload ? started.payload.system : undefined;
     const s = new AgentSession(system !== undefined ? { ...options, system } : options);
     s.history = rebuildHistory(events, { maxResultChars: s.maxResultChars });
+    s.todos = TodoWatch.fromEvents(events);
     for (const e of events) {
       if (e.type === "compaction" || e.type === "compaction.undone") s.lastMetrics = undefined;
       if (e.type === "message.assistant" && e.payload) s.lastMetrics = e.payload.metrics;
@@ -429,12 +435,18 @@ export class AgentSession {
       quotes?: MessageQuote[];
       /** RedGiant's lines after the text (G37.1): files changed while the agent was away. */
       notes?: string[];
+      /** The report of a task this agent handed over (3.5.6): an open list of steps is shown again. */
+      taskReport?: boolean;
     } = {},
   ): Promise<SendResult> {
     const ctx = { ...this.ctx, signal };
     const images = extra.images ?? [];
     const quotes = extra.quotes ?? [];
-    const notes = extra.notes ?? [];
+    const notes = [...(extra.notes ?? [])];
+    if (extra.taskReport && this.todos.open && notes.length < MAX_NOTES) {
+      notes.push(this.todos.text("report"));
+      this.todos.reminded();
+    }
     // What the model reads: the quoted passages first, each with its reply (G36.22).
     const said = quotedText(text, quotes, notes);
     // A summary made after the last turn is applied first: the message lands after it.
@@ -668,9 +680,15 @@ export class AgentSession {
               JSON.stringify(call.input ?? null),
               ctx,
             );
+            const reminder = this.todoReminder(call.name, call.input, r);
             const e = await this.record({
               type: "tool.result",
-              payload: { callId: call.callId, ok: !r.isError, output: r.content },
+              payload: {
+                callId: call.callId,
+                ok: !r.isError,
+                output: r.content,
+                ...(reminder && { reminder }),
+              },
             });
             this.history.push({
               message: {
@@ -878,6 +896,8 @@ export class AgentSession {
       });
     }
     for (const c of calls) {
+      // Counted like every result, so a resumed session counts the same (no reminder here).
+      this.todos.result(c.name, c.input, false);
       const e = await this.record({
         type: "tool.result",
         payload: { callId: c.callId, ok: false, output: why },
@@ -943,10 +963,17 @@ export class AgentSession {
         key === this.repeats.key ? { key, count: this.repeats.count + 1 } : { key, count: 1 };
       if (this.repeats.count >= REPEAT_NOTE_AFTER)
         r.content = `${r.content}\n\n[RedGiant: this is the ${this.repeats.count}th time in a row you make exactly this call and get exactly this result. Repeating it will not change anything: try a different approach, or stop and tell the person what blocks you.]`;
+      const reminder = this.todoReminder(calls[i]?.name, calls[i]?.input, r);
       const images = "images" in r ? r.images : undefined;
       const e = await this.record({
         type: "tool.result",
-        payload: { callId, ok: !r.isError, output: r.content, ...(images && { images }) },
+        payload: {
+          callId,
+          ok: !r.isError,
+          output: r.content,
+          ...(images && { images }),
+          ...(reminder && { reminder }),
+        },
       });
       firstSeq ??= e.seq;
     }
@@ -968,6 +995,22 @@ export class AgentSession {
       },
       firstSeq: firstSeq ?? 0,
     });
+  }
+
+  /**
+   * Counts a result for the list of steps (3.5.6) and, when a reminder is due, appends it to the
+   * result (the output that is logged, so the history rebuilds the same) and says so.
+   */
+  private todoReminder(
+    tool: string | undefined,
+    input: unknown,
+    r: { content: string; isError: boolean },
+  ): "todos" | undefined {
+    this.todos.result(tool, input, !r.isError);
+    if (!this.todos.due) return undefined;
+    r.content = notedText(r.content, [this.todos.text("calls")]);
+    this.todos.reminded();
+    return "todos";
   }
 
   /** What the person wrote meanwhile, recorded and returned as parts of the results' message. */

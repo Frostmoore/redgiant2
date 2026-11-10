@@ -408,6 +408,7 @@ interface Live {
       steer?: boolean;
       clientId?: string;
       human?: boolean;
+      taskReport?: boolean;
     };
     resolve: (r: SendResult) => void;
     reject: (e: unknown) => void;
@@ -4969,6 +4970,8 @@ export class RedGiantCore implements OrchestrationHost {
       clientId?: string;
       /** The person wrote it in one of their chats (Telegram…): the shared memory may learn from it. */
       human?: boolean;
+      /** A task's report (3.5.6): the agent's open list of steps rides with it. */
+      taskReport?: boolean;
     } = {},
   ): Promise<{ done: Promise<SendResult>; queued?: boolean }> {
     // A secret the person pasted (G33.4) never reaches the model nor the log: it is blanked here,
@@ -5080,6 +5083,7 @@ export class RedGiantCore implements OrchestrationHost {
       steer?: boolean;
       clientId?: string;
       human?: boolean;
+      taskReport?: boolean;
     },
   ): Promise<{ done: Promise<SendResult> }> {
     // Also for messages that waited in line: they are refused, not lost in the middle of a turn.
@@ -5771,6 +5775,7 @@ export class RedGiantCore implements OrchestrationHost {
       const { done: answered } = await this.send(t.ownerId, from.sessionId, text, {
         from: by,
         queue: true,
+        taskReport: true,
       });
       answered.catch(() => {});
     }

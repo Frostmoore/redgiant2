@@ -727,6 +727,61 @@ describe("orchestration", () => {
     expect(heard).toEqual(["abandoned"]);
   });
 
+  it("shows an open list of steps again with a task's report (3.5.6)", async () => {
+    const heard: string[] = [];
+    s = await startServer((req) => {
+      const { n, results } = step(req);
+      if (role(req) === "god") {
+        if (report(req)) {
+          const last = [...req.messages].reverse().find((m) => m.role === "user");
+          heard.push(textOf(last));
+          return { text: "Heard." };
+        }
+        if (n === 0) return call("create_project", { name: "Steps" });
+        if (n === 1)
+          return call("create_agent", {
+            kind: "orchestrator",
+            name: "Orch",
+            role: "Runs Steps",
+            project_id: "steps",
+          });
+        if (n === 2)
+          return call("update_todos", {
+            todos: [
+              { content: "Hand the work over", status: "in_progress" },
+              { content: "Tell the person", status: "pending" },
+            ],
+          });
+        if (n === 3)
+          return call("delegate", {
+            agent_id: idIn(results.at(-2) ?? "", "orchestrator"),
+            title: "Work",
+            task: "Do it",
+          });
+        return { text: "Handed over." };
+      }
+      return { error: new Error("the provider went away") };
+    });
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const sid = await s.core.startSession("me", god.body.id);
+    await (await s.core.send("me", sid, "Go")).done;
+    for (let i = 0; i < 200 && heard.length === 0; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(heard).toHaveLength(1);
+    expect(heard[0]).toContain("</task_report>");
+    expect(heard[0]).toContain(
+      "[RedGiant: Your list of steps (update_todos) still has open steps; it says:\n" +
+        "1. [in_progress] Hand the work over\n2. [pending] Tell the person",
+    );
+    const user = (await s.core.store.list({ sessionId: sid })).filter(
+      (e) => e.type === "message.user",
+    );
+    expect((user.at(-1)?.payload as { notes?: string[] } | undefined)?.notes).toHaveLength(1);
+  });
+
   it("gives tasks to an agent assigned to the project, which works there in its own worktree", async () => {
     let helperId = "";
     s = await startServer((req) => {

@@ -112,6 +112,11 @@ export const EventBody = z.discriminatedUnion("type", [
       output: z.string(),
       /** Pictures the tool returned (a screenshot), for models that see (G24.14c). */
       images: z.array(ImagePart).optional(),
+      /**
+       * The output ends with RedGiant's reminder of the agent's open list of steps (3.5.6): already
+       * in `output`, marked so a resumed session counts the next calls from the same point.
+       */
+      reminder: z.enum(["todos"]).optional(),
     }),
   }),
   z.object({

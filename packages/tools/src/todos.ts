@@ -23,8 +23,11 @@ export function todosTool(): Tool<z.infer<typeof TodoInput>> {
       name: "update_todos",
       description:
         "Keep your list of steps for this work: send the whole list each time, with each step pending, in_progress " +
-        "or completed (one in progress at a time). Use it for work of three steps or more; mark a step completed as " +
-        "soon as it is done. The person sees the list.",
+        "or completed (one in progress at a time). Use it for work of three steps or more. The person watches this " +
+        "list to follow your work, so keep it true as you go, not only at the start: call it again to mark a step " +
+        "in_progress before you start it, and again to mark it completed as soon as it is done (do not save several " +
+        "steps up for later). Add, remove or reword steps when the plan changes. A list written once and never " +
+        "updated tells the person nothing.",
       inputSchema: {
         type: "object",
         properties: {
