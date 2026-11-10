@@ -113,6 +113,8 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   one("platform_automation", "platform"),
   one("platform_mcp", "platform"),
   one("platform_undo", "platform"),
+  // Archiving and restoring a whole project (3.5.3), with the person's yes.
+  one("platform_project", "platform"),
   { id: "platform_code", group: "platform", prefix: "platform_code_" },
 ];
 

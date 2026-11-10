@@ -3853,6 +3853,8 @@ const en = {
   toolDo_platform_mcp: "Adds or removes a connected service from the catalog, with your yes.",
   tool_platform_undo: "Undo changes",
   toolDo_platform_undo: "Undoes a change to the settings, with your yes.",
+  tool_platform_project: "Archive projects",
+  toolDo_platform_project: "Archives a project or restores it as it was, with your yes.",
   tool_platform_code: "Change RedGiant's code",
   toolDo_platform_code: "Changes RedGiant itself, tried apart before you accept it.",
   // g36: the instructions' refiner, God's instructions and tools for new agents, request_tool (G36.13-15)
@@ -8307,6 +8309,8 @@ const it: Record<Key, string> = {
   toolDo_platform_mcp: "Aggiunge o toglie un servizio collegato dal catalogo, con il tuo sì.",
   tool_platform_undo: "Annullare modifiche",
   toolDo_platform_undo: "Annulla una modifica alle impostazioni, con il tuo sì.",
+  tool_platform_project: "Archiviare progetti",
+  toolDo_platform_project: "Archivia un progetto o lo ripristina com'era, con il tuo sì.",
   tool_platform_code: "Cambiare il codice di RedGiant",
   toolDo_platform_code: "Cambia RedGiant stesso, provato a parte prima che tu lo accetti.",
   // g36: refiner delle istruzioni, istruzioni e strumenti di God per gli agenti nuovi, request_tool (G36.13-15)
