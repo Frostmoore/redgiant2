@@ -55,6 +55,7 @@ import {
 } from "./core.js";
 import { debugLog } from "./debug-log.js";
 import { imageRoutes } from "./editor/image-routes.js";
+import { modelRoutes } from "./editor/model-routes.js";
 import { officeRoutes } from "./editor/office-routes.js";
 import { pdfRoutes } from "./editor/pdf-routes.js";
 import { svgRoutes } from "./editor/svg-routes.js";
@@ -1335,6 +1336,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   personRoutes(app, core, owner);
   sheetRoutes(app, core, owner);
   svgRoutes(app, core, owner);
+  modelRoutes(app, core, owner);
   browserRoutes(app, core.browserLinks, owner, clientAddress);
   // Mandatory and breaking updates (G36.19): the status, the safety backup, found backups.
   updateRoutes(app, core, owner, options.setup);

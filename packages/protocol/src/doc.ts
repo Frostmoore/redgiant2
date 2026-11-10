@@ -7,6 +7,7 @@
 // `doc.replaced`. The file on disk is the snapshot, the log is the history.
 import { z } from "zod";
 import { ImageChange, ImageDocOp, ImageSnapshot } from "./doc-image.js";
+import { ModelChange, ModelDocOp, ModelSnapshot } from "./doc-model.js";
 import { OfficeDocOp, OfficeSnapshot } from "./doc-office.js";
 import { PdfChangeWords, PdfDocOp, PdfSnapshot } from "./doc-pdf.js";
 import { SvgChange, SvgDocOp, SvgSnapshot } from "./doc-svg.js";
@@ -19,7 +20,7 @@ export const DocFile = z.object({
 export type DocFile = z.infer<typeof DocFile>;
 
 /** The families of files with an editor. G37.2-G37.8 add theirs. */
-export const DOC_FAMILIES = ["text", "sheet", "document", "svg", "pdf", "image"] as const;
+export const DOC_FAMILIES = ["text", "sheet", "document", "svg", "pdf", "image", "model"] as const;
 export const DocFamilyId = z.enum(DOC_FAMILIES);
 export type DocFamilyId = z.infer<typeof DocFamilyId>;
 
@@ -185,6 +186,8 @@ export const DocSummary = z.object({
   pdf: PdfChangeWords.optional(),
   /** A layered picture's change (G37.5), for the page's own words: «Dipinto su «Sfondo»». */
   image: ImageChange.optional(),
+  /** A 3D model's change (G37.7), for the page's own words: «Aggiunto un cubo». */
+  model: ModelChange.optional(),
 });
 export type DocSummary = z.infer<typeof DocSummary>;
 
@@ -245,6 +248,7 @@ export const DocOp = z.discriminatedUnion("family", [
   SvgDocOp,
   PdfDocOp,
   ImageDocOp,
+  ModelDocOp,
 ]);
 export type DocOp = z.infer<typeof DocOp>;
 
@@ -393,6 +397,7 @@ export const DocSnapshot = z.discriminatedUnion("family", [
   SvgSnapshot,
   PdfSnapshot,
   ImageSnapshot,
+  ModelSnapshot,
   z.object({
     family: z.literal("sheet"),
     /** csv, tsv or ods: what saving keeps (a CSV keeps values only). */

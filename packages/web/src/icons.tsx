@@ -890,3 +890,17 @@ export const IconSelectAll = ({ size = 16 }: P) => (
     <path d="M5 3a2 2 0 0 0-2 2M19 3a2 2 0 0 1 2 2M21 19a2 2 0 0 1-2 2M5 21a2 2 0 0 1-2-2M9 3h1M9 21h1M14 3h1M14 21h1M3 9v1M21 9v1M3 14v1M21 14v1" />
   </Svg>
 );
+/** A camera in a 3D scene (G37.7). */
+export const IconCamera = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <rect x="3" y="7" width="13" height="10" rx="2" />
+    <path d="M16 11l5-3v8l-5-3" />
+  </Svg>
+);
+/** Scaling (the 3D handles, G37.7). */
+export const IconScale = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <rect x="4" y="11" width="9" height="9" rx="1" />
+    <path d="M10 4h10v10M20 4l-8 8" />
+  </Svg>
+);

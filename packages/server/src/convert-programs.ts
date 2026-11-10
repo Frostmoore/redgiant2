@@ -829,7 +829,7 @@ export function findDesktopApp(
 
 /** Starts a desktop app and lets it live on its own (tests pass a fake). */
 export type Launcher = (file: string, args: string[]) => void;
-const detached: Launcher = (file, args) => {
+export const detached: Launcher = (file, args) => {
   const child = spawn(file, args, { detached: true, stdio: "ignore", env: agentEnv() });
   child.on("error", () => {});
   child.unref();

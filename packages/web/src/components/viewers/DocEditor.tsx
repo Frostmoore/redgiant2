@@ -35,12 +35,14 @@ import {
 } from "../../state.js";
 import { imageChangeText } from "../../viewers/image-words.js";
 import { bareText, viewerFor } from "../../viewers/kind.js";
+import { modelChangeText } from "../../viewers/model-ops.js";
 import { isOfficeFile } from "../../viewers/office-bridge.js";
 import { pdfChangeText } from "../../viewers/pdf-words.js";
 import { sheetChangeText } from "../../viewers/sheet-words.js";
 import { svgChangeText } from "../../viewers/svg-words.js";
 import type { DocDiff as DiffView, DiffWhat } from "./DocDiff.js";
 import { ImageEditor, pictureEditable } from "./ImageEditor.js";
+import { MODEL_EDITABLE, ModelEditor } from "./ModelEditor.js";
 import { OfficeEditor } from "./OfficeEditor.js";
 import { isPdfFile, PdfEditor } from "./PdfEditor.js";
 import { SHEET_EDITABLE, SheetEditor } from "./SheetEditor.js";
@@ -58,6 +60,7 @@ export const editableInCanvas = (file: { scope: string; path: string }) =>
     SHEET_EDITABLE.test(file.path) ||
     isOfficeFile(file.path) ||
     SVG_EDITABLE.test(file.path) ||
+    MODEL_EDITABLE.test(file.path) ||
     isPdfFile(file.path) ||
     pictureEditable(file));
 
@@ -89,6 +92,8 @@ export function changeText(s: DocSummary): string {
   if (s.pdf && s.kind !== "undo" && s.kind !== "replaced") return pdfChangeText(s);
   // A layered picture's change (G37.5) too.
   if (s.image && s.kind !== "undo" && s.kind !== "replaced") return imageChangeText(s);
+  // A 3D model's change (G37.7) too.
+  if (s.model && s.kind !== "undo" && s.kind !== "replaced") return modelChangeText(s);
   // Documents and presentations (G37.4) count paragraphs and slides.
   if (s.unit === "paragraph" || s.unit === "slide") {
     const para = s.unit === "paragraph";
@@ -477,6 +482,8 @@ export function DocEditor({
               <SheetEditor file={file} onReveal={(r) => (reveal.current = r)} />
             ) : SVG_EDITABLE.test(file.path) ? (
               <SvgEditor file={file} />
+            ) : MODEL_EDITABLE.test(file.path) ? (
+              <ModelEditor file={file} />
             ) : (
               <TextEditor file={file} name={name} line={line} onReady={(e) => (view.current = e)} />
             )}

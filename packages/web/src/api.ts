@@ -1663,6 +1663,23 @@ export class Api {
   /** «Apri in Krita»: the picture as last saved, in the Krita installed here. */
   openInKrita = (scope: string, path: string) =>
     this.call<{ opened: boolean }>("POST", "/api/editor/image/krita", { scope, path });
+
+  // ---- 3D models in the editor (G37.7) ----
+  /** Blender on this computer, and the 3D file a GLB copy came from. */
+  modelInfo = (scope: string, path: string) =>
+    this.call<{ blender: boolean; original?: string }>(
+      "GET",
+      `/api/editor/model/info?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+    );
+  /** The GLB copy of an OBJ/STL/PLY/FBX…: made now, or `convert` (the converter's job, Blender). */
+  modelCopy = (scope: string, path: string) =>
+    this.call<{ path: string; convert?: boolean; by?: string }>("POST", "/api/editor/model/copy", {
+      scope,
+      path,
+    });
+  /** «Apri in Blender»: the model, as last saved, in the Blender installed here. */
+  openInBlender = (scope: string, path: string) =>
+    this.call<{ opened: boolean }>("POST", "/api/editor/model/blender", { scope, path });
   // ---- PDFs in the editor (G37.8) ----
   /** The PDF at its head revision (what the page shows). */
   pdfFile = (scope: string, path: string) =>
