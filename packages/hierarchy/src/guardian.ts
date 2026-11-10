@@ -10,6 +10,7 @@
 
 import { posix, win32 } from "node:path";
 import type { ToolCallInfo } from "@redgiant/agent";
+import { nativePath } from "@redgiant/protocol";
 
 /** Where writing never needs asking: scratch space and the null device. */
 const ALWAYS_OK = ["/tmp", "/var/tmp", "/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"];
@@ -66,6 +67,8 @@ function inside(path: string, roots: string[]): boolean {
 function resolvePath(token: string, cwd: string, ctx: GuardianContext): string | undefined {
   let t = token.replace(/^["']|["']$/g, "");
   if (t === "") return undefined;
+  // Git Bash's paths on Windows (/c/Users/…, ~, $HOME…: p3.5.4) as Windows names them.
+  t = nativePath(t, { windows: ctx.roots.some(isWindowsPath), home: ctx.home });
   if (t === "~" || t.startsWith("~/")) t = (ctx.home ?? "/root") + t.slice(1);
   t = t.replace(/^\$\{?PWD\}?/, cwd).replace(/^\$\{?HOME\}?/, ctx.home ?? "/root");
   // Another variable: where it points cannot be known here.
@@ -277,16 +280,23 @@ export function lockedWrites(
       }
       if (REDIRECTS.has(w)) continue;
       if (first) {
-        isCd = w === "cd";
+        isCd = ["cd", "pushd", "chdir", "set-location", "sl"].includes(w.toLowerCase());
         first = false;
+        continue;
+      }
+      // Going somewhere (p3.5.4): any word, even a plain name after a `cd` (`cd shop`), moves
+      // where the rest runs; a command started inside a locked folder is refused.
+      if (isCd && !w.startsWith("-")) {
+        const p = check(w, cwd);
+        if (p && p !== "$unknown") cwd = p;
+        isCd = false;
         continue;
       }
       // A word that names a place: a path, or an option's value after "=".
       const value = w.includes("=") && !w.startsWith("/") ? w.slice(w.indexOf("=") + 1) : w;
       const looksLikePath = /[\\/]/.test(value) || value.startsWith("~") || value === "..";
       if (!looksLikePath) continue;
-      const p = check(value, cwd);
-      if (isCd && p && p !== "$unknown") cwd = p;
+      check(value, cwd);
     }
     // The command's own text too: a Windows path loses its backslashes when read as a shell
     // would (they escape), and a folder may be written with either slash or in another case.

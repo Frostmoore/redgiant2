@@ -26,7 +26,12 @@
 
 import { posix, win32 } from "node:path";
 import type { ToolCallInfo } from "@redgiant/agent";
-import { type CriticalId, type LeakableSecret, leakableSecrets } from "@redgiant/protocol";
+import {
+  type CriticalId,
+  type LeakableSecret,
+  leakableSecrets,
+  nativePath,
+} from "@redgiant/protocol";
 
 export interface CriticalContext {
   /** The folders the agent works in (its project, its worktree); the first is where commands start. */
@@ -171,7 +176,8 @@ function expand(t: string, w: Where): string {
 
 function locate(token: string, w: Where): Loc | undefined {
   if (!token || /^[a-z][\w+.-]*:\/\//i.test(token)) return undefined;
-  const raw = expand(token, w);
+  // Git Bash's paths on Windows (/c/Windows/…, p3.5.4) as Windows names them.
+  const raw = expand(nativePath(token, { windows: isWinAbs(w.cwd), home: w.home }), w);
   // Only a variable, maybe with a slash or a star after it: empty, it is the root.
   if (/^(\$\{?\w+\}?|\$env:\w+|%\w+%)([\\/]\*?|[\\/]?)$/i.test(raw))
     return { kind: "unknown", raw };

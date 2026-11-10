@@ -291,7 +291,12 @@ export function knowledgeTools(agent: AgentNode, host: KnowledgeToolsHost): Tool
       const agents = host.agents();
       const visible = new Set(
         (
-          await k.visible(owner, { kind: "agent", agentId: agent.id, projectIds: host.projectIds })
+          await k.visible(owner, {
+            kind: "agent",
+            agentId: agent.id,
+            projectIds: host.projectIds,
+            agentKind: agent.kind,
+          })
         ).map((c) => c.id),
       );
       const mine = (await k.collections(owner)).filter((c) => visible.has(c.id) || mayMake(c));

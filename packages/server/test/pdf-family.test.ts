@@ -21,10 +21,10 @@ import {
   mapIndex,
 } from "../src/editor/pdf-ops.js";
 import { loadPdf, readPdfOutline } from "../src/editor/pdf-outline.js";
-import { parseContent, verifyRedaction } from "../src/editor/pdf-redact.js";
+import { pageGlyphs, parseContent, verifyRedaction } from "../src/editor/pdf-redact.js";
 import { findWords, pageLines } from "../src/editor/pdf-text.js";
 import { writePdf } from "../src/editor/pdf-write.js";
-import { RED_PNG, samplePdf } from "./fixtures/pdf-samples.js";
+import { RED_PNG, samplePdf, trickyPdf } from "./fixtures/pdf-samples.js";
 
 const noBlob = async () => undefined;
 const latin = (b: Uint8Array) => Buffer.from(b).toString("latin1");
@@ -42,7 +42,7 @@ const plain = (o: PdfOutline) => ({
 async function agent(bytes: Uint8Array, o: PdfOutline, raw: unknown[], prefix = "rg") {
   let n = 0;
   const r = await actionsFromAgent(o, raw, {
-    find: (p, w) => findWords(bytes, p, w),
+    find: (p, w, x) => findWords(bytes, p, w, x),
     newId: () => `${prefix}-${++n}`,
   });
   if ("error" in r) throw new Error(r.error);
@@ -469,6 +469,79 @@ describe("redaction", () => {
       expect(contents).toBeDefined();
     },
   );
+
+  // The 3.5.3 test (p3.5.4): «Il codice riservato è Z» was left, the area made from the words'
+  // share of the characters of their run. Each line writes the text another way.
+  it.each([
+    ["one Tj after narrow letters", 0, "Il codice riservato è e basta."],
+    ["a TJ with kerning, Tc, Tw and Tz", 1, "Il codice riservato è fine."],
+    ["a Type0 font, Identity-H, ToUnicode", 2, "Codice qui."],
+  ])("by words, every glyph goes: %s", async (_what, line, left) => {
+    const b = await trickyPdf();
+    const o = await readPdfOutline(b);
+    const actions = await agent(b, o, [{ op: "redact", page: 1, find: "ZEBRA-77" }]);
+    const w = await writePdf(b, actions, noBlob);
+    const lines = ((await pageLines(w.bytes, [0])).get(0) ?? []).map((l) => l.text);
+    expect(lines[line]).toBe(left);
+    const glyphs = (await pageGlyphs(w.bytes, 0)).map((g) => g.c).join("");
+    expect(glyphs).not.toMatch(/[ZEBRA7]/);
+    for (const a of actions)
+      if (a.t === "redact")
+        expect(await verifyRedaction(w.bytes, 0, a.rects, ["ZEBRA-77"], b)).toBeUndefined();
+  });
+
+  it("the area made as in 3.5.3 left «Z»: the check finds the one letter where the words were", async () => {
+    const b = await trickyPdf();
+    // The old area of the first line: «ZEBRA-77» taken as its share of the run's characters.
+    const old: [number, number, number, number] = [190, 717.1, 234.1, 730.7];
+    const w = await writePdf(
+      b,
+      [{ t: "redact", page: 0, rects: [old], info: (await readPdfOutline(b)).pages[0] as never }],
+      noBlob,
+    );
+    const first = ((await pageLines(w.bytes, [0])).get(0) ?? [])[0]?.text;
+    expect(first).toBe("Il codice riservato è Z e basta.");
+    // Under the area alone nothing is left, which is how it passed.
+    expect(await verifyRedaction(w.bytes, 0, [old])).toBeUndefined();
+    // Where the words' glyphs were in the file before: the first line's «Z» (and the other two
+    // lines, which this area did not cover).
+    expect(await verifyRedaction(w.bytes, 0, [old], ["ZEBRA-77"], b)).toBe(
+      "text «ZZEBRA-77ZEBRA-77»",
+    );
+  });
+
+  it("a glyph only partly under the area goes; one letter under it is found", async () => {
+    const b = await trickyPdf();
+    const z = (await pageGlyphs(b, 0)).find((g) => g.c === "Z");
+    expect(z).toBeDefined();
+    const box = z?.box as [number, number, number, number];
+    // An area that starts just inside the «Z»'s right edge.
+    const rect: [number, number, number, number] = [box[2] - 0.05, box[1], box[2] + 20, box[3]];
+    const info = (await readPdfOutline(b)).pages[0] as never;
+    const w = await writePdf(b, [{ t: "redact", page: 0, rects: [rect], info }], noBlob);
+    expect(((await pageLines(w.bytes, [0])).get(0) ?? [])[0]?.text).not.toContain("Z");
+    // On the original, a single letter under an area is text left under it.
+    const zOnly: [number, number, number, number] = [
+      box[0] + 1,
+      box[1] + 1,
+      box[2] - 1,
+      box[3] - 1,
+    ];
+    expect(await verifyRedaction(b, 0, [zOnly])).toMatch(/^text «/);
+  });
+
+  it("the words a redaction was asked for are nowhere on its page afterwards", async () => {
+    const b = await trickyPdf();
+    // Only the first line's area: the other two lines still say the words.
+    const [first] = await findWords(b, 0, "ZEBRA-77", { exact: true });
+    const info = (await readPdfOutline(b)).pages[0] as never;
+    const rects = (first?.rects ?? []).map(
+      (r) => [r[0] - 0.5, r[1] - 0.5, r[2] + 0.5, r[3] + 0.5] as [number, number, number, number],
+    );
+    const w = await writePdf(b, [{ t: "redact", page: 0, rects, info }], noBlob);
+    expect(await verifyRedaction(w.bytes, 0, rects)).toBeUndefined();
+    expect(await verifyRedaction(w.bytes, 0, rects, ["ZEBRA-77"])).toBe("text «zebra-77»");
+  });
 
   it("covering is not redacting: the same areas on the original still have the words", async () => {
     const b = await samplePdf();

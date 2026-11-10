@@ -20,6 +20,7 @@ export * from "./media.js";
 export * from "./memory.js";
 export * from "./messages.js";
 export * from "./metrics.js";
+export * from "./paths.js";
 export * from "./person-settings.js";
 export * from "./prompt-refine.js";
 export * from "./providers.js";

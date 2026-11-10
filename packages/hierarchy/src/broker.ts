@@ -137,11 +137,40 @@ export class PermissionBroker {
       });
       if (said !== undefined)
         return { allow: false, reason: `denied by the person, who said: ${said}` };
-      if (answer === "allow") return { allow: true };
+      if (answer === "allow") {
+        // The person's own yes to a truly dangerous call: the tool may check it was given.
+        if (!approver && ev.critical.length > 0)
+          this.rememberYes(sessionId, call.callId, ev.critical);
+        return { allow: true };
+      }
       if (answer === "deny")
         return { allow: false, reason: `denied by ${approver?.name ?? "the user"}` };
     }
     return { allow: false, reason: "nobody approved the request" };
+  }
+
+  /**
+   * The person's own yes to truly dangerous calls (G36.17b), by conversation and call: a tool that
+   * must never act without it (a PDF's redaction, G37.8) checks it once before acting, so no other
+   * path (a rule, a mode, a classifier, a script) can make it act.
+   */
+  private readonly personYes = new Map<string, readonly string[]>();
+  private rememberYes(sessionId: string | undefined, callId: string, critical: readonly string[]) {
+    this.personYes.set(`${sessionId ?? ""}\u0000${callId}`, critical);
+    // Yeses a tool never came to take are dropped, the oldest first.
+    while (this.personYes.size > 1000) {
+      const first = this.personYes.keys().next().value;
+      if (first === undefined) break;
+      this.personYes.delete(first);
+    }
+  }
+  /** Whether the person said yes to this call as truly dangerous of kind `id`; taken once. */
+  personApproved(sessionId: string | undefined, callId: string | undefined, id: string): boolean {
+    if (!callId) return false;
+    const key = `${sessionId ?? ""}\u0000${callId}`;
+    const yes = this.personYes.get(key)?.includes(id) === true;
+    if (yes) this.personYes.delete(key);
+    return yes;
   }
 
   /** Tools the person allowed for one conversation (never past a human-only danger). */

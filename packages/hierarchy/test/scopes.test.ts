@@ -143,6 +143,8 @@ describe("scope table", () => {
 // The knowledge (3.5.3, «Gli agenti possono creare tutto da sé»): who makes a collection for whom
 // ("make": every agent, a project, one agent), and whose files it may read into one ("source": a
 // project, God's folder, the assistants' desk). Folders elsewhere on the computer are the guardian's.
+// "read" (p3.5.4): whose collections it searches by their scope; God every one of the person's,
+// as it acts with their authority (the 3.5.3 test: «No collection you can read is called that»).
 const KNOWLEDGE_TABLE = `
 G  make   all yes | G  make   p1 yes | G  make   A1 yes | G  make   G  yes | G  make P1 yes
 O1 make   p1  yes | O1 make   p2 no  | O1 make   all no | O1 make   O1 yes | O1 make A1 yes | O1 make A3 no | O1 make P1 no
@@ -156,6 +158,12 @@ A1 source p1 yes | A1 source p2 no | A6 source p1 yes | A6 source p2 yes | A1 so
 P1 source assistants yes | P1 source p1 no | P1 source platform no | P3 source p1 yes
 S1 source p1 no | D source platform no | I1 source p1 no
 G  make   p9 no  | G  source p9 no | G  make A9 no | A7 make p9 no | A7 source p9 no | O9 make O9 no | O9 make p9 no
+G  read   all yes | G  read   p1 yes | G  read   p2 yes | G  read   p9 yes | G  read A1 yes | G  read O1 yes | G read P1 yes | G read X no
+O1 read   all yes | O1 read   p1 yes | O1 read   p2 no  | O1 read   O1 yes | O1 read A1 no | O1 read G no
+A1 read   all yes | A1 read   p1 yes | A1 read   p2 no  | A1 read   A1 yes | A1 read A2 no | A6 read p1 yes | A6 read p2 yes
+S1 read   all yes | S1 read   p1 yes | S1 read   p2 no  | I1 read   p1 yes | I1 read p2 no | D read all yes | D read p1 no
+P1 read   all yes | P1 read   P1 yes | P1 read   p1 no  | P3 read   p1 yes | P1 read P2 no
+O9 read   p9 yes | A9 read   p9 yes | A7 read   p9 yes | O9 read   all yes
 `
   .trim()
   .split(/\s*[|\n]\s*/)
