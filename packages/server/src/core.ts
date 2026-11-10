@@ -385,7 +385,8 @@ interface Live {
   projectId: string | null;
   session: AgentSession;
   running: AbortController | null;
-  listeners: Set<(m: ServerMessage) => void>;
+  /** Who follows the conversation now (the core's registry, p3.5.4; read only here). */
+  readonly listeners: Iterable<(m: ServerMessage) => void>;
   model: ModelSpec;
   /** The conversation chose its own model (composer), not the agent's. */
   ownModel: boolean;
@@ -1064,7 +1065,10 @@ export class RedGiantCore implements OrchestrationHost {
           metrics: e.payload.metrics,
         });
       const l = e.sessionId ? this.live.get(e.sessionId) : undefined;
-      if (l) for (const f of l.listeners) f({ type: "event", sessionId: l.id, event: e });
+      // To whoever follows the conversation, in memory now or not (p3.5.4).
+      if (e.sessionId)
+        for (const f of this.followers.get(e.sessionId) ?? [])
+          f({ type: "event", sessionId: e.sessionId, event: e });
       // The canvas opens on the person's pages also for a conversation none of them follows.
       if (l && (e.type === "canvas.show" || e.type === "canvas.act"))
         this.toOwner(l.ownerId, { type: "canvas.open", sessionId: l.id, event: e });
@@ -1643,7 +1647,9 @@ export class RedGiantCore implements OrchestrationHost {
         }),
       );
     }
-    const listeners = new Set<(m: ServerMessage) => void>();
+    // The conversation's followers (p3.5.4), read each time: every copy built of it sends to them.
+    const listeners = (): Iterable<(m: ServerMessage) => void> =>
+      preview ? [] : (this.followers.get(sessionId) ?? []);
     // A flat subscription's engine runs the turns (G21); everything else stays the same.
     const found = this.o.providers.has(model.provider)
       ? (this.o.providers.get(model.provider) as { engine?: Partial<Engine> }).engine
@@ -1736,7 +1742,7 @@ export class RedGiantCore implements OrchestrationHost {
       // Demi-God only relays (RD8): its one tool is ask_god.
       ...(agent.kind === "demigod" && { historyTool: false }),
       onCompacting: (busy: boolean) => {
-        for (const f of listeners) f({ type: "session.compacting", sessionId, busy });
+        for (const f of listeners()) f({ type: "session.compacting", sessionId, busy });
       },
       cacheScope:
         assignedTo ??
@@ -1745,12 +1751,12 @@ export class RedGiantCore implements OrchestrationHost {
       live: (e: StreamEvent) => {
         if (e.type === "prefill_progress") {
           const { total, cached, processed, ms } = e;
-          for (const f of listeners)
+          for (const f of listeners())
             f({ type: "prefill", sessionId, total, cached, processed, ms });
           return;
         }
         if (e.type !== "text_delta" && e.type !== "thinking_delta") return;
-        for (const f of listeners)
+        for (const f of listeners())
           f({
             type: "delta",
             sessionId,
@@ -1778,7 +1784,9 @@ export class RedGiantCore implements OrchestrationHost {
       projectId: agent.projectId,
       session,
       running: null,
-      listeners,
+      get listeners() {
+        return listeners();
+      },
       model,
       ownModel: sessionModel !== undefined,
       usedAt: Date.now(),
@@ -3616,9 +3624,8 @@ export class RedGiantCore implements OrchestrationHost {
     const keys = budgetKeys(agent, this.registry.resolve);
     if ((await this.budget.check(keys)).length > 0)
       return { content: "The budget is exhausted.", isError: true };
-    const live = this.live.get(ctx.sessionId);
     const progress = (percent: number, preview?: string) => {
-      for (const f of live?.listeners ?? [])
+      for (const f of this.followers.get(ctx.sessionId) ?? [])
         f({
           type: "image.progress",
           sessionId: ctx.sessionId,
@@ -3821,7 +3828,7 @@ export class RedGiantCore implements OrchestrationHost {
   closeIdle(idleMs = 30 * 60_000): number {
     let closed = 0;
     for (const [id, l] of this.live) {
-      if (l.running || l.listeners.size > 0 || Date.now() - l.usedAt < idleMs) continue;
+      if (l.running || this.followers.has(l.id) || Date.now() - l.usedAt < idleMs) continue;
       this.live.delete(id);
       closed++;
     }
@@ -4485,8 +4492,8 @@ export class RedGiantCore implements OrchestrationHost {
   agentModelChanged(agentId: string): void {
     for (const [id, l] of this.live)
       if (l.agentId === agentId && !l.running && !l.ownModel) {
+        // Whoever follows it keeps following: followers belong to the conversation.
         this.live.delete(id);
-        if (l.listeners.size > 0) this.waiting.set(id, new Set(l.listeners));
       }
   }
 
@@ -4547,17 +4554,34 @@ export class RedGiantCore implements OrchestrationHost {
     this.assertActive(ownerId, row.project_id);
     this.assertActive(ownerId, this.registry.get(row.agent_id)?.projectId);
     this.live.set(sessionId, built);
-    // Whoever followed it while it could not run follows it now.
-    const waiting = this.waiting.get(sessionId);
-    if (waiting) {
-      for (const f of waiting) built.listeners.add(f);
-      this.waiting.delete(sessionId);
-    }
     return built;
   }
 
-  /** Followers of conversations not in memory now (no model yet, or being rebuilt). */
-  private readonly waiting = new Map<string, Set<(m: ServerMessage) => void>>();
+  /**
+   * Who follows each conversation (p3.5.4): the pages' listeners belong to the conversation, not
+   * to the copy in memory. Every copy built of it (resumed, rebuilt with another model, after a
+   * project is restored, after it left memory) sends to the same set, so a page never stays on a
+   * copy that was replaced and unfollowing always reaches it. Before, a rebuilt conversation got a
+   * copy of the set: unfollowing missed it (doubled deltas, kept in memory for ever) and those
+   * that dropped a copy without passing the set on left its pages deaf.
+   */
+  private readonly followers = new Map<string, Set<(m: ServerMessage) => void>>();
+
+  private followersOf(sessionId: string): Set<(m: ServerMessage) => void> {
+    let set = this.followers.get(sessionId);
+    if (!set) {
+      set = new Set();
+      this.followers.set(sessionId, set);
+    }
+    return set;
+  }
+
+  private unfollowOne(sessionId: string, listener: (m: ServerMessage) => void): void {
+    const set = this.followers.get(sessionId);
+    if (!set) return;
+    set.delete(listener);
+    if (set.size === 0) this.followers.delete(sessionId);
+  }
 
   /**
    * The local model just started (2026-11-05): the person's latest conversations on it are
@@ -4702,12 +4726,11 @@ export class RedGiantCore implements OrchestrationHost {
       sessionId,
       model ? JSON.stringify(model) : null,
     ]);
-    // A live session is rebuilt with the new model; whoever follows it keeps following.
-    const old = this.live.get(sessionId);
-    if (old) {
+    // A live session is rebuilt with the new model; whoever follows it keeps following (the
+    // followers belong to the conversation).
+    if (this.live.has(sessionId)) {
       this.live.delete(sessionId);
-      const fresh = await this.open(ownerId, sessionId);
-      for (const f of old.listeners) fresh.listeners.add(f);
+      await this.open(ownerId, sessionId);
     }
   }
 
@@ -5234,7 +5257,6 @@ export class RedGiantCore implements OrchestrationHost {
       await this.commands.stopSession(l.id).catch(() => {});
       // Rebuilt from the log once restored, on a new sandbox; whoever follows it keeps following.
       this.live.delete(l.id);
-      if (l.listeners.size > 0) this.waiting.set(l.id, new Set(l.listeners));
     }
     // Its sandboxes stop (made again on restore); its folder stays as it is.
     const base = `${ownerId}-${projectId}`;
@@ -5870,41 +5892,33 @@ export class RedGiantCore implements OrchestrationHost {
   ): Promise<() => void> {
     const after = (all: Event[]) =>
       afterSeq === undefined ? all : all.filter((e) => e.seq > afterSeq);
-    let l: Live;
+    let l: Live | undefined;
     try {
       l = await this.open(ownerId, sessionId);
     } catch (err) {
       // No model yet, or an archived project (read only): the log, and live again once it runs.
       if (!(err instanceof NoModelError) && !(err instanceof ProjectArchivedError)) throw err;
       // No model yet: what was said, then everything once a model is chosen and it runs.
-      const set = this.waiting.get(sessionId) ?? new Set();
-      set.add(listener);
-      this.waiting.set(sessionId, set);
-      const past = after(await sessionLog(this.store, sessionId));
-      for (const e of past) listener({ type: "event", sessionId, event: e });
-      listener({ type: "session.synced", sessionId, lastSeq: past.at(-1)?.seq ?? afterSeq ?? -1 });
-      listener({ type: "session.state", sessionId, state: "idle" });
-      return () => {
-        set.delete(listener);
-        this.live.get(sessionId)?.listeners.delete(listener);
-      };
+      l = undefined;
     }
+    // Followed as a conversation (p3.5.4): whatever copy of it is in memory now or later.
     const buffered: ServerMessage[] = [];
     let replaying = true;
     const relay = (m: ServerMessage) => (replaying ? buffered.push(m) : listener(m));
-    l.listeners.add(relay);
-    l.usedAt = Date.now();
+    this.followersOf(sessionId).add(relay);
+    if (l) l.usedAt = Date.now();
     const past = after(await sessionLog(this.store, sessionId));
     for (const e of past) listener({ type: "event", sessionId, event: e });
     const lastSeq = past.at(-1)?.seq ?? afterSeq ?? -1;
     listener({ type: "session.synced", sessionId, lastSeq });
     replaying = false;
     for (const m of buffered) if (m.type !== "event" || m.event.seq > lastSeq) listener(m);
-    listener({ type: "session.state", sessionId, state: l.running ? "running" : "idle" });
+    const now = this.live.get(sessionId);
+    listener({ type: "session.state", sessionId, state: now?.running ? "running" : "idle" });
     return () => {
-      l.listeners.delete(relay);
-      this.waiting.get(sessionId)?.delete(relay);
-      l.usedAt = Date.now();
+      this.unfollowOne(sessionId, relay);
+      const live = this.live.get(sessionId);
+      if (live) live.usedAt = Date.now();
     };
   }
 

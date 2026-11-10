@@ -14,6 +14,15 @@ interface Waiting {
   done: (s: CanvasState | undefined) => void;
 }
 
+/** The answer that says most: one in view, or else the one with the most tabs (the first of equals). */
+function best(answers: CanvasState[]): CanvasState | undefined {
+  const shown = answers.find((a) => a.visible);
+  if (shown) return shown;
+  let out = answers[0];
+  for (const a of answers) if (out && a.tabs.length > out.tabs.length) out = a;
+  return out;
+}
+
 export class CanvasLive {
   private readonly pages = new Set<Asker>();
   private readonly waiting = new Map<string, Waiting>();
@@ -25,8 +34,10 @@ export class CanvasLive {
   }
 
   /**
-   * The canvas of one of the owner's pages: the first that has it in view, or the first answer
-   * when none has; undefined when no page is open or none answers in time.
+   * The canvas of one of the owner's pages: the first that has it in view; when none has, the
+   * one with the most tabs (p3.5.4: a second browser tab, empty, answered first and the agent
+   * read «the canvas is empty» beside the person's PDF); undefined when no page is open or none
+   * answers in time.
    */
   ask(ownerId: string, timeoutMs = 1500): Promise<CanvasState | undefined> {
     const requestId = randomUUID();
@@ -45,7 +56,7 @@ export class CanvasLive {
       this.waiting.set(requestId, w);
       for (const page of this.pages) if (page(ownerId, requestId)) w.pages++;
       if (w.pages === 0) return w.done(undefined);
-      timer = setTimeout(() => w.done(w.answers[0]), timeoutMs);
+      timer = setTimeout(() => w.done(best(w.answers)), timeoutMs);
     });
   }
 
@@ -54,8 +65,7 @@ export class CanvasLive {
     const w = this.waiting.get(requestId);
     if (!w || w.ownerId !== ownerId) return false;
     w.answers.push(state);
-    if (state.visible || w.answers.length >= w.pages)
-      w.done(state.visible ? state : (w.answers.find((a) => a.visible) ?? w.answers[0]));
+    if (state.visible || w.answers.length >= w.pages) w.done(best(w.answers));
     return true;
   }
 }

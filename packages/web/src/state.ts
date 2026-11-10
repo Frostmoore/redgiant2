@@ -473,6 +473,17 @@ export function sessionView(id: string): Signal<SessionView> {
   return s;
 }
 
+/**
+ * The events with one more, in the log's order (p3.5.4): one older than the last (what a follow
+ * again brings after a gap) goes in its place, so the chat is the one a reload shows.
+ */
+export function withEvent(events: Event[], e: Event): Event[] {
+  const last = events.at(-1);
+  if (!last || last.seq < e.seq) return [...events, e];
+  const at = events.findIndex((x) => x.seq > e.seq);
+  return [...events.slice(0, at), e, ...events.slice(at)];
+}
+
 /** Applies one server message to the views (events deduplicated by sequence number). */
 /** The agents' browser (G24.14b): its latest frame and who drives it. */
 export const browserScreen = signal<{
@@ -534,7 +545,7 @@ export function applyMessage(m: ServerMessage): void {
         (m.event.type === "tool.result" || m.event.type === "message.user");
       v.value = {
         ...v.value,
-        events: [...v.value.events, m.event],
+        events: withEvent(v.value.events, m.event),
         ...(done && { text: "", thinking: "", call: undefined }),
         ...(next && { call: newCall() }),
         // The picture is in the tool's result now: the live preview goes.

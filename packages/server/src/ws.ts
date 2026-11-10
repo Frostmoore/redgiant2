@@ -3,7 +3,7 @@ import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import {
   ClientMessage,
-  type DocFile,
+  DocFile,
   docKey,
   PERSON,
   PROTOCOL_VERSION,
@@ -127,10 +127,33 @@ export function attachWebSocket(
     // Messages of one connection are handled strictly in order (a client may send `hello`
     // and `session.follow` back to back without waiting).
     let queue: Promise<void> = Promise.resolve();
+    // An open file's messages (G37.1) keep their own order, one line per file (p3.5.4): the editor
+    // may take seconds (a PDF read again, an agent's edit of the same file before them), and
+    // behind them the page's follows and its canvas answers waited too. The chat stopped moving
+    // and canvas_look found «no canvas» while the person looked at page 2 of a PDF.
+    const docLines = new Map<string, Promise<void>>();
     ws.on("message", (raw) => {
       // The page's heartbeat (p3.5.4) is answered at once, never behind a slow message.
       if (principal && raw.toString() === PING) {
         send({ type: "pong" });
+        return;
+      }
+      const lane = principal ? laneOf(raw) : undefined;
+      // The canvas's answer to an agent waiting for it (G36.12): at once, it depends on nothing.
+      if (lane === "now") {
+        void handle(raw).catch(() => {});
+        return;
+      }
+      if (lane) {
+        const line = (docLines.get(lane) ?? Promise.resolve())
+          .then(async () => {
+            await handle(raw);
+          })
+          .catch(() => {});
+        docLines.set(lane, line);
+        void line.then(() => {
+          if (docLines.get(lane) === line) docLines.delete(lane);
+        });
         return;
       }
       queue = queue
@@ -139,6 +162,20 @@ export function attachWebSocket(
         })
         .catch(() => {});
     });
+
+    /** Where a message waits: an open file's own line, "now", or the connection's (undefined). */
+    const laneOf = (raw: import("ws").RawData): string | undefined => {
+      let m: { type?: unknown; file?: unknown };
+      try {
+        m = JSON.parse(raw.toString()) as typeof m;
+      } catch {
+        return undefined;
+      }
+      if (m?.type === "canvas.state") return "now";
+      if (typeof m?.type !== "string" || !m.type.startsWith("doc.")) return undefined;
+      const file = DocFile.safeParse(m.file);
+      return file.success ? `doc\u0000${docKey(file.data)}` : undefined;
+    };
 
     const handle = async (raw: import("ws").RawData) => {
       let msg: ClientMessage;

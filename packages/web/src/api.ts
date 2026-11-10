@@ -1819,8 +1819,17 @@ export class Live {
   private queue: ClientMessage[] = [];
   private delay = 1000;
   private closed = false;
-  private readonly followed = new Set<string>();
-  /** The last event seen of each followed conversation. */
+  /**
+   * How many parts of the page follow each conversation (p3.5.4): its tab, a sub-agent's tab and
+   * the row of tabs above it may follow the same one. The server keeps one follow per connection,
+   * so it hears only the first follow and the last unfollow; before, any part letting go stopped
+   * the conversation for all of them (an orchestrator's tab looked at and left, then nothing).
+   */
+  private readonly followed = new Map<string, number>();
+  /**
+   * The last event seen of each conversation, kept after unfollowing: the page keeps what it
+   * has, so following again (or after a reconnection) asks only for what came after.
+   */
   private readonly seen = new Map<string, number>();
   private readonly docs = new Map<string, ClientMessage>();
   /** Stops sent since the server last said anything: sent again if the connection was dead. */
@@ -1876,7 +1885,7 @@ export class Live {
         if (this.version === undefined) this.version = m.version;
         this.delay = 1000;
         this.onStatus("online");
-        for (const s of this.followed) {
+        for (const s of this.followed.keys()) {
           const afterSeq = this.seen.get(s);
           ws.send(
             JSON.stringify({
@@ -1958,10 +1967,9 @@ export class Live {
   }
 
   send(m: ClientMessage): void {
-    if (m.type === "session.follow") this.followed.add(m.sessionId);
-    if (m.type === "session.unfollow") {
-      this.followed.delete(m.sessionId);
-      this.seen.delete(m.sessionId);
+    if (m.type === "session.follow" || m.type === "session.unfollow") {
+      this.follow(m);
+      return;
     }
     // Files open in the editor (G37.1) are opened again after a reconnection.
     if (m.type === "doc.open") this.docs.set(`${m.file.scope}\u0000${m.file.path}`, m);
@@ -1975,6 +1983,35 @@ export class Live {
         this.ping();
       }
     } else this.queue.push(m);
+  }
+
+  /**
+   * A part of the page starts or stops following a conversation. Only the first and the last
+   * reach the server, never queued: a connection opened later follows them all from its welcome.
+   */
+  private follow(m: Extract<ClientMessage, { type: "session.follow" | "session.unfollow" }>) {
+    const id = m.sessionId;
+    const n = this.followed.get(id) ?? 0;
+    if (m.type === "session.unfollow") {
+      if (n === 0) return;
+      if (n > 1) {
+        this.followed.set(id, n - 1);
+        return;
+      }
+      this.followed.delete(id);
+    } else {
+      this.followed.set(id, n + 1);
+      if (n > 0) return;
+    }
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    const afterSeq = this.seen.get(id);
+    this.ws.send(
+      JSON.stringify(
+        m.type === "session.follow" && afterSeq !== undefined && m.afterSeq === undefined
+          ? { ...m, afterSeq }
+          : m,
+      ),
+    );
   }
 
   close(): void {

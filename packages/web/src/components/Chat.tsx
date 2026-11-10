@@ -410,26 +410,43 @@ function Elsewhere({
   );
 }
 
+/** An agent and every agent under it (its orchestrators, their workers…). */
+function teamOf(agentId: string): Set<string> {
+  const out = new Set([agentId]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const a of agents.value)
+      if (a.parentId && out.has(a.parentId) && !out.has(a.id)) {
+        out.add(a.id);
+        grew = true;
+      }
+  }
+  return out;
+}
+
 /**
- * What the agent of this chat does in its other conversations: their questions (a line, and
+ * What the agent of this chat, and the agents under it, do in their other conversations: their questions (a line, and
  * the card folded under it: answerable here, the first answer closes every copy), and the ones
  * working now.
  */
 function OtherWork({ sessionId, agentId }: { sessionId: string; agentId: string }) {
-  const asked = questions.value.filter((q) => q.agentId === agentId && q.sessionId !== sessionId);
+  // This agent and the agents under it (p3.5.4: God's chat said nothing while the orchestrator it
+  // handed a task to worked or asked; only the same agent's other conversations were shown).
+  const mine = teamOf(agentId);
+  const asked = questions.value.filter((q) => mine.has(q.agentId) && q.sessionId !== sessionId);
   const asking = new Set([
     ...asked.map((q) => q.sessionId),
-    ...approvals.value.flatMap((r) => (r.agentId === agentId && r.sessionId ? [r.sessionId] : [])),
+    ...approvals.value.flatMap((r) => (mine.has(r.agentId) && r.sessionId ? [r.sessionId] : [])),
   ]);
   const busy = sessionRows.value.filter(
-    (r) => r.agentId === agentId && r.id !== sessionId && r.running && !asking.has(r.id),
+    (r) => mine.has(r.agentId) && r.id !== sessionId && r.running && !asking.has(r.id),
   );
   if (asked.length === 0 && busy.length === 0) return null;
   return (
     <>
       {asked.map((q) => (
         <div key={q.requestId} class="elsewhere-card">
-          <Elsewhere agentId={agentId} sessionId={q.sessionId} asks />
+          <Elsewhere agentId={q.agentId} sessionId={q.sessionId} asks />
           <details class="elsewhere-answer">
             <summary>{t("elsewhereAnswerHere")}</summary>
             <QuestionCard requestId={q.requestId} questions={q.questions} plan={q.plan} open />
@@ -437,7 +454,7 @@ function OtherWork({ sessionId, agentId }: { sessionId: string; agentId: string 
         </div>
       ))}
       {busy.map((r) => (
-        <Elsewhere key={r.id} agentId={agentId} sessionId={r.id} />
+        <Elsewhere key={r.id} agentId={r.agentId} sessionId={r.id} />
       ))}
     </>
   );
