@@ -1438,9 +1438,7 @@ if (process.env.DEMO_CRITICAL) {
     1,
     "canvas_edit",
     { path: "modulo.pdf", ops: [{ op: "redact", page: 1, find: "Mario Rossi" }] },
-    [
-      "truly dangerous: redacts modulo.pdf: what is under the areas leaves the file for good",
-    ],
+    ["truly dangerous: redacts modulo.pdf: what is under the areas leaves the file for good"],
     ["critical-delete"],
     [{ id: "critical-delete", action: "redact", target: "modulo.pdf" }],
   );
