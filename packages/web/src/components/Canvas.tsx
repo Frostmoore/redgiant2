@@ -22,7 +22,7 @@ import { CanvasTab, lastMove, report, setTabKind } from "../viewers/live.js";
 import { hasOfficeCopy } from "../viewers/office-bridge.js";
 import { bytesText, download, type ViewerSource } from "../viewers/source.js";
 import { DocEditor, editableInCanvas } from "./viewers/DocEditor.js";
-import { EditCopyButton } from "./viewers/OfficeEditor.js";
+import { EditCopyButton, EditCopyNote } from "./viewers/OfficeEditor.js";
 import { CanvasFile } from "./viewers/OpenCopy.js";
 
 export { parseDelimited } from "../viewers/delimited.js";
@@ -248,6 +248,9 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
           </a>
         )}
       </div>
+      {target.kind === "file" && target.scope !== "outside" && hasOfficeCopy(target.path) && (
+        <EditCopyNote />
+      )}
       <div class={`canvas-body ${site ? "canvas-site" : "canvas-viewer"}`}>
         {error ? (
           <p class="notice error">{error}</p>

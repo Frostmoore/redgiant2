@@ -357,6 +357,23 @@ export const ServerMessage = z.discriminatedUnion("type", [
     change: DocChange,
   }),
   z.object({ type: z.literal("doc.presence"), file: DocFile, presence: z.array(DocPresence) }),
+  /**
+   * An agent's edit stopped because of the person (p3.5.4): `busy`, they are typing there right
+   * now; `conflict`, they changed the same place after the revision the agent read. The page
+   * shows a discreet notice; the agent was told in its tool's result.
+   */
+  z.object({
+    type: z.literal("doc.held"),
+    file: DocFile,
+    /** The agent's id, and its name. */
+    who: z.string().max(200),
+    name: z.string().max(200).optional(),
+    code: z.enum(["busy", "conflict"]),
+    /** The line (a sheet's row) of the place, when the family has lines. */
+    line: z.number().int().positive().optional(),
+    /** The person's revision that changed the place. */
+    revision: z.number().int().positive().optional(),
+  }),
   z.object({
     type: z.literal("doc.proposals"),
     file: DocFile,

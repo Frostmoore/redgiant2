@@ -155,7 +155,7 @@ import { EditorHost, type EditorHostOptions } from "./editor/host.js";
 import { LibreOfficeEngine, type OfficeEngine } from "./editor/office-engine.js";
 import { copyOfOriginal, OfficeFamily } from "./editor/office-family.js";
 import { PdfFamily } from "./editor/pdf-family.js";
-import { sheetFamily } from "./editor/sheet-family.js";
+import { sheetCopyOfOriginal, sheetFamily } from "./editor/sheet-family.js";
 import { svgCopyOfOriginal, svgFamily } from "./editor/svg-family.js";
 import { textFamily } from "./editor/text-family.js";
 import { type CanvasEditHost, canvasEditTool } from "./editor/tool.js";
@@ -3046,6 +3046,24 @@ export class RedGiantCore implements OrchestrationHost {
       docFileOf: (ownerId, abs) => this.docFileOf(ownerId, abs),
       absOf: (ownerId, file) => this.docAbs(ownerId, file),
       copyOf: (ownerId, file) => this.openCopy(ownerId, file),
+      showCopy: async (sessionId, original, copy) => {
+        const [row] = await this.o.db.query<{
+          owner_id: string;
+          agent_id: string;
+          project_id: string | null;
+        }>("SELECT owner_id, agent_id, project_id FROM rg_sessions WHERE id = $1", [sessionId]);
+        if (!row) return;
+        await this.store.append({
+          ownerId: row.owner_id,
+          projectId: row.project_id,
+          agentId: row.agent_id,
+          sessionId,
+          body: {
+            type: "canvas.show",
+            payload: { title: basename(original.path), target: { kind: "file", ...copy } },
+          },
+        });
+      },
       personApproved: (sessionId, callId) =>
         this.broker.personApproved(sessionId, callId, "critical-delete"),
     };
@@ -3056,7 +3074,8 @@ export class RedGiantCore implements OrchestrationHost {
    * an AI/EPS's SVG (G37.6); undefined when the file has none.
    */
   private async openCopy(ownerId: string, file: DocFile): Promise<DocFile | undefined> {
-    const copy = copyOfOriginal(file.path) ?? svgCopyOfOriginal(file.path);
+    const copy =
+      copyOfOriginal(file.path) ?? svgCopyOfOriginal(file.path) ?? sheetCopyOfOriginal(file.path);
     if (!copy) return undefined;
     const root = await this.scopeRoot(ownerId, file.scope);
     const ws = new LocalWorkspace(root);

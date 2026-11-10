@@ -96,3 +96,96 @@ export async function parseTree(text: string, format: string): Promise<TreeNode>
 export function countNodes(n: TreeNode): number {
   return 1 + (n.children ?? []).reduce((s, c) => s + countNodes(c), 0);
 }
+
+/**
+ * The labels from the root to the JSON value at an offset (p3.5.4: a broken config.json showed its
+ * tree with nothing marked): the member or item the offset is in, or the last one before it (a
+ * trailing comma belongs to the value it follows). Comments are skipped; [] at the top level.
+ */
+export function jsonPathAt(text: string, pos: number): string[] {
+  type Frame = { arr: boolean; label: string | undefined; index: number; started: boolean };
+  const stack: Frame[] = [];
+  let pendingKey: string | undefined;
+  const end = Math.min(pos, text.length);
+  const path = () => stack.map((f) => f.label).filter((l): l is string => l !== undefined);
+  /** A value starts in the frame on top: an array counts its items. */
+  const valueStarts = () => {
+    const top = stack.at(-1);
+    if (!top) return;
+    if (top.arr) {
+      if (top.started) top.index++;
+      top.started = true;
+      top.label = String(top.index);
+    } else if (pendingKey !== undefined) {
+      top.label = pendingKey;
+      pendingKey = undefined;
+    }
+  };
+  let i = 0;
+  while (i < end) {
+    const c = text[i] as string;
+    if (c === "/" && text[i + 1] === "/") {
+      const nl = text.indexOf("\n", i);
+      i = nl < 0 ? text.length : nl;
+      continue;
+    }
+    if (c === "/" && text[i + 1] === "*") {
+      const close = text.indexOf("*/", i + 2);
+      i = close < 0 ? text.length : close + 2;
+      continue;
+    }
+    if (c === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"' && text[j] !== "\n") j += text[j] === "\\" ? 2 : 1;
+      const raw = text.slice(i, j + 1);
+      let word: string;
+      try {
+        word = JSON.parse(raw) as string;
+      } catch {
+        word = raw.slice(1, -1);
+      }
+      // A key when a colon follows, a value otherwise.
+      let k = j + 1;
+      while (k < text.length && /\s/.test(text[k] as string)) k++;
+      const top = stack.at(-1);
+      if (text[k] === ":" && top && !top.arr) pendingKey = word;
+      else valueStarts();
+      i = j + 1;
+      continue;
+    }
+    if (c === "{" || c === "[") {
+      valueStarts();
+      stack.push({ arr: c === "[", label: undefined, index: 0, started: false });
+      i++;
+      continue;
+    }
+    if (c === "}" || c === "]") {
+      stack.pop();
+      i++;
+      continue;
+    }
+    if (c === "," || c === ":" || /\s/.test(c)) {
+      i++;
+      continue;
+    }
+    // A number, true, false, null (or a stray word): one value.
+    valueStarts();
+    while (i < end && !/[\s,:{}[\]"/]/.test(text[i] as string)) i++;
+  }
+  return path();
+}
+
+/** The lines around a line (1-based), numbered, for a text whose tree cannot be built. */
+export function linesAround(
+  text: string,
+  line: number,
+  around = 3,
+): { n: number; text: string; bad: boolean }[] {
+  const all = text.split(/\r?\n/);
+  const from = Math.max(1, line - around);
+  const to = Math.min(all.length, line + around);
+  const out: { n: number; text: string; bad: boolean }[] = [];
+  for (let n = from; n <= to; n++)
+    out.push({ n, text: (all[n - 1] ?? "").slice(0, 300), bad: n === line });
+  return out;
+}

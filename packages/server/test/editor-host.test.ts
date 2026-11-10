@@ -177,6 +177,67 @@ describe("EditorHost: the queue and the revisions", () => {
     ).toEqual([1, 2]);
   });
 
+  it("p3.5.4: the person typing there now is said as such, an older change as a conflict; the page is told", async () => {
+    let now = 1000;
+    const h = host({ lockMs: 3000, now: () => now });
+    const sent: ServerMessage[] = [];
+    await h.subscribe(ME, file, { id: "page", send: (m) => sent.push(m) });
+    const held = () => sent.filter((m) => m.type === "doc.held");
+    // The person changes line 3 and keeps typing there; the agent made its edit on revision 0.
+    await h.apply(ME, file, {
+      author: PERSONA,
+      baseRevision: 0,
+      ops: [personOp(LINES, { from: 8, to: 13, insert: "tre" })],
+      groupId: "p",
+      origin: { subId: "page", clientId: "c1" },
+    });
+    await h.presence(ME, file, "page", { editing: true, from: 11, to: 11 });
+    const ops = agentOps(LINES, [{ op: "replace", find: "three", text: "3" }]);
+    const typing = await h.apply(ME, file, { author: ADA, baseRevision: 0, ops, groupId: "g" });
+    expect(typing.ok === false && typing.code).toBe("busy");
+    expect(typing.ok === false && typing.reason).toMatch(/^the person is typing there right now/);
+    expect(held()).toEqual([
+      { type: "doc.held", file, who: "ada", name: "Ada", code: "busy", line: 3, revision: 1 },
+    ]);
+    // Between two keys (the place's hold over, still in the text): still typing there.
+    now += 4000;
+    const pause = await h.apply(ME, file, { author: ADA, baseRevision: 0, ops, groupId: "g" });
+    expect(pause.ok === false && pause.code).toBe("busy");
+    sent.length = 0;
+    await h.presence(ME, file, "page", { editing: true, from: 11, to: 11 });
+    // An agent's own dry run tells nobody; a proposal's check does.
+    await h.apply(ME, file, { author: ADA, baseRevision: 0, ops, groupId: "g", dryRun: true });
+    expect(held()).toHaveLength(0);
+    await h.apply(ME, file, {
+      author: ADA,
+      baseRevision: 0,
+      ops,
+      groupId: "g",
+      dryRun: true,
+      tell: true,
+    });
+    expect(held()).toHaveLength(1);
+    // The person stopped typing a while ago: the same edit is a conflict with revision 1.
+    now += 60_000;
+    await h.presence(ME, file, "page", { editing: false });
+    const old = await h.apply(ME, file, { author: ADA, baseRevision: 0, ops, groupId: "g" });
+    expect(old.ok === false && old.code).toBe("conflict");
+    expect(old.ok === false && old.reason).toMatch(
+      /^the person changed the same place at revision 1/,
+    );
+    expect(held().at(-1)).toMatchObject({ code: "conflict", line: 3, revision: 1 });
+    // Typing where the agent writes, with no revision in between: busy, with the line.
+    await h.presence(ME, file, "page", { editing: true, from: 1, to: 1 });
+    await h.apply(ME, file, {
+      author: ADA,
+      baseRevision: 1,
+      ops: agentOps("one\ntwo\ntre\nfour\nfive", [{ op: "replace", find: "one", text: "1" }]),
+      groupId: "g",
+    });
+    expect(held().at(-1)).toMatchObject({ code: "busy", line: 1 });
+    expect(held().at(-1)).not.toHaveProperty("revision");
+  });
+
   it("the page that sent a batch gets doc.ack in its place, the others doc.changed", async () => {
     const h = host();
     const a: ServerMessage[] = [];

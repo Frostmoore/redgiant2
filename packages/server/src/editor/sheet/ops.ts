@@ -2,7 +2,7 @@
 // the host's conflict check (the same cell is a conflict), the rebasing over rows and columns that
 // went in or out, and the words of the panel «Modifiche» («changed 3 cells in B2:B4»). Pure.
 import type { DocOp, DocSummary, SheetArea, SheetDocOp, SheetMutation } from "@redgiant/protocol";
-import { areaName, MAX_COLS, MAX_ROWS } from "./a1.js";
+import { areaName, MAX_COLS, MAX_ROWS, parseArea } from "./a1.js";
 import type { CellData, SheetModel } from "./model.js";
 
 export type Sheet = SheetDocOp;
@@ -419,6 +419,72 @@ function moveMutation(
     }
   }
   return { id: m.id, params: p };
+}
+
+/** An index range moved over rows or columns that went in or out (as LibreOffice moves them). */
+function moveSpan(from: number, to: number, s: Shift): [number, number] | undefined {
+  if (s.n > 0) return [from >= s.at ? from + s.n : from, to >= s.at ? to + s.n : to];
+  const gone = -s.n;
+  const end = s.at + gone;
+  const a = from < s.at ? from : from < end ? s.at : from - gone;
+  const b = to < s.at ? to : to < end ? s.at - 1 : to - gone;
+  return b < a ? undefined : [a, b];
+}
+
+/**
+ * Charts, pivot tables and drawings moved with the rows and columns an operation inserts or
+ * removes (p3.5.4, the person's test of 3.5.3: after insert_rows LibreOffice's chart read B2:B7,
+ * `structure` still said B2:B6): their place, and the cells they read. LibreOffice does the same
+ * in the file when it saves; this keeps the model true until the file is read again.
+ */
+export function movePlaceholders(
+  model: Pick<SheetModel, "placeholders" | "wb">,
+  mutations: readonly SheetMutation[],
+): SheetModel["placeholders"] {
+  const shifts = shiftsOf({ op: { redo: mutations, undo: [] } } as unknown as Sheet) ?? [];
+  if (!shifts.length || !model.placeholders.length) return model.placeholders;
+  const idOf = (name: string | undefined, own: string) =>
+    name === undefined
+      ? own
+      : model.wb.sheetOrder.find(
+          (id) => model.wb.sheets[id]?.name.toLowerCase() === name.toLowerCase(),
+        );
+  return model.placeholders.map((p) => {
+    let q = { ...p };
+    for (const s of shifts) {
+      if (s.sheet === q.sheet) {
+        const span = s.axis === "rows" ? moveSpan(q.r0, q.r1, s) : moveSpan(q.c0, q.c1, s);
+        if (span)
+          q =
+            s.axis === "rows"
+              ? { ...q, r0: span[0], r1: span[1] }
+              : { ...q, c0: span[0], c1: span[1] };
+      }
+      if (!q.source) continue;
+      q.source = q.source
+        .split(/,\s*/)
+        .map((src) => {
+          const bang = src.lastIndexOf("!");
+          const parsed = parseArea(src);
+          if (!parsed || idOf(parsed.sheet, p.sheet) !== s.sheet) return src;
+          const r = parsed.area;
+          const span = s.axis === "rows" ? moveSpan(r.r0, r.r1, s) : moveSpan(r.c0, r.c1, s);
+          if (!span) return src;
+          const moved =
+            s.axis === "rows"
+              ? { ...r, r0: span[0], r1: span[1] }
+              : { ...r, c0: span[0], c1: span[1] };
+          // «B1:B1» stays written as a range, as LibreOffice names it.
+          const text =
+            moved.r0 === moved.r1 && moved.c0 === moved.c1 && src.includes(":")
+              ? `${areaName(moved)}:${areaName(moved)}`
+              : areaName(moved);
+          return `${bang > 0 ? src.slice(0, bang + 1) : ""}${text}`;
+        })
+        .join(", ");
+    }
+    return q;
+  });
 }
 
 /** `a`, made on the same model as `b`, moved to apply after it; undefined when it cannot be. */

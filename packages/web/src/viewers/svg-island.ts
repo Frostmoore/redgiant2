@@ -18,6 +18,7 @@ import {
   namespacesOf,
   SVG_NS,
   touchedIds,
+  viewBoxOrigin,
 } from "./svg-ops.js";
 
 export type SvgTool =
@@ -373,6 +374,8 @@ export function mountSvg(o: IslandOptions): SvgIsland {
   o.textInput.addEventListener("input", onInput);
 
   let zoom = 1;
+  /** Where the drawing's viewBox starts (p3.5.4): svgcanvas always draws it from 0,0. */
+  let origin = { x: 0, y: 0 };
   const layout = () => {
     const w: number = canvas.contentW ?? 640;
     const h: number = canvas.contentH ?? 480;
@@ -381,6 +384,19 @@ export function mountSvg(o: IslandOptions): SvgIsland {
     box.style.width = `${cw}px`;
     box.style.height = `${ch}px`;
     canvas.updateCanvas(cw, ch);
+    // A viewBox that does not start at 0,0 (p3.5.4, the person's test: the drawing seen twice,
+    // «one sheet over the other, slightly shifted»): svgcanvas set "0 0 w h", which moved the
+    // drawing off its page. The file's own origin back, and the selection's handles with it.
+    if (origin.x || origin.y) {
+      const c = content();
+      c.setAttribute("viewBox", `${origin.x} ${origin.y} ${w} ${h}`);
+      const x = Number(c.getAttribute("x")) - origin.x * zoom;
+      const y = Number(c.getAttribute("y")) - origin.y * zoom;
+      canvas.selectorManager?.selectorParentGroup?.setAttribute(
+        "transform",
+        `translate(${x},${y})`,
+      );
+    }
   };
   const fit = () => {
     const w: number = canvas.contentW ?? 640;
@@ -409,6 +425,7 @@ export function mountSvg(o: IslandOptions): SvgIsland {
       if (parsed.getElementsByTagName("parsererror").length || root.namespaceURI !== SVG_NS)
         return false;
       ns = namespacesOf(root);
+      origin = viewBoxOrigin(root.getAttribute("viewBox"));
       assignVirtualIds(root);
       known = new Set(
         Array.from(root.getElementsByTagName("*")).map((e) => e.getAttribute("id") ?? ""),
