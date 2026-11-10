@@ -2476,6 +2476,11 @@ const en = {
   err_project_archived: "The project is archived: restore it to work in it.",
   collapse: "Fold",
   more: "More commands",
+  connLost: "Connection to RedGiant lost: trying again…",
+  connReload: "Reload",
+  stopWhenBack: "The connection is lost: «Stop» goes as soon as it is back.",
+  memHigh:
+    "This page uses a lot of memory ({used} of {limit}): close the documents, sheets and previews you do not need, or reload the page.",
   moreChanged: "More commands (something is not as it starts)",
   moreMode: "Mode: {mode}",
   moreModel: "Model: {model}",
@@ -6922,6 +6927,11 @@ const it: Record<Key, string> = {
   err_project_archived: "Il progetto è archiviato: ripristinalo per lavorarci.",
   collapse: "Chiudi",
   more: "Altri comandi",
+  connLost: "Collegamento a RedGiant perso: riprovo…",
+  connReload: "Ricarica",
+  stopWhenBack: "Il collegamento è perso: «Ferma» parte appena torna.",
+  memHigh:
+    "Questa pagina usa molta memoria ({used} di {limit}): chiudi i documenti, i fogli e le anteprime che non servono, o ricarica la pagina.",
   moreChanged: "Altri comandi (qualcosa non è come all'inizio)",
   moreMode: "Modalità: {mode}",
   moreModel: "Modello: {model}",

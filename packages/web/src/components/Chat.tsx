@@ -29,6 +29,7 @@ import {
   getLive,
   inheritedModel,
   isArchived,
+  lastError,
   markSubSeen,
   openBoard,
   openCanvas,
@@ -42,6 +43,7 @@ import {
   type SubTab,
   sessionRows,
   sessionView,
+  status,
   subagentTabs,
   subPath,
   subSeen,
@@ -1339,7 +1341,11 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
               { key: clientId, text: ownWords(msg.text, clean), match: msg.text },
             ]);
         }}
-        onStop={() => getLive().send({ type: "session.interrupt", sessionId })}
+        onStop={() => {
+          // With the connection lost, «Stop» waits for it (p3.5.4): said, not silent.
+          if (status.value !== "online") lastError.value = t("stopWhenBack");
+          getLive().send({ type: "session.interrupt", sessionId });
+        }}
         moreChanged={mode !== "auto" || own !== undefined || asideOpen}
         more={
           agent &&

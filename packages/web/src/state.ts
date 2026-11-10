@@ -613,8 +613,16 @@ export function applyMessage(m: ServerMessage): void {
     case "session.compacting":
       sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, compacting: m.busy };
       return;
+    // Followed (again, after a reconnection): what was streaming before is stale (p3.5.4); what
+    // comes next and the state that follows say where the conversation really is.
     case "session.synced":
-      sessionView(m.sessionId).value = { ...sessionView(m.sessionId).value, synced: true };
+      sessionView(m.sessionId).value = {
+        ...sessionView(m.sessionId).value,
+        synced: true,
+        text: "",
+        thinking: "",
+        drawing: undefined,
+      };
       return;
     case "permission.request":
       if (!approvals.value.some((r) => r.requestId === m.request.requestId)) {
@@ -667,6 +675,8 @@ export function applyMessage(m: ServerMessage): void {
 
 export const token = signal<string | null>(localStorage.getItem("rg.token"));
 export const status = signal<"online" | "offline" | "connecting">("offline");
+/** The page was connected once: losing it now is news (p3.5.4, «Collegamento perso»). */
+export const everOnline = signal(false);
 /** The projects in use: every list and choice shows these. */
 export const projects = signal<Project[]>([]);
 /** Archived projects (2026-11-09): only in their own section, read only. */
@@ -785,6 +795,7 @@ export async function signIn(t: string): Promise<void> {
   live?.close();
   live = new Live(t, applyMessage, (s) => {
     status.value = s;
+    if (s === "online") everOnline.value = true;
   });
   await refresh();
   firstRun.value = !(await api.setup().catch(() => ({ config: { completed: true } }))).config

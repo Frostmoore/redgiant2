@@ -5865,7 +5865,11 @@ export class RedGiantCore implements OrchestrationHost {
     ownerId: string,
     sessionId: string,
     listener: (m: ServerMessage) => void,
+    /** The last event the follower already has (a page that reconnects, p3.5.4). */
+    afterSeq?: number,
   ): Promise<() => void> {
+    const after = (all: Event[]) =>
+      afterSeq === undefined ? all : all.filter((e) => e.seq > afterSeq);
     let l: Live;
     try {
       l = await this.open(ownerId, sessionId);
@@ -5876,9 +5880,9 @@ export class RedGiantCore implements OrchestrationHost {
       const set = this.waiting.get(sessionId) ?? new Set();
       set.add(listener);
       this.waiting.set(sessionId, set);
-      const past = await sessionLog(this.store, sessionId);
+      const past = after(await sessionLog(this.store, sessionId));
       for (const e of past) listener({ type: "event", sessionId, event: e });
-      listener({ type: "session.synced", sessionId, lastSeq: past.at(-1)?.seq ?? -1 });
+      listener({ type: "session.synced", sessionId, lastSeq: past.at(-1)?.seq ?? afterSeq ?? -1 });
       listener({ type: "session.state", sessionId, state: "idle" });
       return () => {
         set.delete(listener);
@@ -5890,9 +5894,9 @@ export class RedGiantCore implements OrchestrationHost {
     const relay = (m: ServerMessage) => (replaying ? buffered.push(m) : listener(m));
     l.listeners.add(relay);
     l.usedAt = Date.now();
-    const past = await sessionLog(this.store, sessionId);
+    const past = after(await sessionLog(this.store, sessionId));
     for (const e of past) listener({ type: "event", sessionId, event: e });
-    const lastSeq = past.at(-1)?.seq ?? -1;
+    const lastSeq = past.at(-1)?.seq ?? afterSeq ?? -1;
     listener({ type: "session.synced", sessionId, lastSeq });
     replaying = false;
     for (const m of buffered) if (m.type !== "event" || m.event.seq > lastSeq) listener(m);

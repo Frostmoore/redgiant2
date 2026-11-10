@@ -1798,10 +1798,21 @@ export function reconnectCap(hostname: string): number {
     : 30_000;
 }
 
+/** How often the page asks whether the server is there (p3.5.4), and how long it waits. */
+export const PING_EVERY = 15_000;
+export const PONG_WITHIN = 10_000;
+const PING = JSON.stringify({ type: "ping" });
+
 /**
  * The live channel, with automatic reconnection (1 s … 30 s, 5 s on this computer) and a queue
- * for messages sent while offline. After a reconnection followed sessions are followed again (the
- * server replays their history); a server back as another version reloads the page.
+ * for messages sent while offline. After a reconnection followed sessions are followed again
+ * from the last event the page has (`afterSeq`; the server sends their state again); a server
+ * back as another version reloads the page.
+ *
+ * A heartbeat (p3.5.4, a page left with stale spinners on Windows): every `PING_EVERY` a `ping`;
+ * with nothing at all from the server within `PONG_WITHIN` the connection counts as dead even if
+ * the browser still calls it open: it is dropped and opened again. A «Stop» sent on a connection
+ * not yet confirmed alive goes again after the reconnection.
  */
 export class Live {
   private ws: WebSocket | undefined;
@@ -1809,9 +1820,19 @@ export class Live {
   private delay = 1000;
   private closed = false;
   private readonly followed = new Set<string>();
+  /** The last event seen of each followed conversation. */
+  private readonly seen = new Map<string, number>();
   private readonly docs = new Map<string, ClientMessage>();
+  /** Stops sent since the server last said anything: sent again if the connection was dead. */
+  private unconfirmed: ClientMessage[] = [];
   private version: string | null | undefined;
   private readonly cap = reconnectCap(location.hostname);
+  private beat: ReturnType<typeof setInterval> | undefined;
+  private deadline: ReturnType<typeof setTimeout> | undefined;
+  private retry: ReturnType<typeof setTimeout> | undefined;
+  private readonly onVisible = () => {
+    if (document.visibilityState === "visible") this.ping();
+  };
 
   constructor(
     private readonly token: string,
@@ -1819,10 +1840,13 @@ export class Live {
     private readonly onStatus: (s: "online" | "offline" | "connecting") => void,
     private readonly onNewVersion: () => void = () => location.reload(),
   ) {
+    // Back on a page that was hidden (or frozen): check at once that the server still hears it.
+    document.addEventListener("visibilitychange", this.onVisible);
     this.connect();
   }
 
   private connect() {
+    this.retry = undefined;
     this.onStatus("connecting");
     const ws = new WebSocket(wsUrl("/ws"));
     this.ws = ws;
@@ -1836,7 +1860,12 @@ export class Live {
         }),
       );
     ws.onmessage = (e) => {
+      // Anything from the server says the connection is alive.
+      this.alive();
       const m = JSON.parse(String(e.data)) as ServerMessage;
+      if (m.type === "pong") return;
+      if (m.type === "event" && this.followed.has(m.sessionId))
+        this.seen.set(m.sessionId, Math.max(this.seen.get(m.sessionId) ?? -1, m.event.seq));
       if (m.type === "welcome") {
         if (versionChanged(this.version, m.version)) {
           this.closed = true;
@@ -1847,33 +1876,112 @@ export class Live {
         if (this.version === undefined) this.version = m.version;
         this.delay = 1000;
         this.onStatus("online");
-        for (const s of this.followed)
-          ws.send(JSON.stringify({ type: "session.follow", sessionId: s }));
+        for (const s of this.followed) {
+          const afterSeq = this.seen.get(s);
+          ws.send(
+            JSON.stringify({
+              type: "session.follow",
+              sessionId: s,
+              ...(afterSeq !== undefined && { afterSeq }),
+            }),
+          );
+        }
         for (const d of this.docs.values()) ws.send(JSON.stringify(d));
         for (const q of this.queue.splice(0)) ws.send(JSON.stringify(q));
+        this.startBeat();
       }
       this.onMessage(m);
     };
     ws.onclose = (e) => {
+      if (this.ws !== ws) return;
+      this.stopBeat();
       this.onStatus("offline");
       if (this.closed || e.code === 4003) return;
-      setTimeout(() => this.connect(), this.delay);
-      this.delay = Math.min(this.delay * 2, this.cap);
+      this.later();
     };
+  }
+
+  /** Opens the connection again after the current delay, which grows up to the cap. */
+  private later() {
+    if (this.retry || this.closed) return;
+    this.retry = setTimeout(() => this.connect(), this.delay);
+    this.delay = Math.min(this.delay * 2, this.cap);
+  }
+
+  private startBeat() {
+    this.stopBeat();
+    this.beat = setInterval(() => this.ping(), PING_EVERY);
+  }
+
+  private stopBeat() {
+    clearInterval(this.beat);
+    this.beat = undefined;
+    clearTimeout(this.deadline);
+    this.deadline = undefined;
+  }
+
+  /** Asks the server whether it is there; silence within `PONG_WITHIN` drops the connection. */
+  private ping() {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN || this.closed) return;
+    try {
+      ws.send(PING);
+    } catch {}
+    this.deadline ??= setTimeout(() => this.drop(ws), PONG_WITHIN);
+  }
+
+  private alive() {
+    clearTimeout(this.deadline);
+    this.deadline = undefined;
+    this.unconfirmed = [];
+  }
+
+  /** A connection that stopped answering: let go of it (without waiting for the browser). */
+  private drop(ws: WebSocket) {
+    if (this.ws !== ws) return;
+    this.stopBeat();
+    ws.onclose = null;
+    ws.onmessage = null;
+    try {
+      ws.close();
+    } catch {}
+    this.ws = undefined;
+    // What may never have arrived goes again once the connection is back.
+    this.queue.unshift(...this.unconfirmed.splice(0));
+    this.onStatus("offline");
+    this.later();
+  }
+
+  /** True when the connection is open and has answered lately. */
+  get online(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN && this.deadline === undefined;
   }
 
   send(m: ClientMessage): void {
     if (m.type === "session.follow") this.followed.add(m.sessionId);
-    if (m.type === "session.unfollow") this.followed.delete(m.sessionId);
+    if (m.type === "session.unfollow") {
+      this.followed.delete(m.sessionId);
+      this.seen.delete(m.sessionId);
+    }
     // Files open in the editor (G37.1) are opened again after a reconnection.
     if (m.type === "doc.open") this.docs.set(`${m.file.scope}\u0000${m.file.path}`, m);
     if (m.type === "doc.close") this.docs.delete(`${m.file.scope}\u0000${m.file.path}`);
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m));
-    else this.queue.push(m);
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(m));
+      // A stop must not be lost on a dead connection: kept until the server says anything,
+      // and the server is asked at once.
+      if (m.type === "session.interrupt") {
+        this.unconfirmed.push(m);
+        this.ping();
+      }
+    } else this.queue.push(m);
   }
 
   close(): void {
     this.closed = true;
+    this.stopBeat();
+    clearTimeout(this.retry);
+    document.removeEventListener("visibilitychange", this.onVisible);
     this.ws?.close();
   }
 }

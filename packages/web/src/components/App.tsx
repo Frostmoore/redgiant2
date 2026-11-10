@@ -65,6 +65,7 @@ import { Explorer } from "./Explorer.js";
 import { ProjectAgents } from "./Hierarchy.js";
 import { CitationNote } from "./Knowledge.js";
 import { Login } from "./Login.js";
+import { ConnectionLost, MemoryNotice } from "./PageHealth.js";
 import { ArchivedProjectView } from "./ProjectArchive.js";
 import { RoomView } from "./Room.js";
 import { Search } from "./Search.js";
@@ -434,6 +435,8 @@ export function App() {
       {/* Our own questions, never the browser's (2026-11-09). */}
       <Dialogs />
       <CitationNote />
+      <ConnectionLost />
+      <MemoryNotice />
       {lastError.value && (
         <div class="banner error">
           <IconAlert /> {lastError.value}
