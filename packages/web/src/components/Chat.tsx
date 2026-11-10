@@ -1,5 +1,11 @@
 import { useComputed } from "@preact/signals";
-import { type AssistantPart, ownWords, type PermissionRequestInfo } from "@redgiant/protocol";
+import {
+  type AssistantPart,
+  criticalSentences,
+  isCriticalRequest,
+  ownWords,
+  type PermissionRequestInfo,
+} from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { duration, kTokens } from "../format.js";
 import { danger, lang, t } from "../i18n.js";
@@ -468,8 +474,27 @@ function ToolPermission({ r }: { r: PermissionRequestInfo }) {
       scope,
       ...(reason?.trim() && { reason: reason.trim() }),
     });
+  // A truly dangerous request (G36.17b) is red and says what happens, in words (p3.5.4: an
+  // approval given in four seconds without noticing it). One click still decides: no second step.
+  const critical = isCriticalRequest(r);
   return (
-    <div class="permission">
+    <div class={critical ? "permission permission-critical" : "permission"}>
+      {critical && (
+        <div class="critical-head" role="alert">
+          <IconAlert size={22} />
+          <strong>{t("criticalTitle")}</strong>
+        </div>
+      )}
+      {critical && (
+        <div class="critical-what">
+          <span class="critical-what-label">{t("criticalWhat")}</span>
+          <ul>
+            {criticalSentences(lang.value, r).map((x) => (
+              <li key={x}>{x}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div class="row">
         <IconShield />
         <strong>
@@ -489,7 +514,11 @@ function ToolPermission({ r }: { r: PermissionRequestInfo }) {
         )}
       </div>
       <div class="permission-actions" style={{ marginTop: "8px" }}>
-        <button type="button" class="yes" onClick={() => resolve("allow")}>
+        <button
+          type="button"
+          class={critical ? "yes critical-yes" : "yes"}
+          onClick={() => resolve("allow")}
+        >
           {t("allow")}
         </button>
         {r.danger.length === 0 && r.sessionId && (

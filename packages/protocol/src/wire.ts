@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CanvasState } from "./canvas.js";
 import { MAX_QUOTES, MessageQuote } from "./chat-tools.js";
+import { CriticalDetail } from "./critical.js";
 import {
   AgentEditMode,
   DocChange,
@@ -28,6 +29,8 @@ export const PermissionRequestInfo = z.object({
   input: z.unknown(),
   reasons: z.array(z.string()),
   danger: z.array(z.string()),
+  /** What a truly dangerous call does (p3.5.4), from `criticalOf`: the red card's sentences. */
+  critical: z.array(CriticalDetail).optional(),
   createdAt: z.iso.datetime(),
   /** The conversation that asked, when there is one (allow for this conversation). */
   sessionId: z.string().optional(),

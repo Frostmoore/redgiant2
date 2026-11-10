@@ -1406,6 +1406,46 @@ if (process.env.DEMO_REQUESTS) {
   // A truly dangerous request: asked of the person even with «Non chiedermi niente» (not awaited).
   void ask("git push --force origin main", ["git-push", "git-history", "critical-delete"], true);
 }
+// p3.5.4, DEMO_CRITICAL=1: a truly dangerous request (a PDF's redaction) next to an ordinary one,
+// both waiting for the person: the red card in the chat and in the bell.
+if (process.env.DEMO_CRITICAL) {
+  const sid = await core.startSession("local", researcher.id);
+  await core.store.append({
+    ownerId: "local",
+    projectId: null,
+    agentId: researcher.id,
+    sessionId: sid,
+    body: {
+      type: "message.user",
+      payload: { text: "Oscura i dati personali in modulo.pdf e poi installa le dipendenze." },
+    },
+  });
+  const wait = (n, name, input, reasons, danger, critical) =>
+    void core.person.approve(
+      {
+        requestId: `demo_crit_${n}`,
+        requester: core.registry.get(researcher.id),
+        call: { callId: `cc${n}`, name, input },
+        reasons,
+        danger,
+        ...(critical && { critical }),
+        sessionId: sid,
+      },
+      new AbortController().signal,
+      { kind: "approval", critical: Boolean(critical), what: name },
+    );
+  wait(
+    1,
+    "canvas_edit",
+    { path: "modulo.pdf", ops: [{ op: "redact", page: 1, find: "Mario Rossi" }] },
+    [
+      "truly dangerous: redacts modulo.pdf: what is under the areas leaves the file for good",
+    ],
+    ["critical-delete"],
+    [{ id: "critical-delete", action: "redact", target: "modulo.pdf" }],
+  );
+  wait(2, "bash", { command: "npm install" }, ["Runs a command"], []);
+}
 let viewerSession;
 // G36.12, DEMO_CANVAS=1: files for an agent that looks at the canvas and leafs through it.
 let canvasSession;

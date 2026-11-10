@@ -27,6 +27,8 @@
 import { posix, win32 } from "node:path";
 import type { ToolCallInfo } from "@redgiant/agent";
 import {
+  type CriticalAction,
+  type CriticalDetail,
   type CriticalId,
   type LeakableSecret,
   leakableSecrets,
@@ -44,8 +46,11 @@ export interface CriticalContext {
   protectedPaths?: readonly string[];
 }
 
-export interface CriticalHit {
-  id: CriticalId;
+/**
+ * One truly dangerous kind of a call: why (for the model and the log) and, for the person, what
+ * it does with the call's own arguments (`action`, `target`…: the red card's sentence, p3.5.4).
+ */
+export interface CriticalHit extends CriticalDetail {
   /** Why, in a line (English, like the policy's reasons). */
   why: string;
 }
@@ -217,32 +222,38 @@ function isSystem(l: Loc, w: Where): boolean {
 const isProtected = (l: Loc, w: Where) =>
   l.kind === "path" && (w.ctx.protectedPaths ?? []).some((p) => under(l.path, l.win, p));
 
-/** Whether losing this folder (or everything in it) is a disaster. */
-function isImportant(l: Loc, w: Where): string | undefined {
-  if (l.kind === "unknown") return `${l.raw} (if the variable is empty, this is the whole disk)`;
+/** Whether losing this folder (or everything in it) is a disaster: what it is, and the action. */
+function isImportant(l: Loc, w: Where): { text: string; action: CriticalAction } | undefined {
+  const is = (text: string, action: CriticalAction) => ({ text, action });
+  if (l.kind === "unknown")
+    return is(`${l.raw} (if the variable is empty, this is the whole disk)`, "delete-variable");
   const p = l.path;
   const name = (l.win ? win32.basename(p) : posix.basename(p)).toLowerCase();
-  if (name === ".git") return `${p} (the project's whole history)`;
+  if (name === ".git") return is(`${p} (the project's whole history)`, "delete-git");
+  // Your own home first: the person reads «your home», not «a home».
+  if (same(p, l.win, w.home)) return is(`${p} (your home)`, "delete-your-home");
   if (l.win) {
     const k = winKey(p);
-    if (/^[a-z]:$/.test(k) || /^\\\\[^\\]+\\[^\\]+$/.test(k)) return `${p} (a whole disk)`;
-    if (/^[a-z]:\\users(\\[^\\]+)?$/.test(k)) return `${p} (a person's home)`;
+    if (/^[a-z]:$/.test(k) || /^\\\\[^\\]+\\[^\\]+$/.test(k))
+      return is(`${p} (a whole disk)`, "delete-disk");
+    if (/^[a-z]:\\users(\\[^\\]+)?$/.test(k)) return is(`${p} (a person's home)`, "delete-home");
     const m = /^[a-z]:\\users\\[^\\]+\\([^\\]+)$/.exec(k);
-    if (m && IMPORTANT_IN_HOME.has(m[1] as string)) return p;
+    if (m && IMPORTANT_IN_HOME.has(m[1] as string)) return is(p, "delete-important");
   } else {
     const k = posixKey(p);
-    if (k === "/") return "/ (the whole disk)";
-    if (k === "/root") return `${k} (a home)`;
+    if (k === "/") return is("/ (the whole disk)", "delete-disk");
+    if (k === "/root") return is(`${k} (a home)`, "delete-home");
     for (const parent of PARENTS_POSIX)
-      if (k === parent || posix.dirname(k) === parent) return `${k} (a home or a disk)`;
+      if (k === parent || posix.dirname(k) === parent)
+        return is(`${k} (a home or a disk)`, "delete-home");
   }
-  if (same(p, l.win, w.home)) return `${p} (your home)`;
   const inHome = l.win ? win32.dirname(p) : posix.dirname(p);
-  if (same(inHome, l.win, w.home) && IMPORTANT_IN_HOME.has(name)) return p;
+  if (same(inHome, l.win, w.home) && IMPORTANT_IN_HOME.has(name)) return is(p, "delete-important");
   // The project's root, or a folder above it (emptying it with * keeps its .git: not this).
   if (!l.glob)
     for (const r of w.roots)
-      if (isWinAbs(r) === l.win && under(r, l.win, p)) return `${p} (the whole project)`;
+      if (isWinAbs(r) === l.win && under(r, l.win, p))
+        return is(`${p} (the whole project)`, "delete-project");
   return undefined;
 }
 
@@ -437,7 +448,9 @@ const knownIn = (text: string, w: Where) =>
 const short = (s: string) => (s.length > 80 ? `${s.slice(0, 77)}…` : s);
 const showPath = (l: Loc) => (l.kind === "path" ? l.path : l.raw);
 
-type Add = (id: CriticalId, why: string) => void;
+/** What the person reads besides the kind: the action and the call's own arguments. */
+type Say = Omit<CriticalDetail, "id">;
+type Add = (id: CriticalId, why: string, say: Say) => void;
 
 // -------------------------------------------------------------------------------------------
 // Rules on the whole text (every tool that runs something)
@@ -457,60 +470,106 @@ const PAYMENT_HTTP =
 function textRules(text: string, add: Add) {
   for (const re of DB_DROP)
     if (re.test(text))
-      add("critical-delete", `deletes a whole database: ${short(re.exec(text)?.[0] ?? "")}`);
+      add("critical-delete", `deletes a whole database: ${short(re.exec(text)?.[0] ?? "")}`, {
+        action: "db-drop",
+        target: short(re.exec(text)?.[0] ?? ""),
+      });
   if (PROTECTED_SQL.test(text))
-    add("critical-protections", "changes RedGiant's own settings or history in its database");
-  if (PAYMENT_HTTP.test(text)) add("critical-payment", "makes a payment through a payment service");
+    add("critical-protections", "changes RedGiant's own settings or history in its database", {
+      action: "protect-db",
+    });
+  if (PAYMENT_HTTP.test(text))
+    add("critical-payment", "makes a payment through a payment service", {
+      action: "pay-service",
+      target: /stripe/i.test(text) ? "Stripe" : "PayPal",
+    });
 }
 
 // -------------------------------------------------------------------------------------------
 // Shell commands
 
-const SYSTEM_COMMANDS: [RegExp, string][] = [
-  [/^sc (create|delete|config|stop|failure|sdset|pause)\b/, "changes a Windows service"],
-  [/^(new|set|remove|stop|suspend|restart)-service\b/, "changes a Windows service"],
-  [/^(pnputil|bcdedit|bootcfg|bcdboot|bootrec)\b/, "changes drivers or how the computer starts"],
+const SYSTEM_COMMANDS: [RegExp, string, CriticalAction][] = [
+  [
+    /^sc (create|delete|config|stop|failure|sdset|pause)\b/,
+    "changes a Windows service",
+    "system-service",
+  ],
+  [
+    /^(new|set|remove|stop|suspend|restart)-service\b/,
+    "changes a Windows service",
+    "system-service",
+  ],
+  [
+    /^(pnputil|bcdedit|bootcfg|bcdboot|bootrec)\b/,
+    "changes drivers or how the computer starts",
+    "system-drivers",
+  ],
   [
     /^systemctl\b(?!.*\s--user\b).*\s(disable|mask|stop|enable|unmask|kill|isolate|edit)\b/,
     "changes a system service",
+    "system-service",
   ],
-  [/^launchctl (unload|remove|bootout|disable)\b/, "changes a system service"],
+  [/^launchctl (unload|remove|bootout|disable)\b/, "changes a system service", "system-service"],
   [
     /^(insmod|rmmod|modprobe|kextload|kextunload|update-rc\.d|chkconfig)\b/,
     "changes drivers or services",
+    "system-drivers",
   ],
-  [/^set-mppreference\b.*-disable/, "switches off the antivirus"],
-  [/^add-mppreference\b.*-exclusion/, "hides files from the antivirus"],
+  [/^set-mppreference\b.*-disable/, "switches off the antivirus", "system-antivirus"],
+  [/^add-mppreference\b.*-exclusion/, "hides files from the antivirus", "system-antivirus"],
   [
     /^netsh\b.*\b(firewall|advfirewall)\b.*\b(off|disable|reset|delete)\b/,
     "switches off the firewall",
+    "system-firewall",
   ],
-  [/^set-netfirewallprofile\b.*-enabled\s+(false|0|\$false)/, "switches off the firewall"],
-  [/^ufw (disable|reset)\b/, "switches off the firewall"],
-  [/^iptables\b.*\s(-f|--flush|-x)\b/, "removes the firewall's rules"],
-  [/^setenforce\s+(0|permissive)\b/, "switches off SELinux"],
-  [/^csrutil\s+disable\b/, "switches off macOS's system protection"],
-  [/^spctl\s+--master-disable\b/, "switches off macOS's app checks"],
-  [/^set-executionpolicy\b.*\b(unrestricted|bypass)\b/, "lets any script run on the computer"],
+  [
+    /^set-netfirewallprofile\b.*-enabled\s+(false|0|\$false)/,
+    "switches off the firewall",
+    "system-firewall",
+  ],
+  [/^ufw (disable|reset)\b/, "switches off the firewall", "system-firewall"],
+  [/^iptables\b.*\s(-f|--flush|-x)\b/, "removes the firewall's rules", "system-firewall"],
+  [/^setenforce\s+(0|permissive)\b/, "switches off SELinux", "system-protection"],
+  [/^csrutil\s+disable\b/, "switches off macOS's system protection", "system-protection"],
+  [/^spctl\s+--master-disable\b/, "switches off macOS's app checks", "system-protection"],
+  [
+    /^set-executionpolicy\b.*\b(unrestricted|bypass)\b/,
+    "lets any script run on the computer",
+    "system-protection",
+  ],
   [
     /^(useradd|userdel|usermod|adduser|deluser|passwd|chpasswd|visudo|groupadd|groupdel|gpasswd)\b/,
     "changes the computer's users",
+    "system-users",
   ],
-  [/^net (user|localgroup)\s+\S+\s+\S+/, "changes the computer's users"],
-  [/^(new|remove|set|enable|disable|rename)-localuser\b/, "changes the computer's users"],
-  [/^(add|remove)-localgroupmember\b/, "changes the computer's administrators"],
+  [/^net (user|localgroup)\s+\S+\s+\S+/, "changes the computer's users", "system-users"],
+  [
+    /^(new|remove|set|enable|disable|rename)-localuser\b/,
+    "changes the computer's users",
+    "system-users",
+  ],
+  [/^(add|remove)-localgroupmember\b/, "changes the computer's administrators", "system-users"],
 ];
-const DISK_COMMANDS: [RegExp, string][] = [
-  [/^mkfs(\.\w+)?\b/, "formats a disk"],
-  [/^(wipefs|blkdiscard|sfdisk|sgdisk|gdisk|mkswap)\b/, "erases or repartitions a disk"],
-  [/^(fdisk|parted)\b(?!.*\s(-l|--list|print)\b)/, "repartitions a disk"],
-  [/^format\s+[a-z]:/, "formats a disk"],
-  [/^(format-volume|clear-disk|initialize-disk|remove-partition)\b/, "formats or erases a disk"],
+const DISK_COMMANDS: [RegExp, string, CriticalAction][] = [
+  [/^mkfs(\.\w+)?\b/, "formats a disk", "disk-format"],
+  [
+    /^(wipefs|blkdiscard|sfdisk|sgdisk|gdisk|mkswap)\b/,
+    "erases or repartitions a disk",
+    "disk-format",
+  ],
+  [/^(fdisk|parted)\b(?!.*\s(-l|--list|print)\b)/, "repartitions a disk", "disk-partition"],
+  [/^format\s+[a-z]:/, "formats a disk", "disk-format"],
+  [
+    /^(format-volume|clear-disk|initialize-disk|remove-partition)\b/,
+    "formats or erases a disk",
+    "disk-format",
+  ],
   [
     /^diskutil\s+(erase\w*|zerodisk|partitiondisk|reformat|secureerase|apfs\s+delete\w*)\b/,
     "erases a disk",
+    "disk-format",
   ],
-  [/^diskpart\b/, "repartitions a disk"],
+  [/^diskpart\b/, "repartitions a disk", "disk-partition"],
 ];
 const REGISTRY_PATH = /^(registry::|hk(lm|cu|cr|u|cc)(:|\\)|hkey_)/i;
 const PROTECTED_BRANCH = /^(main|master|trunk|production|prod|stable|release([/-].*)?)$/;
@@ -600,21 +659,47 @@ const DELETES = new Set([
   "unlink",
 ]);
 
-function deleteTarget(l: Loc, recursive: boolean, w: Where, add: Add, how: string) {
-  if (isSystem(l, w)) return add("critical-system", `${how} system files: ${showPath(l)}`);
+function deleteTarget(l: Loc, recursive: boolean, w: Where, add: Add, how: string, inside = false) {
+  const say = (action: CriticalAction, target: string): Say => ({
+    action,
+    target,
+    ...(inside && { inside: true }),
+  });
+  if (isSystem(l, w))
+    return add(
+      "critical-system",
+      `${how} system files: ${showPath(l)}`,
+      say("system-delete", showPath(l)),
+    );
   if (isProtected(l, w))
-    return add("critical-protections", `${how} RedGiant's own files: ${showPath(l)}`);
+    return add(
+      "critical-protections",
+      `${how} RedGiant's own files: ${showPath(l)}`,
+      say("protect-delete", showPath(l)),
+    );
   const important = isImportant(l, w);
-  if (important) return add("critical-delete", `${how} ${important}`);
+  if (important)
+    return add("critical-delete", `${how} ${important.text}`, say(important.action, showPath(l)));
   if (recursive && l.kind === "path" && !inRoots(l, w) && !inTmp(l) && !CACHE_PART.test(l.path))
-    add("critical-delete", `${how} a folder outside the project, for good: ${l.path}`);
+    add(
+      "critical-delete",
+      `${how} a folder outside the project, for good: ${l.path}`,
+      say("delete-outside", l.path),
+    );
 }
 
 function writeTarget(l: Loc | undefined, w: Where, add: Add, how = "changes") {
   if (!l) return;
-  if (isSystem(l, w)) add("critical-system", `${how} system files: ${showPath(l)}`);
+  if (isSystem(l, w))
+    add("critical-system", `${how} system files: ${showPath(l)}`, {
+      action: "system-write",
+      target: showPath(l),
+    });
   else if (isProtected(l, w))
-    add("critical-protections", `${how} RedGiant's own files: ${showPath(l)}`);
+    add("critical-protections", `${how} RedGiant's own files: ${showPath(l)}`, {
+      action: "protect-files",
+      target: showPath(l),
+    });
 }
 
 function gitPush(args: string[], add: Add) {
@@ -639,9 +724,12 @@ function gitPush(args: string[], add: Add) {
     return add(
       "critical-delete",
       "git push --mirror: makes the remote equal to this copy, deleting what is only there",
+      { action: "push-mirror" },
     );
   if (del || refspecs.some((r) => r.startsWith(":")))
-    return add("critical-delete", "deletes a branch on the remote repository");
+    return add("critical-delete", "deletes a branch on the remote repository", {
+      action: "branch-delete",
+    });
   const branch = (r: string) =>
     (r.replace(/^\+/, "").split(":").at(-1) ?? "").replace(/^refs\/heads\//, "");
   const forced = refspecs.filter((r) => force || r.startsWith("+"));
@@ -650,9 +738,12 @@ function gitPush(args: string[], add: Add) {
     add(
       "critical-delete",
       `forced push over the shared branch "${branch(hit)}": rewrites its history for everyone`,
+      { action: "push-force", target: branch(hit) },
     );
   else if (force && all)
-    add("critical-delete", "forced push of every branch: rewrites the shared history");
+    add("critical-delete", "forced push of every branch: rewrites the shared history", {
+      action: "push-force-all",
+    });
 }
 
 function shellSecrets(c: Simple, name: string, args: string[], w: Where, add: Add) {
@@ -662,22 +753,36 @@ function shellSecrets(c: Simple, name: string, args: string[], w: Where, add: Ad
     return add(
       "critical-secret",
       "a value of your keychain is in a command (agents never get them)",
+      { action: "secret-keychain" },
     );
   if (name === "git" && args[0] === "add") {
     const files = args.slice(1).filter((a) => !a.startsWith("-"));
     const f = files.find((x) => SECRET_FILE_NAME.test(x) && !EXAMPLE_FILE.test(x));
-    if (f) return add("critical-secret", `puts a secrets file into git: ${f}`);
+    if (f)
+      return add("critical-secret", `puts a secrets file into git: ${f}`, {
+        action: "secret-git-add",
+        target: f,
+      });
   }
   if (!found.length) return;
   const what = describeSecret(found[0] as LeakableSecret);
+  const secret = (found[0] as LeakableSecret).name;
   if (name === "git" && ["commit", "tag", "notes"].includes(args[0] ?? ""))
-    return add("critical-secret", `commits ${what}`);
+    return add("critical-secret", `commits ${what}`, { action: "secret-commit", secret });
   if (name === "gh" || name === "glab")
-    return add("critical-secret", `publishes ${what} on the repository's site`);
+    return add("critical-secret", `publishes ${what} on the repository's site`, {
+      action: "secret-publish",
+      secret,
+    });
   if (HTTP_CLIENTS.has(name)) {
     const hosts = hostsIn(c.text);
-    if (hosts.some((h) => PASTE_HOSTS.test(h)))
-      return add("critical-secret", `sends ${what} to a public paste site`);
+    const paste = hosts.find((h) => PASTE_HOSTS.test(h));
+    if (paste)
+      return add("critical-secret", `sends ${what} to a public paste site`, {
+        action: "secret-paste",
+        secret,
+        target: paste,
+      });
     const foreign = found.find(
       (s) => KEY_HOSTS[s.name] && hosts.length && !hosts.every((h) => KEY_HOSTS[s.name]?.test(h)),
     );
@@ -685,6 +790,7 @@ function shellSecrets(c: Simple, name: string, args: string[], w: Where, add: Ad
       return add(
         "critical-secret",
         `sends ${describeSecret(foreign)} to a site that is not its own: ${hosts.join(", ")}`,
+        { action: "secret-send", secret: foreign.name, target: hosts.join(", ") },
       );
   }
   // Written into a file that may be committed (echo "sk-…" >> config.js).
@@ -694,6 +800,7 @@ function shellSecrets(c: Simple, name: string, args: string[], w: Where, add: Ad
       return add(
         "critical-secret",
         `writes ${describeSecret(strong[0] as LeakableSecret)} into ${r}, a file that can be committed and published`,
+        { action: "secret-file", secret: (strong[0] as LeakableSecret).name, target: r },
       );
 }
 
@@ -724,7 +831,10 @@ function shellRules(command: string, w: Where, add: Add, depth = 0): void {
     for (const r of c.redirects) {
       const l = locate(r, here);
       if (l?.kind === "path" && !l.win && /^\/dev\/(sd|nvme|hd|xvd|vd|mmcblk|disk)/.test(l.path))
-        add("critical-delete", `writes straight onto a disk: ${l.path}`);
+        add("critical-delete", `writes straight onto a disk: ${l.path}`, {
+          action: "disk-write",
+          target: l.path,
+        });
       else writeTarget(l, here, add, "writes into");
     }
     const ws = strip(c.words);
@@ -778,20 +888,28 @@ function shellRules(command: string, w: Where, add: Add, depth = 0): void {
       if (l?.kind === "path") cwd = l.path;
       continue;
     }
-    for (const [re, why] of SYSTEM_COMMANDS) if (re.test(line)) add("critical-system", why);
-    for (const [re, why] of DISK_COMMANDS) if (re.test(line)) add("critical-delete", why);
+    for (const [re, why, action] of SYSTEM_COMMANDS)
+      if (re.test(line)) add("critical-system", why, { action });
+    for (const [re, why, action] of DISK_COMMANDS)
+      if (re.test(line)) add("critical-delete", why, { action });
+    const registry: Say = { action: "system-registry" };
     if (name === "reg" && /^(add|delete|import|restore|load|unload|copy)$/i.test(args[0] ?? ""))
-      add("critical-system", "changes the Windows registry");
+      add("critical-system", "changes the Windows registry", registry);
     if ((name === "regedit" || name === "regedt32") && args.length)
-      add("critical-system", "changes the Windows registry");
+      add("critical-system", "changes the Windows registry", registry);
     if (
       /-item(property)?$|^(ni|ri|si|sp|rp|clp)$/.test(name) &&
       args.some((a) => REGISTRY_PATH.test(a)) &&
       !/^get-/.test(name)
     )
-      add("critical-system", "changes the Windows registry");
-    if (REPO_DELETE.test(c.text)) add("critical-delete", "deletes a repository online");
-    if (PAY_CLI.test(line)) add("critical-payment", "makes a payment with Stripe");
+      add("critical-system", "changes the Windows registry", registry);
+    if (REPO_DELETE.test(c.text))
+      add("critical-delete", "deletes a repository online", { action: "repo-delete" });
+    if (PAY_CLI.test(line))
+      add("critical-payment", "makes a payment with Stripe", {
+        action: "pay-service",
+        target: "Stripe",
+      });
     // git: pushes, and what git touches outside.
     if (name === "git") {
       const sub: string[] = [];
@@ -839,6 +957,7 @@ function shellRules(command: string, w: Where, add: Add, depth = 0): void {
             here,
             add,
             "deletes everything in",
+            true,
           );
       }
       continue;
@@ -846,14 +965,17 @@ function shellRules(command: string, w: Where, add: Add, depth = 0): void {
     if (name === "rsync" && args.some((a) => a.startsWith("--delete"))) {
       const dest = pathArgs(args).at(-1);
       const l = dest && !/^[\w.-]+@?[\w.-]*:/.test(dest) ? locate(dest, here) : undefined;
-      if (l) deleteTarget(l, true, here, add, "deletes what is not in the source from");
+      if (l) deleteTarget(l, true, here, add, "deletes what is not in the source from", true);
     }
     if (name === "dd") {
       for (const a of args)
         if (a.startsWith("of=")) {
           const l = locate(a.slice(3), here);
           if (l?.kind === "path" && /^\/dev\/(sd|nvme|hd|xvd|vd|mmcblk|disk)/.test(l.path))
-            add("critical-delete", `writes straight onto a disk: ${l.path}`);
+            add("critical-delete", `writes straight onto a disk: ${l.path}`, {
+              action: "disk-write",
+              target: l.path,
+            });
           else writeTarget(l, here, add);
         }
       continue;
@@ -882,7 +1004,10 @@ function fileRules(input: Record<string, unknown>, name: string, w: Where, add: 
   const text = name === "write_file" ? String(input.content ?? "") : String(input.new_string ?? "");
   const before = name === "edit_file" ? String(input.old_string ?? "") : "";
   if (knownIn(text, w).some((v) => !before.includes(v)))
-    return add("critical-secret", `writes a value of your keychain into ${p}`);
+    return add("critical-secret", `writes a value of your keychain into ${p}`, {
+      action: "secret-keychain-file",
+      target: p,
+    });
   if (LOCAL_SECRET_FILE.test(p) && !EXAMPLE_FILE.test(p)) return;
   if (TEST_FILE.test(p)) return;
   const keys = leakableSecrets(text).filter(
@@ -892,6 +1017,7 @@ function fileRules(input: Record<string, unknown>, name: string, w: Where, add: 
     add(
       "critical-secret",
       `writes ${describeSecret(keys[0] as LeakableSecret)} into ${p}, a file that can be committed and published`,
+      { action: "secret-file", secret: (keys[0] as LeakableSecret).name, target: p },
     );
 }
 
@@ -914,6 +1040,7 @@ function editorRules(input: Record<string, unknown>, w: Where, add: Add) {
     add(
       "critical-delete",
       `redacts ${typeof input.path === "string" ? input.path : "a PDF"}: what is under the areas leaves the file for good`,
+      { action: "redact", ...(typeof input.path === "string" && { target: input.path }) },
     );
   const text = ops
     .map((o) =>
@@ -999,7 +1126,10 @@ const OUTBOUND = (name: string) =>
 function outboundRules(call: ToolCallInfo, input: unknown, w: Where, add: Add) {
   const text = JSON.stringify(input ?? "");
   if (knownIn(text, w).length)
-    return add("critical-secret", `sends a value of your keychain through ${call.name}`);
+    return add("critical-secret", `sends a value of your keychain through ${call.name}`, {
+      action: "secret-keychain-send",
+      target: call.name,
+    });
   const found = leakableSecrets(text);
   if (!found.length) return;
   if (call.name === "fetch" || call.name === "browser_open") {
@@ -1012,18 +1142,23 @@ function outboundRules(call: ToolCallInfo, input: unknown, w: Where, add: Add) {
     return add(
       "critical-secret",
       `sends ${describeSecret(foreign)} to ${hosts.join(", ") || "a site"}`,
+      { action: "secret-send", secret: foreign.name, target: hosts.join(", ") || call.name },
     );
   }
   add(
     "critical-secret",
     `sends ${describeSecret(found[0] as LeakableSecret)} through ${call.name}`,
+    { action: "secret-send", secret: (found[0] as LeakableSecret).name, target: call.name },
   );
 }
 
 /** The tools that change the platform's protections themselves. */
-const PROTECTION_TOOLS: Record<string, string> = {
-  platform_policy: "changes RedGiant's permission rules",
-  platform_code_promote: "puts new RedGiant code live: it could switch off its protections",
+const PROTECTION_TOOLS: Record<string, [string, CriticalAction]> = {
+  platform_policy: ["changes RedGiant's permission rules", "protect-policy"],
+  platform_code_promote: [
+    "puts new RedGiant code live: it could switch off its protections",
+    "protect-code",
+  ],
 };
 
 // -------------------------------------------------------------------------------------------
@@ -1031,8 +1166,8 @@ const PROTECTION_TOOLS: Record<string, string> = {
 /** Whether a tool call is truly dangerous, and why: one hit per kind, in the order found. */
 export function criticalOf(call: ToolCallInfo, ctx: CriticalContext = {}): CriticalHit[] {
   const hits: CriticalHit[] = [];
-  const add: Add = (id, why) => {
-    if (!hits.some((h) => h.id === id)) hits.push({ id, why });
+  const add: Add = (id, why, say) => {
+    if (!hits.some((h) => h.id === id)) hits.push({ id, ...say, why });
   };
   const roots = [...(ctx.roots ?? [])];
   const w: Where = {
@@ -1046,7 +1181,8 @@ export function criticalOf(call: ToolCallInfo, ctx: CriticalContext = {}): Criti
     unknown
   >;
   const name = call.name;
-  if (PROTECTION_TOOLS[name]) add("critical-protections", PROTECTION_TOOLS[name] as string);
+  const protection = PROTECTION_TOOLS[name];
+  if (protection) add("critical-protections", protection[0], { action: protection[1] });
   if (name === "bash" && typeof input.command === "string") shellRules(input.command, w, add);
   else if (name === "write_file" || name === "edit_file") fileRules(input, name, w, add);
   else if (name === "canvas_edit") editorRules(input, w, add);
@@ -1060,14 +1196,23 @@ export function criticalOf(call: ToolCallInfo, ctx: CriticalContext = {}): Criti
           words.join("_"),
         )
       )
-        add("critical-payment", `pays or buys through ${name}`);
+        add("critical-payment", `pays or buys through ${name}`, {
+          action: "pay-tool",
+          target: name,
+        });
       if (words.some((x) => DELETE_WORDS.has(x)) && words.some((x) => REPO_WORDS.has(x)))
-        add("critical-delete", `deletes for good through ${name}`);
+        add("critical-delete", `deletes for good through ${name}`, {
+          action: "service-delete",
+          target: name,
+        });
     }
     textRules(JSON.stringify(call.input ?? ""), add);
   }
   if (name === "browser_click" && typeof input.name === "string" && PAY_BUTTON.test(input.name))
-    add("critical-payment", `presses «${short(input.name)}» in the browser`);
+    add("critical-payment", `presses «${short(input.name)}» in the browser`, {
+      action: "pay-button",
+      target: short(input.name),
+    });
   if (OUTBOUND(name)) outboundRules(call, call.input, w, add);
   return hits;
 }
