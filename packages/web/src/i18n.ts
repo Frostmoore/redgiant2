@@ -2035,6 +2035,15 @@ const en = {
   limitWeekShort: "7d",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  news355Images: "Pictures with layers",
+  news355ImagesText:
+    "Open a PNG, JPEG, OpenRaster or Photoshop file and edit it in the Canvas: layers, blending, brush, eraser, selections, masks, filters with a preview, text, crop and resize. Agents edit the same picture, even putting a generated image in as a new layer, and every change can be undone. Export as PNG, JPEG, WebP, ORA or PSD, or open it in Krita.",
+  news355Model: "3D models",
+  news355ModelText:
+    "glTF and GLB files open in the Canvas: the scene, handles to move, rotate and scale, materials and lights. Agents add shapes, lights and cameras and change materials. The file keeps everything else exactly as it was; other 3D formats are edited on a GLB copy, and Blender opens it if installed.",
+  news355Fixes: "Steadier updates and searches",
+  news355FixesText:
+    "An update no longer misses its last files while it checks them, and the page you had open comes back reliably after an update. Searching for files now says where it looked and how long it took.",
   news354Live: "Conversations that keep up",
   news354LiveText:
     "The chat follows every turn as it happens again, files an agent shows open in your Canvas, and the page notices a lost connection and reconnects by itself. Reloading the page draws even a long conversation at once, already at the bottom.",
@@ -6787,6 +6796,15 @@ const it: Record<Key, string> = {
   limitWeekShort: "7g",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  news355Images: "Immagini a livelli",
+  news355ImagesText:
+    "Apri un PNG, un JPEG, un file OpenRaster o Photoshop e modificalo nel Canvas: livelli, fusione, pennello, gomma, selezioni, maschere, filtri con l'anteprima, testo, ritaglio e dimensioni. Gli agenti modificano la stessa immagine, anche mettendo un'immagine generata come livello nuovo, e ogni modifica si annulla. Esporti in PNG, JPEG, WebP, ORA o PSD, oppure la apri in Krita.",
+  news355Model: "Modelli 3D",
+  news355ModelText:
+    "I file glTF e GLB si aprono nel Canvas: la scena, le maniglie per spostare, ruotare e scalare, materiali e luci. Gli agenti aggiungono forme, luci e telecamere e cambiano i materiali. Il file tiene tutto il resto esattamente com'era; gli altri formati 3D si modificano su una copia GLB, e Blender la apre se è installato.",
+  news355Fixes: "Aggiornamenti e ricerche più affidabili",
+  news355FixesText:
+    "Un aggiornamento non perde più gli ultimi file mentre li controlla, e la pagina che avevi aperta torna sempre dopo l'aggiornamento. La ricerca dei file ora dice dove ha cercato e quanto ci ha messo.",
   news354Live: "Conversazioni che stanno al passo",
   news354LiveText:
     "La chat segue di nuovo ogni turno mentre succede, i file che un agente ti mostra si aprono nel tuo Canvas, e la pagina si accorge di aver perso il collegamento e si ricollega da sola. Ricaricando la pagina anche una conversazione lunga compare in un colpo, già in fondo.",

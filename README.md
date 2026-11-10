@@ -271,18 +271,20 @@ RedGiant is in pre-alpha. What comes next, in order:
 - **3.4 — Knowledge** (released): talk with your documents with citations; import from Claude Code,
   Codex, Cursor and exported chats; skills that write themselves; Matrix, Teams and iMessage; the
   Keychain in your browser; smaller, signed updates. The 3.4.x releases bring the fixes from real use.
-- **3.5 — Editor** (released: code and text, spreadsheets, documents and slides, PDF, vector drawings):
-  a real editor in the Canvas for every file it can open, with the agent working in the same editor as
-  you. The next 3.5.x releases add layered images and 3D.
+- **3.5 — Editor** (released: code and text, spreadsheets, documents and slides, PDF, vector drawings,
+  layered images, 3D models): a real editor in the Canvas for every file it can open, with the agent
+  working in the same editor as you. The 3.5.x releases bring the fixes from real use.
 - **3.6 — Long arms**: SSH to other machines, integrations and extensions created on request, email
   for the agents, hands-free voice, model evaluations, and ACP both ways (RedGiant inside editors,
   other agents as workers).
-- **3.7 and 3.8 — Video and 3D**: a video editor shared by you and the agent, and 3D generation with
-  local or cloud engines, finished in Blender.
-- **3.9 — Emulators in the Canvas**: an Android emulator or the iOS simulator found on the computer opens
-  in the Canvas, for you and for the agents trying the apps they build.
-- **4.0 — Alpha**: native apps for Windows, Linux and macOS, companion apps for Android and iOS, and a
-  Linux distribution for mini-PCs and virtual machines.
+- **3.7 — RedGiant on a mini PC**: a ready-made system to install with Proxmox, connected to your
+  other RedGiant.
+- **3.8 and 3.9 — Video and 3D generation**: a video editor shared by you and the agent, and 3D
+  generation with local or cloud engines, finished in Blender.
+- **3.10 — Emulators in the Canvas**: an Android emulator or the iOS simulator found on the computer
+  opens in the Canvas, for you and for the agents trying the apps they build.
+- **4.0 — Alpha**: native apps for Windows, Linux and macOS, companion apps for Android and iOS, and the
+  Linux distribution for every mini-PC and virtual machine.
 - **Then** the beta (community, documentation site) and the production release.
 
 ## Documentation

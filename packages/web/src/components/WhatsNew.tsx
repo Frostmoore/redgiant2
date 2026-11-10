@@ -7,10 +7,13 @@ import { getApi } from "../state.js";
 import { Modal } from "./ui.js";
 
 /** Bump with every big update, and write its items below. */
-const NEWS_VERSION = "3.5.4";
+const NEWS_VERSION = "3.5.5";
 const SEEN = "rg.newsSeen";
 
 const ITEMS: { title: Key; text: Key }[] = [
+  { title: "news355Images", text: "news355ImagesText" },
+  { title: "news355Model", text: "news355ModelText" },
+  { title: "news355Fixes", text: "news355FixesText" },
   { title: "news354Live", text: "news354LiveText" },
   { title: "news354Models", text: "news354ModelsText" },
   { title: "news354Bar", text: "news354BarText" },
