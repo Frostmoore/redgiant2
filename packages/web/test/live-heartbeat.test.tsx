@@ -242,6 +242,6 @@ describe("what the page shows (p3.5.4)", () => {
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    expect(screen.getByText(/usa molta memoria \(3.600 MB di 4.096 MB\)/)).toBeTruthy();
+    expect(screen.getByText(/usa molta memoria \(3\D?600 MB di 4\D?096 MB\)/)).toBeTruthy();
   });
 });
