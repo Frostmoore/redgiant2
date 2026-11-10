@@ -11,7 +11,9 @@ import { randomUUID } from "node:crypto";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import type { EventStore, SqlClient } from "@redgiant/events";
+import { type AgentNode, canKnowledge } from "@redgiant/hierarchy";
 import {
+  type AgentKind,
   CLOUD_EMBEDDING_MODELS,
   type EmbeddingChoice,
   EmbeddingChoice as EmbeddingChoiceSchema,
@@ -78,7 +80,8 @@ export class KnowledgeError extends Error {
 /** Who asks a search: the person (every collection) or an agent (its scope). */
 export type KnowledgeAsker =
   | { kind: "human" }
-  | { kind: "agent"; agentId: string; projectIds: string[] };
+  /** `agentKind`: what the agent is (God reads every collection, p3.5.4); an agent if not said. */
+  | { kind: "agent"; agentId: string; projectIds: string[]; agentKind?: AgentKind | undefined };
 
 export interface KnowledgeDeps {
   db: SqlClient;
@@ -114,6 +117,8 @@ export interface KnowledgeDeps {
   chats?: ChatSource;
   /** The projects an agent works on (its own, the one it is assigned to), for its scope. */
   agentProjects?: (owner: string, agentId: string) => Promise<string[]>;
+  /** What an agent is (God reads every collection, p3.5.4). */
+  agentKind?: (owner: string, agentId: string) => AgentKind | undefined;
   /** Tests: no folder watching, no timers. */
   manual?: boolean;
   /** Pieces in a scope searched exactly (default `EXACT_MAX`, 20 000; tests lower it). */
@@ -236,11 +241,26 @@ export function within(
   return rel === "" || (!rel.startsWith("..") && !p.isAbsolute(rel));
 }
 
-/** Whether a collection's scope alone lets an agent read it. */
+/** Whether a collection's scope alone lets an agent read it (`canKnowledge`'s table, "read"). */
 function byScope(r: CollectionRow, asker: Extract<KnowledgeAsker, { kind: "agent" }>): boolean {
-  if (r.scope_kind === "all") return true;
-  if (r.scope_kind === "agent") return r.scope_id === asker.agentId;
-  return r.scope_id !== null && asker.projectIds.includes(r.scope_id);
+  const node = (id: string, kind: AgentKind): AgentNode => ({
+    id,
+    name: id,
+    kind,
+    parentId: null,
+    projectId: null,
+    ownerId: "owner",
+  });
+  const actor = {
+    type: "agent" as const,
+    agent: { ...node(asker.agentId, asker.agentKind ?? "agent"), projects: asker.projectIds },
+  };
+  if (r.scope_kind === "all") return canKnowledge(actor, "read", { kind: "all" });
+  if (r.scope_kind === "agent")
+    return canKnowledge(actor, "read", { kind: "agent", agent: node(r.scope_id ?? "", "agent") });
+  return (
+    r.scope_id !== null && canKnowledge(actor, "read", { kind: "project", projectId: r.scope_id })
+  );
 }
 
 /** Bytes of the files under a folder (0 when it is not there). */
@@ -1085,7 +1105,12 @@ export class KnowledgeService {
   /** Every collection as one agent sees it: by its scope, the person's choice, what it gets. */
   async agentCollections(owner: string, agentId: string): Promise<KnowledgeAgentCollection[]> {
     const projectIds = (await this.deps.agentProjects?.(owner, agentId)) ?? [];
-    const asker: KnowledgeAsker = { kind: "agent", agentId, projectIds };
+    const asker: KnowledgeAsker = {
+      kind: "agent",
+      agentId,
+      projectIds,
+      agentKind: this.deps.agentKind?.(owner, agentId),
+    };
     const [rows, access, pieces] = await Promise.all([
       this.collectionRows(owner),
       this.settings(owner).then((s) => s.agents[agentId]),

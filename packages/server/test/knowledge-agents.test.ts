@@ -70,6 +70,7 @@ async function kbServer(script: (req: CompletionRequest) => FakeTurn) {
         const a = core.registry.get(agentId);
         return a?.projectId ? [a.projectId] : [];
       },
+      agentKind: (_o, agentId) => core.registry.get(agentId)?.kind,
       manual: true,
     });
     await k.start();
@@ -166,6 +167,49 @@ describe("the knowledge made by the agents (3.5.3)", () => {
       "docs/guida.md",
       "note.md",
     ]);
+  });
+
+  // p3.5.4, the 3.5.3 test: God made the project's collection but could not search it («No
+  // collection you can read is called that. Yours: …»). God acts with the person's authority.
+  it("God searches a project's collection it made, by its name", async () => {
+    const results: string[] = [];
+    // Two turns: the collection made and given the project's files, then (once read) searched.
+    const make = plan(
+      [
+        { name: "knowledge_create", input: { name: "Collaudo 3.5.1", for: "Collaudo 3.5.1" } },
+        {
+          name: "knowledge_add_source",
+          input: { collection: "Collaudo 3.5.1", kind: "project", project: "Collaudo 3.5.1" },
+        },
+      ],
+      results,
+    );
+    const search = plan(
+      [
+        {
+          name: "search_knowledge",
+          input: { query: "magazzino", collections: ["Collaudo 3.5.1"] },
+        },
+      ],
+      results,
+    );
+    let searching = false;
+    const { server, k, god } = await kbServer((req) => (searching ? search(req) : make(req)));
+    await server.api("PUT", "/api/knowledge/settings", { embedding: fake });
+    const sid = await session(server, god);
+    await (await server.core.send("me", sid, "make it")).done;
+    await k.indexer.drain();
+    searching = true;
+    await (await server.core.send("me", sid, "search it")).done;
+    expect(results[1]).toMatch(/^Added the files of project:collaudo-3-5-1/);
+    expect(results[2]).not.toMatch(/No collection you can read/);
+    expect(results[2]).toContain("MAG-4471");
+    // In the agent's window too: God reads it by its scope.
+    const view = await k.agentCollections("me", god);
+    expect(view.find((c) => c.name === "Collaudo 3.5.1")).toMatchObject({
+      byScope: true,
+      on: true,
+    });
   });
 
   it("an agent of the project makes its own, never for everyone nor in another project", async () => {

@@ -264,6 +264,77 @@ describe("the archived projects' folders (p3.5.3)", () => {
     ).toEqual([]);
   });
 
+  // p3.5.4, the 3.5.3 test: `echo prova > …/collaudo-3-5-1/prova-archivio.txt` wrote (exit 0) with
+  // Git Bash's path. Every way of naming the folder, and going into it, is refused.
+  const shop = "C:\\Users\\me\\RedGiant\\workspaces\\shop";
+  const gitBash = {
+    roots: ["C:\\Users\\me\\RedGiant\\workspaces\\new"],
+    home: "C:\\Users\\me",
+    locked: [{ path: shop, project: "Shop" }],
+  };
+  const GIT_BASH: [string, string[]][] = [
+    [
+      "echo prova > /c/Users/me/RedGiant/workspaces/shop/prova-archivio.txt",
+      [`${shop}\\prova-archivio.txt`],
+    ],
+    [
+      "echo prova > /C/users/me/redgiant/workspaces/Shop/a.txt",
+      ["C:\\users\\me\\redgiant\\workspaces\\Shop\\a.txt"],
+    ],
+    ["touch /cygdrive/c/Users/me/RedGiant/workspaces/shop/a", [`${shop}\\a`]],
+    ["rm /mnt/c/Users/me/RedGiant/workspaces/shop/a", [`${shop}\\a`]],
+    ["echo x > ~/RedGiant/workspaces/shop/a.txt", [`${shop}\\a.txt`]],
+    ["echo x > $HOME/RedGiant/workspaces/shop/a.txt", [`${shop}\\a.txt`]],
+    ['echo x > "${HOME}/RedGiant/workspaces/shop/a.txt"', [`${shop}\\a.txt`]],
+    ["echo x > $USERPROFILE/RedGiant/workspaces/shop/a.txt", [`${shop}\\a.txt`]],
+    // Going there first, then a plain name: the command must not even start there.
+    ["cd /c/Users/me/RedGiant/workspaces/shop && echo x > a.txt", [shop]],
+    ["cd .. ; cd shop ; echo x > a.txt", [shop]],
+    ["cd ../shop && echo x > a.txt", [shop]],
+    ["cd ~/RedGiant/workspaces && cd shop && touch a", [shop]],
+    ["pushd /c/Users/me/RedGiant/workspaces/shop && touch a", [shop]],
+    // Elsewhere, and a folder with a longer name: free.
+    ["echo x > /c/Users/me/RedGiant/workspaces/new/a.txt", []],
+    ["cd .. && cd shopping && touch a", []],
+    ["echo x > /c/Users/me/RedGiant/workspaces/shopping/a.txt", []],
+  ];
+  for (const [command, expected] of GIT_BASH)
+    it(`Windows, Git Bash: ${command}`, () => {
+      expect(lockedWrites({ callId: "c", name: "bash", input: { command } }, gitBash)).toEqual(
+        expected,
+      );
+    });
+
+  it("Windows, Git Bash: the file tools and the editor with such a path are refused too", () => {
+    for (const [name, input] of [
+      ["write_file", { path: "/c/Users/me/RedGiant/workspaces/shop/a.txt", content: "x" }],
+      ["edit_file", { path: "~/RedGiant/workspaces/shop/a.txt" }],
+      ["canvas_edit", { path: "/c/Users/me/RedGiant/workspaces/shop/a.pdf", ops: [] }],
+    ] as const)
+      expect(lockedWrites({ callId: "c", name, input }, gitBash), name).not.toEqual([]);
+  });
+
+  it("Windows, Git Bash: outside the folders is the guardian's question", () => {
+    const ctx = { roots: ["C:\\Users\\me\\proj"], home: "C:\\Users\\me" };
+    expect(
+      outsideWrites(
+        { callId: "1", name: "write_file", input: { path: "/c/Users/me/proj/a.txt" } },
+        ctx,
+      ),
+    ).toEqual([]);
+    expect(
+      outsideWrites({ callId: "1", name: "write_file", input: { path: "/c/Windows/x.ini" } }, ctx),
+    ).toEqual(["C:\\Windows\\x.ini"]);
+    expect(bashOutsideWrites("echo x > /d/backup/a.txt", ctx)).toEqual(["D:\\backup\\a.txt"]);
+    expect(bashOutsideWrites("echo x > /c/Users/me/proj/a.txt", ctx)).toEqual([]);
+    expect(
+      outsideShows(
+        { callId: "1", name: "show_file", input: { path: "/c/Users/me/proj/app.py" } },
+        ctx,
+      ),
+    ).toEqual([]);
+  });
+
   it("is refused at once, before any rule, mode or question: never asked", () => {
     const base = { ...DEFAULT_POLICY, roots: god.roots, home: "/root", locked };
     for (const mode of ["auto", "manual"] as const) {

@@ -60,6 +60,7 @@ import {
   READ_ONLY_TOOLS,
 } from "@redgiant/hierarchy";
 import {
+  type AgentKind,
   agentLanguage,
   CommandSettings,
   DEFAULT_COMMAND_SETTINGS,
@@ -77,6 +78,7 @@ import {
   type MessageQuote,
   type ModelSpec,
   type NotifyReport,
+  nativePaths,
   notedText,
   ownWords,
   type Recipe,
@@ -512,6 +514,13 @@ export interface ModelChoice {
   /** "new": released in the last weeks; "unconfirmed": not in the models catalog yet. */
   status?: "new" | "unconfirmed";
 }
+
+/** A tool call's paths in Git Bash's way (/c/Users/…, ~) as Windows names them (p3.5.4). */
+const gitBashPaths: NonNullable<Hooks["preToolUse"]>[number] = (call) => {
+  if (process.platform !== "win32") return { action: "allow" };
+  const input = nativePaths(call.input, { windows: true, home: homedir() });
+  return input === call.input ? { action: "allow" } : { action: "modify", input };
+};
 
 export class RedGiantCore implements OrchestrationHost {
   readonly store: EventStore;
@@ -1715,16 +1724,19 @@ export class RedGiantCore implements OrchestrationHost {
         .filter(Boolean)
         .join("\n\n"),
       tools,
-      ...((receivesTasks || (agent.kind !== "demigod" && agent.kind !== "inspector")) && {
-        hooks: {
+      hooks: {
+        // Git Bash's paths on Windows (p3.5.4): every tool's paths as Windows names them, before
+        // the guardian and the tool read them (`nativePaths`, the guardian uses the same rule).
+        preToolUse: [gitBashPaths],
+        ...((receivesTasks || (agent.kind !== "demigod" && agent.kind !== "inspector")) && {
           // G36.8: one quiet nudge to propose a skill after a problem solved.
           ...(agent.kind !== "demigod" &&
             agent.kind !== "inspector" && {
               postToolUse: [this.skillNudge.hook(), this.editorNotesHook()],
             }),
           ...(receivesTasks && { stop: [this.tasks.stopHook(agentId)] }),
-        },
-      }),
+        }),
+      },
       ...(toolsOff.length > 0 && { toolsOff }),
       sessionId,
       ownerId,
@@ -3034,6 +3046,8 @@ export class RedGiantCore implements OrchestrationHost {
       docFileOf: (ownerId, abs) => this.docFileOf(ownerId, abs),
       absOf: (ownerId, file) => this.docAbs(ownerId, file),
       copyOf: (ownerId, file) => this.openCopy(ownerId, file),
+      personApproved: (sessionId, callId) =>
+        this.broker.personApproved(sessionId, callId, "critical-delete"),
     };
   }
 
@@ -3160,13 +3174,13 @@ export class RedGiantCore implements OrchestrationHost {
 
   /** Who an agent is for the knowledge (G36.5): itself, and the projects it works on. */
   knowledgeAsker(
-    agent: { id: string; projectId?: string | null },
+    agent: { id: string; kind?: AgentKind; projectId?: string | null },
     assignedTo?: string | null,
   ): Extract<KnowledgeAsker, { kind: "agent" }> {
     const projectIds = [agent.projectId, assignedTo].filter(
       (p, i, all): p is string => typeof p === "string" && p !== "" && all.indexOf(p) === i,
     );
-    return { kind: "agent", agentId: agent.id, projectIds };
+    return { kind: "agent", agentId: agent.id, projectIds, agentKind: agent.kind };
   }
 
   /** The folder behind a scope on disk (the knowledge's workspace sources, G36.3). */

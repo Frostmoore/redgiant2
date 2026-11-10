@@ -275,21 +275,36 @@ export class PdfFamily implements DocFamily<PdfModel> {
       return { error: "the PDF is encrypted: it is shown, never written" };
     let bytes: Uint8Array | undefined;
     const r = await actionsFromAgent(model.outline, ops, {
-      find: async (page, words) => {
+      find: async (page, words, o) => {
         bytes ??= await this.bytesOf(model);
-        return findWords(bytes, page, words);
+        return findWords(bytes, page, words, o);
       },
       newId: () => `rg-${Math.random().toString(36).slice(2, 10)}`,
     });
     if ("error" in r) return r;
-    // A redaction is tried first: refused unless the written file has nothing under its areas.
+    // A redaction is tried first: refused unless the written file has nothing under its areas,
+    // not one letter, and the words it was asked for are nowhere on its page (p3.5.4).
     const before = plainOf(model.pending);
+    const words = ops.flatMap((raw) => {
+      const x = (raw ?? {}) as Record<string, unknown>;
+      const name = String(x.op ?? x.action ?? x.type ?? "").toLowerCase();
+      return name === "redact" ? [typeof x.find === "string" ? x.find.trim() : ""] : [];
+    });
+    let nth = 0;
     for (const [i, a] of r.actions.entries()) {
       if (a.t !== "redact") continue;
+      const asked = words[nth++];
       const list = [...before, ...r.actions.slice(0, i + 1)];
+      if (asked) bytes ??= await this.bytesOf(model);
       try {
         const w = await writePdf(await this.baseBytes(model), list, this.blob);
-        const left = await verifyRedaction(w.bytes, a.page, a.rects);
+        const left = await verifyRedaction(
+          w.bytes,
+          a.page,
+          a.rects,
+          asked ? [asked] : [],
+          asked ? bytes : undefined,
+        );
         if (left)
           return {
             error: `the redaction of page ${a.page + 1} cannot be done safely: ${left} would stay under the area. Nothing was changed`,
