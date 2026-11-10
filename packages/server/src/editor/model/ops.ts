@@ -47,18 +47,58 @@ export const composeActions = (list: readonly ModelAction[]): ModelAction => ({
   ops: list.flatMap(modelPlainOf),
 });
 
-/** Two actions on the same object (node, material, light…), or growing the same list. */
-export function actionsConflict(a: ModelAction, b: ModelAction): boolean {
+/** The places each plain action touches. */
+const keyOf = (p: ModelPlainAction): Set<string> => modelTouched([p]);
+
+/**
+ * `a`, made on the same model as `b`, moved to apply after it; undefined when they truly meet.
+ * Two cases pass although they touch the same places: lists both only grow or shrink by one
+ * element (a scene's or a node's children: indices are moved past `b`'s insertions), and an undo
+ * of an addition after `b` added to the same collections (its removals at their end are dropped:
+ * those elements stay in the file, referenced by nothing, which glTF allows; the object leaves the
+ * scene all the same).
+ */
+function mapSmart(a: ModelAction, b: ModelAction): ModelAction | undefined {
   const x = modelTouched([a]);
   const y = modelTouched([b]);
-  if (x.has("*") || y.has("*")) return true;
-  for (const k of x) if (y.has(k)) return true;
-  return false;
+  if (x.has("*") || y.has("*")) return undefined;
+  const overlap = [...x].filter((k) => y.has(k));
+  if (!overlap.length) return a;
+  const bOps = modelPlainOf(b);
+  const out: ModelPlainAction[] = [];
+  for (const op of modelPlainOf(a)) {
+    const keys = [...keyOf(op)].filter((k) => overlap.includes(k));
+    if (!keys.length) {
+      out.push(op);
+      continue;
+    }
+    if (keys.length > 1 || op.t === "doc") return undefined;
+    const k = keys[0] as string;
+    if (k.endsWith("/+")) {
+      // A removal at a collection's end, which `b` grew since: left in place.
+      if (op.t !== "del") return undefined;
+      continue;
+    }
+    if (op.t !== "del" && op.t !== "ins") return undefined;
+    const path = op.path.join("/");
+    let at = op.at;
+    for (const o of bOps) {
+      if (!keyOf(o).has(k)) continue;
+      if (o.t !== "ins" || o.path.join("/") !== path) return undefined;
+      if (op.t === "del" ? o.at <= at : o.at < at) at++;
+    }
+    out.push({ ...op, at });
+  }
+  return out.length === 1 ? (out[0] as ModelPlainAction) : { t: "batch", ops: out };
 }
 
-/** Indices never shift, so an action that meets nothing of another applies after it as it is. */
+/** Two actions on the same object, or growing the same list, that cannot be moved past each other. */
+export function actionsConflict(a: ModelAction, b: ModelAction): boolean {
+  return mapSmart(a, b) === undefined;
+}
+
 export const mapAction = (a: ModelAction, b: ModelAction): ModelAction | undefined =>
-  actionsConflict(a, b) ? undefined : a;
+  mapSmart(a, b);
 
 type Obj = Record<string, unknown>;
 

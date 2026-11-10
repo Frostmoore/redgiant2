@@ -1977,7 +1977,7 @@ core.vaultSystem = async () => setup.keysForVault();
 if (!process.env.DEMO_FRESH) await setup.complete();
 const running = await serve(core, new TokenAuth({ [token]: "local" }), {
   port,
-  host: "0.0.0.0",
+  host: process.env.DEMO_HOST ?? "0.0.0.0",
   webDir: web,
   setup,
   hf: new HuggingFace(join(dir, "models")),

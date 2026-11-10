@@ -32,6 +32,7 @@ import {
   describe as describeOps,
   invertAction,
   type ModelModel,
+  mapAction,
 } from "../src/editor/model/ops.js";
 import { modelStructure, worldMatrices } from "../src/editor/model/structure.js";
 import {
@@ -205,6 +206,29 @@ describe("actions", () => {
       ),
     ).toBe(true);
     expect(actionsConflict({ t: "doc", json: "{}" }, c)).toBe(true);
+  });
+
+  it("an undo of an addition passes over later additions: the object leaves the scene", () => {
+    const m = load();
+    const sphere = agent(m, [{ op: "add_primitive", shape: "sphere", name: "Sfera" }]);
+    const inv = invertAction(m, sphere);
+    const m1 = applyAction(m, sphere);
+    const vase = agent(m1, [{ op: "add_primitive", shape: "cylinder", name: "Vaso" }]);
+    const m2 = applyAction(m1, vase);
+    expect(actionsConflict(inv, vase)).toBe(false);
+    const moved = mapAction(inv, vase) as ModelAction;
+    expect(checkAction(m2, moved)).toBeUndefined();
+    const m3 = applyAction(m2, moved);
+    const s = modelStructure(m3.file.json.root, "gltf", {});
+    expect(s).not.toMatch(/mesh "Sfera"/);
+    expect(s).toMatch(/mesh "Vaso"/);
+    expect(s).toContain("Detached nodes (deleted, still in the file, out of every scene): n3");
+    // Two additions made on the same revision still meet (their indices would collide).
+    expect(actionsConflict(sphere, agent(m, [{ op: "add_group" }]))).toBe(true);
+    // A deletion moves past an object added before it in the same list.
+    const del = agent(m, [{ op: "delete", ids: ["n2"] }]);
+    const front: ModelAction = { t: "ins", path: ["scenes", 0, "nodes"], at: 0, value: 1 };
+    expect(mapAction(del, front)).toEqual({ t: "del", path: ["scenes", 0, "nodes"], at: 2 });
   });
 
   it("a mesh from plain arrays: its own data: buffer, POSITION with min and max", () => {

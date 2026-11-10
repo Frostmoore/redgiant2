@@ -17271,19 +17271,34 @@ fieldset.vw-seg {
   font-size: 12px;
 }
 @container (max-width: 760px) {
+  /* Narrow (the canvas beside the chat): the view on top, the scene and the properties below it. */
   .model-body {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto auto;
-  }
-  .model-tree {
-    max-height: 150px;
-    border-right: none;
-    border-top: 1px solid var(--line);
-    grid-row: 2;
-    display: block;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+    grid-template-rows: minmax(200px, 1fr) minmax(0, 44%);
   }
   .model-body .svg-stage {
+    grid-column: 1 / -1;
     grid-row: 1;
+  }
+  .model-body > .model-tree {
+    grid-column: 1;
+    grid-row: 2;
+    max-height: none;
+    display: block;
+    border-top: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+  }
+  .model-body > .svg-side:last-child {
+    grid-column: 2;
+    grid-row: 2;
+    max-height: none;
+    display: block;
+    border-top: 1px solid var(--line);
+  }
+  .model-body > .svg-side:last-child section + section {
+    margin-top: 12px;
+    border-top: 1px solid var(--line);
+    padding-top: 6px;
   }
 }
 
