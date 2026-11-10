@@ -20,6 +20,12 @@
 // no installer over it); a window opens RedGiant's page, where the backup is made and the clean
 // install guided. A release.json that is listed but cannot be read or checked stops the update
 // this time (it is never taken for normal).
+//
+// One window at a time (3.5.4, AskGate.cs): the start's look, the page's look and the six-hourly
+// one never put a second update window on screen, and what the person answered in this session
+// is not asked again. «Looking at what changed» hashes the installed files on several threads
+// with a real count on the bar, and hashes.txt is filled in the background after an install or
+// an update, so the next update reads none of them again.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -86,6 +92,51 @@ static class Updates
     /** Added to the arguments of the RedGiant started after an update (" --background" or ""). */
     public static string CarryArgs = "";
     static bool updating;
+    /** The update window on screen (question, mandatory, breaking, progress), or null (AskGate.cs). */
+    static Form window;
+    /** Releases («kind version») the person already answered in this session: not asked again. */
+    static readonly HashSet<string> answered = new HashSet<string>();
+    /** Closing a mandatory window for the page's «Update now»: the only time it closes by itself. */
+    static bool replacing;
+
+    static string KeyOf(Release r) { return r.Gate + " " + r.Version; }
+
+    /** UI thread: `f` is the update window on screen until it closes. */
+    static void Track(Form f)
+    {
+        window = f;
+        f.FormClosed += (s, e) => { if (window == f) window = null; };
+    }
+
+    /** UI thread: the update window on screen comes to the front. */
+    static void Front()
+    {
+        var f = window;
+        if (f == null || f.IsDisposed) return;
+        try
+        {
+            if (f.WindowState == FormWindowState.Minimized) f.WindowState = FormWindowState.Normal;
+            f.Show();
+            f.Activate();
+            f.BringToFront();
+        }
+        catch (Exception) { }
+    }
+
+    /**
+     * UI thread: a look found `r` newer than the installed version; AskGate.cs says whether a
+     * window opens. When none opens and none is on screen, the page may open (PageGate.cs).
+     */
+    static void Offer(Release r, AskGate.From from)
+    {
+        var step = AskGate.Decide(from, r.Gate, window != null, answered.Contains(KeyOf(r)), updating);
+        Diag.Log("update", "found " + r.Version + " (" + r.Gate + ", " + from + "): " + (step == AskGate.Step.Show ? "asking" : step == AskGate.Step.Front ? "the window on screen comes forward" : "no window"));
+        if (step == AskGate.Step.Front) { Front(); return; }
+        if (step == AskGate.Step.None) { if (window == null) Decide(false); return; }
+        if (r.Gate == "mandatory") Required(r);
+        else if (r.Gate == "breaking") Breaking(r);
+        else Ask(r);
+    }
 
     /** The answer for the page; a «no» while an update runs counts for nothing (it gives up through GaveUp). */
     static void Decide(bool update)
@@ -263,8 +314,15 @@ static class Updates
     {
         watcher = new System.Threading.Timer(_ =>
         {
-            string json;
-            try { json = File.ReadAllText(Path.Combine(folder, "update.json")); } catch (Exception) { return; }
+            string json, file = Path.Combine(folder, "update.json");
+            try
+            {
+                // Left by an earlier session (3.5.4: it opened a second question at every start,
+                // and an old «quit» would have closed RedGiant): only this session's server asks.
+                if (!AskGate.Fresh(File.GetLastWriteTimeUtc(file), startedUtc)) return;
+                json = File.ReadAllText(file);
+            }
+            catch (Exception) { return; }
             var m = Regex.Match(json, "\"id\"\\s*:\\s*\"([^\"]+)\"");
             if (!m.Success || m.Groups[1].Value == lastAsk) return;
             lastAsk = m.Groups[1].Value;
@@ -286,7 +344,8 @@ static class Updates
                     state = "available";
                     version = r.Version;
                     Set("UpdateSnoozeUntil", null);
-                    try { owner.BeginInvoke(new Action(() => Offer(r))); } catch (Exception) { }
+                    // One window at a time; what was answered in this session is only reported.
+                    try { owner.BeginInvoke(new Action(() => Offer(r, AskGate.From.Page))); } catch (Exception) { }
                 }
                 else
                 {
@@ -323,7 +382,14 @@ static class Updates
     }
 
     static System.Threading.Timer periodic;
-    static string shownGate;
+    /** When this RedGiant started: an update.json older than that is an earlier session's. */
+    static readonly DateTime startedUtc = StartedUtc();
+
+    static DateTime StartedUtc()
+    {
+        try { return Process.GetCurrentProcess().StartTime.ToUniversalTime(); }
+        catch (Exception) { return DateTime.UtcNow; }
+    }
 
     static void Look(Control owner, bool askNormal)
     {
@@ -340,24 +406,20 @@ static class Updates
                 nothing();
                 return;
             }
-            if (r.Gate == "unchecked" || (r.Gate == "normal" && !askNormal)) { nothing(); return; }
-            try { owner.BeginInvoke(new Action(() => { if (askNow && r.Gate != "breaking") Update(r); else Offer(r); })); } catch (Exception) { }
+            if (r.Gate == "unchecked") { nothing(); return; }
+            var from = askNormal ? AskGate.From.Morning : AskGate.From.Background;
+            try
+            {
+                owner.BeginInvoke(new Action(() =>
+                {
+                    if (askNow && r.Gate != "breaking" && !updating && window == null) Update(r);
+                    else Offer(r, from);
+                }));
+            }
+            catch (Exception) { }
         });
         t.IsBackground = true;
         t.Start();
-    }
-
-    /** The right window for the release: the usual question, or the mandatory or breaking one (once at a time). */
-    static void Offer(Release r)
-    {
-        if (r.Gate == "mandatory" || r.Gate == "breaking")
-        {
-            if (shownGate == r.Gate + r.Version) return;
-            shownGate = r.Gate + r.Version;
-            if (r.Gate == "mandatory") Required(r); else Breaking(r);
-            return;
-        }
-        Ask(r);
     }
 
     /** The page's buttons (update.json with an action), on the UI thread of `owner`. */
@@ -372,7 +434,20 @@ static class Updates
             Release r = null;
             try { r = Find(); } catch (Exception e) { Diag.Log("update", "check failed: " + e.Message); return; }
             if (r == null || r.Gate == "none" || r.Gate == "unchecked") return;
-            try { owner.BeginInvoke(new Action(() => { if (r.Gate == "breaking") Breaking(r); else Update(r); })); } catch (Exception) { }
+            try
+            {
+                owner.BeginInvoke(new Action(() =>
+                {
+                    // Already updating: its window comes forward, nothing starts twice.
+                    if (updating) { Front(); return; }
+                    if (r.Gate == "breaking") { Offer(r, AskGate.From.Page); return; }
+                    // A question on screen gives way to the update the page asked for.
+                    var old = window;
+                    Update(r);
+                    if (old != null && old != window) { replacing = true; try { old.Close(); } finally { replacing = false; } }
+                }));
+            }
+            catch (Exception) { }
         });
         t.IsBackground = true;
         t.Start();
@@ -395,7 +470,8 @@ static class Updates
         var f = Dialog(It ? "È necessario aggiornare RedGiant" : "RedGiant must be updated", 500, 250);
         f.ControlBox = false;
         bool leaving = false;
-        f.FormClosing += (s, e) => { if (!leaving && e.CloseReason == CloseReason.UserClosing) e.Cancel = true; };
+        f.FormClosing += (s, e) => { if (!leaving && !replacing && e.CloseReason == CloseReason.UserClosing) e.Cancel = true; };
+        Track(f);
         var text = new Label
         {
             Text = (It
@@ -433,7 +509,9 @@ static class Updates
         open.Click += (s, e) => { guide = true; f.Close(); };
         later.Click += (s, e) => f.Close();
         // However it closes, the page may open; the guide asks for it even at a start in the background.
-        f.FormClosed += (s, e) => { if (guide && OpenPage != null) OpenPage(); Decide(false); };
+        // Answered for this session: the page shows the guide its own way from now on (AskGate.cs).
+        Track(f);
+        f.FormClosed += (s, e) => { answered.Add(KeyOf(r)); if (guide && OpenPage != null) OpenPage(); Decide(false); };
         f.Show();
         f.Activate();
     }
@@ -478,7 +556,8 @@ static class Updates
             : new object[] { "Snooze for…", "1 day", "3 days", "7 days" });
         days.SelectedIndex = 0;
         f.Controls.AddRange(new Control[] { text, now, later, days });
-        now.Click += (s, e) => { Set("UpdatePending", null); Decide(true); f.Close(); Update(r); };
+        bool chose = false;
+        now.Click += (s, e) => { chose = true; Set("UpdatePending", null); Decide(true); f.Close(); Update(r); };
         // Later: asked again at the next start.
         later.Click += (s, e) => { Set("UpdatePending", r.Version); f.Close(); };
         days.SelectedIndexChanged += (s, e) =>
@@ -489,8 +568,10 @@ static class Updates
             Set("UpdatePending", r.Version);
             f.Close();
         };
-        // «Later», a snooze or the window closed: the page opens (after «Update now» this is ignored).
-        f.FormClosed += (s, e) => Decide(false);
+        // «Later», a snooze or the window closed: the page opens (after «Update now» this is ignored),
+        // and this release is not asked about again in this session (AskGate.cs).
+        Track(f);
+        f.FormClosed += (s, e) => { if (!chose) answered.Add(KeyOf(r)); Decide(false); };
         f.Show();
         f.Activate();
     }
@@ -519,6 +600,82 @@ static class Updates
             }
             return Texts.Downloaded + " " + Mb(done) + (total > 0 ? " " + Texts.Of + " " + Mb(total) : "") + speed + left;
         }
+    }
+
+    /** The bar's line while the installed files are compared: how many of how many, time left. */
+    static string ScanLine(int done, int total, double seconds)
+    {
+        var c = CultureInfo.CurrentCulture;
+        string left = "";
+        if (seconds >= 3 && done > 0 && total > done) left = " · " + Texts.Left((total - done) * seconds / done);
+        return (It ? "Cerco cosa è cambiato: " : "Looking at what changed: ") + done.ToString("N0", c) + " " + Texts.Of + " " + total.ToString("N0", c) + (It ? " file" : " files") + left;
+    }
+
+    static string HashesFile { get { return Path.Combine(AppDir, "update", "hashes.txt"); } }
+
+    static Thread warmer;
+    static volatile bool warmStop;
+
+    /** The fill of hashes.txt stops (an update is about to compare) and its work is saved. */
+    static void StopWarm()
+    {
+        warmStop = true;
+        var t = warmer;
+        if (t != null) t.Join(15000);
+    }
+
+    /**
+     * hashes.txt filled in the background (3.5.4), so the next update's «Looking at what changed»
+     * reads none of the installed files: a while after the server answered (after an install with
+     * the whole installer, or an update), one file at a time, at the background priority of
+     * processor and disk, pausing while the PC is busy. Nothing is done when every file is
+     * remembered already (only their sizes and times are read).
+     */
+    static void StartWarm()
+    {
+        if (warmer != null || AppDir == null) return;
+        // A minute and a half after the server answered (the CI sets it shorter).
+        int delay;
+        if (!int.TryParse(Environment.GetEnvironmentVariable("REDGIANT_WARM_DELAY_MS"), out delay)) delay = 90000;
+        var t = new Thread(() =>
+        {
+            Thread.Sleep(Math.Max(0, delay));
+            if (warmStop || updating || trial || File.Exists(StateFile)) return;
+            Delta.BackgroundMode();
+            var started = DateTime.Now;
+            int looked = 0;
+            int hashed = Delta.Warm(AppDir, HashesFile, () =>
+            {
+                if (warmStop || updating) return false;
+                // Every 200 files: wait while the PC is busy (an agent, a build, a game).
+                if (++looked % 200 == 0)
+                    for (int i = 0; i < 20 && !warmStop && Busy(); i++) Thread.Sleep(15000);
+                return !warmStop && !updating;
+            });
+            Diag.Log("update", "hashes of the installed files: " + hashed + " hashed now, " + looked + " looked at, in " + (int)(DateTime.Now - started).TotalSeconds + " s" + (warmStop ? " (stopped for an update)" : ""));
+        });
+        t.IsBackground = true;
+        t.Priority = ThreadPriority.Lowest;
+        warmer = t;
+        t.Start();
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    static extern bool GetSystemTimes(out long idle, out long kernel, out long user);
+
+    /** The processors more than half busy over the last second (false when Windows cannot say). */
+    static bool Busy()
+    {
+        try
+        {
+            long i1, k1, u1, i2, k2, u2;
+            if (!GetSystemTimes(out i1, out k1, out u1)) return false;
+            Thread.Sleep(1000);
+            if (!GetSystemTimes(out i2, out k2, out u2)) return false;
+            long all = (k2 - k1) + (u2 - u1), idle = i2 - i1;
+            return all > 0 && idle * 2 < all;
+        }
+        catch (Exception) { return false; }
     }
 
     static string Staging(string version) { return Path.Combine(AppDir, "update", version); }
@@ -593,9 +750,10 @@ static class Updates
         }
         var f = Dialog(It ? "Scarico l'aggiornamento" : "Downloading the update", 470, 150);
         var what = new Label { Text = "RedGiant " + r.Version, Location = new Point(18, 16), Size = new Size(434, 24) };
-        var detail = new Label { Text = It ? "Guardo cosa è cambiato…" : "Looking at what changed…", Location = new Point(18, 48), Size = new Size(434, 40), ForeColor = Color.FromArgb(160, 166, 178), Font = new Font("Segoe UI", 9.5f) };
+        var detail = new Label { Text = It ? "Cerco cosa è cambiato…" : "Looking at what changed…", Location = new Point(18, 48), Size = new Size(434, 40), ForeColor = Color.FromArgb(160, 166, 178), Font = new Font("Segoe UI", 9.5f) };
         var bar = new ProgressBar { Location = new Point(18, 100), Size = new Size(434, 14), Maximum = 1000, Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30 };
         f.Controls.AddRange(new Control[] { what, detail, bar });
+        Track(f);
         f.Show();
         Action<Action> ui = a => { try { f.BeginInvoke(a); } catch (Exception) { } };
         var t = new Thread(() =>
@@ -605,7 +763,27 @@ static class Updates
             try
             {
                 var m = Manifest(r);
-                var plan = Delta.Compare(m, AppDir, Delta.Gap, Path.Combine(AppDir, "update", "hashes.txt"));
+                // The fill in the background gives way (what it hashed is in hashes.txt by now).
+                StopWarm();
+                // «Looking at what changed: 12,000 of 27,374 files», with the download's bar (3.5.4).
+                var scanStarted = DateTime.Now;
+                var lastScan = DateTime.MinValue;
+                object scanLock = new object();
+                ui(() => { bar.Style = ProgressBarStyle.Continuous; bar.Value = 0; });
+                Action<int, int> scanned = (done, total) =>
+                {
+                    lock (scanLock)
+                    {
+                        if ((DateTime.Now - lastScan).TotalMilliseconds < 250 && done < total) return;
+                        lastScan = DateTime.Now;
+                    }
+                    string line = ScanLine(done, total, (DateTime.Now - scanStarted).TotalSeconds);
+                    int value = total > 0 ? (int)Math.Min(1000, (long)done * 1000 / total) : 1000;
+                    ui(() => { detail.Text = line; bar.Value = value; });
+                };
+                int threads = Delta.HashThreads;
+                var plan = Delta.Compare(m, AppDir, Delta.Gap, HashesFile, threads, scanned);
+                Diag.Log("update", "looked at " + m.Files.Count + " installed files in " + (int)(DateTime.Now - scanStarted).TotalMilliseconds + " ms on " + threads + " threads");
                 long full = r.Size > 0 ? r.Size : m.InstallerSize;
                 Diag.Log("update", "differential " + Installed + " -> " + r.Version + ": " + plan.Fetch.Count + " of " + m.Files.Count + " files, " + plan.Bytes + " bytes in " + plan.Runs.Count + " requests (installer " + full + ")");
                 // Most of the app changed: one installer is quicker than many requests.
@@ -793,7 +971,7 @@ static class Updates
     /** The server answered: an update on trial stays. */
     public static void Healthy()
     {
-        if (!trial) return;
+        if (!trial) { StartWarm(); return; }
         trial = false;
         Diag.Log("update", "RedGiant " + trialVersion + " answered: the update stays");
         try { File.Delete(StateFile); } catch (Exception) { }
@@ -806,6 +984,8 @@ static class Updates
         });
         t.IsBackground = true;
         t.Start();
+        // The files that came with the update are not in hashes.txt yet.
+        StartWarm();
     }
 
     /**
@@ -864,6 +1044,7 @@ static class Updates
         var detail = new Label { Text = "", Location = new Point(18, 48), Size = new Size(434, 40), ForeColor = Color.FromArgb(160, 166, 178), Font = new Font("Segoe UI", 9.5f) };
         var bar = new ProgressBar { Location = new Point(18, 100), Size = new Size(434, 14), Maximum = 1000 };
         f.Controls.AddRange(new Control[] { what, detail, bar });
+        Track(f);
         f.Show();
         string file = Path.Combine(Path.GetTempPath(), "RedGiant-Setup-" + r.Version + ".exe");
         var speed = new Speed();

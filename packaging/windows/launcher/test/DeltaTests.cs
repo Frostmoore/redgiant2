@@ -190,8 +190,57 @@ static class DeltaTests
         throw new Exception("expected a refusal: " + what);
     }
 
+    /**
+     * DeltaTests.exe --bench [files]: «Looking at what changed» timed on a folder like the
+     * installed one (27,374 files by default, the size of 3.5.x: mostly small modules, one big
+     * node.exe), with one thread as before 3.5.4, with HashThreads, and with hashes.txt filled.
+     */
+    static int Bench(int count)
+    {
+        string t = Temp(), app = Path.Combine(t, "app");
+        var m = new UpdateManifest { Format = 1, Version = "9.9.9", Platform = "win-x64", ArchiveName = "x.zip" };
+        m.Roots.AddRange(new[] { "node", "server", "web" });
+        var rnd = new Random(7);
+        long bytes = 0;
+        var made = System.Diagnostics.Stopwatch.StartNew();
+        for (int i = 0; i < count; i++)
+        {
+            string path = i == 0 ? "node/node.exe" : (i % 10 == 0 ? "web/assets/" : "server/node_modules/p" + (i / 60) + "/lib/") + "f" + i + ".js";
+            int size = i == 0 ? 80 * 1048576 : 200 + (int)(Math.Pow(rnd.NextDouble(), 3) * 60000);
+            var data = new byte[size];
+            rnd.NextBytes(data);
+            string p = Path.Combine(app, path.Replace('/', '\\'));
+            Directory.CreateDirectory(Path.GetDirectoryName(p));
+            File.WriteAllBytes(p, data);
+            m.Files.Add(new UpdateFile { Path = path, Size = size, Sha256 = Delta.Sha256Bytes(data) });
+            bytes += size;
+        }
+        Console.WriteLine("bench: " + count + " files, " + (bytes / 1048576) + " MB written in " + made.ElapsedMilliseconds + " ms; " + Environment.ProcessorCount + " cores, HashThreads " + Delta.HashThreads);
+        string cache = Path.Combine(app, "update", "hashes.txt");
+        Func<int, string, long> time = (threads, file) =>
+        {
+            var w = System.Diagnostics.Stopwatch.StartNew();
+            var plan = Delta.Compare(m, app, Delta.Gap, file, threads, null);
+            if (plan.Fetch.Count != 0) throw new Exception("bench: " + plan.Fetch.Count + " files differ");
+            return w.ElapsedMilliseconds;
+        };
+        long one = time(1, null);
+        long many = time(Delta.HashThreads, null);
+        var ww = System.Diagnostics.Stopwatch.StartNew();
+        Delta.Warm(app, cache, null);
+        long warm = ww.ElapsedMilliseconds;
+        long cached = time(Delta.HashThreads, cache);
+        Console.WriteLine("bench: compare, 1 thread (before 3.5.4): " + one + " ms");
+        Console.WriteLine("bench: compare, " + Delta.HashThreads + " threads: " + many + " ms");
+        Console.WriteLine("bench: fill of hashes.txt in the background (1 thread): " + warm + " ms");
+        Console.WriteLine("bench: compare with hashes.txt filled: " + cached + " ms");
+        try { Directory.Delete(t, true); } catch (Exception) { }
+        return 0;
+    }
+
     static int Main(string[] args)
     {
+        if (args.Length >= 1 && args[0] == "--bench") return Bench(args.Length >= 2 ? int.Parse(args[1]) : 27374);
         Run("manifest: parsed, and unsafe ones refused", () =>
         {
             var s = Prepare();
@@ -358,6 +407,67 @@ static class DeltaTests
                 Check(!Delta.SignatureValid(data, sig, other.ToXmlString(false)), "other key");
                 Check(!Delta.SignatureValid(data, "not base64!", pub), "garbage");
             }
+        });
+
+        Run("compare on several threads: the same plan, every file counted", () =>
+        {
+            var s = Prepare();
+            string cache = Path.Combine(s.App, "update", "hashes.txt");
+            int calls = 0, last = 0, total = 0;
+            bool beyond = false;
+            object gate = new object();
+            var plan = Delta.Compare(s.Next.Manifest, s.App, Delta.Gap, cache, 4, (d, t) => { lock (gate) { calls++; if (d > last) last = d; total = t; if (d > t) beyond = true; } });
+            Check(plan.Fetch.Select(f => f.Path).SequenceEqual(s.Plan.Fetch.Select(f => f.Path)), "same files to fetch, in the manifest's order");
+            Check(plan.Keep == s.Plan.Keep && plan.Bytes == s.Plan.Bytes, "same bytes");
+            Check(calls == s.Next.Manifest.Files.Count && last == total && total == s.Next.Manifest.Files.Count && !beyond, "progress for every file: " + calls + ", " + last + " of " + total);
+            Check(File.Exists(cache), "hashes remembered");
+            Check(Delta.HashThreads >= 2 && Delta.HashThreads <= 8, "between 2 and 8 threads");
+            int n = 0;
+            Delta.InParallel(1000, 6, i => System.Threading.Interlocked.Increment(ref n), null);
+            Check(n == 1000, "every item once: " + n);
+        });
+
+        Run("installed files: only the program's", () =>
+        {
+            var s = Prepare();
+            Write(s.App, "update/hashes.txt", "");
+            Write(s.App, "bin/redgiant.cmd", "@echo off");
+            var files = Delta.InstalledFiles(s.App);
+            Check(files.SequenceEqual(new[] { "RedGiant.exe", "bin/redgiant.cmd", "node/node.exe", "server/dist/gone.js", "server/dist/main.js", "server/node_modules/a/index.js", "web/assets/index-1.js", "web/index.html" }), "launcher, bin, node, server, web: " + string.Join(", ", files));
+        });
+
+        Run("warm: hashes.txt filled in the background, the next compare reads nothing again", () =>
+        {
+            var s = Prepare();
+            string cache = Path.Combine(s.App, "update", "hashes.txt");
+            Check(Delta.Warm(s.App, cache, null) == 7, "every installed file hashed once");
+            Check(new Delta.HashCache(cache).Known == 7, "seven remembered");
+            Check(Delta.Warm(s.App, cache, null) == 0, "the second fill reads nothing");
+            // Proof the compare trusts the cache: other bytes, same size and time, still kept.
+            string node = Path.Combine(s.App, "node", "node.exe");
+            var when = File.GetLastWriteTimeUtc(node);
+            WriteRandom(s.App, "node/node.exe", 600000, 9);
+            File.SetLastWriteTimeUtc(node, when);
+            var plan = Delta.Compare(s.Next.Manifest, s.App, Delta.Gap, cache, Delta.HashThreads, null);
+            Check(!plan.Fetch.Any(f => f.Path == "node/node.exe"), "node.exe answered from the cache");
+            // A changed time is read again.
+            File.SetLastWriteTimeUtc(node, when.AddSeconds(5));
+            plan = Delta.Compare(s.Next.Manifest, s.App, Delta.Gap, cache, Delta.HashThreads, null);
+            Check(plan.Fetch.Any(f => f.Path == "node/node.exe"), "node.exe with another time hashed again");
+        });
+
+        Run("warm stopped halfway: what it had and what it hashed both stay", () =>
+        {
+            var s = Prepare();
+            string cache = Path.Combine(s.App, "update", "hashes.txt");
+            int asked = 0;
+            Check(Delta.Warm(s.App, cache, () => ++asked <= 3) == 3, "three hashed before the stop");
+            Check(new Delta.HashCache(cache).Known == 3, "three remembered");
+            asked = 0;
+            Check(Delta.Warm(s.App, cache, () => ++asked <= 5) == 2, "two more (three were known)");
+            Check(new Delta.HashCache(cache).Known == 5, "five remembered");
+            Check(Delta.Warm(s.App, cache, null) == 2, "the rest");
+            Check(new Delta.HashCache(cache).Known == 7, "all seven");
         });
 
         // With pack.mjs's real output (the CI passes it): its zip and manifest as the launcher reads them.
