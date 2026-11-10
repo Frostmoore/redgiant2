@@ -1,4 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
+import {
+  catalogModel,
+  catalogModels,
+  catalogPricing,
+  isNewModel,
+  newestRelease,
+} from "./catalog.js";
 import { anthropicEffort } from "./effort.js";
 import { MetricsClock } from "./metrics.js";
 import {
@@ -14,70 +21,70 @@ import {
   type Usage,
 } from "./types.js";
 
-interface CatalogEntry {
+/** What the provider needs of one model: from the catalog, the API's own list, or guesses. */
+export interface AnthropicModelEntry {
   contextWindow: number;
   maxOutputTokens: number;
   supportsEffort: boolean;
   /** Adaptive thinking is requested explicitly (some models run without it when omitted). */
   adaptiveThinking: boolean;
-  pricing: Pricing;
+  vision: boolean;
+  /** Server-side fallback on a refusal (`fallbacks: "default"`). */
+  serverFallback: boolean;
+  /** Absent: prices not known. */
+  pricing?: Pricing | undefined;
+  name?: string | undefined;
+  /** Not in the models catalog: limits from the API or guessed, prices unknown. */
+  unconfirmed: boolean;
+  isNew: boolean;
 }
 
-/**
- * Anthropic's price list: cache writes cost 1.25x input for 5 minutes and 2x for one hour;
- * cache reads 0.1x input unless the model says otherwise.
- */
-const price = (input: number, output: number, cacheRead = input / 10): Pricing => ({
-  input,
-  output,
-  cacheRead,
-  cacheWrite: input * 1.25,
-  cacheWrite1h: input * 2,
-});
-
-const current = (pricing: Pricing): CatalogEntry => ({
-  contextWindow: 1_000_000,
-  maxOutputTokens: 128_000,
-  supportsEffort: true,
-  adaptiveThinking: true,
-  pricing,
-});
-
-/**
- * Known models (USD per million tokens, checked 2026-11-08 against
- * platform.claude.com/docs/en/about-claude/pricing). Overridable via options.
- */
-export const ANTHROPIC_MODELS: Record<string, CatalogEntry> = {
-  "claude-fable-5-1": current(price(10, 50, 0.25)),
-  "claude-fable-5": current(price(10, 50)),
-  "claude-opus-5-5": current(price(4, 20, 0.2)),
-  "claude-opus-5": current(price(5, 25)),
-  "claude-opus-4-8": current(price(5, 25)),
-  "claude-opus-4-7": current(price(5, 25)),
-  "claude-opus-4-6": current(price(5, 25)),
-  "claude-sonnet-5-5": current(price(2, 10, 0.1)),
-  "claude-sonnet-5": current(price(2, 10)),
-  "claude-sonnet-4-6": current(price(3, 15)),
-  // Priced by prompt length: over 100K input tokens the whole request pays 5x.
-  "claude-haiku-5-5": current({
-    ...price(0.1, 0.5),
-    longPrompt: { overTokens: 100_000, prices: price(0.5, 2.5) },
-  }),
-  "claude-haiku-4-5": {
-    contextWindow: 200_000,
-    maxOutputTokens: 64_000,
-    supportsEffort: false,
-    adaptiveThinking: false,
-    pricing: price(1, 5),
-  },
-};
-
-const UNKNOWN_MODEL: Omit<CatalogEntry, "pricing"> = {
+/** A model neither the catalog nor the API describes: careful limits, no extras. */
+const UNKNOWN_MODEL: AnthropicModelEntry = {
   contextWindow: 200_000,
   maxOutputTokens: 32_000,
   supportsEffort: false,
   adaptiveThinking: false,
+  vision: true,
+  serverFallback: false,
+  unconfirmed: true,
+  isNew: false,
 };
+
+/** One model as the catalog has it (Claude API key and Claude subscription alike). */
+export function anthropicModel(model: string): AnthropicModelEntry | undefined {
+  const m = catalogModel("anthropic", model);
+  if (!m) return undefined;
+  return {
+    contextWindow: m.contextWindow,
+    maxOutputTokens: m.maxOutputTokens,
+    supportsEffort: m.effort,
+    adaptiveThinking: m.adaptiveThinking,
+    vision: m.vision,
+    serverFallback: m.serverFallback === true,
+    pricing: catalogPricing(m),
+    name: m.name,
+    unconfirmed: false,
+    isNew: isNewModel(m),
+  };
+}
+
+/** What `GET /v1/models` said about one model (3.5.4). */
+interface ListedModel {
+  id: string;
+  name: string;
+  createdAt: string;
+  contextWindow?: number | undefined;
+  maxOutputTokens?: number | undefined;
+  effort?: boolean | undefined;
+  adaptive?: boolean | undefined;
+  vision?: boolean | undefined;
+}
+
+/** The API's list is asked again after this long (a new model shows up within hours). */
+export const MODEL_LIST_TTL_MS = 6 * 60 * 60 * 1000;
+/** After a failed list, the next try waits this long (the menus keep the known models). */
+const MODEL_LIST_RETRY_MS = 5 * 60 * 1000;
 
 export interface AnthropicProviderOptions {
   /** Pre-built client; otherwise one is created from the options below. */
@@ -94,7 +101,8 @@ export interface AnthropicProviderOptions {
    * call. On by default where supported, as Anthropic recommends.
    */
   serverFallbacks?: boolean;
-  models?: Record<string, Partial<CatalogEntry>>;
+  models?: Record<string, Partial<AnthropicModelEntry>>;
+  now?: () => number;
   /**
    * RedGiant's `web_search` tool becomes Anthropic's own (2026-11-03): Claude searches on the
    * server, filters the results with code (newer models) and cites its sources. Default on.
@@ -118,15 +126,6 @@ const STOP_REASONS: Record<string, StopReason> = {
 };
 
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
-/** Models with server-side fallback on the Claude API (not Haiku 5.5, not older ones). */
-const SERVER_FALLBACK_MODELS = new Set([
-  "claude-fable-5-1",
-  "claude-fable-5",
-  "claude-opus-5-5",
-  "claude-opus-5",
-  "claude-sonnet-5-5",
-]);
-
 export class AnthropicProvider implements Provider {
   readonly id = "anthropic";
   private readonly client: Anthropic;
@@ -142,13 +141,32 @@ export class AnthropicProvider implements Provider {
       });
   }
 
-  private entry(model: string): CatalogEntry | (typeof UNKNOWN_MODEL & { pricing?: Pricing }) {
-    const base = ANTHROPIC_MODELS[model] ?? UNKNOWN_MODEL;
+  private listed: { at: number; models: ListedModel[] } | undefined;
+  private listFailedAt = 0;
+  private listing: Promise<ListedModel[] | undefined> | undefined;
+
+  private entry(model: string): AnthropicModelEntry {
+    let base = anthropicModel(model);
+    if (!base) {
+      // Not in the catalog: what the API's own list says, prices unknown.
+      const l = this.listed?.models.find((m) => m.id === model);
+      base = {
+        ...UNKNOWN_MODEL,
+        ...(l && {
+          name: l.name,
+          ...(l.contextWindow && { contextWindow: l.contextWindow }),
+          ...(l.maxOutputTokens && { maxOutputTokens: l.maxOutputTokens }),
+          ...(l.effort !== undefined && { supportsEffort: l.effort }),
+          ...(l.adaptive !== undefined && { adaptiveThinking: l.adaptive }),
+          ...(l.vision !== undefined && { vision: l.vision }),
+        }),
+      };
+    }
     return { ...base, ...this.options.models?.[model] };
   }
 
   private fallbacksFor(model: string): boolean {
-    return (this.options.serverFallbacks ?? true) && SERVER_FALLBACK_MODELS.has(model);
+    return (this.options.serverFallbacks ?? true) && this.entry(model).serverFallback;
   }
 
   /** Asks Anthropic whether the key works (a refused key throws, with its status). */
@@ -160,9 +178,52 @@ export class AnthropicProvider implements Provider {
     }
   }
 
-  async models(): Promise<string[]> {
-    // The current generation: older ones still work when named, but are not offered.
-    return ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"];
+  /**
+   * The models to offer (3.5.4): Anthropic's own list (`GET /v1/models`, every page), kept for a
+   * few hours. The current generation per the catalog comes first (those this key can use), then
+   * models the catalog does not know yet and that came out after the newest one it knows ("data
+   * to be confirmed"). If the list cannot be read, the catalog's current models.
+   */
+  async models(signal?: AbortSignal): Promise<string[]> {
+    const listed = await this.list(signal);
+    const current = catalogModels("anthropic")
+      .filter(([, m]) => m.status === "current")
+      .map(([id]) => id);
+    if (!listed) return current;
+    const ids = new Set(listed.map((m) => m.id));
+    const newest = newestRelease("anthropic");
+    const unknown = listed
+      .filter((m) => !catalogModel("anthropic", m.id))
+      .filter((m) => newest !== undefined && m.createdAt.slice(0, 10) >= newest)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((m) => m.id);
+    return [...current.filter((id) => ids.has(id)), ...unknown];
+  }
+
+  /** The API's list, from the cache while fresh; undefined when it could not be read. */
+  private async list(signal?: AbortSignal): Promise<ListedModel[] | undefined> {
+    const now = (this.options.now ?? Date.now)();
+    if (this.listed && now - this.listed.at < MODEL_LIST_TTL_MS) return this.listed.models;
+    if (now - this.listFailedAt < MODEL_LIST_RETRY_MS) return this.listed?.models;
+    this.listing ??= (async () => {
+      try {
+        const out: ListedModel[] = [];
+        for await (const m of this.client.models.list(
+          { limit: 100 },
+          signal ? { signal } : undefined,
+        ))
+          out.push(listedModel(m));
+        this.listed = { at: now, models: out };
+        return out;
+      } catch {
+        this.listFailedAt = now;
+        // An older list stays good while the API does not answer.
+        return this.listed?.models;
+      } finally {
+        this.listing = undefined;
+      }
+    })();
+    return this.listing;
   }
 
   modelInfo(model: string): ModelInfo {
@@ -173,7 +234,10 @@ export class AnthropicProvider implements Provider {
       maxOutputTokens: e.maxOutputTokens,
       supportsEffort: e.supportsEffort,
       pricing: e.pricing,
-      vision: true,
+      vision: e.vision,
+      ...(e.name && { name: e.name }),
+      ...(e.unconfirmed && { unconfirmed: true }),
+      ...(e.isNew && { isNew: true }),
     };
   }
 
@@ -281,7 +345,11 @@ export class AnthropicProvider implements Provider {
         // Generation starts with the first content block of any kind (thinking included):
         // timing from the first text delta would hide reasoning and tool-call generation.
         if (event.type === "content_block_start") clock.token();
-        if (event.type !== "content_block_delta") continue;
+        if (event.type !== "content_block_delta") {
+          // The answer has started (or goes on): nothing to show, but alive (3.5.4).
+          yield { type: "alive" };
+          continue;
+        }
         if (event.delta.type === "text_delta") {
           clock.token();
           text += event.delta.text;
@@ -289,8 +357,10 @@ export class AnthropicProvider implements Provider {
         } else if (event.delta.type === "thinking_delta") {
           clock.token();
           yield { type: "thinking_delta", text: event.delta.thinking };
-        } else if (event.delta.type === "input_json_delta") {
-          clock.token();
+        } else {
+          // A tool call's arguments being written, a citation, a signature: alive.
+          if (event.delta.type === "input_json_delta") clock.token();
+          yield { type: "alive" };
         }
       }
       const final = await stream.finalMessage();
@@ -384,6 +454,28 @@ export class AnthropicProvider implements Provider {
       throw toProviderError(err);
     }
   }
+}
+
+/** One entry of the Models API, as the provider keeps it. */
+function listedModel(m: Anthropic.ModelInfo): ListedModel {
+  const caps = m.capabilities as
+    | {
+        effort?: { supported?: boolean } | null;
+        thinking?: { types?: { adaptive?: { supported?: boolean } | null } | null } | null;
+        image_input?: { supported?: boolean } | null;
+      }
+    | null
+    | undefined;
+  return {
+    id: m.id,
+    name: m.display_name || m.id,
+    createdAt: m.created_at ?? "",
+    contextWindow: m.max_input_tokens ?? undefined,
+    maxOutputTokens: m.max_tokens ?? undefined,
+    effort: caps?.effort?.supported,
+    adaptive: caps?.thinking?.types?.adaptive?.supported,
+    vision: caps?.image_input?.supported,
+  };
 }
 
 function toProviderError(err: unknown): ProviderError {

@@ -629,6 +629,7 @@ function Item({
               <MetricsBar
                 m={item.metrics}
                 costUsd={item.costUsd}
+                {...(item.costUnknown && { costUnknown: true })}
                 model={item.model}
                 compactAt={agents.value.find((a) => a.id === agentId)?.compaction?.at ?? 0.8}
               />

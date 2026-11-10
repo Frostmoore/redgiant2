@@ -5,7 +5,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { ModelChoice } from "../api.js";
 import { t } from "../i18n.js";
 import { getApi } from "../state.js";
-import { modelName, via } from "./ModelMenu.js";
+import { modelName, modelNote, via } from "./ModelMenu.js";
 
 const EFFORTS = ["low", "medium", "high", "max"] as const;
 
@@ -66,6 +66,7 @@ export function ModelSelect({
           <option key={key(m)} value={key(m)}>
             {modelName(m.model)}
             {many ? ` · ${via(m.provider)}` : ""}
+            {modelNote(m)}
           </option>
         ))}
       </select>

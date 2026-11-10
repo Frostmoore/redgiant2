@@ -9,11 +9,14 @@ import { t } from "../i18n.js";
 export function MetricsBar({
   m,
   costUsd,
+  costUnknown,
   model,
   compactAt,
 }: {
   m: MessageMetrics;
   costUsd?: number;
+  /** The model's price is not known (3.5.4). */
+  costUnknown?: boolean;
   model?: string;
   /** Where a summary is made (G24.14c): a mark on the bar. */
   compactAt?: number | undefined;
@@ -72,7 +75,13 @@ export function MetricsBar({
             SSD {kTokens(m.kvRestoredTokens)} ({duration(m.kvRestoreMs)})
           </span>
         )}
-        {costUsd !== undefined && costUsd > 0 && <span>{usd(costUsd)}</span>}
+        {costUnknown ? (
+          <span class="dim" title={t("costUnknownHint")}>
+            {t("costUnknown")}
+          </span>
+        ) : (
+          costUsd !== undefined && costUsd > 0 && <span>{usd(costUsd)}</span>
+        )}
         <span class="dim">{clock(m.endedAt ?? m.startedAt)}</span>
       </div>
     </div>

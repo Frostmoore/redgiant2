@@ -4,6 +4,7 @@ import { render } from "@testing-library/preact";
 import { beforeEach, describe, expect, it } from "vitest";
 import { packMessage, pastedAttachment, pastedExt } from "../src/components/Composer.js";
 import { MetricsBar } from "../src/components/MetricsBar.js";
+import { modelNote } from "../src/components/ModelMenu.js";
 import { QuestionCard } from "../src/components/QuestionCard.js";
 import { dictionaries, lang, t } from "../src/i18n.js";
 import { renderMarkdown } from "../src/markdown.js";
@@ -52,6 +53,25 @@ const metrics = {
   source: "server" as const,
 };
 
+describe("models in the menus (3.5.4)", () => {
+  it("says new or data to be confirmed after the name, in both languages", () => {
+    lang.value = "it";
+    expect(modelNote({ status: "new" })).toBe(" · nuovo");
+    expect(modelNote({ status: "unconfirmed" })).toBe(" · dati da confermare");
+    expect(modelNote({})).toBe("");
+    lang.value = "en";
+    expect(modelNote({ status: "unconfirmed" })).toBe(" · data to be confirmed");
+    lang.value = "it";
+  });
+
+  it("shows the cost of a model with unknown prices as not known, never as zero", () => {
+    const r = render(<MetricsBar m={metrics} costUsd={0} costUnknown />);
+    expect(r.container.textContent).toContain("costo non noto");
+    expect(r.container.textContent).not.toContain("$");
+    r.unmount();
+  });
+});
+
 describe("buildItems", () => {
   it("turns events into messages, tool calls with their results, and notices", () => {
     const items = buildItems([
@@ -85,6 +105,45 @@ describe("buildItems", () => {
     expect(assistant?.kind === "assistant" && assistant.parts).toEqual([
       { type: "text", text: "ok" },
     ]);
+  });
+
+  // 3.5.4, the person's test on Windows: finished `bash` and `read_agent` lines kept spinning.
+  it("pairs each result with its own call when an engine gives two calls the same id", () => {
+    const items = buildItems([
+      env(1, "tool.call", { callId: "call_bash_1", tool: "bash", input: { command: "sleep 90" } }),
+      env(2, "tool.call", { callId: "call_bash_1", tool: "bash", input: { command: "echo ok" } }),
+      env(3, "tool.result", { callId: "call_bash_1", ok: true, output: "" }),
+      env(4, "tool.result", { callId: "call_bash_1", ok: true, output: "ok" }),
+    ]);
+    const tools = items.filter((i) => i.kind === "tool");
+    expect(tools.map((i) => i.kind === "tool" && i.result?.output)).toEqual(["", "ok"]);
+  });
+
+  it("stops the spinner of a call left without result once the model gave its answer", () => {
+    const answer = (seq: number, stopReason: string) =>
+      env(seq, "message.assistant", {
+        parts: [{ type: "text", text: "done" }],
+        stopReason,
+        provider: "p",
+        model: "m",
+        metrics,
+        costUsd: 0,
+      });
+    const items = buildItems([
+      // An engine may record the message that asks for a tool after the call started.
+      env(1, "tool.call", { callId: "a", tool: "read_agent", input: {} }),
+      answer(2, "tool_use"),
+      env(3, "tool.call", { callId: "b", tool: "bash", input: { command: "ls" } }),
+      answer(4, "end_turn"),
+    ]);
+    const tools = items.filter((i) => i.kind === "tool");
+    expect(tools.every((i) => i.kind === "tool" && i.result?.ok === false)).toBe(true);
+    // While the model has not answered, a call with no result is still running.
+    const running = buildItems([
+      env(1, "tool.call", { callId: "a", tool: "read_agent", input: {} }),
+      answer(2, "tool_use"),
+    ]);
+    expect(running.find((i) => i.kind === "tool")).not.toHaveProperty("result");
   });
 
   it("keeps a message's images and sender", () => {

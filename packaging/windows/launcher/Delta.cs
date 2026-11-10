@@ -286,13 +286,14 @@ public static class Delta
     /**
      * The sha256 of the installed files, remembered by path, size and modification time in
      * `cacheFile` (update\hashes.txt): the next look at the same files reads none of them again.
-     * A file whose size or time changed is hashed again.
+     * A file whose size or time changed is hashed again. Safe to use from several threads.
      */
     public sealed class HashCache
     {
         readonly string file;
         readonly Dictionary<string, string> known = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, string> seen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        readonly HashSet<string> seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public HashCache(string file)
         {
             this.file = file;
@@ -308,32 +309,117 @@ public static class Delta
             catch (Exception) { }
         }
 
+        /** Entries read from the file. */
+        public int Known { get { lock (this) return known.Count; } }
+
+        static string Key(string path, FileInfo info) { return path + "|" + info.Length + "|" + info.LastWriteTimeUtc.Ticks; }
+
+        /** True when the file's sha256 is remembered (same path, size and time). */
+        public bool Has(string path, FileInfo info)
+        {
+            lock (this) return known.ContainsKey(Key(path, info));
+        }
+
         public string Of(string path, FileInfo info)
         {
-            string key = path + "|" + info.Length + "|" + info.LastWriteTimeUtc.Ticks;
+            string key = Key(path, info);
             string sha;
-            if (!known.TryGetValue(key, out sha)) sha = Sha256File(path);
-            seen[key] = sha;
+            bool have;
+            lock (this) have = known.TryGetValue(key, out sha);
+            // Outside the lock: the other threads hash their own files meanwhile.
+            if (!have) sha = Sha256File(path);
+            lock (this)
+            {
+                seen[key] = sha;
+                seenPaths.Add(path);
+            }
             return sha;
         }
 
-        public void Save()
+        /**
+         * Writes what was seen. `keepUnseen`: the entries of files not looked at this time stay
+         * (a fill in the background stopped halfway); otherwise only the files looked at stay.
+         */
+        public void Save(bool keepUnseen)
         {
             if (file == null) return;
             try
             {
-                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(file));
                 var b = new StringBuilder();
-                foreach (var kv in seen) b.Append(kv.Key).Append('\t').Append(kv.Value).Append("\r\n");
-                File.WriteAllText(file + ".tmp", b.ToString());
-                if (File.Exists(file)) File.Delete(file);
-                File.Move(file + ".tmp", file);
+                lock (this)
+                {
+                    foreach (var kv in seen) b.Append(kv.Key).Append('\t').Append(kv.Value).Append("\r\n");
+                    if (keepUnseen)
+                        foreach (var kv in known)
+                        {
+                            int bar = kv.Key.LastIndexOf('|');
+                            bar = bar > 0 ? kv.Key.LastIndexOf('|', bar - 1) : -1;
+                            if (bar > 0 && !seenPaths.Contains(kv.Key.Substring(0, bar)) && !seen.ContainsKey(kv.Key))
+                                b.Append(kv.Key).Append('\t').Append(kv.Value).Append("\r\n");
+                        }
+                }
+                lock (SaveLock)
+                {
+                    Directory.CreateDirectory(System.IO.Path.GetDirectoryName(file));
+                    File.WriteAllText(file + ".tmp", b.ToString());
+                    if (File.Exists(file)) File.Delete(file);
+                    File.Move(file + ".tmp", file);
+                }
             }
             catch (Exception) { }
         }
+
+        public void Save() { Save(false); }
     }
 
+    /** One writer of hashes.txt at a time (an update's look and the fill in the background). */
+    static readonly object SaveLock = new object();
+
     static string Local(string dir, string path) { return System.IO.Path.Combine(dir, path.Replace('/', '\\')); }
+
+    /**
+     * Threads that hash the installed files while the person waits (3.5.4): half the cores, 2 to 8.
+     * Opening a file costs more than reading it (the antivirus looks at each one), so several at
+     * once cut the wait; more than half the cores would slow down everything else on the PC.
+     */
+    public static int HashThreads
+    {
+        get { return Math.Max(2, Math.Min(8, Environment.ProcessorCount / 2)); }
+    }
+
+    /**
+     * Runs work(i) for i in [0, count) on `threads` threads at below-normal priority; `done` is
+     * called after each item with how many are done (from the worker threads).
+     */
+    public static void InParallel(int count, int threads, Action<int> work, Action<int> done)
+    {
+        int next = -1, finished = 0;
+        threads = Math.Max(1, Math.Min(threads, count));
+        Exception failure = null;
+        var all = new List<Thread>();
+        for (int t = 0; t < threads; t++)
+        {
+            var th = new Thread(() =>
+            {
+                try
+                {
+                    for (int i = Interlocked.Increment(ref next); i < count; i = Interlocked.Increment(ref next))
+                    {
+                        work(i);
+                        int n = Interlocked.Increment(ref finished);
+                        if (done != null) done(n);
+                    }
+                }
+                catch (Exception e) { failure = e; Interlocked.Exchange(ref next, count); }
+            });
+            th.IsBackground = true;
+            th.Priority = ThreadPriority.BelowNormal;
+            th.Start();
+            all.Add(th);
+        }
+        foreach (var th in all) th.Join();
+        if (failure != null) throw new UpdateException("hashing failed: " + failure.Message, failure);
+    }
 
     /**
      * The files of `next` that are missing or different in `appDir` (same size and same sha256:
@@ -347,25 +433,108 @@ public static class Delta
 
     public static UpdatePlan Compare(UpdateManifest next, string appDir, long gap, string cacheFile)
     {
+        return Compare(next, appDir, gap, cacheFile, 1, null);
+    }
+
+    /**
+     * The same on `threads` threads; `progress` gets (files looked at, files in all) from the
+     * worker threads, after every file (the caller keeps the window from redrawing too often).
+     */
+    public static UpdatePlan Compare(UpdateManifest next, string appDir, long gap, string cacheFile, int threads, Action<int, int> progress)
+    {
         var plan = new UpdatePlan();
         var cache = new HashCache(cacheFile);
-        foreach (var f in next.Files)
+        int total = next.Files.Count;
+        var same = new bool[total];
+        InParallel(total, threads, i =>
         {
+            var f = next.Files[i];
             string p = Local(appDir, f.Path);
-            bool same = false;
             try
             {
                 var info = new FileInfo(p);
-                same = info.Exists && info.Length == f.Size && cache.Of(p, info) == f.Sha256;
+                same[i] = info.Exists && info.Length == f.Size && cache.Of(p, info) == f.Sha256;
             }
             catch (Exception) { }
-            if (same) plan.Keep++;
-            else plan.Fetch.Add(f);
+        }, progress == null ? (Action<int>)null : n => progress(n, total));
+        for (int i = 0; i < total; i++)
+        {
+            if (same[i]) plan.Keep++;
+            else plan.Fetch.Add(next.Files[i]);
         }
         cache.Save();
         plan.Runs = Runs(plan.Fetch, gap);
         foreach (var r in plan.Runs) plan.Bytes += r.Length;
         return plan;
+    }
+
+    /**
+     * What the installer puts in RedGiant's folder (redgiant.iss [Files], pack.mjs's roots): the
+     * files the next update compares. Never data, the engine, update\ or the uninstaller.
+     */
+    public static readonly string[] InstalledRoots = { "RedGiant.exe", "redgiant.ico", "bin", "node", "server", "web" };
+
+    /** The installed files under InstalledRoots, as manifest paths ("server/dist/main.js"). */
+    public static List<string> InstalledFiles(string appDir)
+    {
+        var list = new List<string>();
+        string root = System.IO.Path.GetFullPath(appDir).TrimEnd('\\', '/');
+        foreach (var r in InstalledRoots)
+        {
+            string p = System.IO.Path.Combine(root, r);
+            try
+            {
+                if (File.Exists(p)) list.Add(r);
+                else if (Directory.Exists(p))
+                    foreach (var f in Directory.GetFiles(p, "*", SearchOption.AllDirectories))
+                        list.Add(f.Substring(root.Length + 1).Replace('\\', '/'));
+            }
+            catch (Exception) { }
+        }
+        list.Sort(StringComparer.Ordinal);
+        return list;
+    }
+
+    /**
+     * Fills update\hashes.txt in the background (3.5.4): after an install with the whole
+     * installer there is none, and the first update hashed all 27,000 files while the person
+     * waited (2 minutes on the user's PC). One file at a time on the calling thread (the caller
+     * lowers its priority); `keepGoing` is asked before each file (false: stop, what was hashed is
+     * kept). Returns the files hashed now (the remembered ones are not read).
+     */
+    public static int Warm(string appDir, string cacheFile, Func<bool> keepGoing)
+    {
+        var cache = new HashCache(cacheFile);
+        int hashed = 0;
+        bool stopped = false;
+        foreach (var rel in InstalledFiles(appDir))
+        {
+            if (keepGoing != null && !keepGoing()) { stopped = true; break; }
+            string p = Local(appDir, rel);
+            try
+            {
+                var info = new FileInfo(p);
+                if (!info.Exists) continue;
+                if (!cache.Has(p, info)) hashed++;
+                cache.Of(p, info);
+            }
+            catch (Exception) { }
+        }
+        cache.Save(stopped);
+        return hashed;
+    }
+
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetCurrentThread();
+    [DllImport("kernel32.dll")]
+    static extern bool SetThreadPriority(IntPtr thread, int priority);
+    const int ThreadModeBackgroundBegin = 0x00010000;
+
+    /** This thread at background priority, for the processor and the disk (Windows only). */
+    public static bool BackgroundMode()
+    {
+        try { return SetThreadPriority(GetCurrentThread(), ThreadModeBackgroundBegin); }
+        catch (Exception) { return false; }
     }
 
     /** The entries in zip order, joined into one run when the bytes between them are ≤ gap. */

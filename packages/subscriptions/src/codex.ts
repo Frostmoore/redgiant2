@@ -284,9 +284,11 @@ export class CodexEngine implements Engine {
     const id = threadId;
     this.turns.set(id, t);
     let turnId: string | undefined;
+    let gaveUp: () => void = () => {};
     const done = new Promise<"end_turn" | "aborted">((ok, ko) => {
       const listen = (method: string, p: Json) => {
         if (p.threadId !== undefined && p.threadId !== id) return;
+        t.alive?.();
         if (method === "thread/tokenUsage/updated") {
           const u = p.tokenUsage as { last: Json; modelContextWindow: number | null };
           this.usage.set(id, { last: u.last, window: u.modelContextWindow, at: Date.now() });
@@ -335,10 +337,21 @@ export class CodexEngine implements Engine {
         }
       };
       this.conn.listeners.add(listen);
+      // Cancelled and Codex does not confirm (3.5.4: it may be the one stuck): its process is
+      // stopped, the turn ends as aborted, and the next one starts a fresh Codex.
+      gaveUp = () => {
+        this.conn.listeners.delete(listen);
+        this.loaded.clear();
+        this.conn.stop();
+        ok("aborted");
+      };
     });
+    let giveUp: ReturnType<typeof setTimeout> | undefined;
     const interrupt = () => {
       if (turnId)
         void this.conn.request("turn/interrupt", { threadId: id, turnId }).catch(() => {});
+      giveUp ??= setTimeout(() => gaveUp(), 10_000);
+      giveUp.unref?.();
     };
     t.signal?.addEventListener("abort", interrupt, { once: true });
     try {
@@ -359,6 +372,7 @@ export class CodexEngine implements Engine {
       const stopReason = await done;
       return { resume: id, stopReason };
     } finally {
+      clearTimeout(giveUp);
       t.signal?.removeEventListener("abort", interrupt);
       this.turns.delete(id);
     }

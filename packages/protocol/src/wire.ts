@@ -365,6 +365,12 @@ export const ServerMessage = z.discriminatedUnion("type", [
     /** A program the save waits for (it is coming down: the person sees its bar). */
     waitsFor: z.string().max(40).optional(),
   }),
-  z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
+  z.object({
+    type: z.literal("error"),
+    code: z.string(),
+    message: z.string(),
+    /** Values for the page's own words of `err_<code>` (3.5.4: minutes, tries). */
+    params: z.record(z.string(), z.string()).optional(),
+  }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

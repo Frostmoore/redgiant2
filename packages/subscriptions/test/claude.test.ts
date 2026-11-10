@@ -85,6 +85,11 @@ function fakeSdk(script: "tools" | "refused") {
           model_scoped: [{ display_name: "Fable", utilization: 80 }],
         },
       });
+      it.supportedModels = async () => [
+        { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default" },
+        { value: "claude-nova-6", displayName: "Nova 6", supportsEffort: true },
+        { value: "sonnet", displayName: "Sonnet" },
+      ];
       return it;
     },
   };
@@ -184,5 +189,61 @@ describe("Claude on a subscription", () => {
       eventWindows({ unifiedWindows: { seven_day: { utilization: 0.36, resetsAt: 1793728800 } } }),
     ).toEqual([{ id: "7d", label: "7g", usedPct: 36, resetsAt: "2026-11-03T18:00:00.000Z" }]);
     expect(claudeWindows({})).toEqual([]);
+  });
+
+  it("offers the catalog's models and those the engine says the plan has (3.5.4)", async () => {
+    const { sdk } = fakeSdk("tools");
+    const p = new ClaudeSubscriptionProvider({ token: "t", configDir: "/tmp/c", cwd: "/tmp", sdk });
+    const before = await p.models();
+    expect(before).toEqual([
+      "claude-fable-5-2",
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+      "claude-haiku-5-5",
+    ]);
+    await p.engine.turn(turn().t);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(await p.models()).toEqual([...before, "claude-nova-6"]);
+    expect(p.modelInfo("claude-nova-6")).toMatchObject({ unconfirmed: true, name: "Nova 6" });
+    expect(p.modelInfo("claude-fable-5-2")).toMatchObject({
+      contextWindow: 1_000_000,
+      name: "Claude Fable 5.2",
+    });
+  });
+
+  it("gives two calls of one tool in the same instant two ids (no line left spinning)", async () => {
+    const ids: string[] = [];
+    const sdk: ClaudeSdk = {
+      tool: (name, _d, _s, handler) => ({ name, handler }),
+      createSdkMcpServer: (o) => o,
+      query({ prompt, options }) {
+        const server = (options.mcpServers as Record<string, { tools: Tool[] }>).redgiant;
+        async function* run() {
+          for await (const _ of prompt) break;
+          // The engine calls the tools before its message reaches the loop, both at once.
+          const bash = server?.tools.find((t) => t.name === "read_file");
+          await Promise.all([bash?.handler({ path: "a" }, {}), bash?.handler({ path: "b" }, {})]);
+          yield { type: "result", subtype: "success", session_id: "s", result: "done" };
+        }
+        return run() as ReturnType<ClaudeSdk["query"]>;
+      },
+    };
+    const p = new ClaudeSubscriptionProvider({
+      token: "t",
+      configDir: "/tmp/c",
+      cwd: "/tmp",
+      sdk,
+      now: () => 1000,
+    });
+    await p.engine.turn(
+      turn({
+        runTool: async (c) => {
+          ids.push(c.callId);
+          return { content: "x", isError: false };
+        },
+      }).t,
+    );
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
   });
 });

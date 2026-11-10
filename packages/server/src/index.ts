@@ -32,6 +32,7 @@ export {
 } from "./knowledge/service.js";
 export * from "./local-models.js";
 export * from "./login.js";
+export * from "./models-catalog.js";
 export * from "./notes.js";
 export * from "./orchestration.js";
 export * from "./platform.js";

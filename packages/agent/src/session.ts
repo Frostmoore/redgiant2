@@ -17,9 +17,14 @@ import {
   type Completion,
   complete,
   costUsd,
+  ENGINE_STALL,
   ProviderError,
   type ProviderRegistry,
+  ProviderStalledError,
+  STALL_RETRY_DELAYS_MS,
+  StallWatch,
   type StreamEvent,
+  stallLog,
   streamWithFallback,
 } from "@redgiant/providers";
 import { z } from "zod";
@@ -30,7 +35,7 @@ import {
   trimResult,
   withoutReasoning,
 } from "./compaction.js";
-import type { Engine } from "./engine.js";
+import type { Engine, EngineTurn } from "./engine.js";
 import { sessionLog } from "./forks.js";
 import type { Hooks, ToolCallInfo } from "./hooks.js";
 import { type HistoryEntry, rebuildHistory, summaryMessage } from "./rebuild.js";
@@ -41,6 +46,10 @@ export interface PermissionDecision {
   allow: boolean;
   reason?: string;
 }
+
+/** Told to an engine whose earlier try was cancelled after it had started working (3.5.4). */
+const STALL_GO_ON =
+  "[RedGiant: the provider stopped answering and your request was cancelled. Go on from where you were; the tool results you already have are real.]";
 
 export interface AgentSessionOptions {
   /**
@@ -117,6 +126,8 @@ export interface AgentSessionOptions {
   beforeModelCall?: () => Promise<{ allow: boolean; reason?: string }>;
   /** A flat subscription's own agent runs the turns (G21); the tools stay these. */
   engine?: Engine;
+  /** Pauses before trying a silent engine again (3.5.4); tests make them short. */
+  stallDelaysMs?: readonly number[];
 }
 
 export interface SendResult {
@@ -395,6 +406,12 @@ export class AgentSession {
     return usd;
   }
 
+  /** A model the catalog does not know (3.5.4): its cost is not known, not zero. */
+  private unpriced(c: Completion): boolean {
+    const info = this.o.providers.get(c.provider).modelInfo(c.model);
+    return info.unconfirmed === true && !info.pricing;
+  }
+
   /** The step limit of one `send`, read when it starts (Infinity: none). */
   private turnLimit(): number {
     const m = this.o.maxTurns;
@@ -480,6 +497,7 @@ export class AgentSession {
           model: completion.model,
           metrics: completion.metrics,
           costUsd: await this.priced(completion),
+          ...(this.unpriced(completion) && { costUnknown: true }),
         },
       });
       this.history.push({
@@ -565,6 +583,7 @@ export class AgentSession {
           model: completion.model,
           metrics: completion.metrics,
           costUsd: await this.priced(completion),
+          ...(this.unpriced(completion) && { costUnknown: true }),
         },
       });
       this.history.push({
@@ -607,15 +626,7 @@ export class AgentSession {
           turns: turn - 1,
           ...(gate.reason && { reason: gate.reason }),
         };
-      const r = await engine.turn({
-        text: message,
-        images: pictures,
-        system: this.o.system,
-        tools: this.tools.map((t) => t.def),
-        model: this.o.model,
-        resume: this.engineSession,
-        signal: ctx.signal,
-        live: this.o.live,
+      const r = await this.engineTurnWatched(engine, message, pictures, ctx, (watch, said) => ({
         onCompaction: (info) =>
           void this.record({
             type: "engine.compacted",
@@ -626,6 +637,8 @@ export class AgentSession {
             },
           }).catch(() => {}),
         onMessage: async (m) => {
+          watch.touch();
+          said();
           this.lastMetrics = m.metrics;
           const e = await this.record({
             type: "message.assistant",
@@ -642,37 +655,44 @@ export class AgentSession {
           this.history.push({ message: { role: "assistant", parts: m.parts }, firstSeq: e.seq });
         },
         runTool: async (call) => {
-          await this.record({
-            type: "tool.call",
-            payload: { callId: call.callId, tool: call.name, input: call.input },
-          });
-          const r = await this.runOne(
-            { callId: call.callId, name: call.name, input: call.input },
-            JSON.stringify(call.input ?? null),
-            ctx,
-          );
-          const e = await this.record({
-            type: "tool.result",
-            payload: { callId: call.callId, ok: !r.isError, output: r.content },
-          });
-          this.history.push({
-            message: {
-              role: "user",
-              parts: [
-                {
-                  type: "tool_result",
-                  callId: call.callId,
-                  content: trimResult(r.content, this.maxResultChars),
-                  ...(r.isError && { isError: true }),
-                },
-              ],
-            },
-            firstSeq: e.seq,
-          });
-          return r;
+          // A tool's time is not the provider's: the watch waits while it runs.
+          watch.pause();
+          said();
+          try {
+            await this.record({
+              type: "tool.call",
+              payload: { callId: call.callId, tool: call.name, input: call.input },
+            });
+            const r = await this.runOne(
+              { callId: call.callId, name: call.name, input: call.input },
+              JSON.stringify(call.input ?? null),
+              ctx,
+            );
+            const e = await this.record({
+              type: "tool.result",
+              payload: { callId: call.callId, ok: !r.isError, output: r.content },
+            });
+            this.history.push({
+              message: {
+                role: "user",
+                parts: [
+                  {
+                    type: "tool_result",
+                    callId: call.callId,
+                    content: trimResult(r.content, this.maxResultChars),
+                    ...(r.isError && { isError: true }),
+                  },
+                ],
+              },
+              firstSeq: e.seq,
+            });
+            return r;
+          } finally {
+            watch.resume();
+          }
         },
-      });
-      if (r.resume !== this.engineSession) {
+      }));
+      if (r.resume && r.resume !== this.engineSession) {
         this.engineSession = r.resume;
         await this.record({ type: "engine.session", payload: { engine: engine.id, id: r.resume } });
       }
@@ -688,6 +708,132 @@ export class AgentSession {
       pictures = [];
     }
     return { stopReason: "max_turns", turns: limit };
+  }
+
+  /**
+   * One engine turn under a stall watch (3.5.4). When the engine sends nothing for too long (its
+   * tools' time excluded) the turn is cancelled for real (the engine's process with it) and made
+   * again, at most twice, with a growing pause: the same message when nothing came of it yet,
+   * otherwise a note to go on. Then the agent's fallback model on the same engine, if it has one,
+   * else a `ProviderStalledError`. The conversation's model is never changed. One log line per
+   * stalled try.
+   */
+  private async engineTurnWatched(
+    engine: Engine,
+    text: string,
+    images: ImagePart[],
+    ctx: ToolContext,
+    hooks: (
+      watch: StallWatch,
+      said: () => void,
+    ) => Pick<EngineTurn, "onMessage" | "runTool" | "onCompaction">,
+  ): Promise<{ resume: string; stopReason: StopReason }> {
+    const limits = engine.stall ?? ENGINE_STALL;
+    const delays = this.o.stallDelaysMs ?? STALL_RETRY_DELAYS_MS;
+    let spec: ModelSpec | undefined = this.o.model;
+    let tries = 0;
+    let began: number | undefined;
+    let message = text;
+    let pictures = images;
+    for (;;) {
+      const model: ModelSpec = spec ?? this.o.model;
+      const inner = new AbortController();
+      const cancel = () => inner.abort();
+      ctx.signal?.addEventListener("abort", cancel, { once: true });
+      if (ctx.signal?.aborted) inner.abort();
+      let stalled: "first" | "idle" | undefined;
+      let stalledNow: () => void = () => {};
+      const stalledP = new Promise<void>((ok) => {
+        stalledNow = ok;
+      });
+      const watch = new StallWatch(limits, (kind) => {
+        stalled = kind;
+        inner.abort();
+        stalledNow();
+      });
+      let anything = false;
+      const started = Date.now();
+      began ??= started;
+      const turn = engine
+        .turn({
+          text: message,
+          images: pictures,
+          system: this.o.system,
+          tools: this.tools.map((t) => t.def),
+          model,
+          resume: this.engineSession,
+          signal: inner.signal,
+          alive: () => watch.touch(),
+          live: (e) => {
+            watch.touch();
+            this.o.live?.(e);
+          },
+          ...hooks(watch, () => {
+            anything = true;
+          }),
+        })
+        .then(
+          (r) => ({ r }),
+          (err: unknown) => ({ err }),
+        );
+      // Cancelled for a stall: the engine gets a little time to stop, then the turn moves on.
+      const out = await Promise.race([
+        turn,
+        stalledP.then(() =>
+          Promise.race([
+            turn,
+            new Promise<undefined>((r) => setTimeout(() => r(undefined), 15_000)),
+          ]),
+        ),
+      ]);
+      watch.stop();
+      ctx.signal?.removeEventListener("abort", cancel);
+      if (!stalled) {
+        if (!out || "err" in out) throw out?.err;
+        return out.r;
+      }
+      // What the engine said before it went silent: the next try goes on from there.
+      if (out && "r" in out && out.r.resume) this.engineSession = out.r.resume;
+      if (ctx.signal?.aborted) return { resume: this.engineSession ?? "", stopReason: "aborted" };
+      const waited = Math.round((Date.now() - started) / 1000);
+      const what = stalled === "first" ? "no first token" : "the answer stopped";
+      const where = `${engine.id}/${model.model}`;
+      const pause = delays[tries];
+      if (pause !== undefined) {
+        tries++;
+        stallLog(
+          `provider ${where}: ${what} after ${waited}s, cancelled; trying again in ${Math.round(pause / 1000)}s (${tries}/${delays.length})`,
+        );
+        await new Promise<void>((ok) => {
+          const t = setTimeout(ok, pause);
+          ctx.signal?.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(t);
+              ok();
+            },
+            { once: true },
+          );
+        });
+        if (ctx.signal?.aborted) return { resume: this.engineSession ?? "", stopReason: "aborted" };
+      } else if (spec?.fallback && spec.fallback.provider === engine.id) {
+        stallLog(
+          `provider ${where}: ${what} after ${waited}s, cancelled; ${tries} new tries done, moving to ${spec.fallback.model}`,
+        );
+        spec = { ...spec.fallback, effort: spec.fallback.effort ?? spec.effort };
+        tries = 0;
+      } else {
+        stallLog(
+          `provider ${where}: ${what} after ${waited}s, cancelled; ${tries} new tries done, the turn stops`,
+        );
+        const minutes = Math.max(1, Math.round((Date.now() - began) / 60_000));
+        throw new ProviderStalledError(engine.id, model.model, minutes, tries);
+      }
+      if (anything) {
+        message = STALL_GO_ON;
+        pictures = [];
+      }
+    }
   }
 
   /** Stop hooks for engines: they see the last assistant text as a completion. */

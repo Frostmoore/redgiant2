@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   type CompletionRequest,
+  LOCAL_STALL,
   type ModelInfo,
   type OpenAICompatOptions,
   OpenAICompatProvider,
@@ -39,6 +40,8 @@ export class LocalEngineProvider implements Provider {
   private readonly inner: OpenAICompatProvider;
   /** The llama.cpp server (slots): not called `engine`, which means an agent loop to the core. */
   private readonly llama: LlamaCppEngine;
+  /** A local engine reads the whole prompt before its first token (3.5.4): its own limits. */
+  readonly stall = LOCAL_STALL;
   private scheduler: SlotScheduler | undefined;
   private props: EngineProps | undefined;
   private readonly sessions = new Map<string, SessionState>();
