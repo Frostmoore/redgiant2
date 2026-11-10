@@ -224,11 +224,17 @@ export function describe(
     else if (p[0] === "cameras") camera = true;
   }
   const nodes = [...touchedNodes];
+  const kinds = kindsOf(nodes);
+  // Every part of a combined change (p3.5.6, the person's test of 3.5.5: a move and a new colour
+  // said only «Changed material»): the object's own first, then its material, lights, cameras.
+  const parts: { text: string; change: ModelChange }[] = [];
+  if (transform) parts.push(one("transform", nodes, kinds, "Moved"));
+  if (rename) parts.push(one("rename", nodes, kinds, "Renamed"));
   if (material) {
     const ms = [...mats];
     const nm =
       ms.length === 1 ? modelGet(after, ["materials", ms[0] as number, "name"]) : undefined;
-    return {
+    parts.push({
       text: `Changed ${ms.length === 1 ? `material${typeof nm === "string" ? ` "${nm}"` : ` m${ms[0]}`}` : `${ms.length || 1} materials`}`,
       change: {
         action: "material",
@@ -237,13 +243,20 @@ export function describe(
         ...(typeof nm === "string" && { name: nm }),
         ...(ms.length === 1 && { id: `m${ms[0]}` }),
       },
-    };
+    });
   }
-  if (light) return { text: "Changed a light", change: { action: "light", n: 1, kind: "light" } };
+  if (light)
+    parts.push({ text: "Changed a light", change: { action: "light", n: 1, kind: "light" } });
   if (camera)
-    return { text: "Changed a camera", change: { action: "camera", n: 1, kind: "camera" } };
-  const kinds = kindsOf(nodes);
-  if (transform) return one("transform", nodes, kinds, "Moved");
-  if (rename) return one("rename", nodes, kinds, "Renamed");
-  return { text: "Changed the model", change: { action: "change", n: nodes.length } };
+    parts.push({ text: "Changed a camera", change: { action: "camera", n: 1, kind: "camera" } });
+  const [first, ...rest] = parts;
+  if (!first) return { text: "Changed the model", change: { action: "change", n: nodes.length } };
+  if (!rest.length) return first;
+  const low = (x: string) => x.charAt(0).toLowerCase() + x.slice(1);
+  const words = [first.text, ...rest.map((p) => low(p.text))];
+  const last = words.pop() as string;
+  return {
+    text: `${words.join(", ")} and ${last}`,
+    change: { ...first.change, also: rest.slice(0, 6).map((p) => p.change) },
+  };
 }

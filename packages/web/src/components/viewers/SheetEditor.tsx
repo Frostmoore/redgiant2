@@ -11,8 +11,8 @@ import { lang, t, tOptional } from "../../i18n.js";
 import { IconDownload, IconSpinner } from "../../icons.js";
 import { attempt, docView, getApi, openDoc, sendDoc } from "../../state.js";
 import { theme } from "../../theme.js";
+import { holdMark } from "../../viewers/agent-marks.js";
 import { freshAgentWrites } from "../../viewers/collab.js";
-import { afterSeen, elementShown, HIGHLIGHT_SEEN_MS } from "../../viewers/seen.js";
 import { cellPos, columnLetters, SheetCollab, wroteAreas } from "../../viewers/sheet-collab.js";
 import { download } from "../../viewers/source.js";
 import type { Island } from "../../viewers/univer-island.js";
@@ -113,22 +113,49 @@ export function SheetEditor({
     let lastKey = 0;
     let sendTimer: ReturnType<typeof setTimeout> | undefined;
     let closed = false;
-    /** The highlights waiting to be seen (p3.5.4): cancelled when the editor closes. */
-    const fading = new Set<() => void>();
-    /** The agent's cells, highlighted until the person could see them a while. */
-    const mark = (areas: Parameters<Island["mark"]>[0]) => {
-      if (!island || !areas.length) return;
-      const off = island.mark(areas);
-      const cancel = afterSeen(
-        HIGHLIGHT_SEEN_MS,
-        () => {
-          fading.delete(cancel);
-          off();
-        },
-        elementShown(() => el),
+    /** The highlights waiting to be seen (p3.5.4), by revision: dropped when the editor closes. */
+    const fading = new Map<number, () => void>();
+    const offs = new Map<number, () => void>();
+    const areasOf = new Map<number, Parameters<Island["mark"]>[0]>();
+    /**
+     * The agent's cells, highlighted while it edits and until the person could see them a while
+     * (p3.5.6); the shell offers «Annulla questa modifica» on them meanwhile.
+     */
+    const mark = (areas: Parameters<Island["mark"]>[0], revision: number) => {
+      if (!island || !areas.length || fading.has(revision)) return;
+      offs.set(revision, island.mark(areas));
+      areasOf.set(revision, areas);
+      fading.set(
+        revision,
+        holdMark(
+          file,
+          revision,
+          () => el,
+          () => {
+            fading.delete(revision);
+            offs.get(revision)?.();
+            offs.delete(revision);
+            areasOf.delete(revision);
+          },
+        ),
       );
-      fading.add(cancel);
     };
+    const unmark = (revision: number) => {
+      fading.get(revision)?.();
+      fading.delete(revision);
+      offs.get(revision)?.();
+      offs.delete(revision);
+      areasOf.delete(revision);
+    };
+    /** The workbook read again (a resynchronisation): the highlights still due drawn again. */
+    const markAgain = () =>
+      setTimeout(() => {
+        if (closed || !island) return;
+        for (const [rev, areas] of areasOf) {
+          offs.get(rev)?.();
+          offs.set(rev, island.mark(areas));
+        }
+      }, 400);
     const collab = new SheetCollab((o) =>
       sendDoc({
         type: "doc.ops",
@@ -153,14 +180,17 @@ export function SheetEditor({
       const fresh = freshAgentWrites(docView(file).value.changes, collab.revision, {
         ...(seen >= 0 && { max: collab.revision - seen }),
       });
-      if (fresh.length) setTimeout(() => mark(wroteAreas(fresh, sheets)), 400);
+      const head = collab.revision;
+      if (fresh.length) setTimeout(() => mark(wroteAreas(fresh, sheets), head), 400);
     };
     const show = (s: Snap, revision: number) => {
       collab.reset(revision);
       sheets = (s.workbook.sheetOrder as string[] | undefined) ?? [];
       setSnap(s);
-      if (island) island.load(s.workbook, s.placeholders);
-      else if (mount) mount(s);
+      if (island) {
+        island.load(s.workbook, s.placeholders);
+        markAgain();
+      } else if (mount) mount(s);
       else latest = { snap: s, revision };
       markFresh();
     };
@@ -222,7 +252,8 @@ export function SheetEditor({
         if (r === "resync") return resync();
         const ok = island.remote(m.ops.flatMap((o) => (o.family === "sheet" ? o.op.redo : [])));
         if (!ok) return resync();
-        if (m.change.author !== PERSON) mark(wroteAreas(m.change.wrote ?? [], sheets));
+        for (const r of m.change.undoOf ?? []) unmark(r);
+        if (m.change.author !== PERSON) mark(wroteAreas(m.change.wrote ?? [], sheets), m.revision);
         markedAt = m.revision;
       },
       ack(m) {
@@ -241,7 +272,7 @@ export function SheetEditor({
     return () => {
       closed = true;
       if (sendTimer) clearTimeout(sendTimer);
-      for (const cancel of fading) cancel();
+      for (const cancel of fading.values()) cancel();
       collab.flush();
       unsub();
       close();

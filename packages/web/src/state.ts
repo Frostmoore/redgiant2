@@ -22,6 +22,7 @@ import {
   type DocProposal,
   type DocSnapshot,
   docKey,
+  PERSON,
 } from "@redgiant/protocol";
 import {
   type Agent,
@@ -1712,11 +1713,60 @@ type DocMessage = Extract<
 >;
 
 const withChange = (list: DocChange[], c: DocChange): DocChange[] => {
-  const marked = c.undoOf?.length
-    ? list.map((x) => (c.undoOf?.includes(x.revision) ? { ...x, undoneBy: c.revision } : x))
+  const undone = new Set(c.undoOf ?? []);
+  // An undo taken back (a redo, p3.5.6) gives its own targets back, as the host does.
+  const back = new Map<number, number>();
+  for (const y of list)
+    if (undone.has(y.revision)) for (const x of y.undoOf ?? []) back.set(x, y.revision);
+  const marked = undone.size
+    ? list.map((x) => {
+        if (undone.has(x.revision)) return { ...x, undoneBy: c.revision };
+        if (x.undoneBy !== undefined && back.get(x.revision) === x.undoneBy) {
+          const { undoneBy: _back, ...rest } = x;
+          return rest;
+        }
+        return x;
+      })
     : list;
   return [c, ...marked.filter((x) => x.revision !== c.revision)].slice(0, 300);
 };
+
+/** How long an agent counts as editing a file after the host last said so (its own minute). */
+export const AGENT_EDITING_MS = 60_000;
+
+/** Whether an agent is editing the file now («… sta modificando», p3.5.6: highlights stay). */
+export const agentEditingNow = (
+  v: Pick<DocView, "presence" | "presenceAt">,
+  now = Date.now(),
+): boolean =>
+  now - v.presenceAt < AGENT_EDITING_MS && v.presence.some((p) => p.who !== PERSON && p.editing);
+
+// ---- the agents' changes highlighted now (p3.5.6) ----
+
+/**
+ * The revisions an editor shows highlighted now, per file: the shell offers «Annulla questa
+ * modifica» on each while it lasts (the person's test of 3.5.5: the highlight was there, nothing
+ * to undo it with).
+ */
+const docMarks = new Map<string, Signal<number[]>>();
+export function markedChanges(file: DocFile): Signal<number[]> {
+  const key = docKey(file);
+  let s = docMarks.get(key);
+  if (!s) {
+    s = signal([]);
+    docMarks.set(key, s);
+  }
+  return s;
+}
+export function markChange(file: DocFile, revision: number): void {
+  const s = markedChanges(file);
+  if (!s.value.includes(revision)) s.value = [...s.value, revision].slice(-50);
+}
+export function unmarkChange(file: DocFile, revision?: number): void {
+  const s = markedChanges(file);
+  const next = revision === undefined ? [] : s.value.filter((r) => r !== revision);
+  if (next.length !== s.value.length) s.value = next;
+}
 
 /** One message of the host applied to a file's view (pure: tested as a table). */
 export function reduceDoc(v: DocView, m: DocMessage): DocView {

@@ -274,7 +274,10 @@ export function readGltf(bytes: Uint8Array): GltfFile {
     const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const version = dv.getUint32(4, true);
     if (version !== 2) throw new Error(`it is glTF ${version}: only glTF 2.0 is edited`);
-    const length = Math.min(dv.getUint32(8, true), bytes.length);
+    // A GLB cut short is a file still being written (Blender saving, p3.5.6): refused, the host
+    // keeps what it had and reads it again once it changes.
+    if (dv.getUint32(8, true) > bytes.length) throw new Error("the GLB is cut short");
+    const length = dv.getUint32(8, true);
     let at = 12;
     let text: string | undefined;
     let bin: Uint8Array | undefined;
@@ -282,6 +285,7 @@ export function readGltf(bytes: Uint8Array): GltfFile {
     while (at + 8 <= length) {
       const len = dv.getUint32(at, true);
       const type = dv.getUint32(at + 4, true);
+      if (at + 8 + len > length) throw new Error("the GLB is cut short");
       const body = bytes.subarray(at + 8, at + 8 + len);
       if (type === CHUNK_JSON && text === undefined) {
         // The chunk's padding (spaces, or zeros from some writers) is not the text's.

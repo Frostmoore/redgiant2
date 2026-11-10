@@ -51,9 +51,10 @@ import {
   IconZoom,
 } from "../../icons.js";
 import { attempt, getApi, openCanvas, openDoc, sendDoc } from "../../state.js";
+import { holdMark } from "../../viewers/agent-marks.js";
 import type { ImageIsland, ImageTool, IslandLayer, Rect } from "../../viewers/image-island.js";
 import { ImageCollab, imageActionsOf, imageDocOp } from "../../viewers/image-ops.js";
-import { afterSeen, elementShown, HIGHLIGHT_SEEN_MS } from "../../viewers/seen.js";
+import { OwnUndo } from "../../viewers/own-undo.js";
 import { download } from "../../viewers/source.js";
 import { askText } from "../dialogs.js";
 import { SmallSwitch } from "../ui.js";
@@ -122,7 +123,7 @@ export function ImageEditor({ file }: { file: DocFile }) {
   const [busy, setBusy] = useState(0);
   const [size, setSize] = useState({ w: 0, h: 0, format: "ora" as ImageSnapshot["format"] });
   const [marks, setMarks] = useState<
-    { x: number; y: number; w: number; h: number; name: string; id: number }[]
+    { x: number; y: number; w: number; h: number; name: string; id: number; rev: number }[]
   >([]);
   const [info, setInfo] = useState<Awaited<ReturnType<ReturnType<typeof getApi>["imageInfo"]>>>();
   const [exporting, setExporting] = useState<string>();
@@ -158,11 +159,13 @@ export function ImageEditor({ file }: { file: DocFile }) {
     let last = 0;
     /** Remote revisions drawn one after the other (their blobs are fetched). */
     let queue: Promise<unknown> = Promise.resolve();
-    const fading = new Set<() => void>();
-    const done: number[] = [];
-    const undone: number[] = [];
-    const asked = new Map<number, "undo" | "redo">();
-    const collab = new ImageCollab((o) =>
+    /** The highlights waiting to be seen, by revision: dropped when the editor closes. */
+    const fading = new Map<number, () => void>();
+    /** The person's revisions, to undo the last gesture; the undos, to redo (p3.5.6). */
+    const own = new OwnUndo();
+    const sentIn = new Map<string, string>();
+    const collab = new ImageCollab((o) => {
+      sentIn.set(o.clientId, group);
       sendDoc({
         type: "doc.ops",
         file,
@@ -170,8 +173,8 @@ export function ImageEditor({ file }: { file: DocFile }) {
         baseRevision: o.baseRevision,
         ops: [imageDocOp(o.action)],
         groupId: group,
-      }),
-    );
+      });
+    });
     const resync = () => sendDoc({ type: "doc.open", file });
     const show = (s: ImageSnapshot, revision: number) => {
       collab.reset(revision);
@@ -260,13 +263,15 @@ export function ImageEditor({ file }: { file: DocFile }) {
         if (!island) return resync();
         const actions = imageActionsOf(m.ops);
         if (collab.remote(m.revision, actions) === "reload") return resync();
+        own.changed(m.change);
+        // An undone change loses its highlight (and its «Annulla questa modifica»).
         for (const r of m.change.undoOf ?? []) {
-          const k = asked.get(r);
-          asked.delete(r);
-          if (k === "undo") undone.push(m.change.revision);
-          else if (k === "redo") done.push(m.change.revision);
+          fading.get(r)?.();
+          fading.delete(r);
+          setMarks((x) => x.filter((b) => b.rev !== r));
         }
         const theirs = m.change.author !== PERSON && !m.change.replaced;
+        const rev = m.change.revision;
         queue = queue.then(async () => {
           if ((await island?.remote(actions)) === "reload") return resync();
           if (!theirs) return;
@@ -274,23 +279,30 @@ export function ImageEditor({ file }: { file: DocFile }) {
           requestAnimationFrame(() => {
             const boxes = island?.boxesOf(actions) ?? [];
             const stamp = Date.now();
-            setMarks(boxes.map((b, i) => ({ ...b, name: who, id: stamp + i })));
-            const cancel = afterSeen(
-              HIGHLIGHT_SEEN_MS,
-              () => {
-                fading.delete(cancel);
-                setMarks((x) => x.filter((b) => b.id < stamp));
-              },
-              elementShown(() => el),
+            // Added to the others (p3.5.6: each change replaced the highlights before it).
+            setMarks((x) => [
+              ...x,
+              ...boxes.map((b, i) => ({ ...b, name: who, id: stamp + i, rev })),
+            ]);
+            fading.set(
+              rev,
+              holdMark(
+                file,
+                rev,
+                () => el,
+                () => {
+                  fading.delete(rev);
+                  setMarks((x) => x.filter((b) => b.rev !== rev));
+                },
+              ),
             );
-            fading.add(cancel);
           });
         });
       },
       ack(m) {
         if (!collab.ack(m.clientId, m.revision)) return;
-        done.push(m.revision);
-        undone.length = 0;
+        own.made(m.revision, sentIn.get(m.clientId) ?? `r${m.revision}`);
+        sentIn.delete(m.clientId);
       },
       rejected(m) {
         if (collab.rejected(m.clientId)) resync();
@@ -300,17 +312,13 @@ export function ImageEditor({ file }: { file: DocFile }) {
       undo() {
         void island?.settled().then(() => {
           collab.flush();
-          const r = done.pop();
-          if (r === undefined) return;
-          asked.set(r, "undo");
-          sendDoc({ type: "doc.undo", file, clientId: askId(), revision: r });
+          const ask = own.undo();
+          if (ask) sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
         });
       },
       redo() {
-        const r = undone.pop();
-        if (r === undefined) return;
-        asked.set(r, "redo");
-        sendDoc({ type: "doc.undo", file, clientId: askId(), revision: r });
+        const ask = own.redo();
+        if (ask) sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
       },
       flush() {
         collab.flush();
@@ -318,7 +326,7 @@ export function ImageEditor({ file }: { file: DocFile }) {
     };
     return () => {
       closed = true;
-      for (const cancel of fading) cancel();
+      for (const cancel of fading.values()) cancel();
       collab.flush();
       close();
       island?.dispose();

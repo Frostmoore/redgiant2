@@ -71,8 +71,8 @@ export const ModelSnapshot = z.object({
 });
 export type ModelSnapshot = z.infer<typeof ModelSnapshot>;
 
-/** What a model's change was, for the panel's words (`DocSummary.model`). */
-export const ModelChange = z.object({
+/** One part of a model's change (`ModelChange`, and each of its `also`). */
+const ModelChangePart = z.object({
   action: z.enum([
     "add",
     "delete",
@@ -94,6 +94,15 @@ export const ModelChange = z.object({
   name: z.string().max(200).optional(),
   /** The one object's id (n3, m2). */
   id: z.string().max(40).optional(),
+});
+
+/** What a model's change was, for the panel's words (`DocSummary.model`). */
+export const ModelChange = ModelChangePart.extend({
+  /**
+   * The other parts of one combined change (p3.5.6: a move and a new colour together said only
+   * «Changed material»): told after the first.
+   */
+  also: z.array(ModelChangePart).max(6).optional(),
 });
 export type ModelChange = z.infer<typeof ModelChange>;
 

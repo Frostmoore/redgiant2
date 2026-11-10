@@ -3,7 +3,8 @@
 // preview beside it or instead of it (renderMarkdown: sanitised, decision of 2026-11-08: no
 // WYSIWYG); JSON, YAML and XML checked as the person types (viewers/syntax.ts: marked, never
 // blocking) and shown as a tree on request. The person's Ctrl+Z undoes only their own typing; what
-// an agent wrote stays highlighted until the person could see it a while (viewers/seen.ts).
+// an agent wrote stays highlighted while it edits and until the person could see it a while
+// (viewers/agent-marks.ts), with «Annulla questa modifica» under the pointer (p3.5.6).
 // Nothing is saved from here: the host writes; Ctrl+S (Cmd+S) sends the last keystrokes and asks
 // it to write now (p3.5.1).
 import { syntaxHighlighting } from "@codemirror/language";
@@ -17,19 +18,20 @@ import {
   StateField,
   Transaction,
 } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, keymap } from "@codemirror/view";
+import { Decoration, type DecorationSet, EditorView, hoverTooltip, keymap } from "@codemirror/view";
 import type { DocFile } from "@redgiant/protocol";
 import { PERSON } from "@redgiant/protocol";
 import { basicSetup } from "codemirror";
+import { render } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
-import { IconAlert, IconCheck } from "../../icons.js";
+import { IconAlert, IconCheck, IconUndo } from "../../icons.js";
 import { renderMarkdown } from "../../markdown.js";
 import { docView, openDoc, saveDoc, sendDoc } from "../../state.js";
+import { holdMark } from "../../viewers/agent-marks.js";
 import { freshAgentWrites, TextCollab } from "../../viewers/collab.js";
 import { viewerFor } from "../../viewers/kind.js";
 import { useOrders, useReport } from "../../viewers/live.js";
-import { afterSeen, elementShown, HIGHLIGHT_SEEN_MS } from "../../viewers/seen.js";
 import { type Problem, SYNTAX_NAMES, syntaxOf, syntaxProblems } from "../../viewers/syntax.js";
 import { jsonPathAt, linesAround, parseTree, type TreeNode } from "../../viewers/tree.js";
 import { codeClasses, languageFor, languageOf } from "./code-style.js";
@@ -65,7 +67,9 @@ function startMode(markdown: boolean): TextMode {
 
 // ---- the agent's highlight -----------------------------------------------------------------
 
+/** The agent's writes of one revision (`id`: the revision). */
 const addMarks = StateEffect.define<{ ranges: [number, number][]; id: number }>();
+/** The marks of one revision taken off (-1: every mark). */
 const dropMarks = StateEffect.define<number>();
 const agentMark = (id: number) =>
   Decoration.mark({ class: "doc-agent-mark", attributes: { "data-mark": String(id) } });
@@ -95,6 +99,31 @@ const marks = StateField.define<DecorationSet>({
   },
   provide: (f) => EditorView.decorations.from(f),
 });
+
+/** The revision marked at a place of the text, if any (the latest when they overlap). */
+export function markedAt(set: DecorationSet, pos: number): number | undefined {
+  let found: number | undefined;
+  set.between(pos, pos, (from, to, d) => {
+    if (pos < from || pos > to) return;
+    const id = Number(d.spec.attributes?.["data-mark"]);
+    if (Number.isFinite(id) && (found === undefined || id > found)) found = id;
+  });
+  return found;
+}
+
+/**
+ * The smallest change from one text to the other (the same start and end kept): a text read
+ * again (a resynchronisation) keeps the highlights and the cursor where nothing changed.
+ */
+export function minimalChange(a: string, b: string): { from: number; to: number; insert: string } {
+  let start = 0;
+  const max = Math.min(a.length, b.length);
+  while (start < max && a.charCodeAt(start) === b.charCodeAt(start)) start++;
+  let end = 0;
+  while (end < max - start && a.charCodeAt(a.length - 1 - end) === b.charCodeAt(b.length - 1 - end))
+    end++;
+  return { from: start, to: a.length - end, insert: b.slice(start, b.length - end) };
+}
 
 function* iterDecos(set: DecorationSet) {
   const it = set.iter();
@@ -188,9 +217,48 @@ export function TextEditor({
     let deriveTimer: ReturnType<typeof setTimeout> | undefined;
     let blurTimer: ReturnType<typeof setTimeout> | undefined;
     let checks = 0;
-    let markId = 0;
-    /** The highlights waiting to be seen (p3.5.4): cancelled when the editor closes. */
-    const fading = new Set<() => void>();
+    /** The highlights waiting to be seen (p3.5.4), by revision: dropped when the editor closes. */
+    const fading = new Map<number, () => void>();
+    /** «Annulla questa modifica» under the pointer, on the agent's highlight (p3.5.6). */
+    const undoTip = hoverTooltip(
+      (v, pos) => {
+        const rev = markedAt(v.state.field(marks), pos);
+        if (rev === undefined) return null;
+        const c = docView(file).value.changes.find((x) => x.revision === rev);
+        if (!c || c.undoneBy) return null;
+        return {
+          pos,
+          above: true,
+          create: () => {
+            const dom = document.createElement("div");
+            dom.className = "doc-mark-tip";
+            render(
+              <>
+                <span class="dim">{t("docMarkBy", { who: c.authorName ?? c.author })}</span>
+                <button
+                  type="button"
+                  class="vw-btn small"
+                  onClick={() =>
+                    sendDoc({
+                      type: "doc.undo",
+                      file,
+                      clientId: `m${Date.now().toString(36)}${rev}`,
+                      revision: rev,
+                    })
+                  }
+                >
+                  <IconUndo size={13} />
+                  {t("docUndoThis")}
+                </button>
+              </>,
+              dom,
+            );
+            return { dom, destroy: () => render(null, dom) };
+          },
+        };
+      },
+      { hoverTime: 250 },
+    );
     let citation = line;
     /** Ctrl+S waits for the keystrokes in flight: the save is asked once the host has them. */
     let saveAfter = false;
@@ -274,6 +342,7 @@ export function TextEditor({
               syntaxHighlighting(codeClasses),
               ...(syntax ? [lintGutter()] : []),
               marks,
+              undoTip,
               EditorView.contentAttributes.of({ "aria-label": t("docEditorLabel") }),
               EditorView.updateListener.of((u) => {
                 const own = u.transactions.filter(
@@ -324,9 +393,11 @@ export function TextEditor({
         void languageFor(name).then((support) => {
           if (live && support) shown.dispatch({ effects: languages.reconfigure(support) });
         });
-      } else
+      }
+      // Only what differs (p3.5.6): the whole text replaced took every highlight with it.
+      else
         view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: doc },
+          changes: minimalChange(view.state.doc.toString(), doc),
           annotations: [remote, noHistory],
         });
       derive();
@@ -335,21 +406,34 @@ export function TextEditor({
         citation = undefined;
       }
     };
-    const highlight = (ranges: [number, number][]) => {
-      if (!view || !ranges.length) return;
-      const id = ++markId;
-      view.dispatch({ effects: addMarks.of({ ranges, id }) });
-      // It fades after the person could see it a while (p3.5.4), not after a fixed time: an
-      // agent's edit made while they read the chat or looked at another tab stays marked.
-      const cancel = afterSeen(
-        HIGHLIGHT_SEEN_MS,
-        () => {
-          fading.delete(cancel);
-          view?.dispatch({ effects: dropMarks.of(id) });
-        },
-        elementShown(() => view?.dom),
+    const highlight = (ranges: [number, number][], revision: number) => {
+      if (!view || !ranges.length || fading.has(revision)) return;
+      view.dispatch({ effects: addMarks.of({ ranges, id: revision }) });
+      // It fades after the person could see it a while (p3.5.4), not after a fixed time, and
+      // not while an agent still edits the file (p3.5.6).
+      fading.set(
+        revision,
+        holdMark(
+          file,
+          revision,
+          () => view?.dom,
+          () => {
+            fading.delete(revision);
+            view?.dispatch({ effects: dropMarks.of(revision) });
+          },
+        ),
       );
-      fading.add(cancel);
+    };
+    /** The highlights of undone revisions go (only theirs: p3.5.6, every one went). */
+    const unmark = (revisions: readonly number[]) => {
+      const effects = revisions
+        .filter((r) => fading.has(r))
+        .map((r) => {
+          fading.get(r)?.();
+          fading.delete(r);
+          return dropMarks.of(r);
+        });
+      return effects;
     };
     const resync = () => sendDoc({ type: "doc.open", file });
     const close = openDoc(file, {
@@ -364,7 +448,7 @@ export function TextEditor({
         // had not seen (p3.5.4: a change that came by a resynchronisation, not live): what it
         // just wrote, highlighted as if seen live.
         if (first || revision > before)
-          highlight(freshAgentWrites(docView(file).value.changes, revision, { max: 1 }));
+          highlight(freshAgentWrites(docView(file).value.changes, revision, { max: 1 }), revision);
       },
       replaced(m) {
         if (m.snapshot.family !== "text") return;
@@ -375,12 +459,13 @@ export function TextEditor({
       changed(m) {
         const r = collab.remote(m.revision, m.ops, m.change.wrote ?? []);
         if (!r || !view) return resync();
+        const effects = unmark(m.change.undoOf ?? []);
         view.dispatch({
           changes: r.changes,
           annotations: [remote, noHistory],
-          ...(m.change.undoOf?.length && { effects: dropMarks.of(-1) }),
+          ...(effects.length && { effects }),
         });
-        if (m.change.author !== PERSON) highlight(r.wrote);
+        if (m.change.author !== PERSON) highlight(r.wrote, m.revision);
       },
       ack(m) {
         collab.ack(m.clientId, m.revision);
@@ -396,7 +481,7 @@ export function TextEditor({
       if (presenceTimer) clearTimeout(presenceTimer);
       if (deriveTimer) clearTimeout(deriveTimer);
       if (blurTimer) clearTimeout(blurTimer);
-      for (const cancel of fading) cancel();
+      for (const cancel of fading.values()) cancel();
       collab.flush();
       close();
       editor.current = undefined;

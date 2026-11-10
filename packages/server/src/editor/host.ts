@@ -185,6 +185,53 @@ export async function atomicWrite(abs: string, bytes: Uint8Array): Promise<void>
 const loadWith = (f: DocFamily, bytes: Uint8Array, path: string) =>
   f.loadAsync ? f.loadAsync(bytes, path) : f.load(bytes, path);
 
+/**
+ * The revisions an undo took back are marked with it; an undo taken back (a redo, p3.5.6) gives
+ * its own targets back: they stand again and can be undone again.
+ */
+function markUndone(history: Rev[], targets: readonly number[], by: number): void {
+  for (const u of targets) {
+    const t = history.find((r) => r.revision === u);
+    if (!t) continue;
+    t.undoneBy = by;
+    for (const x of t.undoOf ?? []) {
+      const back = history.find((r) => r.revision === x);
+      if (back?.undoneBy === t.revision) delete back.undoneBy;
+    }
+  }
+}
+
+/**
+ * The revisions of `later` that cancel out among themselves (p3.5.6): a change and the undo that
+ * took it back, when that undo still stands (not itself undone) and took back only revisions of
+ * `later`. An undo undone again (a redo) cancels with its redo, and the change stands. Each one
+ * says its pair (the undo's revision).
+ */
+export function cancelledWithin(
+  later: readonly {
+    revision: number;
+    undoneBy?: number | undefined;
+    undoOf?: number[] | undefined;
+  }[],
+): Map<number, number> {
+  const by = new Map(later.map((r) => [r.revision, r]));
+  const stands = (rev: number, depth = 0): boolean => {
+    const r = by.get(rev);
+    if (!r?.undoneBy || depth > 64) return true;
+    const u = by.get(r.undoneBy);
+    // Undone by a revision outside these (cannot be: it comes later) counts as undone.
+    return u ? !stands(u.revision, depth + 1) : false;
+  };
+  const out = new Map<number, number>();
+  for (const u of later) {
+    if (!u.undoOf?.length || !stands(u.revision)) continue;
+    if (!u.undoOf.every((x) => by.get(x)?.undoneBy === u.revision)) continue;
+    out.set(u.revision, u.revision);
+    for (const x of u.undoOf) out.set(x, u.revision);
+  }
+  return out;
+}
+
 const projectOf = (file: DocFile) => file.scope.match(/^project:(.+)$/)?.[1] ?? null;
 
 export class EditorHost {
@@ -344,10 +391,7 @@ export class EditorHost {
           ...(p.undoOf && { undoOf: p.undoOf.revisions }),
           wrote: [],
         };
-        for (const u of p.undoOf?.revisions ?? []) {
-          const t = doc.history.find((r) => r.revision === u);
-          if (t) t.undoneBy = p.revision;
-        }
+        markUndone(doc.history, p.undoOf?.revisions ?? [], p.revision);
         this.remember(doc, rev);
         if (p.proposalId) doc.proposals.delete(p.proposalId);
       } else if (e.type === "doc.replaced" && e.payload) {
@@ -776,10 +820,7 @@ export class EditorHost {
       wrote: f.wrote(ops),
       at: this.now(),
     };
-    for (const u of req.undoOf?.revisions ?? []) {
-      const t = doc.history.find((r) => r.revision === u);
-      if (t) t.undoneBy = revision;
-    }
+    markUndone(doc.history, req.undoOf?.revisions ?? [], revision);
     this.remember(doc, rev);
     if (!person)
       doc.agents.set(req.author.id, {
@@ -890,21 +931,59 @@ export class EditorHost {
             `revision ${done.revision} was already undone (revision ${done.undoneBy})`,
           );
         const ids = new Set(targets.map((t) => t.revision));
+        /** A move that cannot be made (positions that do not fit, with pairs left out) is none. */
+        const tryMap = (a: DocOp, b: DocOp): DocOp | undefined => {
+          try {
+            return f.map(a, b);
+          } catch {
+            return undefined;
+          }
+        };
         const made: DocOp[] = [];
         for (const t of [...targets].reverse()) {
           let inv = f.compose(t.inverse);
           if (!inv) return refuse("stale", `revision ${t.revision} cannot be undone`);
+          const later = doc.history.filter((r) => r.revision > t.revision);
+          const gone = cancelledWithin(later);
+          /** The pairs left out whole (on the same place as the undo), and those already met. */
+          const left = new Set<number>();
+          const met = new Set<number>();
           // Over what came after it, then over the undo's own operations made so far.
-          for (const l of doc.history.filter((r) => r.revision > t.revision)) {
+          for (const l of later) {
             const lc = f.compose(l.ops);
             if (!lc) return refuse("stale", "a later revision cannot be read back");
+            // A later change already taken back by a later undo, and that undo (p3.5.6, the
+            // person's test of 3.5.5: the second Ctrl+Z was refused for the change the first
+            // one undid): together they changed nothing, the place is free again. On the same
+            // place the pair is left out whole (moving over it would lose what it replaced);
+            // elsewhere it is moved over, as any change.
+            const pair = gone.get(l.revision);
+            if (pair !== undefined) {
+              if (left.has(pair)) continue;
+              if (!met.has(pair)) {
+                met.add(pair);
+                if (f.conflicts(inv, lc)) {
+                  left.add(pair);
+                  continue;
+                }
+              }
+              const moved = tryMap(inv, lc);
+              if (!moved)
+                return refuse(
+                  "stale",
+                  `revision ${l.revision} (${l.summary.text}) cannot be passed over: go back to before revision ${t.revision} instead`,
+                  l.revision,
+                );
+              inv = moved;
+              continue;
+            }
             if (!ids.has(l.revision) && f.conflicts(inv, lc))
               return refuse(
                 "conflict",
                 `revision ${l.revision} (${l.author === PERSON ? "the person" : (l.authorName ?? l.author)}: ${l.summary.text}) changed the same place later: go back to before revision ${t.revision} instead, or undo ${l.revision} first`,
                 l.revision,
               );
-            const moved = f.map(inv, lc);
+            const moved = tryMap(inv, lc);
             if (!moved)
               return refuse(
                 "conflict",
