@@ -17137,6 +17137,269 @@ fieldset.vw-seg {
   white-space: nowrap;
 }
 
+/* The layered picture editor (G37.5): the drawing editor's frame, the picture on a checkerboard. */
+.doc-main .img-editor {
+  flex: 1;
+}
+.img-editor .svg-body {
+  grid-template-columns: auto minmax(0, 1fr) 250px;
+}
+.img-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  min-height: 34px;
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 12px;
+}
+.img-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+}
+.img-options input[type="range"] {
+  width: 110px;
+  accent-color: var(--accent);
+}
+.img-options input[type="number"],
+.img-options select {
+  width: 72px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 4px;
+  font: inherit;
+}
+.img-options select {
+  width: auto;
+}
+.img-options input[type="color"],
+.img-color input[type="color"] {
+  width: 30px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+}
+.img-val {
+  min-width: 34px;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+.img-size,
+.img-busy {
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.img-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  vertical-align: -2px;
+}
+.img-area {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  position: relative;
+  background: var(--panel-2);
+  outline: none;
+  display: flex;
+  padding: 12px;
+}
+.img-area:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent-dim);
+}
+.img-stage-inner {
+  position: relative;
+  margin: auto;
+  flex: none;
+  /* Transparency shows as a checkerboard, in both themes. */
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, #d7d7d7 25%, transparent 25%),
+    linear-gradient(-45deg, #d7d7d7 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #d7d7d7 75%),
+    linear-gradient(-45deg, transparent 75%, #d7d7d7 75%);
+  background-size: 16px 16px;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+  box-shadow: 0 1px 6px color-mix(in srgb, #000 25%, transparent);
+}
+.img-view,
+.img-over {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.img-over {
+  touch-action: none;
+}
+.img-area.tool-brush .img-over,
+.img-area.tool-eraser .img-over,
+.img-area.tool-rect .img-over,
+.img-area.tool-ellipse .img-over,
+.img-area.tool-lasso .img-over,
+.img-area.tool-picker .img-over {
+  cursor: crosshair;
+}
+.img-area.tool-move .img-over {
+  cursor: move;
+}
+.img-area.tool-text .img-over {
+  cursor: text;
+}
+.img-layers {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  max-height: 260px;
+  overflow: auto;
+}
+.img-layers li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+  padding: 1px 2px;
+}
+.img-layers li.current {
+  background: var(--accent-soft);
+}
+.img-layers .vw-icon {
+  width: 24px;
+  min-height: 24px;
+  border-color: transparent;
+  background: transparent;
+  flex: none;
+}
+.img-layers .vw-icon.off {
+  opacity: 0.35;
+}
+.img-layer {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 2px;
+  cursor: pointer;
+}
+.img-thumb {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #ddd 25%, transparent 25%),
+    linear-gradient(-45deg, #ddd 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #ddd 75%),
+    linear-gradient(-45deg, transparent 75%, #ddd 75%);
+  background-size: 8px 8px;
+  background-position:
+    0 0,
+    0 4px,
+    4px -4px,
+    -4px 0;
+}
+.img-layer-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.img-blend-tag {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.img-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0;
+}
+.img-row.wrap {
+  flex-wrap: wrap;
+}
+.img-row .vw-icon {
+  width: 28px;
+  min-height: 28px;
+}
+.img-side .svg-fields select {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 4px;
+  font: inherit;
+  font-size: 12px;
+}
+.img-filter-pick {
+  display: flex;
+  margin-bottom: 6px;
+}
+.img-filter-pick select {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 4px;
+  font: inherit;
+  font-size: 12px;
+}
+.img-side .vw-btn {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+.img-help {
+  margin: 2px 0 6px;
+  font-size: 12px;
+}
+.sheet-note .vw-icon {
+  margin-left: 6px;
+  width: 22px;
+  min-height: 22px;
+  vertical-align: middle;
+}
+@container (max-width: 760px) {
+  .img-editor .svg-body {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .img-options input[type="range"] {
+    width: 80px;
+  }
+}
+
 /* «Models catalog: updated on …» (3.5.4): one row under the ways of thinking. */
 .models-wz .mp-catalog {
   margin: 18px auto 0;

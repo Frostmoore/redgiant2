@@ -30,6 +30,7 @@ import { pagedKind, viewerFor } from "../../viewers/kind.js";
 import { download, type ViewerSource } from "../../viewers/source.js";
 import { Choice, Progress, useJob } from "../ui.js";
 import { FileViewer, VIEWERS } from "./FileViewer.js";
+import { IMAGE_COPIES } from "./ImageEditor.js";
 import { EditCopyButton } from "./SheetCopy.js";
 import { SVG_COPIES } from "./SvgEditor.js";
 
@@ -566,6 +567,10 @@ function ConvertView({
         <div class="spacer" />
         {/* An Illustrator or PostScript drawing: edited on its SVG copy (G37.6). */}
         {SVG_COPIES.test(path) && <EditCopyButton scope={scope} path={path} name={name} to="svg" />}
+        {/* A Photoshop file: its layers edited on the OpenRaster copy (G37.5). */}
+        {IMAGE_COPIES.test(path) && (
+          <EditCopyButton scope={scope} path={path} name={name} to="ora" />
+        )}
         {copy && lost.length > 0 && (
           <button type="button" class="vw-toggle" onClick={() => setDetails((d) => !d)}>
             {details ? t("vwOpenLessDetail") : t("vwOpenLost", { n: String(lost.length) })}

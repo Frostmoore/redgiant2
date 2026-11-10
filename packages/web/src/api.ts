@@ -1628,6 +1628,41 @@ export class Api {
     }
     return r.blob();
   }
+  // ---- layered pictures in the editor (G37.5) ----
+  /** Krita on this computer, the PSD an .ora copy came from, a PNG's layers copy. */
+  imageInfo = (scope: string, path: string) =>
+    this.call<{ krita: boolean; original?: string; layers?: string }>(
+      "GET",
+      `/api/editor/image/info?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+    );
+  /** A blob of the host (a layer's or a tile's PNG). */
+  imageBlobBytes = (hash: string) => this.bytes("GET", `/api/editor/blobs/${hash}`);
+  /** Pixels the page made (a tile, a layer) kept as a blob: its hash. */
+  async imageBlob(scope: string, path: string, png: Blob): Promise<string> {
+    const r = await fetch(
+      `/api/editor/image/blob?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+      { method: "POST", headers: { authorization: `Bearer ${this.token}` }, body: png },
+    );
+    const data = (await r.json().catch(() => ({}))) as { error?: string; blob: string };
+    if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
+    return data.blob;
+  }
+  /** «Esporta come» OpenRaster or Photoshop (PNG, JPEG and WebP are made in the page). */
+  async imageExport(scope: string, path: string, to: "ora" | "psd"): Promise<Blob> {
+    const r = await fetch("/api/editor/image/export", {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ scope, path, to }),
+    });
+    if (!r.ok) {
+      const data = (await r.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
+    }
+    return r.blob();
+  }
+  /** «Apri in Krita»: the picture as last saved, in the Krita installed here. */
+  openInKrita = (scope: string, path: string) =>
+    this.call<{ opened: boolean }>("POST", "/api/editor/image/krita", { scope, path });
   // ---- PDFs in the editor (G37.8) ----
   /** The PDF at its head revision (what the page shows). */
   pdfFile = (scope: string, path: string) =>

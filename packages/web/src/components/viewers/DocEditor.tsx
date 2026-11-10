@@ -33,12 +33,14 @@ import {
   sendDoc,
   setDocMode,
 } from "../../state.js";
+import { imageChangeText } from "../../viewers/image-words.js";
 import { bareText, viewerFor } from "../../viewers/kind.js";
 import { isOfficeFile } from "../../viewers/office-bridge.js";
 import { pdfChangeText } from "../../viewers/pdf-words.js";
 import { sheetChangeText } from "../../viewers/sheet-words.js";
 import { svgChangeText } from "../../viewers/svg-words.js";
 import type { DocDiff as DiffView, DiffWhat } from "./DocDiff.js";
+import { ImageEditor, pictureEditable } from "./ImageEditor.js";
 import { OfficeEditor } from "./OfficeEditor.js";
 import { isPdfFile, PdfEditor } from "./PdfEditor.js";
 import { SHEET_EDITABLE, SheetEditor } from "./SheetEditor.js";
@@ -56,7 +58,8 @@ export const editableInCanvas = (file: { scope: string; path: string }) =>
     SHEET_EDITABLE.test(file.path) ||
     isOfficeFile(file.path) ||
     SVG_EDITABLE.test(file.path) ||
-    isPdfFile(file.path));
+    isPdfFile(file.path) ||
+    pictureEditable(file));
 
 // ---- words ---------------------------------------------------------------------------------
 
@@ -84,6 +87,8 @@ export function changeText(s: DocSummary): string {
   if (s.svg && s.kind !== "undo" && s.kind !== "replaced") return svgChangeText(s);
   // A PDF's change (G37.8) too.
   if (s.pdf && s.kind !== "undo" && s.kind !== "replaced") return pdfChangeText(s);
+  // A layered picture's change (G37.5) too.
+  if (s.image && s.kind !== "undo" && s.kind !== "replaced") return imageChangeText(s);
   // Documents and presentations (G37.4) count paragraphs and slides.
   if (s.unit === "paragraph" || s.unit === "slide") {
     const para = s.unit === "paragraph";
@@ -462,6 +467,8 @@ export function DocEditor({
         )}
         {isOfficeFile(file.path) ? (
           <OfficeEditor file={file} />
+        ) : pictureEditable(file) ? (
+          <ImageEditor file={file} />
         ) : pdf ? (
           <PdfEditor file={file} page={page} onReveal={(r) => (reveal.current = r)} />
         ) : (

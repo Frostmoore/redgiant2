@@ -18,7 +18,7 @@ export function EditCopyButton({
   scope: string;
   path: string;
   name: string;
-  to?: "ods" | "svg";
+  to?: "ods" | "svg" | "ora";
 }) {
   const [job, setJob] = useState<string>();
   const j = useJob(job);
@@ -37,11 +37,12 @@ export function EditCopyButton({
   }, [j?.state]);
   if (scope === "outside" || (to === "ods" && /\.(ods|fods|ots)$/i.test(name))) return null;
   const svg = to === "svg";
+  const ora = to === "ora";
   return (
     <button
       type="button"
       class="vw-btn small"
-      title={svg ? t("svgEditCopyHint") : t("sheetEditCopyHint")}
+      title={ora ? t("imgEditCopyHint") : svg ? t("svgEditCopyHint") : t("sheetEditCopyHint")}
       disabled={!!job}
       onClick={() =>
         void attempt(async () => {
@@ -54,12 +55,16 @@ export function EditCopyButton({
     >
       {job ? <IconSpinner size={14} /> : null}
       {job
-        ? svg
-          ? t("svgEditCopyMaking")
-          : t("sheetEditCopyMaking")
-        : svg
-          ? t("svgEditCopy")
-          : t("sheetEditCopy")}
+        ? ora
+          ? t("imgEditCopyMaking")
+          : svg
+            ? t("svgEditCopyMaking")
+            : t("sheetEditCopyMaking")
+        : ora
+          ? t("imgEditCopy")
+          : svg
+            ? t("svgEditCopy")
+            : t("sheetEditCopy")}
     </button>
   );
 }

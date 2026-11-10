@@ -828,3 +828,65 @@ export const IconZoom = ({ size = 18, out = false }: P & { out?: boolean }) => (
     <path d={out ? "M8 11h6" : "M8 11h6M11 8v6"} />
   </Svg>
 );
+
+/* The layered picture editor's tools (G37.5), in the same style (shapes after Lucide, ISC). */
+export const IconMove = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20" />
+  </Svg>
+);
+export const IconBrush = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08" />
+    <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" />
+  </Svg>
+);
+export const IconEraser = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M7 21l-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
+    <path d="M22 21H7M5 11l9 9" />
+  </Svg>
+);
+export const IconLasso = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M7 22a5 5 0 0 1-2-4" />
+    <path d="M3.3 14A6.8 6.8 0 0 1 2 10c0-4.4 4.5-8 10-8s10 3.6 10 8-4.5 8-10 8a12 12 0 0 1-5-1" />
+    <circle cx="5" cy="16" r="2" />
+  </Svg>
+);
+export const IconPipette = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M2 22l1-1h3l9-9M3 21v-3l9-9" />
+    <path d="M15 6l3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3z" />
+  </Svg>
+);
+export const IconCrop = ({ size = 16 }: P) => (
+  <Svg size={size}>
+    <path d="M6.13 1L6 16a2 2 0 0 0 2 2h15" />
+    <path d="M1 6.13L16 6a2 2 0 0 1 2 2v15" />
+  </Svg>
+);
+export const IconFlip = ({ size = 16, axis = "x" }: P & { axis?: "x" | "y" }) => (
+  <Svg size={size}>
+    <g transform={axis === "y" ? "rotate(90 12 12)" : undefined}>
+      <path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3" />
+      <path d="M12 2v2M12 8v2M12 14v2M12 20v2" />
+    </g>
+  </Svg>
+);
+export const IconMask = ({ size = 16 }: P) => (
+  <Svg size={size}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="12" cy="12" r="5" fill="currentColor" />
+  </Svg>
+);
+export const IconMergeDown = ({ size = 16 }: P) => (
+  <Svg size={size}>
+    <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+  </Svg>
+);
+export const IconSelectAll = ({ size = 16 }: P) => (
+  <Svg size={size}>
+    <path d="M5 3a2 2 0 0 0-2 2M19 3a2 2 0 0 1 2 2M21 19a2 2 0 0 1-2 2M5 21a2 2 0 0 1-2-2M9 3h1M9 21h1M14 3h1M14 21h1M3 9v1M21 9v1M3 14v1M21 14v1" />
+  </Svg>
+);
