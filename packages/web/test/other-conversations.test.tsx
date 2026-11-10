@@ -153,6 +153,64 @@ describe("the same agent in another conversation (p3.5.3)", () => {
   });
 });
 
+describe("a task just handed over (p3.5.6)", () => {
+  const ev = (seq: number, type: string, payload: Record<string, unknown>): Event =>
+    ({
+      id: `g${seq}`,
+      seq,
+      ts: "2026-11-10T10:00:00.000Z",
+      ownerId: "me",
+      projectId: null,
+      agentId: "god",
+      sessionId: "sess_god",
+      type,
+      payload,
+      hash: "",
+      prevHash: "",
+    }) as unknown as Event;
+  const started = ev(3, "subagent.started", {
+    childSessionId: "sess_new",
+    childAgentId: "fresh",
+    via: "delegate",
+    title: "Prepara il collaudo",
+    task: "...",
+  });
+  const godChat = (events: Event[], state: "idle" | "running") => {
+    agents.value = [{ id: "god", name: "God", kind: "god", parentId: null }] as never;
+    sessionView("sess_god").value = { events, text: "", thinking: "", state, synced: true };
+  };
+
+  it("says it at once, before the list knows the conversation or its agent", () => {
+    godChat([started], "running");
+    render(<Chat sessionId="sess_god" agentId="god" />);
+    expect(
+      screen.getByText(/sta lavorando in un'altra conversazione: «Prepara il collaudo»/),
+    ).toBeTruthy();
+  });
+
+  it("stops saying it when the tab records its end", () => {
+    godChat(
+      [started, ev(4, "subagent.ended", { childSessionId: "sess_new", status: "done" })],
+      "running",
+    );
+    render(<Chat sessionId="sess_god" agentId="god" />);
+    expect(screen.queryByText(/sta lavorando in un'altra conversazione/)).toBe(null);
+  });
+
+  it("trusts the list once it has the conversation, and ignores a tab a restart left open", () => {
+    godChat([started], "idle");
+    render(<Chat sessionId="sess_god" agentId="god" />);
+    expect(screen.queryByText(/sta lavorando in un'altra conversazione/)).toBe(null);
+    cleanup();
+    godChat([started], "idle");
+    sessionRows.value = [
+      { ...row("sess_new", true, "God: Prepara il collaudo"), agentId: "fresh" },
+    ];
+    render(<Chat sessionId="sess_god" agentId="god" />);
+    expect(screen.getAllByText(/sta lavorando in un'altra conversazione/)).toHaveLength(1);
+  });
+});
+
 describe("the canvas for a conversation the page does not follow (p3.5.3)", () => {
   const show = (seq: number): Event =>
     ({

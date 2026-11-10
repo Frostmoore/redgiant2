@@ -919,11 +919,23 @@ export class KnowledgeService {
 
   async addSource(owner: string, collectionId: string, raw: unknown, by = "human") {
     await this.collection(owner, collectionId);
-    const spec = await this.normalizeSource(owner, KnowledgeSourceInput.parse(raw));
-    const root = await this.sourceRoot(owner, spec);
+    let spec = await this.normalizeSource(owner, KnowledgeSourceInput.parse(raw));
+    let root = await this.sourceRoot(owner, spec);
     if (spec.kind === "folder" || spec.kind === "workspace") {
       const st = await stat(root).catch(() => undefined);
-      if (!st?.isDirectory()) throw new KnowledgeError("bad_source", "Not a folder");
+      // A project's or a folder's path naming one file (p3.5.6: «Not a folder» for a project's
+      // note.md): that file of it, as kind "file" would have read it.
+      if (st?.isFile()) {
+        spec =
+          spec.kind === "workspace"
+            ? { kind: "file", scope: spec.scope, path: spec.path }
+            : { kind: "file", path: spec.path };
+        root = await this.sourceRoot(owner, spec);
+      } else if (!st?.isDirectory())
+        throw new KnowledgeError(
+          "bad_source",
+          `Not a folder${spec.kind === "workspace" ? ` of ${spec.scope}` : ""}: "${spec.path}" is not there`,
+        );
     }
     if (spec.kind === "file") {
       const st = await stat(root).catch(() => undefined);

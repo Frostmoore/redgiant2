@@ -62,7 +62,7 @@ export const IMAGE_CATALOG = `Layered pictures (image: .ora OpenRaster with laye
 - {"op":"stroke","layer":"Sky","points":[[10,10],[60,40],[120,30]],"color":"#ff0000","size":8,"opacity":1}: a brush stroke through the points (round); "erase":true rubs out instead.
 - {"op":"fill","layer":"Sky","area":{"rect":[0,0,200,100]},"color":"#3366ff"} / {"op":"clear","layer":"Sky","area":{"ellipse":[10,10,80,80]}} (makes it transparent).
 - {"op":"filter","layer":"Sky","name":"blur","radius":4,"area":{…}}: filters ${IMAGE_FILTERS.map((f) => (f.params.length ? `${f.id} (${f.params.map((p) => `${p.id} ${p.min}…${p.max}`).join(", ")})` : f.id)).join(", ")}.
-- {"op":"transform","layer":"Sky","dx":10,"dy":-5,"scale":1.5,"rotate":30,"flip":"horizontal|vertical"}: around the layer's centre ("scale":[sx,sy] for each axis); moving alone keeps the pixels as they are.
+- {"op":"transform","layer":"Sky","dx":10,"dy":-5,"scale":1.5,"rotate":30,"flip":"horizontal|vertical"}: around the layer's centre ("scale":[sx,sy] for each axis); moving alone keeps the pixels as they are. With "area" and dx/dy alone only the pixels inside the area move (cut and put down there, as the Move tool with a selection): {"op":"transform","layer":"Sky","area":{"rect":[0,0,50,50]},"dx":30,"dy":0}.
 - {"op":"crop","x":0,"y":0,"w":800,"h":600} / {"op":"resize_canvas","width":1200,"height":800,"anchor":"center|top-left|top|top-right|left|right|bottom-left|bottom|bottom-right"} / {"op":"resize_image","width":800} (every layer scaled; give width, height or both).
 - {"op":"add_text","text":"Saldi\\n-30%","x":40,"y":40,"size":48,"color":"#ffffff","font":"${Object.keys(FONTS).join("|")}","align":"left|center|right","name":"Titolo"}: a new layer with the text (its top left at x, y); "layer" draws it on that layer instead.
 - {"op":"add_mask","layer":"Sky","area":{"ellipse":[0,0,400,300]},"invert":false}: a mask that shows the layer only inside the area (everywhere without one); {"op":"delete_mask","layer":"Sky"} / {"op":"apply_mask","layer":"Sky"} (the mask becomes the layer's transparency). "target":"mask" on fill, clear and stroke paints the mask itself (fill and stroke show, clear hides).`;
@@ -212,6 +212,74 @@ function editedMask(
   }
   const tiles = changedTiles(mk.img, img, blobs);
   return tiles.length ? [{ t: "tiles", layer: l.id, mask: true, tiles, what }] : [];
+}
+
+/**
+ * The pixels of a layer inside a coverage moved by (dx, dy): taken out where they were (as much
+ * as the coverage covers them) and drawn over what is where they land; the layer grows to hold
+ * them, inside the picture.
+ */
+function movedPixels(
+  l: RLayer,
+  cov: Cov,
+  dx: number,
+  dy: number,
+  picture: Rect,
+  blobs: ImageBlobs,
+): ImagePlainAction[] {
+  // The piece, read before anything changes: its colour and its alpha times the coverage.
+  const piece = new Uint8ClampedArray(cov.w * cov.h * 4);
+  for (let y = 0; y < cov.h; y++)
+    for (let x = 0; x < cov.w; x++) {
+      const k = cov.a[y * cov.w + x] as number;
+      const lx = cov.x + x - l.x;
+      const ly = cov.y + y - l.y;
+      if (k <= 0 || lx < 0 || ly < 0 || lx >= l.px.width || ly >= l.px.height) continue;
+      const i = (ly * l.px.width + lx) * 4;
+      const o = (y * cov.w + x) * 4;
+      piece[o] = l.px.data[i] as number;
+      piece[o + 1] = l.px.data[i + 1] as number;
+      piece[o + 2] = l.px.data[i + 2] as number;
+      piece[o + 3] = Math.round((l.px.data[i + 3] as number) * k);
+    }
+  const landed = { x: cov.x + dx, y: cov.y + dy, w: cov.w, h: cov.h };
+  const reach = union({ x: cov.x, y: cov.y, w: cov.w, h: cov.h }, landed);
+  const x0 = Math.max(reach.x, picture.x);
+  const y0 = Math.max(reach.y, picture.y);
+  const need = {
+    x: x0,
+    y: y0,
+    w: Math.max(0, Math.min(reach.x + reach.w, picture.x + picture.w) - x0),
+    h: Math.max(0, Math.min(reach.y + reach.h, picture.y + picture.h) - y0),
+  };
+  return edited(
+    l,
+    need,
+    (px, ox, oy) => {
+      paintCov(px, ox, oy, cov, [0, 0, 0, 255], "erase");
+      for (let y = 0; y < cov.h; y++) {
+        const py = landed.y + y - oy;
+        if (py < 0 || py >= px.height) continue;
+        for (let x = 0; x < cov.w; x++) {
+          const o = (y * cov.w + x) * 4;
+          const sa = (piece[o + 3] as number) / 255;
+          if (sa <= 0) continue;
+          const pxx = landed.x + x - ox;
+          if (pxx < 0 || pxx >= px.width) continue;
+          const i = (py * px.width + pxx) * 4;
+          const da = (px.data[i + 3] as number) / 255;
+          const oa = sa + da * (1 - sa);
+          for (let c = 0; c < 3; c++)
+            px.data[i + c] = Math.round(
+              ((piece[o + c] as number) * sa + (px.data[i + c] as number) * da * (1 - sa)) / oa,
+            );
+          px.data[i + 3] = Math.round(oa * 255);
+        }
+      }
+    },
+    "transform",
+    blobs,
+  );
 }
 
 const greyOf = (c: [number, number, number, number]): [number, number, number, number] => {
@@ -683,6 +751,16 @@ function one(
       else if (flip.startsWith("v")) sy = -sy;
       else if (flip) return bad('"flip" is horizontal or vertical');
       const angle = opt(x.rotate ?? x.angle, "rotate") ?? 0;
+      // Only the pixels inside an area, cut and put down dx/dy away (p3.5.6, the page's Move
+      // with a selection): the layer itself stays where it is.
+      if (x.area !== undefined && x.area !== null) {
+        if (sx !== 1 || sy !== 1 || angle)
+          return bad('with "area" a transform only moves: give dx/dy alone');
+        if (!dx && !dy) return bad("give dx/dy to move the area's pixels");
+        const a = areaCov(x.area, layerRect(l));
+        if (!a) return bad("the area is outside the layer");
+        return { actions: movedPixels(l, a, dx, dy, canvasRect(m), blobs), what: "transform" };
+      }
       if (sx === 1 && sy === 1 && !angle) {
         if (!dx && !dy) return bad("give dx/dy, scale, rotate or flip");
         return {

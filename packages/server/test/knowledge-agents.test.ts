@@ -212,6 +212,43 @@ describe("the knowledge made by the agents (3.5.3)", () => {
     });
   });
 
+  // p3.5.6, the 3.5.5 test: kind "project" with a path naming a file answered «Not a folder»; kind
+  // "file" worked. It is that file of the project now; a path that is not there says so.
+  it("takes a project's file given as kind project, and says when the path is not there", async () => {
+    const results: string[] = [];
+    const steps = plan(
+      [
+        { name: "knowledge_create", input: { name: "Note", for: "Collaudo 3.5.1" } },
+        {
+          name: "knowledge_add_source",
+          input: {
+            collection: "Note",
+            kind: "project",
+            project: "Collaudo 3.5.1",
+            path: "note.md",
+          },
+        },
+        {
+          name: "knowledge_add_source",
+          input: { collection: "Note", kind: "project", project: "Collaudo 3.5.1", path: "nope" },
+        },
+      ],
+      results,
+    );
+    const { server, k, god } = await kbServer(steps);
+    await (await server.core.send("me", await session(server, god), "add the note")).done;
+    expect(results[1]).not.toMatch(/Not a folder/);
+    expect(results[1]).toMatch(/^Added /);
+    expect(results[2]).toMatch(/Not a folder of project:collaudo-3-5-1: "nope" is not there/);
+    const c = (await k.collections("me")).find((x) => x.name === "Note");
+    const sources = await k.sources("me", c?.id ?? "");
+    expect(sources.map((x) => x.spec)).toEqual([
+      { kind: "file", scope: "project:collaudo-3-5-1", path: "note.md" },
+    ]);
+    await k.indexer.drain();
+    expect((await k.documents("me", c?.id ?? "")).map((d) => d.path)).toEqual(["note.md"]);
+  });
+
   it("an agent of the project makes its own, never for everyone nor in another project", async () => {
     const results: string[] = [];
     const { server, god } = await kbServer(

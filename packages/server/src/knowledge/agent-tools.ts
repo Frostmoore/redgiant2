@@ -189,7 +189,7 @@ export function knowledgeTools(agent: AgentNode, host: KnowledgeToolsHost): Tool
     def: {
       name: "knowledge_add_source",
       description:
-        'Give a knowledge collection a source to read and keep up to date: kind "project" (a project\'s files, by its name or id; path inside it), "folder" or "file" (a path: relative to your folder, or full; outside your folders the person is asked), or "url" (a web page).',
+        'Give a knowledge collection a source to read and keep up to date: kind "project" (a project\'s files, by its name or id; path inside it: a folder or one file), "folder" or "file" (a path: relative to your folder, or full; outside your folders the person is asked), or "url" (a web page).',
       inputSchema: {
         type: "object",
         properties: {

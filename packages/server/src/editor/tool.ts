@@ -22,6 +22,11 @@ export interface CanvasEditHost {
   /** The file behind a workspace's scope and path. */
   absOf(ownerId: string, file: DocFile): Promise<string>;
   /**
+   * Whether the agent may read a file outside its folders (p3.5.6): a picture an operation only
+   * reads (a layer's image) follows the reading rules, not the edited file's writing ones.
+   */
+  mayRead?(ownerId: string, agentId: string, abs: string): Promise<boolean>;
+  /**
    * A closed format's open copy, made if missing (G37.4: a DOCX is edited on its ODT beside it);
    * undefined when the file has none.
    */
@@ -198,7 +203,10 @@ export function canvasEditTool(
             read: async (p) => {
               const f = await fileAt(ws, p);
               if ("error" in f) throw new Error(f.error);
-              if (f.outside) throw new Error(`"${p}" is outside your workspace`);
+              if (f.outside && !(await host.mayRead?.(agent.ownerId, agent.id, f.abs)))
+                throw new Error(
+                  `"${p}" is outside your workspace and in no project whose files you may read`,
+                );
               return new Uint8Array(await readFile(f.abs));
             },
             putBlob: (b) => host.editor.putBlob(b),
