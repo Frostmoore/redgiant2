@@ -1506,6 +1506,45 @@ if (process.env.DEMO_CRITICAL) {
   );
   wait(2, "bash", { command: "npm install" }, ["Runs a command"], []);
 }
+// 3.5.6, DEMO_ASKS=1: ordinary requests that say what happens in words (God archiving a project,
+// a push, a file written), each waiting for the person, with the buttons off for a moment.
+if (process.env.DEMO_ASKS) {
+  const trial = await core.projects.create("local", "Collaudo 3.5.3");
+  const sid = await core.startSession("local", god.id);
+  await core.store.append({
+    ownerId: "local",
+    projectId: null,
+    agentId: god.id,
+    sessionId: sid,
+    body: {
+      type: "message.user",
+      payload: { text: "Archivia il progetto del collaudo e manda online le modifiche." },
+    },
+  });
+  const ask = (n, agent, name, input, reasons, danger) =>
+    void core.person.approve(
+      {
+        requestId: `demo_ask_${n}`,
+        requester: core.registry.get(agent.id),
+        call: { callId: `ca${n}`, name, input },
+        reasons,
+        danger,
+        sessionId: sid,
+      },
+      new AbortController().signal,
+      { kind: "approval", critical: false, what: name },
+    );
+  ask(
+    1,
+    god,
+    "platform_project",
+    { action: "archive", project_id: trial.id },
+    ["Changes the platform"],
+    ["platform"],
+  );
+  ask(2, god, "bash", { command: "git push origin main" }, ["git push"], ["git-push"]);
+  ask(3, god, "write_file", { path: "app.py", content: "print('ciao')\n" }, ["manual mode"], []);
+}
 let viewerSession;
 // G36.12, DEMO_CANVAS=1: files for an agent that looks at the canvas and leafs through it.
 let canvasSession;

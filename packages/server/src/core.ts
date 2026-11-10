@@ -708,6 +708,18 @@ export class RedGiantCore implements OrchestrationHost {
     this.registry = new AgentRegistry(o.db, this.store);
     this.budget = new PersistentBudget(o.db, this.store);
     this.projects = new ProjectStore(o.db, o.workspacesDir, o.projectFoldersInside);
+    // Requests say projects and agents by name on every channel (3.5.6).
+    this.approvals.nameOf = async (ownerId, ids) => {
+      const out: Record<string, string> = {};
+      for (const id of ids) {
+        const agent = this.registry.get(id);
+        const name =
+          (agent?.ownerId === ownerId ? agent.name : undefined) ??
+          (await this.projects.get(ownerId, id).catch(() => undefined))?.name;
+        if (name) out[id] = name;
+      }
+      return out;
+    };
     this.sandbox = o.sandbox ?? new HostSandboxProvider();
     this.tasks = new TaskTracker(this.store);
     this.tasks.escalate = (task, reason) => this.escalate(task, reason);

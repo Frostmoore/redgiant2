@@ -18,6 +18,8 @@ import {
   PLAN_APPROVE,
   PLAN_REVISE,
   type QuestionRequestInfo,
+  requestReasons,
+  requestSentence,
 } from "@redgiant/protocol";
 import { type Language, say, type TextKey } from "./texts.js";
 
@@ -553,19 +555,24 @@ export class ChatBridge {
     const input = JSON.stringify(info.input);
     const s = (key: TextKey, vars?: Record<string, string>) => this.say(ownerId, key, vars);
     const lang = this.o.host.language?.(ownerId) ?? "en";
+    const reasons = requestReasons(lang, info);
     const text = [
       // A truly dangerous request starts with its danger, in words (p3.5.4).
       ...criticalChatLines(lang, info),
       s("approvalNeeded", {
         agent: info.agentName,
-        project: info.projectId ? ` (${info.projectId})` : "",
-        tool: info.tool,
+        project: info.projectId ? ` (${info.names?.[info.projectId] ?? info.projectId})` : "",
       }),
-      input.length > 600 ? `${input.slice(0, 600)}...` : input,
-      s("why", { reasons: info.reasons.join("; ") }),
+      // What happens, in words and with the call's arguments (3.5.6); the raw input comes last.
+      `${requestSentence(lang, info.tool, info.input, info.names)}.`,
+      ...(reasons.length ? [s("why", { reasons: reasons.join("; ") })] : []),
       ...(info.danger.length
         ? [s("danger", { danger: info.danger.map((d) => dangerWords(lang, d).name).join(", ") })]
         : []),
+      s("details", {
+        tool: info.tool,
+        input: input.length > 400 ? `${input.slice(0, 400)}...` : input,
+      }),
     ].join("\n");
     const choices = [
       { id: `perm:${info.requestId}:allow`, label: s("allow") },

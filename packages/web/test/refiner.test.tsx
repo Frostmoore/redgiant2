@@ -269,7 +269,7 @@ describe("God's instructions and tools for a new assistant (G36.14)", () => {
 });
 
 describe("an agent asks for a switched-off tool (G36.15)", () => {
-  it("says who, which and why; this conversation, always, or no", () => {
+  it("says who, which and why; this conversation, always, or no", async () => {
     const req: PermissionRequestInfo = {
       requestId: "tool_1",
       agentId: "a1",
@@ -285,6 +285,12 @@ describe("an agent asks for a switched-off tool (G36.15)", () => {
     const r = render(<ToolRequestCard r={req} />);
     expect(r.getByText(/Ada chiede di accendere/)).toBeTruthy();
     expect(r.getByText("Perché: to read the page")).toBeTruthy();
+    // Its buttons turn on after a moment (3.5.6), like every request's.
+    const yes = r.getByRole("button", { name: "Accendi per questa conversazione" });
+    expect((yes as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() => expect((yes as HTMLButtonElement).disabled).toBe(false), {
+      timeout: 2000,
+    });
     fireEvent.click(r.getByRole("button", { name: "Accendi per questa conversazione" }));
     fireEvent.click(r.getByRole("button", { name: "Sempre per Ada" }));
     fireEvent.click(r.getByRole("button", { name: "No" }));

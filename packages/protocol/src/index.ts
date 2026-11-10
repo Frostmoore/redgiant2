@@ -31,6 +31,7 @@ export * from "./prompt-refine.js";
 export * from "./providers.js";
 export * from "./questions.js";
 export * from "./release.js";
+export * from "./requests.js";
 export * from "./search.js";
 export * from "./secrets.js";
 export * from "./tools.js";

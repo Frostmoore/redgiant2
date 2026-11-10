@@ -158,13 +158,42 @@ describe("chat bridge (G29.5)", () => {
     approvals.emit("request", "me", perm);
     await new Promise((r) => setTimeout(r, 20));
     const m = t.sent.at(-1);
-    expect(m?.text).toContain("Coder (demo) wants bash");
-    expect(m?.text).toContain("Writing outside the project");
+    // What happens first, in words; the reason and the danger in the person's language, the raw
+    // input last (3.5.6).
+    expect(m?.text.split("\n")).toEqual([
+      "Approval needed: Coder (demo) asks for your yes",
+      "Deletes with the command: rm -rf /srv/x.",
+      "Why: Writes outside the project's folder: /srv/x",
+      "Danger: Writing outside the project",
+      'Details: bash {"command":"rm -rf /srv/x"}',
+    ]);
     expect(m?.buttons?.map((b) => b.label)).toEqual(["Allow", "Deny"]);
     await send({ button: m?.buttons?.[1]?.id ?? "" });
     expect(decided).toEqual([["r1", "deny"]]);
     await new Promise((r) => setTimeout(r, 20));
     expect(t.edits.at(-1)?.text).toMatch(/Denied$/);
+  });
+
+  it("says what a platform request does, with the project's name (3.5.6)", async () => {
+    const { t, approvals } = await setup();
+    approvals.emit("request", "me", {
+      ...perm,
+      requestId: "r3",
+      agentName: "God",
+      projectId: null,
+      tool: "platform_project",
+      input: { action: "archive", project_id: "proj_7" },
+      names: { proj_7: "Collaudo 3.5.3" },
+      reasons: ["Changes the platform"],
+      danger: ["platform"],
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.sent.at(-1)?.text.split("\n")).toEqual([
+      "Approval needed: God asks for your yes",
+      "Archives the project “Collaudo 3.5.3”: its agents stop and nobody changes its files until you restore it.",
+      "Danger: Changing RedGiant itself",
+      'Details: platform_project {"action":"archive","project_id":"proj_7"}',
+    ]);
   });
 
   it("starts a truly dangerous request with its danger, in words (p3.5.4)", async () => {
@@ -185,7 +214,9 @@ describe("chat bridge (G29.5)", () => {
     expect(lines[1]).toBe(
       "Removes for good the text and pictures under the chosen areas from modulo.pdf.",
     );
-    expect(m?.text).toContain("Coder (demo) wants canvas_edit");
+    expect(m?.text).toContain("Coder (demo) asks for your yes");
+    // The critical reason written for the model is not repeated in English.
+    expect(m?.text).not.toContain("Why:");
     // No emoji and no symbols as icons; the answer works as for any request.
     expect(m?.text).not.toMatch(/\p{Extended_Pictographic}/u);
     expect(m?.buttons?.map((b) => b.label)).toEqual(["Allow", "Deny"]);

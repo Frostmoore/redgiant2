@@ -14,7 +14,8 @@ const en = {
   automationTook: "Passed to the automation: {names}.",
   noModel:
     "No model is chosen yet. Open RedGiant, Settings, Models and subscriptions, connect one (a subscription, a key or a local model) and write to me again.",
-  approvalNeeded: "Approval needed: {agent}{project} wants {tool}",
+  approvalNeeded: "Approval needed: {agent}{project} asks for your yes",
+  details: "Details: {tool} {input}",
   why: "Why: {reasons}",
   danger: "Danger: {danger}",
   allow: "Allow",
@@ -72,7 +73,8 @@ const it: Record<TextKey, string> = {
   automationTook: "Lo passo all'automazione: {names}.",
   noModel:
     "Non hai ancora scelto un modello. Apri RedGiant, Impostazioni, Modelli e abbonamenti, collegane uno (un abbonamento, una chiave o un modello locale) e poi scrivimi di nuovo.",
-  approvalNeeded: "Serve un'approvazione: {agent}{project} vuole usare {tool}",
+  approvalNeeded: "Serve un'approvazione: {agent}{project} chiede il tuo sì",
+  details: "Dettagli: {tool} {input}",
   why: "Perché: {reasons}",
   danger: "Pericolo: {danger}",
   allow: "Consenti",

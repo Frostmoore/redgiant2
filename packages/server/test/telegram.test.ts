@@ -245,7 +245,11 @@ describe("Demi-God on Telegram", () => {
       await new Promise((r) => setTimeout(r, 30));
       ask = tg?.sent(USER).find((m) => String(m.text).startsWith("Approval needed"));
     }
-    expect(ask?.text).toMatch(/O \(p\) wants write_file/);
+    // What happens first, in words; the project by its name (3.5.6).
+    expect(ask?.text).toMatch(
+      /^Approval needed: O \(P\) asks for your yes\nWrites the file a\.txt\.\n/,
+    );
+    expect(ask?.text).toContain('Details: write_file {"path":"a.txt","content":"x"}');
     const keyboard = (
       ask?.reply_markup as { inline_keyboard: { callback_data: string }[][] } | undefined
     )?.inline_keyboard[0];
@@ -297,6 +301,8 @@ describe("Demi-God on Telegram", () => {
     const lines = String(first?.text).split("\n");
     expect(lines[0]).toBe("PERICOLO: azione che non si può annullare");
     expect(lines[1]).toBe("Riscrive per tutti la storia del ramo condiviso main.");
+    expect(lines).toContain("Esegue il comando: git push --force origin main.");
+    expect(String(first?.text)).not.toMatch(/Why:|Perché: truly/);
     expect(String(first?.text)).not.toMatch(/\p{Extended_Pictographic}/u);
     // The page gets the same details for its red card.
     const [pending] = s?.core.approvals.list("me") ?? [];
@@ -318,7 +324,7 @@ describe("Demi-God on Telegram", () => {
     let asked: Record<string, unknown> | undefined;
     for (let i = 0; i < 100 && !asked; i++) {
       await new Promise((r) => setTimeout(r, 30));
-      asked = tg?.sent(USER).find((m) => /chiede/.test(String(m.text)));
+      asked = tg?.sent(USER).find((m) => /chiede:/.test(String(m.text)));
     }
     const choice = (
       asked?.reply_markup as { inline_keyboard: { callback_data: string }[][] } | undefined
