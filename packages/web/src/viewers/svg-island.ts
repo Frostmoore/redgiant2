@@ -376,11 +376,43 @@ export function mountSvg(o: IslandOptions): SvgIsland {
   let zoom = 1;
   /** Where the drawing's viewBox starts (p3.5.4): svgcanvas always draws it from 0,0. */
   let origin = { x: 0, y: 0 };
-  const layout = () => {
+  /** What the last layout was made from: a resize that changes nothing lays out nothing. */
+  let laidOut = "";
+  /** The one before, and when the last was made: a layout that undoes itself is not repeated. */
+  let laidBefore = "";
+  let laidAt = 0;
+  /**
+   * The room the box may fill without overflowing (p3.5.6). `clientWidth` rounds to the nearest
+   * pixel: an area 333.5px wide says 334, a box that size overflows by half a pixel, classic
+   * scrollbars (Windows) appear, `clientWidth` drops by their width, the box shrinks, they go, and
+   * so on every frame, the drawing re-centred each time: «seen twice, slightly offset». The real
+   * size, rounded down, never overflows; only the drawing itself brings the scrollbars.
+   */
+  const room = (): { w: number; h: number } => {
+    const a = o.area;
+    const r = a.getBoundingClientRect();
+    // offsetWidth - clientWidth: the borders and the scrollbar, when there is one.
+    return {
+      w: Math.max(0, Math.floor(r.width - (a.offsetWidth - a.clientWidth))),
+      h: Math.max(0, Math.floor(r.height - (a.offsetHeight - a.clientHeight))),
+    };
+  };
+  const layout = (force = false) => {
     const w: number = canvas.contentW ?? 640;
     const h: number = canvas.contentH ?? 480;
-    const cw = Math.max(o.area.clientWidth, w * zoom + 2 * PAD);
-    const ch = Math.max(o.area.clientHeight, h * zoom + 2 * PAD);
+    const fill = room();
+    const cw = Math.max(fill.w, w * zoom + 2 * PAD);
+    const ch = Math.max(fill.h, h * zoom + 2 * PAD);
+    const inputs = `${cw} ${ch} ${zoom} ${w} ${h} ${origin.x} ${origin.y}`;
+    if (!force) {
+      if (inputs === laidOut) return;
+      // Back to the layout before within a few frames: this layout changed the area itself (an
+      // overflow not foreseen). Staying put keeps the drawing still; the next real resize moves it.
+      if (inputs === laidBefore && performance.now() - laidAt < 100) return;
+    }
+    laidBefore = laidOut;
+    laidOut = inputs;
+    laidAt = performance.now();
     box.style.width = `${cw}px`;
     box.style.height = `${ch}px`;
     canvas.updateCanvas(cw, ch);
@@ -401,13 +433,15 @@ export function mountSvg(o: IslandOptions): SvgIsland {
   const fit = () => {
     const w: number = canvas.contentW ?? 640;
     const h: number = canvas.contentH ?? 480;
-    const z = Math.min((o.area.clientWidth - 2 * PAD) / w, (o.area.clientHeight - 2 * PAD) / h);
+    const fill = room();
+    const z = Math.min((fill.w - 2 * PAD) / w, (fill.h - 2 * PAD) / h);
     return Math.max(0.05, Math.min(z, 16));
   };
   const setZoom = (z: number) => {
     zoom = Math.max(0.05, Math.min(z, 32));
     canvas.setZoom(zoom);
-    layout();
+    // Always: a file loaded again puts svgcanvas' own position back.
+    layout(true);
     // svgcanvas redraws the selection's handles on its own `zoomed`; ask it again.
     const els = selected();
     if (els.length) {

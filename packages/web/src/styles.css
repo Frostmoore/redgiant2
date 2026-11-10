@@ -16920,6 +16920,11 @@ fieldset.vw-seg {
 .svg-canvas-box {
   position: relative;
 }
+/* A block, not inline: an inline svg leaves room for descenders under it, the box overflows by a
+   few pixels and classic scrollbars come and go (p3.5.6). */
+.svg-canvas-box > #svgroot {
+  display: block;
+}
 .svg-area.tool-rect,
 .svg-area.tool-ellipse,
 .svg-area.tool-line,
