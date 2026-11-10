@@ -1727,6 +1727,10 @@ if (process.env.DEMO_CANVAS) {
     const s = await core.startSession("local", god.id);
     await (await core.send("local", s, "Mostra il file canvas/stanza.gltf")).done;
   }
+  {
+    const s = await core.startSession("local", god.id);
+    await (await core.send("local", s, "Mostra il file canvas/sedia.obj")).done;
+  }
   // G37.4: a realistic report (DOCX) and slides (PPTX), edited on their open copies.
   const { cp: copyDir } = await import("node:fs/promises");
   for (const f of ["relazione.docx", "piano.pptx"])

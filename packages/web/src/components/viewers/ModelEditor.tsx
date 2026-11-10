@@ -141,6 +141,7 @@ export function ModelEditor({
         redo(): void;
         save(): void;
         edit(acts: ModelPlainAction[], select?: number): void;
+        select(n: number | undefined): void;
         root(): unknown;
       }
     | undefined
@@ -371,6 +372,12 @@ export function ModelEditor({
           setTimeout(() => island?.select(select), 90);
         }
       },
+      select(n) {
+        selected = n;
+        setSel(n);
+        island?.select(n);
+        refresh();
+      },
       root: () => json,
     };
     onReveal?.(() => undefined);
@@ -461,8 +468,7 @@ export function ModelEditor({
   const remove = () => {
     if (sel === undefined) return;
     edit(deleteActions(api.current?.root(), sel));
-    isl.current?.select(undefined);
-    setSel(undefined);
+    api.current?.select(undefined);
   };
   const duplicate = () => {
     if (sel === undefined) return;
@@ -504,11 +510,7 @@ export function ModelEditor({
     if (k === "r" || k === "e") return act(() => pickMode("rotate"));
     if (k === "s") return act(() => pickMode("scale"));
     if (k === "f") return act(() => isl.current?.frame());
-    if (k === "escape")
-      return act(() => {
-        isl.current?.select(undefined);
-        setSel(undefined);
-      });
+    if (k === "escape") return act(() => api.current?.select(undefined));
   };
 
   const exportAs = (to: string) =>
@@ -809,9 +811,7 @@ export function ModelEditor({
                   class="link model-node"
                   aria-current={r.index === sel}
                   onClick={() => {
-                    setSel(r.index);
-                    isl.current?.select(r.index);
-                    setTrs(isl.current?.trsOf(r.index));
+                    api.current?.select(r.index);
                     area.current?.focus();
                   }}
                 >

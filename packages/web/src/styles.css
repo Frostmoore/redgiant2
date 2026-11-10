@@ -17238,6 +17238,12 @@ fieldset.vw-seg {
   font: inherit;
   font-size: 12px;
 }
+.model-editor .svg-fields {
+  grid-template-columns: minmax(0, 1fr);
+}
+.model-editor .svg-fields label > input[type="text"] {
+  width: 0;
+}
 .model-editor .svg-fields select {
   flex: 1;
   min-width: 0;

@@ -208,6 +208,14 @@ export function jsModelToGlb(bytes: Uint8Array, name: string): Uint8Array {
   const plain = () => new MeshStandardMaterial({ color: 0xcccccc, roughness: 0.7 });
   if (ext === "obj") {
     top = new OBJLoader().parse(new TextDecoder().decode(bytes));
+    // Without its .mtl an OBJ is pure white: the editor's light grey instead.
+    top.traverse((o) => {
+      const m = (o as Mesh).material as
+        | (Material & { color?: { getHex(): number; setHex(h: number): void } })
+        | undefined;
+      if (m && !Array.isArray(m) && !m.name && m.color?.getHex() === 0xffffff)
+        m.color.setHex(0xcccccc);
+    });
   } else if (ext === "stl") {
     const g = new STLLoader().parse(arrayBuffer(bytes));
     if (!g.getAttribute("normal")) g.computeVertexNormals();
