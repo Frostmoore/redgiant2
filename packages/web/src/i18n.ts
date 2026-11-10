@@ -2041,6 +2041,15 @@ const en = {
   limitWeekShort: "7d",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  news356Steps: "Agents finish the job",
+  news356StepsText:
+    "In a conversation with you an agent no longer stops after a fixed number of steps: it works until it is done or you press Stop. Automations and tasks still stop at 200 steps, with a Continue button. Agents also keep their list of steps up to date.",
+  news356Asks: "Requests you understand at a glance",
+  news356AsksText:
+    "Every request says first, in plain words and with real names, what will happen, like «Archive the project X». The technical details are folded away, and the buttons of a request that just appeared wait a moment, so a click meant for something else does not approve it.",
+  news356Editors: "Editors that keep up",
+  news356EditorsText:
+    "An agent's changes stay highlighted while it works, each with Undo this change. Undo in a row works in every editor, a drag undoes in one step, and the drawing editor no longer flickers on Windows. In pictures, Move with a selection moves just the selected pixels. Agents see the page and tab you are really looking at.",
   news355Images: "Pictures with layers",
   news355ImagesText:
     "Open a PNG, JPEG, OpenRaster or Photoshop file and edit it in the Canvas: layers, blending, brush, eraser, selections, masks, filters with a preview, text, crop and resize. Agents edit the same picture, even putting a generated image in as a new layer, and every change can be undone. Export as PNG, JPEG, WebP, ORA or PSD, or open it in Krita.",
@@ -6817,6 +6826,15 @@ const it: Record<Key, string> = {
   limitWeekShort: "7g",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  news356Steps: "Gli agenti finiscono il lavoro",
+  news356StepsText:
+    "In una conversazione con te un agente non si ferma più dopo un numero fisso di passi: lavora finché ha finito o finché premi Ferma. Automazioni e compiti si fermano ancora a 200 passi, con il pulsante Continua. E gli agenti tengono aggiornata la loro lista di passi.",
+  news356Asks: "Richieste che si capiscono al primo sguardo",
+  news356AsksText:
+    "Ogni richiesta dice prima di tutto, in parole semplici e con i nomi veri, cosa succede, come «Archivia il progetto X». I dettagli tecnici sono ripiegati, e i pulsanti di una richiesta appena comparsa aspettano un attimo, così un clic partito per altro non approva niente.",
+  news356Editors: "Editor che stanno al passo",
+  news356EditorsText:
+    "Le modifiche di un agente restano evidenziate mentre lavora, ognuna con Annulla questa modifica. Annullare più volte di fila funziona in ogni editor, un trascinamento si annulla in un colpo e l'editor dei disegni non sfarfalla più su Windows. Nelle immagini, Muovi con una selezione sposta solo i pixel scelti. Gli agenti vedono la pagina e la scheda che stai guardando davvero.",
   news355Images: "Immagini a livelli",
   news355ImagesText:
     "Apri un PNG, un JPEG, un file OpenRaster o Photoshop e modificalo nel Canvas: livelli, fusione, pennello, gomma, selezioni, maschere, filtri con l'anteprima, testo, ritaglio e dimensioni. Gli agenti modificano la stessa immagine, anche mettendo un'immagine generata come livello nuovo, e ogni modifica si annulla. Esporti in PNG, JPEG, WebP, ORA o PSD, oppure la apri in Krita.",
