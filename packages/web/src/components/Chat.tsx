@@ -2,6 +2,7 @@ import { useComputed } from "@preact/signals";
 import {
   type AssistantPart,
   criticalSentences,
+  type Event,
   isCriticalRequest,
   ownWords,
   type PermissionRequestInfo,
@@ -408,12 +409,18 @@ function Elsewhere({
   agentId,
   sessionId,
   asks,
+  fallbackTitle,
 }: {
   agentId: string;
   sessionId: string;
   asks?: boolean;
+  /** What to call it while the list does not have it yet (a task just handed over). */
+  fallbackTitle?: string;
 }) {
-  const title = sessionRows.value.find((r) => r.id === sessionId)?.title ?? t("elsewhereUntitled");
+  const title =
+    sessionRows.value.find((r) => r.id === sessionId)?.title ??
+    fallbackTitle ??
+    t("elsewhereUntitled");
   const name = agents.value.find((a) => a.id === agentId)?.name ?? "";
   return (
     <div class="notice elsewhere">
@@ -441,6 +448,19 @@ function teamOf(agentId: string): Set<string> {
 }
 
 /**
+ * The sub-agents this conversation handed work to that are still at it, by their tabs here: no
+ * end recorded, and the list either says their conversation runs or does not know it yet (then
+ * only while this conversation's turn runs: a tab left open by a restart is not work).
+ */
+export function handedOver(events: Event[], parentRunning: boolean): SubTab[] {
+  return subagentTabs(events).filter((tab) => {
+    if (tab.ended) return false;
+    const row = sessionRows.value.find((r) => r.id === tab.childSessionId);
+    return row ? row.running : parentRunning;
+  });
+}
+
+/**
  * What the agent of this chat, and the agents under it, do in their other conversations: their questions (a line, and
  * the card folded under it: answerable here, the first answer closes every copy), and the ones
  * working now.
@@ -454,9 +474,15 @@ function OtherWork({ sessionId, agentId }: { sessionId: string; agentId: string 
     ...asked.map((q) => q.sessionId),
     ...approvals.value.flatMap((r) => (mine.has(r.agentId) && r.sessionId ? [r.sessionId] : [])),
   ]);
-  const busy = sessionRows.value.filter(
+  const busy: { id: string; agentId: string; title?: string | null }[] = sessionRows.value.filter(
     (r) => mine.has(r.agentId) && r.id !== sessionId && r.running && !asking.has(r.id),
   );
+  // A task this conversation just handed over (p3.5.6: the line came only once the list learned
+  // of it): its tab opened here says it at once, while the list has not caught up yet.
+  const here = sessionView(sessionId).value;
+  for (const tab of handedOver(here.events, here.state === "running"))
+    if (!busy.some((b) => b.id === tab.childSessionId) && !asking.has(tab.childSessionId))
+      busy.push({ id: tab.childSessionId, agentId: tab.childAgentId, title: tab.title });
   if (asked.length === 0 && busy.length === 0) return null;
   return (
     <>
@@ -470,7 +496,12 @@ function OtherWork({ sessionId, agentId }: { sessionId: string; agentId: string 
         </div>
       ))}
       {busy.map((r) => (
-        <Elsewhere key={r.id} agentId={r.agentId} sessionId={r.id} />
+        <Elsewhere
+          key={r.id}
+          agentId={r.agentId}
+          sessionId={r.id}
+          {...(r.title && { fallbackTitle: r.title })}
+        />
       ))}
     </>
   );

@@ -619,6 +619,9 @@ export function applyMessage(m: ServerMessage): void {
           r.id === m.sessionId ? { ...r, running: m.state === "running" } : r,
         );
       if (!known || (m.state === "running") !== !!known.task) refreshSoon();
+      // An agent made after the page loaded (one God just created and handed a task to,
+      // p3.5.6): the team lines need it under its parent.
+      if (!agents.value.some((a) => a.id === m.agentId)) refreshSoon(true);
       return;
     }
     case "image.progress": {
@@ -1376,11 +1379,22 @@ export async function refreshConversations(): Promise<void> {
 
 /** The conversations again, once for a burst of news about ones the list does not have. */
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-function refreshSoon(): void {
+let refreshAgentsToo = false;
+function refreshSoon(withAgents = false): void {
+  if (withAgents) refreshAgentsToo = true;
   if (refreshTimer) return;
   refreshTimer = setTimeout(() => {
     refreshTimer = undefined;
+    const alsoAgents = refreshAgentsToo;
+    refreshAgentsToo = false;
     void refreshConversations().catch(() => {});
+    if (alsoAgents)
+      void getApi()
+        .agents()
+        .then((list) => {
+          agents.value = list;
+        })
+        .catch(() => {});
   }, 250);
 }
 

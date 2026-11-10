@@ -116,6 +116,7 @@ export function ImageEditor({ file }: { file: DocFile }) {
   const [tool, setToolNow] = useState<ImageTool>("brush");
   const [brush, setBrushNow] = useState({ size: 12, opacity: 1, hardness: 1, color: "#e0482e" });
   const [onMask, setOnMask] = useState(false);
+  const [moveOutline, setMoveOutline] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [sel, setSel] = useState<Rect>();
   const [busy, setBusy] = useState(0);
@@ -240,6 +241,7 @@ export function ImageEditor({ file }: { file: DocFile }) {
         isl.current = island;
         island.brush = { ...brush };
         island.tool = tool;
+        island.moveOutline = moveOutline;
         if (latest) {
           show(latest.s, latest.revision);
           latest = undefined;
@@ -730,7 +732,28 @@ export function ImageEditor({ file }: { file: DocFile }) {
         {(tool === "rect" || tool === "ellipse" || tool === "lasso") && (
           <span class="dim">{t("imgSelectHint")}</span>
         )}
-        {tool === "move" && <span class="dim">{t("imgMoveHint")}</span>}
+        {tool === "move" && (
+          <>
+            {/* With a selection Move takes its pixels; the switch (or Alt held) its outline alone. */}
+            <SmallSwitch
+              label={t("imgMoveOutline")}
+              help={t("imgMoveOutlineHelp")}
+              on={moveOutline}
+              disabled={!sel}
+              onChange={(on) => {
+                setMoveOutline(on);
+                if (isl.current) isl.current.moveOutline = on;
+              }}
+            />
+            <span class="dim">
+              {!sel
+                ? t("imgMoveHint")
+                : moveOutline
+                  ? t("imgMoveOutlineHint")
+                  : t("imgMoveSelHint")}
+            </span>
+          </>
+        )}
         {tool === "picker" && (
           <span class="dim">
             {t("imgPickHint")} <span class="img-swatch" style={{ background: brush.color }} />{" "}

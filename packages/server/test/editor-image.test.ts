@@ -289,6 +289,33 @@ describe("the agent's operations", () => {
     expect(() => agent(m, [{ op: "fill", layer: "Sfondo", color: "#fff" }])).toThrow(/locked/);
   });
 
+  // p3.5.6: the page's Move with a selection moves only the selected pixels; the agent too.
+  it("moves only an area's pixels, the layer staying where it is (grown to hold them)", () => {
+    const m = base();
+    const acts = agent(m, [
+      { op: "transform", layer: "Sole", area: { rect: [10, 8, 8, 8] }, dx: 20, dy: 0 },
+    ]);
+    expect(acts[0]).toMatchObject({ t: "pixels", layer: "sun", x: 10, y: 8, w: 28, h: 16 });
+    const after = roundTrip(m, acts);
+    const sun = after.layers.find((l) => l.id === "sun") as (typeof after.layers)[number];
+    const pick = (x: number, y: number) => at(sun.px, x - sun.x, y - sun.y);
+    expect(pick(32, 10)).toEqual([255, 200, 0, 255]);
+    expect(pick(12, 10)[3]).toBe(0);
+    expect(pick(20, 10)).toEqual([255, 200, 0, 255]);
+    expect(pick(12, 20)).toEqual([255, 200, 0, 255]);
+    // Inside the layer: only the tiles that changed.
+    const inPlace = agent(m, [
+      { op: "transform", layer: "Sole", area: { rect: [10, 8, 4, 4] }, dx: 4, dy: 4 },
+    ]);
+    expect(inPlace[0]).toMatchObject({ t: "tiles", layer: "sun" });
+    expect(() =>
+      agent(m, [{ op: "transform", layer: "Sole", area: { rect: [0, 0, 4, 4] }, scale: 2 }]),
+    ).toThrow(/only moves/);
+    expect(() =>
+      agent(m, [{ op: "transform", layer: "Sole", area: { rect: [0, 0, 4, 4] }, dx: 3 }]),
+    ).toThrow(/outside the layer/);
+  });
+
   it("grows a layer when a drawing goes beyond it", () => {
     const m = base();
     const acts = agent(m, [
@@ -786,5 +813,56 @@ describe("a picture from end to end (FakeProvider)", () => {
     expect(layers.map((l) => l.name)).toEqual(["Sfondo", "Nascosto", "Sole", "Generata"]);
     expect((await stat(join(root, file.path))).size).toBeGreaterThan(100);
     page.close();
+  });
+  // p3.5.6, the 3.5.5 test: God put a project's picture in as a layer and got «outside your
+  // workspace». A picture it only reads follows the reading rules (God reads every project); a
+  // file in no workspace at all stays refused.
+  it("reads a layer's picture from a project God may read, never from outside every workspace", async () => {
+    const seen: string[] = [];
+    const file = { scope: "platform", path: "art/poster.ora" };
+    const paths = { flower: "", stray: "" };
+    const layer = (image: string) => ({
+      name: "canvas_edit",
+      input: { path: file.path, ops: [{ op: "add_layer", name: "Fiore", image }] },
+    });
+    const flowerCall = layer("");
+    const strayCall = layer("");
+    s = await startServer(
+      calls([flowerCall, strayCall], seen) as never,
+      { contextWindow: 65_536 },
+      { editor: { saveDelayMs: 0, watchMs: 0 } },
+    );
+    const g = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    await s.api("POST", "/api/projects", { name: "Collaudo 3.5.5" });
+    const project = await s.core.projects.get("me", "collaudo-3-5-5");
+    if (!project) throw new Error("no project");
+    paths.flower = join(project.path, "fiore.png");
+    await writeFile(paths.flower, pngOf(solid(8, 8, [0, 200, 0, 255])));
+    const stray = await mkdtemp(join(tmpdir(), "rg-stray-"));
+    paths.stray = join(stray, "altro.png");
+    await writeFile(paths.stray, pngOf(solid(8, 8, [0, 0, 200, 255])));
+    (flowerCall.input.ops[0] as { image: string }).image = paths.flower;
+    (strayCall.input.ops[0] as { image: string }).image = paths.stray;
+    const sessionId = (
+      await s.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: g.body.id })
+    ).body.sessionId;
+    const root = await s.core.scopeFolder("me", "platform");
+    await mkdir(dirname(join(root, file.path)), { recursive: true });
+    await writeFile(join(root, file.path), sampleOra());
+    // The system's scratch folder is free for the guardian: the stray picture is read, not asked.
+    s.core.approvals.on("request", (owner, info) =>
+      s?.core.approvals.decide(owner, info.requestId, "allow"),
+    );
+    await (await s.core.send("me", sessionId, "Metti il fiore come livello")).done;
+    expect(seen[0]).toMatch(/^Applied as revision 1: /);
+    expect(seen[1]).toMatch(/Nothing applied: .* is outside your workspace and in no project/);
+    await s.core.editor.flush();
+    const disk = readOra(new Uint8Array(await readFile(join(root, file.path))));
+    expect(disk.layers.at(-1)?.name).toBe("Fiore");
+    await rm(stray, { recursive: true, force: true });
   });
 });

@@ -51,7 +51,9 @@ import {
   allows,
   budgetKeys,
   can,
+  canKnowledge,
   hierarchyGuards,
+  type KnowledgeTarget,
   type LockedFolder,
   migrateHierarchy,
   PermissionBroker,
@@ -3080,6 +3082,21 @@ export class RedGiantCore implements OrchestrationHost {
       state: (ownerId) => this.canvasLive.ask(ownerId),
       docFileOf: (ownerId, abs) => this.docFileOf(ownerId, abs),
       absOf: (ownerId, file) => this.docAbs(ownerId, file),
+      // A file outside the agent's folders it only reads (a layer's picture, p3.5.6): the
+      // places whose files it may read, the table's "source" (God every project).
+      mayRead: async (ownerId, agentId, abs) => {
+        const agent = this.registry.get(agentId);
+        const file = await this.docFileOf(ownerId, abs);
+        if (!agent || !file) return false;
+        const scope = file.scope;
+        const target: KnowledgeTarget | undefined =
+          scope === "platform" || scope === "assistants"
+            ? { kind: scope }
+            : scope.startsWith("project:")
+              ? { kind: "project", projectId: scope.slice(8) }
+              : undefined;
+        return target !== undefined && canKnowledge({ type: "agent", agent }, "source", target);
+      },
       copyOf: (ownerId, file) => this.openCopy(ownerId, file),
       showCopy: async (sessionId, original, copy) => {
         const [row] = await this.o.db.query<{

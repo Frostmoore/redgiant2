@@ -140,6 +140,11 @@ export class ImageIsland {
   brush: Brush = { size: 12, opacity: 1, hardness: 1, color: "#e0482e" };
   /** Painting on the current layer's mask instead of its pixels. */
   onMask = false;
+  /**
+   * Move with a selection moves its outline only, not the pixels (p3.5.6: the options bar's
+   * switch; Alt/Option held does the same for one drag).
+   */
+  moveOutline = false;
   zoom = 1;
   private readonly view: C;
   private readonly over: C;
@@ -152,6 +157,17 @@ export class ImageIsland {
   private gesture:
     | { kind: "paint"; stroke: C; pts: [number, number][]; last: [number, number] }
     | { kind: "move"; from: [number, number]; at: [number, number]; lay: Lay }
+    /** The selected pixels cut to a floating piece (picture-sized), the layer with the hole. */
+    | {
+        kind: "float";
+        from: [number, number];
+        at: [number, number];
+        lay: Lay;
+        piece: C;
+        holed: C;
+      }
+    /** The selection's outline alone. */
+    | { kind: "outline"; from: [number, number]; at: [number, number] }
     | {
         kind: "select";
         from: [number, number];
@@ -494,8 +510,16 @@ export class ImageIsland {
       c.stroke();
       c.setLineDash([]);
     };
-    for (const p of this.sel?.outline ?? []) outline(p, true);
     const g = this.gesture;
+    // While the selection (or its pixels) is dragged, its outline goes along.
+    const off =
+      g?.kind === "float" || g?.kind === "outline"
+        ? [g.at[0] - g.from[0], g.at[1] - g.from[1]]
+        : [0, 0];
+    c.save();
+    c.translate(off[0] as number, off[1] as number);
+    for (const p of this.sel?.outline ?? []) outline(p, true);
+    c.restore();
     if (g?.kind === "select") {
       const pts =
         g.shape === "lasso" ? g.pts : this.shapePoints(g.shape, g.from, g.pts.at(-1) ?? g.from);
@@ -769,12 +793,21 @@ export class ImageIsland {
         return;
       }
       case "move":
+        // With a selection (p3.5.6, as Photoshop's V): its pixels move, or its outline alone.
+        if (this.sel && (e.altKey || this.moveOutline)) {
+          this.gesture = { kind: "outline", from: p, at: p };
+          return;
+        }
         if (!l) return;
         if (l.info.locked) {
           this.o.onError("locked");
           return;
         }
         this.o.onEditing(true);
+        if (this.sel && !(this.onMask && l.mask)) {
+          this.gesture = { kind: "float", from: p, at: p, lay: l, ...this.cut(l, this.sel.alpha) };
+          return;
+        }
         this.gesture = { kind: "move", from: p, at: p, lay: l };
         return;
       case "rect":
@@ -802,6 +835,22 @@ export class ImageIsland {
       g.last = p;
       g.pts.push(p);
       this.preview();
+    } else if (g.kind === "float" || g.kind === "outline") {
+      const at: [number, number] = [
+        g.from[0] + Math.round(p[0] - g.from[0]),
+        g.from[1] + Math.round(p[1] - g.from[1]),
+      ];
+      if (at[0] === g.at[0] && at[1] === g.at[1]) return;
+      g.at = at;
+      if (g.kind === "float") {
+        const l = g.lay;
+        const q = canvas(l.c.width, l.c.height);
+        const qc = ctx2d(q);
+        qc.drawImage(g.holed, 0, 0);
+        qc.drawImage(g.piece, at[0] - g.from[0] - l.info.x, at[1] - g.from[1] - l.info.y);
+        l.preview = q;
+        this.render();
+      } else this.drawOverlay();
     } else if (g.kind === "move") {
       const dx = Math.round(p[0] - g.at[0]);
       const dy = Math.round(p[1] - g.at[1]);
@@ -857,6 +906,38 @@ export class ImageIsland {
         erase && !onMask ? "erase" : "paint",
       );
       this.o.onEditing(false);
+    } else if (g.kind === "float") {
+      const l = g.lay;
+      const dx = g.at[0] - g.from[0];
+      const dy = g.at[1] - g.from[1];
+      l.preview = undefined;
+      this.o.onEditing(false);
+      const sel = this.sel;
+      if ((dx || dy) && sel) {
+        // Dropped: one change of the layer's pixels (tiles, or the layer grown to hold them).
+        const alpha = sel.alpha;
+        const piece = g.piece;
+        this.change(
+          l,
+          union(sel.box, { ...sel.box, x: sel.box.x + dx, y: sel.box.y + dy }),
+          (c, ox, oy) => {
+            c.save();
+            // Only inside the picture: the change's tiles are the picture's.
+            c.beginPath();
+            c.rect(-ox, -oy, this.width, this.height);
+            c.clip();
+            c.globalCompositeOperation = "destination-out";
+            c.drawImage(alpha, -ox, -oy);
+            c.globalCompositeOperation = "source-over";
+            c.drawImage(piece, dx - ox, dy - oy);
+            c.restore();
+          },
+          "transform",
+        );
+        this.shiftSelection(dx, dy);
+      } else this.render();
+    } else if (g.kind === "outline") {
+      this.shiftSelection(g.at[0] - g.from[0], g.at[1] - g.from[1]);
     } else if (g.kind === "move") {
       const l = g.lay;
       const dx = Math.round(g.at[0] - g.from[0]);
@@ -983,6 +1064,49 @@ export class ImageIsland {
   }
 
   // ---------------------------------------------------------------- selections
+
+  /** A layer's pixels inside a selection (a picture-sized piece) and the layer without them. */
+  private cut(l: Lay, alpha: C): { piece: C; holed: C } {
+    const piece = canvas(this.width, this.height);
+    const pc = ctx2d(piece);
+    pc.drawImage(l.c, l.info.x, l.info.y);
+    pc.globalCompositeOperation = "destination-in";
+    pc.drawImage(alpha, 0, 0);
+    const holed = canvas(l.c.width, l.c.height);
+    const hc = ctx2d(holed);
+    hc.drawImage(l.c, 0, 0);
+    hc.globalCompositeOperation = "destination-out";
+    hc.drawImage(alpha, -l.info.x, -l.info.y);
+    return { piece, holed };
+  }
+
+  /** The selection moved by (dx, dy): its alpha, its outline and its box (none once off the picture). */
+  private shiftSelection(dx: number, dy: number) {
+    const sel = this.sel;
+    if (!sel || (!dx && !dy)) {
+      this.drawOverlay();
+      return;
+    }
+    const box = inter(
+      { ...sel.box, x: sel.box.x + dx, y: sel.box.y + dy },
+      { x: 0, y: 0, w: this.width, h: this.height },
+    );
+    if (!box) {
+      this.selectNone();
+      return;
+    }
+    const alpha = canvas(this.width, this.height);
+    ctx2d(alpha).drawImage(sel.alpha, dx, dy);
+    this.sel = {
+      alpha,
+      outline: sel.outline.map((poly) =>
+        poly.map(([x, y]) => [x + dx, y + dy] as [number, number]),
+      ),
+      box,
+    };
+    this.o.onSelection(box);
+    this.drawOverlay();
+  }
 
   private setSelection(polys: [number, number][][]) {
     const alpha = canvas(this.width, this.height);
