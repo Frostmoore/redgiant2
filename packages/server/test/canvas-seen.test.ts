@@ -2,9 +2,10 @@
 // slow to answer is waited for and never called «no page open»; a move or a tab shown in the same
 // answer comes before the look; a file named by its path is seen where the person is in its tab;
 // the pages are counted on the file as it is; an edit of an open copy shows the copy in its tab.
+import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import type { ToolContext } from "@redgiant/agent";
 import { CONCURRENT_TOOLS, READ_ONLY_TOOLS } from "@redgiant/hierarchy";
 import type { CanvasState } from "@redgiant/protocol";
@@ -157,7 +158,10 @@ describe("canvas_look on what the person has open (p3.5.6)", () => {
       targetOf: async (_o, abs) => ({ kind: "file", scope: "platform", path: abs }),
       fileOf: async (_o, t) => join(root, t.path),
       look: async (abs, ask, c) => {
-        asked.push({ file: abs.slice(root.length + 1), ...ask });
+        // The temporary folder may reach the tool by another name (macOS /private/var, Windows
+        // short names): compared as real paths, with forward slashes.
+        const file = relative(realpathSync.native(root), realpathSync.native(abs));
+        asked.push({ file: file.split(sep).join("/"), ...ask });
         return look(abs, ask, c);
       },
       act: async () => {},
