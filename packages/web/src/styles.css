@@ -15,6 +15,11 @@
   /* The yellow as text (on a panel or on --warn-soft): 4.5:1 or more in both themes (WCAG AA). */
   --warn-text: #7a5600;
   --err: #d23d3d;
+  /* The truly dangerous requests (p3.5.4): a deeper red than the accent, white on it. */
+  --critical: #b0151c;
+  --critical-ink: #ffffff;
+  --critical-soft: #fff4f4;
+  --critical-text: #b0151c;
   --user: #f3e6e4;
   --code: #0f131a;
   --radius: 10px;
@@ -36,6 +41,10 @@ html[data-theme="dark"] {
   --user: #33211f;
   --code: #0d1016;
   --warn-text: #e0b23a;
+  --critical: #c8242c;
+  --critical-ink: #ffffff;
+  --critical-soft: #2a1214;
+  --critical-text: #ff8a8f;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -53,6 +62,10 @@ html[data-theme="dark"] {
     --user: #33211f;
     --code: #0d1016;
     --warn-text: #e0b23a;
+    --critical: #c8242c;
+    --critical-ink: #ffffff;
+    --critical-soft: #2a1214;
+    --critical-text: #ff8a8f;
     color-scheme: dark;
   }
 }
@@ -1227,6 +1240,56 @@ button.bar-settings {
 }
 .permission-actions button:disabled {
   opacity: 0.5;
+}
+/* A truly dangerous request (G36.17b, p3.5.4): unlike any other card at a glance. */
+.permission.permission-critical {
+  border: 3px solid var(--critical);
+  background: var(--critical-soft);
+  padding: 0 0 10px;
+  /* Never squeezed by the chat's column (it hides what overflows, for the round corners). */
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.permission-critical > :not(.critical-head) {
+  margin-left: 12px;
+  margin-right: 12px;
+}
+.permission-critical .critical-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--critical);
+  color: var(--critical-ink);
+  font-size: 1.05rem;
+}
+.permission-critical .critical-what {
+  margin-top: 10px;
+  margin-bottom: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.permission-critical .critical-what-label {
+  display: block;
+  color: var(--critical-text);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.permission-critical .critical-what ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+.permission-critical .permission-actions .critical-yes {
+  background: var(--critical);
+  color: var(--critical-ink);
+}
+/* «Nega» stays plain here: the one red button is the dangerous one. */
+.permission-critical .permission-actions .no {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
 }
 .question-card {
   align-self: stretch;

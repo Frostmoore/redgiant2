@@ -76,6 +76,27 @@ describe("Event", () => {
     expect(e.type).toBe("message.user");
   });
 
+  it("says where the person answered, and reads older logs without it (p3.5.4)", () => {
+    const resolved = (extra: object) =>
+      Event.safeParse({
+        ...envelope,
+        type: "permission.resolved",
+        payload: { requestId: "r1", decision: "allow", by: "human", ...extra },
+      });
+    expect(resolved({}).success).toBe(true);
+    const e = resolved({ via: "telegram" });
+    expect(e.success && e.data.type === "permission.resolved" && e.data.payload.via).toBe(
+      "telegram",
+    );
+    expect(resolved({ via: 3 }).success).toBe(false);
+    const answered = Event.safeParse({
+      ...envelope,
+      type: "question.answered",
+      payload: { requestId: "q1", answers: [["Blu"]], by: "human", via: "web" },
+    });
+    expect(answered.success).toBe(true);
+  });
+
   it("rejects a payload that does not match its type", () => {
     expect(Event.safeParse({ ...envelope, type: "message.user", payload: {} }).success).toBe(false);
   });

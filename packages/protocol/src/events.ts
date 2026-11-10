@@ -129,6 +129,11 @@ export const EventBody = z.discriminatedUnion("type", [
       requestId: z.string(),
       decision: z.enum(["allow", "deny", "escalate"]),
       by: z.string(),
+      /**
+       * Where the person answered (p3.5.4): "web", a chat platform ("telegram", "whatsapp"…),
+       * "timeout". Absent in older logs and when an agent or the classifier decided.
+       */
+      via: z.string().optional(),
     }),
   }),
   /**
@@ -165,6 +170,8 @@ export const EventBody = z.discriminatedUnion("type", [
       /** null: nobody answered (the turn was interrupted). */
       answers: Answers.nullable(),
       by: z.string(),
+      /** Where the person answered (p3.5.4), like `permission.resolved`; absent in older logs. */
+      via: z.string().optional(),
     }),
   }),
   z.object({

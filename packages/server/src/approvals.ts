@@ -18,6 +18,8 @@ export class HumanApprovals extends EventEmitter<{
   closed: [ownerId: string, requestId: string, decision: "allow" | "deny", via: string | undefined];
 }> {
   private readonly pending = new Map<string, Pending>();
+  /** Where each closed request was answered, until the broker records it (`takeVia`). */
+  private readonly answered = new Map<string, string>();
 
   ask(request: ApprovalRequest, signal: AbortSignal): Promise<HumanAnswer> {
     const info: PermissionRequestInfo = {
@@ -29,6 +31,7 @@ export class HumanApprovals extends EventEmitter<{
       input: request.call.input,
       reasons: request.reasons,
       danger: request.danger,
+      ...(request.critical?.length && { critical: request.critical }),
       createdAt: new Date().toISOString(),
       ...(request.sessionId && { sessionId: request.sessionId }),
     };
@@ -67,9 +70,24 @@ export class HumanApprovals extends EventEmitter<{
     const p = this.pending.get(requestId);
     if (!p || p.ownerId !== ownerId) return false;
     this.pending.delete(requestId);
+    if (via) {
+      this.answered.set(requestId, via);
+      // Answers nobody came to take (a broker without `answeredVia`) are dropped, oldest first.
+      for (const old of this.answered.keys()) {
+        if (this.answered.size <= 1000) break;
+        this.answered.delete(old);
+      }
+    }
     p.resolve(decision === "deny" && reason?.trim() ? { deny: reason.trim() } : decision);
     this.emit("closed", ownerId, requestId, decision, via);
     return true;
+  }
+
+  /** Where a closed request was answered ("web", a chat platform, "timeout"); taken once. */
+  takeVia(requestId: string): string | undefined {
+    const via = this.answered.get(requestId);
+    this.answered.delete(requestId);
+    return via;
   }
 
   /** Denies everything still open (shutdown). */

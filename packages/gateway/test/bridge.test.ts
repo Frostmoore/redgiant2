@@ -167,6 +167,36 @@ describe("chat bridge (G29.5)", () => {
     expect(t.edits.at(-1)?.text).toMatch(/Denied$/);
   });
 
+  it("starts a truly dangerous request with its danger, in words (p3.5.4)", async () => {
+    const { t, send, approvals, decided } = await setup();
+    approvals.emit("request", "me", {
+      ...perm,
+      requestId: "r2",
+      tool: "canvas_edit",
+      input: { path: "modulo.pdf", ops: [{ op: "redact", page: 1, find: "Rossi" }] },
+      reasons: ["truly dangerous: redacts modulo.pdf"],
+      danger: ["critical-delete"],
+      critical: [{ id: "critical-delete", action: "redact", target: "modulo.pdf" }],
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    const m = t.sent.at(-1);
+    const lines = m?.text.split("\n") ?? [];
+    expect(lines[0]).toBe("DANGER: an action that cannot be undone");
+    expect(lines[1]).toBe(
+      "Removes for good the text and pictures under the chosen areas from modulo.pdf.",
+    );
+    expect(m?.text).toContain("Coder (demo) wants canvas_edit");
+    // No emoji and no symbols as icons; the answer works as for any request.
+    expect(m?.text).not.toMatch(/\p{Extended_Pictographic}/u);
+    expect(m?.buttons?.map((b) => b.label)).toEqual(["Allow", "Deny"]);
+    await send({ button: m?.buttons?.[0]?.id ?? "" });
+    expect(decided).toEqual([["r2", "allow"]]);
+    // An ordinary request has no danger line.
+    approvals.emit("request", "me", perm);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.sent.at(-1)?.text.startsWith("Approval needed")).toBe(true);
+  });
+
   it("numbers the choices where the platform has no buttons", async () => {
     const { t, send, approvals, questions, decided, answered, asked } = await setup(false);
     approvals.emit("request", "me", perm);

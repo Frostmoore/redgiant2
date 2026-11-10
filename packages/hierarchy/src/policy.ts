@@ -12,7 +12,7 @@ import {
 /** The guardian's danger: writing outside the agent's folders (only the human approves it). */
 export const OUTSIDE_PROJECT = "outside-project";
 
-import type { AgentKind, PermissionMode } from "@redgiant/protocol";
+import type { AgentKind, CriticalDetail, PermissionMode } from "@redgiant/protocol";
 
 export type Decision = "allow" | "ask" | "deny";
 
@@ -285,6 +285,8 @@ export interface Evaluation {
    * person, whatever the rules and the mode (a deny stays a deny), and only the person decides it.
    */
   critical: string[];
+  /** What each of them does, for the person (p3.5.4: the red card's sentences). */
+  criticalDetail?: CriticalDetail[];
 }
 
 /**
@@ -331,6 +333,7 @@ export function evaluate(mode: PermissionMode, call: ToolCallInfo, s: PolicySett
     ],
     danger: [...e.danger, ...critical.filter((id) => !e.danger.includes(id))],
     critical,
+    criticalDetail: hits.map(({ why: _why, ...d }) => d),
   };
 }
 

@@ -1056,6 +1056,7 @@ export class RedGiantCore implements OrchestrationHost {
           critical: req.danger.some(isCriticalId),
           what: `${req.call.name}: ${req.reasons.join("; ") || "needs a yes"}`,
         }),
+      answeredVia: (id) => this.approvals.takeVia(id),
     });
     this.person = new PersonRequests({
       db: o.db,
