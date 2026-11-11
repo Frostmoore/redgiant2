@@ -9,6 +9,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { FILES_SANDBOX, PROGRAM_SANDBOX } from "@redgiant/protocol";
+import { lockedPage } from "./webrtc-lockdown.js";
 
 /** What a preview link opens: a folder of files, or a port in an agent's container. */
 export type PreviewTarget =
@@ -158,6 +159,8 @@ export function previewHeaders(
   use: PreviewUse,
   origins: string[],
   prefix: string,
+  /** The answer's content type: SVG and XML documents run no scripts (3.5.10). */
+  type = "text/html",
 ): Record<string, string> {
   const ancestors = `frame-ancestors ${origins.join(" ")}`;
   if (use === "program")
@@ -166,30 +169,38 @@ export function previewHeaders(
       "Content-Security-Policy": `sandbox ${PROGRAM_SANDBOX}; ${ancestors}`,
     };
   const self = origins.map((o) => `${o}${prefix}/`).join(" ");
+  // An SVG or XML file opened as a page could run scripts without the WebRTC lockdown (only HTML
+  // gets it): those run none.
+  const scripts = !SCRIPTLESS.test(type);
   return {
     ...PREVIEW_BASE,
     "Content-Security-Policy": [
-      `sandbox ${FILES_SANDBOX}`,
+      `sandbox ${scripts ? FILES_SANDBOX : FILES_SANDBOX.replace("allow-scripts ", "")}`,
       "default-src 'none'",
-      `script-src ${self} 'unsafe-inline' 'unsafe-eval' blob:`,
+      scripts ? `script-src ${self} 'unsafe-inline' 'unsafe-eval' blob:` : "script-src 'none'",
       `style-src ${self} 'unsafe-inline' blob:`,
       `img-src ${self} data: blob:`,
       `font-src ${self} data: blob:`,
       `media-src ${self} data: blob:`,
       `connect-src ${self}`,
       `worker-src ${self} blob:`,
-      `frame-src ${self} blob: data:`,
+      // Only the preview's own pages, which carry the lockdown: a blob: or data: page would not.
+      `frame-src ${self}`,
       `manifest-src ${self}`,
       "object-src 'none'",
       "form-action 'none'",
       "base-uri 'none'",
-      // WebRTC has no fetch directive: browsers that know CSP's `webrtc` stop it here.
+      // WebRTC has no fetch directive and no browser applies `webrtc` yet: the page's first
+      // script takes it away (webrtc-lockdown.ts); this line is for browsers that learn it.
       "webrtc 'block'",
       ancestors,
     ].join("; "),
     "X-DNS-Prefetch-Control": "off",
   };
 }
+
+/** Content types a browser runs as a document with scripts, other than HTML. */
+const SCRIPTLESS = /^(image\/svg\+xml|application\/xml|text\/xml|application\/xhtml\+xml)/i;
 
 /** The headers of an answer that is not a page (expired link, refused method). */
 export const PREVIEW_HEADERS: Record<string, string> = {
@@ -236,7 +247,9 @@ const LINKS = `<script>(()=>{const P=new URL(location.href);const out=u=>{try{pa
 
 /**
  * Paths that start with "/" mean the root of the site, which here is the preview's own prefix:
- * links, sources and requests made by scripts are moved under it.
+ * links, sources and requests made by scripts are moved under it. An agent-made page (`links`)
+ * also gets its links handed to the person and, first of all, the WebRTC lockdown (3.5.10); a
+ * project's program on a port gets neither.
  */
 export function rewrite(body: string, type: string, prefix: string, links = false): string {
   const abs = `(?!\\/)(?!${prefix.slice(1).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`;
@@ -246,9 +259,10 @@ export function rewrite(body: string, type: string, prefix: string, links = fals
       `$1${prefix}/`,
     );
     const script = `<script>(()=>{const P=${JSON.stringify(prefix)};const f=u=>typeof u==="string"&&u.startsWith("/")&&!u.startsWith("//")&&!u.startsWith(P+"/")?P+u:u;const F=window.fetch;window.fetch=(i,o)=>F(typeof i==="string"?f(i):i,o);const O=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u,...r){return O.call(this,m,f(u),...r)};const E=window.EventSource;if(E)window.EventSource=function(u,o){return new E(f(u),o)};})();</script>${links ? LINKS : ""}`;
-    return /<head[^>]*>/i.test(fixed)
+    const page = /<head[^>]*>/i.test(fixed)
       ? fixed.replace(/<head[^>]*>/i, (h) => `${h}${script}`)
       : `${script}${fixed}`;
+    return links ? lockedPage(page) : page;
   }
   if (type.startsWith("text/css"))
     return body.replace(new RegExp(`url\\((["']?)\\/${abs}`, "g"), `url($1${prefix}/`);

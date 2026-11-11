@@ -4,13 +4,17 @@
 // CSV explorer in React with JSX compiled by the server, libraries offline): App and Source; one
 // with errors, counted and reported to the server; a hostile one whose ways out are all blocked
 // (a local "outside" server must hear nothing). Screenshots light and dark, desktop and phone.
+// 3.5.10: WebRTC off. Hostile artifacts try every way to a peer connection (webrtc-hostile.mjs);
+// a STUN listener must hear nothing; a legit artifact with three and d3 still draws.
 // Usage: DEMO_ARTIFACTS=1 node demo-server.mjs 7659, then
 //        [CHROMIUM=/path/to/chrome] node artifacts-e2e.mjs <url> <token> <outdir> <widgetSession> <artifactSession> <godId>
 // Exits 1 on a failure.
-import { mkdir } from "node:fs/promises";
+import { createSocket } from "node:dgram";
+import { mkdir, writeFile as writeLocal } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { CHILD_WAYS, webrtcDocWrite, webrtcFrameset, webrtcHostile } from "./webrtc-hostile.mjs";
 
 const [url, token, out, widgetSession, artifactSession, godId] = process.argv.slice(2);
 await mkdir(out, { recursive: true });
@@ -37,6 +41,33 @@ outside.on("upgrade", (req, socket) => {
 });
 await new Promise((r) => outside.listen(0, "127.0.0.1", r));
 const ext = `http://localhost:${outside.address().port}`;
+// WebRTC: a STUN server outside would get a binding request.
+const stun = createSocket("udp4");
+const stunHeard = [];
+stun.on("message", (_m, from) => stunHeard.push(`${from.address}:${from.port}`));
+await new Promise((r) => stun.bind(0, "127.0.0.1", r));
+const stunPort = stun.address().port;
+const head = (name) => `<!-- redgiant-artifact {"name":"${name}","version":1} -->\n`;
+const legit = `<!-- redgiant-artifact {"name":"Scena","version":1,"libs":["three","d3"]} -->
+<!doctype html><html lang="it"><head><title>Scena</title></head><body><div id="d3"></div><div id="three"></div>
+<script type="module">
+import * as THREE from "three";
+import * as d3 from "d3";
+const r = {};
+d3.select("#d3").append("svg").attr("width", 120).attr("height", 40).selectAll("rect").data([10, 30, 20]).join("rect").attr("x", (_d, i) => i * 40).attr("y", (d) => 40 - d).attr("width", 30).attr("height", (d) => d).attr("fill", "#d23a2c");
+r.d3 = document.querySelectorAll("#d3 rect").length === 3;
+try {
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(160, 100);
+  document.getElementById("three").append(renderer.domElement);
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(50, 1.6, 0.1, 10);
+  camera.position.z = 3;
+  scene.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshNormalMaterial()));
+  renderer.render(scene, camera);
+  r.three = renderer.domElement.width > 0;
+} catch (e) { r.three = "no WebGL here: " + e.message; r.threeLoaded = typeof THREE.Scene === "function"; }
+top.postMessage({ legit: r }, "*");
+</script></body></html>`;
 const hostile = `<!-- redgiant-artifact {"name":"Ostile","version":1} -->
 <!doctype html><html><head><title>Ostile</title>
 <link rel="stylesheet" href="${ext}/sheet.css"><script src="${ext}/script.js"></script>
@@ -63,12 +94,16 @@ const out = (k, v) => { r[k] = v; const li = document.createElement("li"); li.te
   setTimeout(() => { location.href = ${JSON.stringify(ext)} + "/selfnav"; }, 6000);
 })();
 </script></body></html>`;
-const w = await api("PUT", "/api/files/content", {
-  scope: "platform",
-  path: "artefatti/ostile-e2e.html",
-  content: hostile,
-});
-if (w.status !== 200) throw new Error(`write: ${w.status} ${JSON.stringify(w.body)}`);
+for (const [path, content] of [
+  ["artefatti/ostile-e2e.html", hostile],
+  ["artefatti/rtc-ostile.html", webrtcHostile(stunPort, head("WebRTC ostile"))],
+  ["artefatti/rtc-doc.html", webrtcDocWrite(stunPort, head("WebRTC document.open"))],
+  ["artefatti/rtc-frameset.html", webrtcFrameset(stunPort, head("WebRTC frameset"))],
+  ["artefatti/scena-3d.html", legit],
+]) {
+  const w = await api("PUT", "/api/files/content", { scope: "platform", path, content });
+  if (w.status !== 200) throw new Error(`write ${path}: ${w.status} ${JSON.stringify(w.body)}`);
+}
 
 let failed = false;
 const check = (ok, what) => {
@@ -351,7 +386,88 @@ for (const scheme of ["light", "dark"]) {
   await context.close();
 }
 
+// ---- 3. WebRTC (3.5.10): hostile artifacts in frames as the canvas makes them -------------------
+{
+  const { page, context } = await open(
+    "light",
+    { width: 1440, height: 900 },
+    artifactSession,
+    "Mostra il file artef",
+  );
+  await page.evaluate(() => {
+    window.__rtc = {};
+    window.__got = {};
+    window.__errors = [];
+    addEventListener("message", (e) => {
+      if (e.data?.rtc) Object.assign(window.__rtc, e.data.rtc);
+      else if (e.data?.method === "redgiant/error") window.__errors.push(e.data.params);
+      else if (e.data && !e.data.jsonrpc) Object.assign(window.__got, e.data);
+    });
+  });
+  let n = 0;
+  for (const path of ["rtc-ostile.html", "rtc-doc.html", "rtc-frameset.html", "scena-3d.html"]) {
+    const link = await api("POST", "/api/canvas/link", {
+      kind: "file",
+      scope: "platform",
+      path: `artefatti/${path}`,
+    });
+    check(link.body?.artifact === true, `${path} runs as an artifact`);
+    await page.evaluate(
+      ([src, i]) => {
+        const f = document.createElement("iframe");
+        f.src = src;
+        f.setAttribute("sandbox", "allow-scripts allow-forms");
+        f.style.cssText = `position:fixed;z-index:9999;left:${20 + 350 * i}px;top:80px;width:330px;height:420px;border:2px solid #e0482e;background:#fff`;
+        document.body.append(f);
+      },
+      [link.body.url, n++],
+    );
+  }
+  // The first artifact with three bundles it on the server (esbuild): it can take a while.
+  for (let i = 0; i < 60; i++) {
+    const ready = await page.evaluate(() => window.__got.legit && window.__rtc.done);
+    if (ready) break;
+    await page.waitForTimeout(1000);
+  }
+  await page.waitForTimeout(3000);
+  console.log(
+    `     errors reported by the artifacts: ${JSON.stringify(await page.evaluate(() => window.__errors))}`,
+  );
+  const rtcWays = await page.evaluate(() => window.__rtc);
+  for (const w of [
+    ...CHILD_WAYS,
+    "frameset frame javascript:",
+    "document.open + write of a new document",
+  ])
+    if (!(w in rtcWays)) rtcWays[w] = "(never ran)";
+  console.log("     WebRTC, the ways tried in an artifact:");
+  for (const [k, v] of Object.entries(rtcWays)) console.log(`       ${k}: ${v}`);
+  check(rtcWays.done === "yes", "the WebRTC artifact ran to its end");
+  check(
+    !Object.values(rtcWays).some((v) => /MADE|natives seen/.test(String(v))),
+    "no way made a peer connection in an artifact",
+  );
+  const got = await page.evaluate(() => window.__got);
+  console.log(`     legit three + d3: ${JSON.stringify(got.legit)}`);
+  check(got.legit?.d3 === true, "a legit artifact with d3 draws");
+  check(
+    got.legit?.three === true || got.legit?.threeLoaded === true,
+    "a legit artifact with three loads (and renders where WebGL is)",
+  );
+  await page.screenshot({ path: join(out, "light-9-webrtc-artifacts.png") });
+  check(
+    stunHeard.length === 0,
+    `WebRTC: the STUN server outside heard nothing (${stunHeard.length})`,
+  );
+  await writeLocal(
+    join(out, "webrtc.json"),
+    JSON.stringify({ rtcWays, legit: got.legit, stunHeard }, null, 2),
+  );
+  await context.close();
+}
+
 await browser.close();
 outside.close();
+stun.close();
 console.log(failed ? "SOME CHECKS FAILED" : "ALL CHECKS PASSED");
 process.exit(failed ? 1 : 0);

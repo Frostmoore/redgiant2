@@ -2427,7 +2427,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       return c.body(w.body, 200, w.headers);
     }
     return c.body(f.body as never, f.status as 200, {
-      ...previewHeaders("files", origins, prefix),
+      ...previewHeaders("files", origins, prefix, f.type),
       ...f.headers,
       "Content-Type": f.type,
     });
