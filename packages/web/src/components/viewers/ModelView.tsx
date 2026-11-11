@@ -153,6 +153,12 @@ export function ModelView({ src }: ViewerProps) {
         const clock = new THREE.Clock();
         let frame = 0;
         const draw = () => {
+          // Out of sight (a hidden tab, 3.5.11): nothing drawn, the clock kept.
+          if (el.clientWidth === 0 || document.hidden) {
+            clock.getDelta();
+            frame = requestAnimationFrame(draw);
+            return;
+          }
           mixer?.update(clock.getDelta());
           controls.update();
           renderer.render(scene, camera);

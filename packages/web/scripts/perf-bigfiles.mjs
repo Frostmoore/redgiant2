@@ -11,12 +11,14 @@ const [url, token, dist, out, onlyArg] = process.argv.slice(2);
 const manifest = JSON.parse(readFileSync(join(dist, ".vite", "manifest.json"), "utf8"));
 const stateFile = `/${Object.values(manifest).find((c) => /^assets\/state-[^/]+\.js$/.test(c.file)).file}`;
 
+// BIG_PREFIX: the folder in the platform (canvas, or campioni with DEMO_SAMPLES).
+const DIR = process.env.BIG_PREFIX ?? "canvas";
 const FILES = [
-  { name: "text-5MB", path: "canvas/testo-5mb.txt", ready: ".cm-content", type: true },
-  { name: "csv-100k", path: "canvas/righe-100k.csv", ready: ".canvas canvas", type: true },
-  { name: "pdf-300", path: "canvas/pagine-300.pdf", ready: ".canvas .page canvas" },
-  { name: "ora-4000x3000x10", path: "canvas/livelli-4000x3000.ora", ready: ".canvas canvas" },
-  { name: "glb-50MB", path: "canvas/terreno-50mb.glb", ready: ".canvas canvas" },
+  { name: "text-5MB", path: `${DIR}/testo-5mb.txt`, ready: ".cm-content", type: true },
+  { name: "csv-100k", path: `${DIR}/righe-100k.csv`, ready: ".canvas canvas", type: true },
+  { name: "pdf-300", path: `${DIR}/pagine-300.pdf`, ready: ".canvas .page canvas" },
+  { name: "ora-4000x3000x10", path: `${DIR}/livelli-4000x3000.ora`, ready: ".canvas canvas" },
+  { name: "glb-50MB", path: `${DIR}/terreno-50mb.glb`, ready: ".canvas canvas" },
 ].filter((f) => !onlyArg || onlyArg.split(",").includes(f.name));
 
 const browser = await chromium.launch({
