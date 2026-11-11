@@ -13,7 +13,11 @@ import {
   type ImageLayerInfo,
   type ImageMask,
   type ImageSnapshot,
+  type ImageText,
   imageBlendName,
+  TEXT_ATTRS,
+  textAttrs,
+  textOfAttrs,
 } from "@redgiant/protocol";
 import { strFromU8, strToU8 } from "fflate";
 import { decode as decodeJpeg, encode as encodeJpeg } from "jpeg-js";
@@ -54,6 +58,8 @@ export interface RLayer {
   groups: ImageGroup[];
   px: Rgba;
   mask?: RMask;
+  /** A text layer's text (p3.5.8): its pixels are the text drawn. */
+  text?: ImageText;
   /** stack.xml's attributes of this layer the editor does not know, written back as they were. */
   extra: Record<string, string>;
 }
@@ -459,6 +465,7 @@ const KNOWN_LAYER = new Set([
   "redgiant-mask-x",
   "redgiant-mask-y",
   "redgiant-mask-outside",
+  ...TEXT_ATTRS,
 ]);
 
 /** A layer's id from its picture's name in the zip (`data/layer3.png` → `layer3`). */
@@ -535,6 +542,8 @@ export function readOra(bytes: Uint8Array): ImageModel {
           px,
           extra,
         };
+        const text = textOfAttrs(e.attrs);
+        if (text) l.text = text;
         const ms = e.attrs["redgiant-mask"];
         const mpng = ms ? z[ms] : undefined;
         if (ms && mpng) {
@@ -562,9 +571,10 @@ export function readOra(bytes: Uint8Array): ImageModel {
   return { width, height, format: "ora", layers, attrs, keep };
 }
 
+// Line breaks and tabs as references: an XML reader makes plain ones in an attribute spaces.
 const attrsText = (a: Record<string, string>) =>
   Object.entries(a)
-    .map(([k, v]) => ` ${k}="${escapeXml(v)}"`)
+    .map(([k, v]) => ` ${k}="${escapeXml(v).replace(/[\n\r\t]/g, (c) => `&#${c.charCodeAt(0)};`)}"`)
     .join("");
 const fmtOpacity = (o: number) => String(Math.round(o * 1000) / 1000);
 
@@ -596,6 +606,7 @@ export function writeOra(m: ImageModel, blobs: ImageBlobs): Uint8Array {
           visibility: c.visible ? "visible" : "hidden",
           "composite-op": c.blend,
           ...(c.locked && { "edit-locked": "true" }),
+          ...(c.text && textAttrs(c.text)),
         };
         if (c.mask) {
           const ms = `data/${c.id}.mask.png`;
@@ -679,6 +690,7 @@ export const infoOf = (l: RLayer): ImageLayerInfo => ({
   blend: l.blend,
   ...(l.locked && { locked: true }),
   ...(l.groups.length && { groups: l.groups }),
+  ...(l.text && { text: l.text }),
 });
 
 export const maskInfoOf = (m: RMask, blobs: ImageBlobs): ImageMask => ({

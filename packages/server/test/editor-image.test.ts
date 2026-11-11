@@ -16,8 +16,10 @@ import {
   type ImageAction,
   imageTilesOf,
   PERSON,
+  renderText,
   runImageFilter,
   type ServerMessage,
+  textOrigin,
 } from "@redgiant/protocol";
 import { strToU8, unzipSync } from "fflate";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -29,6 +31,7 @@ import {
   ImageBlobs,
   type ImageModel,
   type Rgba,
+  type RLayer,
   readImage,
   readOra,
   writeJpeg,
@@ -45,6 +48,8 @@ import {
   fontNamed,
   parseColor,
   rectPoly,
+  textFont,
+  textFontBytes,
   textPolys,
 } from "../src/editor/image/raster.js";
 import { imageStructure } from "../src/editor/image/structure.js";
@@ -113,6 +118,7 @@ const pixelsOf = (m: ImageModel) =>
     blend: l.blend,
     data: Buffer.from(l.px.data).toString("base64"),
     mask: l.mask && { ...l.mask, img: Buffer.from(l.mask.img.data).toString("base64") },
+    text: l.text,
   }));
 /** Applies, inverts (through JSON, as the log keeps it) and checks the very same pixels come back. */
 function roundTrip(m: ImageModel, list: ImageAction[]): ImageModel {
@@ -573,6 +579,156 @@ describe("conflicts, filters, drawing", () => {
 
 // ---- in the host ----------------------------------------------------------------------------
 
+describe("text layers (p3.5.8, Photoshop's type layers)", () => {
+  const base = () => readOra(sampleOra());
+  const textOf = (m: ImageModel, name: string) => m.layers.find((l) => l.name === name);
+
+  it("add_text makes a text layer drawn by the shared renderer, kept through OpenRaster", () => {
+    const m = base();
+    const t = roundTrip(
+      m,
+      agent(m, [
+        {
+          op: "add_text",
+          text: "Saldi\n-30%",
+          x: 6.5,
+          y: 5,
+          size: 14,
+          color: "#ff8800",
+          bold: true,
+          align: "center",
+          name: "Titolo",
+        },
+      ]),
+    );
+    const l = textOf(t, "Titolo");
+    expect(l?.text).toMatchObject({
+      text: "Saldi\n-30%",
+      font: "sans",
+      size: 14,
+      color: "#ff8800",
+      bold: true,
+      italic: false,
+      align: "center",
+    });
+    // Its box is where it was asked, and its pixels are the renderer's, exactly.
+    expect(textOrigin(l as RLayer)).toEqual([6.5, 5]);
+    const r = renderText(textFont("sans", true, false), l?.text as never, 6.5, 5);
+    expect([l?.x, l?.y, l?.px.width, l?.px.height]).toEqual([r.x, r.y, r.px.width, r.px.height]);
+    expect(Buffer.from(l?.px.data ?? []).equals(Buffer.from(r.px.data))).toBe(true);
+    const orange = [...(l?.px.data ?? [])].some((v, i) => i % 4 === 3 && v === 255);
+    expect(orange).toBe(true);
+    // Written and read back: a raster layer for Krita and GIMP, our attributes for us; another
+    // program's own attributes on it stay.
+    const withExtra = {
+      ...t,
+      layers: t.layers.map((x) => (x === l ? { ...x, extra: { "krita:foo": "bar" } } : x)),
+    };
+    const bytes = writeOra(withExtra, blobs);
+    const xml = new TextDecoder().decode(unzipSync(bytes)["stack.xml"]);
+    expect(xml).toContain('redgiant-text="Saldi&#10;-30%"');
+    expect(xml).toContain('redgiant-text-bold="true"');
+    expect(xml).toContain('krita:foo="bar"');
+    const back = readOra(bytes);
+    const bl = textOf(back, "Titolo");
+    expect(bl?.text).toEqual(l?.text);
+    expect(bl?.extra).toEqual({ "krita:foo": "bar" });
+    expect(Buffer.from(bl?.px.data ?? []).equals(Buffer.from(l?.px.data ?? []))).toBe(true);
+    // Shown to the agent with its text and look.
+    expect(imageStructure(back, {})).toMatch(
+      /«Titolo».*text layer: "Saldi\\n-30%", font sans bold size 14 color #ff8800, align center/,
+    );
+  });
+
+  it("edit_text changes the text and its look in one change, undone exactly", () => {
+    const m = base();
+    const made = applyAction(
+      m,
+      agent(m, [
+        { op: "add_text", text: "Ciao", x: 4, y: 4, size: 12, name: "T" },
+      ])[0] as ImageAction,
+      blobs,
+    );
+    const was = textOf(made, "T") as RLayer;
+    const list = agent(made, [
+      { op: "edit_text", layer: "T", text: "Ciao mondo", size: 18, color: "#123456", italic: true },
+    ]);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ t: "batch", what: "text" });
+    const ops = (list[0] as Extract<ImageAction, { t: "batch" }>).ops;
+    expect(ops.map((o) => o.t)).toEqual(["props", "pixels"]);
+    const after = roundTrip(made, list);
+    const l = textOf(after, "T") as RLayer;
+    expect(l.text).toMatchObject({ text: "Ciao mondo", size: 18, color: "#123456", italic: true });
+    // The box stays where it was; the layer's id and name too.
+    expect(textOrigin(l)).toEqual(textOrigin(was));
+    expect(l.id).toBe(was.id);
+    expect(l.px.width).toBeGreaterThan(was.px.width);
+    // Moving keeps it text (the box goes with the layer), scaling changes its size.
+    const moved = roundTrip(after, agent(after, [{ op: "transform", layer: "T", dx: 5, dy: 2 }]));
+    const ml = textOf(moved, "T") as RLayer;
+    expect(ml.text).toEqual(l.text);
+    expect(textOrigin(ml)).toEqual([textOrigin(l)[0] + 5, textOrigin(l)[1] + 2]);
+    const big = roundTrip(
+      after,
+      agent(after, [{ op: "transform", layer: "T", scale: 2, rotate: 30 }]),
+    );
+    expect(textOf(big, "T")?.text).toMatchObject({ size: 36, rotate: 30 });
+    // Pixel operations are refused on a text layer until it is rasterized.
+    expect(
+      imageFromAgent(after, [{ op: "filter", layer: "T", name: "blur" }], { blobs }),
+    ).toMatchObject({
+      error: expect.stringContaining("rasterize_text"),
+    });
+    const flat = roundTrip(after, agent(after, [{ op: "rasterize_text", layer: "T" }]));
+    expect(textOf(flat, "T")?.text).toBeUndefined();
+    expect(
+      imageFromAgent(flat, [{ op: "filter", layer: "T", name: "blur" }], { blobs }),
+    ).not.toHaveProperty("error");
+    expect(
+      imageFromAgent(made, [{ op: "edit_text", layer: "Sfondo", text: "x" }], { blobs }),
+    ).toMatchObject({
+      error: expect.stringContaining("not a text layer"),
+    });
+  });
+
+  it("paragraph text wraps in its box; a resized picture keeps text layers text", () => {
+    const m = base();
+    const after = roundTrip(
+      m,
+      agent(m, [
+        {
+          op: "add_text",
+          text: "uno due tre quattro",
+          x: 2,
+          y: 2,
+          size: 10,
+          box: [40, 40],
+          name: "P",
+        },
+      ]),
+    );
+    const p = textOf(after, "P") as RLayer;
+    expect(p.text?.box).toEqual({ w: 40, h: 40 });
+    // Several lines, none wider than the box.
+    expect(p.px.height).toBeGreaterThan(20);
+    expect(p.px.width).toBeLessThanOrEqual(42);
+    const half = roundTrip(
+      after,
+      agent(after, [
+        { op: "set_layer", layer: "Sfondo", locked: false },
+        { op: "resize_image", width: 32 },
+      ]),
+    );
+    expect(textOf(half, "P")?.text).toMatchObject({ size: 5, box: { w: 20, h: 20 } });
+  });
+
+  it("serves the font files the page draws with, and only those", () => {
+    expect(textFontBytes("LiberationSans-Regular.ttf")?.length).toBeGreaterThan(10_000);
+    expect(textFontBytes("../package.json")).toBeUndefined();
+  });
+});
+
 describe("a picture in the editor's host", () => {
   let store: EventStore;
   let hosts: EditorHost[] = [];
@@ -734,6 +890,43 @@ describe("a picture in the editor's host", () => {
     });
     const end = (await h.read("me", file)).model as ImageModel;
     expect(imageStructure(end, {})).not.toContain("Sopra");
+  });
+
+  it("a text layer edited by the person is one revision, undone with its text; saved with it (p3.5.8)", async () => {
+    const file: DocFile = { scope: "platform", path: "art/t.ora" };
+    await mkdir(join(dir, "ws", "art"), { recursive: true });
+    await writeFile(join(dir, "ws", "art", "t.ora"), sampleOra());
+    const h = host();
+    let r = await h.read("me", file);
+    await h.apply("me", file, {
+      author: ADA,
+      baseRevision: r.revision,
+      ops: opsOf(r.model as ImageModel, [
+        { op: "add_text", text: "Uno", x: 3, y: 3, size: 12, name: "Uno" },
+      ]),
+      groupId: "t-ada",
+    });
+    r = await h.read("me", file);
+    // The page sends the same shape: the text and its pixels in one batch.
+    const edit = await h.apply("me", file, {
+      author: { id: PERSON, name: "Me", sessionId: "page" },
+      baseRevision: r.revision,
+      ops: opsOf(r.model as ImageModel, [
+        { op: "edit_text", layer: "Uno", text: "Due", bold: true },
+      ]),
+      groupId: "t-me",
+    });
+    expect(edit).toMatchObject({ ok: true });
+    const edited = (await h.read("me", file)).model as ImageModel;
+    expect(edited.layers.at(-1)?.text).toMatchObject({ text: "Due", bold: true });
+    await h.flush();
+    const disk = readOra(new Uint8Array(await readFile(join(dir, "ws", "art", "t.ora"))));
+    expect(disk.layers.at(-1)?.text).toMatchObject({ text: "Due", bold: true });
+    expect(await h.undo("me", file, { revision: edit.revision }, { id: PERSON })).toMatchObject({
+      ok: true,
+    });
+    const back = (await h.read("me", file)).model as ImageModel;
+    expect(back.layers.at(-1)?.text).toMatchObject({ text: "Uno", bold: false });
   });
 
   it("an OpenRaster file keeps its layers on disk, and a change from outside can be undone", async () => {

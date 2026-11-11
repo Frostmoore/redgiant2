@@ -6,6 +6,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { type Font, readTrueType, TEXT_FONT_FILES, textFontFile } from "@redgiant/protocol";
 import { blank, type Rgba } from "./model.js";
 
 export interface Rect {
@@ -374,294 +375,8 @@ export function transformBuffer(
 
 // ---------------------------------------------------------------- TrueType text
 
-interface Glyph {
-  advance: number;
-  /** Contours of points: x, y (font units, y up), on the curve or not. */
-  contours: { x: number; y: number; on: boolean }[][];
-}
-
-export interface Font {
-  unitsPerEm: number;
-  ascender: number;
-  descender: number;
-  lineGap: number;
-  glyphOf(code: number): Glyph;
-}
-
-/** A TrueType font's outlines (glyf), character map (format 4 or 12) and widths. */
-export function readTrueType(bytes: Uint8Array): Font {
-  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const n = v.getUint16(4);
-  const tables: Record<string, number> = {};
-  for (let i = 0; i < n; i++) {
-    const at = 12 + i * 16;
-    const tag = String.fromCharCode(
-      bytes[at] as number,
-      bytes[at + 1] as number,
-      bytes[at + 2] as number,
-      bytes[at + 3] as number,
-    );
-    tables[tag] = v.getUint32(at + 8);
-  }
-  for (const t of ["head", "maxp", "hhea", "hmtx", "loca", "glyf", "cmap"])
-    if (tables[t] === undefined) throw new Error(`the font has no ${t} table`);
-  const head = tables.head as number;
-  const unitsPerEm = v.getUint16(head + 18);
-  const longLoca = v.getInt16(head + 50) === 1;
-  const numGlyphs = v.getUint16((tables.maxp as number) + 4);
-  const hhea = tables.hhea as number;
-  const ascender = v.getInt16(hhea + 4);
-  const descender = v.getInt16(hhea + 6);
-  const lineGap = v.getInt16(hhea + 8);
-  const nMetrics = v.getUint16(hhea + 34);
-  const hmtx = tables.hmtx as number;
-  const advanceOf = (g: number) => v.getUint16(hmtx + Math.min(g, nMetrics - 1) * 4);
-  const loca = tables.loca as number;
-  const locaAt = (g: number) =>
-    longLoca ? v.getUint32(loca + g * 4) : v.getUint16(loca + g * 2) * 2;
-  const glyf = tables.glyf as number;
-  // The character map: Windows Unicode, full (12) or basic plane (4).
-  const cmap = tables.cmap as number;
-  let sub4: number | undefined;
-  let sub12: number | undefined;
-  for (let i = 0; i < v.getUint16(cmap + 2); i++) {
-    const p = v.getUint16(cmap + 4 + i * 8);
-    const e = v.getUint16(cmap + 6 + i * 8);
-    const off = cmap + v.getUint32(cmap + 8 + i * 8);
-    const format = v.getUint16(off);
-    if (format === 12 && (p === 3 || p === 0)) sub12 = off;
-    if (format === 4 && ((p === 3 && e === 1) || p === 0)) sub4 ??= off;
-  }
-  const indexOf = (code: number): number => {
-    if (sub12 !== undefined) {
-      const groups = v.getUint32(sub12 + 12);
-      for (let i = 0; i < groups; i++) {
-        const at = sub12 + 16 + i * 12;
-        const s = v.getUint32(at);
-        const e = v.getUint32(at + 4);
-        if (code >= s && code <= e) return v.getUint32(at + 8) + (code - s);
-      }
-      return 0;
-    }
-    if (sub4 === undefined || code > 0xffff) return 0;
-    const segX2 = v.getUint16(sub4 + 6);
-    const ends = sub4 + 14;
-    const starts = ends + segX2 + 2;
-    const deltas = starts + segX2;
-    const ranges = deltas + segX2;
-    for (let i = 0; i < segX2 / 2; i++) {
-      const end = v.getUint16(ends + i * 2);
-      if (code > end) continue;
-      const start = v.getUint16(starts + i * 2);
-      if (code < start) return 0;
-      const delta = v.getInt16(deltas + i * 2);
-      const ro = v.getUint16(ranges + i * 2);
-      if (!ro) return (code + delta) & 0xffff;
-      const g = v.getUint16(ranges + i * 2 + ro + (code - start) * 2);
-      return g ? (g + delta) & 0xffff : 0;
-    }
-    return 0;
-  };
-  const outline = (g: number, depth = 0): Glyph["contours"] => {
-    if (g >= numGlyphs || depth > 6) return [];
-    const start = locaAt(g);
-    const end = locaAt(g + 1);
-    if (end <= start) return [];
-    const at = glyf + start;
-    const nc = v.getInt16(at);
-    if (nc >= 0) {
-      const endPts: number[] = [];
-      for (let i = 0; i < nc; i++) endPts.push(v.getUint16(at + 10 + i * 2));
-      const count = nc ? (endPts[nc - 1] as number) + 1 : 0;
-      let p = at + 10 + nc * 2;
-      p += 2 + v.getUint16(p);
-      const flags: number[] = [];
-      while (flags.length < count) {
-        const f = bytes[p++] as number;
-        flags.push(f);
-        if (f & 8) {
-          const rep = bytes[p++] as number;
-          for (let r = 0; r < rep; r++) flags.push(f);
-        }
-      }
-      const xs: number[] = [];
-      let x = 0;
-      for (const f of flags) {
-        if (f & 2) {
-          const d = bytes[p++] as number;
-          x += f & 16 ? d : -d;
-        } else if (!(f & 16)) {
-          x += v.getInt16(p);
-          p += 2;
-        }
-        xs.push(x);
-      }
-      const ys: number[] = [];
-      let y = 0;
-      for (const f of flags) {
-        if (f & 4) {
-          const d = bytes[p++] as number;
-          y += f & 32 ? d : -d;
-        } else if (!(f & 32)) {
-          y += v.getInt16(p);
-          p += 2;
-        }
-        ys.push(y);
-      }
-      const out: Glyph["contours"] = [];
-      let s = 0;
-      for (const e of endPts) {
-        const c: Glyph["contours"][number] = [];
-        for (let i = s; i <= e; i++)
-          c.push({ x: xs[i] as number, y: ys[i] as number, on: !!((flags[i] as number) & 1) });
-        out.push(c);
-        s = e + 1;
-      }
-      return out;
-    }
-    // A composite: other glyphs, moved and scaled.
-    const out: Glyph["contours"] = [];
-    let p = at + 10;
-    for (;;) {
-      const f = v.getUint16(p);
-      const sub = v.getUint16(p + 2);
-      p += 4;
-      let dx: number;
-      let dy: number;
-      if (f & 1) {
-        dx = v.getInt16(p);
-        dy = v.getInt16(p + 2);
-        p += 4;
-      } else {
-        dx = v.getInt8(p);
-        dy = v.getInt8(p + 1);
-        p += 2;
-      }
-      let [a, b, c, d] = [1, 0, 0, 1];
-      const f2 = (o: number) => v.getInt16(o) / 16384;
-      if (f & 8) {
-        a = d = f2(p);
-        p += 2;
-      } else if (f & 0x40) {
-        a = f2(p);
-        d = f2(p + 2);
-        p += 4;
-      } else if (f & 0x80) {
-        a = f2(p);
-        b = f2(p + 2);
-        c = f2(p + 4);
-        d = f2(p + 6);
-        p += 8;
-      }
-      const offsets = !!(f & 2);
-      for (const ct of outline(sub, depth + 1))
-        out.push(
-          ct.map((q) => ({
-            x: a * q.x + c * q.y + (offsets ? dx : 0),
-            y: b * q.x + d * q.y + (offsets ? dy : 0),
-            on: q.on,
-          })),
-        );
-      if (!(f & 0x20)) break;
-    }
-    return out;
-  };
-  const cache = new Map<number, Glyph>();
-  return {
-    unitsPerEm,
-    ascender,
-    descender,
-    lineGap,
-    glyphOf(code: number) {
-      const have = cache.get(code);
-      if (have) return have;
-      const g = indexOf(code);
-      const glyph = { advance: advanceOf(g), contours: outline(g) };
-      cache.set(code, glyph);
-      return glyph;
-    },
-  };
-}
-
-/** A contour of quadratic curves as a polygon (curves cut in small straight steps). */
-function contourPoly(c: Glyph["contours"][number], k: number, ox: number, oy: number): number[] {
-  if (c.length < 2) return [];
-  // Two points off the curve in a row have one on it between them.
-  const pts: { x: number; y: number; on: boolean }[] = [];
-  for (let i = 0; i < c.length; i++) {
-    const p = c[i] as (typeof c)[number];
-    const q = c[(i + 1) % c.length] as (typeof c)[number];
-    pts.push(p);
-    if (!p.on && !q.on) pts.push({ x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, on: true });
-  }
-  const first = pts.findIndex((p) => p.on);
-  const ring = first < 0 ? pts : [...pts.slice(first), ...pts.slice(0, first)];
-  const out: number[] = [];
-  const put = (x: number, y: number) => out.push(ox + x * k, oy - y * k);
-  const start = ring[0] as (typeof ring)[number];
-  put(start.x, start.y);
-  for (let i = 1; i <= ring.length; i++) {
-    const p = ring[i % ring.length] as (typeof ring)[number];
-    if (p.on) {
-      put(p.x, p.y);
-      continue;
-    }
-    const prev = ring[(i - 1) % ring.length] as (typeof ring)[number];
-    const next = ring[(i + 1) % ring.length] as (typeof ring)[number];
-    const steps = Math.max(
-      2,
-      Math.min(16, Math.round((Math.hypot(next.x - prev.x, next.y - prev.y) * k) / 3)),
-    );
-    for (let s = 1; s <= steps; s++) {
-      const t = s / steps;
-      const u = 1 - t;
-      put(
-        u * u * prev.x + 2 * u * t * p.x + t * t * next.x,
-        u * u * prev.y + 2 * u * t * p.y + t * t * next.y,
-      );
-    }
-    i++;
-  }
-  return out;
-}
-
-/** A text's outlines as polygons, its top left at (x, y), lines one under the other. */
-export function textPolys(
-  font: Font,
-  text: string,
-  size: number,
-  x: number,
-  y: number,
-  align: "left" | "center" | "right" = "left",
-  lineHeight = 1.2,
-): { polys: number[][]; w: number; h: number } {
-  const k = size / font.unitsPerEm;
-  const lines = text.split(/\r?\n/);
-  const widths = lines.map(
-    (l) => [...l].reduce((s, ch) => s + font.glyphOf(ch.codePointAt(0) ?? 0).advance, 0) * k,
-  );
-  const w = Math.max(0, ...widths);
-  const step = size * lineHeight;
-  const polys: number[][] = [];
-  lines.forEach((line, i) => {
-    const lw = widths[i] as number;
-    let pen = x + (align === "center" ? (w - lw) / 2 : align === "right" ? w - lw : 0);
-    const base = y + i * step + font.ascender * k;
-    for (const ch of line) {
-      const g = font.glyphOf(ch.codePointAt(0) ?? 0);
-      for (const c of g.contours) {
-        const p = contourPoly(c, k, pen, base);
-        if (p.length >= 6) polys.push(p);
-      }
-      pen += g.advance * k;
-    }
-  });
-  return {
-    polys,
-    w,
-    h: lines.length ? (lines.length - 1) * step + (font.ascender - font.descender) * k : 0,
-  };
-}
+// The reader and the lines are the protocol's, shared with the page (p3.5.8).
+export { type Font, readTrueType, textPolys } from "@redgiant/protocol";
 
 /** The fonts the server draws text with (pdf.js's standard ones). */
 export const FONTS = {
@@ -673,12 +388,31 @@ export const FONTS = {
 export type FontName = keyof typeof FONTS;
 
 const loaded = new Map<string, Font>();
-export function fontNamed(name: FontName): Font {
-  const have = loaded.get(name);
-  if (have) return have;
+
+/** The folder of pdf.js's standard fonts (Liberation Sans). */
+const fontsDir = () => {
   const require = createRequire(import.meta.url);
-  const dir = join(dirname(require.resolve("pdfjs-dist/package.json")), "standard_fonts");
-  const f = readTrueType(new Uint8Array(readFileSync(join(dir, FONTS[name]))));
-  loaded.set(name, f);
+  return join(dirname(require.resolve("pdfjs-dist/package.json")), "standard_fonts");
+};
+
+/** A font file of `TEXT_FONTS` as bytes (what the page gets too); undefined when unknown. */
+export function textFontBytes(file: string): Uint8Array | undefined {
+  if (!TEXT_FONT_FILES.includes(file)) return undefined;
+  return new Uint8Array(readFileSync(join(fontsDir(), file)));
+}
+
+function fontOfFile(file: string): Font {
+  const have = loaded.get(file);
+  if (have) return have;
+  const bytes = textFontBytes(file);
+  if (!bytes) throw new Error(`there is no font ${file}`);
+  const f = readTrueType(bytes);
+  loaded.set(file, f);
   return f;
 }
+
+export const fontNamed = (name: FontName): Font => fontOfFile(FONTS[name]);
+
+/** The font of a text layer's family and style. */
+export const textFont = (font: string, bold: boolean, italic: boolean): Font =>
+  fontOfFile(textFontFile(font, bold, italic));

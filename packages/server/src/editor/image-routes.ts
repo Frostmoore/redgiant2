@@ -2,6 +2,7 @@
 //   GET  /api/editor/image/info?scope&path    {krita, original?, layers?}: Krita installed, the
 //                                             file an .ora copy belongs to, a PNG's layers copy
 //   POST /api/editor/image/blob?scope&path     a PNG the page made (a tile, a layer): a blob
+//   GET  /api/editor/fonts/:file               a font text layers are drawn with (TEXT_FONTS)
 //   POST /api/editor/image/export             «Esporta come…» OpenRaster or Photoshop (the
 //                                             layers); PNG, JPEG and WebP are made in the page
 //   POST /api/editor/image/krita              «Apri in Krita»: the file as last saved, in the
@@ -23,6 +24,7 @@ import {
   treeOf,
   writeOra,
 } from "./image/model.js";
+import { textFontBytes } from "./image/raster.js";
 import {
   findKrita,
   IMAGE_EDITABLE,
@@ -135,6 +137,15 @@ export function imageRoutes<E extends { Variables: any }>(
     if (!IMAGE_EDITABLE.test(path)) throw new BadRequestError("Not a picture the editor edits");
     return { scope, path };
   };
+
+  // The fonts text layers are drawn with (p3.5.8): the page draws with the very same files.
+  app.get("/api/editor/fonts/:file", (c) => {
+    const b = textFontBytes(c.req.param("file"));
+    if (!b) throw new NotFoundError("No such font");
+    return new Response(b, {
+      headers: { "content-type": "font/ttf", "cache-control": "private, max-age=86400" },
+    });
+  });
 
   app.get("/api/editor/image/info", async (c) => {
     const o = owner(c);

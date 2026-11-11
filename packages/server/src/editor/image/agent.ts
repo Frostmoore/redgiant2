@@ -9,13 +9,19 @@ import {
   type ImageAction,
   type ImageLayerInfo,
   type ImagePlainAction,
+  type ImageText,
   type ImageTile,
   imageBlendName,
   imageBlendOf,
   imageFilter,
   imagePx,
   imageTilesOf,
+  layoutText,
   runImageFilter,
+  scaledText,
+  TEXT_FONTS,
+  textLayer,
+  textOrigin,
 } from "@redgiant/protocol";
 import { rgbaOf } from "../../convert-js.js";
 import {
@@ -50,6 +56,7 @@ import {
   type Rect,
   rectPoly,
   strokePolys,
+  textFont,
   textPolys,
   transformBuffer,
 } from "./raster.js";
@@ -67,7 +74,8 @@ export const IMAGE_CATALOG = `Layered pictures (image: .ora OpenRaster with laye
 - {"op":"filter","layer":"Sky","name":"blur","radius":4,"area":{…}}: filters ${IMAGE_FILTERS.map((f) => (f.params.length ? `${f.id} (${f.params.map((p) => `${p.id} ${p.min}…${p.max}`).join(", ")})` : f.id)).join(", ")}.
 - {"op":"transform","layer":"Sky","dx":10,"dy":-5,"scale":1.5,"rotate":30,"flip":"horizontal|vertical"}: around the layer's centre ("scale":[sx,sy] for each axis); moving alone keeps the pixels as they are. With "area" and dx/dy alone only the pixels inside the area move (cut and put down there, as the Move tool with a selection): {"op":"transform","layer":"Sky","area":{"rect":[0,0,50,50]},"dx":30,"dy":0}.
 - {"op":"crop","x":0,"y":0,"w":800,"h":600} / {"op":"resize_canvas","width":1200,"height":800,"anchor":"center|top-left|top|top-right|left|right|bottom-left|bottom|bottom-right"} / {"op":"resize_image","width":800} (every layer scaled; give width, height or both).
-- {"op":"add_text","text":"Saldi\\n-30%","x":40,"y":40,"size":48,"color":"#ffffff","font":"${Object.keys(FONTS).join("|")}","align":"left|center|right","name":"Titolo"}: a new layer with the text (its top left at x, y); "layer" draws it on that layer instead.
+- {"op":"add_text","text":"Saldi\\n-30%","x":40,"y":40,"size":48,"color":"#ffffff","font":"${TEXT_FONTS.map((f) => f.id).join("|")}","bold":false,"italic":false,"align":"left|center|right","line_height":1.2,"box":[400,200],"rotate":0,"name":"Titolo"}: a new text layer (Photoshop's type layer, still editable: the person double-clicks it), its box's top left at x, y; "box" [w, h] makes paragraph text (lines wrap at its width), without it point text. "layer" draws the text as plain pixels on that layer instead.
+- {"op":"edit_text","layer":"Titolo","text":"Saldi -50%","size":64,"color":"#ff0000","font":"sans","bold":true,"italic":false,"align":"center","line_height":1.1,"box":[400,200] or null,"rotate":15,"x":40,"y":40}: changes a text layer's text or look (only what you give; x, y move its box). Text layers refuse pixel operations (draw, stroke, filter…): {"op":"rasterize_text","layer":"Titolo"} makes one plain pixels first.
 - {"op":"add_mask","layer":"Sky","area":{"ellipse":[0,0,400,300]},"invert":false}: a mask that shows the layer only inside the area (everywhere without one); {"op":"delete_mask","layer":"Sky"} / {"op":"apply_mask","layer":"Sky"} (the mask becomes the layer's transparency). "target":"mask" on fill, clear and stroke paints the mask itself (fill and stroke show, clear hides).`;
 
 type Plain = Record<string, unknown>;
@@ -191,6 +199,10 @@ function edited(
   blobs: ImageBlobs,
 ): ImagePlainAction[] {
   if (l.locked) bad(`the layer «${l.name}» is locked`);
+  if (l.text)
+    bad(
+      `«${l.name}» is a text layer: change it with edit_text, or make it pixels with rasterize_text first`,
+    );
   const here = layerRect(l);
   if (need && need.w > 0 && need.h > 0 && !inside(need, here)) {
     const r = union(here, need);
@@ -324,6 +336,87 @@ const opacityArg = (v: unknown) => {
   const k = o > 1 ? o / 100 : o;
   return Math.max(0, Math.min(1, k));
 };
+
+/** The font a text is drawn with. */
+function fontOfText(t: ImageText) {
+  try {
+    return textFont(t.font, t.bold, t.italic);
+  } catch {
+    return bad("the font for texts is not here (pdf.js's standard fonts)");
+  }
+}
+
+/** A text's look from the agent's words, over `base` (only what is given changes). */
+function textSpec(x: Plain, base: ImageText): ImageText {
+  const out: ImageText = { ...base };
+  const size = opt(x.size ?? x.font_size, "size");
+  if (size !== undefined) out.size = Math.max(1, Math.min(2000, size));
+  if (x.font !== undefined) {
+    const f = String(x.font).toLowerCase();
+    // The old names (sans-bold…) still work.
+    const fam = f.replace(/-(bold|italic|bold-italic)$/, "");
+    if (!TEXT_FONTS.some((t) => t.id === fam))
+      return bad(`"font" is ${TEXT_FONTS.map((t) => t.id).join(", ")}`);
+    out.font = fam;
+    if (f.includes("bold")) out.bold = true;
+    if (f.includes("italic")) out.italic = true;
+  }
+  if (x.bold !== undefined) out.bold = !!x.bold;
+  if (x.italic !== undefined) out.italic = !!x.italic;
+  if (x.color !== undefined) {
+    const c = colorOf(x.color, "color");
+    const h = (n: number) => n.toString(16).padStart(2, "0");
+    out.color = `#${h(c[0])}${h(c[1])}${h(c[2])}${c[3] < 255 ? h(c[3]) : ""}`;
+  }
+  if (x.align !== undefined) {
+    const a = String(x.align).toLowerCase();
+    if (a !== "left" && a !== "center" && a !== "right")
+      return bad('"align" is left, center or right');
+    out.align = a;
+  }
+  const lh = opt(x.line_height ?? x.lineHeight, "line_height");
+  if (lh !== undefined) out.lineHeight = Math.max(0.5, Math.min(10, lh));
+  if (x.box === null) delete out.box;
+  else if (x.box !== undefined) {
+    if (!Array.isArray(x.box) || x.box.length !== 2) return bad('"box" is [w, h] (or null)');
+    const w = num(x.box[0], "box");
+    const h = num(x.box[1], "box");
+    if (w < 1 || h < 1) return bad('"box" must be at least 1×1');
+    out.box = { w: Math.min(100_000, w), h: Math.min(100_000, h) };
+  }
+  const rot = opt(x.rotate ?? x.angle, "rotate");
+  if (rot !== undefined) {
+    const r = ((((rot % 360) + 540) % 360) - 180) as number;
+    if (r) out.rotate = r;
+    else delete out.rotate;
+  }
+  return out;
+}
+
+/** A text layer drawn again with `next`, its box at (bx, by): its text and its pixels. */
+function textActions(
+  l: RLayer,
+  next: ImageText,
+  bx: number,
+  by: number,
+  blobs: ImageBlobs,
+  what: What,
+): ImagePlainAction[] {
+  const r = textLayer(fontOfText(next), next, bx, by);
+  return [
+    { t: "props", layer: l.id, set: { text: r.text } },
+    {
+      t: "pixels",
+      layer: l.id,
+      x: r.x,
+      y: r.y,
+      w: r.px.width,
+      h: r.px.height,
+      png: r.px.width && r.px.height ? blobs.hashOf(r.px as Rgba) : null,
+      what,
+    },
+  ];
+}
 
 function one(
   m: ImageModel,
@@ -478,6 +571,8 @@ function one(
       });
       return {
         actions: [
+          // A text layer under it becomes plain pixels (Photoshop's merge rasterizes it).
+          ...(below.text ? [{ t: "props" as const, layer: below.id, set: { text: null } }] : []),
           {
             t: "pixels",
             layer: below.id,
@@ -856,6 +951,41 @@ function one(
       const aff = affineAround(cx, cy, sx, sy, angle);
       aff.e += dx;
       aff.f += dy;
+      if (l.text) {
+        // A text layer stays text (p3.5.8): its size follows the scale, the turn is kept.
+        if (sx < 0 || sy < 0)
+          return bad(`flipping the text layer «${l.name}»: rasterize_text it first`);
+        const [bx, by] = textOrigin(l);
+        const lay = layoutText(fontOfText(l.text), l.text);
+        const bc = [bx + lay.w / 2, by + lay.h / 2] as const;
+        const nc = [aff.a * bc[0] + aff.c * bc[1] + aff.e, aff.b * bc[0] + aff.d * bc[1] + aff.f];
+        const next = scaledText(l.text, sx, sy, angle);
+        const nl = layoutText(fontOfText(next), next);
+        const acts = textActions(
+          l,
+          next,
+          (nc[0] as number) - nl.w / 2,
+          (nc[1] as number) - nl.h / 2,
+          blobs,
+          "transform",
+        );
+        if (l.mask) {
+          const mt = transformBuffer(l.mask.img, l.mask.x, l.mask.y, aff, true, l.mask.outside);
+          acts.push({
+            t: "pixels",
+            layer: l.id,
+            mask: true,
+            x: mt.x,
+            y: mt.y,
+            w: mt.px.width,
+            h: mt.px.height,
+            png: blobs.hashOf(mt.px),
+            outside: l.mask.outside,
+            what: "transform",
+          });
+        }
+        return { actions: acts, what: "transform" };
+      }
       const t = transformBuffer(l.px, l.x, l.y, aff);
       const acts: ImagePlainAction[] = [
         {
@@ -936,7 +1066,20 @@ function one(
       const aff = { a: w / m.width, b: 0, c: 0, d: h / m.height, e: 0, f: 0 };
       const acts: ImagePlainAction[] = [];
       for (const l of m.layers) {
-        if (l.px.width && l.px.height) {
+        if (l.text) {
+          // A text layer is drawn again at the new scale (it stays text).
+          const [bx, by] = textOrigin(l);
+          acts.push(
+            ...textActions(
+              l,
+              scaledText(l.text, aff.a, aff.d),
+              bx * aff.a,
+              by * aff.d,
+              blobs,
+              "transform",
+            ),
+          );
+        } else if (l.px.width && l.px.height) {
           const t = transformBuffer(l.px, l.x, l.y, aff);
           acts.push({
             t: "pixels",
@@ -974,40 +1117,42 @@ function one(
     case "text": {
       const text = typeof x.text === "string" ? x.text.slice(0, 5000) : bad('give "text"');
       if (!text.trim()) return bad('give "text"');
-      const size = Math.max(2, Math.min(2000, opt(x.size ?? x.font_size, "size") ?? 32));
-      const fontName = String(
-        x.font ??
-          (x.bold
-            ? x.italic
-              ? "sans-bold-italic"
-              : "sans-bold"
-            : x.italic
-              ? "sans-italic"
-              : "sans"),
-      ).toLowerCase() as FontName;
-      if (!(fontName in FONTS)) return bad(`"font" is ${Object.keys(FONTS).join(", ")}`);
-      let font: ReturnType<typeof fontNamed>;
-      try {
-        font = fontNamed(fontName);
-      } catch {
-        return bad("the font for texts is not here (pdf.js's standard fonts)");
-      }
-      const align = String(x.align ?? "left").toLowerCase();
-      if (!["left", "center", "right"].includes(align))
-        return bad('"align" is left, center or right');
-      const c = colorOf(x.color ?? "#000000", "color");
       const tx = num(x.x ?? 0, "x");
       const ty = num(x.y ?? 0, "y");
-      const t = textPolys(
-        font,
-        text,
-        size,
-        tx,
-        ty,
-        align as "left",
-        opt(x.line_height, "line_height") ?? 1.2,
-      );
       if (x.layer !== undefined) {
+        // The text drawn as plain pixels on an existing layer (as before p3.5.8).
+        const size = Math.max(2, Math.min(2000, opt(x.size ?? x.font_size, "size") ?? 32));
+        const fontName = String(
+          x.font && x.font !== "sans"
+            ? x.font
+            : x.bold
+              ? x.italic
+                ? "sans-bold-italic"
+                : "sans-bold"
+              : x.italic
+                ? "sans-italic"
+                : "sans",
+        ).toLowerCase() as FontName;
+        if (!(fontName in FONTS)) return bad(`"font" is ${Object.keys(FONTS).join(", ")}`);
+        let font: ReturnType<typeof fontNamed>;
+        try {
+          font = fontNamed(fontName);
+        } catch {
+          return bad("the font for texts is not here (pdf.js's standard fonts)");
+        }
+        const align = String(x.align ?? "left").toLowerCase();
+        if (!["left", "center", "right"].includes(align))
+          return bad('"align" is left, center or right');
+        const c = colorOf(x.color ?? "#000000", "color");
+        const t = textPolys(
+          font,
+          text,
+          size,
+          tx,
+          ty,
+          align as "left",
+          opt(x.line_height, "line_height") ?? 1.2,
+        );
         const l = layerOf(m, x.layer);
         const cov = fillPolys(t.polys, canvasRect(m));
         if (!cov) return bad("the text is outside the picture");
@@ -1016,15 +1161,19 @@ function one(
           what: "text",
         };
       }
-      const r: Rect = {
-        x: Math.floor(tx) - 2,
-        y: Math.floor(ty) - 2,
-        w: Math.ceil(t.w) + 4,
-        h: Math.ceil(t.h) + 4,
-      };
-      const cov = fillPolys(t.polys, r);
-      const px = blank(r.w, r.h);
-      if (cov) paintCov(px, r.x, r.y, cov, c);
+      const spec = textSpec(x, {
+        text,
+        font: "sans",
+        size: 32,
+        color: "#000000",
+        align: "left",
+        bold: false,
+        italic: false,
+        lineHeight: 1.2,
+        ox: 0,
+        oy: 0,
+      });
+      const r = textLayer(fontOfText(spec), spec, tx, ty);
       const above =
         x.above === undefined ? top() : x.above === null ? null : layerOf(m, x.above, "above").id;
       const info: ImageLayerInfo = {
@@ -1035,16 +1184,46 @@ function one(
             : text.split("\n")[0]?.slice(0, 60) || "Text",
         x: r.x,
         y: r.y,
-        w: r.w,
-        h: r.h,
+        w: r.px.width,
+        h: r.px.height,
         opacity: opacityArg(x.opacity) ?? 1,
         visible: true,
         blend: blendArg(x.blend) ?? "svg:src-over",
+        text: r.text,
       };
       return {
-        actions: [{ t: "add", layer: info, above, png: blobs.hashOf(px), mask: null }],
+        actions: [
+          {
+            t: "add",
+            layer: info,
+            above,
+            png: r.px.width && r.px.height ? blobs.hashOf(r.px as Rgba) : null,
+            mask: null,
+          },
+        ],
         what: "text",
       };
+    }
+    case "edit_text":
+    case "set_text": {
+      const l = layerOf(m, x.layer);
+      if (!l.text)
+        return bad(
+          `«${l.name}» is not a text layer (add_text makes one; "layer" in add_text draws on it)`,
+        );
+      if (l.locked) return bad(`the layer «${l.name}» is locked`);
+      const text = x.text === undefined ? l.text.text : String(x.text).slice(0, 5000);
+      const next = textSpec(x, { ...l.text, text });
+      const [bx, by] = textOrigin(l);
+      const nx = opt(x.x, "x") ?? bx;
+      const ny = opt(x.y, "y") ?? by;
+      return { actions: textActions(l, next, nx, ny, blobs, "text"), what: "text" };
+    }
+    case "rasterize_text":
+    case "rasterize": {
+      const l = layerOf(m, x.layer);
+      if (!l.text) return bad(`«${l.name}» is not a text layer`);
+      return { actions: [{ t: "props", layer: l.id, set: { text: null } }] };
     }
     case "add_mask":
     case "mask": {

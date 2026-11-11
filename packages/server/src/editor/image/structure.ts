@@ -2,7 +2,7 @@
 // format, then its layers from the top, one per line: id, name, place and size, opacity,
 // blending, visibility, lock, mask, groups, and what the pixels hold (the box of what is not
 // transparent and its average colour). The picture itself is canvas_look's usual view.
-import { imageBlendName } from "@redgiant/protocol";
+import { type ImageText, imageBlendName, textOrigin } from "@redgiant/protocol";
 import { type ImageModel, opaqueBox, type RLayer } from "./model.js";
 
 const hex = (n: number) => Math.round(n).toString(16).padStart(2, "0");
@@ -33,6 +33,21 @@ function content(l: RLayer): string {
   return `pixels in [${l.x + b.x} ${l.y + b.y} ${b.w} ${b.h}], average colour ${avg}`;
 }
 
+/** A text layer's text and look, as edit_text takes them (p3.5.8). */
+function textWords(l: RLayer, t: ImageText): string {
+  const [bx, by] = textOrigin({ x: l.x, y: l.y, text: t });
+  const r = (n: number) => Math.round(n * 100) / 100;
+  return [
+    `text layer: ${JSON.stringify(t.text.length > 400 ? `${t.text.slice(0, 400)}…` : t.text)}`,
+    `font ${t.font}${t.bold ? " bold" : ""}${t.italic ? " italic" : ""} size ${t.size} color ${t.color}`,
+    `align ${t.align}, line_height ${t.lineHeight}`,
+    t.box
+      ? `paragraph box [${r(bx)} ${r(by)} ${t.box.w} ${t.box.h}]`
+      : `point text at ${r(bx)},${r(by)}`,
+    ...(t.rotate ? [`rotate ${t.rotate}`] : []),
+  ].join(", ");
+}
+
 export function imageStructure(
   m: ImageModel,
   ask: { fromLine?: number | undefined; toLine?: number | undefined },
@@ -54,6 +69,7 @@ export function imageStructure(
         ? [`mask [${l.mask.x} ${l.mask.y} ${l.mask.img.width} ${l.mask.img.height}]`]
         : []),
       ...(l.groups.length ? [`in group ${l.groups.map((g) => `«${g.name}»`).join(" / ")}`] : []),
+      ...(l.text ? [textWords(l, l.text)] : []),
       content(l),
     ];
     return parts.join(", ");

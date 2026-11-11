@@ -8,6 +8,7 @@
 // coordinate is in pixels, a layer's own (its top left corner is 0,0) for tiles and the
 // picture's for positions.
 import { z } from "zod";
+import { ImageText } from "./image-text.js";
 
 /** The biggest side of a tile an operation carries. */
 export const IMAGE_TILE = 256;
@@ -99,6 +100,8 @@ export const ImageLayerInfo = z.object({
   locked: z.boolean().optional(),
   /** The groups it is in, outermost first. */
   groups: z.array(ImageGroup).max(40).optional(),
+  /** A text layer's text (p3.5.8): its pixels are the text drawn, and it stays editable. */
+  text: ImageText.optional(),
 });
 export type ImageLayerInfo = z.infer<typeof ImageLayerInfo>;
 
@@ -146,6 +149,8 @@ const LayerProps = z.object({
   visible: z.boolean().optional(),
   blend: z.string().max(80).optional(),
   locked: z.boolean().optional(),
+  /** A text layer's text changed (with its pixels in the same batch), or null: rasterized. */
+  text: ImageText.nullable().optional(),
 });
 
 const plain = {
@@ -257,6 +262,9 @@ export const ImageChange = z.object({
     "order",
     "canvas",
     "edit",
+    /** A text layer's text changed (p3.5.8), or made plain pixels. */
+    "text_edit",
+    "rasterize",
   ]),
   /** Layers touched. */
   n: z.number().int().nonnegative(),

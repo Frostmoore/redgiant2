@@ -190,6 +190,7 @@ function applyPlain(m: ImageModel, a: ImagePlainAction, blobs: ImageBlobs): Imag
         groups: i.groups ?? [],
         px: a.png ? blobs.rgba(a.png) : blank(i.w, i.h),
         ...(a.mask && { mask: maskOf(a.mask, blobs) }),
+        ...(i.text && { text: i.text }),
         extra: {},
       };
       return { ...m, layers: placeAbove(m.layers, l, a.above) };
@@ -207,6 +208,10 @@ function applyPlain(m: ImageModel, a: ImagePlainAction, blobs: ImageBlobs): Imag
         if (s.locked !== undefined) {
           if (s.locked) n.locked = true;
           else delete n.locked;
+        }
+        if (s.text !== undefined) {
+          if (s.text) n.text = s.text;
+          else delete n.text;
         }
         // The mask moves with its layer.
         const dx = s.x === undefined ? 0 : s.x - l.x;
@@ -285,6 +290,7 @@ function invertPlain(m: ImageModel, a: ImagePlainAction, blobs: ImageBlobs): Ima
       for (const k of Object.keys(a.set) as (keyof typeof a.set)[]) {
         if (a.set[k] === undefined) continue;
         if (k === "locked") set.locked = !!l.locked;
+        else if (k === "text") set.text = l.text ?? null;
         else (set as Record<string, unknown>)[k] = l[k];
       }
       return { t: "props", layer: a.layer, set };
@@ -473,7 +479,14 @@ export function describe(
   const what =
     batchWhat?.what ??
     (ops.length === 1 ? (ops[0] as { what?: ImageChange["action"] }).what : undefined);
-  if (what) action = what;
+  if (what === "text" && !kinds.has("add")) action = "text_edit";
+  else if (what) action = what;
+  else if (
+    kinds.size === 1 &&
+    kinds.has("props") &&
+    ops.every((o) => o.t === "props" && o.set.text === null)
+  )
+    action = "rasterize";
   else if (kinds.size === 1 && kinds.has("add")) action = "add_layer";
   else if (kinds.size === 1 && kinds.has("remove")) action = "remove_layer";
   else if (kinds.size === 1 && kinds.has("props")) action = "layer";
@@ -513,6 +526,10 @@ export function describe(
         return `drew a shape${on}`;
       case "text":
         return `added a text${one !== undefined ? ` (layer ${quote(one)})` : ""}`;
+      case "text_edit":
+        return `edited the text${on}`;
+      case "rasterize":
+        return `rasterized the text${on}`;
       case "transform":
         return `transformed${on}`;
       case "paste":
@@ -541,7 +558,11 @@ export function describe(
                     ? `renamed ${quote(props?.set.name ?? "")}`
                     : k === "x" || k === "y"
                       ? "moved"
-                      : k,
+                      : k === "text"
+                        ? props?.set.text
+                          ? "text"
+                          : "rasterized"
+                        : k,
           )
           .filter((w, i, all) => all.indexOf(w) === i);
         return `changed the layer${on.replace(" on", "")}: ${words.join(", ")}`;
