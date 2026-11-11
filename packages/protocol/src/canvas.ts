@@ -84,3 +84,12 @@ export const CanvasDo = z.object({
   cells: z.string().max(40).optional(),
 });
 export type CanvasDo = z.infer<typeof CanvasDo>;
+
+/**
+ * The sandbox of a page made by an agent (a file, a folder, a board; 3.5.8): scripts and forms
+ * run in an opaque origin, with no popups and no top navigation. The server's policy repeats it.
+ */
+export const FILES_SANDBOX =
+  "allow-scripts allow-forms allow-modals allow-downloads allow-pointer-lock";
+/** A program the person's project runs in an agent's container keeps popups (sign-ins, links). */
+export const PROGRAM_SANDBOX = `${FILES_SANDBOX} allow-popups`;

@@ -7,6 +7,7 @@
 // opens (p3.5.1): the list of files and the Extensions open the same tab an agent would.
 
 import type { CanvasDo } from "@redgiant/protocol";
+import { FILES_SANDBOX, PROGRAM_SANDBOX } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import {
@@ -287,8 +288,9 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
             key={url}
             title={title}
             src={url}
-            // An opaque origin: the site cannot read RedGiant's storage or its access.
-            sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock"
+            // An opaque origin: the site cannot read RedGiant's storage or its access. Agent-made
+            // pages open no windows (3.5.8: their links ask the person); a project's program may.
+            sandbox={target.kind === "port" ? PROGRAM_SANDBOX : FILES_SANDBOX}
             allow="fullscreen; autoplay; clipboard-write"
           />
         ) : (

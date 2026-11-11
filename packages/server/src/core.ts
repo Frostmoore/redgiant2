@@ -3427,7 +3427,7 @@ export class RedGiantCore implements OrchestrationHost {
         description: [
           "Publish a BOARD: 1 to 8 design variants (HTML pages) side by side on a page of RedGiant, for the person to look at, choose one or comment on.",
           "Use it when they ask for options, proposals, variants or mockups to compare (interfaces, pages, graphics), instead of describing them in words.",
-          "Each variant is a whole, self-contained page: CSS and JS inside the page; pictures as data: URIs or from a CDN (your workspace's files cannot be seen from there). It runs isolated: no cookies, no access to RedGiant.",
+          "Each variant is a whole, self-contained page: CSS and JS inside the page, pictures as data: URIs (your workspace's files cannot be seen from there). It runs isolated, without internet: nothing loads from other sites (no CDN, no web fonts, no APIs), no cookies, no access to RedGiant.",
           "Give each variant a short title and, if useful, a note with the idea behind it. For big pages write them to a file and pass `file` (the path of an .html in your workspace) instead of `html`.",
           "After publishing do NOT ask the person to choose in the chat and do not wait: their choices and comments will come to you as messages starting with «[Tavola «title»]» (or «[Board «title»]»).",
         ].join(" "),
@@ -3668,7 +3668,7 @@ export class RedGiantCore implements OrchestrationHost {
       def: {
         name: "show",
         description:
-          "Show the person what you made, in the canvas next to the chat: a site (an HTML file or its folder), a picture, a video, a sound, a PDF, a sheet (CSV, XLSX), a 3D model (GLB, GLTF, STL, OBJ), Markdown or code (give path), or a program you started that serves on a port of your computer (give port, and url_path if not /). It updates by itself when the files change. Use it whenever the person should see the result, instead of describing it. For one file, show_file opens it in a viewer made for its kind.",
+          "Show the person what you made, in the canvas next to the chat: a site (an HTML file or its folder), a picture, a video, a sound, a PDF, a sheet (CSV, XLSX), a 3D model (GLB, GLTF, STL, OBJ), Markdown or code (give path), or a program you started that serves on a port of your computer (give port, and url_path if not /). It updates by itself when the files change. A site from files reaches no internet (no CDN, web fonts or APIs: keep CSS, JS and pictures in its folder or inside the page; links ask the person); a program on a port keeps its network. Use it whenever the person should see the result, instead of describing it. For one file, show_file opens it in a viewer made for its kind.",
         inputSchema: {
           type: "object",
           properties: {

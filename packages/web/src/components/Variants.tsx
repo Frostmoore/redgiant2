@@ -83,7 +83,7 @@ function Frame({ src, title, screen }: { src: string; title: string; screen: Scr
         title={title}
         src={src}
         loading="lazy"
-        sandbox="allow-scripts allow-forms allow-popups"
+        sandbox="allow-scripts allow-forms"
         style={{ width: `${s.width}px`, height: `${s.height}px`, transform: `scale(${k})` }}
       />
     </div>
@@ -259,7 +259,7 @@ export function Variants({ sessionId, proposalId }: { sessionId: string; proposa
             <iframe
               title={shown.title}
               src={page(full)}
-              sandbox="allow-scripts allow-forms allow-popups"
+              sandbox="allow-scripts allow-forms"
               style={{ width: screen === "computer" ? "100%" : `${SCREENS[screen].width}px` }}
             />
           </div>
