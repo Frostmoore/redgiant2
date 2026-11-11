@@ -13,6 +13,7 @@ import {
   imageBlendName,
   imageBlendOf,
   imageFilter,
+  imagePx,
   imageTilesOf,
   runImageFilter,
 } from "@redgiant/protocol";
@@ -60,6 +61,8 @@ export const IMAGE_CATALOG = `Layered pictures (image: .ora OpenRaster with laye
 - {"op":"set_layer","layer":"Sky","name":"Cielo","opacity":0.6,"blend":"multiply","visible":true,"locked":false,"x":10,"y":20}: blends normal, multiply, screen, overlay, darken, lighten, color-dodge, color-burn, hard-light, soft-light, difference, exclusion, hue, saturation, color, luminosity, add.
 - {"op":"draw","layer":"Sky","shape":"rect|ellipse|line|polygon|polyline","x":10,"y":10,"w":100,"h":50,"fill":"#ffcc00","stroke":"#333","stroke_width":3}: line with "x1","y1","x2","y2"; polygon/polyline with "points":[[x,y],…].
 - {"op":"stroke","layer":"Sky","points":[[10,10],[60,40],[120,30]],"color":"#ff0000","size":8,"opacity":1}: a brush stroke through the points (round); "erase":true rubs out instead.
+- {"op":"gradient","layer":"Sky","from":[0,0],"to":[0,400],"kind":"linear|radial","colors":["#1a2a6c","#fdbb2d"],"opacity":1,"area":{…}}: a gradient over the layer (in the area), colours "#rrggbbaa" for transparency.
+- {"op":"bucket","layer":"Sky","at":[120,80],"color":"#ffcc00","tolerance":32,"contiguous":true,"all_layers":false}: the paint bucket: the colour over the pixels like the one at "at" (joined to it unless contiguous false; all_layers looks at the whole picture).
 - {"op":"fill","layer":"Sky","area":{"rect":[0,0,200,100]},"color":"#3366ff"} / {"op":"clear","layer":"Sky","area":{"ellipse":[10,10,80,80]}} (makes it transparent).
 - {"op":"filter","layer":"Sky","name":"blur","radius":4,"area":{…}}: filters ${IMAGE_FILTERS.map((f) => (f.params.length ? `${f.id} (${f.params.map((p) => `${p.id} ${p.min}…${p.max}`).join(", ")})` : f.id)).join(", ")}.
 - {"op":"transform","layer":"Sky","dx":10,"dy":-5,"scale":1.5,"rotate":30,"flip":"horizontal|vertical"}: around the layer's centre ("scale":[sx,sy] for each axis); moving alone keeps the pixels as they are. With "area" and dx/dy alone only the pixels inside the area move (cut and put down there, as the Move tool with a selection): {"op":"transform","layer":"Sky","area":{"rect":[0,0,50,50]},"dx":30,"dy":0}.
@@ -135,6 +138,19 @@ const inside = (a: Rect, b: Rect) =>
   a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
 
 /** The coverage of an "area", in the picture's coordinates (undefined: no area given). */
+/** A coverage as a picture-sized selection (imagePx's). */
+function selOfCov(c: Cov, width: number, height: number): imagePx.Sel {
+  const s = imagePx.emptySel(width, height);
+  for (let y = 0; y < c.h; y++)
+    for (let x = 0; x < c.w; x++) {
+      const px = c.x + x;
+      const py = c.y + y;
+      if (px < 0 || py < 0 || px >= width || py >= height) continue;
+      s.a[py * width + px] = Math.round((c.a[y * c.w + x] as number) * 255);
+    }
+  return s;
+}
+
 function areaCov(v: unknown, clip: Rect): Cov | undefined | null {
   if (v === undefined || v === null) return undefined;
   if (typeof v !== "object")
@@ -630,6 +646,73 @@ function one(
           blobs,
         ),
         what,
+      };
+    }
+    case "gradient": {
+      // p3.5.7: the page's Gradient tool, with the same function (imagePx).
+      const l = layerOf(m, x.layer ?? m.layers.at(-1)?.id);
+      const from = point(x.from);
+      const to = point(x.to);
+      if (Math.hypot(to[0] - from[0], to[1] - from[1]) < 1)
+        return bad('"from" and "to" are the same point');
+      const cols = Array.isArray(x.colors) ? x.colors : ["#000000", "#ffffff"];
+      if (cols.length !== 2) return bad('"colors" is two colours, [start, end]');
+      const kind = x.kind === undefined ? "linear" : x.kind;
+      if (kind !== "linear" && kind !== "radial") return bad('"kind" is linear or radial');
+      const a = areaCov(x.area, canvasRect(m));
+      if (a === null) return bad("the area is outside the picture");
+      const sel = a ? selOfCov(a, m.width, m.height) : undefined;
+      const spec = {
+        from,
+        to,
+        kind,
+        c0: colorOf(cols[0], "colors"),
+        c1: colorOf(cols[1], "colors"),
+        opacity: Math.max(0, Math.min(1, opt(x.opacity, "opacity") ?? 1)),
+      } as const;
+      return {
+        actions: edited(
+          l,
+          a ?? canvasRect(m),
+          (px, ox, oy) => imagePx.gradientThrough({ x: ox, y: oy, px }, sel, spec),
+          "fill",
+          blobs,
+        ),
+        what: "fill",
+      };
+    }
+    case "bucket": {
+      // p3.5.7: the page's Paint Bucket: the colour over the pixels like the one at "at".
+      const l = layerOf(m, x.layer ?? m.layers.at(-1)?.id);
+      const at = point(x.at);
+      const tol = Math.max(0, Math.min(255, opt(x.tolerance, "tolerance") ?? 32));
+      const sample =
+        x.all_layers === true
+          ? flatten(m)
+          : imagePx.onPicture({ x: l.x, y: l.y, px: l.px }, m.width, m.height);
+      let sel: imagePx.Sel | undefined = imagePx.wandSel(
+        sample,
+        at[0],
+        at[1],
+        tol,
+        x.contiguous !== false,
+      );
+      const a = areaCov(x.area, canvasRect(m));
+      if (a === null) return bad("the area is outside the picture");
+      if (a) sel = imagePx.combineSel("intersect", selOfCov(a, m.width, m.height), sel);
+      const b = sel && imagePx.selBounds(sel);
+      if (!sel || !b) return bad("nothing to fill there");
+      const area = sel;
+      const c = colorOf(x.color, "color");
+      return {
+        actions: edited(
+          l,
+          b,
+          (px, ox, oy) => imagePx.fillThrough({ x: ox, y: oy, px }, area, c),
+          "fill",
+          blobs,
+        ),
+        what: "fill",
       };
     }
     case "fill":
