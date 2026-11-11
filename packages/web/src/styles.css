@@ -18021,3 +18021,114 @@ fieldset.vw-seg {
 .permission-actions.arming button {
   cursor: progress;
 }
+
+/* Artifacts and widgets (3.5.9): one frame, in the canvas and in the chat. */
+.artifact-frame {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.artifact-frame iframe {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--panel);
+  display: block;
+}
+.artifact-frame.auto {
+  height: auto;
+}
+.artifact-frame.auto iframe {
+  flex: none;
+  max-height: 70vh;
+  background: transparent;
+  color-scheme: normal;
+}
+.artifact-ask {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--accent-soft);
+  font-size: 13px;
+}
+.artifact-ask-text {
+  flex: 1;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.artifact-ask q {
+  color: var(--text);
+  word-break: break-word;
+}
+.artifact-errors {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--err);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: help;
+}
+.widget-card {
+  align-self: stretch;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+  max-width: 760px;
+}
+.widget-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--dim);
+}
+.widget-head strong {
+  color: var(--text);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.widget-head .spacer {
+  flex: 1;
+}
+.widget-card .artifact-frame iframe {
+  padding: 0;
+}
+.widget-loading {
+  padding: 12px;
+  font-size: 13px;
+}
+.widget-kept {
+  padding: 4px 10px 6px;
+  font-size: 12px;
+}
+.via-artifact {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-end;
+}
+@media (max-width: 760px) {
+  .widget-card {
+    max-width: none;
+    margin-left: calc(-1 * var(--gut, 0px) / 2);
+    margin-right: calc(-1 * var(--gut, 0px) / 2);
+  }
+  .widget-head .button.tiny {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+}

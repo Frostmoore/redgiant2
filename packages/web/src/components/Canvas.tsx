@@ -6,22 +6,34 @@
 // formats are seen through their open copy (viewers/OpenCopy.tsx, G34.4). It is the one place a file
 // opens (p3.5.1): the list of files and the Extensions open the same tab an agent would.
 
-import type { CanvasDo } from "@redgiant/protocol";
-import { FILES_SANDBOX, PROGRAM_SANDBOX } from "@redgiant/protocol";
+import type { ArtifactError, CanvasDo } from "@redgiant/protocol";
+import { FILES_SANDBOX, isArtifactPath, PROGRAM_SANDBOX } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import {
+  IconAlert,
+  IconCode,
   IconDownload,
   IconExternal,
+  IconFolderPlus,
   IconFullscreen,
   IconFullscreenExit,
+  IconPlay,
   IconRefresh,
 } from "../icons.js";
-import { type CanvasTarget, canvasViewId, getApi } from "../state.js";
+import {
+  type CanvasTarget,
+  canvasViewId,
+  frontSession,
+  getApi,
+  lastError,
+  openCanvas,
+} from "../state.js";
 import { extensionOf, viewerFor } from "../viewers/kind.js";
 import { CanvasTab, lastMove, report, setTabKind } from "../viewers/live.js";
 import { hasOfficeCopy, isOfficeFile } from "../viewers/office-bridge.js";
 import { bytesText, download, type ViewerSource } from "../viewers/source.js";
+import { ArtifactFrame } from "./ArtifactFrame.js";
 import { DocEditor, editableInCanvas } from "./viewers/DocEditor.js";
 import { EditPictureButton, IMAGE_FLAT, pictureEditable } from "./viewers/ImageEditor.js";
 import { EditCopyButton, EditCopyNote } from "./viewers/OfficeEditor.js";
@@ -31,6 +43,8 @@ export { parseDelimited } from "../viewers/delimited.js";
 
 export type CanvasKind =
   | "site"
+  /** An HTML app made by an agent (3.5.9): `artefatti/*.html` or a file with its header. */
+  | "artifact"
   | "image"
   | "video"
   | "audio"
@@ -48,6 +62,7 @@ export type CanvasKind =
  */
 export function canvasKind(target: CanvasTarget): CanvasKind {
   if (target.kind === "port") return "site";
+  if (isArtifactPath(target.path)) return "artifact";
   const ext = target.path.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
   if (!ext || ext === "html" || ext === "htm") return "site";
   if (/^(png|jpe?g|gif|webp|avif|bmp|svg|ico)$/.test(ext)) return "image";
@@ -95,7 +110,13 @@ export const fileName = (path: string) => path.split(/[\\/]/).filter(Boolean).po
 export function Canvas({ title, target }: { title: string; target: CanvasTarget }) {
   /** Whether the path is a folder (its site): a name with no extension can be either. */
   const [folder, setFolder] = useState<boolean>();
+  /** An artifact (3.5.9): the server says so (its folder or its header). */
+  const [artifact, setArtifact] = useState(false);
+  const [artView, setArtView] = useState<"app" | "source">("app");
+  const [artErrors, setArtErrors] = useState<ArtifactError[]>([]);
+  const [making, setMaking] = useState(false);
   const site =
+    !artifact &&
     canvasKind(target) === "site" &&
     (target.kind === "port" || extensionOf(target.path) !== "" || folder === true);
   // A file the editor knows opens editable (G37.1): the host keeps it, no reloading here.
@@ -133,13 +154,15 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
     () =>
       setTabKind(
         id,
-        site
-          ? "site"
-          : editable && target.kind === "file"
-            ? viewerFor(target.path).kind
-            : shown?.kind,
+        artifact
+          ? "artifact"
+          : site
+            ? "site"
+            : editable && target.kind === "file"
+              ? viewerFor(target.path).kind
+              : shown?.kind,
       ),
-    [id, site, editable, shown?.kind],
+    [id, site, artifact, editable, shown?.kind],
   );
   // The agent's move, said for a few seconds in the head.
   const move = lastMove.value?.id === id ? lastMove.value : undefined;
@@ -154,11 +177,15 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
   useEffect(() => {
     setError(undefined);
     setFolder(undefined);
+    setArtifact(false);
+    setArtView("app");
+    setArtErrors([]);
     void getApi()
       .canvasLink(target)
       .then(
         (r) => {
           setFolder(!!r.folder);
+          setArtifact(!!r.artifact);
           setLink(r.url);
         },
         (e: unknown) => setError((e as Error).message),
@@ -170,18 +197,18 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
     let stopped = false;
     const look = () =>
       void getApi()
-        .canvasVersion(target.scope, target.path, !site)
+        .canvasVersion(target.scope, target.path, !site || artifact)
         .then(
           (r) => !stopped && setVersion((v) => (v === r.version ? v : r.version)),
           () => {},
         );
     look();
-    const timer = setInterval(look, site ? 2000 : 3000);
+    const timer = setInterval(look, site || artifact ? 2000 : 3000);
     return () => {
       stopped = true;
       clearInterval(timer);
     };
-  }, [key, site, editable, folder]);
+  }, [key, site, artifact, editable, folder]);
   const url = link && `${link}${link.includes("?") ? "&" : "?"}v=${version}-${reloads}`;
   const name = target.kind === "file" ? fileName(target.path) : title;
   return (
@@ -205,6 +232,69 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
           folder === false &&
           IMAGE_FLAT.test(target.path) &&
           !pictureEditable(target) && <EditPictureButton scope={target.scope} path={target.path} />}
+        {artifact && target.kind === "file" && (
+          <>
+            <div class="vw-seg art-views" title={t("artView")}>
+              <button
+                type="button"
+                class={artView === "app" ? "on" : ""}
+                aria-pressed={artView === "app"}
+                onClick={() => setArtView("app")}
+              >
+                <IconPlay size={12} />
+                {t("artApp")}
+              </button>
+              <button
+                type="button"
+                class={artView === "source" ? "on" : ""}
+                aria-pressed={artView === "source"}
+                onClick={() => setArtView("source")}
+              >
+                <IconCode size={12} />
+                {t("artSource")}
+              </button>
+            </div>
+            {artErrors.length > 0 && (
+              <span
+                class="artifact-errors"
+                role="status"
+                title={artErrors
+                  .map((e) => `${e.message}${e.where ? ` (${e.where})` : ""}`)
+                  .join("\n")}
+              >
+                <IconAlert size={12} />
+                {artErrors.length === 1
+                  ? t("artError1")
+                  : t("artErrors", { n: String(artErrors.length) })}
+              </span>
+            )}
+            {target.scope !== "outside" && (
+              <button
+                type="button"
+                class="button tiny"
+                disabled={making}
+                title={t("artMakeProjectHint")}
+                onClick={() => {
+                  setMaking(true);
+                  const session = frontSession();
+                  void getApi()
+                    .artifactToProject(target.scope, target.path, session)
+                    .then(
+                      // The new folder's page opens next to it: that is the answer.
+                      (r) => openCanvas(r.path, { kind: "file", ...r }),
+                      (e: unknown) => {
+                        lastError.value = (e as Error).message;
+                      },
+                    )
+                    .finally(() => setMaking(false));
+                }}
+              >
+                <IconFolderPlus size={13} />
+                <span>{t("artMakeProject")}</span>
+              </button>
+            )}
+          </>
+        )}
         {move && moveShown === move.n && (
           <span class="canvas-agent" role="status" title={moveText(move.do)}>
             {moveText(move.do)}
@@ -219,7 +309,7 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
         >
           <IconRefresh size={14} />
         </button>
-        {url && !site && (
+        {url && !site && !artifact && (
           <button
             type="button"
             class="icon-button"
@@ -260,11 +350,24 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
         (hasOfficeCopy(target.path) || isOfficeFile(target.path)) && (
           <EditCopyNote editing={!hasOfficeCopy(target.path)} />
         )}
-      <div class={`canvas-body ${site ? "canvas-site" : "canvas-viewer"}`}>
+      <div class={`canvas-body ${site || artifact ? "canvas-site" : "canvas-viewer"}`}>
         {error ? (
           <p class="notice error">{error}</p>
         ) : !url ? (
           <div class="empty">{t("loading")}</div>
+        ) : artifact && target.kind === "file" ? (
+          artView === "source" && target.scope !== "outside" ? (
+            <CanvasTab.Provider value={id}>
+              <DocEditor file={{ scope: target.scope, path: target.path }} />
+            </CanvasTab.Provider>
+          ) : (
+            <ArtifactFrame
+              src={url}
+              title={title}
+              artifact={{ kind: "file", scope: target.scope, path: target.path }}
+              onErrors={setArtErrors}
+            />
+          )
         ) : editable && target.kind === "file" ? (
           <CanvasTab.Provider value={id}>
             <DocEditor

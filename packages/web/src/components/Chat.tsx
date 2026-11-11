@@ -56,11 +56,13 @@ import {
   sessionRows,
   sessionView,
   status,
+  streamingWithoutWidgets,
   subagentTabs,
   subPath,
   subSeen,
   subStatus,
 } from "../state.js";
+import { WidgetCard } from "./ArtifactFrame.js";
 import { noEnter, useArmed } from "./armed.js";
 import { canvasKind } from "./Canvas.js";
 import {
@@ -265,6 +267,12 @@ function UserItem({
   return (
     <>
       {item.from && <div class="from">{item.from}</div>}
+      {item.via === "artifact" && (
+        <div class="from via-artifact" title={t("viaArtifactHint")}>
+          <IconCanvas size={11} />
+          {t("viaArtifact")}
+        </div>
+      )}
       <div class="bubble user">
         {item.quotes && <QuoteRefs quotes={item.quotes} />}
         <Images images={item.images} />
@@ -840,6 +848,15 @@ function Item({
       );
     case "file":
       return <FileCard item={item} />;
+    case "widget":
+      return (
+        <WidgetCard
+          sessionId={item.sessionId}
+          seq={item.seq}
+          index={item.index}
+          title={item.title}
+        />
+      );
     case "variants":
       return (
         <button
@@ -1276,7 +1293,9 @@ function SubagentView({
               {v.text ? (
                 <div
                   class="md"
-                  dangerouslySetInnerHTML={{ __html: renderStreamingMarkdown(v.text) }}
+                  dangerouslySetInnerHTML={{
+                    __html: renderStreamingMarkdown(streamingWithoutWidgets(v.text)),
+                  }}
                 />
               ) : (
                 <div class="dim">{v.thinking.slice(-2000)}</div>
@@ -1428,7 +1447,9 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
               {v.text && (
                 <div
                   class="md"
-                  dangerouslySetInnerHTML={{ __html: renderStreamingMarkdown(v.text) }}
+                  dangerouslySetInnerHTML={{
+                    __html: renderStreamingMarkdown(streamingWithoutWidgets(v.text)),
+                  }}
                 />
               )}
             </div>

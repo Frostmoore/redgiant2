@@ -16,6 +16,7 @@ import type {
 } from "@redgiant/protocol";
 import {
   type AgentEditMode,
+  answerSegments,
   type ClientMessage,
   type DocChange,
   type DocFile,
@@ -71,6 +72,8 @@ export type ChatItem =
       from?: string;
       /** Passages of earlier messages it answers (G36.22). */
       quotes?: MessageQuote[];
+      /** Sent by a button in an artifact or a widget (3.5.9). */
+      via?: "artifact";
     }
   | {
       kind: "assistant";
@@ -138,6 +141,18 @@ export type ChatItem =
     }
   /** Something the agent showed in the canvas (G25.1): a card that opens it. */
   | { kind: "canvas"; key: string; title: string; target: CanvasTarget }
+  /**
+   * A ```widget block of an answer (3.5.9): run in the artifacts' frame, served from the log
+   * (its answer's `seq` and its place among the answer's blocks).
+   */
+  | {
+      kind: "widget";
+      key: string;
+      sessionId: string;
+      seq: number;
+      index: number;
+      title: string;
+    }
   /** Where a conversation that goes on from another one starts its own part (G36.23). */
   | {
       kind: "fork";
@@ -157,6 +172,54 @@ export type ChatItem =
       /** The last summary asked by hand, nothing said since: it can be undone. */
       undoable: boolean;
     };
+
+/**
+ * An answer's parts without their closed ```widget blocks, and the widgets (3.5.9, pure). A block
+ * still open (a cut answer) or over 64 KB stays text: it is never run.
+ */
+export function splitWidgets(parts: AssistantPart[]): {
+  parts: AssistantPart[];
+  widgets: { index: number; title: string }[];
+} {
+  const widgets: { index: number; title: string }[] = [];
+  let n = 0;
+  const out = parts.map((p) => {
+    if (p.type !== "text" || !/^\s{0,3}(`{3,}|~{3,})\s*widget\b/im.test(p.text)) return p;
+    const segs = answerSegments(p.text, n);
+    n += segs.filter((x) => x.kind === "widget").length;
+    const text = segs
+      .map((x) => {
+        if (x.kind === "text") return x.text;
+        if (x.closed && !x.tooBig) {
+          widgets.push({ index: x.index, title: x.title });
+          return "";
+        }
+        return x.closed ? `\`\`\`html\n${x.html}\n\`\`\`` : `\`\`\`html\n${x.html}`;
+      })
+      .map((x) => x.replace(/^\n+|\n+$/g, ""))
+      .filter((x) => x.trim())
+      .join("\n\n");
+    return { ...p, text };
+  });
+  return { parts: out, widgets };
+}
+
+/**
+ * An answer being written (3.5.9): a widget block shows as a short line until it is closed and the
+ * answer is recorded, never as its code.
+ */
+export function streamingWithoutWidgets(text: string): string {
+  if (!/(`{3,}|~{3,})\s*widget\b/i.test(text)) return text;
+  return answerSegments(text)
+    .map((x) => (x.kind === "text" ? x.text : `\n_${t("widgetPreparing")}_\n`))
+    .join("\n\n");
+}
+
+/** The conversation open in front of the person, if the active tab is one. */
+export function frontSession(): string | undefined {
+  const tab = tabs.value.find((x) => x.id === activeTab.value);
+  return tab?.type === "chat" ? tab.sessionId : undefined;
+}
 
 /** Their question card stands for these calls: no tool line for them. */
 const QUESTION_TOOLS = new Set(["ask_user", "propose_plan"]);
@@ -210,6 +273,7 @@ export function buildItems(events: Event[]): ChatItem[] {
           images: e.payload.images ?? [],
           ...(e.payload.from && { from: e.payload.from }),
           ...(e.payload.quotes?.length && { quotes: e.payload.quotes }),
+          ...(e.payload.via && { via: e.payload.via }),
         });
         break;
       case "session.forked":
@@ -221,7 +285,7 @@ export function buildItems(events: Event[]): ChatItem[] {
           how: e.payload.how ?? "edit",
         });
         break;
-      case "message.assistant":
+      case "message.assistant": {
         // A final answer after these calls (no tool asked for): whatever they were, they are
         // over, their result was lost (a turn cancelled while they ran). A message that asks
         // for tools may be recorded after its own calls started (an engine), so it does not.
@@ -229,12 +293,16 @@ export function buildItems(events: Event[]): ChatItem[] {
           for (const c of open) c.result = { ok: false, output: t("toolNoResult") };
           open.clear();
         }
+        // Its ```widget blocks become widgets after it (3.5.9); the text keeps the rest.
+        const { parts, widgets } = splitWidgets(
+          e.payload.parts.filter((p) => p.type !== "tool_call"),
+        );
         items.push({
           kind: "assistant",
           key,
           seq: e.seq,
           ts: e.ts,
-          parts: e.payload.parts.filter((p) => p.type !== "tool_call"),
+          parts,
           metrics: e.payload.metrics,
           costUsd: e.payload.costUsd,
           ...(e.payload.costUnknown && { costUnknown: true }),
@@ -247,7 +315,18 @@ export function buildItems(events: Event[]): ChatItem[] {
           limited = items.at(-1) as Extract<ChatItem, { kind: "assistant" }>;
           limited.stepLimit = true;
         }
+        if (e.sessionId)
+          for (const w of widgets)
+            items.push({
+              kind: "widget",
+              key: `${key}w${w.index}`,
+              sessionId: e.sessionId,
+              seq: e.seq,
+              index: w.index,
+              title: w.title,
+            });
         break;
+      }
       // A conversation brought in from ChatGPT or Claude (G36.7): said once, at its top.
       case "session.imported": {
         const source =

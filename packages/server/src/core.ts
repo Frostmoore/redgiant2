@@ -63,6 +63,8 @@ import {
 } from "@redgiant/hierarchy";
 import {
   type AgentKind,
+  type ArtifactError,
+  type ArtifactRef,
   agentLanguage,
   CommandSettings,
   DEFAULT_COMMAND_SETTINGS,
@@ -99,8 +101,6 @@ import {
   UNATTENDED_MAX_TURNS,
   type VaultEntry,
   type VaultSystemEntry,
-  type ArtifactError,
-  type ArtifactRef,
   widgetOf,
 } from "@redgiant/protocol";
 import {
@@ -142,15 +142,15 @@ import {
 import { z } from "zod";
 import { type Alert, type AlertText, alertText } from "./alerts.js";
 import { HumanApprovals } from "./approvals.js";
-import { type ReapDeps, reapOrphan } from "./background-reap.js";
 import {
   ARTIFACT_SHOWN,
   ARTIFACT_TOOL_LINE,
-  ArtifactErrors,
   ARTIFACTS_PROMPT,
+  ArtifactErrors,
   isArtifactFile,
   keptWidget,
 } from "./artifacts.js";
+import { type ReapDeps, reapOrphan } from "./background-reap.js";
 import type { BackupDeps } from "./backup.js";
 import { type Browsers, browserTools } from "./browser.js";
 import { BrowserLinks } from "./browser-links.js";

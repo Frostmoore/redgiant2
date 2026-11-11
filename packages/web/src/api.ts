@@ -1397,7 +1397,38 @@ export class Api {
       | { kind: "port"; agentId: string; port: number; path?: string | undefined },
   ) =>
     // `folder`: the path is a folder (its site), not a file (p3.5.1: `Makefile`, `hosts`).
-    this.call<{ url: string; folder?: boolean }>("POST", "/api/canvas/link", target);
+    // `artifact`: an HTML file that runs as an artifact (3.5.9).
+    this.call<{ url: string; folder?: boolean; artifact?: boolean }>(
+      "POST",
+      "/api/canvas/link",
+      target,
+    );
+  /** A signed link to a widget of an answer (3.5.9). */
+  widgetLink = (sessionId: string, seq: number, index: number) =>
+    this.call<{ url: string }>(
+      "GET",
+      `/api/sessions/${encodeURIComponent(sessionId)}/widgets/${seq}/${index}/link`,
+    );
+  /** «Tienilo»: the widget becomes `artefatti/<name>.html` (3.5.9). */
+  keepWidget = (sessionId: string, seq: number, index: number) =>
+    this.call<{ scope: string; path: string }>(
+      "POST",
+      `/api/sessions/${encodeURIComponent(sessionId)}/widgets/${seq}/${index}/keep`,
+    );
+  /** «Fanne un progetto»: the artifact as index.html of a folder of its own (3.5.9). */
+  artifactToProject = (scope: string, path: string, sessionId?: string) =>
+    this.call<{ scope: string; path: string }>("POST", "/api/artifacts/project", {
+      scope,
+      path,
+      ...(sessionId && { sessionId }),
+    });
+  /** Errors an artifact or a widget met in the page, for its agent (3.5.9). */
+  artifactErrors = (body: {
+    ref: import("@redgiant/protocol").ArtifactRef;
+    sessionId?: string;
+    errors: import("@redgiant/protocol").ArtifactError[];
+    fresh?: boolean;
+  }) => this.call<{ added: number }>("POST", "/api/artifacts/errors", body);
   /** When what the canvas shows last changed (ms). */
   canvasVersion = (scope: string, path: string, fileOnly = false) =>
     this.call<{ version: number }>(
