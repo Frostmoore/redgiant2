@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { rebuildHistory } from "@redgiant/agent";
 import type { ChatMessage, Event } from "@redgiant/protocol";
 import type { CompletionRequest, FakeTurn } from "@redgiant/providers";
 import { HostSandboxProvider, type SandboxProvider } from "@redgiant/sandbox";
@@ -24,13 +25,16 @@ const textOf = (m: ChatMessage | undefined) =>
     .flatMap((p) => (p.type === "text" ? [p.text] : p.type === "tool_result" ? [p.content] : []))
     .join("\n") ?? "";
 
-/** Tool results since the last plain user message: how far the agent got in this turn. */
+/**
+ * Tool results since the last plain user message: how far the agent got in this turn. A report
+ * that came while the agent worked rides with results (3.5.7): that message still counts.
+ */
 function step(req: CompletionRequest): { n: number; results: string[] } {
   const results: string[] = [];
   for (let i = req.messages.length - 1; i >= 0; i--) {
     const m = req.messages[i];
     if (m?.role !== "user") continue;
-    if (m.parts.every((p) => p.type === "tool_result")) results.unshift(textOf(m));
+    if (m.parts.some((p) => p.type === "tool_result")) results.unshift(textOf(m));
     else break;
   }
   return { n: results.length, results };
@@ -781,6 +785,97 @@ describe("orchestration", () => {
     );
     expect((user.at(-1)?.payload as { notes?: string[] } | undefined)?.notes).toHaveLength(1);
   });
+
+  it("brings a task's report to a parent still at work, with its next tool results (3.5.7)", async () => {
+    const long = `${"Report line.\n".repeat(560)}THE END`; // 7287 characters: more than a report carries
+    const godSaw: CompletionRequest[] = [];
+    let orchId = "";
+    let heardAt = -1;
+    s = await startServer((req) => {
+      const { n, results } = step(req);
+      if (role(req) === "god") {
+        godSaw.push(req);
+        const last = req.messages.at(-1);
+        const steered = last?.parts.find(
+          (p) => p.type === "text" && p.text.includes("<task_report"),
+        );
+        if (heardAt < 0 && steered) heardAt = godSaw.length;
+        if (heardAt >= 0) {
+          // Counted from the report on: its message is no plain tool results for `step`.
+          const after = godSaw.length - heardAt;
+          if (after === 0) return call("read_agent", { agent_id: orchId, offset: 6000 });
+          if (after === 1) return call("read_agent", { agent_id: orchId });
+          return { text: "Heard while working." };
+        }
+        if (n === 0) return call("create_project", { name: "Busy" });
+        if (n === 1)
+          return call("create_agent", {
+            kind: "orchestrator",
+            name: "Orch",
+            role: "Runs Busy",
+            project_id: "busy",
+          });
+        orchId ||= idIn(results.at(-1) ?? "", "orchestrator");
+        if (n === 2)
+          return call("update_todos", {
+            todos: [
+              { content: "Hand the work over", status: "completed" },
+              { content: "Read the report", status: "in_progress" },
+            ],
+          });
+        if (n === 3) return call("delegate", { agent_id: orchId, title: "Work", task: "Do it" });
+        // God keeps working while the orchestrator does its part (a command that takes a while).
+        if (n < 60) return call("bash", { command: 'node -e "setTimeout(() => {}, 200)"' });
+        return { text: "Never heard." };
+      }
+      if (role(req) === "orchestrator") {
+        if (n === 0) return call("complete_task", { verify_command: 'node -e "process.exit(0)"' });
+        return { text: long };
+      }
+      return { text: "?" };
+    });
+    const god = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const sid = await s.core.startSession("me", god.body.id);
+    const r = await (await s.core.send("me", sid, "Go")).done;
+    expect(r.stopReason).toBe("end_turn");
+    // Heard inside the same turn: one closing answer, and it is the one after the report.
+    const events = await s.core.store.list({ sessionId: sid });
+    const answers = events.filter(
+      (e) => e.type === "message.assistant" && e.payload?.stopReason === "end_turn",
+    );
+    expect(answers.map((e) => textOf(e.payload as ChatMessage))).toEqual(["Heard while working."]);
+    // After the delegation and at least one round of work.
+    expect(heardAt).toBeGreaterThan(5);
+    const steer = events.find(
+      (e) =>
+        e.type === "message.user" && (e.payload as { text: string }).text.includes("<task_report"),
+    );
+    expect(steer?.payload).toMatchObject({ steer: true, from: "Orch" });
+    const payload = steer?.payload as { text: string; notes?: string[] } | undefined;
+    const said = payload?.text ?? "";
+    expect(said).toContain('outcome="verified"');
+    expect(said).toContain(
+      `[… ${long.length - 6000} more characters: read_agent with agent_id "${orchId}" and offset 6000 gives the rest]`,
+    );
+    // The open list of steps rides with it, as with a report in a turn of its own.
+    expect(payload?.notes?.[0]).toContain("[in_progress] Read the report");
+    // The report joined the results' message the model read next, after the tool result.
+    const asked = godSaw[heardAt - 1];
+    expect(asked?.messages.at(-1)?.parts.map((p) => p.type)).toEqual(["tool_result", "text"]);
+    // read_agent: the rest from where the report stopped, and the whole answer.
+    const results = events.flatMap((e) =>
+      e.type === "tool.result" && e.payload ? [e.payload.output] : [],
+    );
+    expect(results.at(-2)).toBe(long.slice(6000));
+    expect(results.at(-1)).toContain(`← ${long}`);
+    // Resuming rebuilds what the model read, byte for byte.
+    const rebuilt = rebuildHistory(await s.core.history("me", sid)).map((h) => h.message);
+    expect(rebuilt.slice(0, -1)).toEqual(godSaw.at(-1)?.messages);
+  }, 60_000);
 
   it("gives tasks to an agent assigned to the project, which works there in its own worktree", async () => {
     let helperId = "";

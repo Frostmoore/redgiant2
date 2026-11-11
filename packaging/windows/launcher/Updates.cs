@@ -312,6 +312,19 @@ static class Updates
      */
     public static void Watch(Control owner, string folder)
     {
+        // A state written for another version (before an update, or a rollback) goes at once.
+        string status = Path.Combine(folder, "update-status.json");
+        try
+        {
+            string fresh = File.Exists(status) ? AskGate.StatusAfterStart(File.ReadAllText(status), Get("Version")) : null;
+            if (fresh != null)
+            {
+                File.WriteAllText(status + ".tmp", fresh);
+                File.Copy(status + ".tmp", status, true);
+                Diag.Log("update", "update-status.json refreshed for " + Get("Version"));
+            }
+        }
+        catch (Exception e) { Diag.Log("update", "update-status.json not refreshed: " + e.Message); }
         watcher = new System.Threading.Timer(_ =>
         {
             string json, request = Path.Combine(folder, "update.json");

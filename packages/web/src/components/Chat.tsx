@@ -145,18 +145,38 @@ const scopeOf = (agentId: string) => {
 };
 
 /**
+ * The list the panel shows (3.5.7): the latest `update_todos` call as soon as it is recorded,
+ * its result only confirming it. Results are recorded once every call of the same message has
+ * run, so waiting for it left the panel one update behind while a long command ran beside it.
+ * A call the tool refused (or would refuse: two steps in progress) leaves the previous list.
+ */
+export function latestTodos(items: ChatItem[]): { content: string; status: string }[] {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it?.kind !== "tool" || it.tool !== "update_todos") continue;
+    if (it.result && !it.result.ok) continue;
+    const todos = (it.input as { todos?: unknown } | null | undefined)?.todos;
+    if (!Array.isArray(todos)) continue;
+    const steps = todos.filter(
+      (x): x is { content: string; status: string } =>
+        !!x &&
+        typeof x === "object" &&
+        typeof (x as { content?: unknown }).content === "string" &&
+        typeof (x as { status?: unknown }).status === "string",
+    );
+    if (steps.filter((x) => x.status === "in_progress").length > 1) continue;
+    return steps;
+  }
+  return [];
+}
+
+/**
  * The agent's list of steps (update_todos, 2026-11-05), pinned above the composer: the latest
  * list of the conversation, until every step is done and the agent has stopped.
  */
 function Todos({ items, running }: { items: ChatItem[]; running: boolean }) {
   const [folded, setFolded] = useState(false);
-  const last = [...items]
-    .reverse()
-    .find((i) => i.kind === "tool" && i.tool === "update_todos" && i.result?.ok);
-  const todos =
-    last?.kind === "tool"
-      ? ((last.input as { todos?: { content: string; status: string }[] }).todos ?? [])
-      : [];
+  const todos = latestTodos(items);
   const done = todos.filter((x) => x.status === "completed").length;
   if (todos.length === 0 || (done === todos.length && !running)) return null;
   return (

@@ -24,6 +24,12 @@ static class AskGateTests
         Check(got == want, name + ": " + got + " instead of " + want);
     }
 
+    static void Status(string name, string json, string installed, string want)
+    {
+        string got = AskGate.StatusAfterStart(json, installed);
+        Check(got == want, name + ": " + (got ?? "null") + " instead of " + (want ?? "null"));
+    }
+
     static int Main()
     {
         //  name                                                        from        gate         open   answered updating want
@@ -54,6 +60,22 @@ static class AskGateTests
         Check(!AskGate.Fresh(start.AddMilliseconds(-1), start), "written just before this start: ignored");
         Check(AskGate.Fresh(start.AddSeconds(16), start), "written by this session's server: read");
         Check(AskGate.Fresh(start, start), "written as it started: read");
+
+        // update-status.json after an update or a rollback (3.5.7): a state about another version goes.
+        Status("available 3.5.5, 3.5.6 installed (the 3.5.6 test)",
+            "{\"id\":\"a1\",\"state\":\"available\",\"version\":\"3.5.5\"}", "3.5.6",
+            "{\"id\":\"a1\",\"state\":\"installed\",\"version\":\"3.5.6\"}");
+        Status("available 3.5.6, now installed", "{\"id\":\"a1\",\"state\":\"available\",\"version\":\"3.5.6\"}", "3.5.6",
+            "{\"id\":\"a1\",\"state\":\"installed\",\"version\":\"3.5.6\"}");
+        Status("latest 3.5.5, 3.5.6 installed", "{\"id\":\"a1\",\"state\":\"latest\",\"version\":\"3.5.5\"}", "3.5.6",
+            "{\"id\":\"a1\",\"state\":\"installed\",\"version\":\"3.5.6\"}");
+        Status("latest 3.5.6 after a rollback to 3.5.5", "{\"id\":\"a1\",\"state\":\"latest\",\"version\":\"3.5.6\"}", "3.5.5",
+            "{\"id\":\"a1\",\"state\":\"installed\",\"version\":\"3.5.5\"}");
+        Status("a newer version still available: kept", "{\"id\":\"a1\",\"state\":\"available\",\"version\":\"3.5.7\"}", "3.5.6", null);
+        Status("latest for the installed version: kept", "{\"id\":\"a1\",\"state\":\"latest\",\"version\":\"3.5.6\"}", "3.5.6", null);
+        Status("unreachable: kept", "{\"id\":\"a1\",\"state\":\"unreachable\",\"version\":\"\"}", "3.5.6", null);
+        Status("no file", "", "3.5.6", null);
+        Status("installed version unknown", "{\"id\":\"a1\",\"state\":\"available\",\"version\":\"3.5.5\"}", null, null);
 
         Console.WriteLine(passed + " passed, " + failed + " failed");
         return failed == 0 ? 0 : 1;

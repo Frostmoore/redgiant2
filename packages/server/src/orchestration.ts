@@ -304,6 +304,9 @@ const CreateAgentInput = z.object({
     .optional(),
 });
 
+/** How much of an agent's latest answer one read_agent call returns. */
+const READ_AGENT_CHARS = 20_000;
+
 const clip = (s: string, n = 4000) =>
   s.length > n ? `${s.slice(0, n)}\n[… ${s.length - n} more characters]` : s;
 
@@ -800,21 +803,49 @@ export function orchestrationTools(
       {
         def: {
           name: "read_agent",
-          description: "Read the latest messages of an agent you can see.",
+          description:
+            "Read the latest messages of an agent you can see; its latest answer (a finished task's report) comes in full. " +
+            "For a very long answer, offset says where to go on reading it.",
           inputSchema: {
             type: "object",
-            properties: { agent_id: { type: "string" } },
+            properties: {
+              agent_id: { type: "string" },
+              offset: {
+                type: "integer",
+                description: "Read only the latest answer, from this character on.",
+              },
+            },
             required: ["agent_id"],
           },
         },
-        schema: z.object({ agent_id: z.string() }),
-        async run({ agent_id }) {
+        schema: z.object({ agent_id: z.string(), offset: z.number().int().min(0).optional() }),
+        async run({ agent_id, offset }) {
           const a = target(agent_id);
           if (!can(me, "read", a, host.registry.resolve))
             throw new Error(`You cannot read ${a.name}`);
           const events = (
             await host.store.list(a.projectId ? { projectId: a.projectId } : {})
           ).filter((e) => e.agentId === a.id);
+          const said = (e: Event) =>
+            e.type === "message.assistant" && e.payload
+              ? e.payload.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("")
+              : "";
+          // The latest answer is the one a parent reads a report in (3.5.7): never cut to a
+          // line like the others; a very long one says how to read on.
+          const latest = events.findLast((e) => said(e) !== "");
+          const whole = (from: number) => {
+            const text = latest ? said(latest) : "";
+            const end = from + READ_AGENT_CHARS;
+            return end < text.length
+              ? `${text.slice(from, end)}\n[… ${text.length - end} more characters: read_agent with offset ${end} gives the rest]`
+              : text.slice(from);
+          };
+          if (offset !== undefined)
+            return latest
+              ? offset < said(latest).length
+                ? whole(offset)
+                : `The latest answer has ${said(latest).length} characters.`
+              : "Nothing yet.";
           const lines = events
             .filter(
               (e) =>
@@ -826,7 +857,7 @@ export function orchestrationTools(
             .map((e) => {
               if (e.type === "message.user" && e.payload) return `→ ${clip(e.payload.text, 600)}`;
               if (e.type === "message.assistant" && e.payload)
-                return `← ${clip(e.payload.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])).join(""), 600)}`;
+                return `← ${e === latest ? whole(0) : clip(said(e), 600)}`;
               if (e.type === "task.closed" && e.payload)
                 return `✓ ${e.payload.taskId}: ${e.payload.outcome}`;
               return "";
