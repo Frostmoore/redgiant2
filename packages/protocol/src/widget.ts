@@ -159,4 +159,4 @@ export function frameMessageText(m: FrameMessage): string | undefined {
 
 /** One line in show and show_file's descriptions (3.5.9): how an artifact opens. */
 export const ARTIFACT_TOOL_LINE =
-  "An HTML file in artefatti/ (or with a redgiant-artifact header) opens as an artifact: a one-file app that runs isolated, with no network; its errors come back to you. canvas_edit help on it gives the format.";
+  "An HTML file in artefatti/ (or with a redgiant-artifact header) opens as an artifact: a one-file app that runs isolated, with no network; its errors come back to you. In an artifact or a ```widget block, redgiant.sendMessage(text) from a button the person clicks sends text to the chat as theirs. canvas_edit help on an HTML file gives the format (header, libraries).";

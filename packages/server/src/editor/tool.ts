@@ -10,7 +10,7 @@ import type { Tool, ToolContext } from "@redgiant/agent";
 import type { CanvasState, DocFile } from "@redgiant/protocol";
 import type { Workspace } from "@redgiant/tools";
 import { z } from "zod";
-import { ARTIFACT_HELP } from "../artifacts.js";
+import { ARTIFACT_HELP } from "../artifact-engine.js";
 import { fileAt, fileOrOriginal, tabOf, within } from "../canvas-tools.js";
 import { originalOfAnyCopy } from "./copies.js";
 import type { EditorHost } from "./host.js";

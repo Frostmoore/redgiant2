@@ -14,6 +14,7 @@ import {
   IconChat,
   IconChevronDown,
   IconClock,
+  IconCode,
   IconCompass,
   IconDatabase,
   IconDollar,
@@ -30,6 +31,7 @@ import {
   IconUpload,
 } from "../icons.js";
 import { openTab, type SettingsSection } from "../state.js";
+import { Artifacts } from "./Artifacts.js";
 import { Automations } from "./Automations.js";
 import { Backup } from "./Backup.js";
 import { Budgets } from "./Budgets.js";
@@ -70,6 +72,7 @@ const GROUPS: { title: () => string; sections: Section[] }[] = [
     sections: [
       { id: "agents", label: () => t("agents"), icon: <IconTree size={20} /> },
       { id: "projects", label: () => t("paPageQ"), icon: <IconBox size={20} /> },
+      { id: "artifacts", label: () => t("arSection"), icon: <IconCode size={20} /> },
       { id: "memory", label: () => t("memSection"), icon: <IconBook size={20} /> },
       { id: "knowledge", label: () => t("kbSection"), icon: <IconDatabase size={20} /> },
       { id: "automations", label: () => t("automations"), icon: <IconClock size={20} /> },
@@ -179,6 +182,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "import" && <ImportFrom />}
         {section === "agents" && <Hierarchy />}
         {section === "projects" && <ProjectsPage />}
+        {section === "artifacts" && <Artifacts />}
         {section === "memory" && <SharedMemoryPage />}
         {section === "knowledge" && <Knowledge />}
         {section === "automations" && <Automations />}

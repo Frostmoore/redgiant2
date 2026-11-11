@@ -255,6 +255,13 @@ export function Explorer() {
   const uploadInto = async (dir: string, files: File[]) => {
     if (readOnly) return;
     for (const file of files) {
+      // An artifact from another RedGiant (3.5.9): checked on the server, written into this
+      // place's artefatti/ with no permissions, opened on its source with «Run»; never run here.
+      if (/\.rgartifact$/i.test(file.name)) {
+        const r = await attempt(() => api.artifactImport(scope, file));
+        if (r) openCanvas(r.path.split("/").pop() ?? r.name, { kind: "file", scope, path: r.path });
+        continue;
+      }
       const path = dir && dir !== "." ? `${dir}/${file.name}` : file.name;
       const data = await asBase64(file);
       try {

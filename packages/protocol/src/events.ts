@@ -494,6 +494,19 @@ export const EventBody = z.discriminatedUnion("type", [
       by: z.string(),
     }),
   }),
+  /**
+   * An artifact came in from a `.rgartifact` (3.5.9): it has not run yet. Its first opening shows
+   * the source with «Run» until `artifact.run` names the same scope and path.
+   */
+  z.object({
+    type: z.literal("artifact.imported"),
+    payload: z.object({ scope: z.string(), path: z.string(), name: z.string(), by: z.string() }),
+  }),
+  /** The person chose «Run» on an imported artifact (3.5.9): from now on it opens as an app. */
+  z.object({
+    type: z.literal("artifact.run"),
+    payload: z.object({ scope: z.string(), path: z.string(), by: z.string() }),
+  }),
   z.object({
     type: z.literal("terminal.opened"),
     payload: z.object({ terminalId: z.string(), scope: z.string(), by: z.string() }),

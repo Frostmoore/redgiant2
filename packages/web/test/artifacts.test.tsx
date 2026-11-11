@@ -26,6 +26,9 @@ vi.mock("../src/api.js", async (orig) => {
               if (name === "canvasLink") return { url: "/preview/T/conti.html", artifact: true };
               if (name === "widgetLink") return { url: "/preview/W/widget.html" };
               if (name === "canvasVersion") return { version: 1 };
+              if (name === "artifactState")
+                return { pendingRun: String(args[1]).includes("importato") };
+              if (name === "artifactRun") return { pendingRun: false };
               return [];
             },
         },
@@ -287,5 +290,25 @@ describe("artifacts in the canvas (3.5.9)", () => {
     fireEvent.click(r.getByText("Sorgente"));
     await waitFor(() => expect(r.container.querySelector(".artifact-frame")).toBeNull());
     expect(r.container.querySelector(".doc-shell, .doc-fallback, .empty")).toBeTruthy();
+  });
+
+  it("opens an imported artifact on its source; it runs only on «Esegui»", async () => {
+    const { Canvas } = await import("../src/components/Canvas.js");
+    const r = render(
+      <Canvas
+        title="importato.html"
+        target={{ kind: "file", scope: "platform", path: "artefatti/importato.html" }}
+      />,
+    );
+    const run = await waitFor(() => r.getByText("Esegui"));
+    expect(r.container.querySelector(".artifact-frame")).toBeNull();
+    expect(r.getByText("App").closest("button")?.disabled).toBe(true);
+    fireEvent.click(run);
+    await waitFor(() => expect(r.container.querySelector(".artifact-frame iframe")).toBeTruthy());
+    expect(calls.find(([n]) => n === "artifactRun")?.[1]).toEqual([
+      "platform",
+      "artefatti/importato.html",
+    ]);
+    expect(r.queryByText("Esegui")).toBeNull();
   });
 });

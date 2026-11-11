@@ -697,6 +697,9 @@ const en = {
   artApp: "App",
   artSource: "Source",
   artMakeProject: "Make it a project",
+  artRun: "Run",
+  artPendingHint:
+    "Imported from elsewhere: read it first; it runs only when you press Run, with no permissions",
   artMakeProjectHint:
     "A folder of its own with this page as index.html, to grow into a project; the agent is told",
   artError1: "1 error",
@@ -2594,6 +2597,41 @@ const en = {
   paArchivedTitle: "Archived",
   paArchivedLead: "Read only. «Restore» puts the project back as it was, with its automations.",
   paFilesReadOnly: "Read only: the project is archived",
+  // Settings › Artifacts (3.5.9): the collection, export and import.
+  arSection: "Artifacts",
+  arLead:
+    "The small apps in a single file your agents make for you. They open in the Canvas, next to the chat.",
+  arImport: "Import",
+  arEmptyTitle: "No artifacts yet",
+  arEmpty1:
+    "An artifact is an HTML app in a single file that an agent makes in one turn: a calculator, a tournament board, a game, a viewer for a CSV. It runs in the Canvas, in an isolated frame, without installing anything and without going online.",
+  arEmpty2:
+    "It lives as a file in the artefatti/ folder of a project (or of God and the assistants), so you also find it among the files on the right. To get one, ask an agent for a tool you want to keep and use again; or import a .rgartifact from another RedGiant.",
+  arPlacePlatform: "God's folder",
+  arPlaceAssistants: "The assistants' desk",
+  arOpen: "Open",
+  arExport: "Export",
+  arDelete: "Delete",
+  arVersion: "version {n}",
+  arNoHeader: "no header",
+  arLibs: "libraries: {libs}",
+  arFrom: "by {who}",
+  arPending: "Imported · not run yet",
+  arReadOnly: "read only: the project is archived",
+  arDeleteQ: "Delete «{name}»?",
+  arDeleteText: "The file goes to the trash of its folder, as from the file explorer.",
+  arExportTitle: "Export «{name}»",
+  arExportZip: "A .rgartifact file",
+  arExportZipText:
+    "To import it into another RedGiant: the app, its manifest and the fingerprint that checks it arrived intact. It carries no permissions.",
+  arExportHtml: "Download as HTML",
+  arExportHtmlText:
+    "To open it elsewhere. Careful: outside RedGiant it runs without the isolated frame, with the rights of the page you open it in.",
+  arWhereQ: "Where should it go?",
+  arWhereLead:
+    "It goes into the artefatti/ folder of the place you choose. It starts with no permissions, and the first time it opens on its source with «Run».",
+  arImported: "«{name}» imported into {place}: the first time it opens on its source, with «Run».",
+  arDataIgnored: "The saved data it carries was not imported (not supported yet).",
   err_project_archived: "The project is archived: restore it to work in it.",
   collapse: "Fold",
   more: "More commands",
@@ -5601,6 +5639,9 @@ const it: Record<Key, string> = {
   artApp: "App",
   artSource: "Sorgente",
   artMakeProject: "Fanne un progetto",
+  artRun: "Esegui",
+  artPendingHint:
+    "Importato da fuori: leggilo prima; parte solo quando premi Esegui, senza permessi",
   artMakeProjectHint:
     "Una cartella tutta sua con questa pagina come index.html, da far crescere in un progetto; l'agente lo sa",
   artError1: "1 errore",
@@ -7520,6 +7561,42 @@ const it: Record<Key, string> = {
   paArchivedLead:
     "In sola lettura. «Ripristina» rimette il progetto com'era, con le sue automazioni.",
   paFilesReadOnly: "Sola lettura: il progetto è archiviato",
+  // Impostazioni › Artefatti (3.5.9): la raccolta, esporta e importa.
+  arSection: "Artefatti",
+  arLead:
+    "Le piccole app in un file solo che gli agenti fanno per te. Si aprono nel Canvas, accanto alla chat.",
+  arImport: "Importa",
+  arEmptyTitle: "Ancora nessun artefatto",
+  arEmpty1:
+    "Un artefatto è un'app HTML in un file solo che un agente fa in un turno: un calcolatore, il tabellone di un torneo, un gioco, un visualizzatore per un CSV. Gira nel Canvas, in un riquadro isolato, senza installare nulla e senza andare in rete.",
+  arEmpty2:
+    "Vive come file nella cartella artefatti/ di un progetto (o di God e degli assistenti), quindi lo trovi anche fra i file a destra. Per averne uno chiedi a un agente uno strumento da tenere e riusare; oppure importa un .rgartifact da un altro RedGiant.",
+  arPlacePlatform: "Cartella di God",
+  arPlaceAssistants: "Scrivania degli assistenti",
+  arOpen: "Apri",
+  arExport: "Esporta",
+  arDelete: "Elimina",
+  arVersion: "versione {n}",
+  arNoHeader: "senza intestazione",
+  arLibs: "librerie: {libs}",
+  arFrom: "da {who}",
+  arPending: "Importato · non ancora eseguito",
+  arReadOnly: "sola lettura: il progetto è archiviato",
+  arDeleteQ: "Eliminare «{name}»?",
+  arDeleteText: "Il file va nel cestino della sua cartella, come dall'esplora file.",
+  arExportTitle: "Esporta «{name}»",
+  arExportZip: "Un file .rgartifact",
+  arExportZipText:
+    "Per importarlo in un altro RedGiant: l'app, il suo manifesto e l'impronta che controlla che arrivi intatta. Non porta con sé nessun permesso.",
+  arExportHtml: "Scarica come HTML",
+  arExportHtmlText:
+    "Per aprirlo altrove. Attenzione: fuori da RedGiant gira senza il riquadro isolato, con i permessi della pagina in cui lo apri.",
+  arWhereQ: "Dove lo metto?",
+  arWhereLead:
+    "Va nella cartella artefatti/ del posto che scegli. Parte senza permessi e la prima volta si apre sul sorgente, con «Esegui».",
+  arImported: "«{name}» importato in {place}: la prima volta si apre sul sorgente, con «Esegui».",
+  arDataIgnored:
+    "I dati salvati che porta con sé non sono stati importati (non ancora supportati).",
   err_project_archived: "Il progetto è archiviato: ripristinalo per lavorarci.",
   collapse: "Chiudi",
   more: "Altri comandi",

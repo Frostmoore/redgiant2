@@ -115,6 +115,8 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
   const [artView, setArtView] = useState<"app" | "source">("app");
   const [artErrors, setArtErrors] = useState<ArtifactError[]>([]);
   const [making, setMaking] = useState(false);
+  /** Imported and never run (3.5.9): it opens on its source, and runs only on «Esegui». */
+  const [pendingRun, setPendingRun] = useState(false);
   const site =
     !artifact &&
     canvasKind(target) === "site" &&
@@ -178,6 +180,7 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
     setError(undefined);
     setFolder(undefined);
     setArtifact(false);
+    setPendingRun(false);
     setArtView("app");
     setArtErrors([]);
     void getApi()
@@ -187,6 +190,16 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
           setFolder(!!r.folder);
           setArtifact(!!r.artifact);
           setLink(r.url);
+          if (r.artifact && target.kind === "file" && target.scope !== "outside")
+            void getApi()
+              .artifactState(target.scope, target.path)
+              .then(
+                (st) => {
+                  setPendingRun(st.pendingRun);
+                  if (st.pendingRun) setArtView("source");
+                },
+                () => {},
+              );
         },
         (e: unknown) => setError((e as Error).message),
       );
@@ -239,6 +252,8 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
                 type="button"
                 class={artView === "app" ? "on" : ""}
                 aria-pressed={artView === "app"}
+                disabled={pendingRun}
+                title={pendingRun ? t("artPendingHint") : undefined}
                 onClick={() => setArtView("app")}
               >
                 <IconPlay size={12} />
@@ -254,6 +269,29 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
                 {t("artSource")}
               </button>
             </div>
+            {pendingRun && target.scope !== "outside" && (
+              <button
+                type="button"
+                class="button tiny primary art-make"
+                title={t("artPendingHint")}
+                onClick={() =>
+                  void getApi()
+                    .artifactRun(target.scope, target.path)
+                    .then(
+                      () => {
+                        setPendingRun(false);
+                        setArtView("app");
+                      },
+                      (e: unknown) => {
+                        lastError.value = (e as Error).message;
+                      },
+                    )
+                }
+              >
+                <IconPlay size={12} />
+                <span>{t("artRun")}</span>
+              </button>
+            )}
             {artErrors.length > 0 && (
               <span
                 class="artifact-errors"
@@ -356,7 +394,7 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
         ) : !url ? (
           <div class="empty">{t("loading")}</div>
         ) : artifact && target.kind === "file" ? (
-          artView === "source" && target.scope !== "outside" ? (
+          (artView === "source" || pendingRun) && target.scope !== "outside" ? (
             <CanvasTab.Provider value={id}>
               <DocEditor file={{ scope: target.scope, path: target.path }} />
             </CanvasTab.Provider>

@@ -40,7 +40,14 @@ import type { TelegramGateway } from "@redgiant/telegram";
 import { PathOutsideWorkspaceError } from "@redgiant/tools";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
-import { artifactHeaders, artifactPage, LIB_HEADERS, serveLib, widgetPage } from "./artifacts.js";
+import {
+  artifactHeaders,
+  artifactPage,
+  LIB_HEADERS,
+  serveLib,
+  widgetPage,
+} from "./artifact-engine.js";
+import { artifactRoutes } from "./artifact-routes.js";
 import { type AuthProvider, bearer, type Principal } from "./auth.js";
 import { BackupError, exportBackup, importBackup, previewBackup, removeBackup } from "./backup.js";
 import { browserRoutes } from "./browser-routes.js";
@@ -1345,6 +1352,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   imageRoutes(app, core, owner, () => core.pictures);
   // Import from other agents (G36.7): previews, the import as a job, undo.
   importRoutes(app, core, owner, options.setup);
+  // The person's artifacts (3.5.9): the collection, export and import.
+  artifactRoutes(app, core, owner);
   // Commands' limits and requests to the person (G36.16, G36.17).
   personRoutes(app, core, owner);
   sheetRoutes(app, core, owner);

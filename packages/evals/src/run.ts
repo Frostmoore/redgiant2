@@ -8,7 +8,7 @@ import type { ProviderRegistry } from "@redgiant/providers";
 import { commitAll, ensureRepo, HostSandboxProvider } from "@redgiant/sandbox";
 import { RedGiantCore } from "@redgiant/server";
 import { commandLine } from "./python.js";
-import { type EvalTask, TASKS } from "./tasks.js";
+import { ANSWER_FILE, type EvalTask, TASKS } from "./tasks.js";
 
 export interface EvalOptions {
   providers: ProviderRegistry;
@@ -114,17 +114,26 @@ export async function runEvals(o: EvalOptions): Promise<EvalResult[]> {
         const { done } = await core.send(
           OWNER,
           sid,
-          `${task.prompt}\n\nThe files are in this project's workspace. When the work is done and checked, reply with a one-line summary.`,
+          task.plain
+            ? task.prompt
+            : `${task.prompt}\n\nThe files are in this project's workspace. When the work is done and checked, reply with a one-line summary.`,
         );
         const timer = setTimeout(() => void core.interrupt(OWNER, sid), o.timeoutMs ?? 15 * 60_000);
         let stopReason = "error";
+        let answer = "";
         try {
-          stopReason = (await done).stopReason;
+          const r = await done;
+          stopReason = r.stopReason;
+          answer = (r.lastCompletion?.message.parts ?? [])
+            .map((p) => (p.type === "text" ? p.text : ""))
+            .join("");
         } catch (err) {
           stopReason = `error: ${(err as Error).message}`;
         } finally {
           clearTimeout(timer);
         }
+        // The last answer, for the verifiers that check its form (3.5.9).
+        await writeFile(join(project.path, ANSWER_FILE), answer);
         await writeFile(join(project.path, task.verifier.file), task.verifier.content);
         const v = await verify(project.path, task.verifier.command);
         const used = await core.budget.used({ scope: "project", id: project.id });
