@@ -513,7 +513,7 @@ jobs:
             if (m.version !== version) { console.error("the manifest is for " + m.version); process.exit(1); }
             if (!m.installer || m.installer.sha256 !== sha || m.installer.size !== data.length) { console.error("the manifest does not describe this RedGiant-Setup.exe"); process.exit(1); }
             const zip = fs.statSync(file.replace(".manifest.json", ".zip")).size;
-            if (m.archive.size !== zip) { console.error("the zip is not the manifest's"); process.exit(1); }
+            if (m.archive.size !== zip) { console.error("the zip does not match the manifest"); process.exit(1); }
             console.log("manifest " + m.version + ": " + m.files.length + " files, installer sha256 " + sha);' "$m" "$VERSION" ci/windows/RedGiant-Setup.exe
           cmp <(gzip -dc "$m.gz") "$m"
           ls ci/mac/RedGiant-mac-*.dmg
