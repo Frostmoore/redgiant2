@@ -4,9 +4,10 @@
 // height so the picture never jumps when the tool changes. Our own controls only.
 import { DEFAULT_TEXT, TEXT_FONTS } from "@redgiant/protocol";
 import type { ComponentChildren } from "preact";
-import { useRef } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
 import {
+  IconChevron,
   IconSelMode,
   IconTextAlign,
   IconTextBold,
@@ -14,6 +15,7 @@ import {
   IconTransform,
 } from "../../icons.js";
 import type { Brush, Rect } from "../../viewers/image-island.js";
+import { cssFamily } from "../../viewers/image-text-edit.js";
 import type { ImageTool, ToolOptions } from "../../viewers/image-tools.js";
 import { SmallSwitch } from "../ui.js";
 
@@ -63,6 +65,98 @@ function Press({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * The font menu (p3.5.8): each family's name in its own font, as Photoshop's. A menu of our own
+ * (never a native select), placed over the page: the options bar clips what overflows it.
+ */
+export function FontMenu({
+  value,
+  onChange,
+  onOpen,
+}: {
+  value: string;
+  onChange: (font: string) => void;
+  /** The menu opens: every family's file on its way (to show the names in their fonts). */
+  onOpen?: () => void;
+}) {
+  const [at, setAt] = useState<{ left: number; top: number }>();
+  const btn = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!at) return;
+    const away = (e: PointerEvent) => {
+      const n = e.target as Node;
+      if (!list.current?.contains(n) && !btn.current?.contains(n)) setAt(undefined);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // Esc closes the menu only (the text being typed stays open).
+      e.stopPropagation();
+      e.preventDefault();
+      setAt(undefined);
+    };
+    document.addEventListener("pointerdown", away, true);
+    document.addEventListener("keydown", key, true);
+    return () => {
+      document.removeEventListener("pointerdown", away, true);
+      document.removeEventListener("keydown", key, true);
+    };
+  }, [at]);
+  const cur = TEXT_FONTS.find((f) => f.id === value) ?? TEXT_FONTS[0];
+  return (
+    <span class="img-font-menu">
+      <button
+        ref={btn}
+        type="button"
+        class="img-font-current"
+        aria-haspopup="menu"
+        aria-expanded={!!at}
+        aria-label={`${t("imgTextFont")}: ${cur.name}`}
+        title={t("imgTextFont")}
+        style={{ fontFamily: cssFamily(cur.id) }}
+        // The text being typed keeps its caret.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          if (at) return setAt(undefined);
+          onOpen?.();
+          const r = btn.current?.getBoundingClientRect();
+          setAt({ left: r?.left ?? 0, top: (r?.bottom ?? 0) + 4 });
+        }}
+      >
+        <span>{cur.name}</span>
+        <IconChevron open={!!at} size={12} />
+      </button>
+      {at && (
+        <div
+          ref={list}
+          class="img-flyout img-font-list"
+          role="menu"
+          aria-label={t("imgTextFont")}
+          style={{ left: `${at.left}px`, top: `${at.top}px` }}
+        >
+          {TEXT_FONTS.map((f) => (
+            <button
+              type="button"
+              key={f.id}
+              role="menuitemradio"
+              aria-checked={f.id === value}
+              class={f.id === value ? "on" : ""}
+              style={{ fontFamily: cssFamily(f.id) }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onChange(f.id);
+                setAt(undefined);
+              }}
+            >
+              <span>{f.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
   );
 }
 
@@ -203,6 +297,7 @@ export function ImageOptions({
   textColor = "#000000",
   setTextColor = () => {},
   typing = false,
+  onFontMenu,
   sel,
   hasMask,
   onMask,
@@ -223,6 +318,8 @@ export function ImageOptions({
   setTextColor?: (hex: string) => void;
   /** The person is typing on the picture: the changes go to the whole text. */
   typing?: boolean;
+  /** The font menu opens (its families' files on their way). */
+  onFontMenu?: () => void;
   sel: Rect | undefined;
   hasMask: boolean;
   onMask: boolean;
@@ -510,11 +607,10 @@ export function ImageOptions({
     case "text":
       return (
         <>
-          <Segmented
-            label={t("imgTextFont")}
+          <FontMenu
             value={text.font}
-            options={TEXT_FONTS.map((f) => ({ id: f.id as string, label: f.name }))}
             onChange={(font) => setText({ ...text, font })}
+            onOpen={onFontMenu}
           />
           <Num
             label={t("imgTextSize")}

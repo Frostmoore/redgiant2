@@ -5,11 +5,42 @@
 // shows is what the layer will be. Until the font file has arrived the text area shows its own
 // letters (the same family through a FontFace, else Arial's metrics). Enter makes a new line;
 // Esc, Ctrl+Enter or a click elsewhere commits; a new text left empty is dropped.
-import type { ImageLayerInfo, ImagePlainAction, ImageText } from "@redgiant/protocol";
+import {
+  type ImageLayerInfo,
+  type ImagePlainAction,
+  type ImageText,
+  TEXT_FONTS,
+} from "@redgiant/protocol";
 
-/** The CSS family of a text family (registered with FontFace by the island). */
-export const cssFamily = (font: string) =>
-  `"RG ${font}", "Liberation Sans", Arial, Helvetica, sans-serif`;
+/**
+ * The CSS family of a text family (its files registered with FontFace by the island), then the
+ * browser's family of the same kind while they are on their way.
+ */
+export function cssFamily(font: string): string {
+  const kind = TEXT_FONTS.find((f) => f.id === font)?.kind ?? "sans-serif";
+  const near =
+    kind === "monospace"
+      ? `"Liberation Mono", "Courier New", monospace`
+      : kind === "serif"
+        ? `"Liberation Serif", "Times New Roman", serif`
+        : `"Liberation Sans", Arial, Helvetica, sans-serif`;
+  return `"RG ${font}", ${near}`;
+}
+
+/** Photoshop's overflow mark: a small square with a plus, drawn (no symbol character). */
+function overflowMark(): HTMLElement {
+  const m = document.createElement("span");
+  m.className = "img-text-overflow";
+  m.setAttribute("aria-hidden", "true");
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 10 10");
+  const path = document.createElementNS(ns, "path");
+  path.setAttribute("d", "M5 2v6M2 5h6");
+  svg.append(path);
+  m.append(svg);
+  return m;
+}
 
 export interface TextEditOpen {
   /** The layer edited; undefined: a new text. */
@@ -30,8 +61,11 @@ export interface TextEditHost {
   /** Where the text area goes: the stage, sized as the picture times the zoom. */
   stage: HTMLElement;
   zoom(): number;
-  /** The box of a text (its lines' width and height in the picture's pixels). */
-  measure(spec: ImageText): { w: number; h: number };
+  /**
+   * The box of a text (its lines' width and height in the picture's pixels), and how many lines
+   * of paragraph text do not fit it.
+   */
+  measure(spec: ImageText): { w: number; h: number; hidden?: number };
   /** The text changed (typing, the options bar): the island draws it again. */
   onLive(s: TextEditOpen): void;
   onCommit(r: TextEditResult): void;
@@ -86,7 +120,11 @@ export class TextEditing {
     return this.el;
   }
 
-  open(s: TextEditOpen): void {
+  /**
+   * Starts typing in a text: the caret at `sel` (an index of the text, or a range selected),
+   * at its end without one.
+   */
+  open(s: TextEditOpen, sel?: number | [number, number]): void {
     if (this.s) this.commit();
     this.s = { ...s, spec: { ...s.spec } };
     this.first = s.spec.text;
@@ -107,8 +145,18 @@ export class TextEditing {
     this.host.stage.append(el);
     this.style();
     el.focus();
-    el.setSelectionRange(el.value.length, el.value.length);
+    const n = el.value.length;
+    const [a, b] = sel === undefined ? [n, n] : typeof sel === "number" ? [sel, sel] : sel;
+    const lo = Math.max(0, Math.min(n, Math.min(a, b)));
+    const hi = Math.max(0, Math.min(n, Math.max(a, b)));
+    el.setSelectionRange(lo, hi, a > b ? "backward" : "forward");
     this.host.onLive(this.state as TextEditOpen);
+  }
+
+  /** The caret and the selection in the text (start, end). */
+  get selection(): [number, number] | undefined {
+    const el = this.el;
+    return el ? [el.selectionStart, el.selectionEnd] : undefined;
   }
 
   /** The options bar's change: the size, the font, the colour… of the whole text. */
@@ -152,7 +200,12 @@ export class TextEditing {
     const el = this.el;
     this.el = undefined;
     el?.remove();
+    this.mark?.remove();
+    this.mark = undefined;
   }
+
+  /** The overflow mark shown now (paragraph text longer than its box). */
+  private mark: HTMLElement | undefined;
 
   /**
    * Point text keeps its anchor while it changes (Photoshop's): the left edge, the centre or the
@@ -215,6 +268,25 @@ export class TextEditing {
     st.transformOrigin = `${box.originX}px ${box.originY}px`;
     st.transform = t.rotate ? `rotate(${t.rotate}deg)` : "";
     el.classList.toggle("paragraph", !!t.box);
+    // Photoshop's overflow mark in the box's bottom right corner (turned with the text).
+    if (t.box && size.hidden) {
+      this.mark ??= overflowMark();
+      if (!this.mark.isConnected) this.host.stage.append(this.mark);
+      const a = ((t.rotate ?? 0) * Math.PI) / 180;
+      const dx = t.box.w / 2;
+      const dy = t.box.h / 2;
+      const cx = s.bx + dx + dx * Math.cos(a) - dy * Math.sin(a);
+      const cy = s.by + dy + dx * Math.sin(a) + dy * Math.cos(a);
+      this.mark.style.left = `${cx * zoom}px`;
+      this.mark.style.top = `${cy * zoom}px`;
+    } else {
+      this.mark?.remove();
+    }
+  }
+
+  /** Whether the overflow mark shows. */
+  get overflowing(): boolean {
+    return !!this.mark?.isConnected;
   }
 }
 

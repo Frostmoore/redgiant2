@@ -163,6 +163,8 @@ export function ImageEditor({ file }: { file: DocFile }) {
   const [filter, setFilter] = useState<{ id: string; params: Record<string, number> }>();
   const [tf, setTf] = useState({ scale: 100, angle: 0 });
   const [text, setTextNow] = useState<TextOptions>({ ...DEFAULT_TEXT_OPTIONS });
+  /** Font files arrived (the font menu draws again with them). */
+  const [, setFontsReady] = useState(0);
   /** Typing on the picture (p3.5.8): the colour of the text typed. */
   const [typing, setTyping] = useState<string | undefined>();
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
@@ -445,6 +447,7 @@ export function ImageEditor({ file }: { file: DocFile }) {
     const x = isl.current;
     if (!x) return;
     x.textLook = { ...o };
+    x.preloadFonts([o.font]);
     if (x.typing) x.setTextSpec(o);
   };
   /** The text's colour: the one being typed, else the foreground (a new text's). */
@@ -778,6 +781,11 @@ export function ImageEditor({ file }: { file: DocFile }) {
           textColor={typing ?? brush.color}
           setTextColor={setTextColor}
           typing={typing !== undefined}
+          onFontMenu={() => {
+            // The names show in their fonts once the files have come (FontFace).
+            const x = isl.current;
+            if (x) void x.preloadMenu().then(() => setFontsReady((n) => n + 1));
+          }}
           sel={sel}
           hasMask={!!cur?.hasMask}
           onMask={onMask}

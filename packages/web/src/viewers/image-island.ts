@@ -29,8 +29,10 @@ import {
   scaledText,
   TEXT_FONTS,
   textFontFile,
+  textIndexAt,
   textLayer,
   textOrigin,
+  textPointIn,
 } from "@redgiant/protocol";
 import {
   TextEditing,
@@ -401,7 +403,8 @@ export class ImageIsland {
     this.height = s.height;
     this.format = s.format;
     this.layers = layers;
-    if (layers.some((l) => l.info.text)) this.preloadFonts();
+    const families = layers.flatMap((l) => (l.info.text ? [l.info.text.font] : []));
+    if (families.length) this.preloadFonts(families);
     if (!this.current || !this.find(this.current)) this.current = layers.at(-1)?.info.id;
     this.resize();
     this.letGo();
@@ -823,6 +826,31 @@ export class ImageIsland {
     }
     // The current layer's edges (Move).
     const l = this.currentLayer();
+    // A paragraph text longer than its box: Photoshop's overflow mark in its corner.
+    const lt = l?.info.text;
+    if (l && lt?.box && !this.texting.active && (this.tool === "text" || this.tool === "move")) {
+      const m = this.measure(lt);
+      if (m.hidden) {
+        const [bx, by] = textOrigin(l.info);
+        const a = ((lt.rotate ?? 0) * Math.PI) / 180;
+        const dx = lt.box.w / 2;
+        const dy = lt.box.h / 2;
+        const cx = bx + dx + dx * Math.cos(a) - dy * Math.sin(a);
+        const cy = by + dy + dx * Math.sin(a) + dy * Math.cos(a);
+        const r = 5 * px;
+        c.lineWidth = px;
+        c.fillStyle = "#ffffff";
+        c.strokeStyle = "#000000";
+        c.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+        c.strokeRect(cx - r, cy - r, 2 * r, 2 * r);
+        c.beginPath();
+        c.moveTo(cx - r * 0.6, cy);
+        c.lineTo(cx + r * 0.6, cy);
+        c.moveTo(cx, cy - r * 0.6);
+        c.lineTo(cx, cy + r * 0.6);
+        c.stroke();
+      }
+    }
     if (
       this.tool === "move" &&
       l &&
@@ -1558,9 +1586,10 @@ export class ImageIsland {
   private readonly dbl = (e: MouseEvent) => {
     // A double click on a text layer (Move or Type) types in it again.
     if ((this.tool === "move" || this.tool === "text") && !this.xf && !this.texting.active) {
-      const hit = this.textAt(this.at(e));
+      const p = this.at(e);
+      const hit = this.textAt(p);
       if (hit) {
-        this.editText(hit.info.id);
+        this.editText(hit.info.id, p);
         return;
       }
     }
@@ -1658,14 +1687,17 @@ export class ImageIsland {
         return;
       case "text": {
         this.drawOverlay();
-        if (this.dragged(g)) {
+        // On a text: the caret where it was clicked, or what the drag covered selected.
+        if (g.hit) {
+          const moved = Math.hypot(g.to[0] - g.from[0], g.to[1] - g.from[1]) * this.zoom >= 4;
+          this.editText(g.hit.info.id, g.from, moved ? g.to : undefined);
+        } else if (this.dragged(g)) {
           const r = marqueeRect(g.from, g.to, false, false);
           this.newText(r.x, r.y, {
             w: Math.max(1, Math.round(r.w)),
             h: Math.max(1, Math.round(r.h)),
           });
-        } else if (g.hit) this.editText(g.hit.info.id);
-        else this.newText(g.from[0], g.from[1]);
+        } else this.newText(g.from[0], g.from[1]);
         return;
       }
     }
@@ -3257,19 +3289,29 @@ export class ImageIsland {
     return p;
   }
 
-  /** Every text font on its way (the Text tool chosen, a picture with text layers). */
-  preloadFonts(): void {
-    for (const f of TEXT_FONTS)
+  /**
+   * The four files of some families on their way (the new text's family when none is given: the
+   * Text tool chosen, a picture with text layers).
+   */
+  preloadFonts(families: readonly string[] = [this.textLook.font]): void {
+    for (const font of new Set(families))
       for (const bold of [false, true])
-        for (const italic of [false, true]) void this.loadFont({ font: f.id, bold, italic });
+        for (const italic of [false, true]) void this.loadFont({ font, bold, italic });
+  }
+
+  /** Every family's regular file (the font menu shows each name in its own font). */
+  preloadMenu(): Promise<unknown> {
+    return Promise.all(
+      TEXT_FONTS.map((f) => this.loadFont({ font: f.id, bold: false, italic: false })),
+    );
   }
 
   /** A text's box in the picture's pixels (its font's lines; a guess until it has arrived). */
-  private measure(t: ImageText): { w: number; h: number } {
+  private measure(t: ImageText): { w: number; h: number; hidden?: number } {
     const font = this.fontNow(t);
     if (font) {
       const l = layoutText(font, t);
-      return { w: l.w, h: l.h };
+      return { w: l.w, h: l.h, hidden: l.hidden };
     }
     const lines = t.text.split(/\r\n|\r|\n/);
     const step = t.size * t.lineHeight;
@@ -3334,8 +3376,12 @@ export class ImageIsland {
     this.o.onTextEditing?.(true, spec);
   }
 
-  /** Typing in a text layer again (a double click, its T in the panel); false: not a text. */
-  editText(id: string): boolean {
+  /**
+   * Typing in a text layer again (a click or double click on it, its T in the panel); with a
+   * point, the caret goes to the character there (a drag to `to` selects what it covers, mapped
+   * by the same lines the text is drawn with); false: not a text.
+   */
+  editText(id: string, at?: Pt, to?: Pt): boolean {
     const l = this.find(id);
     const t = l?.info.text;
     if (!l || !t) return false;
@@ -3344,9 +3390,17 @@ export class ImageIsland {
       return false;
     }
     if (this.current !== id) this.setCurrent(id);
-    this.preloadFonts();
+    this.preloadFonts([t.font]);
     const [bx, by] = textOrigin(l.info);
-    this.texting.open({ layer: id, spec: { ...t }, bx, by });
+    const font = this.fontNow(t);
+    const index = (p: Pt) => {
+      const box = this.measure(t);
+      const [x, y] = textPointIn(t, box, bx, by, p[0], p[1]);
+      return textIndexAt(font as Font, t, x, y);
+    };
+    const sel: number | [number, number] | undefined =
+      font && at ? (to ? [index(at), index(to)] : index(at)) : undefined;
+    this.texting.open({ layer: id, spec: { ...t }, bx, by }, sel);
     this.o.onTextEditing?.(true, { ...t });
     return true;
   }

@@ -17436,6 +17436,49 @@ fieldset.vw-seg {
 .img-text-edit::selection {
   background: color-mix(in srgb, var(--accent) 45%, transparent);
 }
+.img-font-menu {
+  display: inline-flex;
+  flex: none;
+}
+.img-font-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 128px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.img-font-current span {
+  flex: 1;
+  text-align: left;
+}
+.img-flyout.img-font-list button {
+  font-size: 15px;
+}
+/* The mark of paragraph text longer than its box (Photoshop's), at its bottom right corner. */
+.img-text-overflow {
+  position: absolute;
+  z-index: 3;
+  width: 11px;
+  height: 11px;
+  margin: -6px 0 0 -6px;
+  border: 1px solid #000000;
+  background: #ffffff;
+  pointer-events: none;
+}
+.img-text-overflow svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  stroke: #000000;
+  stroke-width: 1.4;
+}
 .img-text-color {
   position: relative;
   display: inline-flex;
