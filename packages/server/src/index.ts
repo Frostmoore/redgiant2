@@ -1,6 +1,7 @@
 export * from "./alerts.js";
 export * from "./app.js";
 export * from "./approvals.js";
+export * from "./artifacts.js";
 export * from "./auth.js";
 export * from "./backup.js";
 export * from "./browser.js";
