@@ -1,16 +1,94 @@
 name: CI
 
+# Branches only: a version tag is published by release.yml, which reuses this workflow's packages
+# for the tag's commit and never needs its own CI run (3.5.9). A push to main is checked by `plan`.
 on:
   push:
+    branches: ["**"]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      release_build:
+        description: "Also make the release's packages, as a version branch does (to try release.yml's reuse)"
+        type: boolean
+        default: false
+
+# A newer push to the same branch makes the older run pointless: it gives its runners back
+# (macOS ones above all, few at a time on this account).
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # What this run does (3.5.9):
+  # - run: false when main was fast-forwarded to a commit whose CI already passed on its version
+  #   branch (pNNN, aNNN, bNNN): the same commit is not tested twice; every job below is skipped.
+  # - release: on a version branch (or release_build), the Windows installer, the update files and
+  #   the Mac app are made with the release's version (packaging/release-kind.json), the Mac app
+  #   notarized, and kept as artifacts: release.yml on the tag attaches them instead of building.
+  # - check: the matrix. Work branches (p3.5.9-text…) run macOS on Node 24 only (macOS runners are
+  #   few at a time); version branches, main, pull requests and runs by hand run all six.
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+      release: ${{ steps.plan.outputs.release }}
+      version: ${{ steps.plan.outputs.version }}
+      check: ${{ steps.plan.outputs.check }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging/release-kind.json
+          sparse-checkout-cone-mode: false
+      - id: plan
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          RELEASE_BUILD: ${{ inputs.release_build }}
+        run: |
+          set -euo pipefail
+          version_branch='^[pab][0-9]+\.[0-9]+\.[0-9]+$'
+          run=true
+          if [ "$EVENT" = push ] && [ "$GITHUB_REF_NAME" = main ]; then
+            passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=success&per_page=50" \
+              --jq ".workflow_runs[] | select(.id != $GITHUB_RUN_ID) | select(.head_branch | test(\"$version_branch\")) | \"\(.id) \(.head_branch)\"" | head -1)
+            if [ -n "$passed" ]; then
+              run=false
+              echo "::notice title=CI already passed::$GITHUB_SHA passed on ${passed#* } (run ${passed%% *}): not run again on main"
+            fi
+          fi
+          release=false
+          if { [ "$EVENT" = push ] && [[ "$GITHUB_REF_NAME" =~ $version_branch ]]; } || [ "$RELEASE_BUILD" = true ]; then release=true; fi
+          version=$(node -p "require('./packaging/release-kind.json').version")
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            [ "$release" = true ] && echo "::warning::release-kind.json has no version X.Y.Z ($version): no release packages"
+            release=false
+          fi
+          all='{"include":[{"os":"ubuntu-latest","node":22},{"os":"ubuntu-latest","node":24},{"os":"macos-latest","node":22},{"os":"macos-latest","node":24},{"os":"windows-latest","node":22},{"os":"windows-latest","node":24}]}'
+          if [ "$EVENT" = push ] && [ "$GITHUB_REF_NAME" != main ] && [[ ! "$GITHUB_REF_NAME" =~ $version_branch ]]; then
+            check=$(jq -c '.include |= map(select(.os != "macos-latest" or .node == 24)) ' <<<"$all")
+            echo "::notice title=macOS on Node 24 only::a work branch: macOS runs on Node 24 only; its version branch runs both"
+          else
+            check=$all
+          fi
+          {
+            echo "run=$run"
+            echo "release=$release"
+            echo "version=$version"
+            echo "check=$check"
+          } >> "$GITHUB_OUTPUT"
+          echo "run=$run release=$release version=$version"
+
   check:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [22, 24]
+      matrix: ${{ fromJSON(needs.plan.outputs.check) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +110,8 @@ jobs:
           retention-days: 14
 
   installers:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
     runs-on: ${{ matrix.os }}
     # A hung installer or launcher must fail the run, not hold it for hours.
     timeout-minutes: 30
@@ -144,8 +224,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Expand-Archive (Get-Item pgv-out\pgvector-*.zip).FullName packaging/windows/server/pgvector
           Copy-Item -Recurse packages/web/dist packaging/windows/web
+          # Node's own build from nodejs.org, as the release always carried (3.5.9: this installer
+          # may become the release's).
+          $v = node -p "process.version"
           New-Item -ItemType Directory -Force packaging/windows/node | Out-Null
-          Copy-Item (Get-Command node).Source packaging/windows/node/node.exe
+          Invoke-WebRequest "https://nodejs.org/dist/$v/node-$v-win-x64.zip" -OutFile "$env:RUNNER_TEMP\node.zip"
+          Expand-Archive "$env:RUNNER_TEMP\node.zip" -DestinationPath "$env:RUNNER_TEMP\node-x"
+          Copy-Item "$env:RUNNER_TEMP\node-x\node-$v-win-x64\node.exe" packaging/windows/node/node.exe
           choco install innosetup -y --no-progress
           Push-Location packaging/windows
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=0.0.0-ci" RedGiant.iss
@@ -403,12 +488,46 @@ jobs:
           if (Test-Path "$app\server\dist\main.js") { "the uninstaller left the server"; exit 1 }
           if (-not (Test-Path "$app\data\postgres")) { "the uninstaller removed the data"; exit 1 }
           "uninstalled, data kept"
+      # The release's installer and update files (3.5.9), from the very folders tested above, with
+      # the release's version: release.yml on the tag signs the manifest and attaches them. The test
+      # above needs 0.0.0-ci (its updates go to 0.0.1), so Inno Setup runs once more.
+      - if: runner.os == 'Windows' && needs.plan.outputs.release == 'true'
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          Push-Location packaging/windows
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$env:VERSION" RedGiant.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Pop-Location
+          $out = "$env:RUNNER_TEMP\release-windows"
+          $tree = "$env:RUNNER_TEMP\release-tree"
+          New-Item -ItemType Directory -Force "$out\update", $tree | Out-Null
+          foreach ($d in "server", "web", "node") { Copy-Item -Recurse "packaging\windows\$d" "$tree\$d" }
+          Copy-Item packaging\windows\RedGiant.exe, packaging\windows\redgiant.ico $tree
+          New-Item -ItemType Directory -Force "$tree\bin" | Out-Null
+          Copy-Item packaging\windows\redgiant.cmd "$tree\bin"
+          node packaging/update/pack.mjs --tree $tree --version $env:VERSION --platform win-x64 --out "$out\update" --installer packaging/windows/dist/RedGiant-Setup.exe
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Copy-Item packaging\windows\dist\RedGiant-Setup.exe $out
+          @{ version = $env:VERSION; sha = $env:GITHUB_SHA; run = $env:GITHUB_RUN_ID; ref = $env:GITHUB_REF_NAME } | ConvertTo-Json | Set-Content "$out\build.json"
+          Get-ChildItem -Recurse $out | Format-Table FullName, Length
+      - if: runner.os == 'Windows' && needs.plan.outputs.release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-${{ needs.plan.outputs.version }}
+          path: ${{ runner.temp }}/release-windows
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
 
   # RedGiant for macOS (2026-11-05): the app built (signed ad-hoc here), started from its disk
   # image, answering, stopped the proper way with nothing left running, its data where it belongs.
   mac-app:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -417,13 +536,20 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile && pnpm build
       # Signed with the Developer ID when the repository has it (hardened runtime: Node, Postgres
-      # and the native modules must run under it), not notarized: that is the release's.
+      # and the native modules must run under it). On a version branch (3.5.9) it is the release's
+      # app: its version, notarized and stapled, kept for release.yml; elsewhere not notarized.
       - name: The certificate, in a keychain of this run only
         env:
           MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
           MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          MAC_NOTARY_KEY: ${{ needs.plan.outputs.release == 'true' && secrets.MAC_NOTARY_KEY || '' }}
         run: bash packaging/mac/keychain.sh
-      - run: bash packaging/mac/build.sh 0.0.0-ci
+      - name: Build (and, for a release, notarize)
+        env:
+          MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
+          MAC_NOTARY_ISSUER_ID: ${{ secrets.MAC_NOTARY_ISSUER_ID }}
+          VERSION: ${{ needs.plan.outputs.release == 'true' && needs.plan.outputs.version || '0.0.0-ci' }}
+        run: bash packaging/mac/build.sh "$VERSION"
       - name: Install from the disk image, start, stop
         run: |
           set -euo pipefail
@@ -471,7 +597,31 @@ jobs:
           [ -d ~/Library/Application\ Support/RedGiant/data/postgres ] || { echo "no database in the data folder"; ls -R ~/Library/Application\ Support/RedGiant | head -30; exit 1; }
           echo "started, answered, stopped; data kept"
       - uses: actions/upload-artifact@v4
+        if: needs.plan.outputs.release != 'true'
         with:
           name: RedGiant-mac
           path: packaging/mac/dist/RedGiant-mac-*.dmg
           retention-days: 3
+      - name: The release's app, with what it is
+        if: needs.plan.outputs.release == 'true'
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/release-mac"
+          mkdir -p "$out"
+          cp packaging/mac/dist/RedGiant-mac-*.dmg "$out/"
+          notarized=false
+          if xcrun stapler validate "$out"/RedGiant-mac-*.dmg >/dev/null 2>&1; then notarized=true; fi
+          printf '{"version":"%s","sha":"%s","run":"%s","ref":"%s","notarized":%s}\n' \
+            "$VERSION" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_REF_NAME" "$notarized" > "$out/build.json"
+          cat "$out/build.json"
+          ls -l "$out"
+      - uses: actions/upload-artifact@v4
+        if: needs.plan.outputs.release == 'true'
+        with:
+          name: release-mac-${{ needs.plan.outputs.version }}
+          path: ${{ runner.temp }}/release-mac
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

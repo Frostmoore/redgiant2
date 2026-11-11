@@ -1,5 +1,9 @@
 # Publishes the images when a version tag is pushed (git tag v1.16.0 && git push --tags).
 # Run by hand (workflow_dispatch) on a branch it builds and publishes nothing: no image is pushed, no release.
+# Build once (3.5.9): CI on a version branch already made the Windows installer, the update files and
+# the notarized Mac app with the release's version; when the tag's commit has such a CI run (green)
+# the release attaches those (job ci-packages) and builds them only when it has none (windows-installer,
+# mac-app, as before).
 # The patched engines (llama-cuda, engine-prefetch) are built only when their fingerprint is new
 # (engine/fingerprint.sh, job engine-plan): otherwise the release reuses the zip kept in the
 # pre-release `engine-cache` and the image tagged `cuda-prefetch-<fingerprint>`.
@@ -24,9 +28,13 @@ on:
         type: boolean
         default: false
       dry_run:
-        description: "Only say, with the fingerprints, whether the patched engines would be reused or built; nothing else runs"
+        description: "Only say whether the patched engines and CI's packages (for `sha`) would be reused or built; CI's packages are downloaded and checked, nothing is published"
         type: boolean
         default: false
+      sha:
+        description: "The commit whose CI packages are looked for (empty: this run's commit)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -130,11 +138,83 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.suffix }}
 
+  # CI's packages for this commit (3.5.9): the successful CI run of the same commit that kept
+  # release-windows-<version> and release-mac-<version> (a version branch's, CI's plan job). The
+  # version is the tag's (by hand: packaging/release-kind.json's). "reuse": ci-packages attaches
+  # them; "build": windows-installer and mac-app build as before. pgvector is built only when the
+  # installers are, or when pgvector-cache misses one of this pgvector's zips.
+  ci-build:
+    if: ${{ !inputs.only }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      reuse: ${{ steps.find.outputs.reuse }}
+      run_id: ${{ steps.find.outputs.run_id }}
+      version: ${{ steps.find.outputs.version }}
+      sha: ${{ steps.find.outputs.sha }}
+      pgvector: ${{ steps.find.outputs.pgvector }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          sparse-checkout: |
+            packaging/release-kind.json
+            engine/pgvector/versions.env
+          sparse-checkout-cone-mode: false
+      - id: find
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ inputs.sha || github.sha }}
+          TAGGED: ${{ startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          if [ "$TAGGED" = true ]; then version="${GITHUB_REF_NAME#v}"; else version=$(node -p "require('./packaging/release-kind.json').version"); fi
+          reuse=false; run_id=""; why=""
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            why="no version X.Y.Z ($version)"
+          else
+            for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&status=success&per_page=50" --jq '.workflow_runs[].id'); do
+              names=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts?per_page=100" --jq '.artifacts[] | select(.expired | not) | .name')
+              if grep -qxF "release-windows-$version" <<<"$names" && grep -qxF "release-mac-$version" <<<"$names"; then
+                reuse=true; run_id=$id; break
+              fi
+            done
+            if [ "$reuse" = true ]; then why="CI run $run_id (green) kept release-windows-$version and release-mac-$version"
+            else why="no green CI run of $sha kept release-windows-$version and release-mac-$version"; fi
+          fi
+          # pgvector's job: needed by the installers built here, and to publish a new pgvector's zips.
+          source engine/pgvector/versions.env
+          have=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pgvector-cache" --jq '.assets[].name' 2>/dev/null || true)
+          pgvector=skip
+          for p in linux-x64 linux-arm64 windows-x64 macos-universal; do
+            grep -qxF "pgvector-$PGVECTOR_VERSION-pg${PG_VERSION%%.*}-$p.zip" <<<"$have" || pgvector=build
+          done
+          [ "$reuse" = true ] || pgvector=build
+          decision=$([ "$reuse" = true ] && echo reuse || echo build)
+          echo "::notice title=Installers and Mac app::$decision ($why); pgvector: $pgvector"
+          {
+            echo "| Packages | Version | Commit | Decision | Why | pgvector |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+            echo "| Windows installer, update files, Mac app | $version | \`${sha:0:7}\` | $decision | $why | $pgvector |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "reuse=$reuse"
+            echo "run_id=$run_id"
+            echo "version=$version"
+            echo "sha=$sha"
+            echo "pgvector=$pgvector"
+          } >> "$GITHUB_OUTPUT"
+
   # pgvector for the embedded Postgres (G36.1, pgvector.yml): built and loaded on Windows, Linux
   # and the Mac in seconds; the installers below carry it. A version tag also publishes the zips
   # missing from the pgvector-cache pre-release (source installs download them).
   pgvector:
-    if: ${{ !inputs.only && !inputs.dry_run }}
+    needs: ci-build
+    if: ${{ !inputs.only && !inputs.dry_run && needs.ci-build.outputs.pgvector == 'build' }}
     permissions:
       contents: write
     uses: ./.github/workflows/pgvector.yml
@@ -234,8 +314,8 @@ jobs:
   # RedGiant-Setup.exe (G22; 3.0, G30.2): the launcher, Node, the server built for Windows and the
   # web page, attached to the tag's GitHub Release. No WSL: everything runs on Windows itself.
   windows-installer:
-    if: ${{ !inputs.only && !inputs.dry_run }}
-    needs: [pgvector, release-info]
+    if: ${{ !inputs.only && !inputs.dry_run && needs.ci-build.outputs.reuse != 'true' }}
+    needs: [ci-build, pgvector, release-info]
     runs-on: windows-latest
     permissions:
       contents: write
@@ -344,8 +424,8 @@ jobs:
   # certificate exported as .p12, base64), MAC_CERTIFICATE_PASSWORD, MAC_NOTARY_KEY (an App Store
   # Connect API key, the .p8 file in base64), MAC_NOTARY_KEY_ID, MAC_NOTARY_ISSUER_ID.
   mac-app:
-    if: ${{ !inputs.only && !inputs.dry_run }}
-    needs: [pgvector, release-info]
+    if: ${{ !inputs.only && !inputs.dry_run && needs.ci-build.outputs.reuse != 'true' }}
+    needs: [ci-build, pgvector, release-info]
     runs-on: macos-latest
     permissions:
       contents: write
@@ -376,6 +456,114 @@ jobs:
         with:
           files: packaging/mac/dist/RedGiant-mac-*.dmg
 
+  # CI's packages attached (3.5.9): what windows-installer and mac-app would build, made by the
+  # tag's CI run, checked against this release (version, commit, installer's sha256 in the manifest,
+  # notarized), the update manifest signed here (UPDATE_SIGNING_KEY never reaches CI's packages),
+  # then attached after release.json. With dry_run: downloaded, checked and signed, then it stops
+  # before anything is published.
+  ci-packages:
+    needs: [ci-build, release-info]
+    if: ${{ !cancelled() && !inputs.only && needs.ci-build.result == 'success' && needs.ci-build.outputs.reuse == 'true' && (needs.release-info.result == 'success' || (inputs.dry_run && needs.release-info.result == 'skipped')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      VERSION: ${{ needs.ci-build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.ci-build.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-windows-${{ needs.ci-build.outputs.version }}
+          path: ci/windows
+          run-id: ${{ needs.ci-build.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-mac-${{ needs.ci-build.outputs.version }}
+          path: ci/mac
+          run-id: ${{ needs.ci-build.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: The packages are this release's
+        env:
+          SHA: ${{ needs.ci-build.outputs.sha }}
+          NOTARY: ${{ secrets.MAC_NOTARY_KEY != '' }}
+        run: |
+          set -euo pipefail
+          ls -lR ci
+          for f in ci/windows/build.json ci/mac/build.json; do
+            node -e '
+              const [file, version, sha] = process.argv.slice(1);
+              const b = JSON.parse(require("fs").readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
+              if (b.version !== version || b.sha !== sha) { console.error(file + ": made for " + b.version + " at " + b.sha); process.exit(1); }
+              console.log(file + ": " + b.version + " at " + b.sha + ", CI run " + b.run + " on " + b.ref);' "$f" "$VERSION" "$SHA"
+          done
+          m=ci/windows/update/RedGiant-win-x64.manifest.json
+          node -e '
+            const fs = require("fs"), crypto = require("crypto");
+            const [file, version, setup] = process.argv.slice(1);
+            const m = JSON.parse(fs.readFileSync(file, "utf8"));
+            const data = fs.readFileSync(setup);
+            const sha = crypto.createHash("sha256").update(data).digest("hex");
+            if (m.version !== version) { console.error("the manifest is for " + m.version); process.exit(1); }
+            if (!m.installer || m.installer.sha256 !== sha || m.installer.size !== data.length) { console.error("the manifest does not describe this RedGiant-Setup.exe"); process.exit(1); }
+            const zip = fs.statSync(file.replace(".manifest.json", ".zip")).size;
+            if (m.archive.size !== zip) { console.error("the zip is not the manifest's"); process.exit(1); }
+            console.log("manifest " + m.version + ": " + m.files.length + " files, installer sha256 " + sha);' "$m" "$VERSION" ci/windows/RedGiant-Setup.exe
+          cmp <(gzip -dc "$m.gz") "$m"
+          ls ci/mac/RedGiant-mac-*.dmg
+          notarized=$(node -p 'require("./ci/mac/build.json").notarized')
+          if [ "$notarized" != true ] && [ "$NOTARY" = true ]; then
+            echo "the Mac app from CI is not notarized, but this repository can notarize: not attached"; exit 1
+          fi
+          echo "Mac app notarized: $notarized"
+      - name: The update manifest, signed
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          m=ci/windows/update/RedGiant-win-x64.manifest.json
+          if [ -n "$UPDATE_SIGNING_KEY" ]; then
+            node packaging/update/sign.mjs "$m"
+          elif grep -q 'PublicKeyXml = ""' packaging/windows/launcher/UpdateKey.cs; then
+            echo "::warning::manifest not signed (no UPDATE_SIGNING_KEY): the launcher checks it against GitHub's digest only"
+          else
+            echo "UpdateKey.cs holds a public key but the UPDATE_SIGNING_KEY secret is missing: the launchers would refuse this release's manifest"; exit 1
+          fi
+          {
+            echo "### CI's packages for $VERSION"
+            echo '```'
+            (cd ci && find . -type f ! -name build.json -exec sha256sum {} +)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.dry_run }}
+        with:
+          name: RedGiant-win-x64-update
+          path: ci/windows/update/*
+          compression-level: 0
+          retention-days: 7
+      - name: Dry run, stopping here
+        if: ${{ inputs.dry_run }}
+        run: echo "::notice title=Dry run::CI's packages for $VERSION downloaded, checked and the manifest signed; nothing attached, no release touched"
+      - uses: softprops/action-gh-release@v2
+        if: ${{ startsWith(github.ref, 'refs/tags/') && !inputs.dry_run }}
+        with:
+          files: |
+            ci/windows/RedGiant-Setup.exe
+            ci/windows/update/RedGiant-win-x64.zip
+            ci/windows/update/RedGiant-win-x64.manifest.json
+            ci/windows/update/RedGiant-win-x64.manifest.json.gz
+            ci/windows/update/RedGiant-win-x64.manifest.json.sig
+            ci/mac/RedGiant-mac-*.dmg
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+
   # Homebrew and winget (G36.10): the cask and the winget manifest made from this release's own
   # installers (the sha256 GitHub lists for them), attached to the release. The tap is updated
   # when HOMEBREW_TAP_TOKEN (a token that may push to Frostmoore/homebrew-redgiant) is set; winget
@@ -383,8 +571,9 @@ jobs:
   # WINGET_TOKEN is set: off until the person turns it on, after the first submission (made by
   # hand, docs/INSTALL.md) is accepted.
   stores:
-    if: ${{ startsWith(github.ref, 'refs/tags/') && !inputs.only && !inputs.dry_run }}
-    needs: [windows-installer, mac-app]
+    # After the installers, built here or CI's (one of the two ways ran and succeeded).
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') && !inputs.only && !inputs.dry_run && !contains(needs.*.result, 'failure') && (needs.ci-packages.result == 'success' || (needs.windows-installer.result == 'success' && needs.mac-app.result == 'success')) }}
+    needs: [windows-installer, mac-app, ci-packages]
     runs-on: ubuntu-latest
     permissions:
       contents: write

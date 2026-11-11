@@ -5,8 +5,15 @@ name: Mac app (signed)
 
 on:
   workflow_dispatch:
-  # Also when the Mac app's own files change (a hand-started workflow must be on main first).
+  # Also when the Mac app's own files change (a hand-started workflow must be on main first). Not
+  # on tags, main or version branches (3.5.9): there CI's mac-app makes the same app, notarized,
+  # and a tag's macOS runners belong to the release.
   push:
+    branches-ignore:
+      - main
+      - "p[0-9]+.[0-9]+.[0-9]+"
+      - "a[0-9]+.[0-9]+.[0-9]+"
+      - "b[0-9]+.[0-9]+.[0-9]+"
     paths:
       - "packaging/mac/**"
       - ".github/workflows/mac-app.yml"
