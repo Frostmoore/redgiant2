@@ -2054,6 +2054,12 @@ const en = {
   limitWeekShort: "7d",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  news358Text: "Text on the picture, like Photoshop",
+  news358TextText:
+    "With the Type tool you click and type straight on the picture, or drag a box for a paragraph. Text layers stay editable: click them to change words, font, size, colour or alignment. Ten fonts, the same on the page and in the saved file, and a + mark when a paragraph does not fit its box.",
+  news358Net: "Agent-made pages stay offline",
+  news358NetText:
+    "An HTML page or a board an agent shows you can no longer reach the internet, open windows or take you to another site; a link it wants to open asks you first. Your projects' own servers on a port work as before.",
   news357Tools: "Picture tools like Photoshop's",
   news357ToolsText:
     "The picture editor's toolbar has Photoshop's tools, groups and shortcuts: move, marquee, lasso, magic wand and quick selection, crop, brush and pencil, clone stamp, eraser, gradient and bucket, text, shapes, hand and zoom, with free transform, add and subtract selection, and moving selected pixels that float until you drop the selection.",
@@ -6949,6 +6955,12 @@ const it: Record<Key, string> = {
   limitWeekShort: "7g",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  news358Text: "Testo sull'immagine, come in Photoshop",
+  news358TextText:
+    "Con lo strumento Testo clicchi e scrivi direttamente sull'immagine, o trascini un riquadro per un paragrafo. I livelli di testo restano modificabili: un clic e cambi parole, carattere, corpo, colore o allineamento. Dieci caratteri, uguali nella pagina e nel file salvato, e un segno + quando un paragrafo non sta nel suo riquadro.",
+  news358Net: "Le pagine degli agenti restano senza internet",
+  news358NetText:
+    "Una pagina HTML o una tavola che un agente ti mostra non può più contattare internet, aprire finestre o portarti su un altro sito; un link che vuole aprire te lo chiede prima. I server dei tuoi progetti su una porta funzionano come prima.",
   news357Tools: "Strumenti delle immagini come Photoshop",
   news357ToolsText:
     "La barra dell'editor delle immagini ha gli strumenti, i gruppi e le scorciatoie di Photoshop: sposta, selezioni, lazo, bacchetta magica e selezione rapida, taglierina, pennello e matita, timbro clone, gomma, sfumatura e secchiello, testo, forme, mano e zoom, con la trasformazione libera, le selezioni che si aggiungono e si tolgono e i pixel spostati che restano fluttuanti finché non togli la selezione.",
