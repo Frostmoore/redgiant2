@@ -2159,6 +2159,15 @@ const en = {
   limitWeekShort: "7d",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  news3511Phone: "The editors on a phone and a tablet",
+  news3511PhoneText:
+    "The Canvas takes the whole screen on a phone or tablet, with Chat to go back. Every editor works by touch: tap for the cursor, drag to scroll or move, pinch to zoom, two fingers to pan; the picture tools sit in a bar at the bottom. Documents and slides are view-only on a phone and editable on a tablet.",
+  news3511Keys: "Everything by keyboard, and for screen readers",
+  news3511KeysText:
+    "Arrows move through bars, tabs and menus, Escape closes and gives the focus back, and ? shows every shortcut. Screen readers hear the page of a PDF, the selected 3D object, Saved and the agent's changes. Greys are easier to read in the light theme, agents' changes are marked not only by colour, and animations stop if your system asks for less motion.",
+  news3511Fast: "Lighter and faster",
+  news3511FastText:
+    "The page loads about three times faster: each editor arrives only when you open it, and the server compresses what it sends. Closed editors give their memory back, only the three most recent heavy tabs stay loaded (the others come back where you left them), and big files scroll smoothly.",
   news3510Webrtc: "Agent-made pages: the last door closed",
   news3510WebrtcText:
     "Artifacts, widgets, HTML previews and boards could still reach the outside through the video-call channel browsers have (WebRTC). It is now switched off before any of their code runs, and it cannot be switched back on. Artifacts using d3 load again.",
@@ -7210,6 +7219,15 @@ const it: Record<Key, string> = {
   limitWeekShort: "7g",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  news3511Phone: "Gli editor sul telefono e sul tablet",
+  news3511PhoneText:
+    "Il Canvas prende tutto lo schermo del telefono o del tablet, con Chat per tornare indietro. Ogni editor funziona col dito: tocchi per il cursore, trascini per scorrere o spostare, pizzichi per ingrandire, due dita per muoverti; gli strumenti delle immagini stanno in una barra in basso. Documenti e presentazioni sul telefono si guardano, sul tablet si modificano.",
+  news3511Keys: "Tutto con la tastiera, e per i lettori di schermo",
+  news3511KeysText:
+    "Le frecce scorrono barre, schede e menu, Esc chiude e rimette il fuoco dov'era, ? mostra tutte le scorciatoie. I lettori di schermo sentono la pagina del PDF, l'oggetto 3D scelto, Salvato e le modifiche dell'agente. Nel tema chiaro i grigi si leggono meglio, le modifiche degli agenti non si riconoscono solo dal colore e le animazioni si fermano se il sistema chiede meno movimento.",
+  news3511Fast: "Più leggero e più veloce",
+  news3511FastText:
+    "La pagina si apre circa tre volte più in fretta: ogni editor arriva solo quando lo apri, e il server comprime quello che manda. Gli editor chiusi restituiscono la memoria, restano caricate solo le tre schede pesanti più recenti (le altre tornano dove le avevi lasciate) e i file grandi scorrono fluidi.",
   news3510Webrtc: "Pagine degli agenti: chiusa l'ultima porta",
   news3510WebrtcText:
     "Artefatti, widget, anteprime HTML e tavole potevano ancora uscire verso l'esterno dal canale delle videochiamate dei browser (WebRTC). Ora è spento prima che parta il loro codice, e non si può riaccendere. Gli artefatti con d3 tornano a caricarsi.",
