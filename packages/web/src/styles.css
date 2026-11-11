@@ -15791,20 +15791,51 @@ button.sub-tab {
   background: var(--panel-2);
   color: var(--text);
   padding: 5px 12px;
-  gap: 6px 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.doc-marks-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+}
+.doc-marks-count {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.doc-marks-turn {
+  gap: 4px;
 }
 .doc-marks .doc-dot {
   animation: none;
   background: var(--doc-agent-line, var(--accent));
 }
+/* About three rows, then it scrolls (p3.5.7: twenty changes filled the screen). */
+.doc-marks-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 16px;
+  max-height: calc(3 * 30px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .doc-mark-item {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
   min-width: 0;
 }
 .doc-mark-what {
-  max-width: 28ch;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -16295,9 +16326,10 @@ button.doc-change-what {
   text-overflow: ellipsis;
   min-width: 0;
 }
-.copy-bar-safe {
+.copy-bar-plain {
+  margin: 0 0 0 21px;
   color: var(--dim);
-  white-space: nowrap;
+  line-height: 1.4;
 }
 .copy-bar-rewrite {
   flex: none;
@@ -16336,9 +16368,7 @@ button.doc-change-what {
   .copy-bar {
     padding: 6px 10px;
   }
-  .copy-bar-safe {
-    display: none;
-  }
+  .copy-bar-plain,
   .copy-bar-kept {
     margin-left: 0;
   }

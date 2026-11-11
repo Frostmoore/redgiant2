@@ -163,7 +163,7 @@ describe("the agents' highlights", () => {
     markChange(f, 3);
     rerender(<DocEditor file={f} />);
     const strip = container.querySelector(".doc-marks");
-    expect(strip?.textContent).toContain("Evidenziate, di God:");
+    expect(strip?.textContent).toContain("2 modifiche evidenziate, di God");
     expect(strip?.querySelectorAll(".doc-mark-undo")).toHaveLength(2);
     expect(strip?.querySelector(".doc-mark-undo")?.textContent).toBe("Annulla questa modifica");
     // «God sta modificando» and the highlights together.

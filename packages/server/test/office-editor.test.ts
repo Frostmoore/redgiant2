@@ -303,7 +303,10 @@ describe("documents in the editor (G37.4)", () => {
     await (await sv.core.send("me", sessionId, "Correggi il nome")).done;
     expect(seen[0]).toContain("A text document (LibreOffice Writer)");
     expect(seen[1]).toMatch(/^Applied as revision 1: replaced «Rossi» with «Verdi»/);
-    expect(seen[1]).toContain("you edited its open copy docs/relazione.docx.open/relazione.odt");
+    // In one line where the edit is and that the original follows (p3.5.7).
+    expect(seen[1]).toContain(
+      "The edit is in the open copy docs/relazione.docx.open/relazione.odt; relazione.docx is written again from it at each save",
+    );
     await sv.core.editor.flush();
     await new Promise((r) => setTimeout(r, 200));
     expect(await readFile(join(root, docx.path), "utf8")).toBe("converted odt to docx");
@@ -395,7 +398,9 @@ describe("documents in the editor (G37.4)", () => {
     expect(seen[0]).not.toContain("There is no editor");
     expect(seen[0]).toContain("this is its open copy docs/bilancio.xlsx.open/bilancio.ods");
     expect(seen[1]).toMatch(/^Applied as revision 1: /);
-    expect(seen[1]).toContain("you edited its open copy docs/bilancio.xlsx.open/bilancio.ods");
+    expect(seen[1]).toContain(
+      "The edit is in the open copy docs/bilancio.xlsx.open/bilancio.ods; bilancio.xlsx does not change until the person turns on «Riscrivi anche l'originale»",
+    );
     // The tab of the original shows the copy now (its original's name, the copy's target).
     const shows = (await sv.core.store.list({ sessionId, types: ["canvas.show"] })).map(
       (e) => e.type === "canvas.show" && e.payload,
@@ -447,6 +452,99 @@ describe("documents in the editor (G37.4)", () => {
     expect(shows).toEqual([
       { title: "bilancio.xlsx", target: { kind: "file", scope: "platform", path: ods } },
     ]);
+  });
+
+  it("p3.5.7: the ODS copy named before it exists is made from the XLSX, not refused", async () => {
+    const seen: string[] = [];
+    const ods = "docs/bilancio.xlsx.open/bilancio.ods";
+    const { sessionId, root } = await setup(
+      calls(
+        [
+          { name: "canvas_look", input: { path: ods, view: "structure" } },
+          {
+            name: "canvas_edit",
+            input: { path: ods, ops: [{ op: "set", cell: "D4", value: 30 }] },
+          },
+        ],
+        seen,
+      ),
+    );
+    const sv = s as Server;
+    await writeFile(join(root, "docs/bilancio.xlsx"), new TextEncoder().encode("the xlsx"));
+    const made: string[] = [];
+    (sv.core.programs as unknown as { find: () => string }).find = () => "/fake/soffice";
+    (sv.core.converter as unknown as { convert: unknown }).convert = async (
+      at: string,
+      path: string,
+      o: { to: string[] },
+    ) => {
+      made.push(`${path} → ${o.to.join(",")}`);
+      await mkdir(join(at, `${path}.open`), { recursive: true });
+      await writeFile(
+        join(at, `${path}.open/bilancio.ods`),
+        await readFile(join(import.meta.dirname, "fixtures", "sheets", "vendite.ods")),
+      );
+    };
+    await (await sv.core.send("me", sessionId, "Correggi il bilancio")).done;
+    // Before p3.5.7: «There is no file "docs/bilancio.xlsx.open/bilancio.ods" in your workspace».
+    expect(made).toEqual(["docs/bilancio.xlsx → ods"]);
+    expect(seen[0]).not.toContain("There is no file");
+    expect(seen[0]).toContain("this is its open copy docs/bilancio.xlsx.open/bilancio.ods");
+    expect(seen[1]).toMatch(/^Applied as revision 1: /);
+    expect(seen[1]).toContain("bilancio.xlsx does not change until the person turns on");
+    expect(await readFile(join(root, "docs/bilancio.xlsx"), "utf8")).toBe("the xlsx");
+  });
+
+  it("p3.5.7: a PPTX's slides stay in the ODP copy until the switch is on; then the PPTX is written", async () => {
+    const seen: string[] = [];
+    const pptx = "docs/piano.pptx";
+    const odp = { scope: "platform", path: "docs/piano.pptx.open/piano.odp" };
+    const edit = (find: string, text: string) => ({
+      name: "canvas_edit",
+      input: { path: pptx, ops: [{ op: "replace_text", find, text }] },
+    });
+    // One edit per turn: the first with the switch off, the second after the person turns it on.
+    const turns = [edit("Obiettivi", "Traguardi"), edit("Zero infortuni", "Nessun infortunio")];
+    let step = 0;
+    const { sessionId, root } = await setup((req: Req) => {
+      const r = resultOf(req);
+      if (r !== undefined) {
+        seen.push(r);
+        return { text: "Done." };
+      }
+      return { toolCalls: [turns[step++]] };
+    });
+    const sv = s as Server;
+    await writeFile(join(root, pptx), new TextEncoder().encode("the person's pptx"));
+    (sv.core.programs as unknown as { find: () => string }).find = () => "/fake/soffice";
+    (sv.core.converter as unknown as { convert: unknown }).convert = async (
+      at: string,
+      path: string,
+    ) => {
+      await mkdir(join(at, `${path}.open`), { recursive: true });
+      await writeFile(join(at, odp.path), sampleOdp());
+    };
+    // The first edit with the switch off: the PPTX does not change, and the result says so.
+    await (await sv.core.send("me", sessionId, "Cambia il titolo")).done;
+    expect(seen[0]).toMatch(/^Applied as revision 1: /);
+    expect(seen[0]).toContain(
+      "The edit is in the open copy docs/piano.pptx.open/piano.odp; piano.pptx does not change until the person turns on «Riscrivi anche l'originale» or uses «Esporta come…».",
+    );
+    await sv.core.editor.flush();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(await readFile(join(root, pptx), "utf8")).toBe("the person's pptx");
+    // The person turns on «Riscrivi anche l'originale» for the copy: the next save writes it.
+    const cur = await sv.api<{ settings: Record<string, unknown> }>("GET", "/api/settings/editor");
+    await sv.api("PUT", "/api/settings/editor", {
+      ...cur.body.settings,
+      reexport: { [docKey(odp)]: true },
+    });
+    await (await sv.core.send("me", sessionId, "Cambia la riga")).done;
+    expect(seen[1]).toMatch(/^Applied as revision 2: /);
+    expect(seen[1]).toContain("piano.pptx is written again from it at each save");
+    await sv.core.editor.flush();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(await readFile(join(root, pptx), "utf8")).toBe("converted odp to pptx");
   });
 
   it("without the full editor: the person's find and replace; «Esporta come»; the engine's state", async () => {

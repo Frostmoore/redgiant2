@@ -55,19 +55,46 @@ const changesOf = (op: DocOp): ChangeSet => {
 let counter = 0;
 const newId = () => `c${Date.now().toString(36)}${(counter++).toString(36)}`;
 
+/** A batch with no answer from the host after this long: the page reads the file again (p3.5.7). */
+export const ACK_WAIT_MS = 10_000;
+
 export class TextCollab {
   /** The last revision the host confirmed to this page. */
   revision = 0;
-  private inflight: { id: string; changes: ChangeSet } | undefined;
+  private inflight: { id: string; changes: ChangeSet; at: number } | undefined;
   private buffer: ChangeSet | undefined;
+  /**
+   * Batches sent and then let go by a `reset` before their answer (p3.5.7): the host may still
+   * apply them after the text the page was given (a reconnection sends the file's `doc.open`
+   * before the batches queued meanwhile). Their ack means the page lacks a revision.
+   */
+  private readonly dropped = new Set<string>();
 
-  constructor(private readonly send: (o: Outgoing) => void) {}
+  constructor(
+    private readonly send: (o: Outgoing) => void,
+    private readonly now: () => number = Date.now,
+  ) {}
 
   /** The file as the host has it now (opened, replaced, or after a resynchronisation). */
   reset(revision: number): void {
     this.revision = revision;
+    if (this.inflight) this.dropped.add(this.inflight.id);
+    if (this.dropped.size > 50) this.dropped.delete(this.dropped.values().next().value as string);
     this.inflight = undefined;
     this.buffer = undefined;
+  }
+
+  /**
+   * An ack (or a refusal) for a batch a `reset` let go: true once, when it was this page's. An
+   * ack of it says the host has a revision the page's text lacks: the page reads the file again.
+   */
+  orphan(clientId: string): boolean {
+    return this.dropped.delete(clientId);
+  }
+
+  /** The batch in flight has had no answer for `ms` (an answer lost): the page reads the file again. */
+  stuck(ms = ACK_WAIT_MS): boolean {
+    return !!this.inflight && this.now() - this.inflight.at >= ms;
   }
 
   /** Whether the person has changes the host has not confirmed yet. */
@@ -84,7 +111,7 @@ export class TextCollab {
   /** Sends what waits, if nothing is in flight. */
   flush(): void {
     if (this.inflight || !this.buffer) return;
-    this.inflight = { id: newId(), changes: this.buffer };
+    this.inflight = { id: newId(), changes: this.buffer, at: this.now() };
     this.buffer = undefined;
     this.send({
       clientId: this.inflight.id,

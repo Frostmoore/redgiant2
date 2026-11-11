@@ -4,7 +4,8 @@
 // browser tab in the background), so a highlight made while they read the chat or looked
 // elsewhere is still there when they look. Since p3.5.6 (the person's test of 3.5.5: the
 // highlights went while «God sta modificando» was still shown) the time starts once no agent is
-// editing the file anymore.
+// editing the file anymore. Since p3.5.7 (the person's test of 3.5.6: after «Annulla questa
+// modifica» the other changes lost their highlight) an undo of one counts the others' time again.
 
 /** How long a highlight stays once the person can see it. */
 export const HIGHLIGHT_SEEN_MS = 12_000;
@@ -33,7 +34,7 @@ export function afterSeen(
   done: () => void,
   shown: () => boolean = pageShown,
   busy: () => boolean = () => false,
-) {
+): (() => void) & { restart: () => void } {
   let seen = 0;
   const timer = setInterval(() => {
     if (!shown() || busy()) return;
@@ -42,5 +43,10 @@ export function afterSeen(
     clearInterval(timer);
     done();
   }, SEEN_TICK_MS);
-  return () => clearInterval(timer);
+  // `restart`: counted again from zero (p3.5.7: the person is working through the changes).
+  return Object.assign(() => clearInterval(timer), {
+    restart: () => {
+      seen = 0;
+    },
+  });
 }

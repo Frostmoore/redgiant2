@@ -856,6 +856,9 @@ const en = {
     "{name} changed on disk, outside the editor (a program, a command or an agent): you now see the new version.",
   docOutsideUndo: "Back to the version before",
   docOutsideClose: "Got it",
+  docResynced:
+    "The page no longer matched the file on the server: it was read again from the server, so you see what the file really holds.",
+  docResyncedLost: "The last keystrokes not yet confirmed may be missing: check them.",
   docAgentEditing: "{name} is editing",
   docModeLabel: "Agents' edits",
   docModeDefaultNow: "As for the agent: right away",
@@ -886,8 +889,10 @@ const en = {
   docUndoTurn: "Undo the whole turn",
   docUndoThis: "Undo this change",
   docMarkBy: "{who} changed this",
-  docMarked: "Highlighted, by {who}:",
-  docMarkedMore: "and {n} more",
+  docMarkedCount: "{n} changes highlighted, by {who}",
+  docMarkedOne: "1 change highlighted, by {who}",
+  docMarkedFold: "Hide the list",
+  docMarkedUnfold: "Show the list",
   docUndone: "undone",
   // The sheet editor (G37.3).
   docSheetCell: "Changed {range}",
@@ -948,8 +953,12 @@ const en = {
     "Saving waits for LibreOffice, which is coming down (the first time only): your changes are safe.",
   sheetSaveFailed: "Not saved yet: {reason}. It is tried again by itself; your changes are safe.",
   copyBarOf: "Open copy of {name}",
-  copyBarSafe: "the original stays as it is",
   copyBarRewrite: "Write the original too",
+  copyBarKindOpen: "open",
+  copyBarPlainOff:
+    "Edits are in the {kind} copy; {name} does not change until you turn on «Write the original too» or use «Export as…».",
+  copyBarPlainOn: "Edits are in the {kind} copy and, at every save, written to {name} too.",
+  copyBarPlainNone: "Edits are in the {kind} copy; {name} does not change.",
   copyBarKept: "{n} things stay in the file, not editable here",
   sheetPlaceholdersHow:
     "Pivot tables are outlined in grey in the sheet; you see everything in «Pages».",
@@ -5695,6 +5704,9 @@ const it: Record<Key, string> = {
     "{name} è cambiato sul disco, fuori dall'editor (un programma, un comando o un agente): ora vedi la versione nuova.",
   docOutsideUndo: "Torna alla versione di prima",
   docOutsideClose: "Ho capito",
+  docResynced:
+    "La pagina non corrispondeva più al file sul server: l'ho riletta dal server, così vedi quello che il file contiene davvero.",
+  docResyncedLost: "Le ultime battute non ancora confermate potrebbero mancare: controllale.",
   docAgentEditing: "{name} sta modificando",
   docModeLabel: "Modifiche degli agenti",
   docModeDefaultNow: "Come per l'agente: subito",
@@ -5725,8 +5737,10 @@ const it: Record<Key, string> = {
   docUndoTurn: "Annulla tutto il turno",
   docUndoThis: "Annulla questa modifica",
   docMarkBy: "{who} ha cambiato qui",
-  docMarked: "Evidenziate, di {who}:",
-  docMarkedMore: "e altre {n}",
+  docMarkedCount: "{n} modifiche evidenziate, di {who}",
+  docMarkedOne: "1 modifica evidenziata, di {who}",
+  docMarkedFold: "Nascondi l'elenco",
+  docMarkedUnfold: "Mostra l'elenco",
   docUndone: "annullata",
   // The sheet editor (G37.3).
   docSheetCell: "Cambiata la cella {range}",
@@ -5787,8 +5801,13 @@ const it: Record<Key, string> = {
     "Il salvataggio aspetta LibreOffice, che si sta scaricando (solo la prima volta): le modifiche sono al sicuro.",
   sheetSaveFailed: "Non ancora salvato: {reason}. Riprovo da solo; le modifiche sono al sicuro.",
   copyBarOf: "Copia aperta di {name}",
-  copyBarSafe: "l'originale resta com'è",
   copyBarRewrite: "Riscrivi anche l'originale",
+  copyBarKindOpen: "aperta",
+  copyBarPlainOff:
+    "Le modifiche sono nella copia {kind}; il file {name} non cambia finché non accendi «Riscrivi anche l'originale» o usi «Esporta come…».",
+  copyBarPlainOn:
+    "Le modifiche sono nella copia {kind} e, a ogni salvataggio, vengono scritte anche in {name}.",
+  copyBarPlainNone: "Le modifiche sono nella copia {kind}; il file {name} non cambia.",
   copyBarKept: "{n} cose restano nel file, non si modificano qui",
   sheetPlaceholdersHow:
     "Le tabelle pivot sono contornate in grigio nel foglio; si vede tutto in «Pagine».",

@@ -374,19 +374,25 @@ export function ModelEditor({
         if (!collab.ack(m.clientId, m.revision)) return;
         own.made(m.revision, sentIn.get(m.clientId) ?? `r${m.revision}`);
         sentIn.delete(m.clientId);
+        // Ctrl+Z pressed before this was confirmed (p3.5.7): asked now, for the right gesture.
+        for (const ask of own.release(collab.pending))
+          sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
       },
       rejected(m) {
-        if (collab.rejected(m.clientId)) resync();
+        if (collab.rejected(m.clientId)) {
+          own.forget();
+          resync();
+        }
       },
     });
     api.current = {
       undo() {
         collab.flush();
-        const ask = own.undo();
+        const ask = own.press("undo", collab.pending);
         if (ask) sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
       },
       redo() {
-        const ask = own.redo();
+        const ask = own.press("redo", collab.pending);
         if (ask) sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
       },
       save() {
@@ -790,7 +796,7 @@ export function ModelEditor({
           </button>
         )}
       </div>
-      {info?.original && <CopyBar original={info.original} />}
+      {info?.original && <CopyBar original={info.original} copy={file.path} />}
       {(note || failed) && (
         <div class="sheet-notes">
           {note && (
