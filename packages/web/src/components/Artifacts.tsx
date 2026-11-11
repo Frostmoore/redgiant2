@@ -4,6 +4,7 @@
 // «Delete» (our window, then the file explorer's own deletion: same trash, same permissions)
 // and «Import» (a `.rgartifact` into the place the person picks). An archived project's
 // artifacts are read only. The same import runs when a `.rgartifact` is dropped on the explorer.
+import { ARTIFACT_DIR } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { ArtifactInfo } from "../api.js";
 import { bytes } from "../format.js";
@@ -143,7 +144,7 @@ function ImportDialog({
             onClick={() => !busy && void into(p.scope, p.name)}
           >
             <span class="sb-box-p">
-              <code>artefatti/</code>
+              <code>{`${ARTIFACT_DIR}/`}</code>
             </span>
           </BoxButton>
         ))}
