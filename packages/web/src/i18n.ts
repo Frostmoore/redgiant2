@@ -2079,6 +2079,12 @@ const en = {
   limitWeekShort: "7d",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  news359Widgets: "Little apps inside the answers",
+  news359WidgetsText:
+    "When a question calls for it, an agent puts a small interactive card in its answer: fields, sliders, a result that changes as you type, and a button that sends your values back to the chat when you click it. Keep it to use it again, or open it in the Canvas.",
+  news359Artifacts: "Artifacts: apps that run in the Canvas",
+  news359ArtifactsText:
+    "An agent can make you a small app in one file, like an explorer for a CSV or a quote calculator, that runs at once in the Canvas, with its source a click away. Its errors go back to the agent to fix. They stay in each project's artefatti folder; Settings › Artifacts lists them all and exports them for another RedGiant. They never reach the internet.",
   news358Text: "Text on the picture, like Photoshop",
   news358TextText:
     "With the Type tool you click and type straight on the picture, or drag a box for a paragraph. Text layers stay editable: click them to change words, font, size, colour or alignment. Ten fonts, the same on the page and in the saved file, and a + mark when a paragraph does not fit its box.",
@@ -7039,6 +7045,12 @@ const it: Record<Key, string> = {
   limitWeekShort: "7g",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  news359Widgets: "Piccole app dentro le risposte",
+  news359WidgetsText:
+    "Quando la domanda lo chiede, un agente mette nella risposta una piccola scheda interattiva: caselle, cursori, un risultato che cambia mentre scrivi e un pulsante che rimanda i tuoi valori alla chat quando lo clicchi. Tienila per riusarla, o aprila nel Canvas.",
+  news359Artifacts: "Artefatti: app che girano nel Canvas",
+  news359ArtifactsText:
+    "Un agente può farti una piccola app in un file solo, come un esploratore di un CSV o un calcolatore di preventivi, che gira subito nel Canvas con il sorgente a un clic. I suoi errori tornano all'agente, che li corregge. Restano nella cartella artefatti di ogni progetto; Impostazioni › Artefatti li elenca tutti e li esporta per un altro RedGiant. Non vanno mai su internet.",
   news358Text: "Testo sull'immagine, come in Photoshop",
   news358TextText:
     "Con lo strumento Testo clicchi e scrivi direttamente sull'immagine, o trascini un riquadro per un paragrafo. I livelli di testo restano modificabili: un clic e cambi parole, carattere, corpo, colore o allineamento. Dieci caratteri, uguali nella pagina e nel file salvato, e un segno + quando un paragrafo non sta nel suo riquadro.",
