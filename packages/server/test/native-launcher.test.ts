@@ -158,7 +158,14 @@ require("node:http").createServer((q, r) => r.end("ok")).listen(port, "127.0.0.1
         } else res.writeHead(404).end();
       });
       await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
-      const port = 30000 + Math.floor(Math.random() * 20000);
+      // A port the system says is free (a random one may fall in a range Windows keeps for itself).
+      const port = await new Promise<number>((ok) => {
+        const probe = createServer();
+        probe.listen(0, "127.0.0.1", () => {
+          const { port } = probe.address() as { port: number };
+          probe.close(() => ok(port));
+        });
+      });
       try {
         launcher = new NativeLauncher({
           dir,
