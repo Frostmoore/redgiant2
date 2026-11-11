@@ -70,7 +70,7 @@ export const SHORTCUTS: { title: Key; rows: [keys: string, what: Key][] }[] = [
   {
     title: "kb3d",
     rows: [
-      ["W / E / S", "kb3dModes"],
+      ["G / R / S", "kb3dModes"],
       ["F", "kb3dFrame"],
       ["@kUpDown", "kb3dTree"],
       ["@kEsc", "kb3dNone"],

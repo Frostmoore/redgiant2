@@ -225,7 +225,7 @@ export function PdfEditor({
   page?: number | undefined;
   onReveal?: (f: ((c: DocChange) => void) | undefined) => void;
 }) {
-  const scroller = useRef<HTMLElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
   const [outline, setOutline] = useState<PdfOutline>();
   const [doc, setDoc] = useState<PDFDocumentProxy>();
   const [failed, setFailed] = useState<string>();
@@ -977,11 +977,13 @@ export function PdfEditor({
       )}
       <div class="pdfed-main">
         <div class="pdfed-view">
-          <section
+          <div
             class="pdfed-scroll"
             ref={scroller}
             // biome-ignore lint/a11y/noNoninteractiveTabindex: the pages take the keyboard (Page Down, Home, End)
             tabIndex={0}
+            // pdf.js wants a div as the pages' container: a document with its name, not a section.
+            role="document"
             aria-label={
               doc
                 ? t("pdfPagesRegion", {
@@ -993,7 +995,7 @@ export function PdfEditor({
             }
           >
             <div class="pdfViewer" />
-          </section>
+          </div>
           {!doc && <div class="vw-empty dim pdfed-loading">{t("loading")}</div>}
           {redactions.length > 0 && (
             <div class="pdfed-redact-bar" role="status">

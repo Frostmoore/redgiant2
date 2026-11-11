@@ -195,13 +195,19 @@ export function focusMenu(menu: HTMLElement): void {
  * button. Returns what removes it.
  */
 export function installKeyboard(root: HTMLElement): () => void {
+  /**
+   * Each menu's button, noted when the focus goes in: a menu's own Escape may take it out of the
+   * page before this handler runs (a re-render between listeners), and a menu out of the page
+   * has no button beside it anymore.
+   */
+  const owners = new WeakMap<HTMLElement, HTMLElement>();
   const key = (e: KeyboardEvent) => {
     if (e.defaultPrevented) return;
     const el = e.target as HTMLElement;
     const menu = el.closest<HTMLElement>("[role=menu]");
-    if (menu && root.contains(menu)) {
+    if (menu && (root.contains(menu) || owners.has(menu))) {
       if (e.key === "Escape") {
-        const owner = menuOwner(menu);
+        const owner = menuOwner(menu) ?? owners.get(menu) ?? null;
         e.preventDefault();
         e.stopPropagation();
         // The menu's own Escape (if any) has run; one still open closes from its button.
@@ -249,6 +255,11 @@ export function installKeyboard(root: HTMLElement): () => void {
   // Focus coming into a group makes that item its one stop.
   const focus = (e: FocusEvent) => {
     const el = e.target as HTMLElement;
+    const menu = el.closest?.<HTMLElement>("[role=menu]");
+    if (menu && !owners.has(menu)) {
+      const owner = menuOwner(menu);
+      if (owner) owners.set(menu, owner);
+    }
     const group = el.closest?.<HTMLElement>("[role=toolbar], [role=tablist]");
     if (group && root.contains(group) && !el.matches("input, select, textarea"))
       syncGroup(group, el);

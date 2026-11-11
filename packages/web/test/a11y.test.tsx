@@ -275,6 +275,29 @@ describe("the keyboard in the canvas", () => {
     off();
   });
 
+  it("a menu its own Escape already took away still gives the focus back", async () => {
+    document.body.innerHTML = `<div id="root"><span class="m">
+      <button id="own" aria-haspopup="menu" aria-expanded="true">Colori</button>
+      <div role="menu"><button role="menuitem" id="item">Scambia</button></div></span></div>`;
+    const root = document.getElementById("root") as HTMLElement;
+    const off = installKeyboard(root);
+    const item = document.getElementById("item") as HTMLElement;
+    item.focus();
+    // The menu's own listener (as the picture editor's flyout) removes it first, as a re-render
+    // between listeners does in a browser.
+    const own = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      document.querySelector("[role=menu]")?.remove();
+      document.getElementById("own")?.setAttribute("aria-expanded", "false");
+    };
+    document.addEventListener("keydown", own, true);
+    key(item, "Escape");
+    await frame();
+    expect(document.activeElement?.id).toBe("own");
+    document.removeEventListener("keydown", own, true);
+    off();
+  });
+
   it("rovingKey and syncRoving on any group", () => {
     document.body.innerHTML =
       '<div id="g"><button aria-selected="false">a</button><button aria-selected="true">b</button></div>';
