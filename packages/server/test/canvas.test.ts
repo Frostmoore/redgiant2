@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { Event } from "@redgiant/protocol";
 import type { CompletionRequest } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
-import { PREVIEW_HEADERS, Previews, rewrite, serveFile } from "../src/canvas.js";
+import { Previews, previewHeaders, previewOrigins, rewrite, serveFile } from "../src/canvas.js";
 import { boardAnswerText } from "../src/core.js";
 import { startServer } from "./helpers.js";
 
@@ -120,7 +120,9 @@ describe("the canvas (G25.1)", () => {
     const page = await fetch(`${s.url}${link.body.url}`);
     expect(page.status).toBe(200);
     expect(page.headers.get("content-security-policy")).toBe(
-      PREVIEW_HEADERS["Content-Security-Policy"],
+      previewHeaders("files", previewOrigins(new Request(s.url)), link.body.url.slice(0, -1))[
+        "Content-Security-Policy"
+      ],
     );
     const html = await page.text();
     expect(html).toContain("<h1>Buon giorno</h1>");
@@ -175,7 +177,11 @@ describe("the canvas (G25.1)", () => {
     expect(html).toContain("/app?x=1");
     expect(html).toContain(`src="${prefix}/app.js"`);
     expect(page.headers.get("set-cookie")).toBeNull();
-    expect(page.headers.get("content-security-policy")).toContain("sandbox");
+    // A project's program keeps its network and its popups; only RedGiant frames it (3.5.8).
+    const csp = page.headers.get("content-security-policy") ?? "";
+    expect(csp).toContain("allow-popups");
+    expect(csp).toContain(`frame-ancestors http://${new URL(s.url).host}`);
+    expect(csp).not.toContain("default-src");
     const moved = await fetch(`${s.url}${prefix}/old`, { redirect: "manual" });
     expect(moved.headers.get("location")).toBe(`${prefix}/new`);
   });
@@ -247,7 +253,11 @@ describe("the canvas (G25.1)", () => {
       `/api/sessions/${sid}/variants/${p.proposalId}/link`,
     );
     const page = await fetch(`${s.url}${link.body.base}2.html`);
-    expect(page.headers.get("content-security-policy")).toContain("sandbox");
+    // A board is an agent-made page: no internet (3.5.8).
+    const csp = page.headers.get("content-security-policy") ?? "";
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).toContain(`connect-src http://${new URL(s.url).host}${link.body.base} `);
+    expect(csp).not.toContain("allow-popups");
     expect(await page.text()).toContain("<h1>B</h1>");
     const answer = (b: unknown) => s?.api("POST", `/api/sessions/${sid}/variants`, b);
     expect(
@@ -291,5 +301,123 @@ describe("the canvas (G25.1)", () => {
     expect(boardAnswerText("it", b, { variant: null, choice: false, comment: "ok" })).toBe(
       "[Tavola «La home»] Commento sulla tavola: ok",
     );
+  });
+});
+
+describe("agent-made pages reach no internet (3.5.8)", () => {
+  it("keeps a page to its own preview: scripts, styles and data pictures, nothing outside", async () => {
+    s = await startServer(() => ({ text: "ok" }));
+    const dir = await mkdtemp(join(tmpdir(), "rg-net-"));
+    await writeFile(join(dir, "index.html"), "<head></head><a href='https://example.com'>x</a>");
+    await writeFile(join(dir, "data.json"), "{}");
+    const token = s.core.previews.sign("me", { kind: "dir", root: dir });
+    const host = new URL(s.url).host;
+    const own = `http://${host}/preview/${token}/ https://${host}/preview/${token}/`;
+    const page = await fetch(`${s.url}/preview/${token}/`, {
+      headers: { "sec-fetch-dest": "iframe" },
+    });
+    const csp = (page.headers.get("content-security-policy") ?? "").split("; ");
+    expect(csp).toEqual([
+      "sandbox allow-scripts allow-forms allow-modals allow-downloads allow-pointer-lock",
+      "default-src 'none'",
+      `script-src ${own} 'unsafe-inline' 'unsafe-eval' blob:`,
+      `style-src ${own} 'unsafe-inline' blob:`,
+      `img-src ${own} data: blob:`,
+      `font-src ${own} data: blob:`,
+      `media-src ${own} data: blob:`,
+      `connect-src ${own}`,
+      `worker-src ${own} blob:`,
+      `frame-src ${own} blob: data:`,
+      `manifest-src ${own}`,
+      "object-src 'none'",
+      "form-action 'none'",
+      "base-uri 'none'",
+      "webrtc 'block'",
+      `frame-ancestors http://${host} https://${host}`,
+    ]);
+    expect(page.headers.get("x-dns-prefetch-control")).toBe("off");
+    // Links that would go out are handed to the page around the frame.
+    const html = await page.text();
+    expect(html).toContain('redgiant:"open-link"');
+    // Its own files are still served, under the same rules.
+    const json = await fetch(`${s.url}/preview/${token}/data.json`);
+    expect(json.status).toBe(200);
+    expect(json.headers.get("content-security-policy")).toContain("default-src 'none'");
+  });
+
+  it("frames a page opened on its own in a tab, so it cannot leave its preview", async () => {
+    s = await startServer(() => ({ text: "ok" }));
+    const dir = await mkdtemp(join(tmpdir(), "rg-net-"));
+    await writeFile(join(dir, "index.html"), "<p>hi</p>");
+    await writeFile(join(dir, "pic.svg"), "<svg/>");
+    const token = s.core.previews.sign("me", { kind: "dir", root: dir });
+    const top = await fetch(`${s.url}/preview/${token}/?a=1&b="2"`, {
+      headers: { "sec-fetch-dest": "document", "accept-language": "it-IT,it;q=0.9" },
+    });
+    const csp = top.headers.get("content-security-policy") ?? "";
+    const host = new URL(s.url).host;
+    expect(csp).toContain(
+      `frame-src http://${host}/preview/${token}/ https://${host}/preview/${token}/;`,
+    );
+    expect(csp).toMatch(/script-src 'nonce-[\w+/=]+';/);
+    expect(csp).toContain("default-src 'none'");
+    const html = await top.text();
+    expect(html).toContain(
+      `<iframe src="/preview/${token}/?a=1&amp;b=%222%22" sandbox="allow-scripts allow-forms allow-modals allow-downloads allow-pointer-lock"`,
+    );
+    expect(html).toContain("La pagina vuole aprire");
+    expect(html).not.toContain("<p>hi</p>");
+    // Not a page: as it is.
+    const pic = await fetch(`${s.url}/preview/${token}/pic.svg`, {
+      headers: { "sec-fetch-dest": "document" },
+    });
+    expect(await pic.text()).toBe("<svg/>");
+  });
+
+  it("gives one file shown from outside the preview's script too", async () => {
+    s = await startServer(() => ({ text: "ok" }));
+    const dir = await mkdtemp(join(tmpdir(), "rg-net-"));
+    await writeFile(join(dir, "one.html"), "<head></head><p>one</p>");
+    const token = s.core.previews.sign("me", { kind: "file", path: join(dir, "one.html") });
+    const page = await fetch(`${s.url}/preview/${token}/one.html`);
+    const html = await page.text();
+    expect(html).toContain("<p>one</p>");
+    expect(html).toContain('redgiant:"open-link"');
+    // The length is the rewritten page's, not the file's.
+    expect(Number(page.headers.get("content-length"))).toBe(Buffer.byteLength(html));
+    expect(page.headers.get("content-security-policy")).toContain("connect-src");
+  });
+
+  it("writes only well-formed hosts into a policy", () => {
+    const req = (fwd: string) =>
+      new Request("http://192.168.1.5:7650/x", { headers: { "x-forwarded-host": fwd } });
+    expect(previewOrigins(req("rg.example.org"))).toEqual([
+      "http://192.168.1.5:7650",
+      "https://192.168.1.5:7650",
+      "http://rg.example.org",
+      "https://rg.example.org",
+    ]);
+    expect(previewOrigins(req("evil; script-src *"))).toHaveLength(2);
+    expect(previewOrigins(req("a.b/c"))).toHaveLength(2);
+    expect(previewOrigins(req("[::1]:8080"))).toContain("https://[::1]:8080");
+  });
+
+  it("frames only its own origin on RedGiant's page", async () => {
+    const web = await mkdtemp(join(tmpdir(), "rg-web-"));
+    await mkdir(join(web, "assets"));
+    await writeFile(join(web, "index.html"), "<div id=app></div>");
+    await writeFile(join(web, "assets", "a.js"), "1");
+    s = await startServer(() => ({ text: "ok" }), {}, {}, web);
+    const page = await fetch(`${s.url}/`);
+    expect(page.headers.get("content-security-policy")).toBe("frame-src 'self'");
+    const deep = await fetch(`${s.url}/some/route`);
+    expect(deep.headers.get("content-security-policy")).toBe("frame-src 'self'");
+    const js = await fetch(`${s.url}/assets/a.js`);
+    expect(js.headers.get("content-security-policy")).toBeNull();
+  });
+
+  it("adds the link script only to agent-made pages", () => {
+    expect(rewrite("<head></head>", "text/html", "/preview/t", true)).toContain("open-link");
+    expect(rewrite("<head></head>", "text/html", "/preview/t")).not.toContain("open-link");
   });
 });

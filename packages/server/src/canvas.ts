@@ -8,6 +8,7 @@ import { createReadStream } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
+import { FILES_SANDBOX, PROGRAM_SANDBOX } from "@redgiant/protocol";
 
 /** What a preview link opens: a folder of files, or a port in an agent's container. */
 export type PreviewTarget =
@@ -112,13 +113,8 @@ const TYPES: Record<string, string> = {
 export const contentType = (path: string) =>
   TYPES[extname(path).toLowerCase()] ?? "application/octet-stream";
 
-/**
- * Headers of every preview: an opaque origin even when opened on its own (no access to
- * RedGiant's storage), readable by the page's sandboxed frame, never cached for long.
- */
-export const PREVIEW_HEADERS: Record<string, string> = {
-  "Content-Security-Policy":
-    "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock",
+/** Headers every preview carries, whatever it shows: never cached, never sniffed, no referrer. */
+const PREVIEW_BASE: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Cache-Control": "no-store",
   "X-Content-Type-Options": "nosniff",
@@ -126,17 +122,124 @@ export const PREVIEW_HEADERS: Record<string, string> = {
 };
 
 /**
+ * What a preview shows (3.5.8): `files` are pages made by agents (a file, a folder, a board),
+ * which never reach the internet; `program` is a program the person's project runs in an
+ * agent's container (a dev server), a real app that keeps its network.
+ */
+export type PreviewUse = "files" | "program";
+
+/**
+ * The origins the browser uses for RedGiant, from the request (the host changes: an address on
+ * the network, a Tailscale name, a domain behind a proxy). Both schemes, because a proxy in
+ * front may speak https while the server sees http. Only well-formed hosts make it into a policy.
+ */
+export function previewOrigins(req: Request): string[] {
+  const hosts = new Set<string>([new URL(req.url).host]);
+  const forwarded = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  if (forwarded && /^[a-z0-9.-]+(:\d{1,5})?$|^\[[0-9a-f:.]+\](:\d{1,5})?$/i.test(forwarded))
+    hosts.add(forwarded.toLowerCase());
+  return [...hosts].flatMap((h) => [`http://${h}`, `https://${h}`]);
+}
+
+/**
+ * The headers of a preview (3.5.8, decision of 2026-11-11: no internet for agent-made HTML).
+ * Agent-made pages load only from their own preview (`<origin>/preview/<token>/`, written in full:
+ * `'self'` is unreliable in an opaque origin), plus `data:` and `blob:`; inline scripts and styles
+ * keep working for single-file pages; nothing else is reached (fetch, beacons, WebSocket,
+ * EventSource, pictures, fonts, prefetch), forms post nowhere, and only RedGiant may frame them.
+ * Navigating the frame elsewhere is stopped by the frame's parent (`frame-src` on RedGiant's page,
+ * or the wrapper of a page opened on its own). A project's program keeps its network.
+ */
+export function previewHeaders(
+  use: PreviewUse,
+  origins: string[],
+  prefix: string,
+): Record<string, string> {
+  const ancestors = `frame-ancestors ${origins.join(" ")}`;
+  if (use === "program")
+    return {
+      ...PREVIEW_BASE,
+      "Content-Security-Policy": `sandbox ${PROGRAM_SANDBOX}; ${ancestors}`,
+    };
+  const self = origins.map((o) => `${o}${prefix}/`).join(" ");
+  return {
+    ...PREVIEW_BASE,
+    "Content-Security-Policy": [
+      `sandbox ${FILES_SANDBOX}`,
+      "default-src 'none'",
+      `script-src ${self} 'unsafe-inline' 'unsafe-eval' blob:`,
+      `style-src ${self} 'unsafe-inline' blob:`,
+      `img-src ${self} data: blob:`,
+      `font-src ${self} data: blob:`,
+      `media-src ${self} data: blob:`,
+      `connect-src ${self}`,
+      `worker-src ${self} blob:`,
+      `frame-src ${self} blob: data:`,
+      `manifest-src ${self}`,
+      "object-src 'none'",
+      "form-action 'none'",
+      "base-uri 'none'",
+      // WebRTC has no fetch directive: browsers that know CSP's `webrtc` stop it here.
+      "webrtc 'block'",
+      ancestors,
+    ].join("; "),
+    "X-DNS-Prefetch-Control": "off",
+  };
+}
+
+/** The headers of an answer that is not a page (expired link, refused method). */
+export const PREVIEW_HEADERS: Record<string, string> = {
+  ...PREVIEW_BASE,
+  "Content-Security-Policy": `sandbox; default-src 'none'; base-uri 'none'; form-action 'none'`,
+};
+
+/**
+ * A page made by an agent, opened on its own in a tab (`Sec-Fetch-Dest: document`): RedGiant
+ * frames it in a page of its own, so the same rules hold as in the canvas: its `frame-src` keeps
+ * the page inside its preview (a page cannot be stopped from navigating itself when it is the
+ * top), and a link the page wants to open is shown to the person as a link to click. The wrapper
+ * runs one script of ours (by nonce) and frames nothing else.
+ */
+export function previewWrapper(
+  src: string,
+  origins: string[],
+  prefix: string,
+  italian: boolean,
+): { body: string; headers: Record<string, string> } {
+  const nonce = randomBytes(16).toString("base64");
+  const self = origins.map((o) => `${o}${prefix}/`).join(" ");
+  const open = italian ? "La pagina vuole aprire" : "The page wants to open";
+  const close = italian ? "Chiudi" : "Close";
+  const body = `<!doctype html><html><head><meta charset="utf-8"><title>RedGiant</title><style nonce="${nonce}">html,body{margin:0;height:100%;font:14px system-ui,sans-serif}iframe{border:0;width:100%;height:100%;display:block}#rg-link{position:fixed;left:12px;right:12px;bottom:12px;padding:10px 12px;border-radius:8px;background:#1f2328;color:#fff;display:none;gap:10px;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.3)}#rg-link a{color:#9cd2ff;word-break:break-all;flex:1}#rg-link button{font:inherit}</style></head><body><iframe src="${src.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}" sandbox="${FILES_SANDBOX}" allow="fullscreen; autoplay; clipboard-write"></iframe><div id="rg-link" role="dialog"><span>${open}</span><a target="_blank" rel="noopener noreferrer"></a><button type="button">${close}</button></div><script nonce="${nonce}">(()=>{const f=document.querySelector("iframe"),b=document.getElementById("rg-link"),a=b.querySelector("a");b.querySelector("button").onclick=()=>{b.style.display="none"};addEventListener("message",e=>{const d=e.data;if(e.source!==f.contentWindow||!d||d.redgiant!=="open-link"||typeof d.url!=="string")return;let u;try{u=new URL(d.url)}catch{return}if(u.protocol!=="http:"&&u.protocol!=="https:")return;a.href=u.href;a.textContent=u.href;b.style.display="flex"})})();</script></body></html>`;
+  return {
+    body,
+    headers: {
+      ...PREVIEW_BASE,
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; frame-src ${self}; form-action 'none'; base-uri 'none'; frame-ancestors 'none'`,
+    },
+  };
+}
+
+/**
+ * Links in an agent-made page (3.5.8): the frame opens no windows and leaves its preview for
+ * nowhere, so a link that would go out (another site, a new window, `window.open`) is handed to
+ * the page around it, which shows it to the person to open or not.
+ */
+const LINKS = `<script>(()=>{const P=new URL(location.href);const out=u=>{try{parent.postMessage({redgiant:"open-link",url:String(new URL(u,location.href))},"*")}catch{}};document.addEventListener("click",e=>{const a=e.target instanceof Element?e.target.closest("a[href]"):null;if(!a||a.hasAttribute("download"))return;const u=new URL(a.href,location.href);if(u.protocol!=="http:"&&u.protocol!=="https:")return;const t=(a.getAttribute("target")||"").toLowerCase();const inside=u.origin===P.origin&&u.pathname.startsWith(P.pathname.split("/").slice(0,3).join("/")+"/");if(inside&&(!t||t==="_self"))return;e.preventDefault();out(u.href)},true);window.open=u=>{if(u)out(u);return null};})();</script>`;
+
+/**
  * Paths that start with "/" mean the root of the site, which here is the preview's own prefix:
  * links, sources and requests made by scripts are moved under it.
  */
-export function rewrite(body: string, type: string, prefix: string): string {
+export function rewrite(body: string, type: string, prefix: string, links = false): string {
   const abs = `(?!\\/)(?!${prefix.slice(1).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`;
   if (type.startsWith("text/html")) {
     const fixed = body.replace(
       new RegExp(`(\\s(?:src|href|action|poster|data)\\s*=\\s*["'])\\/${abs}`, "gi"),
       `$1${prefix}/`,
     );
-    const script = `<script>(()=>{const P=${JSON.stringify(prefix)};const f=u=>typeof u==="string"&&u.startsWith("/")&&!u.startsWith("//")&&!u.startsWith(P+"/")?P+u:u;const F=window.fetch;window.fetch=(i,o)=>F(typeof i==="string"?f(i):i,o);const O=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u,...r){return O.call(this,m,f(u),...r)};const E=window.EventSource;if(E)window.EventSource=function(u,o){return new E(f(u),o)};})();</script>`;
+    const script = `<script>(()=>{const P=${JSON.stringify(prefix)};const f=u=>typeof u==="string"&&u.startsWith("/")&&!u.startsWith("//")&&!u.startsWith(P+"/")?P+u:u;const F=window.fetch;window.fetch=(i,o)=>F(typeof i==="string"?f(i):i,o);const O=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u,...r){return O.call(this,m,f(u),...r)};const E=window.EventSource;if(E)window.EventSource=function(u,o){return new E(f(u),o)};})();</script>${links ? LINKS : ""}`;
     return /<head[^>]*>/i.test(fixed)
       ? fixed.replace(/<head[^>]*>/i, (h) => `${h}${script}`)
       : `${script}${fixed}`;
@@ -225,7 +328,7 @@ export async function serveFile(
   const type = contentType(abs);
   return {
     status: 200,
-    body: REWRITTEN.test(type) ? rewrite(data.toString("utf8"), type, prefix) : data,
+    body: REWRITTEN.test(type) ? rewrite(data.toString("utf8"), type, prefix, true) : data,
     type,
   };
 }
@@ -267,7 +370,8 @@ export async function bridge(
   const location = res.headers.get("location");
   if (location?.startsWith("/") && !location.startsWith("//"))
     out.set("location", `${prefix}${location}`);
-  for (const [k, v] of Object.entries(PREVIEW_HEADERS)) out.set(k, v);
+  for (const [k, v] of Object.entries(previewHeaders("program", previewOrigins(req), prefix)))
+    out.set(k, v);
   const type = res.headers.get("content-type") ?? "";
   if (REWRITTEN.test(type))
     return new Response(rewrite(await res.text(), type, prefix), {

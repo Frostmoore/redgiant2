@@ -1,9 +1,11 @@
 import { render } from "preact";
 import { App } from "./components/App.js";
 import "./styles.css";
+import { listenPreviewLinks } from "./preview-links.js";
 import { applyTheme } from "./theme.js";
 
 applyTheme();
+listenPreviewLinks();
 
 const root = document.getElementById("app");
 if (root && location.hash === "#ui-gallery")

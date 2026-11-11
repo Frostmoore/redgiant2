@@ -40,7 +40,16 @@ import { streamSSE } from "hono/streaming";
 import { type AuthProvider, bearer, type Principal } from "./auth.js";
 import { BackupError, exportBackup, importBackup, previewBackup, removeBackup } from "./backup.js";
 import { browserRoutes } from "./browser-routes.js";
-import { bridge, PREVIEW_HEADERS, serveFile, serveRaw } from "./canvas.js";
+import {
+  bridge,
+  PREVIEW_HEADERS,
+  previewHeaders,
+  previewOrigins,
+  previewWrapper,
+  rewrite,
+  serveFile,
+  serveRaw,
+} from "./canvas.js";
 import { ChatError } from "./chat.js";
 import { type ChatHub, ChatSettings, PLATFORMS } from "./chats.js";
 import { CodeChangeError } from "./code.js";
@@ -2284,15 +2293,37 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     if (t.kind === "port") return bridge(t, rest, c.req.raw, prefix);
     if (c.req.method !== "GET" && c.req.method !== "HEAD")
       return c.text("A folder preview only reads", 405, PREVIEW_HEADERS);
+    const origins = previewOrigins(c.req.raw);
     // One file shown from outside every workspace (G34.1): that file, nothing around it.
-    const f =
+    let f =
       t.kind === "file"
         ? decodeURIComponent(rest) === basename(t.path)
           ? await serveRaw(t.path, c.req.header("range"))
           : { status: 403, body: "Outside the preview", type: "text/plain" }
         : await serveFile(t.root, rest, prefix, c.req.header("range"));
+    // One file is served as it is: an HTML page still gets the preview's script (links, paths).
+    if (t.kind === "file" && f.status === 200 && f.type.startsWith("text/html")) {
+      if (f.body instanceof ReadableStream) await f.body.cancel();
+      const text = await readFile(t.path, "utf8");
+      f = { status: 200, body: rewrite(text, f.type, prefix, true), type: f.type };
+    }
+    // A page opened on its own in a tab is framed by RedGiant, as in the canvas (3.5.8).
+    if (
+      f.status === 200 &&
+      f.type.startsWith("text/html") &&
+      c.req.header("sec-fetch-dest") === "document"
+    ) {
+      const url = new URL(c.req.url);
+      const w = previewWrapper(
+        `${url.pathname}${url.search}`,
+        origins,
+        prefix,
+        /^it\b/i.test(c.req.header("accept-language") ?? ""),
+      );
+      return c.body(w.body, 200, w.headers);
+    }
     return c.body(f.body as never, f.status as 200, {
-      ...PREVIEW_HEADERS,
+      ...previewHeaders("files", origins, prefix),
       ...f.headers,
       "Content-Type": f.type,
     });
@@ -3323,7 +3354,13 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       const cache = target.includes(`${sep}assets${sep}`)
         ? "public, max-age=31536000, immutable"
         : "no-cache";
-      return new Response(body, { headers: { "content-type": type, "cache-control": cache } });
+      // RedGiant's page frames only itself (3.5.8): a preview cannot take its frame to another site.
+      const frames = type.startsWith("text/html")
+        ? { "content-security-policy": "frame-src 'self'" }
+        : {};
+      return new Response(body, {
+        headers: { "content-type": type, "cache-control": cache, ...frames },
+      });
     });
   }
 
