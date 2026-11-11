@@ -3,9 +3,10 @@
 // of every span), shapes and strokes made of polygons, text from a TrueType font's own outlines
 // (Liberation Sans, which pdf.js carries: no canvas and no native module on the server), areas
 // for selections, and transforms (scale, rotate, flip) sampled bilinearly.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { type Font, readTrueType, TEXT_FONT_FILES, textFontFile } from "@redgiant/protocol";
 import { blank, type Rgba } from "./model.js";
 
@@ -395,10 +396,17 @@ const fontsDir = () => {
   return join(dirname(require.resolve("pdfjs-dist/package.json")), "standard_fonts");
 };
 
-/** A font file of `TEXT_FONTS` as bytes (what the page gets too); undefined when unknown. */
+/** The fonts the server carries (p3.5.8, packages/server/fonts, LICENSES.md there). */
+const ownFonts = fileURLToPath(new URL("../../../fonts/", import.meta.url));
+
+/**
+ * A font file of `TEXT_FONTS` as bytes (what the page gets too): the server's own, or pdf.js's
+ * (Liberation Sans); undefined when unknown.
+ */
 export function textFontBytes(file: string): Uint8Array | undefined {
   if (!TEXT_FONT_FILES.includes(file)) return undefined;
-  return new Uint8Array(readFileSync(join(fontsDir(), file)));
+  const own = join(ownFonts, file);
+  return new Uint8Array(readFileSync(existsSync(own) ? own : join(fontsDir(), file)));
 }
 
 function fontOfFile(file: string): Font {

@@ -8,16 +8,121 @@
 import { z } from "zod";
 import { blankPx, type Cov, fillPolys, type Px, paintCov, type RGBA } from "./image-pixels.js";
 
-/** The families a text layer can use, each with its four files (the server's and the page's). */
+/**
+ * The families a text layer can use, each with its four real files (bold and italic are the
+ * designers' own, never synthesized): Liberation Sans from pdf.js, the others carried by the
+ * server (packages/server/fonts, LICENSES.md there). `kind` is the browser's fallback while a
+ * file is on its way.
+ */
 export const TEXT_FONTS = [
   {
     id: "sans",
     name: "Liberation Sans",
+    kind: "sans-serif",
     files: {
       regular: "LiberationSans-Regular.ttf",
       bold: "LiberationSans-Bold.ttf",
       italic: "LiberationSans-Italic.ttf",
       boldItalic: "LiberationSans-BoldItalic.ttf",
+    },
+  },
+  {
+    id: "serif",
+    name: "Liberation Serif",
+    kind: "serif",
+    files: {
+      regular: "LiberationSerif-Regular.ttf",
+      bold: "LiberationSerif-Bold.ttf",
+      italic: "LiberationSerif-Italic.ttf",
+      boldItalic: "LiberationSerif-BoldItalic.ttf",
+    },
+  },
+  {
+    id: "mono",
+    name: "Liberation Mono",
+    kind: "monospace",
+    files: {
+      regular: "LiberationMono-Regular.ttf",
+      bold: "LiberationMono-Bold.ttf",
+      italic: "LiberationMono-Italic.ttf",
+      boldItalic: "LiberationMono-BoldItalic.ttf",
+    },
+  },
+  {
+    id: "inter",
+    name: "Inter",
+    kind: "sans-serif",
+    files: {
+      regular: "Inter-Regular.ttf",
+      bold: "Inter-Bold.ttf",
+      italic: "Inter-Italic.ttf",
+      boldItalic: "Inter-BoldItalic.ttf",
+    },
+  },
+  {
+    id: "roboto",
+    name: "Roboto",
+    kind: "sans-serif",
+    files: {
+      regular: "Roboto-Regular.ttf",
+      bold: "Roboto-Bold.ttf",
+      italic: "Roboto-Italic.ttf",
+      boldItalic: "Roboto-BoldItalic.ttf",
+    },
+  },
+  {
+    id: "noto-sans",
+    name: "Noto Sans",
+    kind: "sans-serif",
+    files: {
+      regular: "NotoSans-Regular.ttf",
+      bold: "NotoSans-Bold.ttf",
+      italic: "NotoSans-Italic.ttf",
+      boldItalic: "NotoSans-BoldItalic.ttf",
+    },
+  },
+  {
+    id: "noto-serif",
+    name: "Noto Serif",
+    kind: "serif",
+    files: {
+      regular: "NotoSerif-Regular.ttf",
+      bold: "NotoSerif-Bold.ttf",
+      italic: "NotoSerif-Italic.ttf",
+      boldItalic: "NotoSerif-BoldItalic.ttf",
+    },
+  },
+  {
+    id: "open-sans",
+    name: "Open Sans",
+    kind: "sans-serif",
+    files: {
+      regular: "OpenSans-Regular.ttf",
+      bold: "OpenSans-Bold.ttf",
+      italic: "OpenSans-Italic.ttf",
+      boldItalic: "OpenSans-BoldItalic.ttf",
+    },
+  },
+  {
+    id: "lato",
+    name: "Lato",
+    kind: "sans-serif",
+    files: {
+      regular: "Lato-Regular.ttf",
+      bold: "Lato-Bold.ttf",
+      italic: "Lato-Italic.ttf",
+      boldItalic: "Lato-BoldItalic.ttf",
+    },
+  },
+  {
+    id: "montserrat",
+    name: "Montserrat",
+    kind: "sans-serif",
+    files: {
+      regular: "Montserrat-Regular.ttf",
+      bold: "Montserrat-Bold.ttf",
+      italic: "Montserrat-Italic.ttf",
+      boldItalic: "Montserrat-BoldItalic.ttf",
     },
   },
 ] as const;
@@ -339,6 +444,8 @@ export interface TextLine {
   text: string;
   x: number;
   w: number;
+  /** Where the line starts in the text (UTF-16 index, as a text area's selection). */
+  start: number;
 }
 
 export interface TextLayout {
@@ -349,6 +456,8 @@ export interface TextLayout {
   /** A line's height, and from a line's top to its baseline. */
   step: number;
   ascent: number;
+  /** Paragraph text's lines that do not fit its box (not drawn; Photoshop's overflow mark). */
+  hidden: number;
 }
 
 const advanceOf = (font: Font, s: string, k: number) => {
@@ -393,21 +502,88 @@ export function layoutText(font: Font, t: ImageText): TextLayout {
   const step = t.size * t.lineHeight;
   const content = (font.ascender - font.descender) * k;
   const ascent = (step - content) / 2 + font.ascender * k;
-  const hard = t.text.split(/\r\n|\r|\n/);
-  let texts = t.box ? hard.flatMap((l) => wrap(font, l, (t.box as { w: number }).w, k)) : hard;
-  if (t.box) texts = texts.slice(0, Math.max(1, Math.floor((t.box.h + 0.5) / step)));
-  const widths = texts.map((l) => advanceOf(font, l.trimEnd(), k));
+  // Hard lines with where they start (a line break is one or two characters).
+  const hard: { text: string; start: number }[] = [];
+  let at0 = 0;
+  for (const text of t.text.split(/\r\n|\r|\n/)) {
+    hard.push({ text, start: at0 });
+    at0 += text.length + (t.text.startsWith("\r\n", at0 + text.length) ? 2 : 1);
+  }
+  let all: { text: string; start: number }[] = t.box
+    ? hard.flatMap((h) => {
+        let at = h.start;
+        return wrap(font, h.text, (t.box as { w: number }).w, k).map((text) => {
+          const line = { text, start: at };
+          at += text.length;
+          return line;
+        });
+      })
+    : hard;
+  let hidden = 0;
+  if (t.box) {
+    const fit = Math.max(1, Math.floor((t.box.h + 0.5) / step));
+    hidden = Math.max(0, all.length - fit);
+    all = all.slice(0, fit);
+  }
+  const widths = all.map((l) => advanceOf(font, l.text.trimEnd(), k));
   const w = t.box ? t.box.w : Math.max(0, ...widths);
-  const h = t.box ? t.box.h : texts.length * step;
-  const lines = texts.map((text, i) => {
+  const h = t.box ? t.box.h : all.length * step;
+  const lines = all.map((l, i) => {
     const lw = widths[i] as number;
     return {
-      text,
+      text: l.text,
+      start: l.start,
       w: lw,
       x: t.align === "center" ? (w - lw) / 2 : t.align === "right" ? w - lw : 0,
     };
   });
-  return { lines, w, h, step, ascent };
+  return { lines, w, h, step, ascent, hidden };
+}
+
+/**
+ * The character a point of the box falls on (x, y from the box's top left, before the
+ * rotation): the caret's index in the text, between the two characters nearest the point.
+ */
+export function textIndexAt(font: Font, t: ImageText, x: number, y: number): number {
+  const lay = layoutText(font, t);
+  const k = t.size / font.unitsPerEm;
+  if (!lay.lines.length) return 0;
+  const i = Math.max(0, Math.min(lay.lines.length - 1, Math.floor(y / lay.step)));
+  const line = lay.lines[i] as TextLine;
+  // A wrapped line's last space belongs to it, but the caret goes before the break.
+  const next = lay.lines[i + 1];
+  const own =
+    next && next.start === line.start + line.text.length ? line.text.trimEnd() : line.text;
+  let pen = line.x;
+  let at = 0;
+  for (const ch of own) {
+    const adv = font.glyphOf(ch.codePointAt(0) ?? 0).advance * k;
+    if (x < pen + adv / 2) return line.start + at;
+    pen += adv;
+    at += ch.length;
+  }
+  return line.start + own.length;
+}
+
+/** A point of the picture in the box's own frame (the text's rotation undone). */
+export function textPointIn(
+  t: ImageText,
+  box: { w: number; h: number },
+  bx: number,
+  by: number,
+  px: number,
+  py: number,
+): [number, number] {
+  if (!t.rotate) return [px - bx, py - by];
+  const a = (-t.rotate * Math.PI) / 180;
+  const cx = bx + box.w / 2;
+  const cy = by + box.h / 2;
+  const dx = px - cx;
+  const dy = py - cy;
+  return [
+    box.w / 2 + dx * Math.cos(a) - dy * Math.sin(a),
+    box.h / 2 + dx * Math.sin(a) + dy * Math.cos(a),
+  ];
 }
 
 const FAR = 1 << 22;

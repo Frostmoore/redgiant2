@@ -14,7 +14,7 @@ import type {
   ImagePlainAction,
 } from "@redgiant/protocol";
 import type { DocFamily, Loaded, PrepareContext, RenderContext } from "./family.js";
-import { IMAGE_CATALOG, imageFromAgent } from "./image/agent.js";
+import { IMAGE_CATALOG, imageFromAgent, textOverflow } from "./image/agent.js";
 import {
   formatOf,
   ImageBlobs,
@@ -32,6 +32,7 @@ import {
   composeActions,
   describe,
   invertAction,
+  touchedLayers,
 } from "./image/ops.js";
 import { imageStructure } from "./image/structure.js";
 
@@ -295,6 +296,14 @@ export class ImageFamily implements DocFamily<ImageModel> {
     const r = imageFromAgent(model, ops, { blobs: this.blobs });
     if ("error" in r) return r;
     return { ops: r.actions.map(wrap) };
+  }
+
+  /** A paragraph text the agent left too long for its box: said in its result (p3.5.8). */
+  advice(model: ImageModel, ops: readonly DocOp[]): string | undefined {
+    const actions = ops.map(actionOf);
+    let after = model;
+    for (const a of actions) after = applyAction(after, a, this.blobs);
+    return textOverflow(after, touchedLayers(composeActions(actions)));
   }
 
   /** Pictures named by path (a generated picture to put in as a layer) become blobs. */

@@ -15,6 +15,7 @@
   },
   "files": [
     "dist",
+    "fonts",
     "templates"
   ],
   "dependencies": {

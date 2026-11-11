@@ -2,8 +2,19 @@
 // format, then its layers from the top, one per line: id, name, place and size, opacity,
 // blending, visibility, lock, mask, groups, and what the pixels hold (the box of what is not
 // transparent and its average colour). The picture itself is canvas_look's usual view.
-import { type ImageText, imageBlendName, textOrigin } from "@redgiant/protocol";
+import { type ImageText, imageBlendName, layoutText, textOrigin } from "@redgiant/protocol";
 import { type ImageModel, opaqueBox, type RLayer } from "./model.js";
+import { textFont } from "./raster.js";
+
+/** A paragraph text's lines that do not fit its box (0 when its font is missing). */
+const hiddenLines = (t: ImageText) => {
+  if (!t.box) return 0;
+  try {
+    return layoutText(textFont(t.font, t.bold, t.italic), t).hidden;
+  } catch {
+    return 0;
+  }
+};
 
 const hex = (n: number) => Math.round(n).toString(16).padStart(2, "0");
 
@@ -34,7 +45,7 @@ function content(l: RLayer): string {
 }
 
 /** A text layer's text and look, as edit_text takes them (p3.5.8). */
-function textWords(l: RLayer, t: ImageText): string {
+function textWords(l: RLayer, t: ImageText, hidden: number): string {
   const [bx, by] = textOrigin({ x: l.x, y: l.y, text: t });
   const r = (n: number) => Math.round(n * 100) / 100;
   return [
@@ -45,6 +56,9 @@ function textWords(l: RLayer, t: ImageText): string {
       ? `paragraph box [${r(bx)} ${r(by)} ${t.box.w} ${t.box.h}]`
       : `point text at ${r(bx)},${r(by)}`,
     ...(t.rotate ? [`rotate ${t.rotate}`] : []),
+    ...(hidden
+      ? [`OVERFLOW: ${hidden} line${hidden === 1 ? "" : "s"} hidden, not drawn (box too small)`]
+      : []),
   ].join(", ");
 }
 
@@ -69,7 +83,7 @@ export function imageStructure(
         ? [`mask [${l.mask.x} ${l.mask.y} ${l.mask.img.width} ${l.mask.img.height}]`]
         : []),
       ...(l.groups.length ? [`in group ${l.groups.map((g) => `«${g.name}»`).join(" / ")}`] : []),
-      ...(l.text ? [textWords(l, l.text)] : []),
+      ...(l.text ? [textWords(l, l.text, hiddenLines(l.text))] : []),
       content(l),
     ];
     return parts.join(", ");

@@ -1326,6 +1326,23 @@ export function imageFromAgent(
   return { actions: [{ t: "batch", ops: out, ...(what && { what }), ...(filter && { filter }) }] };
 }
 
+/**
+ * Paragraph texts the agent's edit left too long for their box (Photoshop's overflow mark): a
+ * line for the agent, on the picture after the edit; undefined when every text fits.
+ */
+export function textOverflow(after: ImageModel, touched: ReadonlySet<string>): string | undefined {
+  const out: string[] = [];
+  for (const l of after.layers) {
+    if (!l.text?.box || !touched.has(l.id)) continue;
+    const hidden = layoutText(fontOfText(l.text), l.text).hidden;
+    if (hidden)
+      out.push(
+        `The text of «${l.name}» does not fit its box: ${hidden} line${hidden === 1 ? " is" : "s are"} hidden (a taller "box" or a smaller "size" with edit_text shows ${hidden === 1 ? "it" : "them"}).`,
+      );
+  }
+  return out.length ? out.join("\n") : undefined;
+}
+
 function withoutMask(l: RLayer): RLayer {
   const { mask: _m, ...rest } = l;
   return rest;

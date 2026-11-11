@@ -19,6 +19,7 @@ import {
   renderText,
   runImageFilter,
   type ServerMessage,
+  TEXT_FONT_FILES,
   textOrigin,
 } from "@redgiant/protocol";
 import { strToU8, unzipSync } from "fflate";
@@ -725,7 +726,38 @@ describe("text layers (p3.5.8, Photoshop's type layers)", () => {
 
   it("serves the font files the page draws with, and only those", () => {
     expect(textFontBytes("LiberationSans-Regular.ttf")?.length).toBeGreaterThan(10_000);
+    for (const f of TEXT_FONT_FILES) expect(textFontBytes(f)?.length, f).toBeGreaterThan(10_000);
     expect(textFontBytes("../package.json")).toBeUndefined();
+    expect(textFontBytes("LICENSES.md")).toBeUndefined();
+  });
+
+  it("a paragraph too long for its box: the agent is told, in its result and in the structure", () => {
+    const m = base();
+    const fam = new ImageFamily({ dataDir: join(dir, "data") });
+    const long = {
+      op: "add_text",
+      text: "uno\ndue\ntre\nquattro",
+      x: 2,
+      y: 2,
+      size: 10,
+      line_height: 1,
+      box: [60, 20],
+      name: "Lungo",
+      font: "serif",
+    };
+    const r = fam.fromAgent(m, [long]);
+    if ("error" in r) throw new Error(r.error);
+    expect(fam.advice(m, r.ops)).toMatch(/«Lungo» does not fit its box: 2 lines are hidden/);
+    const after = applyAction(m, (r.ops[0] as { op: ImageAction }).op, blobs);
+    expect(textOf(after, "Lungo")?.text?.font).toBe("serif");
+    expect(imageStructure(after, {})).toMatch(/«Lungo».*OVERFLOW: 2 lines hidden/);
+    // A box tall enough: nothing to say.
+    const fits = fam.fromAgent(m, [{ ...long, box: [60, 60] }]);
+    if ("error" in fits) throw new Error(fits.error);
+    expect(fam.advice(m, fits.ops)).toBeUndefined();
+    expect(imageFromAgent(m, [{ ...long, font: "comic" }], { blobs })).toMatchObject({
+      error: expect.stringContaining('"font" is sans, serif, mono, inter'),
+    });
   });
 });
 
