@@ -89,6 +89,7 @@ export function SvgEditor({
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState<string>();
   const [sel, setSel] = useState<SvgSelection>({ count: 0 });
+  const [selId] = useState(() => `svg-sel-${Math.random().toString(36).slice(2, 9)}`);
   const [layers, setLayers] = useState<SvgLayer[]>([]);
   const [tool, setTool] = useState<SvgTool>("select");
   const [zoom, setZoom] = useState(1);
@@ -690,6 +691,7 @@ export function SvgEditor({
             tabIndex={0}
             role="application"
             aria-label={`${t("svgEditorLabel")}: ${name}`}
+            aria-describedby={selId}
             onKeyDown={onKey}
           />
           {marks.length > 0 && (
@@ -719,7 +721,8 @@ export function SvgEditor({
         <aside class="svg-side" aria-label={t("svgProps")}>
           <section>
             <h4>{t("svgProps")}</h4>
-            <p class="dim svg-sel">
+            {/* Also what the drawing says to a screen reader (p3.5.11). */}
+            <p class="dim svg-sel" id={selId}>
               {sel.count === 0
                 ? t("svgNothing")
                 : sel.count === 1

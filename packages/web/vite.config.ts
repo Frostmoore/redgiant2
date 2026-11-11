@@ -37,5 +37,16 @@ export default defineConfig({
       "/term": { target: server.replace(/^http/, "ws"), ws: true },
     },
   },
-  build: { outDir: "dist", sourcemap: true, chunkSizeWarningLimit: 1500 },
+  build: {
+    outDir: process.env.REDGIANT_WEB_OUT ?? "dist",
+    sourcemap: true,
+    // The first load and every chunk, read by scripts/bundle-report.mjs (3.5.11).
+    manifest: true,
+    chunkSizeWarningLimit: 1500,
+    // REDGIANT_KEEP_EXPORTS=1: shared chunks keep their exports' names, so the memory measures
+    // (scripts/perf-memory.mjs) can drive the page's own modules. Never for a release.
+    ...(process.env.REDGIANT_KEEP_EXPORTS && {
+      rolldownOptions: { output: { minifyInternalExports: false } },
+    }),
+  },
 });

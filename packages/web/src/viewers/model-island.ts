@@ -213,6 +213,9 @@ export function mountModel(area: HTMLElement, hooks: ModelIslandHooks): ModelIsl
   let frameId = 0;
   const loop = () => {
     frameId = requestAnimationFrame(loop);
+    // A tab out of sight (display: none) draws nothing (3.5.11: every hidden 3D tab drew 60
+    // times a second).
+    if (area.clientWidth === 0 || document.hidden) return;
     orbit.update();
     selBox?.update();
     for (const m of marks) m.update();
@@ -556,6 +559,9 @@ export function mountModel(area: HTMLElement, hooks: ModelIslandHooks): ModelIsl
       env.dispose();
       pmrem.dispose();
       renderer.dispose();
+      // The WebGL context and its buffers go now, not when the collector gets to the canvas
+      // (3.5.11: a few 3D tabs opened and closed held tens of MB; Chrome keeps 16 contexts).
+      renderer.forceContextLoss();
       renderer.domElement.remove();
     },
   };

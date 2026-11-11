@@ -1043,3 +1043,10 @@ export const IconSelMode = ({
     )}
   </Svg>
 );
+/** A keyboard (p3.5.11): the keyboard map, «Scorciatoie». */
+export const IconKeyboard = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <rect x="2" y="6" width="20" height="12" rx="2" />
+    <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
+  </Svg>
+);

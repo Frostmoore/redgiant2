@@ -100,6 +100,7 @@ import { updateRoutes } from "./update-routes.js";
 import { UpdateRequiredError } from "./updates.js";
 import { VaultError } from "./vault.js";
 import { MAX_AUDIO_BYTES, TranscriptionError } from "./voice.js";
+import { COMPRESSIBLE, CompressedFiles, MIN_COMPRESS, pickEncoding } from "./web-compress.js";
 import type { OpenPages } from "./ws.js";
 
 type Env = { Variables: { principal: Principal } };
@@ -3442,6 +3443,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
 
   if (options.webDir) {
     const root = options.webDir;
+    const compressed = new CompressedFiles();
     app.get("*", async (c) => {
       if (c.req.path.startsWith("/api/")) return c.json({ error: "Not found" }, 404);
       const rel = decodeURIComponent(c.req.path).replace(/^\/+/, "") || "index.html";
@@ -3451,8 +3453,15 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         inside && (await stat(file).catch(() => undefined))?.isFile()
           ? file
           : join(root, "index.html");
-      const body = await readFile(target).catch(() => undefined);
-      if (!body) return c.text("The web UI is not built (pnpm --filter @redgiant/web build).", 404);
+      const raw = await readFile(target).catch(() => undefined);
+      if (!raw) return c.text("The web UI is not built (pnpm --filter @redgiant/web build).", 404);
+      // Compressed once and kept (3.5.11): the page's scripts are text, most of it repeated.
+      const enc =
+        COMPRESSIBLE.test(target) && raw.length >= MIN_COMPRESS
+          ? pickEncoding(c.req.header("accept-encoding"))
+          : undefined;
+      const when = enc && (await stat(target).catch(() => undefined))?.mtimeMs;
+      const body = enc ? await compressed.get(`${target}\0${raw.length}\0${when}`, enc, raw) : raw;
       const type = MIME[extname(target)] ?? "application/octet-stream";
       // Hashed assets never change; index.html must always be fresh.
       const cache = target.includes(`${sep}assets${sep}`)
@@ -3463,7 +3472,13 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         ? { "content-security-policy": "frame-src 'self'" }
         : {};
       return new Response(body, {
-        headers: { "content-type": type, "cache-control": cache, ...frames },
+        headers: {
+          "content-type": type,
+          "cache-control": cache,
+          ...(COMPRESSIBLE.test(target) && { vary: "accept-encoding" }),
+          ...(enc && { "content-encoding": enc }),
+          ...frames,
+        },
       });
     });
   }

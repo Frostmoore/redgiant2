@@ -5,15 +5,10 @@
 import { KEY_PROVIDERS, OWN_SERVER_ID } from "@redgiant/protocol";
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import {
-  ApiError,
-  type ClaudeAccount,
-  type ModelChoice,
-  type SetupState,
-  type SubscriptionProgram,
-} from "../api.js";
+import type { ClaudeAccount, ModelChoice, SetupState, SubscriptionProgram } from "../api.js";
 import { BrandIcon, brandOr, hasBrand } from "../brands.js";
-import { t, tOptional } from "../i18n.js";
+import { explain } from "../explain.js";
+import { t } from "../i18n.js";
 import { IconChat, IconKey, IconMonitor, IconServer, IconSpark } from "../icons.js";
 import { getApi, refreshLimits } from "../state.js";
 import type { Way } from "../wizard.js";
@@ -21,11 +16,7 @@ import { modelName, modelNote } from "./ModelMenu.js";
 import { Acts } from "./SettingsKit.js";
 import { Field, Pick } from "./ui.js";
 
-/** An error in plain words: its code when the server gives one, otherwise its message. */
-export function explain(err: unknown): string {
-  const code = err instanceof ApiError ? err.code : undefined;
-  return (code && tOptional(`err_${code}`)) || (err as Error).message;
-}
+export { explain } from "../explain.js";
 
 const TERMS = [
   { name: "Anthropic", url: "https://www.anthropic.com/legal/consumer-terms" },

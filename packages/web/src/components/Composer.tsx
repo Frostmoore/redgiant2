@@ -14,9 +14,14 @@ import {
   IconStop,
 } from "../icons.js";
 import { getApi, platformInfo } from "../state.js";
-import { CredentialWindow } from "./Keychain.js";
+import { lazy } from "./lazy.js";
 import { Acts } from "./SettingsKit.js";
 import { Modal } from "./ui.js";
+
+// The keychain's window comes only when a secret is moved there (3.5.11).
+const CredentialWindow = lazy<Parameters<typeof import("./Keychain.js").CredentialWindow>[0]>(() =>
+  import("./Keychain.js").then((m) => m.CredentialWindow),
+);
 
 /**
  * What the composer holds: small text files go inside the message, photos go to the model as

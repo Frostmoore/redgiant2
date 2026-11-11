@@ -84,6 +84,16 @@ export function order(id: string, d: CanvasDo): void {
   lastMove.value = { id, n: counter, do: d };
 }
 
+/**
+ * A tab loaded again after it was let go (3.5.11, viewers/warm.ts): back where the person was, as a
+ * move nobody announces (no note in the tab's head); an agent's move waiting for it wins.
+ */
+export function restoreTab(id: string, d: CanvasDo | undefined): void {
+  if (!d || orders.value.has(id)) return;
+  counter++;
+  orders.value = new Map(orders.value).set(id, { n: counter, do: d });
+}
+
 function consume(id: string, n: number): void {
   if (orders.value.get(id)?.n !== n) return;
   const m = new Map(orders.value);

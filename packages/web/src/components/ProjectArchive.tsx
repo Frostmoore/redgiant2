@@ -4,6 +4,7 @@
 // place in its conversations, and the Settings page with every project.
 import { useEffect, useState } from "preact/hooks";
 import type { Project, ProjectTask, ProjectWork } from "../api.js";
+import { explain } from "../explain.js";
 import { t } from "../i18n.js";
 import { IconArchive, IconBox, IconChat, IconFolder, IconList, IconRestore } from "../icons.js";
 import {
@@ -18,7 +19,6 @@ import {
   sessionRows,
   toggleExplorer,
 } from "../state.js";
-import { explain } from "./Brain.js";
 import { Acts, Box, Head, Row, Sub, WzPage } from "./SettingsKit.js";
 import { Modal } from "./ui.js";
 

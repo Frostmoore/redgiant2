@@ -12,6 +12,7 @@ import { type Diagnostic, lintGutter, setDiagnostics } from "@codemirror/lint";
 import {
   type ChangeSet,
   Compartment,
+  EditorSelection,
   EditorState,
   RangeSetBuilder,
   StateEffect,
@@ -36,6 +37,13 @@ import { type Problem, SYNTAX_NAMES, syntaxOf, syntaxProblems } from "../../view
 import { jsonPathAt, linesAround, parseTree, type TreeNode } from "../../viewers/tree.js";
 import { codeClasses, languageFor, languageOf } from "./code-style.js";
 import { Branch } from "./TreeBranch.js";
+
+/**
+ * Where the person was in a text whose editor went away (3.5.11: a tab out of sight let go to save
+ * memory, viewers/warm.ts): the selection and the scroll, put back when it opens again.
+ */
+const kept = new Map<string, { selection: ReturnType<EditorSelection["toJSON"]>; top: number }>();
+const KEPT_MAX = 50;
 
 /** A pause in typing longer than this starts another gesture (another line of the panel). */
 const GESTURE_MS = 2000;
@@ -261,6 +269,7 @@ export function TextEditor({
       { hoverTime: 250 },
     );
     let citation = line;
+    const keptKey = `${file.scope}\u0000${file.path}`;
     /** Ctrl+S waits for the keystrokes in flight: the save is asked once the host has them. */
     let saveAfter = false;
     const collab = new TextCollab((o) =>
@@ -344,7 +353,7 @@ export function TextEditor({
               ...(syntax ? [lintGutter()] : []),
               marks,
               undoTip,
-              EditorView.contentAttributes.of({ "aria-label": t("docEditorLabel") }),
+              EditorView.contentAttributes.of({ "aria-label": t("docEditorLabel"), tabindex: "0" }),
               EditorView.updateListener.of((u) => {
                 const own = u.transactions.filter(
                   (tr) => tr.docChanged && !tr.annotation(Transaction.remote),
@@ -387,6 +396,19 @@ export function TextEditor({
           }),
         });
         view.scrollDOM.addEventListener("scroll", tellPlace, { passive: true });
+        const was = kept.get(keptKey);
+        kept.delete(keptKey);
+        if (was && citation === undefined) {
+          const shown = view;
+          try {
+            const sel = EditorSelection.fromJSON(was.selection);
+            if (sel.ranges.every((r) => r.to <= shown.state.doc.length))
+              shown.dispatch({ selection: sel });
+          } catch {}
+          requestAnimationFrame(() => {
+            shown.scrollDOM.scrollTop = was.top;
+          });
+        }
         editor.current = view;
         onReady(view);
         setReady(true);
@@ -515,6 +537,14 @@ export function TextEditor({
       editor.current = undefined;
       setReady(false);
       onReady(undefined);
+      if (view) {
+        kept.delete(keptKey);
+        kept.set(keptKey, {
+          selection: view.state.selection.toJSON(),
+          top: view.scrollDOM.scrollTop,
+        });
+        if (kept.size > KEPT_MAX) kept.delete(kept.keys().next().value as string);
+      }
       view?.destroy();
     };
   }, [file.scope, file.path]);
@@ -633,7 +663,13 @@ export function TextEditor({
         <div class="vw-code doc-text" ref={host} />
         {markdown && mode !== "source" && (
           // Sanitised by renderMarkdown (DOMPurify), like every Markdown shown.
-          <div class="md vw-md doc-preview" dangerouslySetInnerHTML={{ __html: preview }} />
+          <section
+            class="md vw-md doc-preview"
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: a preview that scrolls takes the keyboard (p3.5.11)
+            tabIndex={0}
+            aria-label={t("docPreviewLabel")}
+            dangerouslySetInnerHTML={{ __html: preview }}
+          />
         )}
         {treeable && mode === "tree" && (
           <div class="vw-tree doc-tree">

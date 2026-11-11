@@ -19,6 +19,7 @@ import type {
 import { PERSON } from "@redgiant/protocol";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { announce } from "../../a11y.js";
 import { type Key, t } from "../../i18n.js";
 import {
   IconAlert,
@@ -474,6 +475,10 @@ export function PdfEditor({
       (viewer as unknown as { _link: unknown })._link = link;
       bus.on("pagechanging", (e: { pageNumber: number }) => setCurrent(e.pageNumber));
       bus.on("scalechanging", (e: { scale: number }) => setScale(e.scale));
+      // pdf.js gives a form's fields no name a screen reader can say (p3.5.11): their own.
+      bus.on("annotationlayerrendered", (e: { source?: { div?: HTMLElement } }) => {
+        if (e.source?.div) nameFields(e.source.div);
+      });
       bus.on("annotationeditorstateschanged", () => schedule());
       bus.on("switchannotationeditormode", () => schedule());
       L.viewer = viewer;
@@ -592,6 +597,12 @@ export function PdfEditor({
       commit();
       close();
       onReveal?.(undefined);
+      // The viewer emptied first (3.5.11): pdf.js keeps every text layer in a map of its own and
+      // its annotation editor listens on the window; without this each closed PDF stayed alive.
+      try {
+        L.viewer?.setDocument(null as never);
+        L.viewer?.cleanup();
+      } catch {}
       void L.task?.destroy();
       L.viewer = undefined;
       L.doc = undefined;
@@ -616,6 +627,27 @@ export function PdfEditor({
     else if (d.page) v.currentPageNumber = Math.max(1, Math.min(doc.numPages, d.page));
     return true;
   }, !!doc);
+
+  // Pages from the keyboard (p3.5.11): Page Down / Page Up, Home and End on the pages (outside a
+  // field), said as «Pagina 3 di 5».
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const key = (e: KeyboardEvent) => {
+      const v = live.current.viewer;
+      const total = live.current.doc?.numPages ?? 0;
+      const tgt = e.target as HTMLElement;
+      if (!v || !total || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (tgt.matches?.("input,textarea,select") || tgt.isContentEditable) return;
+      const to = pageKey(e.key, v.currentPageNumber, total);
+      if (to === undefined) return;
+      e.preventDefault();
+      v.currentPageNumber = to;
+      announce(t("pdfPageOf", { n: String(to), total: String(total) }));
+    };
+    el.addEventListener("keydown", key);
+    return () => el.removeEventListener("keydown", key);
+  }, [file.scope, file.path]);
 
   // Ctrl+Z (Cmd+Z) outside a field or a text box: the person's own last change, taken back (their
   // stack, never an agent's: those are undone from the panel «Modifiche»).
@@ -1002,7 +1034,23 @@ export function PdfEditor({
       )}
       <div class="pdfed-main">
         <div class="pdfed-view">
-          <div class="pdfed-scroll" ref={scroller} tabIndex={-1}>
+          <div
+            class="pdfed-scroll"
+            ref={scroller}
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: the pages take the keyboard (Page Down, Home, End)
+            tabIndex={0}
+            // pdf.js wants a div as the pages' container: a document with its name, not a section.
+            role="document"
+            aria-label={
+              doc
+                ? t("pdfPagesRegion", {
+                    name: fileNameOf(file.path),
+                    n: String(current),
+                    total: String(doc.numPages),
+                  })
+                : t("loading")
+            }
+          >
             <div class="pdfViewer" />
           </div>
           {!doc && <div class="vw-empty dim pdfed-loading">{t("loading")}</div>}
@@ -1481,3 +1529,29 @@ function SignAsk({
     </Modal>
   );
 }
+
+/** The page a key goes to (p3.5.11): Page Down / Up one page, Home / End the ends; else undefined. */
+export function pageKey(key: string, page: number, total: number): number | undefined {
+  if (key === "PageDown") return Math.min(total, page + 1);
+  if (key === "PageUp") return Math.max(1, page - 1);
+  if (key === "Home") return 1;
+  if (key === "End") return total;
+  return undefined;
+}
+
+/**
+ * A name for each field of a form's layer that has none (p3.5.11): its title, else the field's
+ * own name in words («data_nascita» says «data nascita»).
+ */
+export function nameFields(layer: HTMLElement): void {
+  for (const el of layer.querySelectorAll<
+    HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+  >("input, select, textarea")) {
+    if (el.getAttribute("aria-label") || el.getAttribute("aria-labelledby") || el.title) continue;
+    if (el.labels && el.labels.length > 0) continue;
+    const words = (el.name || "").replace(/[._-]+/g, " ").trim();
+    el.setAttribute("aria-label", words || t("pdfField"));
+  }
+}
+
+const fileNameOf = (path: string) => path.split(/[\\/]/).pop() ?? path;

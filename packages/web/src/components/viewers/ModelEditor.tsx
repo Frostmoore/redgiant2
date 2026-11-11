@@ -9,6 +9,7 @@
 import type { DocChange, DocFile, ModelAction, ModelPlainAction } from "@redgiant/protocol";
 import { modelTouchedNodes, PERSON } from "@redgiant/protocol";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { announce } from "../../a11y.js";
 import { type Key, t } from "../../i18n.js";
 import {
   IconCamera,
@@ -434,6 +435,63 @@ export function ModelEditor({
     return n;
   }, [root, sel]);
   const row = sel === undefined ? undefined : sceneTree(root).find((r) => r.index === sel);
+  // The tree from the keyboard (p3.5.11, WAI-ARIA tree view): one tab stop, the arrows move,
+  // right and left unfold and fold (or go to the first child, the parent), Enter chooses.
+  const treeBox = useRef<HTMLUListElement>(null);
+  const [nowId] = useState(() => `model-now-${Math.random().toString(36).slice(2, 9)}`);
+  const [focusRow, setFocusRow] = useState<number>();
+  const stopRow = tree.some((r) => r.index === focusRow)
+    ? focusRow
+    : tree.some((r) => r.index === sel)
+      ? sel
+      : tree[0]?.index;
+  const focusNode = (n: number) => {
+    setFocusRow(n);
+    requestAnimationFrame(() =>
+      treeBox.current?.querySelector<HTMLElement>(`[data-node="${n}"]`)?.focus(),
+    );
+  };
+  const fold = (n: number, closed: boolean) => {
+    const f = new Set(folded);
+    if (closed) f.add(n);
+    else f.delete(n);
+    setFolded(f);
+  };
+  const treeKey = (e: KeyboardEvent, i: number) => {
+    const r = tree[i];
+    if (!r || e.altKey || e.ctrlKey || e.metaKey) return;
+    const go = (j: number) => {
+      const to = tree[j];
+      if (!to) return;
+      e.preventDefault();
+      focusNode(to.index);
+    };
+    if (e.key === "ArrowDown") return go(i + 1);
+    if (e.key === "ArrowUp") return go(i - 1);
+    if (e.key === "Home") return go(0);
+    if (e.key === "End") return go(tree.length - 1);
+    if (e.key === "ArrowRight" && r.children) {
+      e.preventDefault();
+      if (folded.has(r.index)) fold(r.index, false);
+      else go(i + 1);
+      return;
+    }
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      if (r.children && !folded.has(r.index)) return fold(r.index, true);
+      for (let j = i - 1; j >= 0; j--) if ((tree[j]?.depth ?? 0) < r.depth) return go(j);
+      return;
+    }
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      api.current?.select(r.index);
+    }
+  };
+  // The object chosen in the scene, said when it was not chosen from the tree (which says it).
+  useEffect(() => {
+    if (treeBox.current?.contains(document.activeElement)) return;
+    if (sel !== undefined && row) announce(t("model3dSelectedIs", { name: row.name }));
+  }, [sel]);
   const matIndex =
     node && typeof node.mesh === "number"
       ? (
@@ -815,43 +873,49 @@ export function ModelEditor({
         <aside class="svg-side model-tree" aria-label={t("model3dScene")}>
           <h4>{t("model3dScene")}</h4>
           {tree.length === 0 && !loading && <p class="dim svg-sel">{t("model3dSceneEmpty")}</p>}
-          <ul aria-label={t("model3dScene")}>
-            {tree.map((r) => (
+          {/* biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: a tree view is a list the arrows move in (WAI-ARIA tree) */}
+          <ul role="tree" aria-label={t("model3dScene")} ref={treeBox}>
+            {tree.map((r, i) => (
               <li
                 key={r.index}
                 class={r.index === sel ? "current" : ""}
                 style={{ paddingLeft: `${r.depth * 14}px` }}
+                role="treeitem"
+                aria-level={r.depth + 1}
+                aria-selected={r.index === sel}
+                aria-expanded={r.children ? !folded.has(r.index) : undefined}
+                aria-label={r.name}
+                data-node={r.index}
+                tabIndex={r.index === stopRow ? 0 : -1}
+                onFocus={() => setFocusRow(r.index)}
+                onKeyDown={(e) => {
+                  if (e.target === e.currentTarget) treeKey(e, i);
+                }}
+                onClick={() => {
+                  api.current?.select(r.index);
+                  area.current?.focus();
+                }}
               >
+                {/* The fold is the tree item's own (right and left arrows): out of the tab order. */}
                 {r.children ? (
-                  <button
-                    type="button"
+                  <span
                     class="vw-icon model-fold"
-                    aria-expanded={!folded.has(r.index)}
-                    aria-label={folded.has(r.index) ? t("model3dUnfold") : t("model3dFold")}
-                    onClick={() => {
-                      const f = new Set(folded);
-                      if (f.has(r.index)) f.delete(r.index);
-                      else f.add(r.index);
-                      setFolded(f);
+                    aria-hidden="true"
+                    title={folded.has(r.index) ? t("model3dUnfold") : t("model3dFold")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fold(r.index, !folded.has(r.index));
                     }}
                   >
                     <IconChevron size={12} open={!folded.has(r.index)} />
-                  </button>
+                  </span>
                 ) : (
-                  <span class="model-fold" />
+                  <span class="model-fold" aria-hidden="true" />
                 )}
-                <button
-                  type="button"
-                  class="link model-node"
-                  aria-current={r.index === sel}
-                  onClick={() => {
-                    api.current?.select(r.index);
-                    area.current?.focus();
-                  }}
-                >
+                <span class="link model-node" aria-hidden="true">
                   <KindIcon kind={r.kind} />
                   <span class={r.named ? "" : "dim"}>{r.name}</span>
-                </button>
+                </span>
               </li>
             ))}
           </ul>
@@ -869,8 +933,14 @@ export function ModelEditor({
             tabIndex={0}
             role="application"
             aria-label={`${t("model3dEditorLabel")}: ${name}`}
+            aria-describedby={nowId}
             onKeyDown={onKey}
           />
+          {/* What the scene shows, for a screen reader (p3.5.11): the object chosen, or none. */}
+          <p id={nowId} class="sr-only">
+            {row ? t("model3dSelectedIs", { name: row.name }) : t("model3dNothing")}
+            {stats ? ` ${t("model3dStats", { n: stats.triangles.toLocaleString() })}` : ""}
+          </p>
           {mark && (
             <div class="model-mark" role="status">
               <IconPencil size={12} />

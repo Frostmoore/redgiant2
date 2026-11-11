@@ -4,7 +4,6 @@
 import type { Job, JobProgress } from "@redgiant/protocol";
 import type { ComponentChildren, JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
-import qrcode from "qrcode-generator";
 import { bytes } from "../format.js";
 import { t, tOptional } from "../i18n.js";
 import { IconAlert, IconChevron, IconSpinner, IconX } from "../icons.js";
@@ -231,6 +230,7 @@ export function Progress({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={pct ?? undefined}
+        aria-label={progressText(progress, unit)}
       >
         <span style={pct === null ? undefined : { width: `${pct}%` }} />
       </div>
@@ -350,20 +350,29 @@ export function JobView({
   );
 }
 
-/** The QR code of an address, drawn here as SVG (no service sees the address). */
+/** The QR code of an address, drawn here as SVG (no service sees the address); its code loads
+ * with the first QR shown (3.5.11). */
 export function Qr({ text, label }: { text: string; label: string }) {
-  const qr = qrcode(0, "M");
-  qr.addData(text);
-  qr.make();
+  const [svg, setSvg] = useState<string>();
+  useEffect(() => {
+    let live = true;
+    void import("qrcode-generator").then(({ default: qrcode }) => {
+      const qr = qrcode(0, "M");
+      qr.addData(text);
+      qr.make();
+      if (live) setSvg(qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true }));
+    });
+    return () => {
+      live = false;
+    };
+  }, [text]);
   return (
     <div
       class="qr"
       role="img"
       aria-label={label}
       // biome-ignore lint/security/noDangerouslySetInnerHtml: SVG made here from our own address.
-      dangerouslySetInnerHTML={{
-        __html: qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true }),
-      }}
+      dangerouslySetInnerHTML={{ __html: svg ?? "" }}
     />
   );
 }
@@ -393,6 +402,42 @@ export function Pick({
       <span>{children}</span>
     </button>
   );
+}
+
+/** What can take the focus inside `el`, in order (p3.5.11). */
+export function focusables(el: HTMLElement): HTMLElement[] {
+  return [
+    ...el.querySelectorAll<HTMLElement>(
+      'a[href], button, input, select, textarea, iframe, [tabindex], [contenteditable="true"]',
+    ),
+  ].filter(
+    (x) =>
+      x.tabIndex >= 0 &&
+      !(x as HTMLButtonElement).disabled &&
+      !x.closest("[hidden], [inert]") &&
+      x.getAttribute("aria-hidden") !== "true",
+  );
+}
+
+/** Tab and Shift+Tab stay inside the window: from the last item back to the first, and back. */
+export function trapTab(e: KeyboardEvent, el: HTMLElement | null): void {
+  if (!el) return;
+  const all = focusables(el);
+  const first = all[0];
+  const last = all.at(-1);
+  if (!first || !last) {
+    e.preventDefault();
+    el.focus();
+    return;
+  }
+  const at = document.activeElement;
+  if (e.shiftKey && (at === first || at === el || !el.contains(at))) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && (at === last || !el.contains(at))) {
+    e.preventDefault();
+    first.focus();
+  }
 }
 
 /** A window over the page, closed with its button, Escape or a click outside (2026-11-04). */
@@ -428,17 +473,34 @@ export function Modal({
   const [me] = useState(() => ({}));
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
+  const box = useRef<HTMLDivElement>(null);
+  // What had the focus before the window, read at its first render (a field inside takes it in
+  // its own effect, which runs before ours).
+  const [before] = useState(() =>
+    typeof document === "undefined" ? null : (document.activeElement as HTMLElement | null),
+  );
   useEffect(() => {
     stack.push(me);
+    // The focus goes into the window (unless a field inside already took it) and back to what had
+    // it when the window closes (p3.5.11): a keyboard is never left at the top of the page.
+    const el = box.current;
+    if (el && !el.contains(document.activeElement))
+      (focusables(el).find((x) => !x.classList.contains("ui-modal-x")) ?? el).focus();
     return () => {
       stack.splice(stack.indexOf(me), 1);
+      const now = document.activeElement;
+      const lost = !now || now === document.body || !!el?.contains(now) || !now.isConnected;
+      if (lost && before?.isConnected && before !== document.body) before.focus();
     };
   }, []);
   useEffect(() => {
     // Only the window on top closes: Escape in the mailbox's window, opened from an automation
     // being written, must not throw the draft away.
-    const esc = (e: KeyboardEvent) =>
-      e.key === "Escape" && !lockedRef.current && stack.at(-1) === me && onClose();
+    const esc = (e: KeyboardEvent) => {
+      if (stack.at(-1) !== me) return;
+      if (e.key === "Tab") trapTab(e, box.current);
+      else if (e.key === "Escape" && !lockedRef.current) onClose();
+    };
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
@@ -454,6 +516,8 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        ref={box}
+        tabIndex={-1}
       >
         {/* Title and X centred on one line in every window (2026-11-07). */}
         <header>

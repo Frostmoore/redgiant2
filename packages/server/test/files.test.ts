@@ -199,6 +199,24 @@ describe("budgets and web UI", () => {
     const asset = await fetch(`${s.url}/assets/app-1234.js`);
     expect(asset.headers.get("content-type")).toMatch(/javascript/);
     expect(asset.headers.get("cache-control")).toMatch(/immutable/);
+    // A script big enough is sent compressed (3.5.11), brotli first, raw to who takes neither.
+    const big = `export const words = ${JSON.stringify("parola ".repeat(2000))};\n`;
+    await writeFile(join(web, "assets", "big-5678.js"), big);
+    const br = await fetch(`${s.url}/assets/big-5678.js`, { headers: { "accept-encoding": "br" } });
+    expect(br.headers.get("content-encoding")).toBe("br");
+    expect(br.headers.get("vary")).toMatch(/accept-encoding/);
+    expect(await br.text()).toBe(big);
+    const gz = await fetch(`${s.url}/assets/big-5678.js`, {
+      headers: { "accept-encoding": "gzip" },
+    });
+    expect(gz.headers.get("content-encoding")).toBe("gzip");
+    expect(await gz.text()).toBe(big);
+    const plain = await fetch(`${s.url}/assets/big-5678.js`, {
+      headers: { "accept-encoding": "identity" },
+    });
+    expect(plain.headers.get("content-encoding")).toBeNull();
+    expect(await plain.text()).toBe(big);
+    expect((await fetch(`${s.url}/assets/app-1234.js`)).headers.get("content-encoding")).toBeNull();
     expect(await (await fetch(`${s.url}/..%2F..%2Fetc%2Fpasswd`)).text()).toMatch(
       /<title>RedGiant/,
     );

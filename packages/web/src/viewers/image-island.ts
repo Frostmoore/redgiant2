@@ -35,6 +35,7 @@ import {
   textOrigin,
   textPointIn,
 } from "@redgiant/protocol";
+import { reducedMotion } from "../a11y.js";
 import { Fingers } from "../phone.js";
 import {
   TextEditing,
@@ -2104,7 +2105,8 @@ export class ImageIsland {
       path.lineTo(segs[i + 2] as number, segs[i + 3] as number);
     }
     this.sel = { mask, path, box };
-    if (!this.antsTimer)
+    // Less motion asked for (p3.5.11): the ants stay dashed, still.
+    if (!this.antsTimer && !reducedMotion())
       this.antsTimer = setInterval(() => {
         if (this.disposed || !this.sel) return;
         this.ants = (this.ants + 1) % 8;

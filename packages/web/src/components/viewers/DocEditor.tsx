@@ -17,6 +17,7 @@ import {
   IconClock,
   IconEye,
   IconList,
+  IconPencil,
   IconUndo,
   IconUser,
   IconX,
@@ -267,10 +268,12 @@ export function MarkedChanges({
   const n = changes.length;
   const turn = changes.filter((c) => c.groupId === latest.groupId).length;
   return (
-    <div class="doc-notice doc-marks" role="status">
+    // The count is what a screen reader hears when it changes; the list and its buttons are
+    // read when reached, not announced at each change (p3.5.11).
+    <section class="doc-notice doc-marks" aria-label={t("docMarkedRegion")}>
       <div class="doc-marks-head">
-        <span class="doc-dot" aria-hidden="true" />
-        <span class="doc-marks-count">
+        <IconPencil size={13} />
+        <span class="doc-marks-count" role="status">
           {t(n === 1 ? "docMarkedOne" : "docMarkedCount", {
             n: String(n),
             who: whoText(latest),
@@ -323,7 +326,7 @@ export function MarkedChanges({
           ))}
         </ul>
       )}
-    </div>
+    </section>
   );
 }
 
