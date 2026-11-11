@@ -217,6 +217,7 @@ export function ImageEditor({ file }: { file: DocFile }) {
     const resync = () => sendDoc({ type: "doc.open", file });
     const show = (s: ImageSnapshot, revision: number) => {
       collab.reset(revision);
+      own.forget();
       if (!island) {
         latest = { s, revision };
         return;
@@ -362,21 +363,28 @@ export function ImageEditor({ file }: { file: DocFile }) {
         if (!collab.ack(m.clientId, m.revision)) return;
         own.made(m.revision, sentIn.get(m.clientId) ?? `r${m.revision}`);
         sentIn.delete(m.clientId);
+        // Ctrl+Z pressed before this was confirmed (p3.5.7): asked now, for the right gesture.
+        for (const ask of own.release(collab.pending))
+          sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
       },
       rejected(m) {
-        if (collab.rejected(m.clientId)) resync();
+        if (collab.rejected(m.clientId)) {
+          own.forget();
+          resync();
+        }
       },
     });
     api.current = {
-      // Ctrl+Z waits for the gestures made to be confirmed by the host (p3.5.7: right after a
-      // gesture its revision was not known yet, so Ctrl+Z did nothing, or undid the one before
-      // and the host refused it for the place the newer one changed). Presses queue in order.
+      // Ctrl+Z waits for the gestures made to be confirmed by the host (p3.5.7, the person's
+      // test of 3.5.6: right after a Move its revision was not known yet, so Ctrl+Z did nothing,
+      // or undid the gesture before and the host refused it for the place the Move changed).
+      // The pixels being made ready first (`settled`), then OwnUndo.press keeps the key until
+      // the ack (`release`). Presses stay in order.
       undo() {
         undoing = undoing.then(async () => {
           await island?.settled();
           collab.flush();
-          await collab.idle();
-          const ask = own.undo();
+          const ask = own.press("undo", collab.pending);
           if (ask) sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
         });
       },
@@ -384,8 +392,7 @@ export function ImageEditor({ file }: { file: DocFile }) {
         undoing = undoing.then(async () => {
           await island?.settled();
           collab.flush();
-          await collab.idle();
-          const ask = own.redo();
+          const ask = own.press("redo", collab.pending);
           if (ask) sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
         });
       },
