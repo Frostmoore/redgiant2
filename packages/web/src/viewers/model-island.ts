@@ -554,6 +554,9 @@ export function mountModel(area: HTMLElement, hooks: ModelIslandHooks): ModelIsl
       env.dispose();
       pmrem.dispose();
       renderer.dispose();
+      // The WebGL context and its buffers go now, not when the collector gets to the canvas
+      // (3.5.11: a few 3D tabs opened and closed held tens of MB; Chrome keeps 16 contexts).
+      renderer.forceContextLoss();
       renderer.domElement.remove();
     },
   };

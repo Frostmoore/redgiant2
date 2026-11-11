@@ -109,7 +109,11 @@ export function ModelView({ src }: ViewerProps) {
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         const object = await load(THREE, src.url, src.format);
-        if (!live) return renderer.dispose();
+        if (!live) {
+          renderer.dispose();
+          renderer.forceContextLoss();
+          return;
+        }
         scene.add(object);
         let triangles = 0;
         object.traverse((o) => {
@@ -180,6 +184,8 @@ export function ModelView({ src }: ViewerProps) {
           resize.disconnect();
           controls.dispose();
           renderer.dispose();
+          // The WebGL context goes now (3.5.11), not when the canvas is collected.
+          renderer.forceContextLoss();
           renderer.domElement.remove();
         };
       } catch (err) {

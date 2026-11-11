@@ -24,6 +24,8 @@ import {
   sideWidth,
   sideWidthByKey,
 } from "../state.js";
+import { placeOf, restoreTab } from "../viewers/live.js";
+import { placeDo, touch, warmTabs } from "../viewers/warm.js";
 import { lazy } from "./lazy.js";
 import { Screen } from "./Screen.js";
 import { FileIcon } from "./viewers/FileIcon.js";
@@ -37,6 +39,10 @@ export const preloadCanvas = () => Canvas.preload();
 const TerminalView = lazy<{ scope: string }>(() =>
   import("./TerminalView.js").then((m) => m.TerminalView),
 );
+
+/** Tabs seen, most recent first, and the heavy ones let go (3.5.11, viewers/warm.ts). */
+let recentSide: string[] = [];
+const letGo = new Set<string>();
 
 /** The chat's own room (the conversation) next to the area: it and the area share it. */
 function roomOf(area: HTMLElement): number {
@@ -152,6 +158,16 @@ export function SideArea() {
       ?.querySelector(".side-tab.active")
       ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [activeSide.value, views.length]);
+  // Heavy tabs out of sight beyond WARM_TABS are let go and loaded again on return (3.5.11).
+  if (activeSide.value) recentSide = touch(recentSide, activeSide.value);
+  const warm = warmTabs(views, recentSide, activeSide.value);
+  const back: string[] = [];
+  for (const v of views)
+    if (!warm.has(v.id)) letGo.add(v.id);
+    else if (letGo.delete(v.id)) back.push(v.id);
+  useEffect(() => {
+    for (const id of back) restoreTab(id, placeDo(placeOf(id)));
+  });
   if (views.length === 0) return null;
   const width = sideWidth.value;
   const toChat = () => {
@@ -238,7 +254,7 @@ export function SideArea() {
           {v.type === "screen" ? (
             <Screen />
           ) : v.type === "canvas" ? (
-            <Canvas title={v.title} target={v.target} />
+            warm.has(v.id) && <Canvas title={v.title} target={v.target} />
           ) : (
             <TerminalView scope={v.scope} />
           )}

@@ -56,6 +56,15 @@ export interface EditorHostOptions {
   /** How often an open file is checked for changes from outside (2 s; 0: only before each op). */
   watchMs?: number;
   now?: () => number;
+  /**
+   * Files kept in memory with nobody on them (3.5.11, 16): beyond this the least recently used
+   * leave (written first), once unused for `idleGraceMs` (60 s); they come back from the log and
+   * the disk when opened again.
+   */
+  maxIdleDocs?: number;
+  idleGraceMs?: number;
+  /** A file's undo history in memory, roughly in bytes (3.5.11, 32 MB); older revisions stay in the log. */
+  maxHistoryBytes?: number;
 }
 
 /** Who asks: the person (from a page) or an agent (canvas_edit). */
@@ -126,6 +135,8 @@ interface Doc {
   revision: number;
   /** Revisions since the last one that cannot be undone across (a replace without its difference). */
   history: Rev[];
+  /** `history`'s rough weight (its operations as JSON), capped by `maxHistoryBytes`. */
+  historyBytes: number;
   /** The first revision `history` reaches back to (its base). */
   floor: number;
   saved: { revision: number; hash: string; size: number; mtimeMs: number };
@@ -149,6 +160,9 @@ interface StateFile {
 
 /** History kept for undo and rebasing; older revisions stay in the log. */
 const MAX_HISTORY = 2000;
+const MAX_HISTORY_BYTES = 32 * 1024 * 1024;
+const MAX_IDLE_DOCS = 16;
+const IDLE_GRACE_MS = 60_000;
 /** A difference from outside kept as operations (undoable) up to this size. */
 const MAX_DIFF = 256 * 1024;
 const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
@@ -247,6 +261,8 @@ export class EditorHost {
   /** Lines waiting for a conversation: the person changed a file it edits, a proposal decided. */
   private readonly pending = new Map<string, Map<string, string>>();
   private readonly sweeper: ReturnType<typeof setInterval>;
+  /** Each kept revision's weight (for `historyBytes`). */
+  private readonly revSize = new WeakMap<Rev, number>();
   private closed = false;
 
   constructor(private readonly o: EditorHostOptions) {
@@ -320,6 +336,7 @@ export class EditorHost {
       format: disk.format,
       revision: 0,
       history: [],
+      historyBytes: 0,
       floor: 0,
       saved: { revision: 0, hash, size: st.size, mtimeMs: st.mtimeMs },
       queue: Promise.resolve(),
@@ -363,6 +380,7 @@ export class EditorHost {
       }
     }
     this.docs.set(doc.key, doc);
+    void this.trimIdle();
     if ((this.o.watchMs ?? 2000) > 0) {
       doc.watchTimer = setInterval(() => {
         if (doc.subs.size === 0) return;
@@ -413,6 +431,7 @@ export class EditorHost {
         else {
           // Without its difference nothing before it can be undone or rebased.
           doc.history = [];
+          doc.historyBytes = 0;
           doc.floor = p.revision;
         }
       } else if (e.type === "doc.proposed" && e.payload)
@@ -422,10 +441,21 @@ export class EditorHost {
   }
 
   private remember(doc: Doc, rev: Rev) {
+    const size = JSON.stringify(rev.ops).length + JSON.stringify(rev.inverse).length;
+    this.revSize.set(rev, size);
     doc.history.push(rev);
-    if (doc.history.length > MAX_HISTORY) {
-      const dropped = doc.history.splice(0, doc.history.length - MAX_HISTORY);
-      doc.floor = dropped.at(-1)?.revision ?? doc.floor;
+    doc.historyBytes += size;
+    // By count and by weight (3.5.11: a big file changed from outside again and again kept every
+    // difference); the newest revision always stays.
+    const maxBytes = this.o.maxHistoryBytes ?? MAX_HISTORY_BYTES;
+    while (
+      doc.history.length > MAX_HISTORY ||
+      (doc.historyBytes > maxBytes && doc.history.length > 1)
+    ) {
+      const dropped = doc.history.shift();
+      if (!dropped) break;
+      doc.historyBytes -= this.revSize.get(dropped) ?? 0;
+      doc.floor = dropped.revision;
     }
   }
 
@@ -1217,6 +1247,7 @@ export class EditorHost {
         });
       else {
         doc.history = [];
+        doc.historyBytes = 0;
         doc.floor = revision;
       }
       const change: DocChange = {
@@ -1351,11 +1382,43 @@ export class EditorHost {
   private async sweep(): Promise<void> {
     const old = this.now() - 10 * 60_000;
     for (const d of [...this.docs.values()])
-      if (d.subs.size === 0 && d.usedAt < old) {
-        await this.enqueue(d, () => this.saveNow(d)).catch(() => {});
-        if (d.watchTimer) clearInterval(d.watchTimer);
-        this.docs.delete(d.key);
-      }
+      if (d.subs.size === 0 && d.usedAt < old) await this.evict(d);
+    await this.trimIdle();
+  }
+
+  /**
+   * At most `maxIdleDocs` files with nobody on them stay in memory (3.5.11: every file an agent or
+   * the person had touched stayed until ten minutes passed): the least recently used leave first.
+   */
+  private async trimIdle(): Promise<void> {
+    const max = this.o.maxIdleDocs ?? MAX_IDLE_DOCS;
+    const idle = [...this.docs.values()]
+      .filter((d) => d.subs.size === 0)
+      .sort((a, b) => a.usedAt - b.usedAt);
+    const grace = this.now() - (this.o.idleGraceMs ?? IDLE_GRACE_MS);
+    for (const d of idle.slice(0, Math.max(0, idle.length - max)))
+      if (d.usedAt < grace) await this.evict(d);
+  }
+
+  /** A file leaves memory, written first; one opened again meanwhile stays. */
+  private async evict(d: Doc): Promise<void> {
+    const usedAt = d.usedAt;
+    await this.enqueue(d, () => this.saveNow(d)).catch(() => {});
+    if (d.subs.size > 0 || d.usedAt !== usedAt || this.docs.get(d.key) !== d) return;
+    if (d.saveTimer) clearTimeout(d.saveTimer);
+    if (d.watchTimer) clearInterval(d.watchTimer);
+    this.docs.delete(d.key);
+  }
+
+  /** What the host holds in memory (3.5.11): files, those with nobody on them, history weight. */
+  stats(): { docs: number; idle: number; historyBytes: number } {
+    let idle = 0;
+    let historyBytes = 0;
+    for (const d of this.docs.values()) {
+      if (d.subs.size === 0) idle++;
+      historyBytes += d.historyBytes;
+    }
+    return { docs: this.docs.size, idle, historyBytes };
   }
 
   // ---- the agents ---------------------------------------------------------------------------
