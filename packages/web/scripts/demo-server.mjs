@@ -1157,6 +1157,55 @@ await core.automations.create(
   "local",
   "name: review-on-push\non:\n  webhook: true\nagent: orchestrator\nproject: demo\ninstructions: Review the new commits.\n",
 );
+// Artifacts (3.5.9, DEMO_ARTIFACTS=1): a few in the Demo project and God's folder, one imported
+// and not run yet, for Settings › Artifacts.
+if (process.env.DEMO_ARTIFACTS === "1") {
+  const head = (h) => `<!-- redgiant-artifact ${JSON.stringify(h)} -->\n`;
+  const app = '<!doctype html><div id="app"></div><script>app.textContent = "ok";</script>\n';
+  await mkdir(join(project.path, "artefatti"), { recursive: true });
+  await writeFile(
+    join(project.path, "artefatti", "preventivi.html"),
+    head({
+      name: "Calcolo preventivi",
+      version: 4,
+      libs: ["preact", "chartjs"],
+      from: "Orchestrator",
+    }) + app,
+  );
+  await writeFile(
+    join(project.path, "artefatti", "csv.html"),
+    head({
+      name: "Visualizzatore CSV",
+      version: 2,
+      libs: ["papaparse", "d3"],
+      from: "Orchestrator",
+    }) + app,
+  );
+  await writeFile(
+    join(project.path, "artefatti", "bozza.html"),
+    "<p>una bozza senza intestazione</p>\n",
+  );
+  const platform = core.platformPath("local");
+  await mkdir(join(platform, "artefatti"), { recursive: true });
+  await writeFile(
+    join(platform, "artefatti", "torneo.html"),
+    head({ name: "Tabellone del torneo", version: 1, libs: [], from: "God" }) + app,
+  );
+  await core.store.append({
+    ownerId: "local",
+    projectId: null,
+    body: {
+      type: "artifact.imported",
+      payload: {
+        scope: "platform",
+        path: "artefatti/torneo.html",
+        name: "Tabellone del torneo",
+        by: "human",
+      },
+    },
+  });
+}
+
 // Archiving a whole project (2026-11-09, DEMO_ARCHIVE=1): an archived project with its
 // conversation, a task and a paused automation; and a shop whose orchestrator is working.
 if (process.env.DEMO_ARCHIVE === "1") {

@@ -209,17 +209,17 @@ function ArtifactRow({
       <span class="ar-acts">
         <button
           type="button"
-          class="wz-btn"
+          class="wz-btn small"
           onClick={() => openCanvas(a.file, { kind: "file", scope: a.scope, path: a.path })}
         >
-          <IconExternal size={16} /> {t("arOpen")}
+          <IconExternal size={14} /> {t("arOpen")}
         </button>
-        <button type="button" class="wz-btn" onClick={onExport}>
-          <IconDownload size={16} /> {t("arExport")}
+        <button type="button" class="wz-btn small" onClick={onExport}>
+          <IconDownload size={14} /> {t("arExport")}
         </button>
         {!a.readOnly && (
-          <button type="button" class="wz-btn st-danger" onClick={() => void remove()}>
-            <IconTrash size={16} /> {t("arDelete")}
+          <button type="button" class="wz-btn small st-danger" onClick={() => void remove()}>
+            <IconTrash size={14} /> {t("arDelete")}
           </button>
         )}
       </span>

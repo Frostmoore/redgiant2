@@ -820,7 +820,7 @@ button.bar-settings {
 }
 .ar-acts {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
   justify-content: flex-end;
 }

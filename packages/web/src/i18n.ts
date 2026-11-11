@@ -2594,7 +2594,7 @@ const en = {
   arPending: "Imported · not run yet",
   arReadOnly: "read only: the project is archived",
   arDeleteQ: "Delete «{name}»?",
-  arDeleteText: "The file goes to the project's trash, as from the file explorer.",
+  arDeleteText: "The file goes to the trash of its folder, as from the file explorer.",
   arExportTitle: "Export «{name}»",
   arExportZip: "A .rgartifact file",
   arExportZipText:
@@ -7534,7 +7534,7 @@ const it: Record<Key, string> = {
   arPending: "Importato · non ancora eseguito",
   arReadOnly: "sola lettura: il progetto è archiviato",
   arDeleteQ: "Eliminare «{name}»?",
-  arDeleteText: "Il file va nel cestino del progetto, come dall'esplora file.",
+  arDeleteText: "Il file va nel cestino della sua cartella, come dall'esplora file.",
   arExportTitle: "Esporta «{name}»",
   arExportZip: "Un file .rgartifact",
   arExportZipText:
