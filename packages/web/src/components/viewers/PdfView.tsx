@@ -132,7 +132,7 @@ export function PdfView({ src }: ViewerProps) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<number[] | null>(null);
   const [hit, setHit] = useState(0);
-  const scroller = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLElement>(null);
   useEffect(() => {
     let live = true;
     // pdf.js 6: the loading task ends the document and its worker.
@@ -323,9 +323,12 @@ export function PdfView({ src }: ViewerProps) {
           </span>
         )}
       </div>
-      <div
+      <section
         class="vw-pdf-pages"
         ref={scroller}
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: the pages scroll from the keyboard (p3.5.11)
+        tabIndex={0}
+        aria-label={t("vwPagesLabel", { n: String(current) })}
         onScroll={(e) => {
           const el = e.currentTarget;
           const top = el.scrollTop + 40;
@@ -338,7 +341,7 @@ export function PdfView({ src }: ViewerProps) {
         {Array.from({ length: Math.min(doc.numPages, 2000) }, (_, i) => (
           <Page key={i + 1} doc={doc} n={i + 1} scale={scale} query={query} guess={base} />
         ))}
-      </div>
+      </section>
     </div>
   );
 }

@@ -4,6 +4,7 @@
 // colours, with the swap (X) and the default colours (D).
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { focusMenu } from "../../a11y.js";
 import { t } from "../../i18n.js";
 import {
   IconBrush,
@@ -65,6 +66,8 @@ export const toolLabel = (tool: ImageTool) =>
   t("imgToolKey", { name: toolName(tool), key: groupOf(tool).key.toUpperCase() });
 
 const LONG_PRESS_MS = 450;
+/** The colours' menu, opened like a group's flyout. */
+const COLORS = "colors";
 
 export function ImageToolbar({
   tool,
@@ -101,7 +104,8 @@ export function ImageToolbar({
   useEffect(() => {
     if (!open) return;
     const away = (e: Event) => {
-      if (!(e.target as HTMLElement).closest?.(".img-flyout, .img-tool-slot")) setOpen(undefined);
+      if (!(e.target as HTMLElement).closest?.(".img-flyout, .img-tool-slot, .img-colors"))
+        setOpen(undefined);
     };
     const esc = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(undefined);
@@ -149,12 +153,31 @@ export function ImageToolbar({
               onContextMenu={(e) => {
                 if (!more) return;
                 e.preventDefault();
-                setOpen(g.id, e.currentTarget);
+                const el = e.currentTarget;
+                setOpen(g.id, el);
+                // From the keyboard (Shift+F10, the menu key) the focus goes into the flyout.
+                if (e.button !== 2 && document.activeElement === el)
+                  requestAnimationFrame(() => {
+                    const menu = el.parentElement?.querySelector<HTMLElement>("[role=menu]");
+                    if (menu) focusMenu(menu);
+                  });
               }}
               onClick={() => {
                 if (open === g.id) return;
                 onTool(here);
               }}
+              // The group's other tools from the keyboard (p3.5.11): the right arrow opens them.
+              onKeyDown={(e) => {
+                if (!more || e.key !== "ArrowRight" || e.altKey || e.ctrlKey || e.metaKey) return;
+                e.preventDefault();
+                const el = e.currentTarget;
+                setOpen(g.id, el);
+                requestAnimationFrame(() => {
+                  const menu = el.parentElement?.querySelector<HTMLElement>("[role=menu]");
+                  if (menu) focusMenu(menu);
+                });
+              }}
+              aria-keyshortcuts={g.key.toUpperCase()}
             >
               {toolIcon(here)}
             </button>
@@ -187,41 +210,80 @@ export function ImageToolbar({
           </div>
         );
       })}
+      {/* The colours as Photoshop draws them (p3.5.7), one target since p3.5.11: a click acts on
+          the part clicked, as before; from the keyboard (or a screen reader) it opens a menu with
+          the same four actions. Small overlapping squares were too small to hit. */}
       <div class="img-colors">
         <button
           type="button"
-          class="img-color-swatch fg"
-          style={{ background: fg }}
-          title={`${t("imgFg")} ${fg}`}
-          aria-label={t("imgFg")}
-          onClick={() => fgIn.current?.click()}
-        />
-        <button
-          type="button"
-          class="img-color-swatch bg"
-          style={{ background: bg }}
-          title={`${t("imgBg")} ${bg}`}
-          aria-label={t("imgBg")}
-          onClick={() => bgIn.current?.click()}
-        />
-        <button
-          type="button"
-          class="img-color-swap"
-          title={t("imgSwap")}
-          aria-label={t("imgSwap")}
-          onClick={onSwap}
+          class="img-colors-btn"
+          title={`${t("imgFg")} ${fg} · ${t("imgBg")} ${bg}`}
+          aria-label={t("imgColorsLabel", { fg, bg })}
+          aria-haspopup="menu"
+          aria-expanded={open === COLORS}
+          onClick={(e) => {
+            const part = (e.target as Element).closest?.("[data-part]")?.getAttribute("data-part");
+            if (e.detail === 0 || !part) {
+              if (open === COLORS) setOpen(undefined);
+              else setOpen(COLORS, e.currentTarget);
+              return;
+            }
+            if (part === "fg") fgIn.current?.click();
+            else if (part === "bg") bgIn.current?.click();
+            else if (part === "swap") onSwap();
+            else onDefault();
+          }}
         >
-          <IconSwap size={11} />
+          <span class="img-color-swatch fg" data-part="fg" style={{ background: fg }} />
+          <span class="img-color-swatch bg" data-part="bg" style={{ background: bg }} />
+          <span class="img-color-swap" data-part="swap">
+            <IconSwap size={11} />
+          </span>
+          <span class="img-color-default" data-part="default">
+            <IconColorsDefault size={11} />
+          </span>
         </button>
-        <button
-          type="button"
-          class="img-color-default"
-          title={t("imgDefaultColors")}
-          aria-label={t("imgDefaultColors")}
-          onClick={onDefault}
-        >
-          <IconColorsDefault size={11} />
-        </button>
+        {open === COLORS && (
+          <div
+            class="img-flyout img-colors-menu"
+            role="menu"
+            aria-label={t("imgColors")}
+            style={{ left: `${at.x}px`, top: `${at.y}px` }}
+          >
+            {(
+              [
+                ["fg", t("imgFg"), () => fgIn.current?.click()],
+                ["bg", t("imgBg"), () => bgIn.current?.click()],
+                ["swap", t("imgSwap"), onSwap],
+                ["default", t("imgDefaultColors"), onDefault],
+              ] as const
+            ).map(([id, label, act]) => (
+              <button
+                type="button"
+                role="menuitem"
+                key={id}
+                aria-label={label}
+                onClick={() => {
+                  setOpen(undefined);
+                  act();
+                }}
+              >
+                {id === "fg" || id === "bg" ? (
+                  <span
+                    class="img-color-chip"
+                    style={{ background: id === "fg" ? fg : bg }}
+                    aria-hidden="true"
+                  />
+                ) : id === "swap" ? (
+                  <IconSwap size={14} />
+                ) : (
+                  <IconColorsDefault size={14} />
+                )}
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <input
           ref={fgIn}
           type="color"

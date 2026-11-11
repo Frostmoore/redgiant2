@@ -63,6 +63,11 @@ function Code({
             basicSetup,
             EditorState.readOnly.of(true),
             EditorView.editable.of(false),
+            // Read only, it still takes the keyboard: Tab reaches it and the arrows scroll (p3.5.11).
+            EditorView.contentAttributes.of({
+              tabindex: "0",
+              "aria-label": t("vwCodeLabel", { name }),
+            }),
             syntaxHighlighting(codeClasses),
             ...(wrap ? [EditorView.lineWrapping] : []),
             ...(support ? [support] : []),
@@ -153,7 +158,13 @@ export function CodeView({ src }: ViewerProps) {
       </div>
       {cut && <p class="vw-note">{t("vwCut", { size: "2 MB" })}</p>}
       {markdown && !source ? (
-        <div class="md vw-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
+        <section
+          class="md vw-md"
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: a text that scrolls takes the keyboard (p3.5.11)
+          tabIndex={0}
+          aria-label={src.name}
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
+        />
       ) : (
         <Code text={text} name={src.name} wrap={wrap} line={src.at?.line} />
       )}

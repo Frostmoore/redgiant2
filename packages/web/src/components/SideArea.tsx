@@ -1,5 +1,6 @@
 import { h, type JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { installKeyboard, rovingKey, syncRoving, typingIn } from "../a11y.js";
 import { t } from "../i18n.js";
 import {
   IconCanvas,
@@ -45,6 +46,7 @@ function lazy<P extends object>(load: () => Promise<(props: P) => JSX.Element | 
 
 import { Canvas } from "./Canvas.js";
 import { Screen } from "./Screen.js";
+import { Shortcuts, shortcutsOpen } from "./Shortcuts.js";
 import { FileIcon } from "./viewers/FileIcon.js";
 
 const TerminalView = lazy<{ scope: string }>(() =>
@@ -159,13 +161,54 @@ export function SideArea() {
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
   }, [max]);
+  // The editors' toolbars, tab lists and menus answer the arrows (p3.5.11).
+  useEffect(() => {
+    const el = area.current;
+    if (el && views.length > 0) return installKeyboard(el);
+  }, [views.length > 0]);
+  // One tab stop in the strip (p3.5.11): the arrows move between the tabs.
+  useEffect(() => syncRoving(strip.current, "[role=tab]"));
+  // «?» (outside a field or an editor) opens the keyboard map.
+  useEffect(() => {
+    if (views.length === 0) return;
+    const help = (e: KeyboardEvent) => {
+      if (e.key !== "?" || e.ctrlKey || e.metaKey || e.altKey || typingIn(e.target)) return;
+      if (document.querySelector(".ui-modal-back")) return;
+      e.preventDefault();
+      shortcutsOpen.value = true;
+    };
+    window.addEventListener("keydown", help);
+    return () => window.removeEventListener("keydown", help);
+  }, [views.length > 0]);
   // The tab just opened or chosen is always in sight, however many there are.
   useEffect(() => {
     strip.current
       ?.querySelector(".side-tab.active")
       ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [activeSide.value, views.length]);
-  if (views.length === 0) return null;
+  if (views.length === 0) return shortcutsOpen.value ? <Shortcuts /> : null;
+  // The arrows choose a tab (the tab follows the focus), Delete closes the one with the focus.
+  const tabKey = (e: KeyboardEvent) => {
+    const el = strip.current;
+    if (!el) return;
+    const reached = rovingKey(e, el, "[role=tab]", "horizontal");
+    if (reached?.dataset.view) {
+      activeSide.value = reached.dataset.view;
+      return;
+    }
+    const id = (e.target as HTMLElement).closest<HTMLElement>("[role=tab]")?.dataset.view;
+    if (id && e.key === "Delete") {
+      e.preventDefault();
+      const at = views.findIndex((v) => v.id === id);
+      closeSide(id);
+      // The focus stays in the strip, on the tab that took its place.
+      requestAnimationFrame(() =>
+        strip.current
+          ?.querySelectorAll<HTMLElement>("[role=tab]")
+          [Math.max(0, Math.min(at, views.length - 2))]?.focus(),
+      );
+    }
+  };
   const width = sideWidth.value;
   const toChat = () => {
     sideMax.value = false;
@@ -200,12 +243,27 @@ export function SideArea() {
           <IconChat size={15} />
           <span>{max ? t("sideBackToChat") : t("vwToChat")}</span>
         </button>
-        <div class="side-tabs" role="tablist" ref={strip} onWheel={wheel}>
+        <div
+          class="side-tabs"
+          role="tablist"
+          aria-label={t("sideTabsLabel")}
+          ref={strip}
+          onWheel={wheel}
+          onKeyDown={tabKey}
+        >
           {views.map((v) => (
-            <div key={v.id} class={`side-tab ${activeSide.value === v.id ? "active" : ""}`}>
+            <div
+              key={v.id}
+              class={`side-tab ${activeSide.value === v.id ? "active" : ""}`}
+              role="presentation"
+            >
               <button
                 role="tab"
+                id={`side-tab-${v.id}`}
                 aria-selected={activeSide.value === v.id}
+                aria-controls={`side-panel-${v.id}`}
+                aria-keyshortcuts="Delete"
+                data-view={v.id}
                 type="button"
                 class="label"
                 onClick={() => (activeSide.value = v.id)}
@@ -222,11 +280,14 @@ export function SideArea() {
                 )}
                 <span>{v.title}</span>
               </button>
+              {/* Out of the tab order and of the tab list (a tab list holds tabs only): from the
+                  keyboard, Delete on the tab closes it (p3.5.11). */}
               <button
                 type="button"
                 class="icon-button"
-                title={t("close")}
-                aria-label={t("close")}
+                title={`${t("close")} (${t("kDelete")})`}
+                aria-hidden="true"
+                tabIndex={-1}
                 onClick={() => closeSide(v.id)}
               >
                 <IconClose size={12} />
@@ -247,7 +308,14 @@ export function SideArea() {
         )}
       </div>
       {views.map((v) => (
-        <div key={v.id} class="side-content" hidden={activeSide.value !== v.id}>
+        <div
+          key={v.id}
+          class="side-content"
+          hidden={activeSide.value !== v.id}
+          role="tabpanel"
+          id={`side-panel-${v.id}`}
+          aria-labelledby={`side-tab-${v.id}`}
+        >
           {v.type === "screen" ? (
             <Screen />
           ) : v.type === "canvas" ? (
@@ -257,6 +325,7 @@ export function SideArea() {
           )}
         </div>
       ))}
+      {shortcutsOpen.value && <Shortcuts />}
     </section>
   );
 }

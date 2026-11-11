@@ -344,7 +344,7 @@ export function TextEditor({
               ...(syntax ? [lintGutter()] : []),
               marks,
               undoTip,
-              EditorView.contentAttributes.of({ "aria-label": t("docEditorLabel") }),
+              EditorView.contentAttributes.of({ "aria-label": t("docEditorLabel"), tabindex: "0" }),
               EditorView.updateListener.of((u) => {
                 const own = u.transactions.filter(
                   (tr) => tr.docChanged && !tr.annotation(Transaction.remote),
@@ -633,7 +633,13 @@ export function TextEditor({
         <div class="vw-code doc-text" ref={host} />
         {markdown && mode !== "source" && (
           // Sanitised by renderMarkdown (DOMPurify), like every Markdown shown.
-          <div class="md vw-md doc-preview" dangerouslySetInnerHTML={{ __html: preview }} />
+          <section
+            class="md vw-md doc-preview"
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: a preview that scrolls takes the keyboard (p3.5.11)
+            tabIndex={0}
+            aria-label={t("docPreviewLabel")}
+            dangerouslySetInnerHTML={{ __html: preview }}
+          />
         )}
         {treeable && mode === "tree" && (
           <div class="vw-tree doc-tree">

@@ -18,6 +18,7 @@ import {
   IconFolderPlus,
   IconFullscreen,
   IconFullscreenExit,
+  IconKeyboard,
   IconPlay,
   IconRefresh,
 } from "../icons.js";
@@ -34,6 +35,7 @@ import { CanvasTab, lastMove, report, setTabKind } from "../viewers/live.js";
 import { hasOfficeCopy, isOfficeFile } from "../viewers/office-bridge.js";
 import { bytesText, download, type ViewerSource } from "../viewers/source.js";
 import { ArtifactFrame } from "./ArtifactFrame.js";
+import { shortcutsOpen } from "./Shortcuts.js";
 import { DocEditor, editableInCanvas } from "./viewers/DocEditor.js";
 import { EditPictureButton, IMAGE_FLAT, pictureEditable } from "./viewers/ImageEditor.js";
 import { EditCopyButton, EditCopyNote } from "./viewers/OfficeEditor.js";
@@ -338,6 +340,16 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
             {moveText(move.do)}
           </span>
         )}
+        <button
+          type="button"
+          class="icon-button"
+          title={`${t("kbTitle")} (?)`}
+          aria-label={t("kbTitle")}
+          aria-keyshortcuts="?"
+          onClick={() => (shortcutsOpen.value = true)}
+        >
+          <IconKeyboard size={14} />
+        </button>
         <button
           type="button"
           class="icon-button"

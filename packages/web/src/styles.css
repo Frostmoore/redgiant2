@@ -18200,3 +18200,188 @@ fieldset.vw-seg {
   flex-wrap: wrap;
   row-gap: 4px;
 }
+
+/* ---- Accessible editors (p3.5.11, G37.9) -------------------------------------------------- */
+/* Read only by screen readers. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+/* Text contrast (WCAG AA, 4.5:1): the dim grey on the grey panels was 4.2:1 in the light theme. The
+   focus ring: 3:1 or more against every panel, in both themes. */
+:root {
+  --dim: #5f6779;
+  --cmv-com: #5f6779;
+  --cmv-meta: #5f6779;
+  --focus-ring: #b8301f;
+}
+html[data-theme="dark"] {
+  --cmv-com: #8f96a3;
+  --focus-ring: #ff7a68;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-theme="system"] {
+    --cmv-com: #8f96a3;
+    --focus-ring: #ff7a68;
+  }
+}
+/* A visible focus everywhere in the canvas and in our windows (fields and text keep their own). */
+:is(.side-area, .ui-modal, .doc-shell)
+  :focus-visible:not(input, textarea, select, .cm-content, [contenteditable="true"]) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+:is(.side-area, .ui-modal) :is(input, select, textarea):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.doc-text .cm-editor:has(.cm-content:focus-visible) {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+:is(.svg-area, .img-area, .model-area, .pdfed-scroll, .vw-pdf-pages, .vw-md):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+/* The current layer of a drawing: a darker red on its soft background (4.8:1 and more). */
+.svg-side .svg-layer-name[aria-current="true"] {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+/* An agent's change in the text is not told by colour alone: a hatch over it, its line under. */
+.doc-agent-mark {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 4px,
+    color-mix(in srgb, var(--doc-agent-line) 30%, transparent) 4px 5px
+  );
+}
+.doc-marks-head > .icon {
+  color: var(--doc-agent-line, var(--accent));
+  flex-shrink: 0;
+}
+/* The 3D scene as a tree: the object chosen has a bar too, not only a colour. */
+.model-tree li[role="treeitem"] {
+  cursor: pointer;
+}
+.model-tree li.current {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.model-fold {
+  flex-basis: 24px;
+  width: 24px;
+  min-height: 24px;
+  display: inline-grid;
+  place-items: center;
+}
+/* The colours of the picture editor: one target (36 x 44), drawn as Photoshop's two squares. */
+.img-colors {
+  width: 36px;
+}
+.img-colors-btn {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.img-colors-btn .img-color-swatch {
+  display: block;
+}
+.img-colors-btn .img-color-swap,
+.img-colors-btn .img-color-default {
+  display: grid;
+}
+.img-colors-menu .img-color-chip {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--text);
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+/* Skipping an app from the keyboard: shown only when it has the focus. */
+.artifact-skip {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 3;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  transform: translateY(-200%);
+  opacity: 0;
+}
+.artifact-skip:focus {
+  transform: none;
+  opacity: 1;
+}
+.artifact-frame {
+  position: relative;
+}
+/* «Scorciatoie»: the keyboard map. */
+.kb-help-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 18px 26px;
+  text-align: left;
+}
+.kb-help-grid h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.kb-help-grid dl {
+  margin: 0;
+}
+.kb-help-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.kb-help-row dt {
+  flex: 0 0 auto;
+  max-width: 55%;
+}
+.kb-help-row dd {
+  margin: 0;
+  color: var(--text);
+}
+.kb-help-row kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.kb-or {
+  color: var(--dim);
+}
+/* Less motion asked for: no pulses, slides or fades in the canvas and our windows. */
+@media (prefers-reduced-motion: reduce) {
+  :is(.side-area, .ui-modal-back, .doc-shell) *,
+  :is(.side-area, .ui-modal-back, .doc-shell) *::before,
+  :is(.side-area, .ui-modal-back, .doc-shell) *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

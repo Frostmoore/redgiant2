@@ -130,9 +130,20 @@ describe("the left bar", () => {
     fireEvent.click(getByText("Lazo magnetico"));
     expect(picked.at(-1)).toBe("lasso-magnetic");
     expect(container.querySelector(".img-flyout")).toBeNull();
+    // The colours are one target (p3.5.11): from the keyboard a menu with the four actions...
+    const swatches = container.querySelector(".img-colors-btn") as HTMLElement;
+    fireEvent.click(swatches);
     fireEvent.click(getByLabelText("Scambia i colori (X)"));
+    expect(container.querySelector(".img-colors-menu")).toBeNull();
+    fireEvent.click(swatches);
     fireEvent.click(getByLabelText("Colori predefiniti, nero e bianco (D)"));
     expect(colours).toEqual(["swap", "default"]);
+    // ...and a click acts on the part clicked, as before.
+    fireEvent.click(container.querySelector(".img-colors-btn .img-color-swap") as HTMLElement, {
+      detail: 1,
+    });
+    expect(colours.at(-1)).toBe("swap");
+    expect(container.querySelector(".img-colors-menu")).toBeNull();
     // Never a native checkbox or radio.
     expect(container.querySelector("input[type=checkbox], input[type=radio]")).toBeNull();
   });

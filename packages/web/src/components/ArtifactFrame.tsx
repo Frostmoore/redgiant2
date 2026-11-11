@@ -169,8 +169,14 @@ export function ArtifactFrame({
   }, [src, refKey, sessionId, auto, guard]);
 
   const to = sessionId ?? frontSession();
+  const past = useRef<HTMLSpanElement>(null);
   return (
     <div class={`artifact-frame${auto ? " auto" : ""}`}>
+      {/* The app may keep Tab for itself: from the keyboard it can be skipped (p3.5.11). Shown
+          only when it has the focus. */}
+      <button type="button" class="artifact-skip" onClick={() => past.current?.focus()}>
+        {t("artSkip", { name: title })}
+      </button>
       <iframe
         ref={frame}
         key={src}
@@ -182,6 +188,9 @@ export function ArtifactFrame({
         onLoad={sendTheme}
         style={auto && height !== undefined ? { height: `${height}px` } : undefined}
       />
+      <span class="sr-only" tabIndex={-1} ref={past}>
+        {t("artAfter", { name: title })}
+      </span>
       {asking !== undefined && (
         <div class="artifact-ask" role="status">
           <IconSend size={13} />

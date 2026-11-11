@@ -5,6 +5,7 @@
 // mutations), others' mutations to apply, the agent's cells to highlight, the placeholders to
 // outline, light or dark. Univer's own Ctrl+Z undoes only the person's commands (others' arrive as
 // collaboration and never enter its stack).
+import { watchSheetDom } from "./univer-a11y.js";
 import "@univerjs/design/lib/index.css";
 import "@univerjs/ui/lib/index.css";
 import "@univerjs/docs-ui/lib/index.css";
@@ -184,6 +185,8 @@ export function mountSheet(o: IslandOptions): Island {
   univer.registerPlugin(UniverSheetsFilterUIPlugin);
   univer.registerPlugin(UniverSheetsSortPlugin);
   univer.registerPlugin(UniverSheetsSortUIPlugin);
+  // Names and tab stops for Univer's own buttons and canvases (p3.5.11).
+  const unwatch = typeof MutationObserver === "function" ? watchSheetDom(o.container) : () => {};
   const inj = univer.__getInjector();
   const cmd = inj.get(ICommandService);
   const undo = inj.get(IUndoRedoService);
@@ -431,6 +434,7 @@ export function mountSheet(o: IslandOptions): Island {
     },
     dispose() {
       disposed = true;
+      unwatch();
       for (const s of subs) s.dispose();
       try {
         univer.dispose();

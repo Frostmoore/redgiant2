@@ -127,6 +127,26 @@ const askId = () => `i${Date.now().toString(36)}${(asks++).toString(36)}`;
 export const blendLabel = (op: string) =>
   tOptional(`imgBlend_${imageBlendName(op)}`) ?? imageBlendName(op);
 
+/**
+ * The picture in words (p3.5.11): «Immagine 1200 × 800 px, 3 livelli. Livello attivo: Testo,
+ * 400 × 120 px. Selezione 200 × 100 px.».
+ */
+export function pictureWords(
+  size: { w: number; h: number },
+  layer: { name: string; w: number; h: number } | undefined,
+  count: number,
+  sel: { w: number; h: number } | undefined,
+): string {
+  const parts = [t("imgNowPicture", { w: String(size.w), h: String(size.h), n: String(count) })];
+  if (layer)
+    parts.push(t("imgNowLayer", { name: layer.name, w: String(layer.w), h: String(layer.h) }));
+  if (sel)
+    parts.push(
+      t("imgNowSelection", { w: String(Math.round(sel.w)), h: String(Math.round(sel.h)) }),
+    );
+  return parts.join(" ");
+}
+
 export function ImageEditor({ file }: { file: DocFile }) {
   const area = useRef<HTMLDivElement>(null);
   const isl = useRef<ImageIsland | undefined>(undefined);
@@ -155,6 +175,7 @@ export function ImageEditor({ file }: { file: DocFile }) {
   const [sel, setSel] = useState<Rect>();
   const [busy, setBusy] = useState(0);
   const [size, setSize] = useState({ w: 0, h: 0, format: "ora" as ImageSnapshot["format"] });
+  const [nowId] = useState(() => `img-now-${Math.random().toString(36).slice(2, 9)}`);
   const [marks, setMarks] = useState<
     { x: number; y: number; w: number; h: number; name: string; id: number; rev: number }[]
   >([]);
@@ -830,9 +851,21 @@ export function ImageEditor({ file }: { file: DocFile }) {
             tabIndex={0}
             role="application"
             aria-label={`${t("imgEditorLabel")}: ${name}`}
+            aria-describedby={nowId}
+            aria-keyshortcuts="?"
             onKeyDown={onKey}
             onKeyUp={onKeyUp}
           />
+          {/* What the picture is, for a screen reader (p3.5.11): its size, the layer being worked
+              on and its own size, the selection. */}
+          <p id={nowId} class="sr-only">
+            {pictureWords(
+              size,
+              layers.find((l) => l.id === current),
+              layers.length,
+              sel,
+            )}
+          </p>
           {marks.length > 0 && (
             <div class="svg-marks" aria-hidden="true">
               {marks.map((m) => (
