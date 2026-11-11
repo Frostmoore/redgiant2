@@ -6,6 +6,7 @@ import type { Automation } from "@redgiant/protocol";
 import { MCP_CATALOG } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { Agent, McpEntry, McpStatus, ModelChoice } from "../api.js";
+import { assistantState } from "../assistant-state.js";
 import { roleText, t } from "../i18n.js";
 import { IconChat, IconMonitor, IconPlus } from "../icons.js";
 import {
@@ -44,17 +45,7 @@ import { Advanced, Choice, Field, Modal, Toggle } from "./ui.js";
 const JOBS = ["secretary", "researcher", "social", "accounts", "tech", "custom"] as const;
 type Job = (typeof JOBS)[number];
 
-export type AssistantState = "working" | "waiting" | "free";
-
-/** At work (a conversation running), waiting for you (an approval or a question), or free. */
-export function assistantState(a: Agent): AssistantState {
-  if (
-    approvals.value.some((r) => r.agentId === a.id) ||
-    questions.value.some((q) => q.agentId === a.id)
-  )
-    return "waiting";
-  return sessionRows.value.some((r) => r.agentId === a.id && r.running) ? "working" : "free";
-}
+export { type AssistantState, assistantState } from "../assistant-state.js";
 
 const serviceName = (name: string) => MCP_CATALOG.find((e) => e.id === name)?.name ?? name;
 

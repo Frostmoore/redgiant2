@@ -1286,7 +1286,8 @@ if (process.env.DEMO_ARCHIVE === "1") {
   done.catch(() => {});
 }
 
-const web = fileURLToPath(new URL("../dist", import.meta.url));
+// DEMO_WEB: another build of the page (3.5.11, the measures before and after a change).
+const web = process.env.DEMO_WEB ?? fileURLToPath(new URL("../dist", import.meta.url));
 // G36.20, DEMO_KEYS=1: the files of a version before, moved into the keychain at this start (a
 // secrets.json with keys of models, chats, GitHub and search; a mailbox's password file).
 if (process.env.DEMO_KEYS) {

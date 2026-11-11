@@ -7,12 +7,12 @@
 import type { RefineEstimate, RefineRequest, RefineResult, RefineTarget } from "@redgiant/protocol";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ApiError } from "../api.js";
+import { explain } from "../explain.js";
 import { usd } from "../format.js";
 import { lang, t } from "../i18n.js";
 import { IconRetry, IconSpark, IconSpinner } from "../icons.js";
 import { agents, getApi } from "../state.js";
 import { diffCounts, wordDiff } from "../word-diff.js";
-import { explain } from "./Brain.js";
 import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
 import { Switch } from "./SettingsKit.js";
 import { aboutTokens, toolName } from "./ToolsPage.js";

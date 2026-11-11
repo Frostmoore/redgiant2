@@ -236,8 +236,11 @@ describe("the tabs and the file on the whole screen (p3.3.2)", () => {
     Object.assign(HTMLElement.prototype, { requestFullscreen: request });
     Object.assign(document, { exitFullscreen: exit });
     try {
-      const { container, getByRole, findByRole } = render(<Shell />);
-      fireEvent.click(getByRole("button", { name: "Schermo intero" }));
+      const { container, findByRole } = render(<Shell />);
+      // The canvas loads with its first tab (3.5.11); its effects run once it is drawn.
+      const button = await findByRole("button", { name: "Schermo intero" });
+      await new Promise((r) => setTimeout(r, 20));
+      fireEvent.click(button);
       expect(request).toHaveBeenCalledTimes(1);
       expect(request.mock.contexts[0]).toBe(container.querySelector(".canvas"));
       fireEvent.click(await findByRole("button", { name: "Esci dallo schermo intero" }));

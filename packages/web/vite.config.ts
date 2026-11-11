@@ -37,5 +37,5 @@ export default defineConfig({
       "/term": { target: server.replace(/^http/, "ws"), ws: true },
     },
   },
-  build: { outDir: "dist", sourcemap: true, chunkSizeWarningLimit: 1500 },
+  build: { outDir: "dist", sourcemap: true, manifest: true, chunkSizeWarningLimit: 1500 },
 });

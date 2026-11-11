@@ -11,6 +11,7 @@ import {
 } from "../icons.js";
 import {
   activeSide,
+  type CanvasTarget,
   CHAT_MIN,
   clampSideWidth,
   closeSide,
@@ -23,30 +24,16 @@ import {
   sideWidth,
   sideWidthByKey,
 } from "../state.js";
-
-/**
- * Loads a heavy view (xterm.js) the first time it is shown, not with the page: most sessions
- * never open a terminal.
- */
-function lazy<P extends object>(load: () => Promise<(props: P) => JSX.Element | null>) {
-  let loaded: ((props: P) => JSX.Element | null) | undefined;
-  return function Lazy(props: P) {
-    const [view, setView] = useState(() => loaded);
-    useEffect(() => {
-      if (!view)
-        void load().then((v) => {
-          loaded = v;
-          setView(() => v);
-        });
-    }, [view]);
-    return view ? h(view, props) : <div class="empty">…</div>;
-  };
-}
-
-import { Canvas } from "./Canvas.js";
+import { lazy } from "./lazy.js";
 import { Screen } from "./Screen.js";
 import { FileIcon } from "./viewers/FileIcon.js";
 
+// The canvas and its editors (CodeMirror, Univer, pdf.js, three.js…) come with the first tab (3.5.11).
+const Canvas = lazy<{ title: string; target: CanvasTarget }>(() =>
+  import("./Canvas.js").then((m) => m.Canvas),
+);
+/** The canvas's code fetched ahead, when a file is about to open (the project's files shown). */
+export const preloadCanvas = () => Canvas.preload();
 const TerminalView = lazy<{ scope: string }>(() =>
   import("./TerminalView.js").then((m) => m.TerminalView),
 );

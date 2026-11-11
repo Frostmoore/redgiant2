@@ -4,7 +4,6 @@
 import type { Job, JobProgress } from "@redgiant/protocol";
 import type { ComponentChildren, JSX } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
-import qrcode from "qrcode-generator";
 import { bytes } from "../format.js";
 import { t, tOptional } from "../i18n.js";
 import { IconAlert, IconChevron, IconSpinner, IconX } from "../icons.js";
@@ -350,20 +349,29 @@ export function JobView({
   );
 }
 
-/** The QR code of an address, drawn here as SVG (no service sees the address). */
+/** The QR code of an address, drawn here as SVG (no service sees the address); its code loads
+ * with the first QR shown (3.5.11). */
 export function Qr({ text, label }: { text: string; label: string }) {
-  const qr = qrcode(0, "M");
-  qr.addData(text);
-  qr.make();
+  const [svg, setSvg] = useState<string>();
+  useEffect(() => {
+    let live = true;
+    void import("qrcode-generator").then(({ default: qrcode }) => {
+      const qr = qrcode(0, "M");
+      qr.addData(text);
+      qr.make();
+      if (live) setSvg(qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true }));
+    });
+    return () => {
+      live = false;
+    };
+  }, [text]);
   return (
     <div
       class="qr"
       role="img"
       aria-label={label}
       // biome-ignore lint/security/noDangerouslySetInnerHtml: SVG made here from our own address.
-      dangerouslySetInnerHTML={{
-        __html: qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true }),
-      }}
+      dangerouslySetInnerHTML={{ __html: svg ?? "" }}
     />
   );
 }

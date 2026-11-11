@@ -62,9 +62,9 @@ import {
   subSeen,
   subStatus,
 } from "../state.js";
+import { canvasKind } from "../viewers/canvas-kind.js";
 import { WidgetCard } from "./ArtifactFrame.js";
 import { noEnter, useArmed } from "./armed.js";
-import { canvasKind } from "./Canvas.js";
 import {
   AsidePanel,
   addQuote,
