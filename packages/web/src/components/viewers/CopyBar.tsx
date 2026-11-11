@@ -14,13 +14,32 @@ export interface CopyRewrite {
   help: string;
 }
 
+/**
+ * In plain words whether an edit reaches the original, and when (p3.5.7, the person's test of
+ * 3.5.6: a slide added to the ODP copy, the PPTX still had three and nothing said why).
+ */
+export function copyPlainText(
+  name: string,
+  copy: string | undefined,
+  rewrite: boolean | undefined,
+) {
+  const ext = copy?.match(/\.([a-z0-9]+)$/i)?.[1];
+  const kind = ext ? ext.toUpperCase() : t("copyBarKindOpen");
+  if (rewrite === true) return t("copyBarPlainOn", { kind, name });
+  if (rewrite === false) return t("copyBarPlainOff", { kind, name });
+  return t("copyBarPlainNone", { kind, name });
+}
+
 export function CopyBar({
   original,
+  copy,
   rewrite,
   children,
 }: {
   /** The closed original's name ("vendite.xlsx"). */
   original: string;
+  /** The copy's path ("vendite.xlsx.open/vendite.ods"): its kind is named. */
+  copy?: string | undefined;
   rewrite?: CopyRewrite | undefined;
   /** More, under the bar (what stays in the file). */
   children?: ComponentChildren;
@@ -32,7 +51,6 @@ export function CopyBar({
         <span class="copy-bar-what" title={original}>
           <IconCopy size={14} />
           <strong>{t("copyBarOf", { name })}</strong>
-          <span class="copy-bar-safe">{t("copyBarSafe")}</span>
         </span>
         {rewrite && (
           <span class="copy-bar-rewrite">
@@ -48,6 +66,9 @@ export function CopyBar({
           </span>
         )}
       </div>
+      <p class="copy-bar-plain" role="note">
+        {copyPlainText(name, copy, rewrite?.on)}
+      </p>
       {children}
     </div>
   );

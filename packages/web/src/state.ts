@@ -1696,6 +1696,11 @@ export interface DocView {
   /** The file changed on disk from outside the editor (p3.5.1): told until the person closes it. */
   outside?: { revision: number; ts: string } | undefined;
   /**
+   * The page found it no longer matched the host and read the file again (p3.5.7): said until the
+   * person closes it; `lost`, the person's unconfirmed typing was let go with it.
+   */
+  resynced?: { at: number; lost: boolean } | undefined;
+  /**
    * An agent's edit stopped because of the person (p3.5.4): typing there now (`busy`) or having
    * changed the same place (`conflict`). Shown a moment, or until closed.
    */
@@ -1794,6 +1799,30 @@ export function unmarkChange(file: DocFile, revision?: number): void {
   if (next.length !== s.value.length) s.value = next;
 }
 
+/**
+ * The highlights held in a file's editors, told when one of its changes is undone (p3.5.7, the
+ * person's test of 3.5.6: after «Annulla questa modifica» the others lost their highlight): each
+ * counts its time again, so every remaining change of the turn stays highlighted while the person
+ * goes through them.
+ */
+const markKeepers = new Map<string, Set<() => void>>();
+export function onKeepMarks(file: DocFile, keep: () => void): () => void {
+  const key = docKey(file);
+  let set = markKeepers.get(key);
+  if (!set) {
+    set = new Set();
+    markKeepers.set(key, set);
+  }
+  set.add(keep);
+  return () => {
+    set.delete(keep);
+    if (set.size === 0 && markKeepers.get(key) === set) markKeepers.delete(key);
+  };
+}
+export function keepMarks(file: DocFile): void {
+  for (const keep of markKeepers.get(docKey(file)) ?? []) keep();
+}
+
 /** One message of the host applied to a file's view (pure: tested as a table). */
 export function reduceDoc(v: DocView, m: DocMessage): DocView {
   switch (m.type) {
@@ -1809,6 +1838,8 @@ export function reduceDoc(v: DocView, m: DocMessage): DocView {
         modeOwn: m.modeOwn,
         agentsPropose: m.agentsPropose,
         opened: m.revision,
+        // Read again because the page had drifted (p3.5.7): still said after the new text.
+        ...(v.resynced && { resynced: v.resynced }),
       };
     case "doc.changed":
       return { ...v, revision: m.revision, changes: withChange(v.changes, m.change) };
@@ -1892,6 +1923,8 @@ export function docView(file: DocFile): Signal<DocView> {
 function docMessage(m: DocMessage): void {
   const v = docView(m.file);
   v.value = reduceDoc(v.value, m);
+  if ((m.type === "doc.changed" || m.type === "doc.ack") && m.change?.undoOf?.length)
+    keepMarks(m.file);
   const peer = docPeers.get(docKey(m.file));
   if (!peer) return;
   if (m.type === "doc.opened") peer.opened(m.snapshot, m.revision);
@@ -1974,6 +2007,17 @@ export function dismissHeld(file: DocFile, at?: number): void {
 }
 
 /** The notice of a change from outside, closed by the person. */
+/** The editor read the file again because it no longer matched the host (p3.5.7). */
+export function docResynced(file: DocFile, lost: boolean): void {
+  const v = docView(file);
+  v.value = { ...v.value, resynced: { at: Date.now(), lost: lost || !!v.value.resynced?.lost } };
+}
+
+export function dismissResynced(file: DocFile): void {
+  const v = docView(file);
+  v.value = { ...v.value, resynced: undefined };
+}
+
 export function dismissOutside(file: DocFile): void {
   const v = docView(file);
   v.value = { ...v.value, outside: undefined };

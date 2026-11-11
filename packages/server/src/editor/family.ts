@@ -68,6 +68,8 @@ export interface DocFamily<M = unknown> {
   /** A save of its own (G37.3), used instead of `save` when there: the bytes to write. */
   saveTo?(ctx: SaveContext<M>): Promise<Uint8Array>;
   snapshot(model: M): DocSnapshot;
+  /** A short check of the content (p3.5.7, text: `textDigest`), sent with every revision. */
+  digest?(model: M): string;
   /** Why an operation cannot apply to this model (undefined: it can). */
   check(model: M, op: DocOp): string | undefined;
   apply(model: M, op: DocOp): M;

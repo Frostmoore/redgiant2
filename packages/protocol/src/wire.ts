@@ -336,6 +336,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
     revision: z.number().int().positive(),
     ops: z.array(DocOp).min(1).max(1000),
     change: DocChange,
+    /** The content after this revision (`textDigest`, text files): the page checks it agrees. */
+    digest: z.string().max(40).optional(),
   }),
   z.object({
     type: z.literal("doc.ack"),
@@ -344,13 +346,16 @@ export const ServerMessage = z.discriminatedUnion("type", [
     revision: z.number().int().nonnegative(),
     /** The revision made (the panel «Modifiche» lists it; the page already has its text). */
     change: DocChange.optional(),
+    /** The content after this revision (`textDigest`, text files): the page checks it agrees. */
+    digest: z.string().max(40).optional(),
   }),
   z.object({
     type: z.literal("doc.rejected"),
     file: DocFile,
     clientId: z.string(),
     /** conflict (the same place changed meanwhile), busy (the person is typing there), stale,
-     *  invalid, replaced (the file changed from outside), gone. */
+     *  invalid, replaced (the file changed from outside), gone, closed (the file is not open on
+     *  this connection), failed (the host could not apply it): the page reads the file again. */
     code: z.string().max(40),
     reason: z.string().max(2000),
     revision: z.number().int().nonnegative(),

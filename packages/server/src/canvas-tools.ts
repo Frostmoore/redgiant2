@@ -77,6 +77,23 @@ export async function fileAt(
   return { abs: real, outside: true };
 }
 
+/**
+ * A path, or, for an open copy not made yet (`x.xlsx.open/x.ods` while the person only looks at
+ * `x.xlsx`), its original: the editor makes the copy from it as for the original's own path
+ * (p3.5.7, the person's test of 3.5.6: «There is no file "bilancio.xlsx.open/bilancio.ods"»).
+ */
+export async function fileOrOriginal(
+  ws: Workspace,
+  path: string,
+): Promise<{ abs: string; outside: boolean; original?: string } | { error: string }> {
+  const f = await fileAt(ws, path);
+  if (!("error" in f)) return f;
+  const original = originalOfAnyCopy(path);
+  if (!original) return f;
+  const o = await fileAt(ws, original);
+  return "error" in o ? f : { ...o, original };
+}
+
 const clock = (s: number) => {
   const m = Math.floor(s / 60);
   const r = Math.round(s - m * 60);
@@ -230,7 +247,7 @@ export function canvasTools(
       /** The tab the picture is of, when it is one (its place is corrected after the look). */
       let shown: CanvasTabInfo | undefined;
       if (i.path) {
-        const f = await fileAt(ws, i.path);
+        const f = await fileOrOriginal(ws, i.path);
         if ("error" in f) return { content: `${said}\n\n${f.error}`, isError: true };
         abs = f.abs;
         // A file the person has open (p3.5.6: canvas_look on "modulo.pdf" drew page 1 while the

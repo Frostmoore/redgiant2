@@ -21,7 +21,13 @@ import {
   SAVE_WATCH_MS,
   saveDoc,
 } from "../src/state.js";
-import { freshAgentWrites, type Outgoing, TextCollab, textOp } from "../src/viewers/collab.js";
+import {
+  ACK_WAIT_MS,
+  freshAgentWrites,
+  type Outgoing,
+  TextCollab,
+  textOp,
+} from "../src/viewers/collab.js";
 
 const file = { scope: "platform", path: "a.txt" };
 const cs = (op: DocOp) => ChangeSet.fromJSON(op.family === "text" ? op.op.changes : []);
@@ -80,6 +86,46 @@ describe("TextCollab: the page and the host agree (G37.1)", () => {
     // What the agent wrote, highlighted where it is in the person's text.
     const [[f, t]] = (r as { wrote: [number, number][] }).wrote as [[number, number]];
     expect(view.sliceString(f, t)).toBe("BETA");
+  });
+
+  it("a reconnection: the file opened again before the batch queued meanwhile (p3.5.7)", () => {
+    // The person's Ctrl+Z (a deletion) leaves while the connection is down; when it is back the
+    // page's doc.open goes first, then the queued batch. The page is given the text without it,
+    // the host applies it after: the page must know it lacks that revision.
+    const start = "one\ntwo\nciao";
+    const host = new MiniHost(start);
+    const sent: Outgoing[] = [];
+    const collab = new TextCollab((o) => sent.push(o));
+    collab.reset(0);
+    collab.local(ChangeSet.of({ from: 7, to: 12 }, start.length));
+    collab.flush();
+    // The open answered first: the host's text, revision 0.
+    collab.reset(host.revision);
+    // Then the batch queued offline reaches the host and is acknowledged.
+    const x = sent[0] as Outgoing;
+    const ack = host.apply(x.baseRevision, cs(x.ops[0] as DocOp));
+    expect(collab.ack(x.clientId, ack.revision)).toBe(false);
+    // Before p3.5.7 the ack was ignored: the page showed «ciao», the host had deleted it.
+    expect(collab.orphan(x.clientId)).toBe(true);
+    expect(collab.orphan(x.clientId)).toBe(false);
+  });
+
+  it("a batch the host never answers is noticed after a while (p3.5.7)", () => {
+    let now = 1000;
+    const collab = new TextCollab(
+      () => {},
+      () => now,
+    );
+    collab.reset(2);
+    expect(collab.stuck()).toBe(false);
+    collab.local(ChangeSet.of({ from: 0, insert: "x" }, 0));
+    collab.flush();
+    now += ACK_WAIT_MS - 1;
+    expect(collab.stuck()).toBe(false);
+    now += 1;
+    expect(collab.stuck()).toBe(true);
+    collab.reset(2);
+    expect(collab.stuck()).toBe(false);
   });
 
   it("a revision out of order, or an ack not its own, asks for the file again", () => {

@@ -76,7 +76,8 @@ export type Applied = {
 };
 export type Refused = {
   ok: false;
-  code: "conflict" | "busy" | "stale" | "invalid" | "gone" | "nothing";
+  /** `failed`: the host could not apply it (an error, p3.5.7), told to the page as a refusal. */
+  code: "conflict" | "busy" | "stale" | "invalid" | "gone" | "nothing" | "failed";
   reason: string;
   revision: number;
   conflict?: number;
@@ -843,6 +844,8 @@ export class EditorHost {
         at: this.now(),
       });
     const change = this.changeOf(rev);
+    // What the file holds now, for the pages to check theirs against (p3.5.7).
+    const digest = f.digest?.(model);
     for (const s of doc.subs.values())
       if (req.origin && s.id === req.origin.subId)
         s.send({
@@ -851,8 +854,17 @@ export class EditorHost {
           clientId: req.origin.clientId,
           revision,
           change,
+          ...(digest && { digest }),
         });
-      else s.send({ type: "doc.changed", file: doc.file, revision, ops, change });
+      else
+        s.send({
+          type: "doc.changed",
+          file: doc.file,
+          revision,
+          ops,
+          change,
+          ...(digest && { digest }),
+        });
     if (!person)
       this.broadcast(doc, { type: "doc.presence", file: doc.file, presence: this.presenceOf(doc) });
     if (person) this.tellAgents(doc, rev);

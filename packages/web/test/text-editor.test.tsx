@@ -332,3 +332,50 @@ describe("the editor of text and code", () => {
     expect(container.querySelector(".doc-diff-title")?.textContent).toMatch(/Ada/);
   });
 });
+
+describe("the page and the host never drift apart silently (p3.5.7)", () => {
+  it("a revision whose text check differs from the page's: read again, and said", async () => {
+    setLang("it");
+    const { DocEditor } = await import("../src/components/viewers/DocEditor.js");
+    const { textDigest } = await import("@redgiant/protocol");
+    const file = { scope: "platform", path: "notes/drift.txt" };
+    const { container } = render(<DocEditor file={file} />);
+    open(file.path, "one\ntwo\nciao\n");
+    await waitFor(() => expect(container.querySelector(".cm-content")).toBeTruthy());
+    const change = (revision: number) => ({
+      revision,
+      ts: new Date().toISOString(),
+      author: "ada",
+      authorName: "Ada",
+      groupId: "turn:z",
+      summary: { text: "", kind: "insert" as const, line: 1, lines: 1 },
+      wrote: [],
+    });
+    const insert = (revision: number, text: string, digest: string) =>
+      applyMessage({
+        type: "doc.changed",
+        file,
+        revision,
+        ops: [
+          {
+            family: "text",
+            engine: "codemirror-state",
+            engineVersion: "6",
+            op: { changes: ChangeSet.of({ from: 0, insert: "> " }, text.length).toJSON() as never },
+          },
+        ],
+        change: change(revision),
+        digest,
+      });
+    // The host's text agrees: nothing said.
+    insert(4, "one\ntwo\nciao\n", textDigest("> one\ntwo\nciao\n"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(container.querySelector(".doc-resynced")).toBeNull();
+    // The host holds something else (an undo of the person's that never reached it).
+    insert(5, "> one\ntwo\nciao\n", textDigest("> > one\ntwo\nciao\nciao\n"));
+    await waitFor(() => expect(container.querySelector(".doc-resynced")).toBeTruthy());
+    expect(container.querySelector(".doc-resynced")?.textContent).toMatch(
+      /non corrispondeva più al file sul server/,
+    );
+  });
+});

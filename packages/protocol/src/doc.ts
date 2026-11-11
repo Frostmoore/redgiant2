@@ -30,6 +30,21 @@ export const docStreamId = (f: DocFile): string => `file:${f.scope}:${f.path}`;
 /** The key that names a file in settings and maps (the same as its stream). */
 export const docKey = docStreamId;
 
+/**
+ * A short check of a text's content (p3.5.7): its length and FNV-1a over its UTF-16 units. The
+ * host sends it with every text revision; the page compares it with its own text when nothing of
+ * the person's waits, and reads the file again when they differ (the person's test of 3.5.6: one
+ * Ctrl+Z never reached the host and the page never knew).
+ */
+export function textDigest(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `${text.length}:${h.toString(16).padStart(8, "0")}`;
+}
+
 // -------------------------------------------------------------------------------------------
 // Values the engines put in their operations that JSON cannot hold (pdf.js arrays with NaN,
 // pixels, pasted pictures): an explicit encoding, so an operation survives the log unchanged.

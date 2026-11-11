@@ -13,6 +13,7 @@ import {
 import { type WebSocket, WebSocketServer } from "ws";
 import type { AuthProvider, Principal } from "./auth.js";
 import type { RedGiantCore } from "./core.js";
+import type { Outcome } from "./editor/host.js";
 import { handleTerminal } from "./terminal.js";
 
 /**
@@ -380,15 +381,39 @@ export function attachWebSocket(
             return;
           }
           case "doc.ops": {
+            // Never only an error in the header (p3.5.7, the person's test of 3.5.6): the page's
+            // batch would wait for its answer for ever and nothing typed after it would leave.
+            // Refused, the page reads the file again.
             const d = docSub(msg.file);
-            if (!d) return fail("doc_closed", "Open the file first");
-            const out = await core.editor.apply(owner, msg.file, {
-              author: { id: PERSON },
-              baseRevision: msg.baseRevision,
-              ops: msg.ops,
-              groupId: msg.groupId,
-              origin: { subId: d.subId, clientId: msg.clientId },
-            });
+            if (!d)
+              return send({
+                type: "doc.rejected",
+                file: msg.file,
+                clientId: msg.clientId,
+                code: "closed",
+                reason: "The file is not open on this connection: open it again",
+                revision: 0,
+              });
+            const out = await core.editor
+              .apply(owner, msg.file, {
+                author: { id: PERSON },
+                baseRevision: msg.baseRevision,
+                ops: msg.ops,
+                groupId: msg.groupId,
+                origin: { subId: d.subId, clientId: msg.clientId },
+              })
+              .catch(
+                (err: unknown): Outcome => ({
+                  ok: false,
+                  code: "failed",
+                  reason:
+                    `The change could not be applied: ${(err as Error)?.message ?? err}`.slice(
+                      0,
+                      2000,
+                    ),
+                  revision: 0,
+                }),
+              );
             if (!out.ok)
               send({
                 type: "doc.rejected",
@@ -402,16 +427,28 @@ export function attachWebSocket(
             return;
           }
           case "doc.undo": {
-            const out = await core.editor.undo(
-              owner,
-              msg.file,
-              {
-                ...(msg.revision !== undefined && { revision: msg.revision }),
-                ...(msg.toBefore && { toBefore: true }),
-                ...(msg.groupId && { groupId: msg.groupId }),
-              },
-              { id: PERSON },
-            );
+            const out = await core.editor
+              .undo(
+                owner,
+                msg.file,
+                {
+                  ...(msg.revision !== undefined && { revision: msg.revision }),
+                  ...(msg.toBefore && { toBefore: true }),
+                  ...(msg.groupId && { groupId: msg.groupId }),
+                },
+                { id: PERSON },
+              )
+              .catch(
+                (err: unknown): Outcome => ({
+                  ok: false,
+                  code: "failed",
+                  reason: `The undo could not be applied: ${(err as Error)?.message ?? err}`.slice(
+                    0,
+                    2000,
+                  ),
+                  revision: 0,
+                }),
+              );
             send(
               out.ok
                 ? {

@@ -5,7 +5,7 @@
 // and the line ends are kept as the file had them, mixed ones too (`endsFor`). Changes are told in
 // lines: «changed line 4», «added 3 lines at line 7».
 import { ChangeSet, Text } from "@codemirror/state";
-import type { DocOp, DocSummary, TextDocOp } from "@redgiant/protocol";
+import { type DocOp, type DocSummary, type TextDocOp, textDigest } from "@redgiant/protocol";
 import { z } from "zod";
 import type { DocFamily, FromAgent } from "./family.js";
 
@@ -339,6 +339,7 @@ export const textFamily: DocFamily<Text> = {
   },
 
   snapshot: (model) => ({ family: "text", text: model.toString() }),
+  digest: (model) => textDigest(model.toString()),
 
   check(model, op) {
     if (op.family !== "text") return `a ${op.family} operation on a text`;
