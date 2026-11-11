@@ -14,6 +14,7 @@ export * from "./doc-svg.js";
 export * from "./events.js";
 export * from "./find-timing.js";
 export * from "./image-filters.js";
+export * as imagePx from "./image-pixels.js";
 export * from "./imports.js";
 export * from "./jobs.js";
 export * from "./knowledge.js";

@@ -1,7 +1,7 @@
 // The layered picture editor in the canvas (G37.5), inside the editor's shell (DocEditor.tsx):
 // its engine in its own island (viewers/image-island.ts, loaded only now) under our own bar and
-// panels: tools (move, brush, eraser, rectangle/ellipse/lasso selection, text, colour picker),
-// brush options, layers (visibility, lock, opacity, blending, order, merge, rename), masks,
+// panels: Photoshop's tools on the left (p3.5.7, ImageToolbar.tsx: groups, flyouts, the same
+// letters and the colours), their options on top (ImageOptions.tsx), layers (visibility, lock, opacity, blending, order, merge, rename), masks,
 // the selection's actions (fill, clear, crop), the filter catalog with a preview, transforms,
 // the picture's size, undo (the host's: the person's own revisions), zoom, «Esporta come…» and
 // «Apri in Krita». The person's edits go to the host as tiles; the agents' arrive the same way,
@@ -24,12 +24,10 @@ import {
   IconCopy,
   IconCrop,
   IconDownload,
-  IconEllipse,
   IconEraser,
   IconExternal,
   IconEye,
   IconFlip,
-  IconLasso,
   IconLayers,
   IconLock,
   IconMask,
@@ -37,28 +35,44 @@ import {
   IconMergeDown,
   IconMove,
   IconOrder,
-  IconPipette,
   IconPlus,
   IconRedo,
   IconSelectAll,
   IconSliders,
   IconSpinner,
-  IconSquare,
+  IconTransform,
   IconTrash,
-  IconType,
   IconUndo,
   IconX,
   IconZoom,
 } from "../../icons.js";
 import { attempt, getApi, openCanvas, openDoc, sendDoc } from "../../state.js";
 import { holdMark } from "../../viewers/agent-marks.js";
-import type { ImageIsland, ImageTool, IslandLayer, Rect } from "../../viewers/image-island.js";
+import type {
+  Brush,
+  ImageIsland,
+  IslandLayer,
+  IslandNote,
+  Rect,
+} from "../../viewers/image-island.js";
 import { ImageCollab, imageActionsOf, imageDocOp } from "../../viewers/image-ops.js";
+import {
+  BRUSHED,
+  brushStep,
+  DEFAULT_OPTIONS,
+  defaultShown,
+  groupOf,
+  type ImageTool,
+  SELECTING,
+  type ToolOptions,
+  toolForKey,
+} from "../../viewers/image-tools.js";
 import { OwnUndo } from "../../viewers/own-undo.js";
 import { download } from "../../viewers/source.js";
 import { askText } from "../dialogs.js";
-import { SmallSwitch } from "../ui.js";
 import { CopyBar } from "./CopyBar.js";
+import { ImageOptions, type TextOptions } from "./ImageOptions.js";
+import { ImageToolbar } from "./ImageToolbar.js";
 
 /** Pictures the editor opens as they are: OpenRaster always. */
 export const IMAGE_LAYERED = /\.ora$/i;
@@ -95,8 +109,14 @@ export function EditPictureButton({ scope, path }: { scope: string; path: string
   );
 }
 
-const GESTURE_MS = 1500;
-const FONTS = ["sans-serif", "serif", "monospace", "cursive"];
+/** The island's notes in the person's words. */
+const NOTES: Record<IslandNote, Parameters<typeof t>[0]> = {
+  locked: "imgLocked",
+  cloneSource: "imgCloneSource",
+  cloneSet: "imgCloneSet",
+  nothingSelected: "imgNothingSelected",
+  noLayer: "imgNoLayer",
+};
 
 let asks = 0;
 const askId = () => `i${Date.now().toString(36)}${(asks++).toString(36)}`;
@@ -115,9 +135,20 @@ export function ImageEditor({ file }: { file: DocFile }) {
   const [layers, setLayers] = useState<IslandLayer[]>([]);
   const [current, setCurrent] = useState<string>();
   const [tool, setToolNow] = useState<ImageTool>("brush");
-  const [brush, setBrushNow] = useState({ size: 12, opacity: 1, hardness: 1, color: "#e0482e" });
+  /** The tool each group of the left bar shows (its last used). */
+  const [shown, setShown] = useState(defaultShown);
+  const [brush, setBrushNow] = useState<Brush>({
+    size: 12,
+    opacity: 1,
+    hardness: 1,
+    flow: 1,
+    color: "#e0482e",
+  });
+  const [background, setBackground] = useState("#ffffff");
+  const [opts, setOptsNow] = useState<ToolOptions>({ ...DEFAULT_OPTIONS });
+  const [crop, setCrop] = useState<Rect>();
+  const [transforming, setTransforming] = useState(false);
   const [onMask, setOnMask] = useState(false);
-  const [moveOutline, setMoveOutline] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [sel, setSel] = useState<Rect>();
   const [busy, setBusy] = useState(0);
@@ -129,7 +160,15 @@ export function ImageEditor({ file }: { file: DocFile }) {
   const [exporting, setExporting] = useState<string>();
   const [filter, setFilter] = useState<{ id: string; params: Record<string, number> }>();
   const [tf, setTf] = useState({ scale: 100, angle: 0 });
-  const [text, setText] = useState({ size: 48, bold: false, italic: false, font: "sans-serif" });
+  const [text, setText] = useState<TextOptions>({
+    size: 48,
+    bold: false,
+    italic: false,
+    font: "sans-serif",
+  });
+  /** The text options as they are now, for the island's callbacks made once. */
+  const textNow = useRef(text);
+  textNow.current = text;
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
   const name = file.path.split(/[\\/]/).pop() ?? file.path;
   useEffect(() => setCanvasSize({ w: size.w, h: size.h }), [size.w, size.h]);
@@ -155,16 +194,16 @@ export function ImageEditor({ file }: { file: DocFile }) {
     let closed = false;
     let island: ImageIsland | undefined;
     let latest: { s: ImageSnapshot; revision: number } | undefined;
-    let group = `g-${Math.random().toString(36).slice(2, 10)}`;
-    let last = 0;
     /** Remote revisions drawn one after the other (their blobs are fetched). */
     let queue: Promise<unknown> = Promise.resolve();
     /** The highlights waiting to be seen, by revision: dropped when the editor closes. */
     const fading = new Map<number, () => void>();
     /** The person's revisions, to undo the last gesture; the undos, to redo (p3.5.6). */
     const own = new OwnUndo();
+    let undoing: Promise<void> = Promise.resolve();
     const sentIn = new Map<string, string>();
     const collab = new ImageCollab((o) => {
+      const group = o.group ?? `g-${Math.random().toString(36).slice(2, 10)}`;
       sentIn.set(o.clientId, group);
       sendDoc({
         type: "doc.ops",
@@ -178,6 +217,7 @@ export function ImageEditor({ file }: { file: DocFile }) {
     const resync = () => sendDoc({ type: "doc.open", file });
     const show = (s: ImageSnapshot, revision: number) => {
       collab.reset(revision);
+      own.forget();
       if (!island) {
         latest = { s, revision };
         return;
@@ -214,10 +254,10 @@ export function ImageEditor({ file }: { file: DocFile }) {
           },
           upload: (png) => getApi().imageBlob(file.scope, file.path, png),
           onActions(acts: ImagePlainAction[], what?: string, filterId?: string) {
-            const now = Date.now();
-            if (now - last > GESTURE_MS) group = `g-${Math.random().toString(36).slice(2, 10)}`;
-            last = now;
-            collab.local(acts, what, filterId);
+            // Each gesture is one revision and one Ctrl+Z (p3.5.7: gestures within 1.5 s shared
+            // a group before, and one Ctrl+Z took them back together).
+            const group = `g-${Math.random().toString(36).slice(2, 10)}`;
+            collab.local(acts, what, filterId, group);
             collab.flush();
           },
           onLayers: refresh,
@@ -231,11 +271,30 @@ export function ImageEditor({ file }: { file: DocFile }) {
               to: 0,
               revision: collab.revision,
             }),
-          onPick: (hex) => setBrushNow((b) => ({ ...b, color: hex })),
+          onPick: (hex, which) => {
+            if (which === "bg") {
+              setBackground(hex);
+              if (island) island.background = hex;
+            } else setBrushNow((b) => ({ ...b, color: hex }));
+          },
           onText: (x, y) =>
             void askText(t("imgTextAsk"), "", { label: t("imgTextAsk") }).then((s) => {
-              if (s?.trim()) island?.addText(s, x, y, { ...text, color: island.brush.color });
+              if (s?.trim())
+                island?.addText(s, x, y, { ...textNow.current, color: island.brush.color });
             }),
+          onNote: (n: IslandNote) => setNote(t(NOTES[n])),
+          onCrop: setCrop,
+          onTransform: setTransforming,
+          label: (k) =>
+            k === "copy"
+              ? t("imgLayerVia")
+              : t(
+                  k === "shape-rect"
+                    ? "imgShapeName_rect"
+                    : k === "shape-ellipse"
+                      ? "imgShapeName_ellipse"
+                      : "imgShapeName_line",
+                ),
           onZoom: setZoom,
           onBusy: setBusy,
           onError: (msg) =>
@@ -243,8 +302,9 @@ export function ImageEditor({ file }: { file: DocFile }) {
         });
         isl.current = island;
         island.brush = { ...brush };
+        island.background = background;
+        island.opts = { ...opts };
         island.tool = tool;
-        island.moveOutline = moveOutline;
         if (latest) {
           show(latest.s, latest.revision);
           latest = undefined;
@@ -303,22 +363,38 @@ export function ImageEditor({ file }: { file: DocFile }) {
         if (!collab.ack(m.clientId, m.revision)) return;
         own.made(m.revision, sentIn.get(m.clientId) ?? `r${m.revision}`);
         sentIn.delete(m.clientId);
+        // Ctrl+Z pressed before this was confirmed (p3.5.7): asked now, for the right gesture.
+        for (const ask of own.release(collab.pending))
+          sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
       },
       rejected(m) {
-        if (collab.rejected(m.clientId)) resync();
+        if (collab.rejected(m.clientId)) {
+          own.forget();
+          resync();
+        }
       },
     });
     api.current = {
+      // Ctrl+Z waits for the gestures made to be confirmed by the host (p3.5.7, the person's
+      // test of 3.5.6: right after a Move its revision was not known yet, so Ctrl+Z did nothing,
+      // or undid the gesture before and the host refused it for the place the Move changed).
+      // The pixels being made ready first (`settled`), then OwnUndo.press keeps the key until
+      // the ack (`release`). Presses stay in order.
       undo() {
-        void island?.settled().then(() => {
+        undoing = undoing.then(async () => {
+          await island?.settled();
           collab.flush();
-          const ask = own.undo();
+          const ask = own.press("undo", collab.pending);
           if (ask) sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
         });
       },
       redo() {
-        const ask = own.redo();
-        if (ask) sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
+        undoing = undoing.then(async () => {
+          await island?.settled();
+          collab.flush();
+          const ask = own.press("redo", collab.pending);
+          if (ask) sendDoc({ type: "doc.undo", file, clientId: askId(), ...ask });
+        });
       },
       flush() {
         collab.flush();
@@ -343,7 +419,23 @@ export function ImageEditor({ file }: { file: DocFile }) {
   };
   const setTool = (to: ImageTool) => {
     setToolNow(to);
-    if (isl.current) isl.current.tool = to;
+    setShown((m) => ({ ...m, [groupOf(to).id]: to }));
+    const x = isl.current;
+    if (x) {
+      x.tool = to;
+      // A tool change ends the polygon under way (as Photoshop's), not a crop or a transform.
+      if (!SELECTING.has(to)) x.cancelPolygon();
+    }
+  };
+  const setOpts = (o: Partial<ToolOptions>) => {
+    const next = { ...opts, ...o };
+    setOptsNow(next);
+    if (isl.current) isl.current.opts = next;
+  };
+  const setColors = (fg: string, bg: string) => {
+    setBrush({ color: fg });
+    setBackground(bg);
+    if (isl.current) isl.current.background = bg;
   };
   const setBrush = (b: Partial<typeof brush>) => {
     const next = { ...brush, ...b };
@@ -363,30 +455,56 @@ export function ImageEditor({ file }: { file: DocFile }) {
       e.preventDefault();
       fn();
     };
+    if (e.key === "Alt") x.altHeld = true;
+    // Space held: the hand for a while (Photoshop's).
+    if (e.key === " ") return act(() => (x.spaceHand = true));
     if (mod && k === "z")
       return act(() => (e.shiftKey ? api.current?.redo() : api.current?.undo()));
     if (mod && k === "y") return act(() => api.current?.redo());
     if (mod && k === "a") return act(() => x.selectAll());
+    if (mod && e.shiftKey && k === "d") return act(() => x.reselect());
     if (mod && k === "d") return act(() => x.selectNone());
-    if (mod || e.altKey) return;
+    if (mod && e.shiftKey && k === "i") return act(() => x.invertSelection());
+    if (mod && k === "t") return act(() => x.freeTransform());
+    if (mod && k === "j") return act(() => x.layerViaCopy(t("imgLayerVia")));
+    if (mod && (k === "+" || k === "=")) return act(() => x.zoomAt(1));
+    if (mod && k === "-") return act(() => x.zoomAt(-1));
+    if (mod && k === "0") return act(() => setZoom(x.setZoom("fit")));
+    if (mod) return;
+    if (k === "enter") return x.commit() ? act(() => {}) : undefined;
+    if (k === "escape") return x.cancel() ? act(() => {}) : undefined;
+    if (k === "backspace" && x.polyBack()) return act(() => {});
     if (k === "delete" || k === "backspace") return act(() => x.fillSelection("", true));
-    if (k === "escape") return act(() => x.selectNone());
-    if (k === "[") return act(() => setBrush({ size: Math.max(1, Math.round(brush.size / 1.25)) }));
-    if (k === "]")
-      return act(() => setBrush({ size: Math.min(500, Math.round(brush.size * 1.25) + 1) }));
-    const tools: Record<string, ImageTool> = {
-      m: "move",
-      v: "move",
-      b: "brush",
-      e: "eraser",
-      r: "rect",
-      o: "ellipse",
-      l: "lasso",
-      t: "text",
-      i: "picker",
+    const arrows: Record<string, [number, number]> = {
+      arrowleft: [-1, 0],
+      arrowright: [1, 0],
+      arrowup: [0, -1],
+      arrowdown: [0, 1],
     };
-    const to = tools[k];
+    const arrow = arrows[k];
+    if (arrow) {
+      const n = e.shiftKey ? 10 : 1;
+      return act(() => x.nudge(arrow[0] * n, arrow[1] * n));
+    }
+    if (e.altKey) return;
+    if (k === "[" || k === "]") {
+      const dir = k === "]" ? 1 : -1;
+      return act(() =>
+        tool === "quick-select"
+          ? setOpts({ quickSize: brushStep(opts.quickSize, dir) })
+          : setBrush({ size: brushStep(brush.size, dir) }),
+      );
+    }
+    if (k === "x") return act(() => setColors(background, brush.color));
+    if (k === "d") return act(() => setColors("#000000", "#ffffff"));
+    const to = toolForKey(k, e.shiftKey, tool, shown);
     if (to) act(() => setTool(to));
+  };
+  const onKeyUp = (e: KeyboardEvent) => {
+    const x = isl.current;
+    if (!x) return;
+    if (e.key === " ") x.spaceHand = false;
+    if (e.key === "Alt") x.altHeld = false;
   };
 
   const exportAs = (to: "png" | "jpeg" | "webp" | "ora" | "psd") =>
@@ -434,26 +552,6 @@ export function ImageEditor({ file }: { file: DocFile }) {
       }
     });
 
-  const Tool = ({
-    id,
-    label,
-    children,
-  }: {
-    id: ImageTool;
-    label: string;
-    children: ComponentChildren;
-  }) => (
-    <button
-      type="button"
-      class={`vw-icon svg-tool ${tool === id ? "on" : ""}`}
-      title={label}
-      aria-label={label}
-      aria-pressed={tool === id}
-      onClick={() => setTool(id)}
-    >
-      {children}
-    </button>
-  );
   const Btn = ({
     label,
     on,
@@ -512,7 +610,6 @@ export function ImageEditor({ file }: { file: DocFile }) {
 
   const flatCopy = size.format !== "ora" && layers.length > 1;
   const filterDef = filter && IMAGE_FILTERS.find((f) => f.id === filter.id);
-  const painting = tool === "brush" || tool === "eraser";
 
   return (
     <div class="svg-editor img-editor">
@@ -642,174 +739,60 @@ export function ImageEditor({ file }: { file: DocFile }) {
         </div>
       )}
       <div class="img-options" role="toolbar" aria-label={t("imgOptions")}>
-        {(painting || tool === "text") && (
-          <label class="img-color">
-            <span>{t("imgColor")}</span>
-            <input
-              type="color"
-              value={brush.color}
-              onInput={(e) => setBrush({ color: (e.target as HTMLInputElement).value })}
-            />
-          </label>
-        )}
-        {painting && (
-          <>
-            <label>
-              <span>{t("imgSize")}</span>
-              <input
-                type="range"
-                min={1}
-                max={300}
-                value={brush.size}
-                onInput={(e) => setBrush({ size: Number((e.target as HTMLInputElement).value) })}
-              />
-              <span class="dim img-val">{brush.size}</span>
-            </label>
-            <label>
-              <span>{t("imgOpacity")}</span>
-              <input
-                type="range"
-                min={0.05}
-                max={1}
-                step={0.05}
-                value={brush.opacity}
-                onInput={(e) => setBrush({ opacity: Number((e.target as HTMLInputElement).value) })}
-              />
-              <span class="dim img-val">{Math.round(brush.opacity * 100)}%</span>
-            </label>
-            <label>
-              <span>{t("imgHardness")}</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={brush.hardness}
-                onInput={(e) =>
-                  setBrush({ hardness: Number((e.target as HTMLInputElement).value) })
-                }
-              />
-            </label>
-            {cur?.hasMask && (
-              <SmallSwitch
-                label={t("imgOnMask")}
-                on={onMask}
-                onChange={(on) => {
-                  if (isl.current) isl.current.onMask = on;
-                  setOnMask(on);
-                }}
-              />
-            )}
-          </>
-        )}
-        {tool === "text" && (
-          <>
-            <Num
-              label={t("imgTextSize")}
-              value={text.size}
-              min={4}
-              max={1000}
-              onChange={(n) => setText({ ...text, size: n })}
-            />
-            <label>
-              <span>{t("imgTextFont")}</span>
-              <select
-                value={text.font}
-                onChange={(e) => setText({ ...text, font: (e.target as HTMLSelectElement).value })}
-              >
-                {FONTS.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <SmallSwitch
-              label={t("imgBold")}
-              on={text.bold}
-              onChange={(on) => setText({ ...text, bold: on })}
-            />
-            <SmallSwitch
-              label={t("imgItalic")}
-              on={text.italic}
-              onChange={(on) => setText({ ...text, italic: on })}
-            />
-            <span class="dim">{t("imgTextHint")}</span>
-          </>
-        )}
-        {(tool === "rect" || tool === "ellipse" || tool === "lasso") && (
-          <span class="dim">{t("imgSelectHint")}</span>
-        )}
-        {tool === "move" && (
-          <>
-            {/* With a selection Move takes its pixels; the switch (or Alt held) its outline alone. */}
-            <SmallSwitch
-              label={t("imgMoveOutline")}
-              help={t("imgMoveOutlineHelp")}
-              on={moveOutline}
-              disabled={!sel}
-              onChange={(on) => {
-                setMoveOutline(on);
-                if (isl.current) isl.current.moveOutline = on;
-              }}
-            />
-            <span class="dim">
-              {!sel
-                ? t("imgMoveHint")
-                : moveOutline
-                  ? t("imgMoveOutlineHint")
-                  : t("imgMoveSelHint")}
-            </span>
-          </>
-        )}
-        {tool === "picker" && (
-          <span class="dim">
-            {t("imgPickHint")} <span class="img-swatch" style={{ background: brush.color }} />{" "}
-            {brush.color}
-          </span>
-        )}
+        <ImageOptions
+          tool={tool}
+          opts={opts}
+          setOpts={setOpts}
+          brush={brush}
+          setBrush={setBrush}
+          text={text}
+          setText={setText}
+          sel={sel}
+          hasMask={!!cur?.hasMask}
+          onMask={onMask}
+          setOnMask={(on) => {
+            if (isl.current) isl.current.onMask = on;
+            setOnMask(on);
+          }}
+          crop={crop}
+          transforming={transforming}
+          act={(what) => {
+            const x = isl.current;
+            if (!x) return;
+            if (what === "apply") x.commit();
+            else if (what === "cancel") x.cancel();
+            else if (what === "cropFromSel") x.cropBox(sel);
+            else x.freeTransform();
+            area.current?.focus();
+          }}
+        />
       </div>
       <div class="svg-body">
-        <div
-          class="svg-tools"
-          role="toolbar"
-          aria-orientation="vertical"
-          aria-label={t("imgTools")}
-        >
-          <Tool id="move" label={t("imgToolMove")}>
-            <IconMove size={16} />
-          </Tool>
-          <Tool id="brush" label={t("imgToolBrush")}>
-            <IconBrush size={16} />
-          </Tool>
-          <Tool id="eraser" label={t("imgToolEraser")}>
-            <IconEraser size={16} />
-          </Tool>
-          <Tool id="rect" label={t("imgToolRect")}>
-            <IconSquare size={16} />
-          </Tool>
-          <Tool id="ellipse" label={t("imgToolEllipse")}>
-            <IconEllipse size={16} />
-          </Tool>
-          <Tool id="lasso" label={t("imgToolLasso")}>
-            <IconLasso size={16} />
-          </Tool>
-          <Tool id="text" label={t("imgToolText")}>
-            <IconType size={16} />
-          </Tool>
-          <Tool id="picker" label={t("imgToolPicker")}>
-            <IconPipette size={16} />
-          </Tool>
-        </div>
+        <ImageToolbar
+          tool={tool}
+          shown={shown}
+          onTool={(to) => {
+            setTool(to);
+            area.current?.focus();
+          }}
+          fg={brush.color}
+          bg={background}
+          onColor={(which, hex) =>
+            which === "fg" ? setBrush({ color: hex }) : setColors(brush.color, hex)
+          }
+          onSwap={() => setColors(background, brush.color)}
+          onDefault={() => setColors("#000000", "#ffffff")}
+        />
         <div class="svg-stage img-stage">
           <div
-            class={`img-area tool-${tool}`}
+            class={`img-area tool-${tool}${BRUSHED.has(tool) ? " brushed" : ""}`}
             ref={area}
             // biome-ignore lint/a11y/noNoninteractiveTabindex: the picture takes the keyboard
             tabIndex={0}
             role="application"
             aria-label={`${t("imgEditorLabel")}: ${name}`}
             onKeyDown={onKey}
+            onKeyUp={onKeyUp}
           />
           {marks.length > 0 && (
             <div class="svg-marks" aria-hidden="true">
@@ -1039,6 +1022,20 @@ export function ImageEditor({ file }: { file: DocFile }) {
               </Btn>
               <Btn wide label={t("imgSelInvert")} on={run((x) => x.invertSelection())}>
                 <IconFlip size={13} />
+              </Btn>
+              <Btn wide label={t("imgSelReselect")} on={run((x) => x.reselect())} disabled={!!sel}>
+                <IconUndo size={13} />
+              </Btn>
+              <Btn
+                wide
+                label={t("imgLayerViaCopy")}
+                on={run((x) => x.layerViaCopy(t("imgLayerVia")))}
+                disabled={!cur}
+              >
+                <IconCopy size={13} />
+              </Btn>
+              <Btn wide label={t("imgXform")} on={run((x) => x.freeTransform())} disabled={!cur}>
+                <IconTransform size={13} />
               </Btn>
               <Btn
                 wide

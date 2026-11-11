@@ -289,6 +289,37 @@ describe("the agent's operations", () => {
     expect(() => agent(m, [{ op: "fill", layer: "Sfondo", color: "#fff" }])).toThrow(/locked/);
   });
 
+  // p3.5.7: the page's Gradient and Paint Bucket, for the agent too (the same imagePx code).
+  it("draws a gradient and fills like the paint bucket, pixel-exact and undoable", () => {
+    const m = base();
+    const acts = agent(m, [
+      { op: "add_layer", name: "Sfumata" },
+      {
+        op: "gradient",
+        layer: "Sfumata",
+        from: [0, 0],
+        to: [64, 0],
+        colors: ["#000000", "#ffffff"],
+        area: { rect: [0, 0, 64, 10] },
+      },
+      { op: "bucket", layer: "Sfumata", at: [5, 30], color: "#ff0000" },
+    ]);
+    const after = roundTrip(m, acts);
+    const g = after.layers.at(-1)?.px as Rgba;
+    // At pixel centres: x + 0.5 of 64.
+    expect(at(g, 0, 5)).toEqual([2, 2, 2, 255]);
+    expect(at(g, 32, 5)).toEqual([129, 129, 129, 255]);
+    expect(at(g, 63, 5)).toEqual([253, 253, 253, 255]);
+    // The bucket filled the transparent part joined to (5, 30), not the gradient.
+    expect(at(g, 5, 30)).toEqual([255, 0, 0, 255]);
+    expect(at(g, 63, 47)).toEqual([255, 0, 0, 255]);
+    expect(at(g, 32, 5)).toEqual([129, 129, 129, 255]);
+    expect(() => agent(m, [{ op: "gradient", layer: "Sfondo", from: [0, 0], to: [9, 9] }])).toThrow(
+      /locked/,
+    );
+    expect(() => agent(m, [{ op: "gradient", from: [1, 1], to: [1, 1] }])).toThrow(/same point/);
+  });
+
   // p3.5.6: the page's Move with a selection moves only the selected pixels; the agent too.
   it("moves only an area's pixels, the layer staying where it is (grown to hold them)", () => {
     const m = base();
