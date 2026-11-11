@@ -2052,6 +2052,15 @@ const en = {
   limitWeekShort: "7d",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  news357Tools: "Picture tools like Photoshop's",
+  news357ToolsText:
+    "The picture editor's toolbar has Photoshop's tools, groups and shortcuts: move, marquee, lasso, magic wand and quick selection, crop, brush and pencil, clone stamp, eraser, gradient and bucket, text, shapes, hand and zoom, with free transform, add and subtract selection, and moving selected pixels that float until you drop the selection.",
+  news357Editors: "Editors in step with the file",
+  news357EditorsText:
+    "The page checks that what you see is what is saved and reloads the file if they ever differ, saying so. A copy (ODP, ODS) says plainly when the original changes. Many highlighted changes fit in one short list, and they stay highlighted after you undo one.",
+  news357Agents: "Agents better informed",
+  news357AgentsText:
+    "A finished task reaches the agent that gave it while it is still working, in full. The list of steps follows at once. Agents see the right page of a PDF and wait for a document still being prepared, and the first download of the document editor shows its bar until it is done.",
   news356Steps: "Agents finish the job",
   news356StepsText:
     "In a conversation with you an agent no longer stops after a fixed number of steps: it works until it is done or you press Stop. Automations and tasks still stop at 200 steps, with a Continue button. Agents also keep their list of steps up to date.",
@@ -6919,6 +6928,15 @@ const it: Record<Key, string> = {
   limitWeekShort: "7g",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  news357Tools: "Strumenti delle immagini come Photoshop",
+  news357ToolsText:
+    "La barra dell'editor delle immagini ha gli strumenti, i gruppi e le scorciatoie di Photoshop: sposta, selezioni, lazo, bacchetta magica e selezione rapida, taglierina, pennello e matita, timbro clone, gomma, sfumatura e secchiello, testo, forme, mano e zoom, con la trasformazione libera, le selezioni che si aggiungono e si tolgono e i pixel spostati che restano fluttuanti finché non togli la selezione.",
+  news357Editors: "Editor allineati al file",
+  news357EditorsText:
+    "La pagina controlla che quello che vedi sia quello che è salvato e, se mai non coincide, rilegge il file e te lo dice. Una copia (ODP, ODS) dice chiaramente quando cambia l'originale. Tante modifiche evidenziate stanno in un elenco corto, e restano evidenziate dopo che ne annulli una.",
+  news357Agents: "Agenti meglio informati",
+  news357AgentsText:
+    "Un compito finito arriva all'agente che l'ha affidato mentre lavora ancora, e per intero. La lista dei passi si aggiorna subito. Gli agenti vedono la pagina giusta di un PDF e aspettano un documento ancora in preparazione, e il primo scaricamento dell'editor dei documenti mostra la sua barra fino alla fine.",
   news356Steps: "Gli agenti finiscono il lavoro",
   news356StepsText:
     "In una conversazione con te un agente non si ferma più dopo un numero fisso di passi: lavora finché ha finito o finché premi Ferma. Automazioni e compiti si fermano ancora a 200 passi, con il pulsante Continua. E gli agenti tengono aggiornata la loro lista di passi.",
