@@ -256,7 +256,12 @@ export function MarkedChanges({
   onUndo: (revision: number) => void;
   onUndoTurn: (groupId: string) => void;
 }) {
-  const [open, setOpen] = useState(true);
+  // Folded at first on a phone lying down (3.5.11): its few rows of height go to the text.
+  const [open, setOpen] = useState(
+    () =>
+      typeof window.matchMedia !== "function" ||
+      !window.matchMedia("(pointer: coarse) and (max-height: 500px)").matches,
+  );
   const latest = changes[0];
   if (!latest) return null;
   const n = changes.length;

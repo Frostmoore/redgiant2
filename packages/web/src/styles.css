@@ -18393,7 +18393,7 @@ fieldset.vw-seg {
 }
 /* Univer's own small buttons (zoom, sheets, grid) at a finger's size (3.5.11). */
 @media (pointer: coarse) {
-  .sheet-grid :is(button, [role="button"]):not(.univer-menu-item) {
+  .sheet-grid button:not(.univer-menu-item, [role="slider"], [class*="slider"]) {
     min-width: 40px;
     min-height: 40px;
   }
@@ -18406,5 +18406,38 @@ fieldset.vw-seg {
   .side-content .svg-layers .vw-icon {
     width: 40px;
     min-height: 40px;
+  }
+}
+@media (pointer: coarse) {
+  .side-content .doc-mark-what {
+    min-height: 40px;
+  }
+  .side-content .vw-btn.small.doc-mark-undo {
+    min-width: 44px;
+    justify-content: center;
+  }
+}
+@media (pointer: coarse) and (max-height: 500px) {
+  .side-content .doc-sub,
+  .side-content .svg-bar,
+  .side-content .pdfed-bar {
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+}
+@media (pointer: coarse) {
+  .side-content button[role="switch"] {
+    min-height: 44px;
+  }
+}
+/* Editor bars on a phone (3.5.11): tighter, so a group of 44 px buttons keeps to one row. */
+@media (max-width: 760px) {
+  .side-content .svg-bar {
+    gap: 2px;
+    padding: 2px 4px;
+  }
+  .side-content .svg-group {
+    padding-right: 2px;
+    gap: 0;
   }
 }
