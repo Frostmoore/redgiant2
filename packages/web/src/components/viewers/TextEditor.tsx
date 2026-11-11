@@ -20,14 +20,14 @@ import {
 } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, hoverTooltip, keymap } from "@codemirror/view";
 import type { DocFile } from "@redgiant/protocol";
-import { PERSON } from "@redgiant/protocol";
+import { PERSON, textDigest } from "@redgiant/protocol";
 import { basicSetup } from "codemirror";
 import { render } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
 import { IconAlert, IconCheck, IconUndo } from "../../icons.js";
 import { renderMarkdown } from "../../markdown.js";
-import { docView, openDoc, saveDoc, sendDoc } from "../../state.js";
+import { docResynced, docView, keepMarks, openDoc, saveDoc, sendDoc, status } from "../../state.js";
 import { holdMark } from "../../viewers/agent-marks.js";
 import { freshAgentWrites, TextCollab } from "../../viewers/collab.js";
 import { viewerFor } from "../../viewers/kind.js";
@@ -238,14 +238,15 @@ export function TextEditor({
                 <button
                   type="button"
                   class="vw-btn small"
-                  onClick={() =>
+                  onClick={() => {
+                    keepMarks(file);
                     sendDoc({
                       type: "doc.undo",
                       file,
                       clientId: `m${Date.now().toString(36)}${rev}`,
                       revision: rev,
-                    })
-                  }
+                    });
+                  }}
                 >
                   <IconUndo size={13} />
                   {t("docUndoThis")}
@@ -435,10 +436,31 @@ export function TextEditor({
         });
       return effects;
     };
-    const resync = () => sendDoc({ type: "doc.open", file });
+    /**
+     * The file read again from the host. `drift`: the page found it no longer matched (p3.5.7, the
+     * person's test of 3.5.6: one Ctrl+Z never reached the host, the page never knew): the
+     * person is told, and whether unconfirmed typing went with it.
+     */
+    let resyncing = false;
+    const resync = (drift = false) => {
+      if (drift) docResynced(file, collab.pending);
+      if (resyncing) return;
+      resyncing = true;
+      sendDoc({ type: "doc.open", file });
+    };
+    /** The host's text after a revision against the page's, when nothing of the person waits. */
+    const check = (digest: string | undefined) => {
+      if (!digest || !view || collab.pending || resyncing) return;
+      if (textDigest(view.state.doc.toString()) !== digest) resync(true);
+    };
+    // A batch the host never answered (an answer lost on the way): read again, not waited for ever.
+    const watchdog = setInterval(() => {
+      if (status.value === "online" && collab.stuck() && !resyncing) resync(true);
+    }, 2000);
     const close = openDoc(file, {
       opened(snapshot, revision) {
         if (snapshot.family !== "text") return;
+        resyncing = false;
         const first = !view;
         const before = collab.revision;
         collab.reset(revision);
@@ -466,17 +488,23 @@ export function TextEditor({
           ...(effects.length && { effects }),
         });
         if (m.change.author !== PERSON) highlight(r.wrote, m.revision);
+        check(m.digest);
       },
       ack(m) {
-        collab.ack(m.clientId, m.revision);
+        if (collab.ack(m.clientId, m.revision)) check(m.digest);
+        // A batch let go by a reset that the host applied after all: the page lacks it.
+        else if (collab.orphan(m.clientId)) resync(true);
         savePending();
       },
       rejected(m) {
-        if (collab.rejected(m.clientId)) resync();
+        collab.orphan(m.clientId);
+        // Refused for a reason other than the text (the file not open here, an error): said too.
+        if (collab.rejected(m.clientId)) resync(m.code === "closed" || m.code === "failed");
       },
     });
     return () => {
       live = false;
+      clearInterval(watchdog);
       if (sendTimer) clearTimeout(sendTimer);
       if (presenceTimer) clearTimeout(presenceTimer);
       if (deriveTimer) clearTimeout(deriveTimer);

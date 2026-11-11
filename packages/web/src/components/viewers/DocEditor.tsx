@@ -13,6 +13,7 @@ import { type Key, t } from "../../i18n.js";
 import {
   IconAlert,
   IconCheck,
+  IconChevron,
   IconClock,
   IconEye,
   IconList,
@@ -28,8 +29,10 @@ import {
   dismissHeld,
   dismissOutside,
   dismissRefusal,
+  dismissResynced,
   docView,
   HELD_NOTICE_MS,
+  keepMarks,
   markedChanges,
   saveDoc,
   sendDoc,
@@ -234,6 +237,88 @@ export const isSaveKey = (
 let asks = 0;
 const askId = () => `u${Date.now().toString(36)}${(asks++).toString(36)}`;
 
+/**
+ * The agents' changes highlighted now (p3.5.6), compact since p3.5.7 (the person's test of
+ * 3.5.6: twenty changes, one «Annulla questa modifica» each, filled the screen): how many and
+ * whose, «Annulla tutto il turno» beside it, and the list under it, about three rows high and
+ * scrolling, folded away on request.
+ */
+export function MarkedChanges({
+  changes,
+  onShow,
+  onUndo,
+  onUndoTurn,
+}: {
+  /** The latest first. */
+  changes: readonly DocChange[];
+  onShow: (c: DocChange) => void;
+  onUndo: (revision: number) => void;
+  onUndoTurn: (groupId: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const latest = changes[0];
+  if (!latest) return null;
+  const n = changes.length;
+  const turn = changes.filter((c) => c.groupId === latest.groupId).length;
+  return (
+    <div class="doc-notice doc-marks" role="status">
+      <div class="doc-marks-head">
+        <span class="doc-dot" aria-hidden="true" />
+        <span class="doc-marks-count">
+          {t(n === 1 ? "docMarkedOne" : "docMarkedCount", {
+            n: String(n),
+            who: whoText(latest),
+          })}
+        </span>
+        {turn > 1 && (
+          <button
+            type="button"
+            class="vw-btn small doc-marks-turn"
+            onClick={() => onUndoTurn(latest.groupId)}
+          >
+            <IconUndo size={13} />
+            {t("docUndoTurn")}
+          </button>
+        )}
+        <button
+          type="button"
+          class="vw-icon doc-marks-fold"
+          aria-expanded={open}
+          title={open ? t("docMarkedFold") : t("docMarkedUnfold")}
+          aria-label={open ? t("docMarkedFold") : t("docMarkedUnfold")}
+          onClick={() => setOpen(!open)}
+        >
+          <IconChevron open={open} size={13} />
+        </button>
+      </div>
+      {open && (
+        <ul class="doc-marks-list">
+          {changes.map((c) => (
+            <li key={c.revision} class="doc-mark-item">
+              <button
+                type="button"
+                class="link doc-mark-what"
+                title={t("docRevision", { n: String(c.revision) })}
+                onClick={() => onShow(c)}
+              >
+                {changeText(c.summary)}
+              </button>
+              <button
+                type="button"
+                class="vw-btn small doc-mark-undo"
+                onClick={() => onUndo(c.revision)}
+              >
+                <IconUndo size={13} />
+                {t("docUndoThis")}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function DocEditor({
   file,
   line,
@@ -286,6 +371,9 @@ export function DocEditor({
   const refusal = v.refusal && asked.current.get(v.refusal.clientId);
   const undo = (what: { revision?: number; toBefore?: boolean; groupId?: string }) => {
     dismissRefusal(file);
+    // The person is going through the agents' changes: the others stay highlighted (p3.5.7),
+    // also when this undo is refused.
+    keepMarks(file);
     const clientId = askId();
     asked.current.set(clientId, what);
     sendDoc({ type: "doc.undo", file, clientId, ...what });
@@ -436,6 +524,18 @@ export function DocEditor({
           </button>
         </div>
       )}
+      {v.resynced && (
+        <div class="doc-notice doc-resynced" role="alert">
+          <IconAlert size={14} />
+          <span>
+            {t("docResynced")}
+            {v.resynced.lost && ` ${t("docResyncedLost")}`}
+          </span>
+          <button type="button" class="vw-btn small" onClick={() => dismissResynced(file)}>
+            {t("docOutsideClose")}
+          </button>
+        </div>
+      )}
       {v.held && (
         <div class="doc-notice doc-held" role="status">
           <IconUser size={14} />
@@ -469,33 +569,12 @@ export function DocEditor({
         </div>
       )}
       {fresh.length > 0 && (
-        <div class="doc-notice doc-marks" role="status">
-          <span class="doc-dot" aria-hidden="true" />
-          <span>{t("docMarked", { who: whoText(fresh[0] as DocChange) })}</span>
-          {fresh.slice(0, 3).map((c) => (
-            <span key={c.revision} class="doc-mark-item">
-              <button
-                type="button"
-                class="link doc-mark-what"
-                title={t("docRevision", { n: String(c.revision) })}
-                onClick={() => show(c)}
-              >
-                {changeText(c.summary)}
-              </button>
-              <button
-                type="button"
-                class="vw-btn small doc-mark-undo"
-                onClick={() => undo({ revision: c.revision })}
-              >
-                <IconUndo size={13} />
-                {t("docUndoThis")}
-              </button>
-            </span>
-          ))}
-          {fresh.length > 3 && (
-            <span class="dim">{t("docMarkedMore", { n: String(fresh.length - 3) })}</span>
-          )}
-        </div>
+        <MarkedChanges
+          changes={fresh}
+          onShow={show}
+          onUndo={(revision) => undo({ revision })}
+          onUndoTurn={(groupId) => undo({ groupId })}
+        />
       )}
       <div class="doc-main">
         {v.status === "loading" && (

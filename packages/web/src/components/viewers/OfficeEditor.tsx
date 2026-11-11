@@ -497,6 +497,7 @@ function OfficeStrip({
       {original && (
         <CopyBar
           original={original}
+          copy={file.path}
           rewrite={
             back === undefined
               ? undefined

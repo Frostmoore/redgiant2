@@ -10,7 +10,7 @@ import type { Tool, ToolContext } from "@redgiant/agent";
 import type { CanvasState, DocFile } from "@redgiant/protocol";
 import type { Workspace } from "@redgiant/tools";
 import { z } from "zod";
-import { fileAt, tabOf, within } from "../canvas-tools.js";
+import { fileAt, fileOrOriginal, tabOf, within } from "../canvas-tools.js";
 import { originalOfAnyCopy } from "./copies.js";
 import type { EditorHost } from "./host.js";
 
@@ -32,6 +32,11 @@ export interface CanvasEditHost {
    * undefined when the file has none.
    */
   copyOf?(ownerId: string, file: DocFile): Promise<DocFile | undefined>;
+  /**
+   * Whether an open copy is written back over its original at each save (the person's switch
+   * «Riscrivi anche l'originale», per file); undefined when that kind of copy has no such switch.
+   */
+  rewritesOriginal?(ownerId: string, copy: DocFile): boolean | undefined;
   /** Whether a scope's files are read only now (an archived project's, 2026-11-09). */
   readOnly?(ownerId: string, scope: string): boolean;
   /**
@@ -109,7 +114,8 @@ export function canvasEditTool(
       let file: DocFile | undefined;
       let abs: string | undefined;
       if (i.path) {
-        const f = await fileAt(ws, i.path);
+        // A copy not made yet goes through its original, which makes it (p3.5.7).
+        const f = await fileOrOriginal(ws, i.path);
         if ("error" in f) return i.help ? catalogs(host.editor) : fail(f.error);
         // Outside the agent's folders (God on a project's file): the guardian asked the person
         // first, as for write_file and edit_file (p3.5.3); the file must be in a workspace.
@@ -158,7 +164,6 @@ export function canvasEditTool(
         try {
           const copy = await host.copyOf(agent.ownerId, file);
           if (copy) {
-            copied = ` (${basename(file.path)} is in a closed format: you edited its open copy ${copy.path}; the original stays as it is unless the person turned on writing it back)`;
             original = file;
             file = copy;
             family = host.editor.familyFor(copy.path);
@@ -176,6 +181,16 @@ export function canvasEditTool(
         );
       }
       if (i.help) return family.catalog();
+      // An open copy (named, or through its original): whether the original changes, and when
+      // (p3.5.7, the person's test of 3.5.6: the PPTX kept three slides and nothing said why).
+      {
+        const named = originalOfAnyCopy(file.path);
+        const of = original?.path ?? named;
+        if (of) {
+          const back = host.rewritesOriginal?.(agent.ownerId, file);
+          copied = `\n${copyLine(file.path, basename(of), back)}`;
+        }
+      }
       if (!i.ops?.length) return fail('Give "ops" (call with "help": true for the list).');
 
       let read: Awaited<ReturnType<EditorHost["read"]>>;
@@ -313,6 +328,15 @@ export function canvasEditTool(
     },
   };
   return t as Tool;
+}
+
+/** In one line where the edit is and whether the original changes (p3.5.7). */
+export function copyLine(copy: string, original: string, rewrites: boolean | undefined): string {
+  if (rewrites === true)
+    return `The edit is in the open copy ${copy}; ${original} is written again from it at each save (the person turned on «Riscrivi anche l'originale» for it).`;
+  if (rewrites === false)
+    return `The edit is in the open copy ${copy}; ${original} does not change until the person turns on «Riscrivi anche l'originale» or uses «Esporta come…».`;
+  return `The edit is in the open copy ${copy}; ${original} does not change.`;
 }
 
 /** Every family's catalog, when the file has none. */

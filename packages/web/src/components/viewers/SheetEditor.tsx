@@ -382,6 +382,7 @@ export function SheetEditor({
       {info?.original && (
         <CopyBar
           original={info.original}
+          copy={file.path}
           rewrite={
             info.noReexport
               ? undefined

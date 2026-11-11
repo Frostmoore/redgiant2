@@ -154,13 +154,14 @@ import { FileConverter } from "./convert.js";
 import { Programs } from "./convert-programs.js";
 import { convertTools, vaultFigma } from "./convert-tools.js";
 import { debugLog } from "./debug-log.js";
+import { originalOfSheetCopy } from "./editor/copies.js";
 import { EditorHost, type EditorHostOptions } from "./editor/host.js";
 import { ImageFamily, oraCopyOfOriginal } from "./editor/image-family.js";
 import { JS_COPIES } from "./editor/model/convert.js";
 import { modelCopyOfOriginal, modelFamily } from "./editor/model-family.js";
 import { writeJsCopy } from "./editor/model-routes.js";
 import { LibreOfficeEngine, type OfficeEngine } from "./editor/office-engine.js";
-import { copyOfOriginal, OfficeFamily } from "./editor/office-family.js";
+import { copyOfOriginal, OfficeFamily, originalOfCopy } from "./editor/office-family.js";
 import { PdfFamily } from "./editor/pdf-family.js";
 import { sheetCopyOfOriginal, sheetFamily } from "./editor/sheet-family.js";
 import { svgCopyOfOriginal, svgFamily } from "./editor/svg-family.js";
@@ -3107,6 +3108,11 @@ export class RedGiantCore implements OrchestrationHost {
         return target !== undefined && canKnowledge({ type: "agent", agent }, "source", target);
       },
       copyOf: (ownerId, file) => this.openCopy(ownerId, file),
+      // Documents and sheets have the switch; drawings and 3D copies never write their original.
+      rewritesOriginal: (ownerId, copy) =>
+        originalOfCopy(copy.path) !== undefined || originalOfSheetCopy(copy.path) !== undefined
+          ? this.editorSettings.get(ownerId).reexport?.[docKey(copy)] === true
+          : undefined,
       showCopy: async (sessionId, original, copy) => {
         const [row] = await this.o.db.query<{
           owner_id: string;

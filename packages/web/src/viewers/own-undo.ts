@@ -12,6 +12,37 @@ export class OwnUndo {
   private readonly done: { revision: number; group: string }[] = [];
   private readonly undone: number[] = [];
   private readonly asked = new Map<number, "undo" | "redo">();
+  /** Keys pressed while the person's last revisions were still on their way (p3.5.7). */
+  private readonly waiting: ("undo" | "redo")[] = [];
+
+  /**
+   * Ctrl+Z or Ctrl+Shift+Z: what to ask now, or nothing yet while the person's revisions are
+   * still on their way (`pending`): their last gesture is not confirmed, so an undo now would take
+   * back the gesture before it and leave the last one on the host (p3.5.7). Kept for `release`.
+   */
+  press(kind: "undo" | "redo", pending: boolean): UndoAsk | undefined {
+    if (pending || this.waiting.length > 0) {
+      this.waiting.push(kind);
+      return undefined;
+    }
+    return kind === "undo" ? this.undo() : this.redo();
+  }
+
+  /** After an ack: the keys pressed meanwhile, once nothing of the person's is on its way. */
+  release(pending: boolean): UndoAsk[] {
+    if (pending) return [];
+    const out: UndoAsk[] = [];
+    for (const k of this.waiting.splice(0)) {
+      const a = k === "undo" ? this.undo() : this.redo();
+      if (a) out.push(a);
+    }
+    return out;
+  }
+
+  /** The file read again: keys pressed for revisions that may be gone are let go. */
+  forget(): void {
+    this.waiting.length = 0;
+  }
 
   /** One of the person's revisions, confirmed by the host. */
   made(revision: number, group: string): void {
