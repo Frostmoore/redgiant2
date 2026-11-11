@@ -28,6 +28,8 @@ export interface ImageOutgoing {
   clientId: string;
   baseRevision: number;
   action: ImageAction;
+  /** The gesture's group: each gesture is one undo (p3.5.7). */
+  group?: string | undefined;
 }
 
 let n = 0;
@@ -40,7 +42,10 @@ export class ImageCollab {
     ops: ImagePlainAction[];
     what?: string | undefined;
     filter?: string | undefined;
+    group?: string | undefined;
   }[] = [];
+  /** Waiting for nothing to be in flight (an undo waits for the gesture's revision). */
+  private waiting: (() => void)[] = [];
 
   constructor(private readonly send: (o: ImageOutgoing) => void) {}
 
@@ -48,6 +53,24 @@ export class ImageCollab {
     this.revision = revision;
     this.inflight = undefined;
     this.buffer = [];
+    this.wake();
+  }
+
+  /**
+   * Resolves once every gesture made is confirmed by the host (or dropped by a reload). The
+   * person's Ctrl+Z waits for it (p3.5.7, the person's test of 3.5.6: Ctrl+Z right after a
+   * gesture found it still in flight, so it undid nothing, or the gesture before, refused).
+   */
+  idle(): Promise<void> {
+    if (!this.pending) return Promise.resolve();
+    return new Promise((ok) => this.waiting.push(ok));
+  }
+
+  private wake() {
+    if (this.pending) return;
+    const w = this.waiting;
+    this.waiting = [];
+    for (const ok of w) ok();
   }
 
   get pending(): boolean {
@@ -55,8 +78,8 @@ export class ImageCollab {
   }
 
   /** A gesture's actions (with what it was, for the panel's words). */
-  local(ops: readonly ImagePlainAction[], what?: string, filter?: string): void {
-    if (ops.length) this.buffer.push({ ops: [...ops], what, filter });
+  local(ops: readonly ImagePlainAction[], what?: string, filter?: string, group?: string): void {
+    if (ops.length) this.buffer.push({ ops: [...ops], what, filter, group });
   }
 
   flush(): void {
@@ -73,7 +96,7 @@ export class ImageCollab {
             ...(g.filter && { filter: g.filter }),
           } as ImageAction);
     this.inflight = { id: newId(), action };
-    this.send({ clientId: this.inflight.id, baseRevision: this.revision, action });
+    this.send({ clientId: this.inflight.id, baseRevision: this.revision, action, group: g.group });
   }
 
   ack(clientId: string, revision: number): boolean {
@@ -81,6 +104,7 @@ export class ImageCollab {
     this.revision = revision;
     this.inflight = undefined;
     this.flush();
+    this.wake();
     return true;
   }
 
@@ -101,6 +125,13 @@ export class ImageCollab {
   }
 
   rejected(clientId: string): boolean {
-    return this.inflight?.id === clientId;
+    const mine = this.inflight?.id === clientId;
+    if (mine) {
+      // Refused: the page loads the picture again; nothing is waited for any more.
+      this.inflight = undefined;
+      this.buffer = [];
+      this.wake();
+    }
+    return mine;
   }
 }

@@ -904,3 +904,117 @@ export const IconScale = ({ size = 18 }: P) => (
     <path d="M10 4h10v10M20 4l-8 8" />
   </Svg>
 );
+
+/* p3.5.7: the picture editor's tools as Photoshop's (shapes after Lucide, ISC, and our own). */
+export const IconMarquee = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M4 7V4h3M10 4h4M17 4h3v3M20 10v4M20 17v3h-3M14 20h-4M7 20H4v-3M4 14v-4" />
+  </Svg>
+);
+export const IconMarqueeEllipse = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <ellipse cx="12" cy="12" rx="9" ry="7" stroke-dasharray="3 3" />
+  </Svg>
+);
+export const IconLassoPoly = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M5 16L3 7l8-4 9 5-3 9-8 2" />
+    <circle cx="6" cy="18" r="2" />
+  </Svg>
+);
+export const IconLassoMagnetic = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M3.3 14A6.8 6.8 0 0 1 2 10c0-4.4 4.5-8 10-8s10 3.6 10 8" />
+    <path d="M13 14v4a3 3 0 0 0 6 0v-4M13 16h2M17 16h2" />
+    <circle cx="5" cy="16" r="2" />
+  </Svg>
+);
+export const IconQuickSelect = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M14 10l-8.5 8.5a1.8 1.8 0 0 0 2.5 2.5L16.5 12.5" />
+    <circle cx="16" cy="8" r="5" stroke-dasharray="2.5 2.5" />
+  </Svg>
+);
+export const IconWand = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5" />
+  </Svg>
+);
+export const IconStamp = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M9 12V9a3 3 0 1 1 6 0v3" />
+    <path d="M4 15a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v2H4z" />
+    <path d="M5 21h14" />
+  </Svg>
+);
+export const IconBucket = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M11 2l9 9-7.5 7.5a2.1 2.1 0 0 1-3 0L3.5 12.5a2.1 2.1 0 0 1 0-3z" />
+    <path d="M5 11h14" />
+    <path d="M20.5 15s1.5 2 1.5 3a1.5 1.5 0 0 1-3 0c0-1 1.5-3 1.5-3z" />
+  </Svg>
+);
+export const IconGradient = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M7 8v8M11 8v8M15 9v6M18 10v4" />
+  </Svg>
+);
+export const IconHand = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M18 11V6a2 2 0 0 0-4 0v0M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8" />
+    <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15" />
+  </Svg>
+);
+/** The two colours swapped (X). */
+export const IconSwap = ({ size = 12 }: P) => (
+  <Svg size={size}>
+    <path d="M7 4h9a4 4 0 0 1 4 4v9" />
+    <path d="M4 7l3-3 3 3M17 14l3 3 3-3" />
+  </Svg>
+);
+/** The default colours, black and white (D). */
+export const IconColorsDefault = ({ size = 12 }: P) => (
+  <Svg size={size}>
+    <rect x="2" y="2" width="11" height="11" fill="currentColor" />
+    <rect x="11" y="11" width="11" height="11" />
+  </Svg>
+);
+/** Free transform (Ctrl+T): a box with handles. */
+export const IconTransform = ({ size = 16 }: P) => (
+  <Svg size={size}>
+    <rect x="5" y="5" width="14" height="14" />
+    <path d="M3 3h4v4H3zM17 3h4v4h-4zM3 17h4v4H3zM17 17h4v4h-4z" />
+  </Svg>
+);
+/** The selection modes (the options bar's buttons, as Photoshop's). */
+export const IconSelMode = ({
+  size = 16,
+  mode,
+}: P & { mode: "new" | "add" | "subtract" | "intersect" }) => (
+  <Svg size={size}>
+    {mode === "new" ? (
+      <rect x="5" y="5" width="14" height="14" />
+    ) : (
+      <>
+        <rect
+          x="3"
+          y="3"
+          width="12"
+          height="12"
+          fill={mode === "add" || mode === "subtract" ? "currentColor" : "none"}
+          fill-opacity={mode === "subtract" ? 0.35 : 0.35}
+        />
+        <rect
+          x="9"
+          y="9"
+          width="12"
+          height="12"
+          fill={mode === "add" ? "currentColor" : "none"}
+          fill-opacity="0.35"
+        />
+        {mode === "intersect" && <rect x="9" y="9" width="6" height="6" fill="currentColor" />}
+      </>
+    )}
+  </Svg>
+);

@@ -17230,9 +17230,14 @@ fieldset.vw-seg {
 .img-options {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  /* One row of a fixed height: the picture never jumps when the tool changes (p3.5.7). */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
   gap: 4px 14px;
-  min-height: 34px;
+  height: 38px;
+  flex: none;
   padding: 3px 10px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
@@ -17332,19 +17337,195 @@ fieldset.vw-seg {
 .img-over {
   touch-action: none;
 }
-.img-area.tool-brush .img-over,
-.img-area.tool-eraser .img-over,
-.img-area.tool-rect .img-over,
-.img-area.tool-ellipse .img-over,
-.img-area.tool-lasso .img-over,
-.img-area.tool-picker .img-over {
+.img-area .img-over {
   cursor: crosshair;
+}
+.img-area.brushed .img-over {
+  cursor: none;
 }
 .img-area.tool-move .img-over {
   cursor: move;
 }
 .img-area.tool-text .img-over {
   cursor: text;
+}
+.img-area.tool-hand .img-over {
+  cursor: grab;
+}
+.img-area.tool-zoom .img-over {
+  cursor: zoom-in;
+}
+.img-area.tool-eyedropper .img-over,
+.img-area.tool-bucket .img-over {
+  cursor: copy;
+}
+
+/* p3.5.7: the left bar as Photoshop's: a slot per group, a corner triangle when it holds more
+   tools (a flyout on a long press or a right click), the two colours at the bottom. */
+.img-tools {
+  /* Two columns when the bar is short (Photoshop's double column). */
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(auto-fill, 30px);
+  grid-auto-columns: 32px;
+  align-content: start;
+  justify-items: center;
+  gap: 1px 2px;
+  overflow: hidden;
+}
+.img-tools .vw-icon {
+  width: 30px;
+  min-height: 29px;
+  height: 29px;
+}
+.img-tool-slot {
+  position: relative;
+}
+.img-tools .svg-tool.more::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-bottom: 4px solid currentColor;
+  opacity: 0.7;
+}
+.img-tools .svg-tool {
+  position: relative;
+}
+.img-flyout {
+  position: fixed;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  min-width: 210px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 6px 20px color-mix(in srgb, #000 25%, transparent);
+}
+.img-flyout button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.img-flyout button:hover {
+  background: var(--panel-2);
+}
+.img-flyout button.on {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.img-flyout button span {
+  flex: 1;
+}
+.img-flyout kbd {
+  font: inherit;
+  font-size: 11px;
+  color: var(--dim);
+}
+.img-colors {
+  position: relative;
+  grid-row: span 2;
+  width: 34px;
+  height: 44px;
+  margin-top: 6px;
+}
+.img-color-swatch {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--text);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px var(--panel);
+  cursor: pointer;
+}
+.img-color-swatch.fg {
+  left: 2px;
+  top: 4px;
+  z-index: 1;
+}
+.img-color-swatch.bg {
+  left: 12px;
+  top: 14px;
+}
+.img-color-swap,
+.img-color-default {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+.img-color-swap:hover,
+.img-color-default:hover {
+  color: var(--text);
+}
+.img-color-swap {
+  left: 22px;
+  top: 0;
+}
+.img-color-default {
+  left: 0;
+  top: 27px;
+}
+.img-color-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  left: 0;
+  bottom: 0;
+}
+.img-seg {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.img-seg .vw-icon {
+  width: 28px;
+  min-height: 26px;
+  border-color: transparent;
+  background: transparent;
+}
+.img-seg .vw-icon.text {
+  width: auto;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.img-seg .vw-icon.on {
+  background: var(--accent-soft);
+  border-color: var(--accent-dim);
+  color: var(--accent-text);
+}
+.img-hint {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 200px;
 }
 .img-layers {
   list-style: none;

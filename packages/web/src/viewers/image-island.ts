@@ -1,10 +1,14 @@
 // The layered picture editor's engine in the page (G37.5), in its own chunk (loaded when a
 // picture is opened for editing): each layer is a canvas at its place, drawn bottom to top with
 // its opacity, blending (canvas 2D's composite operations), mask and groups. The person's tools
-// (brush, eraser, selections, move, text, colour picker) change the canvases at once; the
-// changed pixels are cut in tiles (`imageTilesOf`), only the tiles that differ become PNG blobs,
-// and the actions go to the host (the server keeps the file). Others' actions arrive the same
-// way and are drawn from their blobs.
+// are Photoshop's (p3.5.7, image-tools.ts): move, marquees, lassos, quick selection and magic
+// wand, crop, eyedropper, brush and pencil, clone stamp, eraser, gradient and paint bucket,
+// text, shapes, hand and zoom, free transform. Each gesture is one change: the changed pixels
+// are cut in tiles (`imageTilesOf`), only the tiles that differ become PNG blobs, and the
+// actions go to the host (the server keeps the file). Selections, the Move tool's pixels, the
+// bucket, the gradient and the clone stamp are computed by the pure functions the server shares
+// (`imagePx`), exact to the pixel. Others' actions arrive the same way and are drawn from their
+// blobs.
 import {
   canvasBlendOf,
   type ImageAction,
@@ -14,22 +18,25 @@ import {
   type ImageSnapshot,
   type ImageTile,
   imageTilesOf,
+  imagePx as P,
   runImageFilter,
 } from "@redgiant/protocol";
+import {
+  DEFAULT_OPTIONS,
+  type ImageTool,
+  marqueeRect,
+  selModeOf,
+  snap45,
+  type ToolOptions,
+  zoomStep,
+} from "./image-tools.js";
+
+export type { ImageTool, ToolOptions };
 
 type C = HTMLCanvasElement;
 type Ctx = CanvasRenderingContext2D;
 type What = NonNullable<Extract<ImagePlainAction, { t: "tiles" }>["what"]>;
-
-export type ImageTool =
-  | "move"
-  | "brush"
-  | "eraser"
-  | "rect"
-  | "ellipse"
-  | "lasso"
-  | "text"
-  | "picker";
+type Pt = [number, number];
 
 export interface IslandLayer extends ImageLayerInfo {
   hasMask: boolean;
@@ -58,9 +65,13 @@ interface Lay {
   mask?: Mask;
   /** Its alpha for drawing (the mask on the layer's rectangle), made when needed. */
   alpha?: C;
-  /** Drawn instead of `c` while a stroke or a filter is previewed. */
+  /** Drawn instead of `c` while a gesture or a filter is previewed (at `previewAt` if given). */
   preview?: C;
+  previewAt?: { x: number; y: number };
 }
+
+/** Notes the page shows in the person's words. */
+export type IslandNote = "locked" | "cloneSource" | "cloneSet" | "nothingSelected" | "noLayer";
 
 export interface IslandOptions {
   area: HTMLElement;
@@ -71,11 +82,18 @@ export interface IslandOptions {
   onLayers(): void;
   onSelection(box: Rect | undefined): void;
   onEditing(editing: boolean): void;
-  onPick(hex: string): void;
+  /** A colour picked with the eyedropper: the foreground, or the background (Alt). */
+  onPick(hex: string, which: "fg" | "bg"): void;
   onText(x: number, y: number): void;
   onZoom(zoom: number): void;
   onBusy(n: number): void;
   onError(message: string): void;
+  onNote?(note: IslandNote): void;
+  /** The crop box being drawn (undefined: none), the free transform on or off. */
+  onCrop?(box: Rect | undefined): void;
+  onTransform?(on: boolean): void;
+  /** Names for the layers the tools make (shapes, Layer via Copy). */
+  label?(key: "shape-rect" | "shape-ellipse" | "shape-line" | "copy"): string;
 }
 
 export interface Brush {
@@ -84,6 +102,9 @@ export interface Brush {
   opacity: number;
   /** 0…1: soft edges below 1. */
   hardness: number;
+  /** 0…1: how much each dab lays down (Photoshop's flow). */
+  flow: number;
+  /** The foreground colour. */
   color: string;
 }
 
@@ -112,23 +133,105 @@ const greyOfCss = (css: string): number => {
     0.2126 * (d[0] as number) + 0.7152 * (d[1] as number) + 0.0722 * (d[2] as number),
   );
 };
-const union = (a: Rect, b: Rect): Rect => {
-  if (!a.w || !a.h) return b;
-  const x = Math.min(a.x, b.x);
-  const y = Math.min(a.y, b.y);
-  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
-};
-const inter = (a: Rect, b: Rect): Rect | undefined => {
-  const x = Math.max(a.x, b.x);
-  const y = Math.max(a.y, b.y);
-  const x1 = Math.min(a.x + a.w, b.x + b.w);
-  const y1 = Math.min(a.y + a.h, b.y + b.h);
-  return x1 > x && y1 > y ? { x, y, w: x1 - x, h: y1 - y } : undefined;
-};
+const union = P.union;
+const inter = P.inter;
 const inside = (a: Rect, b: Rect) =>
   a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
 let ids = 0;
 const newId = () => `p-${Date.now().toString(36)}${(ids++).toString(36)}`;
+/** A canvas's pixels as `imagePx` pixels. */
+const pxOf = (c: C): P.Px =>
+  c.width && c.height
+    ? {
+        width: c.width,
+        height: c.height,
+        data: ctx2d(c).getImageData(0, 0, c.width, c.height).data,
+      }
+    : P.blankPx(0, 0);
+const canvasOf = (px: P.Px): C => {
+  const c = canvas(px.width, px.height);
+  if (px.width && px.height)
+    ctx2d(c).putImageData(
+      new ImageData(
+        new Uint8ClampedArray(px.data) as Uint8ClampedArray<ArrayBuffer>,
+        px.width,
+        px.height,
+      ),
+      0,
+      0,
+    );
+  return c;
+};
+
+/** The free transform: scale and rotation around the box's centre, then a move. */
+interface Xform {
+  tx: number;
+  ty: number;
+  sx: number;
+  sy: number;
+  rot: number;
+}
+
+const HANDLE = 5;
+
+type Gesture =
+  | {
+      kind: "paint";
+      tool: "brush" | "pencil" | "eraser" | "clone";
+      stroke: C;
+      pts: Pt[];
+      last: Pt;
+      /** The eraser on a Background paints its colour. */
+      color: string;
+      erase: boolean;
+      /** The clone stamp's source pixels (picture-sized) and offset. */
+      src?: C;
+      off?: Pt;
+    }
+  | { kind: "move"; from: Pt; at: Pt; lay: Lay; dup?: Lay }
+  | {
+      kind: "float";
+      from: Pt;
+      at: Pt;
+      lay: Lay;
+      f: P.Floating;
+      start: Pt;
+      holed: C;
+      piece: C;
+    }
+  | { kind: "outline"; from: Pt; at: Pt }
+  | {
+      kind: "marquee";
+      shape: "rect" | "ellipse";
+      from: Pt;
+      to: Pt;
+      mode: P.SelMode;
+      byKeys: boolean;
+      square: boolean;
+      centre: boolean;
+    }
+  | { kind: "lasso"; pts: Pt[]; mode: P.SelMode }
+  | {
+      kind: "poly";
+      pts: Pt[];
+      mode: P.SelMode;
+      magnetic: boolean;
+      grad?: Float32Array;
+    }
+  | { kind: "quick"; mode: P.SelMode; sample: P.Px; acc: P.Sel; last: Pt }
+  | { kind: "crop"; from: Pt; start: Rect | undefined; how: string }
+  | { kind: "eyedrop"; bg: boolean; sample: P.Px }
+  | { kind: "gradient"; from: Pt; to: Pt }
+  | {
+      kind: "shape";
+      shape: "rect" | "ellipse" | "line";
+      from: Pt;
+      to: Pt;
+      shift: boolean;
+      alt: boolean;
+    }
+  | { kind: "hand"; x: number; y: number; sl: number; st: number }
+  | { kind: "xform"; how: string; from: Pt; start: Xform };
 
 export class ImageIsland {
   width = 1;
@@ -137,44 +240,55 @@ export class ImageIsland {
   private layers: Lay[] = [];
   current: string | undefined;
   tool: ImageTool = "brush";
-  brush: Brush = { size: 12, opacity: 1, hardness: 1, color: "#e0482e" };
+  brush: Brush = { size: 12, opacity: 1, hardness: 1, flow: 1, color: "#e0482e" };
+  /** The background colour (Photoshop's second swatch). */
+  background = "#ffffff";
+  opts: ToolOptions = { ...DEFAULT_OPTIONS };
   /** Painting on the current layer's mask instead of its pixels. */
   onMask = false;
-  /**
-   * Move with a selection moves its outline only, not the pixels (p3.5.6: the options bar's
-   * switch; Alt/Option held does the same for one drag).
-   */
-  moveOutline = false;
   zoom = 1;
   private readonly view: C;
   private readonly over: C;
   private readonly stage: HTMLDivElement;
-  /** The selection: its alpha (picture-sized), its outline, its box. */
-  private sel: { alpha: C; outline: [number, number][][]; box: Rect } | undefined;
+  /** The selection: its coverage, its outline (a path of the pixels' edges), its box. */
+  private sel: { mask: P.Sel; path: Path2D; box: Rect; alpha?: C } | undefined;
+  /** The last selection let go (Reselect). */
+  private lastSel: P.Sel | undefined;
+  /**
+   * The Move tool's selected pixels after a drop, still held with the selection: moving them
+   * again starts from the same cut (p3.5.7: in 3.5.6 every drop was final, and the next drag cut
+   * a new hole where the pixels had landed). Let go when the selection, the layer or the
+   * picture change any other way.
+   */
+  private floating: { lay: Lay; f: P.Floating; dx: number; dy: number } | undefined;
+  /** The clone stamp's source (Alt-click) and, aligned, its offset from the strokes. */
+  private cloneSrc: Pt | undefined;
+  private cloneOff: Pt | undefined;
+  /** The crop box being set. */
+  private crop: Rect | undefined;
+  /** The free transform under way. */
+  private xf:
+    | {
+        lay: Lay;
+        /** The pixels transformed (picture coordinates) and their box. */
+        src: C;
+        box: Rect;
+        /** The layer without them (at its place), the selection's cut, or none (the whole layer). */
+        f?: P.Floating;
+        m: Xform;
+      }
+    | undefined;
+  /** Space held: the hand for a while (Photoshop's). */
+  spaceHand = false;
+  /** Alt held (the zoom tool zooms out). */
+  altHeld = false;
+  private hover: Pt | undefined;
+  private ants = 0;
+  private antsTimer: ReturnType<typeof setInterval> | undefined;
   private chain: Promise<void> = Promise.resolve();
   private busy = 0;
   private frame = 0;
-  private gesture:
-    | { kind: "paint"; stroke: C; pts: [number, number][]; last: [number, number] }
-    | { kind: "move"; from: [number, number]; at: [number, number]; lay: Lay }
-    /** The selected pixels cut to a floating piece (picture-sized), the layer with the hole. */
-    | {
-        kind: "float";
-        from: [number, number];
-        at: [number, number];
-        lay: Lay;
-        piece: C;
-        holed: C;
-      }
-    /** The selection's outline alone. */
-    | { kind: "outline"; from: [number, number]; at: [number, number] }
-    | {
-        kind: "select";
-        from: [number, number];
-        pts: [number, number][];
-        shape: "rect" | "ellipse" | "lasso";
-      }
-    | undefined;
+  private gesture: Gesture | undefined;
   private filterPreview: { id: string; layer: string } | undefined;
   private disposed = false;
 
@@ -191,11 +305,14 @@ export class ImageIsland {
     this.over.addEventListener("pointermove", this.moveEv);
     this.over.addEventListener("pointerup", this.up);
     this.over.addEventListener("pointercancel", this.up);
+    this.over.addEventListener("pointerleave", this.leave);
+    this.over.addEventListener("dblclick", this.dbl);
     o.area.addEventListener("wheel", this.wheel, { passive: false });
   }
 
   dispose(): void {
     this.disposed = true;
+    if (this.antsTimer) clearInterval(this.antsTimer);
     this.o.area.removeEventListener("wheel", this.wheel);
     this.stage.remove();
   }
@@ -227,8 +344,12 @@ export class ImageIsland {
     this.layers = layers;
     if (!this.current || !this.find(this.current)) this.current = layers.at(-1)?.info.id;
     this.resize();
-    this.sel = undefined;
-    this.o.onSelection(undefined);
+    this.letGo();
+    this.xf = undefined;
+    this.crop = undefined;
+    this.gesture = undefined;
+    this.setSel(undefined);
+    this.lastSel = undefined;
     this.render();
     this.o.onLayers();
   }
@@ -239,6 +360,8 @@ export class ImageIsland {
 
   /** Others' actions, drawn from their blobs; "reload" when they do not fit what is here. */
   async remote(actions: readonly ImageAction[]): Promise<"ok" | "reload"> {
+    // Others' changes (and the person's undos) end the floating pixels: what they hold changed.
+    this.letGo();
     try {
       for (const a of actions)
         for (const op of a.t === "batch" ? a.ops : [a]) await this.applyRemote(op);
@@ -344,8 +467,8 @@ export class ImageIsland {
             l.mask.y += a.dy;
           }
         }
-        this.sel = undefined;
-        this.o.onSelection(undefined);
+        this.setSel(undefined);
+        this.lastSel = undefined;
         this.resize();
         return;
     }
@@ -386,10 +509,23 @@ export class ImageIsland {
       const box = this.o.area.getBoundingClientRect();
       z = Math.min((box.width - 24) / this.width, (box.height - 24) / this.height, 1) || 1;
     }
-    this.zoom = Math.max(0.05, Math.min(32, z));
+    this.zoom = Math.max(0.01, Math.min(32, z));
     this.applyZoom();
     this.drawOverlay();
     return this.zoom;
+  }
+
+  /** Zoom in or out a step keeping a picture's point under the pointer (the zoom tool). */
+  zoomAt(dir: 1 | -1, p?: Pt): void {
+    const area = this.o.area;
+    const before = this.over.getBoundingClientRect();
+    const at = p ?? [this.width / 2, this.height / 2];
+    const cx = before.left + at[0] * this.zoom;
+    const cy = before.top + at[1] * this.zoom;
+    this.setZoom(zoomStep(this.zoom, dir));
+    const after = this.over.getBoundingClientRect();
+    area.scrollLeft += after.left + at[0] * this.zoom - cx;
+    area.scrollTop += after.top + at[1] * this.zoom - cy;
   }
 
   private alphaOf(l: Lay): C | undefined {
@@ -423,7 +559,8 @@ export class ImageIsland {
   /** A layer's pixels as they are drawn (its mask applied). */
   private drawn(l: Lay): C {
     const src = l.preview ?? l.c;
-    const alpha = this.alphaOf(l);
+    // A preview placed elsewhere (a move, a transform) is drawn without the mask while it lasts.
+    const alpha = l.preview && l.previewAt ? undefined : this.alphaOf(l);
     if (!alpha || !src.width || !src.height) return src;
     const t = canvas(src.width, src.height);
     const c = ctx2d(t);
@@ -466,11 +603,13 @@ export class ImageIsland {
           } else draw(x, c, opacity * g.opacity);
           continue;
         }
-        if (!x.info.visible || !x.c.width || !x.c.height) continue;
+        const src = x.preview ?? x.c;
+        if (!x.info.visible || !src.width || !src.height) continue;
         if (only && !only(x.info)) continue;
         c.globalAlpha = x.info.opacity * opacity;
         c.globalCompositeOperation = canvasBlendOf(x.info.blend) as GlobalCompositeOperation;
-        c.drawImage(this.drawn(x), x.info.x, x.info.y);
+        const at = x.preview && x.previewAt ? x.previewAt : x.info;
+        c.drawImage(this.drawn(x), at.x, at.y);
       }
       c.globalAlpha = 1;
       c.globalCompositeOperation = "source-over";
@@ -495,39 +634,129 @@ export class ImageIsland {
     const c = ctx2d(this.over);
     c.clearRect(0, 0, this.over.width, this.over.height);
     const px = 1 / this.zoom;
-    const outline = (pts: [number, number][], close: boolean) => {
-      if (pts.length < 2) return;
-      c.beginPath();
-      c.moveTo(pts[0]?.[0] ?? 0, pts[0]?.[1] ?? 0);
-      for (const p of pts.slice(1)) c.lineTo(p[0], p[1]);
-      if (close) c.closePath();
+    /** A path in black and white dashes (the marching ants when `march`). */
+    const ants = (path: Path2D, march = true) => {
       c.lineWidth = px;
       c.setLineDash([]);
       c.strokeStyle = "#ffffff";
-      c.stroke();
+      c.stroke(path);
       c.setLineDash([4 * px, 4 * px]);
+      c.lineDashOffset = march ? -this.ants * px : 0;
       c.strokeStyle = "#000000";
-      c.stroke();
+      c.stroke(path);
       c.setLineDash([]);
+      c.lineDashOffset = 0;
+    };
+    const poly = (pts: Pt[], close: boolean) => {
+      const p = new Path2D();
+      if (pts.length < 2) return p;
+      p.moveTo((pts[0] as Pt)[0], (pts[0] as Pt)[1]);
+      for (const q of pts.slice(1)) p.lineTo(q[0], q[1]);
+      if (close) p.closePath();
+      return p;
     };
     const g = this.gesture;
     // While the selection (or its pixels) is dragged, its outline goes along.
     const off =
-      g?.kind === "float" || g?.kind === "outline"
-        ? [g.at[0] - g.from[0], g.at[1] - g.from[1]]
-        : [0, 0];
-    c.save();
-    c.translate(off[0] as number, off[1] as number);
-    for (const p of this.sel?.outline ?? []) outline(p, true);
-    c.restore();
-    if (g?.kind === "select") {
-      const pts =
-        g.shape === "lasso" ? g.pts : this.shapePoints(g.shape, g.from, g.pts.at(-1) ?? g.from);
-      outline(pts, true);
+      g?.kind === "float"
+        ? [g.start[0] + g.at[0] - g.from[0], g.start[1] + g.at[1] - g.from[1]]
+        : g?.kind === "outline"
+          ? [g.at[0] - g.from[0], g.at[1] - g.from[1]]
+          : [0, 0];
+    if (this.sel && !this.xf) {
+      c.save();
+      if (g?.kind === "float" && this.floating?.f === g.f)
+        c.translate((off[0] as number) - this.floating.dx, (off[1] as number) - this.floating.dy);
+      else c.translate(off[0] as number, off[1] as number);
+      ants(this.sel.path);
+      c.restore();
     }
-    // The current layer's edges.
-    const l = this.current ? this.find(this.current) : undefined;
-    if (l && (l.c.width !== this.width || l.c.height !== this.height || l.info.x || l.info.y)) {
+    if (g?.kind === "marquee") {
+      const r = marqueeRect(g.from, g.to, g.square, g.centre);
+      const p = new Path2D();
+      if (g.shape === "rect")
+        p.rect(Math.round(r.x), Math.round(r.y), Math.round(r.w), Math.round(r.h));
+      else p.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, 0, 0, Math.PI * 2);
+      ants(p, false);
+    } else if (g?.kind === "lasso") ants(poly(g.pts, false), false);
+    else if (g?.kind === "poly") {
+      ants(poly(this.hover ? [...g.pts, this.hover] : g.pts, false), false);
+      // The first point: clicking it closes the shape.
+      const f = g.pts[0] as Pt;
+      c.strokeStyle = "#000";
+      c.fillStyle = "#fff";
+      c.lineWidth = px;
+      c.beginPath();
+      c.rect(f[0] - 3 * px, f[1] - 3 * px, 6 * px, 6 * px);
+      c.fill();
+      c.stroke();
+    } else if (g?.kind === "gradient") {
+      c.lineWidth = 2 * px;
+      c.strokeStyle = "#ffffff";
+      c.beginPath();
+      c.moveTo(g.from[0], g.from[1]);
+      c.lineTo(g.to[0], g.to[1]);
+      c.stroke();
+      c.lineWidth = px;
+      c.strokeStyle = "#000000";
+      c.stroke();
+    } else if (g?.kind === "shape") ants(this.shapePath(g), false);
+    // The crop box: the rest dimmed, its handles.
+    if (this.crop) {
+      const r = this.crop;
+      c.fillStyle = "rgba(0, 0, 0, 0.45)";
+      c.beginPath();
+      c.rect(0, 0, this.width, this.height);
+      c.rect(r.x, r.y, r.w, r.h);
+      c.fill("evenodd");
+      const p = new Path2D();
+      p.rect(r.x, r.y, r.w, r.h);
+      ants(p, false);
+      for (const h of this.handles(this.cornersOf(r))) this.drawHandle(c, h, px);
+    }
+    if (this.xf) {
+      const q = this.xfCorners();
+      ants(poly(q, true), false);
+      for (const h of this.handles(q)) this.drawHandle(c, h, px);
+    }
+    // The brush's outline under the pointer.
+    const brushed =
+      this.tool === "brush" ||
+      this.tool === "pencil" ||
+      this.tool === "eraser" ||
+      this.tool === "clone" ||
+      this.tool === "quick-select";
+    if (brushed && this.hover && !this.spaceHand) {
+      const r = (this.tool === "quick-select" ? this.opts.quickSize : this.brush.size) / 2;
+      c.lineWidth = px;
+      c.strokeStyle = "rgba(255,255,255,0.9)";
+      c.beginPath();
+      c.arc(this.hover[0], this.hover[1], Math.max(r, 1.5 * px), 0, Math.PI * 2);
+      c.stroke();
+      c.strokeStyle = "rgba(0,0,0,0.8)";
+      c.beginPath();
+      c.arc(this.hover[0], this.hover[1], Math.max(r + px, 2.5 * px), 0, Math.PI * 2);
+      c.stroke();
+    }
+    if (this.tool === "clone" && this.cloneSrc) {
+      const [x, y] = this.cloneSrc;
+      c.lineWidth = px;
+      c.strokeStyle = "#000";
+      c.beginPath();
+      c.moveTo(x - 6 * px, y);
+      c.lineTo(x + 6 * px, y);
+      c.moveTo(x, y - 6 * px);
+      c.lineTo(x, y + 6 * px);
+      c.stroke();
+    }
+    // The current layer's edges (Move).
+    const l = this.currentLayer();
+    if (
+      this.tool === "move" &&
+      l &&
+      !this.xf &&
+      (l.c.width !== this.width || l.c.height !== this.height || l.info.x || l.info.y)
+    ) {
       c.lineWidth = px;
       c.setLineDash([2 * px, 3 * px]);
       c.strokeStyle = "rgba(90, 160, 255, 0.9)";
@@ -536,28 +765,50 @@ export class ImageIsland {
     }
   }
 
-  private shapePoints(
-    shape: "rect" | "ellipse",
-    a: [number, number],
-    b: [number, number],
-  ): [number, number][] {
-    const x = Math.min(a[0], b[0]);
-    const y = Math.min(a[1], b[1]);
-    const w = Math.abs(b[0] - a[0]);
-    const h = Math.abs(b[1] - a[1]);
-    if (shape === "rect")
-      return [
-        [x, y],
-        [x + w, y],
-        [x + w, y + h],
-        [x, y + h],
-      ];
-    const out: [number, number][] = [];
-    for (let i = 0; i < 64; i++) {
-      const t = (i / 64) * Math.PI * 2;
-      out.push([x + w / 2 + (Math.cos(t) * w) / 2, y + h / 2 + (Math.sin(t) * h) / 2]);
+  private drawHandle(c: Ctx, h: Pt, px: number) {
+    c.fillStyle = "#ffffff";
+    c.strokeStyle = "#000000";
+    c.lineWidth = px;
+    c.beginPath();
+    c.rect(h[0] - HANDLE * px, h[1] - HANDLE * px, 2 * HANDLE * px, 2 * HANDLE * px);
+    c.fill();
+    c.stroke();
+  }
+
+  private cornersOf(r: Rect): Pt[] {
+    return [
+      [r.x, r.y],
+      [r.x + r.w, r.y],
+      [r.x + r.w, r.y + r.h],
+      [r.x, r.y + r.h],
+    ];
+  }
+
+  /** Eight handles: the corners, then the middles of the sides (top, right, bottom, left). */
+  private handles(q: Pt[]): Pt[] {
+    const mid = (a: Pt, b: Pt): Pt => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const [a, b, cc, d] = q as [Pt, Pt, Pt, Pt];
+    return [a, b, cc, d, mid(a, b), mid(b, cc), mid(cc, d), mid(d, a)];
+  }
+
+  private shapePath(g: {
+    shape: "rect" | "ellipse" | "line";
+    from: Pt;
+    to: Pt;
+    shift: boolean;
+    alt: boolean;
+  }) {
+    const p = new Path2D();
+    if (g.shape === "line") {
+      const to = g.shift ? snap45(g.from, g.to) : g.to;
+      p.moveTo(g.from[0], g.from[1]);
+      p.lineTo(to[0], to[1]);
+      return p;
     }
-    return out;
+    const r = marqueeRect(g.from, g.to, g.shift, g.alt);
+    if (g.shape === "rect") p.rect(r.x, r.y, r.w, r.h);
+    else p.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, 0, 0, Math.PI * 2);
+    return p;
   }
 
   // ---------------------------------------------------------------- the panel's view
@@ -579,6 +830,7 @@ export class ImageIsland {
   }
 
   setCurrent(id: string): void {
+    if (id !== this.current) this.letGo();
     this.current = id;
     if (!this.find(id)?.mask) this.onMask = false;
     this.drawOverlay();
@@ -622,7 +874,7 @@ export class ImageIsland {
 
   // ---------------------------------------------------------------- sending the person's edits
 
-  /** Pixels and actions made ready in order (blobs first), then sent. */
+  /** Pixels and actions made ready in order (blobs first), then sent: one gesture each. */
   private emit(make: () => Promise<ImagePlainAction[]>, what?: What, filter?: string): void {
     this.o.onBusy(++this.busy);
     this.chain = this.chain
@@ -675,6 +927,19 @@ export class ImageIsland {
     );
   }
 
+  /** A layer that refuses the change (locked): says so. */
+  private refuses(l: Lay | undefined): l is undefined {
+    if (!l) {
+      this.o.onNote?.("noLayer");
+      return true;
+    }
+    if (l.info.locked) {
+      this.o.onError("locked");
+      return true;
+    }
+    return false;
+  }
+
   /**
    * A change of a layer's pixels (or mask) drawn by `draw` in the picture's coordinates over
    * `need`: tiles when the layer holds it, the whole layer grown when it does not.
@@ -685,10 +950,8 @@ export class ImageIsland {
     draw: (c: Ctx, ox: number, oy: number) => void,
     what: What,
   ): void {
-    if (l.info.locked) {
-      this.o.onError("locked");
-      return;
-    }
+    if (this.refuses(l)) return;
+    this.letGo();
     const mask = this.onMask && l.mask ? l.mask : undefined;
     const target = mask ? mask.grey : l.c;
     const ox = mask ? mask.x : l.info.x;
@@ -761,211 +1024,575 @@ export class ImageIsland {
     }, what);
   }
 
+  /** A layer's pixels at its place, grown (inside the picture) to hold `need`. */
+  private placedOf(l: Lay, need?: Rect): P.Placed {
+    const here = { x: l.info.x, y: l.info.y, w: l.c.width, h: l.c.height };
+    const want = need && inter(need, { x: 0, y: 0, w: this.width, h: this.height });
+    const own: P.Placed = { x: here.x, y: here.y, px: pxOf(l.c) };
+    if (!want || inside(want, here)) return own;
+    const r = union(here, want);
+    const out: P.Placed = { x: r.x, y: r.y, px: P.blankPx(r.w, r.h) };
+    for (let y = 0; y < here.h; y++)
+      out.px.data.set(
+        own.px.data.subarray(y * here.w * 4, (y + 1) * here.w * 4),
+        ((here.y - r.y + y) * r.w + (here.x - r.x)) * 4,
+      );
+    return out;
+  }
+
+  /**
+   * A layer's pixels replaced by `next` (computed by `imagePx`): the tiles that differ when its
+   * place and size stay, the whole layer when they change. One gesture, one action.
+   */
+  private replaceLayer(l: Lay, next: P.Placed, what: What, keepFloat = false): void {
+    if (!keepFloat) this.letGo();
+    const same =
+      next.x === l.info.x &&
+      next.y === l.info.y &&
+      next.px.width === l.c.width &&
+      next.px.height === l.c.height;
+    const id = l.info.id;
+    if (!same) {
+      const c = canvasOf(next.px);
+      l.c = c;
+      l.info.x = next.x;
+      l.info.y = next.y;
+      l.info.w = c.width;
+      l.info.h = c.height;
+      l.alpha = undefined;
+      this.render();
+      this.emit(
+        async () => [
+          {
+            t: "pixels",
+            layer: id,
+            x: next.x,
+            y: next.y,
+            w: c.width,
+            h: c.height,
+            png: c.width && c.height ? await this.upload(c) : null,
+            what,
+          },
+        ],
+        what,
+      );
+      return;
+    }
+    const { width: w, height: h } = next.px;
+    if (!w || !h) return;
+    const ctx = ctx2d(l.c);
+    const before = ctx.getImageData(0, 0, w, h);
+    ctx.putImageData(
+      new ImageData(new Uint8ClampedArray(next.px.data) as Uint8ClampedArray<ArrayBuffer>, w, h),
+      0,
+      0,
+    );
+    l.alpha = undefined;
+    this.render();
+    const target = l.c;
+    this.emit(async () => {
+      const tiles = await this.tilesOf(target, before, { x: 0, y: 0, w, h });
+      return tiles.length ? [{ t: "tiles", layer: id, tiles, what }] : [];
+    }, what);
+  }
+
   private currentLayer(): Lay | undefined {
     return this.current ? this.find(this.current) : undefined;
   }
 
+  /** The Background's colour for holes and the eraser: a JPEG's bottom layer has no transparency. */
+  private holeFill(l: Lay): P.RGBA | undefined {
+    return this.format === "jpeg" && this.layers[0] === l
+      ? P.rgbaOfHex(this.background)
+      : undefined;
+  }
+
+  /** What the wand, the bucket, the eyedropper and the clone stamp look at (picture-sized). */
+  private sample(): P.Px {
+    if (this.opts.sampleAll) return pxOf(this.composite());
+    const l = this.currentLayer();
+    if (!l) return P.blankPx(this.width, this.height);
+    return P.onPicture({ x: l.info.x, y: l.info.y, px: pxOf(l.c) }, this.width, this.height);
+  }
+
+  /** The Move tool's floating pixels and the crop box let go (the layer or the selection changed). */
+  private letGo() {
+    this.floating = undefined;
+  }
+
   // ---------------------------------------------------------------- pointer
 
-  private at(e: PointerEvent): [number, number] {
+  private at(e: { clientX: number; clientY: number }): Pt {
     const r = this.over.getBoundingClientRect();
     return [(e.clientX - r.left) / this.zoom, (e.clientY - r.top) / this.zoom];
   }
 
   private readonly down = (e: PointerEvent) => {
-    if (e.button !== 0) return;
     const p = this.at(e);
-    const l = this.currentLayer();
+    this.hover = p;
+    if (e.button === 1 || (e.button === 0 && (this.spaceHand || this.tool === "hand"))) {
+      e.preventDefault();
+      const a = this.o.area;
+      this.gesture = {
+        kind: "hand",
+        x: e.clientX,
+        y: e.clientY,
+        sl: a.scrollLeft,
+        st: a.scrollTop,
+      };
+      this.over.setPointerCapture?.(e.pointerId);
+      return;
+    }
+    if (e.button !== 0) return;
     this.over.setPointerCapture?.(e.pointerId);
+    if (this.xf) {
+      this.xfDown(p);
+      return;
+    }
+    const l = this.currentLayer();
+    const sel = this.sel;
+    const keys = { shift: e.shiftKey, alt: e.altKey };
     switch (this.tool) {
       case "brush":
-      case "eraser": {
-        if (!l) return;
-        if (l.info.locked) {
-          this.o.onError("locked");
-          return;
+      case "pencil":
+      case "eraser":
+      case "clone": {
+        if (this.refuses(l)) return;
+        if (this.tool === "clone") {
+          if (e.altKey) {
+            this.cloneSrc = [Math.round(p[0]), Math.round(p[1])];
+            this.cloneOff = undefined;
+            this.o.onNote?.("cloneSet");
+            this.drawOverlay();
+            return;
+          }
+          if (!this.cloneSrc) {
+            this.o.onNote?.("cloneSource");
+            return;
+          }
         }
         this.o.onEditing(true);
+        const hole = this.tool === "eraser" ? this.holeFill(l) : undefined;
+        const erase = this.tool === "eraser" && !hole;
+        const color =
+          this.tool === "eraser" ? (hole ? this.background : "#000000") : this.brush.color;
         const stroke = canvas(this.width, this.height);
-        this.gesture = { kind: "paint", stroke, pts: [p], last: p };
-        this.dab(stroke, p, p);
+        const tool = this.tool;
+        const g: Extract<Gesture, { kind: "paint" }> = {
+          kind: "paint",
+          tool,
+          stroke,
+          pts: [p],
+          last: p,
+          color,
+          erase,
+        };
+        if (tool === "clone" && this.cloneSrc) {
+          g.src = canvasOf(this.sample());
+          const start: Pt = [Math.round(p[0]), Math.round(p[1])];
+          const off: Pt =
+            this.opts.cloneAligned && this.cloneOff
+              ? this.cloneOff
+              : [this.cloneSrc[0] - start[0], this.cloneSrc[1] - start[1]];
+          this.cloneOff = off;
+          g.off = off;
+        }
+        this.gesture = g;
+        this.dab(stroke, p, p, g.tool, color);
         this.preview();
         return;
       }
-      case "move":
-        // With a selection (p3.5.6, as Photoshop's V): its pixels move, or its outline alone.
-        if (this.sel && (e.altKey || this.moveOutline)) {
+      case "move": {
+        let lay = l;
+        if (this.opts.autoSelect && !sel) {
+          const hit = this.layerAt(p);
+          if (hit && hit !== lay) {
+            this.setCurrent(hit.info.id);
+            lay = hit;
+          }
+        }
+        if (this.refuses(lay)) return;
+        this.o.onEditing(true);
+        if (sel && !(this.onMask && lay.mask)) {
+          this.startFloat(lay, p, e.altKey);
+          return;
+        }
+        if (e.altKey) {
+          // Alt: a copy of the layer moves (Photoshop's), the layer stays.
+          const c = canvas(lay.c.width, lay.c.height);
+          ctx2d(c).drawImage(lay.c, 0, 0);
+          const info: ImageLayerInfo = {
+            ...lay.info,
+            id: newId(),
+            name: this.o.label?.("copy") ?? lay.info.name,
+          };
+          delete info.locked;
+          const dup: Lay = { info, c };
+          this.place(dup, lay.info.id);
+          this.current = info.id;
+          this.gesture = { kind: "move", from: p, at: p, lay: dup, dup };
+          this.o.onLayers();
+          return;
+        }
+        this.gesture = { kind: "move", from: p, at: p, lay };
+        return;
+      }
+      case "marquee-rect":
+      case "marquee-ellipse":
+      case "lasso": {
+        const { mode, byKeys } = selModeOf(this.opts.selMode, keys, !!sel);
+        // Dragging inside the selection with a selection tool moves its outline (Photoshop's).
+        if (sel && mode === "new" && P.inSel(sel.mask, p[0], p[1])) {
           this.gesture = { kind: "outline", from: p, at: p };
           return;
         }
-        if (!l) return;
-        if (l.info.locked) {
-          this.o.onError("locked");
-          return;
-        }
-        this.o.onEditing(true);
-        if (this.sel && !(this.onMask && l.mask)) {
-          this.gesture = { kind: "float", from: p, at: p, lay: l, ...this.cut(l, this.sel.alpha) };
-          return;
-        }
-        this.gesture = { kind: "move", from: p, at: p, lay: l };
+        if (this.tool === "lasso") this.gesture = { kind: "lasso", pts: [p], mode };
+        else
+          this.gesture = {
+            kind: "marquee",
+            shape: this.tool === "marquee-rect" ? "rect" : "ellipse",
+            from: p,
+            to: p,
+            mode,
+            byKeys,
+            square: false,
+            centre: false,
+          };
         return;
-      case "rect":
-      case "ellipse":
-      case "lasso":
-        this.gesture = { kind: "select", from: p, pts: [p], shape: this.tool };
+      }
+      case "lasso-poly":
+      case "lasso-magnetic": {
+        const g = this.gesture;
+        if (g?.kind === "poly") {
+          const first = g.pts[0] as Pt;
+          if (g.pts.length > 2 && Math.hypot(p[0] - first[0], p[1] - first[1]) * this.zoom < 8)
+            this.closePoly();
+          else g.pts.push(g.magnetic ? this.snapEdge(g, p) : p);
+          this.drawOverlay();
+          return;
+        }
+        const { mode } = selModeOf(this.opts.selMode, keys, !!sel);
+        const magnetic = this.tool === "lasso-magnetic";
+        const ng: Extract<Gesture, { kind: "poly" }> = {
+          kind: "poly",
+          pts: [],
+          mode,
+          magnetic,
+        };
+        if (magnetic) ng.grad = this.edgeMap();
+        ng.pts.push(magnetic ? this.snapEdge(ng, p) : p);
+        this.gesture = ng;
+        this.drawOverlay();
+        return;
+      }
+      case "quick-select": {
+        const mode: P.SelMode = e.altKey ? "subtract" : sel ? "add" : "new";
+        const acc = P.emptySel(this.width, this.height);
+        if (sel && mode !== "new") acc.a.set(sel.mask.a);
+        const g = { kind: "quick" as const, mode, sample: this.sample(), acc, last: p };
+        this.gesture = g;
+        this.quickAt(g, p);
+        return;
+      }
+      case "wand": {
+        const { mode } = selModeOf(this.opts.selMode, keys, !!sel);
+        const o = this.opts;
+        this.applySel(
+          mode,
+          P.wandSel(this.sample(), p[0], p[1], o.tolerance, o.contiguous, o.antialias),
+        );
+        return;
+      }
+      case "crop": {
+        const c = this.crop;
+        let how = "new";
+        if (c) {
+          const hs = this.handles(this.cornersOf(c));
+          const tol = (HANDLE + 3) / this.zoom;
+          const i = hs.findIndex(
+            (h) => Math.abs(h[0] - p[0]) <= tol && Math.abs(h[1] - p[1]) <= tol,
+          );
+          if (i >= 0) how = `h${i}`;
+          else if (p[0] > c.x && p[1] > c.y && p[0] < c.x + c.w && p[1] < c.y + c.h) how = "move";
+        }
+        this.gesture = { kind: "crop", from: p, start: c && { ...c }, how };
+        return;
+      }
+      case "eyedropper": {
+        const g = { kind: "eyedrop" as const, bg: e.altKey, sample: this.sample() };
+        this.gesture = g;
+        this.pick(g, p);
+        return;
+      }
+      case "gradient":
+        if (this.refuses(l)) return;
+        this.gesture = { kind: "gradient", from: p, to: p };
+        return;
+      case "bucket":
+        this.bucket(p);
+        return;
+      case "shape-rect":
+      case "shape-ellipse":
+      case "shape-line":
+        this.gesture = {
+          kind: "shape",
+          shape:
+            this.tool === "shape-rect"
+              ? "rect"
+              : this.tool === "shape-ellipse"
+                ? "ellipse"
+                : "line",
+          from: p,
+          to: p,
+          shift: false,
+          alt: false,
+        };
         return;
       case "text":
         this.o.onText(Math.round(p[0]), Math.round(p[1]));
         return;
-      case "picker": {
-        const d = ctx2d(this.view).getImageData(Math.floor(p[0]), Math.floor(p[1]), 1, 1).data;
-        this.o.onPick(hexOf(d[0] as number, d[1] as number, d[2] as number));
+      case "zoom":
+        this.zoomAt(e.altKey || this.altHeld ? -1 : 1, p);
         return;
-      }
+      case "hand":
+        return;
     }
   };
 
   private readonly moveEv = (e: PointerEvent) => {
-    const g = this.gesture;
-    if (!g) return;
     const p = this.at(e);
-    if (g.kind === "paint") {
-      this.dab(g.stroke, g.last, p);
-      g.last = p;
-      g.pts.push(p);
-      this.preview();
-    } else if (g.kind === "float" || g.kind === "outline") {
-      const at: [number, number] = [
-        g.from[0] + Math.round(p[0] - g.from[0]),
-        g.from[1] + Math.round(p[1] - g.from[1]),
-      ];
-      if (at[0] === g.at[0] && at[1] === g.at[1]) return;
-      g.at = at;
-      if (g.kind === "float") {
-        const l = g.lay;
-        const q = canvas(l.c.width, l.c.height);
-        const qc = ctx2d(q);
-        qc.drawImage(g.holed, 0, 0);
-        qc.drawImage(g.piece, at[0] - g.from[0] - l.info.x, at[1] - g.from[1] - l.info.y);
-        l.preview = q;
-        this.render();
-      } else this.drawOverlay();
-    } else if (g.kind === "move") {
-      const dx = Math.round(p[0] - g.at[0]);
-      const dy = Math.round(p[1] - g.at[1]);
-      if (!dx && !dy) return;
-      g.at = [g.at[0] + dx, g.at[1] + dy];
-      g.lay.info.x += dx;
-      g.lay.info.y += dy;
-      if (g.lay.mask) {
-        g.lay.mask.x += dx;
-        g.lay.mask.y += dy;
-      }
-      this.render();
-    } else {
-      if (g.shape === "lasso") g.pts.push(p);
-      else g.pts = [g.from, p];
-      this.drawOverlay();
+    this.hover = p;
+    const g = this.gesture;
+    if (!g) {
+      if (
+        this.tool === "brush" ||
+        this.tool === "pencil" ||
+        this.tool === "eraser" ||
+        this.tool === "clone" ||
+        this.tool === "quick-select"
+      )
+        this.drawOverlay();
+      return;
     }
+    switch (g.kind) {
+      case "hand": {
+        const a = this.o.area;
+        a.scrollLeft = g.sl - (e.clientX - g.x);
+        a.scrollTop = g.st - (e.clientY - g.y);
+        return;
+      }
+      case "paint":
+        this.dab(g.stroke, g.last, p, g.tool, g.color);
+        g.last = p;
+        g.pts.push(p);
+        this.preview();
+        return;
+      case "float":
+      case "outline": {
+        const at: Pt = [
+          g.from[0] + Math.round(p[0] - g.from[0]),
+          g.from[1] + Math.round(p[1] - g.from[1]),
+        ];
+        if (at[0] === g.at[0] && at[1] === g.at[1]) return;
+        g.at = at;
+        if (g.kind === "float") this.floatPreview(g);
+        else this.drawOverlay();
+        return;
+      }
+      case "move": {
+        const dx = Math.round(p[0] - g.at[0]);
+        const dy = Math.round(p[1] - g.at[1]);
+        if (!dx && !dy) return;
+        g.at = [g.at[0] + dx, g.at[1] + dy];
+        g.lay.info.x += dx;
+        g.lay.info.y += dy;
+        if (g.lay.mask) {
+          g.lay.mask.x += dx;
+          g.lay.mask.y += dy;
+        }
+        this.render();
+        return;
+      }
+      case "marquee":
+        g.to = p;
+        g.square = e.shiftKey && !g.byKeys;
+        g.centre = e.altKey && !g.byKeys;
+        this.drawOverlay();
+        return;
+      case "lasso":
+        g.pts.push(p);
+        this.drawOverlay();
+        return;
+      case "poly":
+        if (g.magnetic) {
+          const last = g.pts[g.pts.length - 1] as Pt;
+          if (Math.hypot(p[0] - last[0], p[1] - last[1]) >= Math.max(4, 10 / this.zoom))
+            g.pts.push(this.snapEdge(g, p));
+        }
+        this.drawOverlay();
+        return;
+      case "quick": {
+        const r = this.opts.quickSize / 2;
+        if (Math.hypot(p[0] - g.last[0], p[1] - g.last[1]) < Math.max(1, r / 3)) return;
+        g.last = p;
+        this.quickAt(g, p);
+        return;
+      }
+      case "crop":
+        this.cropMove(g, p, e.shiftKey, e.altKey);
+        return;
+      case "eyedrop":
+        this.pick(g, p);
+        return;
+      case "gradient":
+        g.to = e.shiftKey ? snap45(g.from, p) : p;
+        this.drawOverlay();
+        return;
+      case "shape":
+        g.to = p;
+        g.shift = e.shiftKey;
+        g.alt = e.altKey;
+        this.drawOverlay();
+        return;
+      case "xform":
+        this.xfMove(g, p, e.shiftKey, e.altKey);
+        return;
+    }
+  };
+
+  private readonly leave = () => {
+    this.hover = undefined;
+    if (!this.gesture) this.drawOverlay();
+  };
+
+  private readonly dbl = () => {
+    if (this.gesture?.kind === "poly") this.closePoly();
+    else if (this.xf) this.commitTransform();
+    else if (this.crop) this.applyCrop();
   };
 
   private readonly up = () => {
     const g = this.gesture;
+    if (!g || g.kind === "poly") return;
     this.gesture = undefined;
-    if (!g) return;
-    if (g.kind === "paint") {
-      const l = this.currentLayer();
-      if (!l) return;
-      l.preview = undefined;
-      this.clipToSelection(g.stroke, true);
-      const r = this.boundsOf(g.pts, this.brush.size / 2 + 2);
-      const erase = this.tool === "eraser";
-      const onMask = this.onMask && !!l.mask;
-      this.change(
-        l,
-        r,
-        (c, ox, oy) => {
-          c.save();
-          if (onMask) {
-            // On a mask the brush shows (its colour's lightness), the eraser hides.
-            const v = erase ? 0 : greyOfCss(this.brush.color);
-            const tinted = canvas(this.width, this.height);
-            const t = ctx2d(tinted);
-            t.drawImage(g.stroke, 0, 0);
-            t.globalCompositeOperation = "source-in";
-            t.fillStyle = `rgb(${v},${v},${v})`;
-            t.fillRect(0, 0, this.width, this.height);
-            c.drawImage(tinted, -ox, -oy);
-          } else {
-            c.globalCompositeOperation = erase ? "destination-out" : "source-over";
-            c.drawImage(g.stroke, -ox, -oy);
-          }
-          c.restore();
-        },
-        erase && !onMask ? "erase" : "paint",
-      );
-      this.o.onEditing(false);
-    } else if (g.kind === "float") {
-      const l = g.lay;
-      const dx = g.at[0] - g.from[0];
-      const dy = g.at[1] - g.from[1];
-      l.preview = undefined;
-      this.o.onEditing(false);
-      const sel = this.sel;
-      if ((dx || dy) && sel) {
-        // Dropped: one change of the layer's pixels (tiles, or the layer grown to hold them).
-        const alpha = sel.alpha;
-        const piece = g.piece;
-        this.change(
-          l,
-          union(sel.box, { ...sel.box, x: sel.box.x + dx, y: sel.box.y + dy }),
-          (c, ox, oy) => {
-            c.save();
-            // Only inside the picture: the change's tiles are the picture's.
-            c.beginPath();
-            c.rect(-ox, -oy, this.width, this.height);
-            c.clip();
-            c.globalCompositeOperation = "destination-out";
-            c.drawImage(alpha, -ox, -oy);
-            c.globalCompositeOperation = "source-over";
-            c.drawImage(piece, dx - ox, dy - oy);
-            c.restore();
-          },
-          "transform",
+    switch (g.kind) {
+      case "paint":
+        this.endPaint(g);
+        return;
+      case "float":
+        this.endFloat(g);
+        return;
+      case "outline":
+        this.setSel(
+          this.sel && P.shiftSel(this.sel.mask, g.at[0] - g.from[0], g.at[1] - g.from[1]),
         );
-        this.shiftSelection(dx, dy);
-      } else this.render();
-    } else if (g.kind === "outline") {
-      this.shiftSelection(g.at[0] - g.from[0], g.at[1] - g.from[1]);
-    } else if (g.kind === "move") {
-      const l = g.lay;
-      const dx = Math.round(g.at[0] - g.from[0]);
-      const dy = Math.round(g.at[1] - g.from[1]);
-      this.o.onEditing(false);
-      if (dx || dy) {
-        const set = { x: l.info.x, y: l.info.y };
-        this.emit(async () => [{ t: "props", layer: l.info.id, set }], "transform");
+        return;
+      case "move": {
+        const l = g.lay;
+        const dx = Math.round(g.at[0] - g.from[0]);
+        const dy = Math.round(g.at[1] - g.from[1]);
+        this.o.onEditing(false);
+        if (g.dup) {
+          const dup = g.dup;
+          const above = this.layers[this.layers.indexOf(dup) - 1]?.info.id ?? null;
+          this.emit(
+            async () => [
+              {
+                t: "add",
+                layer: { ...dup.info, w: dup.c.width, h: dup.c.height },
+                above,
+                png: dup.c.width && dup.c.height ? await this.upload(dup.c) : null,
+                mask: null,
+              },
+            ],
+            "transform",
+          );
+        } else if (dx || dy) {
+          this.letGo();
+          const set = { x: l.info.x, y: l.info.y };
+          this.emit(async () => [{ t: "props", layer: l.info.id, set }], "transform");
+        }
+        return;
       }
-    } else {
-      const last = g.pts.at(-1) ?? g.from;
-      const pts = g.shape === "lasso" ? g.pts : this.shapePoints(g.shape, g.from, last);
-      if (
-        g.shape !== "lasso" &&
-        (Math.abs(last[0] - g.from[0]) < 1 || Math.abs(last[1] - g.from[1]) < 1)
-      )
-        this.selectNone();
-      else this.setSelection([pts]);
+      case "marquee": {
+        const r = marqueeRect(g.from, g.to, g.square, g.centre);
+        if (r.w < 1 || r.h < 1) {
+          if (g.mode === "new") this.setSel(undefined);
+          else this.drawOverlay();
+          return;
+        }
+        const m =
+          g.shape === "rect"
+            ? P.selOfRect(this.width, this.height, r)
+            : P.selOfEllipse(this.width, this.height, r, this.opts.antialias);
+        this.applySel(g.mode, P.featherSel(m, this.opts.feather));
+        return;
+      }
+      case "lasso": {
+        if (g.pts.length < 3) {
+          if (g.mode === "new") this.setSel(undefined);
+          else this.drawOverlay();
+          return;
+        }
+        const m = P.selOfPolys(this.width, this.height, [g.pts.flat()], this.opts.antialias);
+        this.applySel(g.mode, P.featherSel(m, this.opts.feather));
+        return;
+      }
+      case "quick":
+        this.setSel(P.selBounds(g.acc) ? g.acc : undefined);
+        return;
+      case "crop":
+        if (this.crop && (this.crop.w < 2 || this.crop.h < 2)) this.crop = undefined;
+        this.o.onCrop?.(this.crop);
+        this.drawOverlay();
+        return;
+      case "gradient":
+        this.applyGradient(g.from, g.to);
+        this.drawOverlay();
+        return;
+      case "shape":
+        this.addShape(g);
+        return;
+      case "hand":
+      case "eyedrop":
+      case "xform":
+        this.drawOverlay();
+        return;
     }
   };
 
   private readonly wheel = (e: WheelEvent) => {
-    if (!e.ctrlKey && !e.metaKey) return;
+    if (!e.ctrlKey && !e.metaKey && !e.altKey) return;
     e.preventDefault();
     this.setZoom(this.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
   };
 
-  private boundsOf(pts: [number, number][], pad: number): Rect {
+  /** The topmost visible layer with a pixel under the point (Move's auto-select). */
+  private layerAt(p: Pt): Lay | undefined {
+    for (let i = this.layers.length - 1; i >= 0; i--) {
+      const l = this.layers[i] as Lay;
+      if (!l.info.visible || l.info.groups?.some((g) => !g.visible)) continue;
+      const x = Math.floor(p[0] - l.info.x);
+      const y = Math.floor(p[1] - l.info.y);
+      if (x < 0 || y < 0 || x >= l.c.width || y >= l.c.height) continue;
+      if ((ctx2d(this.drawn(l)).getImageData(x, y, 1, 1).data[3] as number) > 0) return l;
+    }
+    return undefined;
+  }
+
+  private pick(g: { bg: boolean; sample: P.Px }, p: Pt) {
+    const x = Math.floor(p[0]);
+    const y = Math.floor(p[1]);
+    if (x < 0 || y < 0 || x >= g.sample.width || y >= g.sample.height) return;
+    const i = (y * g.sample.width + x) * 4;
+    const d = g.sample.data;
+    this.o.onPick(
+      hexOf(d[i] as number, d[i + 1] as number, d[i + 2] as number),
+      g.bg ? "bg" : "fg",
+    );
+  }
+
+  private boundsOf(pts: Pt[], pad: number): Rect {
     const xs = pts.map((p) => p[0]);
     const ys = pts.map((p) => p[1]);
     const x = Math.floor(Math.min(...xs) - pad);
@@ -978,16 +1605,39 @@ export class ImageIsland {
     };
   }
 
-  /** One segment of a stroke (round dabs, softer edges with a lower hardness). */
-  private dab(stroke: C, a: [number, number], b: [number, number]) {
+  // ---------------------------------------------------------------- brushes
+
+  /** One segment of a stroke: round dabs (softer with a lower hardness, by the flow), or the pencil's hard pixels. */
+  private dab(stroke: C, a: Pt, b: Pt, tool: string, color: string) {
     const c = ctx2d(stroke);
     const r = Math.max(0.5, this.brush.size / 2);
-    const color = this.tool === "eraser" ? "#000000" : this.brush.color;
     c.save();
-    c.globalAlpha = 1;
-    if (this.brush.hardness >= 0.99) {
-      c.strokeStyle = color;
-      c.fillStyle = color;
+    c.fillStyle = color;
+    c.strokeStyle = color;
+    if (tool === "pencil") {
+      // Whole pixels, no soft edge (Photoshop's pencil).
+      const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1])));
+      for (let i = 0; i <= steps; i++) {
+        const x = a[0] + ((b[0] - a[0]) * i) / steps;
+        const y = a[1] + ((b[1] - a[1]) * i) / steps;
+        if (r <= 0.75) {
+          c.fillRect(Math.floor(x), Math.floor(y), 1, 1);
+          continue;
+        }
+        for (let py = Math.floor(y - r); py <= Math.ceil(y + r); py++) {
+          const dy = py + 0.5 - y;
+          if (Math.abs(dy) > r) continue;
+          const half = Math.sqrt(r * r - dy * dy);
+          const x0 = Math.ceil(x - half - 0.5);
+          const x1 = Math.floor(x + half - 0.5);
+          if (x1 >= x0) c.fillRect(x0, py, x1 - x0 + 1, 1);
+        }
+      }
+      c.restore();
+      return;
+    }
+    const flow = Math.max(0.01, Math.min(1, this.brush.flow));
+    if (this.brush.hardness >= 0.99 && flow >= 0.999) {
       c.lineCap = "round";
       c.lineJoin = "round";
       c.lineWidth = r * 2;
@@ -995,25 +1645,47 @@ export class ImageIsland {
       c.moveTo(a[0], a[1]);
       c.lineTo(b[0] + 0.01, b[1]);
       c.stroke();
-    } else {
-      const steps = Math.max(
-        1,
-        Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / Math.max(1, r / 4)),
-      );
-      for (let i = 0; i <= steps; i++) {
-        const x = a[0] + ((b[0] - a[0]) * i) / steps;
-        const y = a[1] + ((b[1] - a[1]) * i) / steps;
-        const g = c.createRadialGradient(x, y, r * this.brush.hardness, x, y, r);
-        g.addColorStop(0, color);
-        g.addColorStop(1, `${color}00`);
-        c.fillStyle = g;
-        c.globalCompositeOperation = "lighten";
-        c.beginPath();
-        c.arc(x, y, r, 0, Math.PI * 2);
-        c.fill();
+      c.restore();
+      return;
+    }
+    const spacing = Math.max(1, r / 4);
+    const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / spacing));
+    c.globalAlpha = flow;
+    for (let i = a === b ? 0 : 1; i <= steps; i++) {
+      const x = a[0] + ((b[0] - a[0]) * i) / steps;
+      const y = a[1] + ((b[1] - a[1]) * i) / steps;
+      if (this.brush.hardness >= 0.99) c.fillStyle = color;
+      else {
+        const gr = c.createRadialGradient(x, y, r * this.brush.hardness, x, y, r);
+        gr.addColorStop(0, color);
+        gr.addColorStop(1, `${color}00`);
+        c.fillStyle = gr;
       }
+      c.beginPath();
+      c.arc(x, y, r, 0, Math.PI * 2);
+      c.fill();
     }
     c.restore();
+  }
+
+  /** What a paint stroke adds, picture-sized (the stroke, or the clone stamp's pixels through it). */
+  private strokeLayer(g: Extract<Gesture, { kind: "paint" }>): C {
+    const s = canvas(this.width, this.height);
+    const sc = ctx2d(s);
+    if (g.tool === "clone" && g.src && g.off) {
+      sc.drawImage(g.src, -g.off[0], -g.off[1]);
+      sc.globalCompositeOperation = "destination-in";
+    }
+    sc.globalAlpha = this.brush.opacity;
+    sc.drawImage(g.stroke, 0, 0);
+    sc.globalAlpha = 1;
+    sc.globalCompositeOperation = "source-over";
+    if (this.sel) {
+      sc.globalCompositeOperation = "destination-in";
+      sc.drawImage(this.selAlpha(), 0, 0);
+      sc.globalCompositeOperation = "source-over";
+    }
+    return s;
   }
 
   /** The stroke drawn over the current layer, as it will be (opacity, selection, eraser). */
@@ -1025,132 +1697,363 @@ export class ImageIsland {
       this.render();
       return;
     }
-    const s = canvas(this.width, this.height);
-    const sc = ctx2d(s);
-    sc.globalAlpha = this.brush.opacity;
-    sc.drawImage(g.stroke, 0, 0);
-    this.clipToSelection(s, false);
-    const r = union(
-      { x: l.info.x, y: l.info.y, w: l.c.width, h: l.c.height },
-      this.boundsOf(g.pts, this.brush.size / 2 + 2),
-    );
-    const p = canvas(r.w, r.h);
-    const pc = ctx2d(p);
-    pc.drawImage(l.c, l.info.x - r.x, l.info.y - r.y);
-    pc.globalCompositeOperation = this.tool === "eraser" ? "destination-out" : "source-over";
-    pc.drawImage(s, -r.x, -r.y);
-    // Drawn at the layer's place: the part beyond it shows once the layer grows.
-    const q = canvas(l.c.width, l.c.height);
-    ctx2d(q).drawImage(p, r.x - l.info.x, r.y - l.info.y);
+    const s = this.strokeLayer(g);
+    const q = canvas(this.width, this.height);
+    const qc = ctx2d(q);
+    qc.drawImage(l.c, l.info.x, l.info.y);
+    qc.globalCompositeOperation = g.erase ? "destination-out" : "source-over";
+    qc.drawImage(s, 0, 0);
     l.preview = q;
+    l.previewAt = { x: 0, y: 0 };
     this.render();
   }
 
-  /** A stroke's opacity applied and the parts outside the selection taken away. */
-  private clipToSelection(stroke: C, opacity: boolean) {
-    const c = ctx2d(stroke);
-    if (opacity && this.brush.opacity < 1) {
-      const t = canvas(stroke.width, stroke.height);
-      ctx2d(t).drawImage(stroke, 0, 0);
-      c.clearRect(0, 0, stroke.width, stroke.height);
-      c.globalAlpha = this.brush.opacity;
-      c.drawImage(t, 0, 0);
-      c.globalAlpha = 1;
+  private endPaint(g: Extract<Gesture, { kind: "paint" }>) {
+    const l = this.currentLayer();
+    this.o.onEditing(false);
+    if (!l) return;
+    l.preview = undefined;
+    l.previewAt = undefined;
+    const r = this.boundsOf(g.pts, this.brush.size / 2 + 2);
+    if (g.tool === "clone") {
+      // Exact: the source's pixels through the strokes' coverage (imagePx.stampThrough).
+      const cover = this.strokeLayer({ ...g, tool: "brush" });
+      const a = ctx2d(cover).getImageData(0, 0, this.width, this.height).data;
+      const sel = P.emptySel(this.width, this.height);
+      for (let i = 0; i < sel.a.length; i++) sel.a[i] = a[i * 4 + 3] as number;
+      const placed = this.placedOf(l, r);
+      P.stampThrough(placed, pxOf(g.src as C), g.off as Pt, sel, 1);
+      this.replaceLayer(l, placed, "paint");
+      return;
     }
-    if (!this.sel) return;
-    c.globalCompositeOperation = "destination-in";
-    c.drawImage(this.sel.alpha, 0, 0);
-    c.globalCompositeOperation = "source-over";
+    const s = this.strokeLayer(g);
+    const onMask = this.onMask && !!l.mask;
+    const erase = g.erase;
+    this.change(
+      l,
+      r,
+      (c, ox, oy) => {
+        c.save();
+        if (onMask) {
+          // On a mask the brush shows (its colour's lightness), the eraser hides.
+          const v = erase ? 0 : greyOfCss(g.color);
+          const tinted = canvas(this.width, this.height);
+          const t = ctx2d(tinted);
+          t.drawImage(s, 0, 0);
+          t.globalCompositeOperation = "source-in";
+          t.fillStyle = `rgb(${v},${v},${v})`;
+          t.fillRect(0, 0, this.width, this.height);
+          c.drawImage(tinted, -ox, -oy);
+        } else {
+          c.globalCompositeOperation = erase ? "destination-out" : "source-over";
+          c.drawImage(s, -ox, -oy);
+        }
+        c.restore();
+      },
+      erase && !onMask ? "erase" : "paint",
+    );
+  }
+
+  // ---------------------------------------------------------------- the Move tool's pixels
+
+  /** The floating pixels of the current layer (held after a drop, or cut now). */
+  private floatOf(l: Lay, copy: boolean): { f: P.Floating; dx: number; dy: number } | undefined {
+    const sel = this.sel;
+    if (!sel) return undefined;
+    const fl = this.floating;
+    if (fl && fl.lay === l && !copy) return fl;
+    this.letGo();
+    return {
+      f: P.float({ x: l.info.x, y: l.info.y, px: pxOf(l.c) }, sel.mask, copy, this.holeFill(l)),
+      dx: 0,
+      dy: 0,
+    };
+  }
+
+  private startFloat(l: Lay, p: Pt, copy: boolean) {
+    const fl = this.floatOf(l, copy);
+    if (!fl) return;
+    const f = fl.f;
+    const holedPx = P.copyPlaced(f.base);
+    if (!f.copy) P.clearThrough(holedPx, f.sel, f.fill);
+    const holed = canvas(this.width, this.height);
+    ctx2d(holed).drawImage(canvasOf(holedPx.px), holedPx.x, holedPx.y);
+    this.gesture = {
+      kind: "float",
+      from: p,
+      at: p,
+      lay: l,
+      f,
+      start: [fl.dx, fl.dy],
+      holed,
+      piece: canvasOf(f.piece),
+    };
+  }
+
+  private floatPreview(g: Extract<Gesture, { kind: "float" }>) {
+    const q = canvas(this.width, this.height);
+    const qc = ctx2d(q);
+    qc.drawImage(g.holed, 0, 0);
+    qc.drawImage(g.piece, g.start[0] + g.at[0] - g.from[0], g.start[1] + g.at[1] - g.from[1]);
+    g.lay.preview = q;
+    g.lay.previewAt = { x: 0, y: 0 };
+    this.render();
+  }
+
+  private endFloat(g: Extract<Gesture, { kind: "float" }>) {
+    const l = g.lay;
+    l.preview = undefined;
+    l.previewAt = undefined;
+    this.o.onEditing(false);
+    const dx = g.start[0] + g.at[0] - g.from[0];
+    const dy = g.start[1] + g.at[1] - g.from[1];
+    const held = this.floating?.f === g.f;
+    if (held && dx === g.start[0] && dy === g.start[1]) {
+      this.render();
+      return;
+    }
+    if (!held && !g.f.copy && !dx && !dy) {
+      this.render();
+      return;
+    }
+    this.dropFloat(l, g.f, dx, dy);
+  }
+
+  /** The floating pixels put down at (dx, dy) from their cut: one change, still held. */
+  private dropFloat(l: Lay, f: P.Floating, dx: number, dy: number) {
+    this.replaceLayer(l, P.floatAt(f, dx, dy), "transform", true);
+    this.floating = { lay: l, f, dx, dy };
+    this.setSel(P.shiftSel(f.sel, dx, dy), true);
+  }
+
+  /** The arrow keys: Move nudges the layer or its selected pixels, a selection tool the outline. */
+  nudge(dx: number, dy: number): void {
+    if (this.xf) {
+      this.xf.m.tx += dx;
+      this.xf.m.ty += dy;
+      this.renderXf();
+      return;
+    }
+    if (this.tool !== "move") {
+      if (this.sel) this.setSel(P.shiftSel(this.sel.mask, dx, dy));
+      return;
+    }
+    const l = this.currentLayer();
+    if (this.refuses(l)) return;
+    if (this.sel && !(this.onMask && l.mask)) {
+      const fl = this.floatOf(l, false);
+      if (fl) this.dropFloat(l, fl.f, fl.dx + dx, fl.dy + dy);
+      return;
+    }
+    l.info.x += dx;
+    l.info.y += dy;
+    if (l.mask) {
+      l.mask.x += dx;
+      l.mask.y += dy;
+    }
+    this.render();
+    const set = { x: l.info.x, y: l.info.y };
+    this.emit(async () => [{ t: "props", layer: l.info.id, set }], "transform");
   }
 
   // ---------------------------------------------------------------- selections
 
-  /** A layer's pixels inside a selection (a picture-sized piece) and the layer without them. */
-  private cut(l: Lay, alpha: C): { piece: C; holed: C } {
-    const piece = canvas(this.width, this.height);
-    const pc = ctx2d(piece);
-    pc.drawImage(l.c, l.info.x, l.info.y);
-    pc.globalCompositeOperation = "destination-in";
-    pc.drawImage(alpha, 0, 0);
-    const holed = canvas(l.c.width, l.c.height);
-    const hc = ctx2d(holed);
-    hc.drawImage(l.c, 0, 0);
-    hc.globalCompositeOperation = "destination-out";
-    hc.drawImage(alpha, -l.info.x, -l.info.y);
-    return { piece, holed };
+  /** The selection's coverage as a canvas's alpha (for the brushes and masks), made once. */
+  private selAlpha(): C {
+    const s = this.sel as NonNullable<typeof this.sel>;
+    if (s.alpha) return s.alpha;
+    const c = canvas(this.width, this.height);
+    const img = new ImageData(this.width, this.height);
+    for (let i = 0; i < s.mask.a.length; i++) img.data[i * 4 + 3] = s.mask.a[i] as number;
+    ctx2d(c).putImageData(img, 0, 0);
+    s.alpha = c;
+    return c;
   }
 
-  /** The selection moved by (dx, dy): its alpha, its outline and its box (none once off the picture). */
-  private shiftSelection(dx: number, dy: number) {
-    const sel = this.sel;
-    if (!sel || (!dx && !dy)) {
+  /** The selection now (undefined: none), its outline drawn as marching ants. */
+  private setSel(mask: P.Sel | undefined, keepFloat = false) {
+    if (!keepFloat) this.letGo();
+    const box = mask && P.selBounds(mask);
+    if (!mask || !box) {
+      if (this.sel) this.lastSel = this.sel.mask;
+      this.sel = undefined;
+      if (this.antsTimer) clearInterval(this.antsTimer);
+      this.antsTimer = undefined;
+      this.o.onSelection(undefined);
       this.drawOverlay();
       return;
     }
-    const box = inter(
-      { ...sel.box, x: sel.box.x + dx, y: sel.box.y + dy },
-      { x: 0, y: 0, w: this.width, h: this.height },
-    );
-    if (!box) {
-      this.selectNone();
-      return;
+    const segs = P.selOutline(mask);
+    const path = new Path2D();
+    for (let i = 0; i + 3 < segs.length; i += 4) {
+      path.moveTo(segs[i] as number, segs[i + 1] as number);
+      path.lineTo(segs[i + 2] as number, segs[i + 3] as number);
     }
-    const alpha = canvas(this.width, this.height);
-    ctx2d(alpha).drawImage(sel.alpha, dx, dy);
-    this.sel = {
-      alpha,
-      outline: sel.outline.map((poly) =>
-        poly.map(([x, y]) => [x + dx, y + dy] as [number, number]),
-      ),
-      box,
-    };
+    this.sel = { mask, path, box };
+    if (!this.antsTimer)
+      this.antsTimer = setInterval(() => {
+        if (this.disposed || !this.sel) return;
+        this.ants = (this.ants + 1) % 8;
+        if (!this.gesture || this.gesture.kind === "hand") this.drawOverlay();
+      }, 140);
     this.o.onSelection(box);
     this.drawOverlay();
   }
 
-  private setSelection(polys: [number, number][][]) {
-    const alpha = canvas(this.width, this.height);
-    const c = ctx2d(alpha);
-    c.fillStyle = "#000";
-    c.beginPath();
-    for (const p of polys) {
-      if (p.length < 3) continue;
-      c.moveTo(p[0]?.[0] ?? 0, p[0]?.[1] ?? 0);
-      for (const q of p.slice(1)) c.lineTo(q[0], q[1]);
-      c.closePath();
-    }
-    c.fill();
-    const all = polys.flat();
-    if (all.length < 3) {
-      this.selectNone();
+  /** A new selection combined with the one there is (Photoshop's modes). */
+  private applySel(mode: P.SelMode, next: P.Sel) {
+    this.setSel(P.combineSel(mode, this.sel?.mask, next));
+  }
+
+  private quickAt(g: Extract<Gesture, { kind: "quick" }>, p: Pt) {
+    const region = P.quickSel(
+      g.sample,
+      p[0],
+      p[1],
+      this.opts.quickSize / 2,
+      this.opts.tolerance,
+      P.emptySel(this.width, this.height),
+    );
+    const a = g.acc.a;
+    const b = region.a;
+    if (g.mode === "subtract") {
+      for (let i = 0; i < a.length; i++)
+        if (b[i]) a[i] = Math.round(((a[i] as number) * (255 - (b[i] as number))) / 255);
+    } else
+      for (let i = 0; i < a.length; i++)
+        if ((b[i] as number) > (a[i] as number)) a[i] = b[i] as number;
+    this.setSel(P.selBounds(g.acc) ? g.acc : undefined);
+  }
+
+  /** The polygonal or magnetic lasso closed: its selection. */
+  closePoly(): void {
+    const g = this.gesture;
+    if (g?.kind !== "poly") return;
+    this.gesture = undefined;
+    if (g.pts.length < 3) {
+      this.drawOverlay();
       return;
     }
-    const b = this.boundsOf(all, 0);
-    const box = inter(b, { x: 0, y: 0, w: this.width, h: this.height });
-    if (!box) {
-      this.selectNone();
-      return;
-    }
-    this.sel = { alpha, outline: polys, box };
-    this.o.onSelection(box);
+    const m = P.selOfPolys(this.width, this.height, [g.pts.flat()], this.opts.antialias);
+    this.applySel(g.mode, P.featherSel(m, this.opts.feather));
+  }
+
+  /** The polygon under way given up (another tool picked). */
+  cancelPolygon(): void {
+    if (this.gesture?.kind !== "poly") return;
+    this.gesture = undefined;
     this.drawOverlay();
+  }
+
+  /** The polygonal lasso's last point taken back (Backspace). */
+  polyBack(): boolean {
+    const g = this.gesture;
+    if (g?.kind !== "poly") return false;
+    g.pts.pop();
+    if (!g.pts.length) this.gesture = undefined;
+    this.drawOverlay();
+    return true;
+  }
+
+  /** Esc: the gesture under way, the crop or the free transform given up. */
+  cancel(): boolean {
+    if (this.gesture?.kind === "poly") {
+      this.gesture = undefined;
+      this.drawOverlay();
+      return true;
+    }
+    if (this.xf) {
+      this.cancelTransform();
+      return true;
+    }
+    if (this.crop) {
+      this.crop = undefined;
+      this.o.onCrop?.(undefined);
+      this.drawOverlay();
+      return true;
+    }
+    return false;
+  }
+
+  /** Enter: the polygon closed, the crop or the transform applied. */
+  commit(): boolean {
+    if (this.gesture?.kind === "poly") {
+      this.closePoly();
+      return true;
+    }
+    if (this.xf) {
+      this.commitTransform();
+      return true;
+    }
+    if (this.crop) {
+      this.applyCrop();
+      return true;
+    }
+    return false;
+  }
+
+  /** How strong the edges are at each pixel (the composite's lightness, Sobel), for the magnetic lasso. */
+  private edgeMap(): Float32Array {
+    const { width: w, height: h, data: d } = pxOf(this.composite());
+    const lum = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++)
+      lum[i] =
+        ((0.2126 * (d[i * 4] as number) +
+          0.7152 * (d[i * 4 + 1] as number) +
+          0.0722 * (d[i * 4 + 2] as number)) *
+          (d[i * 4 + 3] as number)) /
+        255;
+    const out = new Float32Array(w * h);
+    for (let y = 1; y < h - 1; y++)
+      for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x;
+        const L = (k: number) => lum[k] as number;
+        const gx =
+          L(i - w + 1) + 2 * L(i + 1) + L(i + w + 1) - L(i - w - 1) - 2 * L(i - 1) - L(i + w - 1);
+        const gy =
+          L(i + w - 1) + 2 * L(i + w) + L(i + w + 1) - L(i - w - 1) - 2 * L(i - w) - L(i - w + 1);
+        out[i] = Math.hypot(gx, gy);
+      }
+    return out;
+  }
+
+  /** A point moved to the strongest edge near it (the magnetic lasso's width, 8 pixels). */
+  private snapEdge(g: { grad?: Float32Array }, p: Pt): Pt {
+    const m = g.grad;
+    if (!m) return p;
+    const R = 8;
+    let best = 40;
+    let at: Pt = p;
+    const cx = Math.round(p[0]);
+    const cy = Math.round(p[1]);
+    for (let y = cy - R; y <= cy + R; y++)
+      for (let x = cx - R; x <= cx + R; x++) {
+        if (x < 0 || y < 0 || x >= this.width || y >= this.height) continue;
+        // Nearer edges count more: the pointer still guides.
+        const v =
+          (m[y * this.width + x] as number) * (1 - Math.hypot(x - p[0], y - p[1]) / (R * 2));
+        if (v > best) {
+          best = v;
+          at = [x + 0.5, y + 0.5];
+        }
+      }
+    return at;
   }
 
   selectAll(): void {
-    this.setSelection([
-      [
-        [0, 0],
-        [this.width, 0],
-        [this.width, this.height],
-        [0, this.height],
-      ],
-    ]);
+    this.setSel(
+      P.selOfRect(this.width, this.height, { x: 0, y: 0, w: this.width, h: this.height }),
+    );
   }
 
   selectNone(): void {
-    this.sel = undefined;
-    this.o.onSelection(undefined);
-    this.drawOverlay();
+    this.setSel(undefined);
+  }
+
+  /** The last selection let go, back (Ctrl+Shift+D). */
+  reselect(): void {
+    if (this.lastSel && this.lastSel.width === this.width && this.lastSel.height === this.height)
+      this.setSel(this.lastSel);
   }
 
   invertSelection(): void {
@@ -1158,74 +2061,456 @@ export class ImageIsland {
       this.selectAll();
       return;
     }
-    const alpha = canvas(this.width, this.height);
-    const c = ctx2d(alpha);
-    c.fillStyle = "#000";
-    c.fillRect(0, 0, this.width, this.height);
-    c.globalCompositeOperation = "destination-out";
-    c.drawImage(this.sel.alpha, 0, 0);
-    const frame: [number, number][] = [
-      [0, 0],
-      [this.width, 0],
-      [this.width, this.height],
-      [0, this.height],
-    ];
-    this.sel = {
-      alpha,
-      outline: [frame, ...this.sel.outline],
-      box: { x: 0, y: 0, w: this.width, h: this.height },
-    };
-    this.o.onSelection(this.sel.box);
-    this.drawOverlay();
+    this.setSel(P.invertSel(this.sel.mask));
   }
 
   get selection(): Rect | undefined {
     return this.sel?.box;
   }
 
-  /** The selection (or the whole picture) filled with a colour on the current layer or mask. */
+  /** The selection (or the whole picture) filled with a colour on the current layer or mask, or cleared. */
   fillSelection(color: string, clear = false): void {
     const l = this.currentLayer();
-    if (!l) return;
+    if (this.refuses(l)) return;
+    if (clear && !this.sel) {
+      this.o.onNote?.("nothingSelected");
+      return;
+    }
+    if (!(this.onMask && l.mask)) {
+      // Pixels: exact (imagePx); a Background's hole takes its colour.
+      const box = this.sel?.box ?? { x: 0, y: 0, w: this.width, h: this.height };
+      const placed = this.placedOf(l, clear ? undefined : box);
+      if (clear)
+        P.clearThrough(placed, (this.sel as NonNullable<typeof this.sel>).mask, this.holeFill(l));
+      else P.fillThrough(placed, this.sel?.mask, P.rgbaOfHex(color));
+      this.replaceLayer(l, placed, clear ? "clear" : "fill");
+      return;
+    }
     const shape = canvas(this.width, this.height);
     const c = ctx2d(shape);
-    c.fillStyle = clear ? "#000" : color;
+    c.fillStyle = "#000";
     c.fillRect(0, 0, this.width, this.height);
     if (this.sel) {
       c.globalCompositeOperation = "destination-in";
-      c.drawImage(this.sel.alpha, 0, 0);
+      c.drawImage(this.selAlpha(), 0, 0);
     }
     const box = this.sel?.box ?? { x: 0, y: 0, w: this.width, h: this.height };
-    const onMask = this.onMask && !!l.mask;
     const v = clear ? 0 : greyOfCss(color);
     this.change(
       l,
-      clear && !onMask
-        ? (inter(box, { x: l.info.x, y: l.info.y, w: l.c.width, h: l.c.height }) ?? {
-            x: 0,
-            y: 0,
-            w: 0,
-            h: 0,
-          })
-        : box,
+      box,
       (ctx, ox, oy) => {
         ctx.save();
-        if (onMask) {
-          const t = canvas(this.width, this.height);
-          const tc = ctx2d(t);
-          tc.drawImage(shape, 0, 0);
-          tc.globalCompositeOperation = "source-in";
-          tc.fillStyle = `rgb(${v},${v},${v})`;
-          tc.fillRect(0, 0, this.width, this.height);
-          ctx.drawImage(t, -ox, -oy);
-        } else {
-          ctx.globalCompositeOperation = clear ? "destination-out" : "source-over";
-          ctx.drawImage(shape, -ox, -oy);
-        }
+        const t = canvas(this.width, this.height);
+        const tc = ctx2d(t);
+        tc.drawImage(shape, 0, 0);
+        tc.globalCompositeOperation = "source-in";
+        tc.fillStyle = `rgb(${v},${v},${v})`;
+        tc.fillRect(0, 0, this.width, this.height);
+        ctx.drawImage(t, -ox, -oy);
         ctx.restore();
       },
       clear ? "clear" : "fill",
     );
+  }
+
+  /** Layer via Copy (Ctrl+J): the selected pixels as a new layer above, or the layer copied. */
+  layerViaCopy(name: string): void {
+    const l = this.currentLayer();
+    if (!l) return;
+    if (!this.sel) {
+      this.duplicateLayer(name);
+      return;
+    }
+    const f = P.float({ x: l.info.x, y: l.info.y, px: pxOf(l.c) }, this.sel.mask, true);
+    const b = this.sel.box;
+    const c = canvas(b.w, b.h);
+    ctx2d(c).drawImage(canvasOf(f.piece), -b.x, -b.y);
+    const info: ImageLayerInfo = {
+      id: newId(),
+      name,
+      x: b.x,
+      y: b.y,
+      w: b.w,
+      h: b.h,
+      opacity: 1,
+      visible: true,
+      blend: "svg:src-over",
+      ...(l.info.groups?.length && { groups: l.info.groups }),
+    };
+    this.place({ info, c }, l.info.id);
+    this.current = info.id;
+    this.letGo();
+    this.render();
+    this.o.onLayers();
+    const above = l.info.id;
+    this.emit(async () => [
+      { t: "add", layer: { ...info }, above, png: await this.upload(c), mask: null },
+    ]);
+  }
+
+  // ---------------------------------------------------------------- bucket, gradient, shapes, crop
+
+  private bucket(p: Pt) {
+    const l = this.currentLayer();
+    if (this.refuses(l)) return;
+    const o = this.opts;
+    let area: P.Sel | undefined = P.wandSel(this.sample(), p[0], p[1], o.tolerance, o.contiguous);
+    if (this.sel) area = P.combineSel("intersect", this.sel.mask, area);
+    const box = area && P.selBounds(area);
+    if (!area || !box) return;
+    const placed = this.placedOf(l, box);
+    P.fillThrough(placed, area, P.rgbaOfHex(this.brush.color), this.brush.opacity);
+    this.replaceLayer(l, placed, "fill");
+  }
+
+  private applyGradient(from: Pt, to: Pt) {
+    const l = this.currentLayer();
+    if (this.refuses(l)) return;
+    if (Math.hypot(to[0] - from[0], to[1] - from[1]) < 1) return;
+    const fg = P.rgbaOfHex(this.brush.color);
+    const placed = this.placedOf(l, this.sel?.box ?? { x: 0, y: 0, w: this.width, h: this.height });
+    P.gradientThrough(placed, this.sel?.mask, {
+      from,
+      to,
+      kind: this.opts.gradient,
+      c0: fg,
+      c1: this.opts.gradientTransparent ? [fg[0], fg[1], fg[2], 0] : P.rgbaOfHex(this.background),
+      reverse: this.opts.gradientReverse,
+      opacity: this.brush.opacity,
+    });
+    this.replaceLayer(l, placed, "fill");
+  }
+
+  private addShape(g: Extract<Gesture, { kind: "shape" }>) {
+    const sw = Math.max(1, this.opts.shapeStroke);
+    const line = g.shape === "line";
+    const to = line && g.shift ? snap45(g.from, g.to) : g.to;
+    const r = line
+      ? this.boundsOf([g.from, to], sw / 2 + 2)
+      : (() => {
+          const m = marqueeRect(g.from, g.to, g.shift, g.alt);
+          const pad = this.opts.shapeFill ? 1 : sw / 2 + 1;
+          return this.boundsOf(
+            [
+              [m.x, m.y],
+              [m.x + m.w, m.y + m.h],
+            ],
+            pad,
+          );
+        })();
+    const m = marqueeRect(g.from, g.to, g.shift, g.alt);
+    if (line ? Math.hypot(to[0] - g.from[0], to[1] - g.from[1]) < 1 : m.w < 1 || m.h < 1) {
+      this.drawOverlay();
+      return;
+    }
+    const c = canvas(r.w, r.h);
+    const x = ctx2d(c);
+    x.translate(-r.x, -r.y);
+    x.fillStyle = this.brush.color;
+    x.strokeStyle = this.brush.color;
+    x.lineWidth = sw;
+    x.lineCap = "round";
+    x.beginPath();
+    if (line) {
+      x.moveTo(g.from[0], g.from[1]);
+      x.lineTo(to[0], to[1]);
+      x.stroke();
+    } else {
+      if (g.shape === "rect") x.rect(m.x, m.y, m.w, m.h);
+      else x.ellipse(m.x + m.w / 2, m.y + m.h / 2, m.w / 2, m.h / 2, 0, 0, Math.PI * 2);
+      if (this.opts.shapeFill) x.fill();
+      else x.stroke();
+    }
+    const cur = this.currentLayer();
+    const info: ImageLayerInfo = {
+      id: newId(),
+      name: this.o.label?.(`shape-${g.shape}` as "shape-rect") ?? g.shape,
+      x: r.x,
+      y: r.y,
+      w: r.w,
+      h: r.h,
+      opacity: 1,
+      visible: true,
+      blend: "svg:src-over",
+      ...(cur?.info.groups?.length && { groups: cur.info.groups }),
+    };
+    const above = cur?.info.id ?? this.layers.at(-1)?.info.id ?? null;
+    this.place({ info, c }, above);
+    this.current = info.id;
+    this.render();
+    this.o.onLayers();
+    this.emit(async () => [
+      { t: "add", layer: { ...info }, above, png: await this.upload(c), mask: null },
+    ]);
+  }
+
+  private cropMove(g: Extract<Gesture, { kind: "crop" }>, p: Pt, shift: boolean, alt: boolean) {
+    const s = g.start;
+    const dx = p[0] - g.from[0];
+    const dy = p[1] - g.from[1];
+    let r: Rect;
+    if (g.how === "new" || !s) r = marqueeRect(g.from, p, shift, alt);
+    else if (g.how === "move") r = { ...s, x: s.x + dx, y: s.y + dy };
+    else {
+      const i = Number(g.how.slice(1));
+      // Corners 0-3 (top left clockwise), sides 4-7 (top, right, bottom, left).
+      let x0 = s.x;
+      let y0 = s.y;
+      let x1 = s.x + s.w;
+      let y1 = s.y + s.h;
+      if (i === 0 || i === 3 || i === 7) x0 += dx;
+      if (i === 1 || i === 2 || i === 5) x1 += dx;
+      if (i === 0 || i === 1 || i === 4) y0 += dy;
+      if (i === 2 || i === 3 || i === 6) y1 += dy;
+      r = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+    }
+    this.crop = { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) };
+    this.drawOverlay();
+  }
+
+  /** The crop box applied (Enter): the picture's size and place, layers kept. */
+  applyCrop(): void {
+    const c = this.crop;
+    this.crop = undefined;
+    this.o.onCrop?.(undefined);
+    if (!c || c.w < 1 || c.h < 1) {
+      this.drawOverlay();
+      return;
+    }
+    this.setCanvas(c.w, c.h, -c.x, -c.y);
+  }
+
+  /** The crop box set to the selection (the options bar's button, or Image > Crop). */
+  cropBox(r: Rect | undefined): void {
+    this.crop = r && { ...r };
+    this.o.onCrop?.(this.crop);
+    this.drawOverlay();
+  }
+
+  // ---------------------------------------------------------------- free transform
+
+  /** Ctrl+T: the selected pixels (or the whole layer) in a box with handles. */
+  freeTransform(): void {
+    if (this.xf) return;
+    const l = this.currentLayer();
+    if (this.refuses(l) || !l.c.width || !l.c.height) return;
+    if (this.sel && !(this.onMask && l.mask)) {
+      const fl = this.floatOf(l, false);
+      if (!fl) return;
+      this.xf = {
+        lay: l,
+        src: canvasOf(fl.f.piece),
+        box: fl.f.box,
+        f: fl.f,
+        m: { tx: fl.dx, ty: fl.dy, sx: 1, sy: 1, rot: 0 },
+      };
+    } else
+      this.xf = {
+        lay: l,
+        src: l.c,
+        box: { x: l.info.x, y: l.info.y, w: l.c.width, h: l.c.height },
+        m: { tx: 0, ty: 0, sx: 1, sy: 1, rot: 0 },
+      };
+    this.o.onTransform?.(true);
+    this.renderXf();
+  }
+
+  get transforming(): boolean {
+    return !!this.xf;
+  }
+
+  private xfCorners(xf = this.xf as NonNullable<typeof this.xf>): Pt[] {
+    const b = xf.box;
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
+    const { tx, ty, sx, sy, rot } = xf.m;
+    const cos = Math.cos(rot);
+    const sin = Math.sin(rot);
+    return this.cornersOf(b).map(([px, py]): Pt => {
+      const x = (px - cx) * sx;
+      const y = (py - cy) * sy;
+      return [cx + tx + x * cos - y * sin, cy + ty + x * sin + y * cos];
+    });
+  }
+
+  private xfDown(p: Pt) {
+    const xf = this.xf as NonNullable<typeof this.xf>;
+    const q = this.xfCorners();
+    const tol = (HANDLE + 3) / this.zoom;
+    const i = this.handles(q).findIndex(
+      (h) => Math.abs(h[0] - p[0]) <= tol && Math.abs(h[1] - p[1]) <= tol,
+    );
+    let how = i >= 0 ? `h${i}` : "rotate";
+    if (i < 0) {
+      // Inside the box: move it.
+      const fill = new Path2D();
+      fill.moveTo((q[0] as Pt)[0], (q[0] as Pt)[1]);
+      for (const c of q.slice(1)) fill.lineTo(c[0], c[1]);
+      fill.closePath();
+      if (ctx2d(this.over).isPointInPath(fill, p[0], p[1])) how = "move";
+    }
+    this.gesture = { kind: "xform", how, from: p, start: { ...xf.m } };
+  }
+
+  private xfMove(g: Extract<Gesture, { kind: "xform" }>, p: Pt, shift: boolean, alt: boolean) {
+    const xf = this.xf;
+    if (!xf) return;
+    const s = g.start;
+    const b = xf.box;
+    const m: Xform = { ...s };
+    const cc: Pt = [b.x + b.w / 2 + s.tx, b.y + b.h / 2 + s.ty];
+    if (g.how === "move") {
+      m.tx = s.tx + Math.round(p[0] - g.from[0]);
+      m.ty = s.ty + Math.round(p[1] - g.from[1]);
+    } else if (g.how === "rotate") {
+      const a0 = Math.atan2(g.from[1] - cc[1], g.from[0] - cc[0]);
+      const a1 = Math.atan2(p[1] - cc[1], p[0] - cc[0]);
+      m.rot = s.rot + a1 - a0;
+      if (shift) m.rot = Math.round(m.rot / (Math.PI / 12)) * (Math.PI / 12);
+    } else {
+      const i = Number(g.how.slice(1));
+      const ux = [-1, 1, 1, -1, 0, 1, 0, -1][i] as number;
+      const uy = [-1, -1, 1, 1, -1, 0, 1, 0][i] as number;
+      // The pointer in the box's own axes (unrotated, from its centre).
+      const cos = Math.cos(s.rot);
+      const sin = Math.sin(s.rot);
+      const vx = p[0] - cc[0];
+      const vy = p[1] - cc[1];
+      const lx = vx * cos + vy * sin;
+      const ly = -vx * sin + vy * cos;
+      const hw = (b.w / 2) * s.sx;
+      const hh = (b.h / 2) * s.sy;
+      // From the opposite side (Alt: from the centre).
+      const ax = alt ? 0 : -ux * hw;
+      const ay = alt ? 0 : -uy * hh;
+      let sx = s.sx;
+      let sy = s.sy;
+      if (ux) sx = (lx - ax) / (alt ? ux * (b.w / 2) : ux * b.w);
+      if (uy) sy = (ly - ay) / (alt ? uy * (b.h / 2) : uy * b.h);
+      // Corners keep the proportions (Photoshop's default), Shift lets them go.
+      if (ux && uy && !shift) {
+        const k = (sx / s.sx + sy / s.sy) / 2;
+        sx = s.sx * k;
+        sy = s.sy * k;
+      }
+      if (Math.abs(sx) < 0.01) sx = 0.01 * Math.sign(sx || 1);
+      if (Math.abs(sy) < 0.01) sy = 0.01 * Math.sign(sy || 1);
+      m.sx = sx;
+      m.sy = sy;
+      if (!alt) {
+        // The opposite side stays put: the centre moves.
+        const ncx = ux ? ax + (ux * b.w * sx) / 2 : 0;
+        const ncy = uy ? ay + (uy * b.h * sy) / 2 : 0;
+        m.tx = s.tx + ncx * cos - ncy * sin;
+        m.ty = s.ty + ncx * sin + ncy * cos;
+      }
+    }
+    xf.m = m;
+    this.renderXf();
+  }
+
+  /** Draws `src` transformed into a context whose origin is the picture's (0, 0). */
+  private drawXf(c: Ctx, src: C, at: Pt, xf = this.xf as NonNullable<typeof this.xf>) {
+    const b = xf.box;
+    const m = xf.m;
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
+    c.save();
+    c.imageSmoothingQuality = "high";
+    c.translate(cx + m.tx, cy + m.ty);
+    c.rotate(m.rot);
+    c.scale(m.sx, m.sy);
+    c.translate(-cx, -cy);
+    c.drawImage(src, at[0], at[1]);
+    c.restore();
+  }
+
+  private renderXf() {
+    const xf = this.xf;
+    if (!xf) return;
+    const q = canvas(this.width, this.height);
+    const qc = ctx2d(q);
+    if (xf.f) {
+      const h = P.copyPlaced(xf.f.base);
+      P.clearThrough(h, xf.f.sel, xf.f.fill);
+      qc.drawImage(canvasOf(h.px), h.x, h.y);
+      this.drawXf(qc, xf.src, [0, 0]);
+    } else this.drawXf(qc, xf.src, [xf.box.x, xf.box.y]);
+    xf.lay.preview = q;
+    xf.lay.previewAt = { x: 0, y: 0 };
+    this.render();
+  }
+
+  commitTransform(): void {
+    const xf = this.xf;
+    if (!xf) return;
+    this.xf = undefined;
+    const l = xf.lay;
+    l.preview = undefined;
+    l.previewAt = undefined;
+    this.o.onTransform?.(false);
+    const m = xf.m;
+    if (m.sx === 1 && m.sy === 1 && !m.rot && !m.tx && !m.ty) {
+      this.render();
+      return;
+    }
+    const q = this.xfCorners(xf);
+    const xs = q.map((p) => p[0]);
+    const ys = q.map((p) => p[1]);
+    const tb = {
+      x: Math.floor(Math.min(...xs)),
+      y: Math.floor(Math.min(...ys)),
+      w: Math.ceil(Math.max(...xs)) - Math.floor(Math.min(...xs)),
+      h: Math.ceil(Math.max(...ys)) - Math.floor(Math.min(...ys)),
+    };
+    if (xf.f) {
+      const f = xf.f;
+      const h = P.copyPlaced(f.base);
+      P.clearThrough(h, f.sel, f.fill);
+      const land = inter(tb, { x: 0, y: 0, w: this.width, h: this.height });
+      const r = land
+        ? union({ x: h.x, y: h.y, w: h.px.width, h: h.px.height }, land)
+        : { x: h.x, y: h.y, w: h.px.width, h: h.px.height };
+      const c = canvas(r.w, r.h);
+      const cc = ctx2d(c);
+      cc.drawImage(canvasOf(h.px), h.x - r.x, h.y - r.y);
+      cc.save();
+      cc.beginPath();
+      cc.rect(-r.x, -r.y, this.width, this.height);
+      cc.clip();
+      cc.translate(-r.x, -r.y);
+      this.drawXf(cc, xf.src, [0, 0], xf);
+      // The selection goes along.
+      const sa = canvas(this.width, this.height);
+      const img = new ImageData(this.width, this.height);
+      for (let i = 0; i < f.sel.a.length; i++) img.data[i * 4 + 3] = f.sel.a[i] as number;
+      const plain = canvas(this.width, this.height);
+      ctx2d(plain).putImageData(img, 0, 0);
+      this.drawXf(ctx2d(sa), plain, [0, 0], xf);
+      cc.restore();
+      this.replaceLayer(l, { x: r.x, y: r.y, px: pxOf(c) }, "transform");
+      const a = ctx2d(sa).getImageData(0, 0, this.width, this.height).data;
+      const ns = P.emptySel(this.width, this.height);
+      for (let i = 0; i < ns.a.length; i++) ns.a[i] = a[i * 4 + 3] as number;
+      this.setSel(ns);
+      return;
+    }
+    const c = canvas(tb.w, tb.h);
+    const cc = ctx2d(c);
+    cc.translate(-tb.x, -tb.y);
+    this.drawXf(cc, xf.src, [xf.box.x, xf.box.y], xf);
+    this.replaceLayer(l, { x: tb.x, y: tb.y, px: pxOf(c) }, "transform");
+  }
+
+  cancelTransform(): void {
+    const xf = this.xf;
+    if (!xf) return;
+    this.xf = undefined;
+    xf.lay.preview = undefined;
+    xf.lay.previewAt = undefined;
+    this.o.onTransform?.(false);
+    this.render();
   }
 
   // ---------------------------------------------------------------- filters
@@ -1235,6 +2520,7 @@ export class ImageIsland {
     const l = this.currentLayer();
     if (!l?.c.width || !l.c.height) return;
     l.preview = this.filtered(l, id, params);
+    l.previewAt = undefined;
     this.filterPreview = { id, layer: l.info.id };
     this.render();
   }
@@ -1252,16 +2538,23 @@ export class ImageIsland {
     const h = l.c.height;
     const src = ctx2d(l.c).getImageData(0, 0, w, h);
     const out = runImageFilter(id, src.data, w, h, params);
-    if (this.sel) {
-      const a = ctx2d(this.sel.alpha).getImageData(l.info.x, l.info.y, w, h).data;
-      for (let i = 0; i < out.length; i += 4) {
-        const k = (a[i + 3] as number) / 255;
-        if (k >= 1) continue;
-        for (let c = 0; c < 4; c++)
-          out[i + c] = Math.round(
-            (src.data[i + c] as number) * (1 - k) + (out[i + c] as number) * k,
-          );
-      }
+    const sel = this.sel?.mask;
+    if (sel) {
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const px = l.info.x + x;
+          const py = l.info.y + y;
+          const k =
+            px < 0 || py < 0 || px >= sel.width || py >= sel.height
+              ? 0
+              : (sel.a[py * sel.width + px] as number) / 255;
+          if (k >= 1) continue;
+          const i = (y * w + x) * 4;
+          for (let c = 0; c < 4; c++)
+            out[i + c] = Math.round(
+              (src.data[i + c] as number) * (1 - k) + (out[i + c] as number) * k,
+            );
+        }
     }
     const c = canvas(w, h);
     ctx2d(c).putImageData(new ImageData(out as Uint8ClampedArray<ArrayBuffer>, w, h), 0, 0);
@@ -1272,10 +2565,8 @@ export class ImageIsland {
     const l = this.currentLayer();
     this.filterPreview = undefined;
     if (!l?.c.width || !l.c.height) return;
-    if (l.info.locked) {
-      this.o.onError("locked");
-      return;
-    }
+    if (this.refuses(l)) return;
+    this.letGo();
     const f = this.filtered(l, id, params);
     l.preview = undefined;
     const ctx = ctx2d(l.c);
@@ -1363,6 +2654,7 @@ export class ImageIsland {
   }
 
   deleteLayer(): void {
+    this.letGo();
     const l = this.currentLayer();
     if (!l) return;
     const i = this.layers.indexOf(l);
@@ -1405,6 +2697,7 @@ export class ImageIsland {
   }
 
   mergeDown(): void {
+    this.letGo();
     const l = this.currentLayer();
     if (!l) return;
     const i = this.layers.indexOf(l);
@@ -1472,7 +2765,7 @@ export class ImageIsland {
       // White where the selection is.
       const t = canvas(this.width, this.height);
       const tc = ctx2d(t);
-      tc.drawImage(this.sel.alpha, 0, 0);
+      tc.drawImage(this.selAlpha(), 0, 0);
       tc.globalCompositeOperation = "source-in";
       tc.fillStyle = "#fff";
       tc.fillRect(0, 0, this.width, this.height);
@@ -1518,6 +2811,7 @@ export class ImageIsland {
   }
 
   applyMask(): void {
+    this.letGo();
     const l = this.currentLayer();
     if (!l?.mask) return;
     if (l.info.locked) {
@@ -1552,6 +2846,7 @@ export class ImageIsland {
 
   /** The current layer scaled (percent), rotated (degrees) and flipped around its centre. */
   transform(scale: number, angle: number, flipH: boolean, flipV: boolean): void {
+    this.letGo();
     const l = this.currentLayer();
     if (!l?.c.width || !l.c.height) return;
     if (l.info.locked) {
@@ -1640,6 +2935,7 @@ export class ImageIsland {
 
   /** The picture's size: crop (to the selection) or canvas size (anchored), layers kept. */
   setCanvas(width: number, height: number, dx: number, dy: number): void {
+    this.letGo();
     const a: ImagePlainAction = {
       t: "canvas",
       width: Math.round(width),
@@ -1662,6 +2958,7 @@ export class ImageIsland {
 
   /** Every layer scaled to a new picture size. */
   scaleImage(width: number, height: number): void {
+    this.letGo();
     const kx = width / this.width;
     const ky = height / this.height;
     if (this.layers.some((l) => l.info.locked)) {
@@ -1723,8 +3020,7 @@ export class ImageIsland {
     }
     this.width = Math.round(width);
     this.height = Math.round(height);
-    this.sel = undefined;
-    this.o.onSelection(undefined);
+    this.setSel(undefined);
     this.resize();
     this.render();
     this.o.onLayers();
