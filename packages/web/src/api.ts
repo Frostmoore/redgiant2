@@ -423,6 +423,27 @@ export interface FileEntry {
   modifiedAt: string;
 }
 
+/** One of the person's artifacts (3.5.9, `GET /api/artifacts`). */
+export interface ArtifactInfo {
+  scope: string;
+  place: string;
+  projectId: string | null;
+  path: string;
+  file: string;
+  name: string;
+  header: boolean;
+  version: number | null;
+  libs: string[];
+  wants: string[];
+  granted: string[];
+  from: string | null;
+  size: number;
+  modifiedAt: string;
+  readOnly: boolean;
+  /** Imported and never run: the Canvas opens it on its source with «Run». */
+  pendingRun: boolean;
+}
+
 export interface Budget {
   scope: "agent" | "project" | "global";
   id: string;
@@ -1327,6 +1348,52 @@ export class Api {
       | { op: "mkdir" | "delete"; scope: string; path: string }
       | { op: "rename"; scope: string; path: string; to: string },
   ) => this.call("POST", "/api/files/op", op);
+  /** The person's artifacts (3.5.9): every `artefatti/*.html` they see. */
+  artifacts = () => this.call<ArtifactInfo[]>("GET", "/api/artifacts");
+  /** Whether an artifact was imported and has not run yet (the Canvas: source and «Run»). */
+  artifactState = (scope: string, path: string) =>
+    this.call<{ pendingRun: boolean }>(
+      "GET",
+      `/api/artifacts/state?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+    );
+  /** «Run» on an imported artifact: it opens as an app from now on. */
+  artifactRun = (scope: string, path: string) =>
+    this.call<{ pendingRun: false }>("POST", "/api/artifacts/run", { scope, path });
+  /** An artifact as a `.rgartifact` (zip) or as its bare HTML. */
+  async artifactExport(scope: string, path: string, as: "zip" | "html"): Promise<Blob> {
+    const r = await fetch(
+      `/api/artifacts/export?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}&as=${as}`,
+      { headers: { authorization: `Bearer ${this.token}` } },
+    );
+    if (!r.ok) {
+      const data = (await r.json().catch(() => ({}))) as { error?: string; code?: string };
+      throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`, data.code);
+    }
+    return r.blob();
+  }
+  /** A `.rgartifact` into a place's `artefatti/`: checked on the server, never run there. */
+  async artifactImport(
+    scope: string,
+    file: Blob,
+  ): Promise<{ path: string; name: string; dataIgnored: boolean }> {
+    const r = await fetch(`/api/artifacts/import?scope=${encodeURIComponent(scope)}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${this.token}`,
+        "content-type": "application/octet-stream",
+      },
+      body: file,
+    });
+    const data = (await r.json().catch(() => ({}))) as {
+      error?: string;
+      code?: string;
+      path: string;
+      name: string;
+      dataIgnored: boolean;
+    };
+    if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`, data.code);
+    return data;
+  }
   /** Debug mode (2026-11-04): its state, the switch, deleting the logs. */
   debugState = () =>
     this.call<{ enabled: boolean; forced: boolean; bytes: number; files: number }>(
