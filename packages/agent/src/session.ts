@@ -60,7 +60,15 @@ export interface AgentSessionOptions {
    * Messages the person sent while the agent worked (2026-11-05): taken after each round of
    * tools and given to the model with the results, as Claude Code does.
    */
-  interject?: () => { text: string; images?: ImagePart[]; quotes?: MessageQuote[] }[];
+  interject?: () => {
+    text: string;
+    images?: ImagePart[];
+    quotes?: MessageQuote[];
+    /** Who sent it, when not the person (an agent's task report, 3.5.7). */
+    from?: string;
+    /** A task's report (3.5.7): an open list of steps rides with it, as in `send`. */
+    taskReport?: boolean;
+  }[];
   /**
    * Tools that only read (2026-11-05, as the Claude Agent SDK does): consecutive calls of these
    * run together; every other call runs alone, in the order the model gave.
@@ -1025,16 +1033,23 @@ export class AgentSession {
   private async interjections(): Promise<UserPart[]> {
     const parts: UserPart[] = [];
     for (const m of this.o.interject?.() ?? []) {
+      const notes: string[] = [];
+      if (m.taskReport && this.todos.open) {
+        notes.push(this.todos.text("report"));
+        this.todos.reminded();
+      }
       await this.record({
         type: "message.user",
         payload: {
           text: m.text,
           ...(m.images?.length && { images: m.images }),
+          ...(m.from && { from: m.from }),
           ...(m.quotes?.length && { quotes: m.quotes }),
+          ...(notes.length > 0 && { notes }),
           steer: true,
         },
       });
-      parts.push({ type: "text", text: quotedText(m.text, m.quotes) }, ...(m.images ?? []));
+      parts.push({ type: "text", text: quotedText(m.text, m.quotes, notes) }, ...(m.images ?? []));
     }
     return parts;
   }

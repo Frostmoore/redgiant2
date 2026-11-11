@@ -56,4 +56,42 @@ static class AskGate
     {
         return writtenUtc >= startedUtc;
     }
+
+    /**
+     * update-status.json as a start finds it (3.5.7). It is written only when the page asks, so
+     * after an update it still said «available 3.5.5» with 3.5.6 installed. A state about another
+     * version does not survive the change: «available» for a version not newer than the installed
+     * one, or «latest» for another version, becomes «installed» with the installed version (the
+     * id stays: no request of the server waits for it). Returns the text to write, or null when
+     * the file still holds (nothing there, unreachable, a newer version still available).
+     */
+    public static string StatusAfterStart(string json, string installed)
+    {
+        if (string.IsNullOrEmpty(json) || string.IsNullOrEmpty(installed)) return null;
+        var state = System.Text.RegularExpressions.Regex.Match(json, "\"state\"\\s*:\\s*\"([^\"]*)\"");
+        var version = System.Text.RegularExpressions.Regex.Match(json, "\"version\"\\s*:\\s*\"([^\"]*)\"");
+        var id = System.Text.RegularExpressions.Regex.Match(json, "\"id\"\\s*:\\s*\"([^\"]*)\"");
+        if (!state.Success) return null;
+        string v = version.Success ? version.Groups[1].Value : "";
+        bool stale =
+            (state.Groups[1].Value == "available" && CompareVersions(v, installed) <= 0) ||
+            (state.Groups[1].Value == "latest" && CompareVersions(v, installed) != 0);
+        if (!stale) return null;
+        return "{\"id\":\"" + (id.Success ? id.Groups[1].Value : "") + "\",\"state\":\"installed\",\"version\":\"" + installed + "\"}";
+    }
+
+    /** As Updates.Compare: dotted numbers, an optional leading v. */
+    static int CompareVersions(string a, string b)
+    {
+        var x = (a ?? "0").TrimStart('v').Split('.');
+        var y = (b ?? "0").TrimStart('v').Split('.');
+        for (int i = 0; i < System.Math.Max(x.Length, y.Length); i++)
+        {
+            int p = 0, q = 0;
+            if (i < x.Length) int.TryParse(x[i], out p);
+            if (i < y.Length) int.TryParse(y[i], out q);
+            if (p != q) return p.CompareTo(q);
+        }
+        return 0;
+    }
 }
