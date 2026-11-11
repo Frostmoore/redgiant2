@@ -18384,3 +18384,27 @@ fieldset.vw-seg {
     max-height: calc(3 * 46px);
   }
 }
+/* The drawing's handles a finger can catch (3.5.11): svgcanvas means them 10 px for touch but
+   tests `window.ontouchstart`, which is null (false) on phones too. */
+@media (pointer: coarse) {
+  .svg-area circle[id^="selectorGrip_"] {
+    r: 10px;
+  }
+}
+/* Univer's own small buttons (zoom, sheets, grid) at a finger's size (3.5.11). */
+@media (pointer: coarse) {
+  .sheet-grid :is(button, [role="button"]):not(.univer-menu-item) {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}
+/* Rows a finger picks (3.5.11): the 3D scene's objects, the drawing's layers, on/off rows. */
+@media (pointer: coarse) {
+  .side-content :is(.model-node, .svg-layer-name, .img-layer-name) {
+    min-height: 40px;
+  }
+  .side-content .svg-layers .vw-icon {
+    width: 40px;
+    min-height: 40px;
+  }
+}
