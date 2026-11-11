@@ -1,0 +1,69 @@
+<!-- redgiant-artifact {"name":"Esplora CSV","version":1,"libs":["react","papaparse","chartjs"]} -->
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Esplora CSV</title>
+<style>
+  body { margin: 0; padding: 16px; background: var(--rg-bg); }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  select, input { font: inherit; padding: 4px 6px; border: 1px solid var(--rg-line); border-radius: 6px; background: var(--rg-panel); color: var(--rg-text); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--rg-panel); }
+  th, td { border-bottom: 1px solid var(--rg-line); padding: 4px 8px; text-align: left; }
+  th { color: var(--rg-dim); font-weight: 600; }
+  .card { background: var(--rg-panel); border: 1px solid var(--rg-line); border-radius: var(--rg-radius); padding: 12px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+import { useMemo, useState, useEffect, useRef } from "react";
+import { createRoot } from "react-dom/client";
+import Papa from "papaparse";
+import Chart from "chart.js/auto";
+
+const SAMPLE = `mese,entrate,uscite
+gen,3200,2900
+feb,3100,2750
+mar,3500,3100
+apr,3300,2600
+mag,3800,3000
+giu,4100,3300`;
+
+function App() {
+  const [text, setText] = useState(SAMPLE);
+  const rows = useMemo(() => Papa.parse(text.trim(), { header: true, dynamicTyping: true }).data, [text]);
+  const cols = rows.length ? Object.keys(rows[0]) : [];
+  const nums = cols.filter((c) => typeof rows[0][c] === "number");
+  const [col, setCol] = useState(nums[0] ?? "");
+  const canvas = useRef(null);
+  useEffect(() => {
+    if (!canvas.current || !col) return;
+    const css = getComputedStyle(document.documentElement);
+    const chart = new Chart(canvas.current, {
+      type: "bar",
+      data: { labels: rows.map((r) => r[cols[0]]), datasets: [{ label: col, data: rows.map((r) => r[col]), backgroundColor: css.getPropertyValue("--rg-accent").trim() || "#d23a2c" }] },
+      options: { animation: false, plugins: { legend: { labels: { color: css.getPropertyValue("--rg-text").trim() } } } },
+    });
+    return () => chart.destroy();
+  }, [rows, col]);
+  const total = rows.reduce((s, r) => s + (Number(r[col]) || 0), 0);
+  return (
+    <>
+      <h1>Esplora CSV</h1>
+      <div className="bar">
+        <input type="file" accept=".csv,text/csv" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setText(await f.text()); }} />
+        <label>Colonna <select value={col} onChange={(e) => setCol(e.target.value)}>{nums.map((c) => <option key={c}>{c}</option>)}</select></label>
+        <span>Totale: <strong>{total.toLocaleString("it-IT")}</strong></span>
+      </div>
+      <div className="card"><canvas ref={canvas} height="120"></canvas></div>
+      <table><thead><tr>{cols.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+      <tbody>{rows.map((r, i) => <tr key={i}>{cols.map((c) => <td key={c}>{String(r[c])}</td>)}</tr>)}</tbody></table>
+    </>
+  );
+}
+createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

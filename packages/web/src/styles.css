@@ -18077,6 +18077,7 @@ fieldset.vw-seg {
   cursor: help;
 }
 .widget-card {
+  flex: none;
   align-self: stretch;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -18104,8 +18105,15 @@ fieldset.vw-seg {
 .widget-head .spacer {
   flex: 1;
 }
-.widget-card .artifact-frame iframe {
-  padding: 0;
+.widget-card .artifact-frame {
+  padding: 8px 10px;
+}
+.widget-head .button.tiny,
+.canvas-head .art-make {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
 }
 .widget-loading {
   padding: 12px;
@@ -18131,4 +18139,9 @@ fieldset.vw-seg {
     padding-left: 6px;
     padding-right: 6px;
   }
+}
+/* An artifact's head carries more (views, errors, «Fanne un progetto»): it wraps when narrow. */
+.canvas-head:has(.art-views) {
+  flex-wrap: wrap;
+  row-gap: 4px;
 }

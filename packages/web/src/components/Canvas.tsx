@@ -271,7 +271,7 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
             {target.scope !== "outside" && (
               <button
                 type="button"
-                class="button tiny"
+                class="button tiny art-make"
                 disabled={making}
                 title={t("artMakeProjectHint")}
                 onClick={() => {
@@ -365,6 +365,8 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
               src={url}
               title={title}
               artifact={{ kind: "file", scope: target.scope, path: target.path }}
+              // Its errors go to the conversation in front too (and to those that showed it).
+              sessionId={frontSession()}
               onErrors={setArtErrors}
             />
           )

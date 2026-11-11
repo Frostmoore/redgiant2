@@ -177,6 +177,9 @@ export function ArtifactFrame({
         title={title}
         src={src}
         sandbox={ARTIFACT_SANDBOX}
+        // Loaded: the theme again (its first messages may come before the page listens), and the
+        // frame answers with its height.
+        onLoad={sendTheme}
         style={auto && height !== undefined ? { height: `${height}px` } : undefined}
       />
       {asking !== undefined && (

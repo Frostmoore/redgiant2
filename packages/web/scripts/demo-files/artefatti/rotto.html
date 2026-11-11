@@ -1,0 +1,15 @@
+<!-- redgiant-artifact {"name":"Timer rotto","version":1} -->
+<!doctype html>
+<html><head><title>Timer</title></head>
+<body>
+<h1>Timer</h1>
+<p id="t">0</p>
+<script type="module">
+import confetti from "canvas-confetti";
+</script>
+<script>
+let n = 0;
+setInterval(() => { document.getElementById("t").textContent = ++n; }, 1000);
+startTimer();
+</script>
+</body></html>

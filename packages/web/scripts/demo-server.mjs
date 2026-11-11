@@ -1,7 +1,7 @@
 // Demo server for screenshots and UI development: the real server and UI, an in-process
 // Postgres and a scripted model. Usage: node packages/web/scripts/demo-server.mjs [port]
 import { appendFileSync } from "node:fs";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -72,6 +72,41 @@ function demoPdf(line) {
   out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return out;
 }
+
+/** The widget of the humidity question (3.5.9): three numbers, a result, a button for the chat. */
+const HUMIDITY_WIDGET = `<style>
+  .w { font: 14px var(--rg-font); color: var(--rg-text); display: grid; gap: 10px; }
+  .g { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+  label { display: grid; gap: 4px; color: var(--rg-dim); font-size: 12px; }
+  input { font: inherit; padding: 6px 8px; border: 1px solid var(--rg-line); border-radius: 8px; background: var(--rg-panel); color: var(--rg-text); }
+  .r { padding: 10px 12px; border-radius: var(--rg-radius); background: color-mix(in srgb, var(--rg-accent) 10%, var(--rg-panel)); }
+  .r strong { font-size: 22px; color: var(--rg-accent); }
+  button { justify-self: start; font: inherit; padding: 7px 14px; border-radius: 8px; border: 0; background: var(--rg-accent); color: #fff; cursor: pointer; }
+</style>
+<div class="w">
+  <div class="g">
+    <label>Temperatura dentro (°C)<input id="ti" type="number" value="20"></label>
+    <label>Umidità dentro (%)<input id="ui" type="number" value="70"></label>
+    <label>Temperatura fuori (°C)<input id="te" type="number" value="8"></label>
+    <label>Umidità fuori (%)<input id="ue" type="number" value="85"></label>
+  </div>
+  <div class="r">Dopo il ricambio d'aria, a <span id="tt">20</span> °C: <strong id="out">–</strong> di umidità</div>
+  <button id="go">Analizza la mia situazione</button>
+</div>
+<script>
+const sat = (t) => 6.112 * Math.exp((17.67 * t) / (t + 243.5)) * 2.1674 / (273.15 + t);
+const v = (id) => Number(document.getElementById(id).value);
+function calc() {
+  const rh = Math.min(100, (sat(v("te")) * v("ue")) / sat(v("ti")));
+  document.getElementById("out").textContent = rh.toFixed(0) + "%";
+  document.getElementById("tt").textContent = v("ti");
+  return rh;
+}
+document.querySelectorAll("input").forEach((i) => i.addEventListener("input", calc));
+calc();
+document.getElementById("go").onclick = () =>
+  redgiant.sendMessage(\`Analizza la mia situazione: dentro \${v("ti")} °C e \${v("ui")}%, fuori \${v("te")} °C e \${v("ue")}%; dopo il ricambio l'umidità scende a \${calc().toFixed(0)}%.\`);
+</script>`;
 
 let turn = 0;
 const brain = (req) => {
@@ -591,6 +626,15 @@ const brain = (req) => {
               : "Lo sfoglio io, guarda.",
         toolCalls: [{ name, input }],
       };
+  // 3.5.9 (DEMO_ARTIFACTS): a widget in the answer, and what its button sends.
+  if (said.includes("umidità avrò in casa"))
+    return {
+      text: `Dipende da quanto è umida l'aria di fuori: entrando si scalda, e la sua umidità relativa scende. Prova con i tuoi valori:\n\n\`\`\`widget Umidità dopo il ricambio d'aria\n${HUMIDITY_WIDGET}\n\`\`\`\n\nSotto il 60% la condensa sui vetri sparisce.`,
+    };
+  if (said.startsWith("Analizza la mia situazione"))
+    return {
+      text: "Con questi valori il ricambio basta: **apri 5-10 minuti, due o tre volte al giorno**, meglio a finestre spalancate che a vasistas. Sopra il 65% dopo il ricambio, accendi la cappa quando cucini.",
+    };
   // G34: «Mostra il file <path>» → show_file; its result → a short answer.
   const shownResult = last?.parts.find((p) => p.type === "tool_result")?.content;
   if (results && typeof shownResult === "string" && shownResult.startsWith("Opened "))
@@ -1683,7 +1727,7 @@ if (process.env.DEMO_CANVAS) {
     join(into, "importi.csv"),
     "Data,Voce,Importo\n2026-11-01,Pane,23.50\n2026-11-02,Latte,48.00\n2026-11-03,Frutta,62.30\n2026-11-04,Carne,95.00\n2026-11-05,Pesce,77.24\n2026-11-06,Vino,12\n2026-11-07,Olio,65.50\n",
   );
-  const { copyFile } = await import("node:fs/promises");
+
   const sheets = new URL("../../server/test/fixtures/sheets/", import.meta.url);
   await copyFile(new URL("vendite.ods", sheets), join(into, "vendite.ods"));
   await copyFile(new URL("bilancio.xlsx", sheets), join(into, "bilancio.xlsx"));
@@ -1966,6 +2010,28 @@ if (process.env.DEMO_CHAT_TOOLS) {
 // DEMO_KNOWLEDGE=1 (G36.5-G36.6): the knowledge with three collections, one still being read
 // (stopped a third of the way, so its bar and time left show), a picture waiting for the OCR, and a
 // conversation whose answer cites the documents. Embeddings acted out (no model).
+// 3.5.9, DEMO_ARTIFACTS=1: a widget in an answer and three artifacts (a CSV explorer in React, one
+// that fails, one that tries to get out).
+let widgetSession;
+let artifactSession;
+if (process.env.DEMO_ARTIFACTS) {
+  const into = join(core.platformPath("local"), "artefatti");
+  await mkdir(into, { recursive: true });
+  for (const f of ["esplora-csv.html", "rotto.html", "ostile.html"])
+    await copyFile(new URL(`./demo-files/artefatti/${f}`, import.meta.url), join(into, f));
+  widgetSession = await core.startSession("local", god.id);
+  await (
+    await core.send(
+      "local",
+      widgetSession,
+      "Che umidità avrò in casa dopo aver aperto le finestre dieci minuti?",
+    )
+  ).done;
+  artifactSession = await core.startSession("local", god.id);
+  await (await core.send("local", artifactSession, "Mostra il file artefatti/esplora-csv.html"))
+    .done;
+}
+
 let knowledgeSession;
 if (process.env.DEMO_KNOWLEDGE) {
   const { cp } = await import("node:fs/promises");
@@ -2109,6 +2175,7 @@ console.log(
     ...(viewerSession && { viewerSession }),
     ...(canvasSession && { canvasSession }),
     ...(knowledgeSession && { knowledgeSession }),
+    ...(widgetSession && { widgetSession, artifactSession }),
     ...(subSession && { subSession }),
     ...(toolsSession && { toolsSession, branchSession }),
   }),
