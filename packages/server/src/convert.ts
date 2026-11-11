@@ -6,7 +6,17 @@
 // (convert-programs.ts). Every path stays inside the workspace it came from.
 
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { LocalWorkspace } from "@redgiant/tools";
 import { unzipSync } from "fflate";
@@ -325,6 +335,8 @@ export interface PreviewState {
 export class FileConverter {
   private readonly queues = new Map<ProgramId, Queue>();
   private readonly profiles: LoProfiles;
+  /** The paged previews being made now, by their PDF: a second ask joins the first (p3.5.7). */
+  private readonly making = new Map<string, Promise<string>>();
 
   constructor(private readonly o: ConverterOptions) {
     this.profiles = loProfiles(o.profileDir, 2);
@@ -814,7 +826,13 @@ export class FileConverter {
     };
   }
 
-  /** The paged preview (PDF) of a document, made with LibreOffice if not cached yet. */
+  /**
+   * The paged preview (PDF) of a document, made with LibreOffice if not cached yet. One making per
+   * file at a time (p3.5.7, the person's test of 3.5.6: canvas_look right after show_file said
+   * «LibreOffice made no PDF», the page's preview and the look writing in the same work folder):
+   * an ask while it is being made waits for that one; if that one fails, and this ask was not
+   * stopped, it is made once more.
+   */
   async preview(
     root: string,
     path: string,
@@ -822,35 +840,71 @@ export class FileConverter {
   ): Promise<string> {
     const state = await this.previewState(root, path);
     if (state.ready) return state.pdf;
+    const running = this.making.get(state.pdf);
+    if (running) {
+      const joined = await running.then(
+        (pdf) => ({ pdf }),
+        (err: unknown) => ({ err }),
+      );
+      if ("pdf" in joined) return joined.pdf;
+      if (o.signal?.aborted) throw joined.err;
+      const again = await this.previewState(root, path);
+      if (again.ready) return again.pdf;
+      const other = this.making.get(state.pdf);
+      if (other) return other;
+    }
+    const made = this.makePreview(root, path, state.pdf, o);
+    this.making.set(state.pdf, made);
+    try {
+      return await made;
+    } finally {
+      if (this.making.get(state.pdf) === made) this.making.delete(state.pdf);
+    }
+  }
+
+  /** LibreOffice prints the document into a work folder of this run's own; once more on «no PDF». */
+  private async makePreview(
+    root: string,
+    path: string,
+    pdf: string,
+    o: { owner: string; signal?: AbortSignal | undefined },
+  ): Promise<string> {
     const abs = await new LocalWorkspace(root).resolve(path);
     const soffice = await this.o.programs.ensure(o.owner, "libreoffice");
-    const work = `${state.pdf}.work`;
-    await rm(work, { recursive: true, force: true });
-    await mkdir(work, { recursive: true });
-    try {
-      const r = await this.office(
-        soffice,
-        (profile) => commands.libreoffice(abs, work, "pdf", profile, false),
-        10 * 60_000,
-        o.signal,
-      );
-      if (r.exitCode !== 0) {
-        const out = (r.stderr || r.stdout).trim();
-        const lib = out.match(/error while loading shared libraries: ([^:\s]+)/)?.[1];
-        throw new ConvertError(
-          lib
-            ? `LibreOffice needs a system library this computer lacks (${lib}). On Debian or Ubuntu: sudo apt install ${LIBREOFFICE_LIBS}`
-            : `LibreOffice stopped (${r.exitCode ?? "timeout"}): ${out.slice(-300)}`,
+    for (let attempt = 1; ; attempt++) {
+      await mkdir(dirname(pdf), { recursive: true });
+      const work = await mkdtemp(`${pdf}.work-`);
+      try {
+        const r = await this.office(
+          soffice,
+          (profile) => commands.libreoffice(abs, work, "pdf", profile, false),
+          10 * 60_000,
+          o.signal,
         );
+        if (r.exitCode !== 0) {
+          const out = (r.stderr || r.stdout).trim();
+          const lib = out.match(/error while loading shared libraries: ([^:\s]+)/)?.[1];
+          throw new ConvertError(
+            lib
+              ? `LibreOffice needs a system library this computer lacks (${lib}). On Debian or Ubuntu: sudo apt install ${LIBREOFFICE_LIBS}`
+              : `LibreOffice stopped (${r.exitCode ?? "timeout"}): ${out.slice(-300)}`,
+          );
+        }
+        const made = join(work, `${stemOf(abs)}.pdf`);
+        if (
+          await stat(made).then(
+            () => true,
+            () => false,
+          )
+        ) {
+          await rename(made, pdf);
+          return pdf;
+        }
+        // LibreOffice said yes and wrote nothing (a moment's clash with another run): once more.
+        if (attempt >= 2 || o.signal?.aborted) throw new ConvertError("LibreOffice made no PDF");
+      } finally {
+        await rm(work, { recursive: true, force: true });
       }
-      const made = join(work, `${stemOf(abs)}.pdf`);
-      await stat(made).catch(() => {
-        throw new ConvertError("LibreOffice made no PDF");
-      });
-      await rename(made, state.pdf);
-      return state.pdf;
-    } finally {
-      await rm(work, { recursive: true, force: true });
     }
   }
 }

@@ -6,9 +6,10 @@
 // OpenRaster files shrunk; a sheet's cells and a text's lines as text. A program that is not here
 // yet is fetched in the background (its bar shows), and the answer says to look again.
 
-import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { strFromU8, unzipSync } from "fflate";
+import { PDFDocument } from "pdf-lib";
 import { type FileConverter, formatOfFile, PREVIEWABLE } from "./convert.js";
 import { pngOf, psdComposite, type Rgba, rgbaOf, shrink } from "./convert-js.js";
 import { execRunner, type Programs, type Runner } from "./convert-programs.js";
@@ -80,6 +81,8 @@ export interface LookDeps {
   tmpDir: string;
   run?: Runner;
   signal?: AbortSignal | undefined;
+  /** How long a paged preview being made is waited for (default 90 s); then «look again». */
+  previewWaitMs?: number;
 }
 
 export interface LookPicture {
@@ -147,6 +150,30 @@ async function madeIn(dir: string, ext: string): Promise<string | undefined> {
 
 // ---------------------------------------------------------------- Pages
 
+/**
+ * One page of a PDF as a PDF of its own (p3.5.7): LibreOffice's PNG export draws the first page
+ * of what it opens whatever PageRange says (the person's test of 3.5.6: canvas_look on page 2 said
+ * «page 2» and showed page 1), so it is handed the page alone. Undefined when pdf-lib cannot cut
+ * it (a locked or broken file): then the whole file goes, with PageRange.
+ */
+async function pageAlone(pdf: string, page: number, work: string): Promise<string | undefined> {
+  try {
+    const src = await PDFDocument.load(await readFile(pdf), { updateMetadata: false });
+    if (src.getPageCount() <= 1) return undefined;
+    const one = await PDFDocument.create({ updateMetadata: false });
+    const [copied] = await one.copyPages(src, [page - 1]);
+    if (!copied) return undefined;
+    one.addPage(copied);
+    // Named as the file, so LibreOffice's PNG keeps a name the reader expects.
+    const out = join(work, "page", basename(pdf));
+    await mkdir(dirname(out), { recursive: true });
+    await writeFile(out, await one.save());
+    return out;
+  } catch {
+    return undefined;
+  }
+}
+
 /** A PDF page as a picture: Ghostscript when it is here, LibreOffice otherwise. */
 async function pdfPicture(
   pdf: string,
@@ -181,8 +208,9 @@ async function pdfPicture(
     if (typeof lo !== "string") return { note: lo.note };
     const w = Math.round((pts.width / long) * side);
     const h = Math.round((pts.height / long) * side);
+    const alone = await pageAlone(pdf, page, work);
     const filter = `png:draw_png_Export:${JSON.stringify({
-      PageRange: { type: "string", value: String(page) },
+      PageRange: { type: "string", value: String(alone ? 1 : page) },
       PixelWidth: { type: "long", value: String(w) },
       PixelHeight: { type: "long", value: String(h) },
     })}`;
@@ -196,7 +224,7 @@ async function pdfPicture(
         filter,
         "--outdir",
         work,
-        pdf,
+        alone ?? pdf,
       ]),
     );
     const made = await madeIn(work, "png");
@@ -594,7 +622,24 @@ async function lookPaged(abs: string, ask: LookAsk, d: LookDeps, what: string) {
       };
     }
   }
-  const pdf = await d.converter.preview(root, path, { owner: d.owner, signal: d.signal });
+  // The preview the canvas is making now is joined (convert.ts), waited for a bounded time, and
+  // asked once more if LibreOffice wrote nothing (p3.5.7: «LibreOffice made no PDF» right after
+  // show_file, fine a few seconds later).
+  const make = () => d.converter.preview(root, path, { owner: d.owner, signal: d.signal });
+  const made = make().catch((err: unknown) =>
+    /made no PDF/.test((err as Error).message) && !d.signal?.aborted ? make() : Promise.reject(err),
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<undefined>((done) => {
+    timer = setTimeout(() => done(undefined), d.previewWaitMs ?? 90_000);
+  });
+  const pdf = await Promise.race([made, late]).finally(() => clearTimeout(timer));
+  if (pdf === undefined) {
+    made.catch(() => {});
+    return {
+      text: `${what}: its paged preview is still being made (LibreOffice is printing it). Look again in a moment.`,
+    };
+  }
   return lookPdf(pdf, ask, d, what);
 }
 

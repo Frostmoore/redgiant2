@@ -6,6 +6,7 @@ import type {
   CanvasState,
   Event,
   ImagePart,
+  JobProgress,
   MessageMetrics,
   MessageQuote,
   PermissionRequestInfo,
@@ -1986,4 +1987,83 @@ export async function setDocMode(file: DocFile, mode: AgentEditMode | "default")
   if (mode === "default") delete files[docKey(file)];
   else files[docKey(file)] = mode;
   await a.setEditorSettings({ ...settings, files });
+}
+
+// ---- The full document editor coming down (p3.5.7) ----
+
+/** Where the page's one document editor is (OfficeEditor's phases), for the line under the head. */
+export type OfficeLoadPhase =
+  | { at: "checking" }
+  | { at: "server"; job: string }
+  | { at: "browser"; done: number; total: number }
+  | { at: "opening" }
+  | { at: "ready" }
+  | { at: "fallback" };
+
+export interface OfficeLoad {
+  at: OfficeLoadPhase["at"];
+  /** The server's download, as a job (its progress has speed and time left). */
+  job?: string;
+  /** Into this browser: amounts, speed and time left, measured here. */
+  progress?: JobProgress;
+  /** When and from where the copy into this browser was measured. */
+  since?: { at: number; done: number };
+  /** The editor came down in this page: «downloaded» stays until the person closes it. */
+  downloaded?: boolean;
+}
+
+/** A copy into the browser this short came from its storage, not over the network. */
+const FROM_STORAGE_MS = 1500;
+
+/**
+ * The editor's next state, pure (p3.5.7, the person's test of 3.5.6: «about 51 MB the first time»
+ * vanished as «Edit» opened the copy, before it could be read, and the copy into the browser had
+ * a bar without speed or time left): speed and time left measured from the first amount seen, and
+ * a real download (on the server, or a copy that took time) remembered once it is over.
+ */
+export function officeLoadStep(
+  prev: OfficeLoad | undefined,
+  ph: OfficeLoadPhase,
+  now: number,
+): OfficeLoad {
+  const kept = prev?.downloaded ? { downloaded: true } : {};
+  if (ph.at === "server") return { ...kept, at: "server", job: ph.job };
+  if (ph.at === "browser") {
+    const since =
+      prev?.at === "browser" && prev.since ? prev.since : { at: now, done: Math.max(0, ph.done) };
+    const seconds = (now - since.at) / 1000;
+    const total = ph.total > 1 ? ph.total : null;
+    const rate = seconds >= 0.5 && ph.done > since.done ? (ph.done - since.done) / seconds : null;
+    return {
+      ...kept,
+      at: "browser",
+      since,
+      ...(prev?.job && { job: prev.job }),
+      progress: {
+        done: ph.done,
+        total,
+        rate,
+        secondsLeft: rate && total ? Math.max(0, (total - ph.done) / rate) : null,
+      },
+    };
+  }
+  const came =
+    prev?.at === "server" ||
+    (prev?.at === "browser" && !!prev.job) ||
+    (prev?.at === "browser" && !!prev.since && now - prev.since.at >= FROM_STORAGE_MS);
+  if (ph.at === "fallback") return { at: "fallback" };
+  return { at: ph.at, ...((prev?.downloaded || came) && { downloaded: true }) };
+}
+
+export const officeLoad = signal<OfficeLoad | undefined>(undefined);
+
+/** The editor's phase, told by the tab that holds it. */
+export function setOfficeLoad(ph: OfficeLoadPhase): void {
+  officeLoad.value = officeLoadStep(officeLoad.value, ph, Date.now());
+}
+
+/** The person closed the «downloaded» line. */
+export function dismissOfficeDownloaded(): void {
+  const v = officeLoad.value;
+  if (v?.downloaded) officeLoad.value = { ...v, downloaded: false };
 }

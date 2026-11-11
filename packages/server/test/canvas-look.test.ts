@@ -1,11 +1,12 @@
 // canvas_look's pictures (G36.12), kind by kind, with small samples and fake programs (the
 // outside programs' command lines are checked as they are; their output is made by the fake).
-import { copyFile, mkdtemp, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { initializeCanvas, writePsdBuffer } from "ag-psd";
 import { strToU8, zipSync } from "fflate";
+import { PDFDocument, rgb } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import {
   cellRange,
@@ -218,13 +219,58 @@ describe("pages", () => {
     expect(args).toContain("--infilter=draw_pdf_import");
     const filter = args[args.indexOf("--convert-to") + 1] as string;
     expect(filter.startsWith("png:draw_png_Export:")).toBe(true);
+    // The page alone (p3.5.7: LibreOffice draws the first page of what it opens).
     expect(JSON.parse(filter.slice("png:draw_png_Export:".length)).PageRange).toEqual({
       type: "string",
-      value: "3",
+      value: "1",
     });
+    const alone = args.at(-1) as string;
+    expect(alone).not.toBe(threePages);
+    expect(basename(alone)).toBe("three-pages.pdf");
     expect(args.some((a) => a.startsWith("-env:UserInstallation=file:"))).toBe(true);
     expect(r.text).toMatch(/page 3 of 3/);
     expect(r.image?.mediaType).toBe("image/png");
+  });
+
+  it("the picture is of the page asked, through LibreOffice too (p3.5.7)", async () => {
+    const dir = await folder();
+    // Two pages that look different: a tall red one, then a wide blue one.
+    const doc = await PDFDocument.create();
+    doc
+      .addPage([300, 400])
+      .drawRectangle({ x: 0, y: 0, width: 300, height: 400, color: rgb(1, 0, 0) });
+    doc
+      .addPage([600, 200])
+      .drawRectangle({ x: 0, y: 0, width: 600, height: 200, color: rgb(0, 0, 1) });
+    const abs = join(dir, "modulo.pdf");
+    await writeFile(abs, await doc.save());
+    const opened: number[] = [];
+    // A LibreOffice that draws what it really would: the first page of the file it opens.
+    const d = deps(dir, {
+      found: { libreoffice: "/x/soffice" },
+      run: async (_f, args) => {
+        const input = await PDFDocument.load(await readFile(args.at(-1) as string));
+        opened.push(input.getPageCount());
+        const { width, height } = input.getPage(0).getSize();
+        const out = args[args.indexOf("--outdir") + 1] as string;
+        const color = width > height ? [0, 0, 255, 255] : [255, 0, 0, 255];
+        await writeFile(join(out, "modulo.png"), pngOf(solid(width / 2, height / 2, color)));
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+    const one = await lookAt(abs, { page: 1 }, d);
+    const two = await lookAt(abs, { page: 2 }, d);
+    expect(two.text).toMatch(/PDF: page 2 of 2/);
+    expect(opened).toEqual([1, 1]);
+    const a = rgbaOf(one.image?.data as Uint8Array);
+    const b = rgbaOf(two.image?.data as Uint8Array);
+    expect(
+      Buffer.from(one.image?.data as Uint8Array).equals(Buffer.from(two.image?.data as Uint8Array)),
+    ).toBe(false);
+    expect(a.width < a.height).toBe(true);
+    expect(b.width > b.height).toBe(true);
+    expect([...a.data.subarray(0, 3)]).toEqual([255, 0, 0]);
+    expect([...b.data.subarray(0, 3)]).toEqual([0, 0, 255]);
   });
 
   it("no program here: the text, and LibreOffice's download starts (said to look again)", async () => {
@@ -263,6 +309,69 @@ describe("pages", () => {
     const r = await lookAt(docx, { page: 1 }, d);
     expect(r.text).toMatch(/Document, paged as LibreOffice prints it: page 1 of 3/);
     expect(r.image).toBeDefined();
+  });
+
+  it("a preview being made: joined, asked once more on «no PDF», waited for a bounded time (p3.5.7)", async () => {
+    const dir = await folder();
+    const pdf = join(dir, "preview.pdf");
+    await copyFile(threePages, pdf);
+    const docx = join(dir, "lettera.docx");
+    await writeFile(
+      docx,
+      zipSync({
+        "[Content_Types].xml": strToU8("<Types/>"),
+        "word/document.xml": strToU8("<w:document/>"),
+      }),
+    );
+    const gs = {
+      found: { ghostscript: "/x/gs", libreoffice: "/x/soffice" },
+      run: async (_f: string, args: string[]) => {
+        await writeFile(outArg(args, "-sOutputFile="), pngOf(solid(10, 14)));
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    };
+    // The canvas's preview is still being made: the look waits for it, then sees the page.
+    let finish: (p: string) => void = () => {};
+    const inFlight = new Promise<string>((r) => {
+      finish = r;
+    });
+    const asks: string[] = [];
+    const waiting = deps(dir, gs);
+    waiting.converter = {
+      previewState: async () => ({ pdf, ready: false }),
+      preview: async () => {
+        asks.push("preview");
+        return inFlight;
+      },
+    };
+    const look = lookAt(docx, { page: 2 }, waiting);
+    await new Promise((r) => setTimeout(r, 30));
+    finish(pdf);
+    const r = await look;
+    expect(r.text).toMatch(/page 2 of 3/);
+    expect(r.image).toBeDefined();
+    expect(asks).toEqual(["preview"]);
+    // LibreOffice made no PDF once: asked once more, and seen.
+    let tries = 0;
+    const flaky = deps(dir, gs);
+    flaky.converter = {
+      previewState: async () => ({ pdf, ready: false }),
+      preview: async () => {
+        if (++tries === 1) throw new Error("LibreOffice made no PDF");
+        return pdf;
+      },
+    };
+    expect((await lookAt(docx, {}, flaky)).text).toMatch(/page 1 of 3/);
+    expect(tries).toBe(2);
+    // Never ready: after the wait, «look again», no error.
+    const slow = { ...deps(dir, gs), previewWaitMs: 30 };
+    slow.converter = {
+      previewState: async () => ({ pdf, ready: false }),
+      preview: () => new Promise<string>(() => {}),
+    };
+    const late = await lookAt(docx, {}, slow);
+    expect(late.text).toMatch(/still being made.*Look again in a moment/);
+    expect(late.image).toBeUndefined();
   });
 });
 

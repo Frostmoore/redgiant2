@@ -4,6 +4,7 @@
 import type { Job } from "@redgiant/protocol";
 import { useState } from "preact/hooks";
 import { Advanced, Choice, Field, JobView, Progress, Step, Toggle } from "../components/ui.js";
+import { EditCopyNote } from "../components/viewers/OfficeEditor.js";
 import { danger } from "../i18n.js";
 import { IconCpu, IconTelegram } from "../icons.js";
 
@@ -85,6 +86,18 @@ export function Gallery() {
           progress={{ done: 312 * MB, total: 719 * MB, rate: 2.4 * MB, secondsLeft: 170 }}
         />
         <Progress progress={{ done: 12 * MB, total: null, rate: null, secondsLeft: null }} />
+        {/* The line under the canvas's head while the document editor comes down (p3.5.7). */}
+        <div class="canvas gallery-canvas-note">
+          <EditCopyNote
+            editing
+            shown={{
+              at: "browser",
+              progress: { done: 21 * MB, total: 51 * MB, rate: 3.2 * MB, secondsLeft: 10 },
+            }}
+          />
+          <EditCopyNote editing shown={{ at: "opening", downloaded: true }} />
+          <EditCopyNote editing shown={{ at: "ready", downloaded: true }} />
+        </div>
         <JobView job={job("running")} cancellable />
         <JobView job={job("done")} />
         <JobView

@@ -13,8 +13,26 @@ import type { DocChange, DocFile, DocOp, DocSnapshot, Job } from "@redgiant/prot
 import { docKey, PERSON } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
-import { IconAlert, IconDownload, IconPencil, IconSpinner } from "../../icons.js";
-import { attempt, getApi, openCanvas, openDoc, saveDoc, sendDoc } from "../../state.js";
+import {
+  IconAlert,
+  IconCheck,
+  IconClose,
+  IconDownload,
+  IconPencil,
+  IconSpinner,
+} from "../../icons.js";
+import {
+  attempt,
+  dismissOfficeDownloaded,
+  getApi,
+  type OfficeLoad,
+  officeLoad,
+  openCanvas,
+  openDoc,
+  saveDoc,
+  sendDoc,
+  setOfficeLoad,
+} from "../../state.js";
 import {
   exportsOf,
   fallbackOf,
@@ -369,6 +387,11 @@ export function OfficeEditor({ file }: { file: DocFile }) {
     };
   }, [file.scope, file.path]);
 
+  // The line under the canvas's head follows the editor coming down (p3.5.7).
+  useEffect(() => {
+    if (phase.at !== "elsewhere") setOfficeLoad(phase);
+  }, [phase]);
+
   // The engine's frame shows only once the document is open in it.
   useEffect(() => {
     const el = sharedOffice().element;
@@ -431,12 +454,14 @@ function OfficeLoading({ phase, onTake }: { phase: Phase; onTake: () => void }) 
         ))}
       {phase.at === "browser" && (
         <Progress
-          progress={{
-            done: phase.done,
-            total: phase.total > 1 ? phase.total : null,
-            rate: null,
-            secondsLeft: null,
-          }}
+          progress={
+            officeLoad.value?.progress ?? {
+              done: phase.done,
+              total: phase.total > 1 ? phase.total : null,
+              rate: null,
+              secondsLeft: null,
+            }
+          }
         />
       )}
       {(phase.at === "checking" || phase.at === "opening") && <IconSpinner size={18} />}
@@ -713,14 +738,62 @@ function useEditCopyNote(): { short: string; long: string } | undefined {
 /**
  * The sentence about «Modifica» on a line of its own under the canvas's head (p3.5.4: squeezed
  * beside the button it vanished on the person's screen): the first download, or the fallback.
+ * p3.5.7 (the person's test of 3.5.6: it vanished as «Modifica» opened the copy, too fast to read):
+ * it stays on the copy's tab until the editor is ready, with the download's bar (amounts, speed,
+ * time left) while it comes down, and then a short line that stays until the person closes it.
+ * `editing`: the tab is the open copy, where the editor runs.
  */
-export function EditCopyNote() {
+export function EditCopyNote({
+  editing = false,
+  shown,
+}: {
+  editing?: boolean;
+  /** The state to show instead of the page's (the UI gallery). */
+  shown?: OfficeLoad;
+}) {
   const note = useEditCopyNote();
-  if (!note) return null;
+  const load = shown ?? officeLoad.value;
+  const job = useJob(load?.at === "server" ? load.job : undefined);
+  if (load?.downloaded && (load.at === "ready" || !editing))
+    return (
+      <div class="canvas-edit-strip canvas-edit-done" role="status">
+        <IconCheck size={13} />
+        <span>{t("officeEditNoteDone", { size: bytesText(ZETA_BYTES) })}</span>
+        <button
+          type="button"
+          class="icon-button tiny"
+          title={t("dismiss")}
+          aria-label={t("dismiss")}
+          onClick={dismissOfficeDownloaded}
+        >
+          <IconClose size={12} />
+        </button>
+      </div>
+    );
+  const coming = load?.at === "server" || load?.at === "browser";
+  const waiting = coming || load?.at === "checking" || load?.at === "opening";
+  // On the copy's tab: only while the editor is on its way (the fallback says its own why).
+  if (editing && !waiting) return null;
+  if (!note && !coming) return null;
+  const step = job?.steps.find((s) => s.state === "running") ?? job?.steps.at(-1);
+  const progress = load?.at === "server" ? step?.progress : load?.progress;
   return (
     <div class="canvas-edit-strip" role="note">
       <IconDownload size={13} />
-      <span>{note.long}</span>
+      <div class="canvas-edit-text">
+        <span>{note?.long ?? t("officeDownloading", { size: bytesText(ZETA_BYTES) })}</span>
+        {coming &&
+          (progress ? (
+            <Progress progress={progress} />
+          ) : (
+            <div class="ui-progress">
+              <div class="ui-bar busy" role="progressbar" aria-label={t("loading")}>
+                <span />
+              </div>
+            </div>
+          ))}
+        {load?.at === "opening" && <span class="dim">{t("officeOpening")}</span>}
+      </div>
     </div>
   );
 }

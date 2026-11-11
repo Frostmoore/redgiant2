@@ -54,11 +54,18 @@ afterEach(async () => {
 /** A converter whose outside programs are fakes that record their arguments. */
 function fakeConverter(
   present: ProgramId[] = ["libreoffice", "ghostscript", "ffmpeg"],
-  extra: { platform?: string; display?: string; xvfbRun?: string | null } = {},
+  extra: {
+    platform?: string;
+    display?: string;
+    xvfbRun?: string | null;
+    /** Runs first; false: the program writes nothing (a run that says yes and makes no file). */
+    gate?: (file: string, args: string[]) => Promise<boolean | undefined>;
+  } = {},
 ) {
   const calls: { file: string; args: string[]; cwd?: string | undefined }[] = [];
   const run: Runner = async (file, args, o) => {
     calls.push({ file, args, cwd: o.cwd });
+    if ((await extra.gate?.(file, args)) === false) return { stdout: "", stderr: "", exitCode: 0 };
     // Scribus (straight or through xvfb-run): the SLA and the PDF its script would save.
     const py = args.indexOf("-py");
     if (py >= 0) {
@@ -706,6 +713,48 @@ describe("paged previews", () => {
     await expect(converter.previewState(root, "../x.docx")).rejects.toThrow(
       /outside the workspace/,
     );
+  });
+
+  it("an ask while the preview is being made joins it; no PDF made: once more (p3.5.7)", async () => {
+    await put("lettera.docx", docxSample());
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    const { converter, calls } = fakeConverter(undefined, {
+      gate: async () => {
+        await held;
+        return undefined;
+      },
+    });
+    // The page's preview (show_file), then canvas_look while it is still being made.
+    const page = converter.preview(root, "lettera.docx", { owner: "me" });
+    await new Promise((r) => setTimeout(r, 20));
+    const look = converter.preview(root, "lettera.docx", { owner: "me" });
+    await new Promise((r) => setTimeout(r, 20));
+    release();
+    const [a, b] = await Promise.all([page, look]);
+    expect(a).toBe(b);
+    expect(calls).toHaveLength(1);
+    expect(await readFile(a, "utf8")).toMatch(/made by soffice/);
+
+    // LibreOffice says yes and writes nothing once: made again, and the work folders are gone.
+    await put("nota.docx", docxSample());
+    let runs = 0;
+    const flaky = fakeConverter(undefined, { gate: async () => ++runs > 1 });
+    const pdf = await flaky.converter.preview(root, "nota.docx", { owner: "me" });
+    expect(flaky.calls).toHaveLength(2);
+    expect(await readFile(pdf, "utf8")).toMatch(/made by soffice/);
+    const outs = flaky.calls.map((c) => c.args[c.args.indexOf("--outdir") + 1]);
+    expect(outs[0]).not.toBe(outs[1]);
+    for (const o of outs) expect(existsSync(o as string)).toBe(false);
+    // Twice nothing: said plainly.
+    await put("vuota.docx", docxSample());
+    const never = fakeConverter(undefined, { gate: async () => false });
+    await expect(never.converter.preview(root, "vuota.docx", { owner: "me" })).rejects.toThrow(
+      /made no PDF/,
+    );
+    expect(never.calls).toHaveLength(2);
   });
 
   it("serves the preview to the page as a job, then at once", async () => {

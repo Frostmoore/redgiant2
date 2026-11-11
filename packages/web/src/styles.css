@@ -16536,6 +16536,22 @@ fieldset.vw-seg {
   flex: none;
   margin-top: 2px;
 }
+.canvas-edit-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.canvas-edit-text .ui-progress {
+  max-width: 520px;
+}
+.canvas-edit-done {
+  align-items: center;
+}
+.canvas-edit-done > span {
+  flex: 1;
+}
 @media (max-width: 760px) {
   .canvas-edit-copy > span {
     display: none;

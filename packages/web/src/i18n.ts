@@ -823,6 +823,8 @@ const en = {
   officeEditNoteFirstShort: "About {size} the first time",
   officeEditNoteFirst:
     "The first time, «Edit» downloads the full editor (LibreOffice for the browser, about {size}); then it stays in this browser. Where it cannot start, you edit on the laid-out pages with Find and Replace.",
+  officeEditNoteDone:
+    "Full editor downloaded ({size}): from now on it opens at once in this browser.",
   officeEditNoteFallbackShort: "Here: pages and Find",
   officeEditNoteFallback:
     "With «Edit» you see the laid-out pages and use Find and Replace; the agents' edits are made by LibreOffice on the server.",
@@ -5591,6 +5593,8 @@ const it: Record<Key, string> = {
   officeEditNoteFirstShort: "Circa {size} la prima volta",
   officeEditNoteFirst:
     "La prima volta «Modifica» scarica l'editor completo (LibreOffice per il browser, circa {size}); poi resta in questo browser. Dove non può partire, si modifica sulle pagine impaginate con Trova e Sostituisci.",
+  officeEditNoteDone:
+    "Editor completo scaricato ({size}): d'ora in poi si apre subito in questo browser.",
   officeEditNoteFallbackShort: "Qui: pagine e Trova",
   officeEditNoteFallback:
     "Con «Modifica» vedi le pagine impaginate e usi Trova e Sostituisci; le modifiche degli agenti le fa LibreOffice sul server.",
