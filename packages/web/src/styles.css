@@ -18385,3 +18385,16 @@ html[data-theme="dark"] {
     scroll-behavior: auto !important;
   }
 }
+/* Univer's zoom bar: its slider, «100%» and the sheets' menu reach 24 x 24 (WCAG 2.5.8). */
+.sheet-grid button[role="slider"] {
+  min-width: 24px;
+  min-height: 24px;
+}
+.sheet-grid button[data-slot="dropdown-menu-trigger"][data-u-comp="button"] {
+  min-width: 24px;
+}
+.sheet-grid [data-u-comp="zoom-reset"] {
+  min-width: 44px;
+  min-height: 24px;
+  margin-left: 8px;
+}
