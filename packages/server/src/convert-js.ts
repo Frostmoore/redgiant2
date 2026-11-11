@@ -40,6 +40,9 @@ export const pngOf = (img: Rgba): Uint8Array =>
 export function rgbaOf(png: Uint8Array): Rgba {
   const p = decodePng(png);
   const n = p.width * p.height;
+  // RGBA 8-bit as it comes (3.5.11: one array per pixel made a 4000×3000 layer take seconds).
+  if (!p.palette && p.channels === 4 && p.depth === 8 && p.data.length === n * 4)
+    return { width: p.width, height: p.height, data: new Uint8Array(p.data as Uint8Array) };
   const out = new Uint8Array(n * 4);
   const src = p.data;
   const scale = p.depth === 16 ? 1 / 257 : 1;
@@ -63,7 +66,11 @@ export function rgbaOf(png: Uint8Array): Rgba {
       b = (src[i * ch + 2] as number) * scale;
       if (ch === 4) a = (src[i * ch + 3] as number) * scale;
     }
-    out.set([r, g, b, a], i * 4);
+    const o = i * 4;
+    out[o] = r;
+    out[o + 1] = g;
+    out[o + 2] = b;
+    out[o + 3] = a;
   }
   return { width: p.width, height: p.height, data: out };
 }

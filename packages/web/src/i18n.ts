@@ -2822,6 +2822,7 @@ const en = {
   effort_high: "High",
   effort_max: "Max",
   loading: "Loading…",
+  lazyFailed: "This part of the page could not be loaded.",
   agentsModel: "Agent's model",
   effortHint:
     "Reasoning effort: higher thinks more, is slower and costs more. From the next message.",
@@ -7873,6 +7874,7 @@ const it: Record<Key, string> = {
   effort_high: "Alto",
   effort_max: "Massimo",
   loading: "Carico…",
+  lazyFailed: "Non sono riuscito a caricare questa parte della pagina.",
   agentsModel: "Modello dell'agente",
   effortHint:
     "Sforzo di ragionamento: più alto pensa di più, è più lento e costa di più. Dal prossimo messaggio.",

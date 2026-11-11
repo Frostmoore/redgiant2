@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Agent, Project } from "../api.js";
+import { assistantState } from "../assistant-state.js";
 import { roleText, t } from "../i18n.js";
 import {
   IconArchive,
@@ -37,7 +38,6 @@ import {
   sessionRows,
   subprojects,
 } from "../state.js";
-import { assistantState } from "./Assistants.js";
 import { askConfirm } from "./dialogs.js";
 import { FolderMenu } from "./FolderMenu.js";
 import { ArchivedList, ArchiveProjectDialog } from "./ProjectArchive.js";

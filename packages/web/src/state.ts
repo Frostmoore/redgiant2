@@ -955,11 +955,20 @@ export async function refresh(): Promise<void> {
     a.platform(),
   ]);
   setProjects(all);
-  await refreshConversations().catch(() => {});
-  chatAgentId.value = (await a.chatAgentIdOf().catch(() => ({ id: null }))).id;
-  await refreshRooms();
-  await refreshSubprojects();
-  await refreshLimits();
+  // The rest in one round trip (3.5.11): awaited one after the other they were five more round
+  // trips before the page showed (seconds on a slow phone network).
+  await Promise.all([
+    refreshConversations().catch(() => {}),
+    a
+      .chatAgentIdOf()
+      .catch(() => ({ id: null }))
+      .then((r) => {
+        chatAgentId.value = r.id;
+      }),
+    refreshRooms(),
+    refreshSubprojects(),
+    refreshLimits(),
+  ]);
 }
 
 export async function signIn(t: string): Promise<void> {
@@ -972,9 +981,10 @@ export async function signIn(t: string): Promise<void> {
     status.value = s;
     if (s === "online") everOnline.value = true;
   });
+  // Asked together with the rest (3.5.11).
+  const setup = api.setup().catch(() => ({ config: { completed: true } }));
   await refresh();
-  firstRun.value = !(await api.setup().catch(() => ({ config: { completed: true } }))).config
-    .completed;
+  firstRun.value = !(await setup).config.completed;
 }
 
 export function signOut(): void {

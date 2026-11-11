@@ -7,7 +7,7 @@
 // opens (p3.5.1): the list of files and the Extensions open the same tab an agent would.
 
 import type { ArtifactError, CanvasDo } from "@redgiant/protocol";
-import { FILES_SANDBOX, isArtifactPath, PROGRAM_SANDBOX } from "@redgiant/protocol";
+import { FILES_SANDBOX, PROGRAM_SANDBOX } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import {
@@ -30,6 +30,7 @@ import {
   lastError,
   openCanvas,
 } from "../state.js";
+import { canvasKind } from "../viewers/canvas-kind.js";
 import { extensionOf, viewerFor } from "../viewers/kind.js";
 import { CanvasTab, lastMove, report, setTabKind } from "../viewers/live.js";
 import { hasOfficeCopy, isOfficeFile } from "../viewers/office-bridge.js";
@@ -41,43 +42,8 @@ import { EditPictureButton, IMAGE_FLAT, pictureEditable } from "./viewers/ImageE
 import { EditCopyButton, EditCopyNote } from "./viewers/OfficeEditor.js";
 import { CanvasFile } from "./viewers/OpenCopy.js";
 
+export { type CanvasKind, canvasKind } from "../viewers/canvas-kind.js";
 export { parseDelimited } from "../viewers/delimited.js";
-
-export type CanvasKind =
-  | "site"
-  /** An HTML app made by an agent (3.5.9): `artefatti/*.html` or a file with its header. */
-  | "artifact"
-  | "image"
-  | "video"
-  | "audio"
-  | "pdf"
-  | "sheet"
-  | "xlsx"
-  | "model"
-  | "markdown"
-  | "json"
-  | "text";
-
-/**
- * A rough kind from the name alone (the chat's cards: pictures, videos and sounds in place). A
- * folder is a site. The canvas itself chooses with `viewerFor`, which reads the file too.
- */
-export function canvasKind(target: CanvasTarget): CanvasKind {
-  if (target.kind === "port") return "site";
-  if (isArtifactPath(target.path)) return "artifact";
-  const ext = target.path.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
-  if (!ext || ext === "html" || ext === "htm") return "site";
-  if (/^(png|jpe?g|gif|webp|avif|bmp|svg|ico)$/.test(ext)) return "image";
-  if (/^(mp4|webm|mov|m4v|ogv)$/.test(ext)) return "video";
-  if (/^(mp3|wav|ogg|oga|m4a|flac|aac|opus)$/.test(ext)) return "audio";
-  if (ext === "pdf") return "pdf";
-  if (ext === "csv" || ext === "tsv") return "sheet";
-  if (ext === "xlsx") return "xlsx";
-  if (/^(glb|gltf|stl|obj|fbx|ply)$/.test(ext)) return "model";
-  if (ext === "md" || ext === "markdown") return "markdown";
-  if (ext === "json") return "json";
-  return "text";
-}
 
 /** An agent's move in words, for the tab's head (G36.12): «The agent went to page 3». */
 export function moveText(d: CanvasDo): string {

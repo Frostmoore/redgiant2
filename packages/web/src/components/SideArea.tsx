@@ -12,6 +12,7 @@ import {
 } from "../icons.js";
 import {
   activeSide,
+  type CanvasTarget,
   CHAT_MIN,
   clampSideWidth,
   closeSide,
@@ -24,34 +25,26 @@ import {
   sideWidth,
   sideWidthByKey,
 } from "../state.js";
-
-/**
- * Loads a heavy view (xterm.js) the first time it is shown, not with the page: most sessions
- * never open a terminal.
- */
-function lazy<P extends object>(load: () => Promise<(props: P) => JSX.Element | null>) {
-  let loaded: ((props: P) => JSX.Element | null) | undefined;
-  return function Lazy(props: P) {
-    const [view, setView] = useState(() => loaded);
-    useEffect(() => {
-      if (!view)
-        void load().then((v) => {
-          loaded = v;
-          setView(() => v);
-        });
-    }, [view]);
-    return view ? h(view, props) : <div class="empty">…</div>;
-  };
-}
-
-import { Canvas } from "./Canvas.js";
+import { placeOf, restoreTab } from "../viewers/live.js";
+import { placeDo, touch, warmTabs } from "../viewers/warm.js";
+import { lazy } from "./lazy.js";
 import { Screen } from "./Screen.js";
 import { Shortcuts, shortcutsOpen } from "./Shortcuts.js";
 import { FileIcon } from "./viewers/FileIcon.js";
 
+// The canvas and its editors (CodeMirror, Univer, pdf.js, three.js…) come with the first tab (3.5.11).
+const Canvas = lazy<{ title: string; target: CanvasTarget }>(() =>
+  import("./Canvas.js").then((m) => m.Canvas),
+);
+/** The canvas's code fetched ahead, when a file is about to open (the project's files shown). */
+export const preloadCanvas = () => Canvas.preload();
 const TerminalView = lazy<{ scope: string }>(() =>
   import("./TerminalView.js").then((m) => m.TerminalView),
 );
+
+/** Tabs seen, most recent first, and the heavy ones let go (3.5.11, viewers/warm.ts). */
+let recentSide: string[] = [];
+const letGo = new Set<string>();
 
 /** The chat's own room (the conversation) next to the area: it and the area share it. */
 function roomOf(area: HTMLElement): number {
@@ -186,6 +179,16 @@ export function SideArea() {
       ?.querySelector(".side-tab.active")
       ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [activeSide.value, views.length]);
+  // Heavy tabs out of sight beyond WARM_TABS are let go and loaded again on return (3.5.11).
+  if (activeSide.value) recentSide = touch(recentSide, activeSide.value);
+  const warm = warmTabs(views, recentSide, activeSide.value);
+  const back: string[] = [];
+  for (const v of views)
+    if (!warm.has(v.id)) letGo.add(v.id);
+    else if (letGo.delete(v.id)) back.push(v.id);
+  useEffect(() => {
+    for (const id of back) restoreTab(id, placeDo(placeOf(id)));
+  });
   if (views.length === 0) return shortcutsOpen.value ? <Shortcuts /> : null;
   // The arrows choose a tab (the tab follows the focus), Delete closes the one with the focus.
   const tabKey = (e: KeyboardEvent) => {
@@ -319,7 +322,7 @@ export function SideArea() {
           {v.type === "screen" ? (
             <Screen />
           ) : v.type === "canvas" ? (
-            <Canvas title={v.title} target={v.target} />
+            warm.has(v.id) && <Canvas title={v.title} target={v.target} />
           ) : (
             <TerminalView scope={v.scope} />
           )}

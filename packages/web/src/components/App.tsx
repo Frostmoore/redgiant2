@@ -29,6 +29,7 @@ import {
   approvals,
   attempt,
   budgets,
+  citationNote,
   closeTab,
   drawerOpen,
   explorerOpen,
@@ -41,6 +42,7 @@ import {
   platformInfo,
   questions,
   refresh,
+  type SettingsSection,
   sessionRows,
   sessionView,
   signIn,
@@ -52,30 +54,46 @@ import {
   token,
 } from "../state.js";
 import { useSwipeAway } from "../swipe.js";
-import { AssistantPage } from "./Assistants.js";
 import { Bell } from "./Bell.js";
-import { Board } from "./Board.js";
 import { Chat } from "./Chat.js";
-import { Chats } from "./Chats.js";
 import { DailyChat } from "./DailyChat.js";
 import { Downloads } from "./Downloads.js";
 import { Dialogs } from "./dialogs.js";
 import { EngineLoading } from "./EngineLoading.js";
 import { Explorer } from "./Explorer.js";
-import { ProjectAgents } from "./Hierarchy.js";
-import { CitationNote } from "./Knowledge.js";
-import { Login } from "./Login.js";
+import { lazy } from "./lazy.js";
 import { ConnectionLost, MemoryNotice } from "./PageHealth.js";
-import { ArchivedProjectView } from "./ProjectArchive.js";
-import { RoomView } from "./Room.js";
-import { Search } from "./Search.js";
-import { Settings } from "./Settings.js";
-import { Setup } from "./Setup.js";
-import { SideArea } from "./SideArea.js";
+import { preloadCanvas, SideArea } from "./SideArea.js";
 import { Sidebar } from "./Sidebar.js";
 import { UpdateGate } from "./UpdateGate.js";
-import { Variants } from "./Variants.js";
 import { WhatsNew } from "./WhatsNew.js";
+
+// Pages come when they open, not with the first chat (3.5.11): Settings and its pages, the
+// first-run wizard, an assistant's page, the board, the project's agents, rooms, search…
+const AssistantPage = lazy<{ agentId: string | null }>(() =>
+  import("./Assistants.js").then((m) => m.AssistantPage),
+);
+const Board = lazy<{ projectId: string | null }>(() => import("./Board.js").then((m) => m.Board));
+const Chats = lazy<Record<string, never>>(() => import("./Chats.js").then((m) => m.Chats));
+const ProjectAgents = lazy<{ projectId: string }>(() =>
+  import("./Hierarchy.js").then((m) => m.ProjectAgents),
+);
+const ArchivedProjectView = lazy<{ projectId: string }>(() =>
+  import("./ProjectArchive.js").then((m) => m.ArchivedProjectView),
+);
+const RoomView = lazy<{ roomId: string }>(() => import("./Room.js").then((m) => m.RoomView));
+const Search = lazy<{ close: () => void }>(() => import("./Search.js").then((m) => m.Search));
+const Setup = lazy<{ onDone?: () => void }>(() => import("./Setup.js").then((m) => m.Setup));
+const Login = lazy<Record<string, never>>(() => import("./Login.js").then((m) => m.Login));
+const CitationNote = lazy<Record<string, never>>(() =>
+  import("./Knowledge.js").then((m) => m.CitationNote),
+);
+const Variants = lazy<{ sessionId: string; proposalId: string }>(() =>
+  import("./Variants.js").then((m) => m.Variants),
+);
+const Settings = lazy<{ section?: SettingsSection | undefined }>(() =>
+  import("./Settings.js").then((m) => m.Settings),
+);
 
 const level = (pct: number) => (pct >= 90 ? "high" : pct >= 70 ? "medium" : "");
 
@@ -337,6 +355,11 @@ export function App() {
     else setReady(true);
   }, []);
 
+  // The project's files shown: a file is about to open, its editor's code comes ahead (3.5.11).
+  useEffect(() => {
+    if (explorerOpen.value) preloadCanvas();
+  }, [explorerOpen.value]);
+
   useEffect(() => {
     if (!ready || !token.value) return;
     const board = sessionStorage.getItem("rg.tavola")?.match(/^([\w-]+)\.([0-9a-f]{12})$/);
@@ -434,7 +457,7 @@ export function App() {
       <UpdateGate />
       {/* Our own questions, never the browser's (2026-11-09). */}
       <Dialogs />
-      <CitationNote />
+      {citationNote.value && <CitationNote />}
       <ConnectionLost />
       <MemoryNotice />
       {lastError.value && (

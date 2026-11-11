@@ -20,6 +20,7 @@ import {
   touchedIds,
   viewBoxOrigin,
 } from "./svg-ops.js";
+import { windowListeners } from "./window-listeners.js";
 
 export type SvgTool =
   | "select"
@@ -125,17 +126,25 @@ export function mountSvg(o: IslandOptions): SvgIsland {
   const box = document.createElement("div");
   box.className = "svg-canvas-box";
   o.area.replaceChildren(box);
-  const canvas: Canvas = new SvgCanvas(box, {
-    initFill: { color: "FFCC00", opacity: 1 },
-    initStroke: { color: "1F4E79", opacity: 1, width: 1 },
-    text: { stroke_width: 0, font_size: 16, font_family: "sans-serif" },
-    initOpacity: 1,
-    dimensions: [640, 480],
-    show_outside_canvas: true,
-    selectNew: true,
-    imgPath: "",
-    baseUnit: "px",
-  });
+  // svgcanvas has no way to end: what it hangs on the window (its clipboard's «storage»
+  // listener) kept every closed editor alive (3.5.11). Noted here, taken off in dispose().
+  const globals = windowListeners();
+  let canvas: Canvas;
+  try {
+    canvas = new SvgCanvas(box, {
+      initFill: { color: "FFCC00", opacity: 1 },
+      initStroke: { color: "1F4E79", opacity: 1, width: 1 },
+      text: { stroke_width: 0, font_size: 16, font_family: "sans-serif" },
+      initOpacity: 1,
+      dimensions: [640, 480],
+      show_outside_canvas: true,
+      selectNew: true,
+      imgPath: "",
+      baseUnit: "px",
+    });
+  } finally {
+    globals.stop();
+  }
   canvas.textActions.setInputElem(o.textInput);
   // Decimals as the file has them (svgcanvas rounds to 2 by default).
   canvas.saveOptions.round_digits = 8;
@@ -397,7 +406,11 @@ export function mountSvg(o: IslandOptions): SvgIsland {
       h: Math.max(0, Math.floor(r.height - (a.offsetHeight - a.clientHeight))),
     };
   };
+  let disposed = false;
   const layout = (force = false) => {
+    // A resize noticed in the frame the editor closed (3.5.11: svgcanvas then threw on its
+    // removed background).
+    if (disposed) return;
     const w: number = canvas.contentW ?? 640;
     const h: number = canvas.contentH ?? 480;
     const fill = room();
@@ -415,7 +428,13 @@ export function mountSvg(o: IslandOptions): SvgIsland {
     laidAt = performance.now();
     box.style.width = `${cw}px`;
     box.style.height = `${ch}px`;
-    canvas.updateCanvas(cw, ch);
+    try {
+      canvas.updateCanvas(cw, ch);
+    } catch (err) {
+      // Taken out of the page with the closing tab, before dispose(): nothing to lay out.
+      if (box.isConnected) throw err;
+      return;
+    }
     // A viewBox that does not start at 0,0 (p3.5.4, the person's test: the drawing seen twice,
     // «one sheet over the other, slightly shifted»): svgcanvas set "0 0 w h", which moved the
     // drawing off its page. The file's own origin back, and the selection's handles with it.
@@ -679,7 +698,11 @@ export function mountSvg(o: IslandOptions): SvgIsland {
         .filter((r) => r.w > 0 || r.h > 0);
     },
     dispose() {
+      disposed = true;
       resize.disconnect();
+      globals.remove();
+      // svgcanvas' modules keep the text field until the next editor: not this page's.
+      canvas.textActions.setInputElem(document.createElement("input"));
       box.removeEventListener("mousedown", down);
       box.removeEventListener("mousedown", pickLayer, true);
       window.removeEventListener("mouseup", up);

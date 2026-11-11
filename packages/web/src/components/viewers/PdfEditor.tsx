@@ -546,6 +546,12 @@ export function PdfEditor({
       commit();
       close();
       onReveal?.(undefined);
+      // The viewer emptied first (3.5.11): pdf.js keeps every text layer in a map of its own and
+      // its annotation editor listens on the window; without this each closed PDF stayed alive.
+      try {
+        L.viewer?.setDocument(null as never);
+        L.viewer?.cleanup();
+      } catch {}
       void L.task?.destroy();
       L.viewer = undefined;
       L.doc = undefined;
