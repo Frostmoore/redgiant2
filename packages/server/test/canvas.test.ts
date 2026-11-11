@@ -8,6 +8,7 @@ import type { CompletionRequest } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
 import { Previews, previewHeaders, previewOrigins, rewrite, serveFile } from "../src/canvas.js";
 import { boardAnswerText } from "../src/core.js";
+import { WEBRTC_LOCKDOWN_TAG } from "../src/webrtc-lockdown.js";
 import { startServer } from "./helpers.js";
 
 type Server = Awaited<ReturnType<typeof startServer>>;
@@ -182,6 +183,8 @@ describe("the canvas (G25.1)", () => {
     expect(csp).toContain("allow-popups");
     expect(csp).toContain(`frame-ancestors http://${new URL(s.url).host}`);
     expect(csp).not.toContain("default-src");
+    // The project's own program: no WebRTC lockdown (3.5.10).
+    expect(html).not.toContain("RTCPeerConnection");
     const moved = await fetch(`${s.url}${prefix}/old`, { redirect: "manual" });
     expect(moved.headers.get("location")).toBe(`${prefix}/new`);
   });
@@ -327,7 +330,7 @@ describe("agent-made pages reach no internet (3.5.8)", () => {
       `media-src ${own} data: blob:`,
       `connect-src ${own}`,
       `worker-src ${own} blob:`,
-      `frame-src ${own} blob: data:`,
+      `frame-src ${own}`,
       `manifest-src ${own}`,
       "object-src 'none'",
       "form-action 'none'",
@@ -339,6 +342,8 @@ describe("agent-made pages reach no internet (3.5.8)", () => {
     // Links that would go out are handed to the page around the frame.
     const html = await page.text();
     expect(html).toContain('redgiant:"open-link"');
+    // WebRTC off, before anything of the page (3.5.10).
+    expect(html.startsWith(WEBRTC_LOCKDOWN_TAG)).toBe(true);
     // Its own files are still served, under the same rules.
     const json = await fetch(`${s.url}/preview/${token}/data.json`);
     expect(json.status).toBe(200);

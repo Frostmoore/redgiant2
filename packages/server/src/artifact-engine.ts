@@ -21,6 +21,7 @@ import {
   artifactHeaderOf,
   isArtifactPath,
 } from "@redgiant/protocol";
+import { lockedPage } from "./webrtc-lockdown.js";
 
 const require = createRequire(import.meta.url);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -279,7 +280,8 @@ const LIB_TYPE = "text/javascript; charset=utf-8";
 export async function serveLib(
   rest: string,
 ): Promise<{ body: Uint8Array | string; type: string } | undefined> {
-  const m = /^([a-z]+)-([0-9][\w.+-]*)\/(.+)$/.exec(rest);
+  // The name may hold digits (d3): the version is what starts with a digit after a "-".
+  const m = /^([a-z][a-z0-9]*?)-([0-9][\w.+-]*)\/(.+)$/.exec(rest);
   if (!m) return undefined;
   const f = FAMILIES.find((x) => x.lib === m[1]);
   if (!f || versionOf(f.pkg) !== m[2]) return undefined;
@@ -463,10 +465,14 @@ async function prepared(
         message: `"${s}" is not a library RedGiant serves (artifacts reach no internet): use one of react, preact, d3, chart.js, three, papaparse, xlsx, lucide, marked${libs.includes("mermaid") ? ", mermaid" : ' (mermaid with "libs":["mermaid"] in the header)'}, or put the code in the page`,
       });
   const head = `<meta charset="utf-8"><script>${runtime(errors.slice(0, ARTIFACT_ERRORS_MAX))}</script><script type="importmap">${JSON.stringify({ imports: map })}</script><style>${BASE_STYLE}</style>`;
-  if (/<head[^>]*>/i.test(body)) return body.replace(/<head[^>]*>/i, (h) => `${h}${head}`);
+  // WebRTC off before anything (3.5.10): the lockdown is the page's very first script.
+  if (/<head[^>]*>/i.test(body))
+    return lockedPage(body.replace(/<head[^>]*>/i, (h) => `${h}${head}`));
   if (/<html[^>]*>/i.test(body))
-    return body.replace(/<html[^>]*>/i, (h) => `${h}<head>${head}</head>`);
-  return `<!doctype html><html><head>${head}<meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${body}</body></html>`;
+    return lockedPage(body.replace(/<html[^>]*>/i, (h) => `${h}<head>${head}</head>`));
+  return lockedPage(
+    `<!doctype html><html><head>${head}<meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${body}</body></html>`,
+  );
 }
 
 /** An artifact's page as the frame gets it. */
@@ -622,7 +628,7 @@ export const ARTIFACT_HELP = `
 An HTML file in ${ARTIFACT_DIR}/ (or any HTML whose first line is the header) runs as an artifact: one file, no network.
 - Header, first line: <!-- redgiant-artifact {"name":"Budget","version":1,"libs":["react","chartjs"]} -->. Raise "version" when you change it. "libs" from: react, preact, d3, chartjs, three, papaparse, sheetjs, lucide, mermaid, marked (mermaid loads only when listed).
 - Imports by bare name through RedGiant's import map: "react", "react-dom/client", "react/jsx-runtime", "preact", "preact/hooks", "d3", "chart.js/auto", "three", "three/addons/…", "papaparse", "xlsx", "lucide", "marked", "mermaid". Use <script type="module">, or <script type="text/babel"> for JSX/TSX (compiled by RedGiant; React's automatic runtime, Preact's when libs has preact and not react).
-- Not allowed (blocked by the frame): fetch/XHR/WebSocket, pictures or fonts from the web, CDNs, other frames, popups, form posts, localStorage. Pictures: data: or blob: URLs; files: an <input type=file> the person picks.
+- Not allowed (blocked by the frame): fetch/XHR/WebSocket, WebRTC, pictures or fonts from the web, CDNs, other frames, popups, form posts, localStorage. Pictures: data: or blob: URLs; files: an <input type=file> the person picks.
 - Theme: CSS variables --rg-bg, --rg-panel, --rg-line, --rg-text, --rg-dim, --rg-accent, --rg-ok, --rg-warn, --rg-err, --rg-radius, --rg-font, --rg-mono follow the person's light or dark theme (event "redgiant:theme").
 - redgiant.sendMessage(text) (max 4000 characters), from a button the person clicks, sends text to the chat as their message.
 - Errors (exceptions, rejected promises, console.error, a library that is not there, JSX that does not compile) come back to you with your next tool result and in canvas_look.

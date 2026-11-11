@@ -3,6 +3,10 @@
 // prefetch and preconnect, forms, popups, top and self navigation, a meta refresh, a nested frame,
 // WebRTC); a "server outside" listens and must hear nothing. A plain single-file page with inline
 // script and style, data: and blob: pictures and its own JSON must keep working.
+// 3.5.10: WebRTC too. Hostile pages try every way to a peer connection (webrtc-hostile.mjs: the
+// page's first script, deleting and redefining globals, about:blank children, srcdoc written in
+// every way, javascript:, data: and blob: frames, a worker, document.open, an SVG file with a
+// script, a frameset); the STUN listener must hear nothing, and a page framing its own page works.
 // Usage: node demo-server.mjs 4795, then
 //        [CHROMIUM=/path/to/chrome] node preview-net-e2e.mjs <url> <token> <outdir> [boardDir]
 // (boardDir: the demo's boards/0a1b2c3d4e5f, to try the same page as a board). Exits 1 on a failure.
@@ -11,6 +15,13 @@ import { mkdir, writeFile as writeLocal } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
+import {
+  CHILD_WAYS,
+  webrtcDocWrite,
+  webrtcFrameset,
+  webrtcHostile,
+  webrtcSvg,
+} from "./webrtc-hostile.mjs";
 
 const [url, token, out, boardDir] = process.argv.slice(2);
 await mkdir(out, { recursive: true });
@@ -122,6 +133,18 @@ for (const [name, content] of [
   ["net/nav.html", nav],
   ["net/meta.html", meta],
   ["net/data.json", '{"hello":"world"}'],
+  ["net/rtc.html", webrtcHostile(stunPort)],
+  ["net/rtc-doc.html", webrtcDocWrite(stunPort)],
+  ["net/rtc-frameset.html", webrtcFrameset(stunPort)],
+  ["net/rtc.svg", webrtcSvg(stunPort)],
+  [
+    "net/framed.html",
+    '<!doctype html><p>a page with its own page inside</p><iframe src="inner.html"></iframe><iframe srcdoc="<script>top.postMessage({framedSrcdoc:typeof document.body},\'*\')</script>"></iframe>',
+  ],
+  [
+    "net/inner.html",
+    "<!doctype html><p>inner</p><script>top.postMessage({innerPage:location.pathname.endsWith('inner.html')},'*')</script>",
+  ],
 ]) {
   const w = await api("PUT", "/api/files/content", { scope: "platform", path: name, content });
   if (w.status !== 200) throw new Error(`write ${name}: ${w.status} ${JSON.stringify(w.body)}`);
@@ -136,6 +159,7 @@ let boardBase;
 if (boardDir) {
   await writeLocal(join(boardDir, "evil.html"), evil);
   await writeLocal(join(boardDir, "nav.html"), nav);
+  await writeLocal(join(boardDir, "rtc.html"), webrtcHostile(stunPort));
   for (const s of (await api("GET", "/api/sessions")).body) {
     const l = await api("GET", `/api/sessions/${s.id}/variants/0a1b2c3d4e5f/link`);
     if (l.status === 200) {
@@ -195,9 +219,13 @@ const frame = (id, src) =>
   page.evaluate(
     ([id, src, sandbox]) => {
       window.__got ??= {};
+      window.__rtc ??= {};
       if (!window.__listening) {
         window.__listening = true;
-        addEventListener("message", (e) => Object.assign(window.__got, e.data));
+        addEventListener("message", (e) => {
+          if (e.data?.rtc) Object.assign(window.__rtc, e.data.rtc);
+          else Object.assign(window.__got, e.data);
+        });
       }
       const f = document.createElement("iframe");
       f.id = id;
@@ -269,6 +297,43 @@ check(
   "the page is still there after its links",
 );
 
+// 1b. WebRTC (3.5.10): the hostile pages; a page framing its own page still works.
+await frame("t-rtc", `${base}rtc.html`);
+await frame("t-rtc-doc", `${base}rtc-doc.html`);
+await frame("t-rtc-frameset", `${base}rtc-frameset.html`);
+await frame("t-rtc-svg", `${base}rtc.svg`);
+await frame("t-framed", `${base}framed.html`);
+await page.waitForTimeout(5000);
+const rtcWays = await page.evaluate(() => window.__rtc);
+const framed = await page.evaluate(() => window.__got);
+for (const w of [
+  ...CHILD_WAYS,
+  "SVG file with a script",
+  "frameset frame javascript:",
+  "document.open + write of a new document",
+])
+  if (!(w in rtcWays)) rtcWays[w] = "(never ran)";
+console.log("WebRTC, the ways tried:");
+for (const [k, v] of Object.entries(rtcWays)) console.log(`     ${k}: ${v}`);
+check(rtcWays.done === "yes", "the WebRTC page ran to its end");
+check(
+  !Object.values(rtcWays).some((v) => /MADE|natives seen/.test(String(v))),
+  "no way made a peer connection",
+);
+// (A page framing another page of its own preview is refused by that page's frame-ancestors since
+// 3.5.8: its parent is an opaque origin. Reported, not checked.)
+console.log(
+  `     a page framing its own page: ${framed.innerPage === true ? "the inner page runs" : "the inner page is refused (frame-ancestors)"}`,
+);
+check(
+  framed.framedSrcdoc === "object",
+  "a page with its own srcdoc frame: it runs (with the lockdown)",
+);
+await page.screenshot({ path: join(out, "1b-webrtc-frames.png") });
+await page.evaluate(() => {
+  for (const f of document.querySelectorAll("iframe[id^=t-rtc], iframe#t-framed")) f.remove();
+});
+
 // 2. Self navigation and a meta refresh: RedGiant's frame-src keeps the frame on its own site.
 await frame("t-nav", `${base}nav.html`);
 await frame("t-meta", `${base}meta.html`);
@@ -281,7 +346,18 @@ if (boardBase) {
   });
   await frame("t-board", `${boardBase}evil.html`);
   await frame("t-board-nav", `${boardBase}nav.html`);
+  await page.evaluate(() => {
+    window.__rtc = {};
+  });
+  await frame("t-board-rtc", `${boardBase}rtc.html`);
   await page.waitForTimeout(4000);
+  const boardRtc = await page.evaluate(() => window.__rtc);
+  console.log("board WebRTC says:", JSON.stringify(boardRtc));
+  check(boardRtc.done === "yes", "board: the WebRTC page ran to its end");
+  check(
+    !Object.values(boardRtc).some((v) => /MADE/.test(String(v))),
+    "board: no way made a peer connection",
+  );
   const b = await page.evaluate(() => window.__got.evil);
   console.log("board evil says:", JSON.stringify(b));
   await page.screenshot({ path: join(out, "3-board-frames.png") });
@@ -334,10 +410,12 @@ check(
 );
 check(preconnects === 0, "no preconnect");
 check(popups.length === 0, "no window opened");
-// WebRTC has no CSP: reported, not failed (the study's risk table says what holds it).
-console.log(
-  `${webrtc ? "WARN" : "ok  "} WebRTC STUN ${webrtc ? "reached the outside" : "blocked"}`,
-);
+// WebRTC has no CSP: the lockdown holds it (3.5.10). WEBRTC_WARN=1 only reports (an older RedGiant).
+if (process.env.WEBRTC_WARN)
+  console.log(
+    `${webrtc ? "WARN" : "ok  "} WebRTC STUN ${webrtc ? "reached the outside" : "blocked"}`,
+  );
+else check(!webrtc, "WebRTC: the STUN server outside heard nothing");
 await writeLocal(
   join(out, "result.json"),
   JSON.stringify(
@@ -345,6 +423,8 @@ await writeLocal(
       heard,
       preconnects,
       stunHeard,
+      stunSources: [...new Set(stunHeard)].length,
+      rtcWays,
       popups,
       evil: got.evil,
       good: got.good,

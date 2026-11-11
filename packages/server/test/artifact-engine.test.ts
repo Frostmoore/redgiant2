@@ -14,6 +14,7 @@ import {
   missingImports,
   serveLib,
 } from "../src/artifact-engine.js";
+import { WEBRTC_LOCKDOWN_TAG } from "../src/webrtc-lockdown.js";
 import { startServer } from "./helpers.js";
 
 type Server = Awaited<ReturnType<typeof startServer>>;
@@ -97,6 +98,10 @@ describe("the artifacts' frame (3.5.9)", () => {
       /javascript/,
     );
     expect(await serveLib(`three-${three}/raw/../../package.json`)).toBeUndefined();
+    // A library whose name holds a digit (3.5.10: d3 answered 404 before).
+    const d3 = (importMap("/p").d3 as string).replace("/p/lib/", "");
+    expect(d3).toMatch(/^d3-[\d.]+\/d3\.js$/);
+    expect((await serveLib(d3))?.type).toMatch(/javascript/);
   }, 60_000);
 
   it("compiles JSX on the server, once per text, and says where it does not compile", async () => {
@@ -186,7 +191,11 @@ describe("artifacts in RedGiant (3.5.9)", () => {
       artifactHeaders([`http://${host}`, `https://${host}`], prefix)["Content-Security-Policy"],
     );
     const html = await page.text();
-    // Ours first: the runtime, then the import map, before anything of the page.
+    // Ours first: the WebRTC lockdown (3.5.10), the runtime, then the import map.
+    expect(html.indexOf("<script")).toBe(html.indexOf(WEBRTC_LOCKDOWN_TAG));
+    expect(html.indexOf(WEBRTC_LOCKDOWN_TAG)).toBeLessThan(
+      html.indexOf('<script>(()=>{"use strict"'),
+    );
     expect(html.indexOf('<script>(()=>{"use strict"')).toBeLessThan(
       html.indexOf('<script type="importmap">'),
     );
@@ -309,6 +318,8 @@ describe("artifacts in RedGiant (3.5.9)", () => {
       "<button onclick=\"redgiant.sendMessage('Analizza')\">Analizza</button>",
     );
     expect(html).toContain("background:transparent");
+    // WebRTC off first (3.5.10), after the doctype.
+    expect(html.startsWith(`<!doctype html>${WEBRTC_LOCKDOWN_TAG}`)).toBe(true);
     expect(
       (await s.api("GET", `/api/sessions/${body.sessionId}/widgets/${msg.seq}/1/link`)).status,
     ).toBe(404);
