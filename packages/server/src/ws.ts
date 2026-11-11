@@ -290,6 +290,7 @@ export function attachWebSocket(
             const { done } = await core.send(owner, msg.sessionId, msg.text, {
               ...(msg.images?.length ? { images: msg.images } : {}),
               ...(msg.quotes?.length ? { quotes: msg.quotes } : {}),
+              ...(msg.via && { via: msg.via }),
               watch: true,
               // Written while it works: it joins the turn after its tools (2026-11-05), or right after.
               queue: true,
@@ -339,6 +340,11 @@ export function attachWebSocket(
             return;
           case "browser.input":
             await core.browsers?.get(owner).input(msg.event);
+            return;
+          case "artifact.errors":
+            await core
+              .reportArtifactErrors(owner, msg.ref, msg.errors, msg.sessionId)
+              .catch(() => {});
             return;
           case "canvas.state":
             core.canvasLive.answer(owner, msg.requestId, msg.state);

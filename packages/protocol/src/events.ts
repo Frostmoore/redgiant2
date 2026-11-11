@@ -79,6 +79,11 @@ export const EventBody = z.discriminatedUnion("type", [
        * while you were away»); the page shows them apart from the person's words.
        */
       notes: z.array(z.string().max(2000)).max(MAX_NOTES).optional(),
+      /**
+       * Sent by the person through an artifact or a widget (3.5.9): a button they clicked in it
+       * («send to chat»). Shown like their other messages, marked.
+       */
+      via: z.literal("artifact").optional(),
     }),
   }),
   z.object({ type: z.literal("message.assistant.delta"), payload: text }),

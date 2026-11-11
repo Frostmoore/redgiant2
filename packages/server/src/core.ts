@@ -99,6 +99,9 @@ import {
   UNATTENDED_MAX_TURNS,
   type VaultEntry,
   type VaultSystemEntry,
+  type ArtifactError,
+  type ArtifactRef,
+  widgetOf,
 } from "@redgiant/protocol";
 import {
   complete,
@@ -140,6 +143,14 @@ import { z } from "zod";
 import { type Alert, type AlertText, alertText } from "./alerts.js";
 import { HumanApprovals } from "./approvals.js";
 import { type ReapDeps, reapOrphan } from "./background-reap.js";
+import {
+  ARTIFACT_SHOWN,
+  ARTIFACT_TOOL_LINE,
+  ArtifactErrors,
+  ARTIFACTS_PROMPT,
+  isArtifactFile,
+  keptWidget,
+} from "./artifacts.js";
 import type { BackupDeps } from "./backup.js";
 import { type Browsers, browserTools } from "./browser.js";
 import { BrowserLinks } from "./browser-links.js";
@@ -417,6 +428,7 @@ interface Live {
       clientId?: string;
       human?: boolean;
       taskReport?: boolean;
+      via?: "artifact";
     };
     resolve: (r: SendResult) => void;
     reject: (e: unknown) => void;
@@ -608,6 +620,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly converter: FileConverter;
   /** What the person's canvas shows, asked of their pages when an agent looks (G36.12). */
   readonly canvasLive = new CanvasLive();
+  /** What artifacts and widgets met in the person's page (3.5.9), on its way to the agents. */
+  readonly artifactErrors = new ArtifactErrors();
   /** The editor (G37.1): one owner of every open file, the person's and the agents' edits. */
   readonly editor: EditorHost;
   /** The sheet family (G37.3): CSV/TSV in place, ODS with LibreOffice's «toppa». */
@@ -1739,6 +1753,10 @@ export class RedGiantCore implements OrchestrationHost {
           ? `## The person's instructions for every agent\n${this.instructions}`
           : "",
         toolsOff.length > 0 ? switchedOffSection(toolsOff, aside) : "",
+        // Widgets and artifacts (3.5.9): for every agent that can show things.
+        tools.some((t) => t.def.name === "show_file" || t.def.name === "show")
+          ? ARTIFACTS_PROMPT
+          : "",
         // What it can search and how to cite (G36.5); fixed with the conversation's start.
         tools.some((t) => t.def.name === "search_knowledge") && this.knowledge
           ? knowledgeSection(
@@ -1800,6 +1818,7 @@ export class RedGiantCore implements OrchestrationHost {
           ...(q.extra.quotes?.length && { quotes: q.extra.quotes }),
           ...(q.extra.from && { from: q.extra.from }),
           ...(q.extra.taskReport && { taskReport: true }),
+          ...(q.extra.via && { via: q.extra.via }),
         }));
       },
       priority: PRIORITY[agent.kind],
@@ -3003,6 +3022,10 @@ export class RedGiantCore implements OrchestrationHost {
     const where = await this.scopeOf(agent.ownerId, r.abs).catch(() => undefined);
     const target = { kind: "file" as const, ...(where ?? { scope: "outside", path: r.abs }) };
     if (!where) (await this.shownOutside(agent.ownerId)).add(r.abs);
+    this.artifactErrors.shown(
+      ArtifactErrors.fileKey(agent.ownerId, target.scope, target.path),
+      ctx.sessionId,
+    );
     await this.store.append({
       ownerId: agent.ownerId,
       projectId: agent.projectId,
@@ -3012,6 +3035,7 @@ export class RedGiantCore implements OrchestrationHost {
     });
     if (!where)
       return "It is outside every workspace: the canvas shows it as it is, in the viewer for its kind, and converts nothing.";
+    if (await isArtifactFile(r.abs, where.path)) return ARTIFACT_SHOWN.trim();
     try {
       const root = await this.scopeRoot(agent.ownerId, where.scope);
       return await canvasView(this.converter, root, where.path, {
@@ -3048,7 +3072,7 @@ export class RedGiantCore implements OrchestrationHost {
             this.editor.writeNow(agent.ownerId, file).catch(() => {}),
             new Promise((r) => setTimeout(r, 20_000).unref?.()),
           ]);
-        return lookAt(abs, ask, {
+        const looked = await lookAt(abs, ask, {
           owner: agent.ownerId,
           programs: this.programs,
           converter: this.converter,
@@ -3057,6 +3081,14 @@ export class RedGiantCore implements OrchestrationHost {
           tmpDir: join(data, "cache", "look"),
           signal: ctx.signal,
         });
+        // An artifact: what it met when the person's page ran it (3.5.9).
+        if (file && (await isArtifactFile(abs, file.path))) {
+          const met = this.artifactErrors.text(
+            ArtifactErrors.fileKey(agent.ownerId, file.scope, file.path),
+          );
+          looked.text = `${looked.text}\n\nIt is an artifact. ${met || "No error reported by the person's page so far."}`;
+        }
+        return looked;
       },
       act: async (ctx, title, target, d) => {
         await this.store.append({
@@ -3205,8 +3237,13 @@ export class RedGiantCore implements OrchestrationHost {
   /** The person changed a file an agent edits (G37.1): its next tool result carries the line. */
   private editorNotesHook(): NonNullable<Hooks["postToolUse"]>[number] {
     return (call, result, ctx) => {
-      if (call.name === "canvas_edit") return undefined;
-      const notes = this.editor.notesFor(ctx.sessionId);
+      // What artifacts and widgets met in the person's page rides with every tool (3.5.9).
+      const met = this.artifactErrors.take(ctx.sessionId);
+      if (call.name === "canvas_edit" && !met.length) return undefined;
+      const notes = [
+        ...(call.name === "canvas_edit" ? [] : this.editor.notesFor(ctx.sessionId)),
+        ...met,
+      ];
       if (!notes.length) return undefined;
       return { content: notedText(result.content, notes), isError: result.isError };
     };
@@ -3333,7 +3370,7 @@ export class RedGiantCore implements OrchestrationHost {
     target:
       | { kind: "file"; scope: string; path: string }
       | { kind: "port"; agentId: string; port: number; path?: string | undefined },
-  ): Promise<{ url: string; folder?: true }> {
+  ): Promise<{ url: string; folder?: true; artifact?: true }> {
     let t: PreviewTarget;
     let entry: string;
     /** A workspace's folder (its site), not a file: a name with no extension can be either. */
@@ -3342,7 +3379,9 @@ export class RedGiantCore implements OrchestrationHost {
       const abs = await this.outsideFile(ownerId, target.path);
       const st = await stat(abs).catch(() => undefined);
       if (!st?.isFile()) throw new NotFoundError(`No such file "${basename(abs)}"`);
-      t = { kind: "file", path: abs };
+      t = (await isArtifactFile(abs, abs))
+        ? { kind: "artifact", path: abs }
+        : { kind: "file", path: abs };
       entry = basename(abs);
     } else if (target.kind === "file") {
       const root = await this.scopeRoot(ownerId, target.scope);
@@ -3350,7 +3389,10 @@ export class RedGiantCore implements OrchestrationHost {
       if (inside(root, abs) === undefined) throw new BadRequestError("Outside the workspace");
       const st = await stat(abs).catch(() => undefined);
       if (!st) throw new NotFoundError(`No such file "${target.path}"`);
-      t = { kind: "dir", root: st.isDirectory() ? abs : dirname(abs) };
+      t =
+        !st.isDirectory() && (await isArtifactFile(abs, target.path))
+          ? { kind: "artifact", path: abs }
+          : { kind: "dir", root: st.isDirectory() ? abs : dirname(abs) };
       entry = st.isDirectory() ? "" : basename(abs);
       folder = st.isDirectory();
     } else {
@@ -3363,7 +3405,169 @@ export class RedGiantCore implements OrchestrationHost {
     return {
       url: `/preview/${this.previews.sign(ownerId, t)}/${encodeURI(entry)}`,
       ...(folder && { folder: true as const }),
+      ...(t.kind === "artifact" && { artifact: true as const }),
     };
+  }
+
+  // ---- artifacts and widgets (3.5.9) ----
+
+  /** An answer's text parts, from the log, checked against its owner. */
+  private async answerTexts(
+    ownerId: string,
+    sessionId: string,
+    seq: number,
+  ): Promise<{ texts: string[]; agentId: string | null; projectId: string | null }> {
+    const [e] = await this.store.list({ sessionId, fromSeq: seq, limit: 1 });
+    if (
+      !e ||
+      e.seq !== seq ||
+      e.ownerId !== ownerId ||
+      e.type !== "message.assistant" ||
+      !e.payload
+    )
+      throw new NotFoundError("No such answer");
+    return {
+      texts: e.payload.parts.flatMap((p) => (p.type === "text" ? [p.text] : [])),
+      agentId: e.agentId,
+      projectId: e.projectId,
+    };
+  }
+
+  /** A widget block of an answer (```widget), as the agent wrote it. */
+  async widgetHtml(
+    ownerId: string,
+    w: { sessionId: string; seq: number; index: number },
+  ): Promise<string> {
+    const { texts } = await this.answerTexts(ownerId, w.sessionId, w.seq);
+    const found = widgetOf(texts, w.index);
+    if (!found) throw new NotFoundError("No such widget");
+    return found.html;
+  }
+
+  /** A signed link to a widget of an answer: run like an artifact, from the log. */
+  async widgetLink(
+    ownerId: string,
+    w: { sessionId: string; seq: number; index: number },
+  ): Promise<{ url: string }> {
+    await this.widgetHtml(ownerId, w);
+    const token = this.previews.sign(ownerId, { kind: "widget", ...w });
+    return { url: `/preview/${token}/widget.html` };
+  }
+
+  /**
+   * Errors an artifact or a widget met in the person's page: kept for canvas_look, and carried to
+   * the conversations that showed it (and the one the page shows) with their next tool result.
+   */
+  async reportArtifactErrors(
+    ownerId: string,
+    ref: ArtifactRef,
+    errors: ArtifactError[],
+    sessionId?: string,
+  ): Promise<number> {
+    const sessions = new Set<string>();
+    let key: string;
+    let name: string;
+    if (ref.kind === "widget") {
+      await this.widgetHtml(ownerId, ref);
+      key = `${ownerId}\u0000widget\u0000${ref.sessionId}\u0000${ref.seq}\u0000${ref.index}`;
+      name = `The widget ${ref.index + 1} of your answer`;
+      sessions.add(ref.sessionId);
+    } else {
+      key = ArtifactErrors.fileKey(ownerId, ref.scope, ref.path);
+      name = ref.path;
+      for (const s of this.artifactErrors.sessionsOf(key)) sessions.add(s);
+      if (sessionId) {
+        const [row] = await this.o.db.query<{ id: string }>(
+          "SELECT id FROM rg_sessions WHERE id = $1 AND owner_id = $2",
+          [sessionId, ownerId],
+        );
+        if (row) sessions.add(sessionId);
+      }
+    }
+    return this.artifactErrors.report(key, name, errors, sessions);
+  }
+
+  /** The page loaded an artifact again: its old errors are forgotten. */
+  artifactReloaded(ownerId: string, ref: ArtifactRef): void {
+    this.artifactErrors.reset(
+      ref.kind === "file"
+        ? ArtifactErrors.fileKey(ownerId, ref.scope, ref.path)
+        : `${ownerId}\u0000widget\u0000${ref.sessionId}\u0000${ref.seq}\u0000${ref.index}`,
+    );
+  }
+
+  /** Where a conversation's agent keeps its files: the scope a kept widget goes in. */
+  private async sessionScope(
+    ownerId: string,
+    sessionId: string,
+  ): Promise<{ scope: string; agentId: string }> {
+    const [row] = await this.o.db.query<{ agent_id: string; project_id: string | null }>(
+      "SELECT agent_id, project_id FROM rg_sessions WHERE id = $1 AND owner_id = $2",
+      [sessionId, ownerId],
+    );
+    if (!row) throw new NotFoundError("No such conversation");
+    const agent = this.registry.get(row.agent_id);
+    const projectId = row.project_id ?? agent?.projectId ?? null;
+    return {
+      scope: projectId ? `project:${projectId}` : agent?.kind === "god" ? "platform" : "assistants",
+      agentId: row.agent_id,
+    };
+  }
+
+  /** «Tienilo» (3.5.9): a widget becomes `artefatti/<name>.html` in its agent's files. */
+  async keepWidget(
+    ownerId: string,
+    w: { sessionId: string; seq: number; index: number },
+  ): Promise<{ scope: string; path: string }> {
+    const { texts } = await this.answerTexts(ownerId, w.sessionId, w.seq);
+    const found = widgetOf(texts, w.index);
+    if (!found) throw new NotFoundError("No such widget");
+    const { scope, agentId } = await this.sessionScope(ownerId, w.sessionId);
+    this.assertWritable(ownerId, scope);
+    const root = await this.scopeRoot(ownerId, scope);
+    const kept = keptWidget(found.html, found.title || `Widget ${w.index + 1}`, agentId);
+    let path = kept.file;
+    for (let n = 2; await stat(join(root, path)).catch(() => undefined); n++)
+      path = kept.file.replace(/\.html$/, `-${n}.html`);
+    await mkdir(dirname(join(root, path)), { recursive: true });
+    await writeFile(join(root, path), kept.text);
+    this.artifactErrors.shown(ArtifactErrors.fileKey(ownerId, scope, path), w.sessionId);
+    return { scope, path };
+  }
+
+  /**
+   * «Fanne un progetto» (3.5.9): the artifact becomes the start of a folder of its own, `index.html`
+   * without the header (a site now, not an artifact); the agents that showed it are told.
+   */
+  async artifactToProject(
+    ownerId: string,
+    file: { scope: string; path: string },
+    sessionId?: string,
+  ): Promise<{ scope: string; path: string }> {
+    if (file.scope === "outside") throw new BadRequestError("Only files of a workspace");
+    this.assertWritable(ownerId, file.scope);
+    const root = await this.scopeRoot(ownerId, file.scope);
+    const abs = join(root, file.path);
+    if (inside(root, abs) === undefined) throw new BadRequestError("Outside the workspace");
+    const html = await readFile(abs, "utf8").catch(() => undefined);
+    if (html === undefined) throw new NotFoundError(`No such file "${file.path}"`);
+    const name = basename(file.path).replace(/\.html?$/i, "") || "app";
+    let dir = name;
+    for (let n = 2; await stat(join(root, dir)).catch(() => undefined); n++) dir = `${name}-${n}`;
+    await mkdir(join(root, dir), { recursive: true });
+    await writeFile(
+      join(root, dir, "index.html"),
+      html.replace(/^\s*<!--\s*redgiant-artifact\s+\{[\s\S]*?\}\s*-->\s*/, ""),
+    );
+    const key = ArtifactErrors.fileKey(ownerId, file.scope, file.path);
+    const sessions = new Set(this.artifactErrors.sessionsOf(key));
+    if (sessionId) sessions.add(sessionId);
+    for (const s of sessions)
+      this.artifactErrors.note(
+        s,
+        `the person made the artifact ${file.path} into a project folder: ${dir}/index.html (a site, with the network rules of sites). When asked, split it into files, add tests and a dev server (show with port).`,
+      );
+    return { scope: file.scope, path: `${dir}/index.html` };
   }
 
   /** When what the canvas shows last changed (ms): the page reloads it when this moves. */
@@ -3667,8 +3871,7 @@ export class RedGiantCore implements OrchestrationHost {
     return {
       def: {
         name: "show",
-        description:
-          "Show the person what you made, in the canvas next to the chat: a site (an HTML file or its folder), a picture, a video, a sound, a PDF, a sheet (CSV, XLSX), a 3D model (GLB, GLTF, STL, OBJ), Markdown or code (give path), or a program you started that serves on a port of your computer (give port, and url_path if not /). It updates by itself when the files change. A site from files reaches no internet (no CDN, web fonts or APIs: keep CSS, JS and pictures in its folder or inside the page; links ask the person); a program on a port keeps its network. Use it whenever the person should see the result, instead of describing it. For one file, show_file opens it in a viewer made for its kind.",
+        description: `Show the person what you made, in the canvas next to the chat: a site (an HTML file or its folder), a picture, a video, a sound, a PDF, a sheet (CSV, XLSX), a 3D model (GLB, GLTF, STL, OBJ), Markdown or code (give path), or a program you started that serves on a port of your computer (give port, and url_path if not /). It updates by itself when the files change. A site from files reaches no internet (no CDN, web fonts or APIs: keep CSS, JS and pictures in its folder or inside the page; links ask the person); a program on a port keeps its network. Use it whenever the person should see the result, instead of describing it. For one file, show_file opens it in a viewer made for its kind. ${ARTIFACT_TOOL_LINE}`,
         inputSchema: {
           type: "object",
           properties: {
@@ -3708,6 +3911,17 @@ export class RedGiantCore implements OrchestrationHost {
           }
         }
         const title = i.title ?? (i.path ? basename(i.path) : `Port ${i.port}`);
+        let artifact = false;
+        if (target.kind === "file") {
+          this.artifactErrors.shown(
+            ArtifactErrors.fileKey(agent.ownerId, target.scope, target.path),
+            ctx.sessionId,
+          );
+          artifact = await isArtifactFile(
+            join(await this.scopeRoot(agent.ownerId, target.scope).catch(() => ""), target.path),
+            target.path,
+          );
+        }
         await this.store.append({
           ownerId: agent.ownerId,
           projectId: agent.projectId,
@@ -3715,7 +3929,7 @@ export class RedGiantCore implements OrchestrationHost {
           sessionId: ctx.sessionId,
           body: { type: "canvas.show", payload: { title, target } },
         });
-        return `Shown in the canvas: ${title}. The person sees it next to the chat; it updates when the files change.`;
+        return `Shown in the canvas: ${title}. The person sees it next to the chat; it updates when the files change.${artifact ? ARTIFACT_SHOWN : ""}`;
       },
     } as Tool;
   }
@@ -5027,6 +5241,8 @@ export class RedGiantCore implements OrchestrationHost {
       human?: boolean;
       /** A task's report (3.5.6): the agent's open list of steps rides with it. */
       taskReport?: boolean;
+      /** A button the person clicked in an artifact or a widget sent it (3.5.9). */
+      via?: "artifact";
     } = {},
   ): Promise<{ done: Promise<SendResult>; queued?: boolean }> {
     // A secret the person pasted (G33.4) never reaches the model nor the log: it is blanked here,
@@ -5139,6 +5355,7 @@ export class RedGiantCore implements OrchestrationHost {
       clientId?: string;
       human?: boolean;
       taskReport?: boolean;
+      via?: "artifact";
     },
   ): Promise<{ done: Promise<SendResult> }> {
     // Also for messages that waited in line: they are refused, not lost in the middle of a turn.
@@ -5202,7 +5419,7 @@ export class RedGiantCore implements OrchestrationHost {
     };
     // A new turn: one group of edits (G37.1); what the person changed meanwhile rides with it.
     this.editor.turnStarted(sessionId);
-    const notes = this.editor.notesFor(sessionId);
+    const notes = [...this.editor.notesFor(sessionId), ...this.artifactErrors.take(sessionId)];
     const done = l.session
       .send(text, controller.signal, {
         ...message,

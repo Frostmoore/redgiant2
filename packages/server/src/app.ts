@@ -20,6 +20,9 @@ import { teamsAppPackage } from "@redgiant/gateway";
 import { HierarchyError } from "@redgiant/hierarchy";
 import {
   AgentKind,
+  ARTIFACT_SANDBOX,
+  ArtifactError,
+  ArtifactRef,
   Automation,
   AutomationRun,
   Effort,
@@ -37,6 +40,7 @@ import type { TelegramGateway } from "@redgiant/telegram";
 import { PathOutsideWorkspaceError } from "@redgiant/tools";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
+import { artifactHeaders, artifactPage, LIB_HEADERS, serveLib, widgetPage } from "./artifacts.js";
 import { type AuthProvider, bearer, type Principal } from "./auth.js";
 import { BackupError, exportBackup, importBackup, previewBackup, removeBackup } from "./backup.js";
 import { browserRoutes } from "./browser-routes.js";
@@ -2281,6 +2285,62 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.get("/api/sessions/:id/variants/:proposal/link", async (c) =>
     c.json(await core.boardLink(owner(c), c.req.param("id"), c.req.param("proposal")), 200),
   );
+  // Artifacts and widgets (3.5.9): a widget's signed link, «Tienilo», «Fanne un progetto», errors.
+  const WidgetParams = z.object({
+    seq: z.coerce.number().int().nonnegative(),
+    index: z.coerce.number().int().min(0).max(50),
+  });
+  app.get("/api/sessions/:id/widgets/:seq/:index/link", async (c) => {
+    const p = WidgetParams.safeParse({ seq: c.req.param("seq"), index: c.req.param("index") });
+    if (!p.success) return c.json({ error: p.error.message }, 400);
+    return c.json(
+      await core.widgetLink(owner(c), { sessionId: c.req.param("id"), ...p.data }),
+      200,
+    );
+  });
+  app.post("/api/sessions/:id/widgets/:seq/:index/keep", async (c) => {
+    const p = WidgetParams.safeParse({ seq: c.req.param("seq"), index: c.req.param("index") });
+    if (!p.success) return c.json({ error: p.error.message }, 400);
+    return c.json(
+      await core.keepWidget(owner(c), { sessionId: c.req.param("id"), ...p.data }),
+      200,
+    );
+  });
+  app.post("/api/artifacts/project", async (c) => {
+    const b = z
+      .object({
+        scope: z.string().min(1),
+        path: z.string().min(1),
+        sessionId: z.string().optional(),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: b.error.message }, 400);
+    return c.json(
+      await core.artifactToProject(
+        owner(c),
+        { scope: b.data.scope, path: b.data.path },
+        b.data.sessionId,
+      ),
+      200,
+    );
+  });
+  app.post("/api/artifacts/errors", async (c) => {
+    const b = z
+      .object({
+        ref: ArtifactRef,
+        sessionId: z.string().max(80).optional(),
+        errors: z.array(ArtifactError).max(20),
+        /** The frame loaded again: what it said before is forgotten. */
+        fresh: z.boolean().optional(),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: b.error.message }, 400);
+    if (b.data.fresh) core.artifactReloaded(owner(c), b.data.ref);
+    const added = b.data.errors.length
+      ? await core.reportArtifactErrors(owner(c), b.data.ref, b.data.errors, b.data.sessionId)
+      : 0;
+    return c.json({ added }, 200);
+  });
   // The preview itself: the signed link is the credential, so no bearer token here.
   app.all("/preview/:token/*", async (c) => {
     const token = c.req.param("token");
@@ -2294,6 +2354,41 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     if (c.req.method !== "GET" && c.req.method !== "HEAD")
       return c.text("A folder preview only reads", 405, PREVIEW_HEADERS);
     const origins = previewOrigins(c.req.raw);
+    // Artifacts and widgets (3.5.9): the page, and RedGiant's libraries under lib/; nothing else.
+    if (t.kind === "artifact" || t.kind === "widget") {
+      if (rest.startsWith("lib/")) {
+        const lib = await serveLib(rest.slice(4)).catch(() => undefined);
+        if (!lib) return c.text("Not found", 404, PREVIEW_HEADERS);
+        return c.body(lib.body as never, 200, { ...LIB_HEADERS, "Content-Type": lib.type });
+      }
+      const entry = t.kind === "artifact" ? basename(t.path) : "widget.html";
+      if (decodeURIComponent(rest) !== entry)
+        return c.text("Outside the preview", 403, PREVIEW_HEADERS);
+      if (c.req.header("sec-fetch-dest") === "document") {
+        const url = new URL(c.req.url);
+        const w = previewWrapper(
+          `${url.pathname}${url.search}`,
+          origins,
+          prefix,
+          /^it\b/i.test(c.req.header("accept-language") ?? ""),
+          ARTIFACT_SANDBOX,
+        );
+        return c.body(w.body, 200, w.headers);
+      }
+      let page: string;
+      try {
+        page =
+          t.kind === "artifact"
+            ? await artifactPage(await readFile(t.path, "utf8"), prefix)
+            : await widgetPage(await core.widgetHtml(found.ownerId, t), prefix);
+      } catch {
+        return c.text("Not found", 404, PREVIEW_HEADERS);
+      }
+      return c.body(page, 200, {
+        ...artifactHeaders(origins, prefix),
+        "Content-Type": "text/html; charset=utf-8",
+      });
+    }
     // One file shown from outside every workspace (G34.1): that file, nothing around it.
     let f =
       t.kind === "file"

@@ -23,5 +23,13 @@
     "domains": {
       "react": "none"
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["packages/protocol/src/artifact.ts"],
+      "formatter": {
+        "enabled": false
+      }
+    }
+  ]
 }

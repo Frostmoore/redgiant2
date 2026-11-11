@@ -1,4 +1,5 @@
 export * from "./agents.js";
+export * from "./artifact.js";
 export * from "./automations.js";
 export * from "./backup.js";
 export * from "./canvas.js";
@@ -38,4 +39,5 @@ export * from "./search.js";
 export * from "./secrets.js";
 export * from "./tools.js";
 export * from "./vault.js";
+export * from "./widget.js";
 export * from "./wire.js";

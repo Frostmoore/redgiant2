@@ -15,7 +15,11 @@ export type PreviewTarget =
   | { kind: "dir"; root: string }
   | { kind: "port"; host: string; port: number }
   /** One file and nothing around it (G34.1: a file outside every workspace, approved). */
-  | { kind: "file"; path: string };
+  | { kind: "file"; path: string }
+  /** An artifact (3.5.9): one HTML file run in the artifacts' frame, with the libraries. */
+  | { kind: "artifact"; path: string }
+  /** A widget of an agent's answer (3.5.9): read from the log, run like an artifact. */
+  | { kind: "widget"; sessionId: string; seq: number; index: number };
 
 interface Signed {
   o: string;
@@ -205,12 +209,14 @@ export function previewWrapper(
   origins: string[],
   prefix: string,
   italian: boolean,
+  /** The frame's sandbox: an artifact's is narrower (3.5.9). */
+  sandbox: string = FILES_SANDBOX,
 ): { body: string; headers: Record<string, string> } {
   const nonce = randomBytes(16).toString("base64");
   const self = origins.map((o) => `${o}${prefix}/`).join(" ");
   const open = italian ? "La pagina vuole aprire" : "The page wants to open";
   const close = italian ? "Chiudi" : "Close";
-  const body = `<!doctype html><html><head><meta charset="utf-8"><title>RedGiant</title><style nonce="${nonce}">html,body{margin:0;height:100%;font:14px system-ui,sans-serif}iframe{border:0;width:100%;height:100%;display:block}#rg-link{position:fixed;left:12px;right:12px;bottom:12px;padding:10px 12px;border-radius:8px;background:#1f2328;color:#fff;display:none;gap:10px;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.3)}#rg-link a{color:#9cd2ff;word-break:break-all;flex:1}#rg-link button{font:inherit}</style></head><body><iframe src="${src.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}" sandbox="${FILES_SANDBOX}" allow="fullscreen; autoplay; clipboard-write"></iframe><div id="rg-link" role="dialog"><span>${open}</span><a target="_blank" rel="noopener noreferrer"></a><button type="button">${close}</button></div><script nonce="${nonce}">(()=>{const f=document.querySelector("iframe"),b=document.getElementById("rg-link"),a=b.querySelector("a");b.querySelector("button").onclick=()=>{b.style.display="none"};addEventListener("message",e=>{const d=e.data;if(e.source!==f.contentWindow||!d||d.redgiant!=="open-link"||typeof d.url!=="string")return;let u;try{u=new URL(d.url)}catch{return}if(u.protocol!=="http:"&&u.protocol!=="https:")return;a.href=u.href;a.textContent=u.href;b.style.display="flex"})})();</script></body></html>`;
+  const body = `<!doctype html><html><head><meta charset="utf-8"><title>RedGiant</title><style nonce="${nonce}">html,body{margin:0;height:100%;font:14px system-ui,sans-serif}iframe{border:0;width:100%;height:100%;display:block}#rg-link{position:fixed;left:12px;right:12px;bottom:12px;padding:10px 12px;border-radius:8px;background:#1f2328;color:#fff;display:none;gap:10px;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.3)}#rg-link a{color:#9cd2ff;word-break:break-all;flex:1}#rg-link button{font:inherit}</style></head><body><iframe src="${src.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}" sandbox="${sandbox}" allow="fullscreen; autoplay; clipboard-write"></iframe><div id="rg-link" role="dialog"><span>${open}</span><a target="_blank" rel="noopener noreferrer"></a><button type="button">${close}</button></div><script nonce="${nonce}">(()=>{const f=document.querySelector("iframe"),b=document.getElementById("rg-link"),a=b.querySelector("a");b.querySelector("button").onclick=()=>{b.style.display="none"};addEventListener("message",e=>{const d=e.data;if(e.source!==f.contentWindow||!d||d.redgiant!=="open-link"||typeof d.url!=="string")return;let u;try{u=new URL(d.url)}catch{return}if(u.protocol!=="http:"&&u.protocol!=="https:")return;a.href=u.href;a.textContent=u.href;b.style.display="flex"})})();</script></body></html>`;
   return {
     body,
     headers: {

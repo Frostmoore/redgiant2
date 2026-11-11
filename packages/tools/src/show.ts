@@ -6,6 +6,7 @@
 import { realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import type { Tool, ToolContext } from "@redgiant/agent";
+import { ARTIFACT_TOOL_LINE } from "@redgiant/protocol";
 import { z } from "zod";
 import { describe, type ModelProfile } from "./profiles.js";
 import { PathOutsideWorkspaceError, type Workspace } from "./workspace.js";
@@ -60,9 +61,9 @@ export function showFileTool(
       description: describe(profile, {
         full:
           "Open a file for the person in the canvas next to the chat, in a viewer for its kind (video, audio, picture, PDF, document, sheet, slides, code, 3D model, archive, font, data tree; anything else to download). " +
-          "Use it whenever the person should see a file. A path outside your workspace needs their approval; for a site or a port use show.",
+          `Use it whenever the person should see a file. A path outside your workspace needs their approval; for a site or a port use show. ${ARTIFACT_TOOL_LINE}`,
         compact:
-          "Open a file for the person in the canvas (any kind: video, PDF, sheet, 3D, code...). Path in your workspace.",
+          "Open a file for the person in the canvas (any kind: video, PDF, sheet, 3D, code...). Path in your workspace. HTML in artefatti/ runs as an artifact (no network).",
       }),
       inputSchema: {
         type: "object",

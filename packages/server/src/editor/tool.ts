@@ -10,6 +10,7 @@ import type { Tool, ToolContext } from "@redgiant/agent";
 import type { CanvasState, DocFile } from "@redgiant/protocol";
 import type { Workspace } from "@redgiant/tools";
 import { z } from "zod";
+import { ARTIFACT_HELP } from "../artifacts.js";
 import { fileAt, fileOrOriginal, tabOf, within } from "../canvas-tools.js";
 import { originalOfAnyCopy } from "./copies.js";
 import type { EditorHost } from "./host.js";
@@ -180,7 +181,11 @@ export function canvasEditTool(
           `There is no editor for ${basename(file.path)} yet: use edit_file or write_file.`,
         );
       }
-      if (i.help) return family.catalog();
+      // An HTML file: the artifacts' format too (3.5.9).
+      if (i.help)
+        return /\.html?$/i.test(file.path)
+          ? `${family.catalog()}${ARTIFACT_HELP}`
+          : family.catalog();
       // An open copy (named, or through its original): whether the original changes, and when
       // (p3.5.7, the person's test of 3.5.6: the PPTX kept three slides and nothing said why).
       {

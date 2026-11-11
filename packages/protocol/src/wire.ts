@@ -15,6 +15,7 @@ import {
 import { Event } from "./events.js";
 import { ImagePart } from "./messages.js";
 import { Answers, QuestionRequestInfo } from "./questions.js";
+import { ARTIFACT_ERRORS_MAX, ArtifactError, ArtifactRef } from "./widget.js";
 
 /** Bumped on every breaking change of the client/server protocol. */
 export const PROTOCOL_VERSION = 2;
@@ -76,6 +77,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
     clientId: z.string().max(80).optional(),
     /** Passages of earlier messages it answers (G36.22). */
     quotes: z.array(MessageQuote).max(MAX_QUOTES).optional(),
+    /** A button the person clicked in an artifact or a widget sent it (3.5.9). */
+    via: z.literal("artifact").optional(),
   }),
   z.object({ type: z.literal("session.interrupt"), sessionId: z.string() }),
   /** Background commands (p3.3.1): stop one (no confirmation), or take a finished one off the strip. */
@@ -99,6 +102,16 @@ export const ClientMessage = z.discriminatedUnion("type", [
     scope: z.enum(["once", "session", "always"]).optional(),
     /** Denied with words the agent reads ("not that file, the other one"). */
     reason: z.string().max(1000).optional(),
+  }),
+  /**
+   * Errors an artifact or a widget met in the page (3.5.9): the agent reads them with its next
+   * tool result. `sessionId` is the conversation the page shows it for, when there is one.
+   */
+  z.object({
+    type: z.literal("artifact.errors"),
+    ref: ArtifactRef,
+    sessionId: z.string().max(80).optional(),
+    errors: z.array(ArtifactError).max(ARTIFACT_ERRORS_MAX),
   }),
   /** The canvas as the page shows it (G36.12), answering a `canvas.query`. */
   z.object({ type: z.literal("canvas.state"), requestId: z.string().max(80), state: CanvasState }),

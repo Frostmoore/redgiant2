@@ -68,6 +68,8 @@ export interface AgentSessionOptions {
     from?: string;
     /** A task's report (3.5.7): an open list of steps rides with it, as in `send`. */
     taskReport?: boolean;
+    /** Sent through an artifact's or a widget's button (3.5.9). */
+    via?: "artifact";
   }[];
   /**
    * Tools that only read (2026-11-05, as the Claude Agent SDK does): consecutive calls of these
@@ -451,6 +453,8 @@ export class AgentSession {
       taskReport?: boolean;
       /** The person started this turn (3.5.6): it has no step limit unless they set one. */
       person?: boolean;
+      /** Sent through an artifact's or a widget's button (3.5.9). */
+      via?: "artifact";
     } = {},
   ): Promise<SendResult> {
     const ctx = { ...this.ctx, signal };
@@ -473,6 +477,7 @@ export class AgentSession {
         ...(extra.from && { from: extra.from }),
         ...(quotes.length > 0 && { quotes }),
         ...(notes.length > 0 && { notes }),
+        ...(extra.via && { via: extra.via }),
       },
     });
     this.history.push({
@@ -1046,6 +1051,7 @@ export class AgentSession {
           ...(m.from && { from: m.from }),
           ...(m.quotes?.length && { quotes: m.quotes }),
           ...(notes.length > 0 && { notes }),
+          ...(m.via && { via: m.via }),
           steer: true,
         },
       });
