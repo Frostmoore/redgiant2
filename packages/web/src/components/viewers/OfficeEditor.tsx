@@ -21,6 +21,7 @@ import {
   IconPencil,
   IconSpinner,
 } from "../../icons.js";
+import { phoneScreen } from "../../phone.js";
 import {
   attempt,
   dismissOfficeDownloaded,
@@ -286,6 +287,7 @@ export function OfficeEditor({ file }: { file: DocFile }) {
     const early = fallbackOf({
       secure: window.isSecureContext,
       memory: (navigator as { deviceMemory?: number }).deviceMemory ?? null,
+      phone: phoneScreen(),
     });
     let taking = false;
     let opens = 0;
@@ -569,12 +571,14 @@ function OfficeStrip({
 const WHY: Record<
   OfficeFallback,
   | "officeWhyInsecure"
+  | "officeWhyPhone"
   | "officeWhyBrowser"
   | "officeWhyWebgl"
   | "officeWhyMemory"
   | "officeWhyFailed"
 > = {
   insecure: "officeWhyInsecure",
+  phone: "officeWhyPhone",
   browser: "officeWhyBrowser",
   webgl: "officeWhyWebgl",
   memory: "officeWhyMemory",
@@ -630,7 +634,9 @@ function OfficeFallbackView({
       <div class="notice doc-office-why" role="note">
         <IconAlert size={14} />
         <span>
-          {t(WHY[why], { reason: detail ?? "" })} {t("officeWhyTail")}
+          {why === "phone"
+            ? t("officeWhyPhoneShort")
+            : `${t(WHY[why], { reason: detail ?? "" })} ${t("officeWhyTail")}`}
         </span>
       </div>
       <form
@@ -688,11 +694,12 @@ export const ZETA_BYTES = 53_243_567;
 export async function editCopyNote(env: {
   secure: boolean;
   memory: number | null;
+  phone?: boolean;
   chromium: boolean;
   cached: () => Promise<boolean>;
 }): Promise<{ short: string; long: string } | undefined> {
   const why =
-    fallbackOf({ secure: env.secure, memory: env.memory }) ??
+    fallbackOf({ secure: env.secure, memory: env.memory, phone: env.phone }) ??
     (env.chromium ? undefined : "browser");
   if (why)
     return {
@@ -709,6 +716,7 @@ export async function editCopyNote(env: {
 
 const browserEnv = () => ({
   secure: window.isSecureContext,
+  phone: phoneScreen(),
   memory: (navigator as { deviceMemory?: number }).deviceMemory ?? null,
   // Document-Isolation-Policy, which the frame needs, is Chromium's only (G37.4).
   chromium:

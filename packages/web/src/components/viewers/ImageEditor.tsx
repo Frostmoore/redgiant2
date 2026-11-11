@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { t, tOptional } from "../../i18n.js";
 import {
   IconBrush,
+  IconChevron,
   IconCopy,
   IconCrop,
   IconDownload,
@@ -47,6 +48,7 @@ import {
   IconX,
   IconZoom,
 } from "../../icons.js";
+import { useCompact } from "../../phone.js";
 import { attempt, getApi, openCanvas, openDoc, sendDoc } from "../../state.js";
 import { holdMark } from "../../viewers/agent-marks.js";
 import type {
@@ -129,6 +131,10 @@ export const blendLabel = (op: string) =>
 
 export function ImageEditor({ file }: { file: DocFile }) {
   const area = useRef<HTMLDivElement>(null);
+  /** On a phone (3.5.11): the tools in a bar at the bottom, layers and adjustments in a sheet. */
+  const root = useRef<HTMLDivElement>(null);
+  const compact = useCompact(root);
+  const [sheet, setSheet] = useState(false);
   const isl = useRef<ImageIsland | undefined>(undefined);
   const api = useRef<{ undo(): void; redo(): void; flush(): void } | undefined>(undefined);
   const [loading, setLoading] = useState(true);
@@ -643,7 +649,10 @@ export function ImageEditor({ file }: { file: DocFile }) {
   const filterDef = filter && IMAGE_FILTERS.find((f) => f.id === filter.id);
 
   return (
-    <div class="svg-editor img-editor">
+    <div
+      ref={root}
+      class={`svg-editor img-editor${compact ? " compact" : ""}${compact && sheet ? " sheet-open" : ""}`}
+    >
       <div class="svg-bar" role="toolbar" aria-label={t("imgEditorLabel")}>
         <div class="svg-group">
           <Btn label={t("imgUndo")} on={() => api.current?.undo()}>
@@ -857,6 +866,19 @@ export function ImageEditor({ file }: { file: DocFile }) {
             </div>
           )}
         </div>
+        {compact && (
+          <button
+            type="button"
+            class="img-sheet-toggle"
+            aria-expanded={sheet}
+            onClick={() => setSheet(!sheet)}
+          >
+            <IconLayers size={16} />
+            <span>{t("imgSheet")}</span>
+            <span class="dim img-sheet-layer">{cur?.name}</span>
+            <IconChevron open={sheet} size={14} />
+          </button>
+        )}
         <aside class="svg-side img-side" aria-label={t("imgLayers")}>
           <section>
             <h4>

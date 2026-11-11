@@ -68,6 +68,7 @@ import { UniverUIPlugin } from "@univerjs/ui";
 import UiEn from "@univerjs/ui/locale/en-US";
 import UiIt from "@univerjs/ui/locale/it-IT";
 import { SHEET_UNIT } from "./sheet-collab.js";
+import { touchAsMouse } from "./touch-mouse.js";
 
 export interface Area {
   sheet: string;
@@ -211,6 +212,8 @@ export function mountSheet(o: IslandOptions): Island {
   let undoItem: { undoMutations: SheetMutation[]; redoMutations: SheetMutation[] } | null = null;
   let undoKind: "undo" | "redo" | undefined;
   const subs: { dispose(): void }[] = [];
+  // A finger scrolls, taps, presses to select and pinches to zoom (3.5.11): Univer alone selects.
+  subs.push({ dispose: touchAsMouse(o.container) });
   subs.push(
     cmd.beforeCommandExecuted((info: { id: string; type?: number }) => {
       if (applyingRemote || info.type !== CommandType.COMMAND) return;

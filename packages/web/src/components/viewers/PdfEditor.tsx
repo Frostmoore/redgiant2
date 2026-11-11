@@ -39,6 +39,7 @@ import {
   IconType,
   IconX,
 } from "../../icons.js";
+import { type Pt, pinchStep } from "../../phone.js";
 import { attempt, docView, getApi, openDoc, sendDoc } from "../../state.js";
 import { useOrders, useReport } from "../../viewers/live.js";
 import { Modal } from "../ui.js";
@@ -275,6 +276,56 @@ export function PdfEditor({
     again: false,
     tool: "select",
   });
+  // Two fingers zoom the pages around them and move them (3.5.11, a phone or a tablet): pdf.js
+  // keeps the point under the fingers; one finger scrolls as usual.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let last: [Pt, Pt] | undefined;
+    let pending = 1;
+    const two = (e: TouchEvent): [Pt, Pt] | undefined => {
+      const [a, b] = [e.touches[0], e.touches[1]];
+      return e.touches.length === 2 && a && b
+        ? [
+            [a.clientX, a.clientY],
+            [b.clientX, b.clientY],
+          ]
+        : undefined;
+    };
+    const start = (e: TouchEvent) => {
+      last = two(e);
+      pending = 1;
+    };
+    const move = (e: TouchEvent) => {
+      const now = two(e);
+      if (!now || !last) return;
+      e.preventDefault();
+      const step = pinchStep(last, now);
+      last = now;
+      pending *= step.factor;
+      el.scrollLeft -= step.pan[0];
+      el.scrollTop -= step.pan[1];
+      const v = live.current.viewer;
+      // pdf.js rounds the scale to hundredths: small steps add up first.
+      if (v && Math.abs(pending - 1) >= 0.04) {
+        v.updateScale({ scaleFactor: pending, origin: [...step.mid], drawingDelay: 250 });
+        pending = 1;
+      }
+    };
+    const end = (e: TouchEvent) => {
+      if (e.touches.length < 2) last = undefined;
+    };
+    el.addEventListener("touchstart", start, { passive: true });
+    el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", end);
+    el.addEventListener("touchcancel", end);
+    return () => {
+      el.removeEventListener("touchstart", start);
+      el.removeEventListener("touchmove", move);
+      el.removeEventListener("touchend", end);
+      el.removeEventListener("touchcancel", end);
+    };
+  }, []);
   const pickRef = useRef<HTMLInputElement>(null);
   const report = useReport();
 

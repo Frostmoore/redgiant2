@@ -38,6 +38,7 @@ import {
   type Subproject,
 } from "./api.js";
 import { t, tOptional } from "./i18n.js";
+import { coversNow } from "./phone.js";
 import {
   forgetPlace,
   forgetTab,
@@ -1355,8 +1356,7 @@ export function canvasSnapshot(): CanvasState {
     (v): v is Extract<SideView, { type: "canvas" }> => v.type === "canvas",
   );
   const active = views.find((v) => v.id === activeSide.value);
-  const narrow =
-    typeof window.matchMedia === "function" && window.matchMedia("(max-width: 760px)").matches;
+  const narrow = coversNow();
   const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
   return {
     visible: !!active && !hidden && !(narrow && sideAside.value),

@@ -21,6 +21,7 @@ import {
   IconUser,
   IconX,
 } from "../../icons.js";
+import { coversNow } from "../../phone.js";
 import {
   agentEditingNow,
   agents,
@@ -306,10 +307,12 @@ export function MarkedChanges({
               <button
                 type="button"
                 class="vw-btn small doc-mark-undo"
+                title={t("docUndoThis")}
+                aria-label={t("docUndoThis")}
                 onClick={() => onUndo(c.revision)}
               >
                 <IconUndo size={13} />
-                {t("docUndoThis")}
+                <span class="doc-mark-undo-label">{t("docUndoThis")}</span>
               </button>
             </li>
           ))}
@@ -343,11 +346,8 @@ export function DocEditor({
     if (d && !Diff) void import("./DocDiff.js").then((m) => setDiffView(() => m.DocDiff));
     setDiffNow(d);
   };
-  const [panel, setPanel] = useState(() =>
-    typeof window.matchMedia === "function"
-      ? !window.matchMedia("(max-width: 760px)").matches
-      : true,
-  );
+  // Closed where the canvas covers the chat (a phone, a tablet: 3.5.11): the file comes first.
+  const [panel, setPanel] = useState(() => !coversNow());
   const view = useRef<EditorView | undefined>(undefined);
   const reveal = useRef<((c: DocChange) => void) | undefined>(undefined);
   const sheet = SHEET_EDITABLE.test(file.path);

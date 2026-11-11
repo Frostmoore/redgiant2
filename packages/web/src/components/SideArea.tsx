@@ -43,6 +43,7 @@ function lazy<P extends object>(load: () => Promise<(props: P) => JSX.Element | 
   };
 }
 
+import { coversNow } from "../phone.js";
 import { Canvas } from "./Canvas.js";
 import { Screen } from "./Screen.js";
 import { FileIcon } from "./viewers/FileIcon.js";
@@ -57,8 +58,8 @@ function roomOf(area: HTMLElement): number {
   return area.offsetWidth + (main?.offsetWidth ?? 0);
 }
 
-const phone = () =>
-  typeof window.matchMedia === "function" && window.matchMedia("(max-width: 760px)").matches;
+/** A phone, a tablet or a phone on its side (3.5.11): the area covers the chat. */
+const phone = coversNow;
 
 /** Esc that belongs to what has the focus (an editor, a terminal, a field, a window) stays there. */
 function escTaken(e: KeyboardEvent): boolean {

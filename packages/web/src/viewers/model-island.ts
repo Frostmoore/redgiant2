@@ -11,6 +11,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { type GLTF, GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { coarsePointer, gizmoSize } from "../phone.js";
 import type { AddWhat, Trs } from "./model-ops.js";
 
 export type GizmoMode = "translate" | "rotate" | "scale";
@@ -179,7 +180,8 @@ export function mountModel(area: HTMLElement, hooks: ModelIslandHooks): ModelIsl
   const orbit = new OrbitControls(camera, renderer.domElement);
   orbit.enableDamping = true;
   const gizmo = new TransformControls(camera, renderer.domElement);
-  gizmo.setSize(0.9);
+  // Handles a finger can catch on a phone or a tablet (3.5.11).
+  gizmo.setSize(0.9 * gizmoSize(coarsePointer()));
   const gizmoHelper = gizmo.getHelper();
   scene.add(gizmoHelper);
 

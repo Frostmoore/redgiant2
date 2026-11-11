@@ -283,6 +283,20 @@ describe("p3.5.3: what agents just wrote, and what «Modifica» will do", () => 
     expect(http?.long).toMatch(/HTTPS/);
   });
 
+  it("on a phone documents are seen as printed, and the editor is never downloaded (3.5.11)", async () => {
+    const { editCopyNote } = await import("../src/components/viewers/OfficeEditor.js");
+    setLang("it");
+    const phone = await editCopyNote({
+      secure: true,
+      memory: 8,
+      chromium: true,
+      phone: true,
+      cached: async () => true,
+    });
+    expect(phone?.short).toBe("Qui: pagine e Trova");
+    expect(phone?.long).toMatch(/^Sul telefono documenti e presentazioni si guardano soltanto/);
+  });
+
   it("«Salvataggio…» never stays: asked again, then the revisions say it", async () => {
     vi.useFakeTimers();
     try {

@@ -23,6 +23,11 @@ describe("the full editor or the fallback", () => {
   const cases: [string, Parameters<typeof fallbackOf>[0], ReturnType<typeof fallbackOf>][] = [
     ["http on another computer", { secure: false, isolated: true, webgl: true }, "insecure"],
     ["a phone with little memory", { secure: true, memory: 2 }, "memory"],
+    // 3.5.11 (G37.9): on a phone the documents are seen as printed, with find and replace.
+    ["a phone", { secure: true, isolated: true, webgl: true, memory: 8, phone: true }, "phone"],
+    ["a phone over http", { secure: false, phone: true }, "insecure"],
+    ["a phone with little memory says phone", { secure: true, memory: 2, phone: true }, "phone"],
+    ["a tablet", { secure: true, isolated: true, webgl: true, memory: 8, phone: false }, undefined],
     ["Firefox (no isolated frame)", { secure: true, isolated: false, webgl: true }, "browser"],
     ["no WebGL in workers", { secure: true, isolated: true, webgl: false }, "webgl"],
     ["Chromium on localhost", { secure: true, isolated: true, webgl: true, memory: 8 }, undefined],

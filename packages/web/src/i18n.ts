@@ -830,6 +830,10 @@ const en = {
   officeExporting: "Exporting…",
   officeWhyInsecure:
     "The full document editor works with RedGiant open in HTTPS or on this computer.",
+  officeWhyPhone:
+    "On a phone documents and slides are only viewed: the full editor (LibreOffice in the browser) needs a large screen and a keyboard. For small corrections there is Find and Replace, or ask an agent; for the rest open the file on a computer or a tablet.",
+  officeWhyPhoneShort:
+    "On a phone: the pages as printed, and Find and Replace for small corrections (LibreOffice makes them on the server).",
   officeWhyBrowser:
     "This browser cannot run the full document editor inside the canvas: it works in Chrome, Edge and the other Chromium browsers.",
   officeWhyWebgl:
@@ -4816,6 +4820,7 @@ const en = {
     "Drag to move the selected pixels (Alt: a copy); the arrows nudge them. They stay lifted while the selection is held: moving them again brings back what they covered.",
   imgPickHint: "Click on the picture to take the foreground colour (Alt: the background):",
   imgLayers: "Layers",
+  imgSheet: "Layers and adjustments",
   imgLayersN: "{n} layers",
   imgLayerNew: "New layer",
   imgLayerNewName: "Layer {n}",
@@ -5781,6 +5786,10 @@ const it: Record<Key, string> = {
   officeExporting: "Esporto…",
   officeWhyInsecure:
     "L'editor completo dei documenti funziona con RedGiant aperto in HTTPS o su questo computer.",
+  officeWhyPhone:
+    "Sul telefono documenti e presentazioni si guardano soltanto: l'editor completo (LibreOffice nel browser) chiede uno schermo grande e una tastiera. Per piccole correzioni c'è Trova e Sostituisci, o chiedi a un agente; per il resto apri il file da un computer o da un tablet.",
+  officeWhyPhoneShort:
+    "Sul telefono: le pagine come in stampa, e Trova e Sostituisci per le piccole correzioni (le fa LibreOffice sul server).",
   officeWhyBrowser:
     "Questo browser non può avviare l'editor completo dei documenti dentro il Canvas: funziona in Chrome, Edge e negli altri browser Chromium.",
   officeWhyWebgl:
@@ -9820,6 +9829,7 @@ const it: Record<Key, string> = {
     "Trascina per spostare i pixel selezionati (Alt: una copia); le frecce li spostano. Restano sollevati finché la selezione resta: spostandoli di nuovo torna ciò che coprivano.",
   imgPickHint: "Fai clic sull'immagine per prendere il colore di primo piano (Alt: lo sfondo):",
   imgLayers: "Livelli",
+  imgSheet: "Livelli e regolazioni",
   imgLayersN: "{n} livelli",
   imgLayerNew: "Nuovo livello",
   imgLayerNewName: "Livello {n}",

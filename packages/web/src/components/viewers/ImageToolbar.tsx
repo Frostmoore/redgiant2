@@ -87,12 +87,21 @@ export function ImageToolbar({
   onDefault: () => void;
 }) {
   const [open, setOpenNow] = useState<string>();
-  const [at, setAt] = useState({ x: 0, y: 0 });
-  /** The flyout opens beside its slot (fixed: the bar scrolls and would cut it). */
+  const [at, setAt] = useState({ x: 0, y: 0, up: false });
+  /**
+   * The flyout opens beside its slot (fixed: the bar scrolls and would cut it); above it when the
+   * bar lies at the bottom (a phone, 3.5.11), kept inside the window.
+   */
   const setOpen = (id: string | undefined, el?: Element | null) => {
     if (id && el) {
       const r = el.getBoundingClientRect();
-      setAt({ x: r.right + 6, y: r.top });
+      if (bar.current?.closest(".compact"))
+        setAt({
+          x: Math.max(4, Math.min(r.left, window.innerWidth - 224)),
+          y: r.top - 6,
+          up: true,
+        });
+      else setAt({ x: r.right + 6, y: r.top, up: false });
     }
     setOpenNow(id);
   };
@@ -163,7 +172,11 @@ export function ImageToolbar({
                 class="img-flyout"
                 role="menu"
                 aria-label={toolName(here)}
-                style={{ left: `${at.x}px`, top: `${at.y}px` }}
+                style={{
+                  left: `${at.x}px`,
+                  top: `${at.y}px`,
+                  ...(at.up && { transform: "translateY(-100%)" }),
+                }}
               >
                 {g.tools.map((x) => (
                   <button

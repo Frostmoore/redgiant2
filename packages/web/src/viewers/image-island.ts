@@ -9,6 +9,7 @@
 // bucket, the gradient and the clone stamp are computed by the pure functions the server shares
 // (`imagePx`), exact to the pixel. Others' actions arrive the same way and are drawn from their
 // blobs.
+
 import {
   canvasBlendOf,
   DEFAULT_TEXT,
@@ -34,6 +35,7 @@ import {
   textOrigin,
   textPointIn,
 } from "@redgiant/protocol";
+import { Fingers } from "../phone.js";
 import {
   TextEditing,
   type TextEditOpen,
@@ -56,6 +58,7 @@ type C = HTMLCanvasElement;
 type Ctx = CanvasRenderingContext2D;
 type What = NonNullable<Extract<ImagePlainAction, { t: "tiles" }>["what"]>;
 type Pt = [number, number];
+type Fingertip = readonly [number, number];
 
 export interface IslandLayer extends ImageLayerInfo {
   hasMask: boolean;
@@ -324,6 +327,8 @@ export class ImageIsland {
   private busy = 0;
   private frame = 0;
   private gesture: Gesture | undefined;
+  /** Fingers on the picture (3.5.11): one draws, two pan and zoom. */
+  private readonly fingers = new Fingers();
   private filterPreview: { id: string; layer: string } | undefined;
   private disposed = false;
   /** A new text's look (p3.5.8, the options bar's). */
@@ -1236,6 +1241,15 @@ export class ImageIsland {
   }
 
   private readonly down = (e: PointerEvent) => {
+    if (e.pointerType === "touch") {
+      const k = this.fingers.down(e.pointerId, [e.clientX, e.clientY]);
+      if (k === "ignore") return;
+      if (k === "pinch") {
+        this.over.setPointerCapture?.(e.pointerId);
+        this.dropForPinch();
+        return;
+      }
+    }
     const p = this.at(e);
     this.hover = p;
     if (e.button === 1 || (e.button === 0 && (this.spaceHand || this.tool === "hand"))) {
@@ -1474,6 +1488,13 @@ export class ImageIsland {
   };
 
   private readonly moveEv = (e: PointerEvent) => {
+    if (e.pointerType === "touch") {
+      const step = this.fingers.move(e.pointerId, [e.clientX, e.clientY]);
+      if (this.fingers.active) {
+        if (step) this.pinchBy(step.factor, step.mid, step.pan);
+        return;
+      }
+    }
     const p = this.at(e);
     this.hover = p;
     const g = this.gesture;
@@ -1598,7 +1619,8 @@ export class ImageIsland {
     else if (this.crop) this.applyCrop();
   };
 
-  private readonly up = () => {
+  private readonly up = (e?: PointerEvent) => {
+    if (e?.pointerType === "touch" && this.fingers.up(e.pointerId)) return;
     const g = this.gesture;
     if (!g || g.kind === "poly") return;
     this.gesture = undefined;
@@ -1702,6 +1724,56 @@ export class ImageIsland {
       }
     }
   };
+
+  /**
+   * A second finger came (3.5.11): what the first began is given up with nothing changed (a
+   * stroke's preview dropped, a layer put back), as the pinch is not an edit.
+   */
+  private dropForPinch() {
+    const g = this.gesture;
+    if (!g || g.kind === "poly") return;
+    if (g.kind === "move" || g.kind === "float" || g.kind === "outline") {
+      if (g.kind === "move") {
+        const dx = g.at[0] - g.from[0];
+        const dy = g.at[1] - g.from[1];
+        g.lay.info.x -= dx;
+        g.lay.info.y -= dy;
+        if (g.lay.mask) {
+          g.lay.mask.x -= dx;
+          g.lay.mask.y -= dy;
+        }
+      }
+      g.at = [g.from[0], g.from[1]];
+      if (g.kind === "float") this.floatPreview(g);
+      this.up();
+      this.render();
+      return;
+    }
+    this.gesture = undefined;
+    if (g.kind === "paint") {
+      const l = this.currentLayer();
+      if (l) {
+        l.preview = undefined;
+        l.previewAt = undefined;
+      }
+      this.o.onEditing(false);
+      this.render();
+    }
+    this.drawOverlay();
+  }
+
+  /** Two fingers: zoom by `factor` around `mid` (on screen) and pan by `pan`. */
+  private pinchBy(factor: number, mid: Fingertip, pan: Fingertip) {
+    const area = this.o.area;
+    const z0 = this.zoom;
+    const before = this.over.getBoundingClientRect();
+    // The picture's point under the fingers, to keep there after the zoom.
+    const pic: Pt = [(mid[0] - pan[0] - before.left) / z0, (mid[1] - pan[1] - before.top) / z0];
+    const z1 = this.setZoom(z0 * factor);
+    const after = this.over.getBoundingClientRect();
+    area.scrollLeft += after.left + pic[0] * z1 - mid[0];
+    area.scrollTop += after.top + pic[1] * z1 - mid[1];
+  }
 
   private readonly wheel = (e: WheelEvent) => {
     if (!e.ctrlKey && !e.metaKey && !e.altKey) return;

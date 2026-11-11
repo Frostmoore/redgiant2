@@ -4,7 +4,7 @@
 import type { DocOp, OfficeAction, OfficePlainAction } from "@redgiant/protocol";
 
 /** Why the full editor cannot run here (the fallback says it in the person's words). */
-export type OfficeFallback = "insecure" | "browser" | "webgl" | "memory" | "failed";
+export type OfficeFallback = "insecure" | "phone" | "browser" | "webgl" | "memory" | "failed";
 
 /** What the frame found, checked in this order (the first that fails is the reason). */
 export function fallbackOf(c: {
@@ -12,8 +12,14 @@ export function fallbackOf(c: {
   isolated?: boolean | undefined;
   webgl?: boolean | undefined;
   memory?: number | null | undefined;
+  /**
+   * A phone (3.5.11, `phoneScreen`): LibreOffice's own bars and menus need a large screen, a
+   * mouse and a keyboard; the pages as printed with find and replace work with a finger.
+   */
+  phone?: boolean | undefined;
 }): OfficeFallback | undefined {
   if (!c.secure) return "insecure";
+  if (c.phone) return "phone";
   // Chromium says how much memory the device has (GB, rounded): LibreOffice wants 1-2 GB.
   if (typeof c.memory === "number" && c.memory > 0 && c.memory < 4) return "memory";
   if (c.isolated === false) return "browser";
