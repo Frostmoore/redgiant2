@@ -2079,6 +2079,9 @@ const en = {
   limitWeekShort: "7d",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  news3510Webrtc: "Agent-made pages: the last door closed",
+  news3510WebrtcText:
+    "Artifacts, widgets, HTML previews and boards could still reach the outside through the video-call channel browsers have (WebRTC). It is now switched off before any of their code runs, and it cannot be switched back on. Artifacts using d3 load again.",
   news359Widgets: "Little apps inside the answers",
   news359WidgetsText:
     "When a question calls for it, an agent puts a small interactive card in its answer: fields, sliders, a result that changes as you type, and a button that sends your values back to the chat when you click it. Keep it to use it again, or open it in the Canvas.",
@@ -7045,6 +7048,9 @@ const it: Record<Key, string> = {
   limitWeekShort: "7g",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  news3510Webrtc: "Pagine degli agenti: chiusa l'ultima porta",
+  news3510WebrtcText:
+    "Artefatti, widget, anteprime HTML e tavole potevano ancora uscire verso l'esterno dal canale delle videochiamate dei browser (WebRTC). Ora è spento prima che parta il loro codice, e non si può riaccendere. Gli artefatti con d3 tornano a caricarsi.",
   news359Widgets: "Piccole app dentro le risposte",
   news359WidgetsText:
     "Quando la domanda lo chiede, un agente mette nella risposta una piccola scheda interattiva: caselle, cursori, un risultato che cambia mentre scrivi e un pulsante che rimanda i tuoi valori alla chat quando lo clicchi. Tienila per riusarla, o aprila nel Canvas.",
