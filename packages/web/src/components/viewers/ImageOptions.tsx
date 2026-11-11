@@ -2,20 +2,95 @@
 // bar on top (selection modes, feather and anti-alias, tolerance, brush size, hardness, opacity
 // and flow, gradient kind, crop and free transform's Apply and Cancel…), one row of a fixed
 // height so the picture never jumps when the tool changes. Our own controls only.
+import { DEFAULT_TEXT, TEXT_FONTS } from "@redgiant/protocol";
 import type { ComponentChildren } from "preact";
+import { useRef } from "preact/hooks";
 import { t } from "../../i18n.js";
-import { IconSelMode, IconTransform } from "../../icons.js";
+import {
+  IconSelMode,
+  IconTextAlign,
+  IconTextBold,
+  IconTextItalic,
+  IconTransform,
+} from "../../icons.js";
 import type { Brush, Rect } from "../../viewers/image-island.js";
 import type { ImageTool, ToolOptions } from "../../viewers/image-tools.js";
 import { SmallSwitch } from "../ui.js";
 
-const FONTS = ["sans-serif", "serif", "monospace", "cursive"];
-
+/** The Text tool's options (p3.5.8): a new text's look, or the look of the text being typed. */
 export interface TextOptions {
+  /** A family of `TEXT_FONTS` (the fonts the page and the server both draw with). */
+  font: string;
   size: number;
+  align: "left" | "center" | "right";
   bold: boolean;
   italic: boolean;
-  font: string;
+  /** Times the size. */
+  lineHeight: number;
+}
+
+export const DEFAULT_TEXT_OPTIONS: TextOptions = {
+  font: DEFAULT_TEXT.font,
+  size: DEFAULT_TEXT.size,
+  align: DEFAULT_TEXT.align,
+  bold: false,
+  italic: false,
+  lineHeight: DEFAULT_TEXT.lineHeight,
+};
+
+/** A button that stays pressed while on (bold, italic). */
+function Press({
+  label,
+  on,
+  onChange,
+  children,
+}: {
+  label: string;
+  on: boolean;
+  onChange: (on: boolean) => void;
+  children: ComponentChildren;
+}) {
+  return (
+    <button
+      type="button"
+      class={`vw-icon ${on ? "on" : ""}`}
+      aria-pressed={on}
+      title={label}
+      aria-label={label}
+      // The text being typed keeps its caret.
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => onChange(!on)}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** The text's colour: a swatch that opens the colour chooser. */
+function TextColor({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <span class="img-text-color">
+      <button
+        type="button"
+        class="img-color-swatch inline"
+        style={{ background: value.slice(0, 7) }}
+        title={`${t("imgTextColor")} ${value.slice(0, 7)}`}
+        aria-label={t("imgTextColor")}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => input.current?.click()}
+      />
+      <input
+        ref={input}
+        type="color"
+        class="img-color-input"
+        tabIndex={-1}
+        aria-hidden="true"
+        value={value.slice(0, 7)}
+        onInput={(e) => onChange((e.target as HTMLInputElement).value)}
+      />
+    </span>
+  );
 }
 
 function Range({
@@ -54,20 +129,23 @@ function Range({
 
 function Num({
   label,
+  short,
   value,
   min,
   max,
   onChange,
 }: {
   label: string;
+  /** Shown instead of the label (which stays the field's name). */
+  short?: string;
   value: number;
   min: number;
   max: number;
   onChange: (n: number) => void;
 }) {
   return (
-    <label>
-      <span>{label}</span>
+    <label title={short ? label : undefined}>
+      <span>{short ?? label}</span>
       <input
         type="number"
         min={min}
@@ -122,6 +200,9 @@ export function ImageOptions({
   setBrush,
   text,
   setText,
+  textColor = "#000000",
+  setTextColor = () => {},
+  typing = false,
   sel,
   hasMask,
   onMask,
@@ -137,6 +218,11 @@ export function ImageOptions({
   setBrush: (b: Partial<Brush>) => void;
   text: TextOptions;
   setText: (o: TextOptions) => void;
+  /** The colour of the text being typed, else the foreground. */
+  textColor?: string;
+  setTextColor?: (hex: string) => void;
+  /** The person is typing on the picture: the changes go to the whole text. */
+  typing?: boolean;
   sel: Rect | undefined;
   hasMask: boolean;
   onMask: boolean;
@@ -424,38 +510,55 @@ export function ImageOptions({
     case "text":
       return (
         <>
+          <Segmented
+            label={t("imgTextFont")}
+            value={text.font}
+            options={TEXT_FONTS.map((f) => ({ id: f.id as string, label: f.name }))}
+            onChange={(font) => setText({ ...text, font })}
+          />
           <Num
             label={t("imgTextSize")}
+            short={t("imgTextSizeShort")}
             value={text.size}
-            min={4}
-            max={1000}
+            min={1}
+            max={2000}
             onChange={(n) => setText({ ...text, size: n })}
           />
-          <label>
-            <span>{t("imgTextFont")}</span>
-            <select
-              value={text.font}
-              aria-label={t("imgTextFont")}
-              onChange={(e) => setText({ ...text, font: (e.target as HTMLSelectElement).value })}
+          <Num
+            label={t("imgTextLeading")}
+            value={Math.round(text.lineHeight * 100)}
+            min={50}
+            max={500}
+            onChange={(n) => setText({ ...text, lineHeight: n / 100 })}
+          />
+          <Segmented
+            label={t("imgTextAlign")}
+            value={text.align}
+            options={(["left", "center", "right"] as const).map((a) => ({
+              id: a,
+              label: t(`imgTextAlign_${a}`),
+              icon: <IconTextAlign to={a} size={15} />,
+            }))}
+            onChange={(align) => setText({ ...text, align })}
+          />
+          <span class="img-seg">
+            <Press
+              label={t("imgBold")}
+              on={text.bold}
+              onChange={(on) => setText({ ...text, bold: on })}
             >
-              {FONTS.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
-          </label>
-          <SmallSwitch
-            label={t("imgBold")}
-            on={text.bold}
-            onChange={(on) => setText({ ...text, bold: on })}
-          />
-          <SmallSwitch
-            label={t("imgItalic")}
-            on={text.italic}
-            onChange={(on) => setText({ ...text, italic: on })}
-          />
-          {hint("imgTextHint")}
+              <IconTextBold size={15} />
+            </Press>
+            <Press
+              label={t("imgItalic")}
+              on={text.italic}
+              onChange={(on) => setText({ ...text, italic: on })}
+            >
+              <IconTextItalic size={15} />
+            </Press>
+          </span>
+          <TextColor value={textColor} onChange={setTextColor} />
+          {hint(typing ? "imgTextTyping" : "imgTextHint")}
         </>
       );
     case "shape-rect":

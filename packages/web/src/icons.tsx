@@ -582,6 +582,31 @@ export const IconType = ({ size = 15 }: P) => (
     <path d="M4 7V4h16v3M9 20h6M12 4v16" />
   </Svg>
 );
+/** A text's alignment: lines against the left, the centre or the right (p3.5.8). */
+export const IconTextAlign = ({ size = 15, to }: P & { to: "left" | "center" | "right" }) => (
+  <Svg size={size}>
+    {to === "left" ? (
+      <path d="M4 6h16M4 10h10M4 14h16M4 18h10" />
+    ) : to === "center" ? (
+      <path d="M4 6h16M7 10h10M4 14h16M7 18h10" />
+    ) : (
+      <path d="M4 6h16M10 10h10M4 14h16M10 18h10" />
+    )}
+  </Svg>
+);
+/** Bold: a heavy B drawn with two bowls. */
+export const IconTextBold = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z" stroke-width="2.6" />
+    <path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z" stroke-width="2.6" />
+  </Svg>
+);
+/** Italic: a slanted stem with its serifs. */
+export const IconTextItalic = ({ size = 15 }: P) => (
+  <Svg size={size}>
+    <path d="M10 5h8M6 19h8M15 5l-6 14" />
+  </Svg>
+);
 export const IconBraces = ({ size = 15 }: P) => (
   <Svg size={size}>
     <path d="M8 3H7a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h1" />

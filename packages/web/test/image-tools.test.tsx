@@ -6,7 +6,7 @@
 import type { ImagePlainAction } from "@redgiant/protocol";
 import { cleanup, fireEvent, render } from "@testing-library/preact";
 import { afterEach, describe, expect, it } from "vitest";
-import { ImageOptions } from "../src/components/viewers/ImageOptions.js";
+import { DEFAULT_TEXT_OPTIONS, ImageOptions } from "../src/components/viewers/ImageOptions.js";
 import { ImageToolbar, toolLabel } from "../src/components/viewers/ImageToolbar.js";
 import { lang } from "../src/i18n.js";
 import { ImageCollab, type ImageOutgoing } from "../src/viewers/image-ops.js";
@@ -155,7 +155,7 @@ describe("the options bar", () => {
         setOpts={(o) => set.push(o)}
         brush={{ size: 12, opacity: 1, hardness: 1, flow: 1, color: "#ff0000" }}
         setBrush={(b) => set.push(b)}
-        text={{ size: 48, bold: false, italic: false, font: "sans-serif" }}
+        text={{ ...DEFAULT_TEXT_OPTIONS }}
         setText={() => {}}
         sel={undefined}
         hasMask={false}

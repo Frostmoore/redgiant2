@@ -1637,6 +1637,8 @@ export class Api {
     );
   /** A blob of the host (a layer's or a tile's PNG). */
   imageBlobBytes = (hash: string) => this.bytes("GET", `/api/editor/blobs/${hash}`);
+  /** A font file text layers are drawn with (p3.5.8, the server's own). */
+  imageFont = (file: string) => this.bytes("GET", `/api/editor/fonts/${encodeURIComponent(file)}`);
   /** Pixels the page made (a tile, a layer) kept as a blob: its hash. */
   async imageBlob(scope: string, path: string, png: Blob): Promise<string> {
     const r = await fetch(

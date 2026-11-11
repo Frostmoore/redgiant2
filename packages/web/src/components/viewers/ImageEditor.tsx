@@ -42,6 +42,7 @@ import {
   IconSpinner,
   IconTransform,
   IconTrash,
+  IconType,
   IconUndo,
   IconX,
   IconZoom,
@@ -71,7 +72,7 @@ import { OwnUndo } from "../../viewers/own-undo.js";
 import { download } from "../../viewers/source.js";
 import { askText } from "../dialogs.js";
 import { CopyBar } from "./CopyBar.js";
-import { ImageOptions, type TextOptions } from "./ImageOptions.js";
+import { DEFAULT_TEXT_OPTIONS, ImageOptions, type TextOptions } from "./ImageOptions.js";
 import { ImageToolbar } from "./ImageToolbar.js";
 
 /** Pictures the editor opens as they are: OpenRaster always. */
@@ -116,6 +117,7 @@ const NOTES: Record<IslandNote, Parameters<typeof t>[0]> = {
   cloneSet: "imgCloneSet",
   nothingSelected: "imgNothingSelected",
   noLayer: "imgNoLayer",
+  textLayer: "imgTextLayer",
 };
 
 let asks = 0;
@@ -160,15 +162,9 @@ export function ImageEditor({ file }: { file: DocFile }) {
   const [exporting, setExporting] = useState<string>();
   const [filter, setFilter] = useState<{ id: string; params: Record<string, number> }>();
   const [tf, setTf] = useState({ scale: 100, angle: 0 });
-  const [text, setText] = useState<TextOptions>({
-    size: 48,
-    bold: false,
-    italic: false,
-    font: "sans-serif",
-  });
-  /** The text options as they are now, for the island's callbacks made once. */
-  const textNow = useRef(text);
-  textNow.current = text;
+  const [text, setTextNow] = useState<TextOptions>({ ...DEFAULT_TEXT_OPTIONS });
+  /** Typing on the picture (p3.5.8): the colour of the text typed. */
+  const [typing, setTyping] = useState<string | undefined>();
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
   const name = file.path.split(/[\\/]/).pop() ?? file.path;
   useEffect(() => setCanvasSize({ w: size.w, h: size.h }), [size.w, size.h]);
@@ -277,11 +273,20 @@ export function ImageEditor({ file }: { file: DocFile }) {
               if (island) island.background = hex;
             } else setBrushNow((b) => ({ ...b, color: hex }));
           },
-          onText: (x, y) =>
-            void askText(t("imgTextAsk"), "", { label: t("imgTextAsk") }).then((s) => {
-              if (s?.trim())
-                island?.addText(s, x, y, { ...textNow.current, color: island.brush.color });
-            }),
+          font: (f) => getApi().imageFont(f),
+          onTextEditing: (on, spec) => {
+            // The options bar shows the look of the text being typed (Photoshop's).
+            setTyping(on && spec ? spec.color : undefined);
+            if (on && spec)
+              setTextNow({
+                font: spec.font,
+                size: spec.size,
+                align: spec.align,
+                bold: spec.bold,
+                italic: spec.italic,
+                lineHeight: spec.lineHeight,
+              });
+          },
           onNote: (n: IslandNote) => setNote(t(NOTES[n])),
           onCrop: setCrop,
           onTransform: setTransforming,
@@ -305,6 +310,8 @@ export function ImageEditor({ file }: { file: DocFile }) {
         island.background = background;
         island.opts = { ...opts };
         island.tool = tool;
+        island.textLook = { ...text };
+        if (tool === "text") island.preloadFonts();
         if (latest) {
           show(latest.s, latest.revision);
           latest = undefined;
@@ -403,6 +410,8 @@ export function ImageEditor({ file }: { file: DocFile }) {
     return () => {
       closed = true;
       for (const cancel of fading.values()) cancel();
+      // A text being typed is kept (Photoshop commits it too).
+      island?.endText();
       collab.flush();
       close();
       island?.dispose();
@@ -422,10 +431,29 @@ export function ImageEditor({ file }: { file: DocFile }) {
     setShown((m) => ({ ...m, [groupOf(to).id]: to }));
     const x = isl.current;
     if (x) {
+      // A tool change commits the text being typed (Photoshop's).
+      if (to !== "text") x.endText();
+      else x.preloadFonts();
       x.tool = to;
       // A tool change ends the polygon under way (as Photoshop's), not a crop or a transform.
       if (!SELECTING.has(to)) x.cancelPolygon();
     }
+  };
+  /** The Text tool's options: a new text's look, and the text being typed (all of it). */
+  const setText = (o: TextOptions) => {
+    setTextNow(o);
+    const x = isl.current;
+    if (!x) return;
+    x.textLook = { ...o };
+    if (x.typing) x.setTextSpec(o);
+  };
+  /** The text's colour: the one being typed, else the foreground (a new text's). */
+  const setTextColor = (hex: string) => {
+    const x = isl.current;
+    if (x?.typing) {
+      setTyping(hex);
+      x.setTextSpec({ color: hex });
+    } else setBrush({ color: hex });
   };
   const setOpts = (o: Partial<ToolOptions>) => {
     const next = { ...opts, ...o };
@@ -747,6 +775,9 @@ export function ImageEditor({ file }: { file: DocFile }) {
           setBrush={setBrush}
           text={text}
           setText={setText}
+          textColor={typing ?? brush.color}
+          setTextColor={setTextColor}
+          typing={typing !== undefined}
           sel={sel}
           hasMask={!!cur?.hasMask}
           onMask={onMask}
@@ -879,6 +910,17 @@ export function ImageEditor({ file }: { file: DocFile }) {
                       <span class="dim img-blend-tag">{blendLabel(l.blend)}</span>
                     )}
                   </button>
+                  {l.text && (
+                    <button
+                      type="button"
+                      class="vw-icon img-text-tag"
+                      title={t("imgTextEditLayer")}
+                      aria-label={t("imgTextEditLayer")}
+                      onClick={() => isl.current?.editText(l.id)}
+                    >
+                      <IconType size={12} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     class={`vw-icon ${l.locked ? "on" : "off"}`}
@@ -935,6 +977,18 @@ export function ImageEditor({ file }: { file: DocFile }) {
                 <IconTrash size={14} />
               </Btn>
             </div>
+            {cur?.text && (
+              <div class="img-row">
+                <button
+                  type="button"
+                  class="vw-btn small"
+                  title={t("imgRasterizeHint")}
+                  onClick={run((x) => x.rasterizeText())}
+                >
+                  {t("imgRasterize")}
+                </button>
+              </div>
+            )}
             {cur && (
               <div class="svg-fields">
                 <label>

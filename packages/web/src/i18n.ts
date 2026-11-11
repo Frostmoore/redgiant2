@@ -4708,12 +4708,29 @@ const en = {
   imgOpacity: "Opacity",
   imgHardness: "Hardness",
   imgOnMask: "Paint on the mask",
-  imgTextAsk: "Text to write",
   imgTextSize: "Text size",
   imgTextFont: "Font",
   imgBold: "Bold",
   imgItalic: "Italic",
-  imgTextHint: "Click where the text starts: it becomes a layer of its own.",
+  imgTextHint:
+    "Click and type on the picture, or drag a box for paragraph text. Esc or Ctrl+Enter ends; a click on a text layer edits it.",
+  imgTextTyping:
+    "Typing: Enter for a new line, Esc or Ctrl+Enter or a click elsewhere to finish. The options change the whole text.",
+  imgTextLeading: "Leading %",
+  imgTextSizeShort: "Size px",
+  imgTextAlign: "Alignment",
+  imgTextAlign_left: "Align left",
+  imgTextAlign_center: "Centre",
+  imgTextAlign_right: "Align right",
+  imgTextColor: "Text colour",
+  imgTextLayer:
+    "This is a text layer: use «Rasterize text» under the layers to paint on it (Move and Free Transform keep it text).",
+  imgTextEditLayer: "Edit the text",
+  imgRasterize: "Rasterize text",
+  imgRasterizeHint:
+    "The text layer becomes plain pixels: it can be painted, and its text no longer edited.",
+  imgCh_text_edit: "Edited the text: {what}",
+  imgCh_rasterize: "Rasterized the text: {what}",
   imgSelectHint:
     "Drag to select. Shift adds, Alt subtracts, Shift+Alt intersects; with no selection Shift makes a square or circle and Alt draws from the centre. Drag inside the selection to move its outline.",
   imgMoveHint:
@@ -9618,12 +9635,29 @@ const it: Record<Key, string> = {
   imgOpacity: "Opacità",
   imgHardness: "Durezza",
   imgOnMask: "Dipingi sulla maschera",
-  imgTextAsk: "Testo da scrivere",
   imgTextSize: "Dimensione del testo",
   imgTextFont: "Carattere",
   imgBold: "Grassetto",
   imgItalic: "Corsivo",
-  imgTextHint: "Fai clic dove inizia il testo: diventa un livello a sé.",
+  imgTextHint:
+    "Fai clic e scrivi sull'immagine, o trascina un riquadro per un testo di paragrafo. Esc o Ctrl+Invio finisce; un clic su un livello di testo lo modifica.",
+  imgTextTyping:
+    "Stai scrivendo: Invio va a capo, Esc o Ctrl+Invio o un clic altrove finisce. Le opzioni cambiano tutto il testo.",
+  imgTextLeading: "Interlinea %",
+  imgTextSizeShort: "Corpo px",
+  imgTextAlign: "Allineamento",
+  imgTextAlign_left: "Allinea a sinistra",
+  imgTextAlign_center: "Al centro",
+  imgTextAlign_right: "Allinea a destra",
+  imgTextColor: "Colore del testo",
+  imgTextLayer:
+    "È un livello di testo: per dipingerci sopra usa «Rasterizza testo» sotto i livelli (Sposta e Trasformazione libera lo lasciano testo).",
+  imgTextEditLayer: "Modifica il testo",
+  imgRasterize: "Rasterizza testo",
+  imgRasterizeHint:
+    "Il livello di testo diventa pixel normali: ci si può dipingere, ma il testo non si modifica più.",
+  imgCh_text_edit: "Testo modificato: {what}",
+  imgCh_rasterize: "Testo rasterizzato: {what}",
   imgSelectHint:
     "Trascina per selezionare. Maiusc aggiunge, Alt sottrae, Maiusc+Alt interseca; senza selezione Maiusc fa un quadrato o un cerchio e Alt disegna dal centro. Trascina dentro la selezione per spostarne il contorno.",
   imgMoveHint:

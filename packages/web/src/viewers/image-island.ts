@@ -11,16 +11,33 @@
 // blobs.
 import {
   canvasBlendOf,
+  DEFAULT_TEXT,
+  type Font,
   type ImageAction,
   type ImageGroup,
   type ImageLayerInfo,
   type ImagePlainAction,
   type ImageSnapshot,
+  type ImageText,
   type ImageTile,
   imageTilesOf,
+  layoutText,
   imagePx as P,
+  readTrueType,
+  renderText,
   runImageFilter,
+  scaledText,
+  TEXT_FONTS,
+  textFontFile,
+  textLayer,
+  textOrigin,
 } from "@redgiant/protocol";
+import {
+  TextEditing,
+  type TextEditOpen,
+  type TextEditResult,
+  textEditActions,
+} from "./image-text-edit.js";
 import {
   DEFAULT_OPTIONS,
   type ImageTool,
@@ -71,7 +88,19 @@ interface Lay {
 }
 
 /** Notes the page shows in the person's words. */
-export type IslandNote = "locked" | "cloneSource" | "cloneSet" | "nothingSelected" | "noLayer";
+export type IslandNote =
+  | "locked"
+  | "cloneSource"
+  | "cloneSet"
+  | "nothingSelected"
+  | "noLayer"
+  | "textLayer";
+
+/** A new text's look (the Text tool's options bar); its colour is the foreground's. */
+export type TextLook = Pick<
+  ImageText,
+  "font" | "size" | "align" | "bold" | "italic" | "lineHeight"
+>;
 
 export interface IslandOptions {
   area: HTMLElement;
@@ -84,7 +113,10 @@ export interface IslandOptions {
   onEditing(editing: boolean): void;
   /** A colour picked with the eyedropper: the foreground, or the background (Alt). */
   onPick(hex: string, which: "fg" | "bg"): void;
-  onText(x: number, y: number): void;
+  /** A font file text layers are drawn with (the server's, p3.5.8). */
+  font(file: string): Promise<Uint8Array>;
+  /** Typing on the picture started (with the text's look, for the options bar) or ended. */
+  onTextEditing?(on: boolean, spec?: ImageText): void;
   onZoom(zoom: number): void;
   onBusy(n: number): void;
   onError(message: string): void;
@@ -231,6 +263,7 @@ type Gesture =
       alt: boolean;
     }
   | { kind: "hand"; x: number; y: number; sl: number; st: number }
+  | { kind: "text"; from: Pt; to: Pt; hit: Lay | undefined }
   | { kind: "xform"; how: string; from: Pt; start: Xform };
 
 export class ImageIsland {
@@ -291,6 +324,22 @@ export class ImageIsland {
   private gesture: Gesture | undefined;
   private filterPreview: { id: string; layer: string } | undefined;
   private disposed = false;
+  /** A new text's look (p3.5.8, the options bar's). */
+  textLook: TextLook = {
+    font: DEFAULT_TEXT.font,
+    size: DEFAULT_TEXT.size,
+    align: DEFAULT_TEXT.align,
+    bold: false,
+    italic: false,
+    lineHeight: DEFAULT_TEXT.lineHeight,
+  };
+  /** The fonts arrived, by file, and those on their way. */
+  private readonly fonts = new Map<string, Font>();
+  private readonly fontsComing = new Map<string, Promise<Font | undefined>>();
+  /** Typing on the picture. */
+  private readonly texting: TextEditing;
+  /** A new text being typed, drawn over the picture until it is a layer. */
+  private draft: { c: C; x: number; y: number } | undefined;
 
   constructor(private readonly o: IslandOptions) {
     this.stage = document.createElement("div");
@@ -308,9 +357,18 @@ export class ImageIsland {
     this.over.addEventListener("pointerleave", this.leave);
     this.over.addEventListener("dblclick", this.dbl);
     o.area.addEventListener("wheel", this.wheel, { passive: false });
+    this.texting = new TextEditing({
+      stage: this.stage,
+      zoom: () => this.zoom,
+      measure: (t) => this.measure(t),
+      onLive: (st) => this.textLive(st),
+      onCommit: (r) => this.textCommit(r),
+      onCancel: (id) => this.textCancel(id),
+    });
   }
 
   dispose(): void {
+    this.texting.cancel();
     this.disposed = true;
     if (this.antsTimer) clearInterval(this.antsTimer);
     this.o.area.removeEventListener("wheel", this.wheel);
@@ -338,10 +396,12 @@ export class ImageIsland {
       layers.push(lay);
     }
     if (this.disposed) return;
+    this.texting.cancel();
     this.width = s.width;
     this.height = s.height;
     this.format = s.format;
     this.layers = layers;
+    if (layers.some((l) => l.info.text)) this.preloadFonts();
     if (!this.current || !this.find(this.current)) this.current = layers.at(-1)?.info.id;
     this.resize();
     this.letGo();
@@ -395,6 +455,7 @@ export class ImageIsland {
       }
       case "remove":
         if (!this.find(a.layer)) no();
+        if (this.texting.layer === a.layer) this.texting.cancel();
         this.layers = this.layers.filter((l) => l.info.id !== a.layer);
         if (this.current === a.layer) this.current = this.layers.at(-1)?.info.id;
         return;
@@ -406,6 +467,7 @@ export class ImageIsland {
           Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)),
         );
         if (a.set.locked === false) delete l.info.locked;
+        if (a.set.text === null) delete l.info.text;
         const dx = x === undefined ? 0 : x - l.info.x;
         const dy = y === undefined ? 0 : y - l.info.y;
         l.info.x += dx;
@@ -501,6 +563,7 @@ export class ImageIsland {
     this.stage.style.width = w;
     this.stage.style.height = h;
     this.view.style.imageRendering = this.zoom >= 2 ? "pixelated" : "auto";
+    this.texting?.restyle();
     this.o.onZoom(this.zoom);
   }
 
@@ -626,6 +689,8 @@ export class ImageIsland {
       const c = ctx2d(this.view);
       c.clearRect(0, 0, this.width, this.height);
       c.drawImage(this.composite(), 0, 0);
+      const d = this.draft;
+      if (d?.c.width && d.c.height) c.drawImage(d.c, d.x, d.y);
       this.drawOverlay();
     });
   }
@@ -701,6 +766,13 @@ export class ImageIsland {
       c.strokeStyle = "#000000";
       c.stroke();
     } else if (g?.kind === "shape") ants(this.shapePath(g), false);
+    else if (g?.kind === "text" && this.dragged(g)) {
+      // The paragraph text's box being drawn.
+      const r = marqueeRect(g.from, g.to, false, false);
+      const p = new Path2D();
+      p.rect(r.x, r.y, r.w, r.h);
+      ants(p, false);
+    }
     // The crop box: the rest dimmed, its handles.
     if (this.crop) {
       const r = this.crop;
@@ -831,6 +903,7 @@ export class ImageIsland {
 
   setCurrent(id: string): void {
     if (id !== this.current) this.letGo();
+    if (this.texting.active && this.texting.layer !== id) this.texting.commit();
     this.current = id;
     if (!this.find(id)?.mask) this.onMask = false;
     this.drawOverlay();
@@ -927,14 +1000,21 @@ export class ImageIsland {
     );
   }
 
-  /** A layer that refuses the change (locked): says so. */
-  private refuses(l: Lay | undefined): l is undefined {
+  /**
+   * A layer that refuses the change (locked; a text layer refuses its pixels being changed, as
+   * Photoshop's type layers: «Rasterizza testo» first): says so.
+   */
+  private refuses(l: Lay | undefined, pixels = true): l is undefined {
     if (!l) {
       this.o.onNote?.("noLayer");
       return true;
     }
     if (l.info.locked) {
       this.o.onError("locked");
+      return true;
+    }
+    if (pixels && l.info.text && !(this.onMask && l.mask)) {
+      this.o.onNote?.("textLayer");
       return true;
     }
     return false;
@@ -1211,7 +1291,7 @@ export class ImageIsland {
             lay = hit;
           }
         }
-        if (this.refuses(lay)) return;
+        if (this.refuses(lay, !!sel)) return;
         this.o.onEditing(true);
         if (sel && !(this.onMask && lay.mask)) {
           this.startFloat(lay, p, e.altKey);
@@ -1349,7 +1429,13 @@ export class ImageIsland {
         };
         return;
       case "text":
-        this.o.onText(Math.round(p[0]), Math.round(p[1]));
+        // A click away from the text being typed commits it (Photoshop's).
+        if (this.texting.active) {
+          this.texting.commit();
+          return;
+        }
+        this.preloadFonts();
+        this.gesture = { kind: "text", from: p, to: p, hit: this.textAt(p) };
         return;
       case "zoom":
         this.zoomAt(e.altKey || this.altHeld ? -1 : 1, p);
@@ -1457,6 +1543,10 @@ export class ImageIsland {
       case "xform":
         this.xfMove(g, p, e.shiftKey, e.altKey);
         return;
+      case "text":
+        g.to = p;
+        this.drawOverlay();
+        return;
     }
   };
 
@@ -1465,7 +1555,15 @@ export class ImageIsland {
     if (!this.gesture) this.drawOverlay();
   };
 
-  private readonly dbl = () => {
+  private readonly dbl = (e: MouseEvent) => {
+    // A double click on a text layer (Move or Type) types in it again.
+    if ((this.tool === "move" || this.tool === "text") && !this.xf && !this.texting.active) {
+      const hit = this.textAt(this.at(e));
+      if (hit) {
+        this.editText(hit.info.id);
+        return;
+      }
+    }
     if (this.gesture?.kind === "poly") this.closePoly();
     else if (this.xf) this.commitTransform();
     else if (this.crop) this.applyCrop();
@@ -1558,6 +1656,18 @@ export class ImageIsland {
       case "xform":
         this.drawOverlay();
         return;
+      case "text": {
+        this.drawOverlay();
+        if (this.dragged(g)) {
+          const r = marqueeRect(g.from, g.to, false, false);
+          this.newText(r.x, r.y, {
+            w: Math.max(1, Math.round(r.w)),
+            h: Math.max(1, Math.round(r.h)),
+          });
+        } else if (g.hit) this.editText(g.hit.info.id);
+        else this.newText(g.from[0], g.from[1]);
+        return;
+      }
     }
   };
 
@@ -1839,7 +1949,7 @@ export class ImageIsland {
       return;
     }
     const l = this.currentLayer();
-    if (this.refuses(l)) return;
+    if (this.refuses(l, !!this.sel)) return;
     if (this.sel && !(this.onMask && l.mask)) {
       const fl = this.floatOf(l, false);
       if (fl) this.dropFloat(l, fl.f, fl.dx + dx, fl.dy + dy);
@@ -2294,8 +2404,10 @@ export class ImageIsland {
   freeTransform(): void {
     if (this.xf) return;
     const l = this.currentLayer();
-    if (this.refuses(l) || !l.c.width || !l.c.height) return;
-    if (this.sel && !(this.onMask && l.mask)) {
+    if (this.refuses(l, false) || !l.c.width || !l.c.height) return;
+    this.texting.commit();
+    // A text layer is transformed whole (it stays text), whatever is selected.
+    if (this.sel && !(this.onMask && l.mask) && !l.info.text) {
       const fl = this.floatOf(l, false);
       if (!fl) return;
       this.xf = {
@@ -2496,10 +2608,31 @@ export class ImageIsland {
       this.setSel(ns);
       return;
     }
+    const text = l.info.text;
+    if (text && m.sx > 0 && m.sy > 0) {
+      // A text layer stays text: its size follows the scale, its turn is kept (p3.5.8).
+      const b = xf.box;
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2;
+      const next = scaledText(text, m.sx, m.sy, (m.rot * 180) / Math.PI);
+      const [bx, by] = textOrigin(l.info);
+      const was = this.measure(text);
+      const now = this.measure(next);
+      const x = (bx + was.w / 2 - cx) * m.sx;
+      const y = (by + was.h / 2 - cy) * m.sy;
+      const cos = Math.cos(m.rot);
+      const sin = Math.sin(m.rot);
+      const nx = cx + m.tx + x * cos - y * sin;
+      const ny = cy + m.ty + x * sin + y * cos;
+      this.textReplace(l, next, nx - now.w / 2, ny - now.h / 2, "transform");
+      return;
+    }
     const c = canvas(tb.w, tb.h);
     const cc = ctx2d(c);
     cc.translate(-tb.x, -tb.y);
     this.drawXf(cc, xf.src, [xf.box.x, xf.box.y], xf);
+    // A flip makes a text layer plain pixels (stated, in the same gesture).
+    if (text) this.rasterizeNow(l);
     this.replaceLayer(l, { x: tb.x, y: tb.y, px: pxOf(c) }, "transform");
   }
 
@@ -2720,8 +2853,11 @@ export class ImageIsland {
       g.drawImage(this.drawn(l), l.info.x - r.x, l.info.y - r.y);
     }
     const hadMask = !!below.mask;
+    // A text layer under it becomes plain pixels (Photoshop's merge rasterizes it).
+    const wasText = !!below.info.text;
     below.c = c;
     below.info = { ...below.info, x: r.x, y: r.y, w: r.w, h: r.h };
+    delete below.info.text;
     delete below.mask;
     below.alpha = undefined;
     this.layers = this.layers.filter((x) => x !== l);
@@ -2731,6 +2867,7 @@ export class ImageIsland {
     const bid = below.info.id;
     const lid = l.info.id;
     this.emit(async () => [
+      ...(wasText ? [{ t: "props" as const, layer: bid, set: { text: null } }] : []),
       {
         t: "pixels",
         layer: bid,
@@ -2823,11 +2960,14 @@ export class ImageIsland {
     delete l.mask;
     l.alpha = undefined;
     this.onMask = false;
+    const wasText = !!l.info.text;
+    delete l.info.text;
     this.render();
     this.o.onLayers();
     const id = l.info.id;
     const { x, y } = l.info;
     this.emit(async () => [
+      ...(wasText ? [{ t: "props" as const, layer: id, set: { text: null } }] : []),
       {
         t: "pixels",
         layer: id,
@@ -2856,6 +2996,22 @@ export class ImageIsland {
     const sx = (scale / 100) * (flipH ? -1 : 1);
     const sy = (scale / 100) * (flipV ? -1 : 1);
     const t = (angle * Math.PI) / 180;
+    if (l.info.text && !flipH && !flipV) {
+      // A text layer stays text: drawn again at its new size and turn, around its centre.
+      const next = scaledText(l.info.text, sx, sy, angle);
+      const lx = l.info.x + l.c.width / 2;
+      const ly = l.info.y + l.c.height / 2;
+      const [bx, by] = textOrigin(l.info);
+      const was = this.measure(l.info.text);
+      const now = this.measure(next);
+      const ux = (bx + was.w / 2 - lx) * sx;
+      const uy = (by + was.h / 2 - ly) * sy;
+      const ncx = lx + ux * Math.cos(t) - uy * Math.sin(t);
+      const ncy = ly + ux * Math.sin(t) + uy * Math.cos(t);
+      this.textReplace(l, next, ncx - now.w / 2, ncy - now.h / 2, "transform");
+      return;
+    }
+    const wasText = !!l.info.text;
     const cx = l.info.x + l.c.width / 2;
     const cy = l.info.y + l.c.height / 2;
     const map = (u: number, v: number): [number, number] => {
@@ -2890,6 +3046,7 @@ export class ImageIsland {
     const r = draw(l.c, l.info.x, l.info.y);
     l.c = r.c;
     l.info = { ...l.info, x: r.x, y: r.y, w: r.c.width, h: r.c.height };
+    delete l.info.text;
     let mr: ReturnType<typeof draw> | undefined;
     if (l.mask) {
       const o = l.mask.outside;
@@ -2903,6 +3060,7 @@ export class ImageIsland {
     const outside = l.mask?.outside;
     this.emit(
       async () => [
+        ...(wasText ? [{ t: "props" as const, layer: id, set: { text: null } }] : []),
         {
           t: "pixels",
           layer: id,
@@ -2983,7 +3141,34 @@ export class ImageIsland {
       return { c: out, x: nx, y: ny };
     };
     for (const l of this.layers) {
-      if (l.c.width && l.c.height) {
+      const font = l.info.text && this.fontNow(l.info.text);
+      if (l.info.text && font) {
+        // A text layer is drawn again at the new scale (it stays text).
+        const [bx, by] = textOrigin(l.info);
+        const out = textLayer(font, scaledText(l.info.text, kx, ky), bx * kx, by * ky);
+        const c = canvasOf(out.px);
+        l.c = c;
+        l.info = { ...l.info, x: out.x, y: out.y, w: c.width, h: c.height, text: out.text };
+        const id = l.info.id;
+        const text = out.text;
+        acts.push(async () => ({ t: "props", layer: id, set: { text } }));
+        acts.push(async () => ({
+          t: "pixels",
+          layer: id,
+          x: out.x,
+          y: out.y,
+          w: c.width,
+          h: c.height,
+          png: c.width && c.height ? await this.upload(c) : null,
+          what: "transform",
+        }));
+      } else if (l.c.width && l.c.height) {
+        if (l.info.text) {
+          // Its font is not here: it becomes plain pixels, said in the same change.
+          const id = l.info.id;
+          delete l.info.text;
+          acts.push(async () => ({ t: "props", layer: id, set: { text: null } }));
+        }
         const r = scale(l.c, l.info.x, l.info.y);
         l.c = r.c;
         l.info = { ...l.info, x: r.x, y: r.y, w: r.c.width, h: r.c.height };
@@ -3034,38 +3219,220 @@ export class ImageIsland {
     }, "transform");
   }
 
-  // ---------------------------------------------------------------- text
+  // ---------------------------------------------------------------- text (p3.5.8)
 
-  /** A text as a new layer (the browser's fonts), its top left at (x, y). */
-  addText(
-    text: string,
-    x: number,
-    y: number,
-    o: { size: number; color: string; bold: boolean; italic: boolean; font: string },
-  ): void {
-    const lines = text.split(/\r?\n/);
-    const font = `${o.italic ? "italic " : ""}${o.bold ? "bold " : ""}${o.size}px ${o.font}`;
-    const m = ctx2d(canvas(1, 1));
-    m.font = font;
-    const w = Math.ceil(Math.max(1, ...lines.map((l) => m.measureText(l).width))) + 4;
-    const step = Math.round(o.size * 1.2);
-    const h = step * lines.length + 4;
-    const c = canvas(w, h);
-    const g = ctx2d(c);
-    g.font = font;
-    g.fillStyle = o.color;
-    g.textBaseline = "top";
-    for (const [i, l] of lines.entries()) g.fillText(l, 2, 2 + i * step);
+  /** The font of a text, when it has arrived. */
+  private fontNow(t: Pick<ImageText, "font" | "bold" | "italic">): Font | undefined {
+    return this.fonts.get(textFontFile(t.font, t.bold, t.italic));
+  }
+
+  /** The font of a text from the server (once), also given to the page's text area. */
+  private loadFont(t: Pick<ImageText, "font" | "bold" | "italic">): Promise<Font | undefined> {
+    const file = textFontFile(t.font, t.bold, t.italic);
+    const have = this.fontsComing.get(file);
+    if (have) return have;
+    const p = this.o.font(file).then(
+      async (bytes) => {
+        const f = readTrueType(bytes);
+        this.fonts.set(file, f);
+        if (typeof FontFace !== "undefined" && typeof document !== "undefined")
+          try {
+            const face = new FontFace(`RG ${t.font}`, bytes.slice().buffer as ArrayBuffer, {
+              weight: t.bold ? "700" : "400",
+              style: t.italic ? "italic" : "normal",
+            });
+            await face.load();
+            document.fonts.add(face);
+          } catch {
+            // The text area keeps Arial's metrics; the letters are ours anyway.
+          }
+        return f;
+      },
+      () => {
+        this.fontsComing.delete(file);
+        return undefined;
+      },
+    );
+    this.fontsComing.set(file, p);
+    return p;
+  }
+
+  /** Every text font on its way (the Text tool chosen, a picture with text layers). */
+  preloadFonts(): void {
+    for (const f of TEXT_FONTS)
+      for (const bold of [false, true])
+        for (const italic of [false, true]) void this.loadFont({ font: f.id, bold, italic });
+  }
+
+  /** A text's box in the picture's pixels (its font's lines; a guess until it has arrived). */
+  private measure(t: ImageText): { w: number; h: number } {
+    const font = this.fontNow(t);
+    if (font) {
+      const l = layoutText(font, t);
+      return { w: l.w, h: l.h };
+    }
+    const lines = t.text.split(/\r\n|\r|\n/);
+    const step = t.size * t.lineHeight;
+    if (t.box) return { w: t.box.w, h: t.box.h };
+    return {
+      w: Math.max(0, ...lines.map((l) => l.length * t.size * 0.55)),
+      h: lines.length * step,
+    };
+  }
+
+  /** The topmost visible text layer whose box or pixels hold the point. */
+  private textAt(p: Pt): Lay | undefined {
+    for (let i = this.layers.length - 1; i >= 0; i--) {
+      const l = this.layers[i] as Lay;
+      const t = l.info.text;
+      if (!t || !l.info.visible || l.info.groups?.some((g) => !g.visible)) continue;
+      const [bx, by] = textOrigin(l.info);
+      const m = this.measure(t);
+      const boxes = [
+        { x: l.info.x, y: l.info.y, w: l.c.width, h: l.c.height },
+        ...(t.rotate ? [] : [{ x: bx, y: by, w: m.w, h: m.h }]),
+      ];
+      if (boxes.some((r) => p[0] >= r.x && p[1] >= r.y && p[0] < r.x + r.w && p[1] < r.y + r.h))
+        return l;
+    }
+    return undefined;
+  }
+
+  private dragged(g: { from: Pt; to: Pt }): boolean {
+    return (
+      Math.abs(g.to[0] - g.from[0]) * this.zoom >= 6 &&
+      Math.abs(g.to[1] - g.from[1]) * this.zoom >= 6
+    );
+  }
+
+  /** Whether the person is typing on the picture. */
+  get typing(): boolean {
+    return this.texting.active;
+  }
+
+  /** A new text: point text with its first baseline at (x, y), or paragraph text in `box`. */
+  newText(x: number, y: number, box?: { w: number; h: number }): void {
+    const spec: ImageText = {
+      ...DEFAULT_TEXT,
+      ...this.textLook,
+      color: this.brush.color,
+      text: "",
+      ox: 0,
+      oy: 0,
+      ...(box && { box }),
+    };
+    let by = y;
+    if (!box) {
+      // Photoshop's point text: the click is on the first line's baseline.
+      const font = this.fontNow(spec);
+      const step = spec.size * spec.lineHeight;
+      by = font
+        ? y - layoutText(font, { ...spec, text: "x" }).ascent
+        : y - ((step - 1.117 * spec.size) / 2 + 0.905 * spec.size);
+    }
+    this.texting.open({ spec, bx: x, by });
+    this.o.onTextEditing?.(true, spec);
+  }
+
+  /** Typing in a text layer again (a double click, its T in the panel); false: not a text. */
+  editText(id: string): boolean {
+    const l = this.find(id);
+    const t = l?.info.text;
+    if (!l || !t) return false;
+    if (l.info.locked) {
+      this.o.onError("locked");
+      return false;
+    }
+    if (this.current !== id) this.setCurrent(id);
+    this.preloadFonts();
+    const [bx, by] = textOrigin(l.info);
+    this.texting.open({ layer: id, spec: { ...t }, bx, by });
+    this.o.onTextEditing?.(true, { ...t });
+    return true;
+  }
+
+  /** The options bar changed while typing: the whole text takes it (its colour too). */
+  setTextSpec(o: Partial<ImageText>): void {
+    this.texting.setSpec(o);
+  }
+
+  /** Typing ends, the text kept (a tool change, a layer chosen, the editor closing). */
+  endText(): void {
+    this.texting.commit();
+  }
+
+  private textLive(st: TextEditOpen): void {
+    const font = this.fontNow(st.spec);
+    this.texting.live = !!font;
+    this.texting.restyle();
+    if (!font) {
+      void this.loadFont(st.spec).then((f) => {
+        const now = this.texting.state;
+        if (f && now) this.textLive(now);
+      });
+      return;
+    }
+    const r = renderText(font, st.spec, st.bx, st.by);
+    const c = canvasOf(r.px);
+    const l = st.layer ? this.find(st.layer) : undefined;
+    if (l) {
+      l.preview = c;
+      l.previewAt = { x: r.x, y: r.y };
+    } else this.draft = { c, x: r.x, y: r.y };
+    this.render();
+  }
+
+  private textCancel(id: string | undefined): void {
+    const l = id ? this.find(id) : undefined;
+    if (l) {
+      l.preview = undefined;
+      l.previewAt = undefined;
+    }
+    this.draft = undefined;
+    this.render();
+    this.o.onTextEditing?.(false);
+  }
+
+  private textCommit(r: TextEditResult): void {
+    const font = this.fontNow(r.spec);
+    if (!font) {
+      void this.loadFont(r.spec).then((f) => {
+        if (f) this.textCommit(r);
+        else this.o.onError("font");
+      });
+      return;
+    }
+    this.draft = undefined;
+    this.o.onTextEditing?.(false);
+    const l = r.layer ? this.find(r.layer) : undefined;
+    if (l) {
+      l.preview = undefined;
+      l.previewAt = undefined;
+      // A text emptied goes away with its layer (Photoshop's).
+      if (!r.spec.text.trim()) {
+        this.current = l.info.id;
+        this.deleteLayer();
+        return;
+      }
+      const was = l.info.text;
+      const name = was && l.info.name === firstLine(was.text) ? firstLine(r.spec.text) : undefined;
+      this.textReplace(l, r.spec, r.bx, r.by, "text", name);
+      return;
+    }
+    if (r.layer) return;
+    const out = textLayer(font, r.spec, r.bx, r.by);
+    const c = canvasOf(out.px);
     const info: ImageLayerInfo = {
       id: newId(),
-      name: (lines[0] ?? "").slice(0, 60) || "Text",
-      x: x - 2,
-      y: y - 2,
-      w,
-      h,
+      name: firstLine(r.spec.text),
+      x: out.x,
+      y: out.y,
+      w: c.width,
+      h: c.height,
       opacity: 1,
       visible: true,
       blend: "svg:src-over",
+      text: out.text,
     };
     const above = this.currentLayer()?.info.id ?? this.layers.at(-1)?.info.id ?? null;
     this.place({ info, c }, above);
@@ -3073,11 +3440,88 @@ export class ImageIsland {
     this.render();
     this.o.onLayers();
     this.emit(
-      async () => [{ t: "add", layer: { ...info }, above, png: await this.upload(c), mask: null }],
+      async () =>
+        textEditActions(
+          undefined,
+          { ...info, text: out.text },
+          c.width && c.height ? await this.upload(c) : null,
+          { id: info.id, name: info.name, above },
+        ),
       "text",
     );
   }
+
+  /**
+   * A text layer drawn again with `next`, its box at (bx, by): its text and its pixels in one
+   * gesture (one revision, one Ctrl+Z).
+   */
+  private textReplace(
+    l: Lay,
+    next: ImageText,
+    bx: number,
+    by: number,
+    what: What,
+    name?: string,
+  ): void {
+    const font = this.fontNow(next);
+    if (!font) {
+      void this.loadFont(next).then((f) => {
+        if (f) this.textReplace(l, next, bx, by, what, name);
+        else this.o.onError("font");
+      });
+      return;
+    }
+    this.letGo();
+    const out = textLayer(font, next, bx, by);
+    const c = canvasOf(out.px);
+    l.c = c;
+    l.info = {
+      ...l.info,
+      x: out.x,
+      y: out.y,
+      w: c.width,
+      h: c.height,
+      text: out.text,
+      ...(name !== undefined && { name }),
+    };
+    l.alpha = undefined;
+    this.render();
+    this.o.onLayers();
+    const id = l.info.id;
+    const text = out.text;
+    this.emit(
+      async () =>
+        textEditActions(
+          id,
+          { x: out.x, y: out.y, w: c.width, h: c.height, text },
+          c.width && c.height ? await this.upload(c) : null,
+          {
+            ...(name !== undefined && { rename: name }),
+            what: what === "text" ? "text" : "transform",
+          },
+        ),
+      what,
+    );
+  }
+
+  /** The text layer's text dropped here (its pixels stay): Photoshop's Rasterize Type. */
+  private rasterizeNow(l: Lay): void {
+    delete l.info.text;
+    const id = l.info.id;
+    this.emit(async () => [{ t: "props", layer: id, set: { text: null } }]);
+  }
+
+  /** «Rasterizza testo» on the current layer. */
+  rasterizeText(): void {
+    const l = this.currentLayer();
+    if (!l?.info.text) return;
+    if (this.texting.layer === l.info.id) this.texting.commit();
+    this.rasterizeNow(l);
+    this.o.onLayers();
+  }
 }
+
+const firstLine = (text: string) => (text.split(/\r\n|\r|\n/)[0] ?? "").slice(0, 60) || "Text";
 
 export function mountImage(o: IslandOptions): ImageIsland {
   return new ImageIsland(o);

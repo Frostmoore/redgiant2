@@ -17289,6 +17289,14 @@ fieldset.vw-seg {
   background: var(--panel);
   font-size: 12px;
 }
+/* Controls keep their size (p3.5.8: the Text tool's bar overlapped in a narrow canvas); the
+   row scrolls instead. */
+.img-options > .img-seg,
+.img-options > label,
+.img-options > .img-text-color,
+.img-options .img-seg > .vw-icon {
+  flex: none;
+}
 .img-options label {
   display: inline-flex;
   align-items: center;
@@ -17394,6 +17402,55 @@ fieldset.vw-seg {
 }
 .img-area.tool-text .img-over {
   cursor: text;
+}
+/* p3.5.8: typing on the picture. The text area holds the caret and the selection; the letters
+   are drawn on the picture by the island (transparent here once the font has arrived). */
+.img-text-edit {
+  position: absolute;
+  z-index: 2;
+  box-sizing: content-box;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 1px dashed transparent;
+  background: transparent;
+  resize: none;
+  overflow: hidden;
+  font-kerning: none;
+  font-variant-ligatures: none;
+  font-feature-settings:
+    "kern" 0,
+    "liga" 0;
+  letter-spacing: 0;
+  word-spacing: 0;
+  text-indent: 0;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+.img-text-edit:focus {
+  outline: 1px dashed var(--accent);
+}
+.img-text-edit.paragraph {
+  outline: 1px dashed var(--accent);
+}
+.img-text-edit::selection {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.img-text-color {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.img-color-swatch.inline {
+  position: static;
+  width: 22px;
+  height: 22px;
+}
+.img-layers .img-text-tag {
+  color: var(--dim);
+}
+.img-layers .img-text-tag:hover {
+  color: var(--text);
 }
 .img-area.tool-hand .img-over {
   cursor: grab;
