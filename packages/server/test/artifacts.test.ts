@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { withArtifactHeader } from "@redgiant/protocol";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import { afterEach, describe, expect, it } from "vitest";
+import { ARTIFACT_GUIDANCE } from "../src/artifact-guidance.js";
 import { artifactFileName, MAX_ARTIFACT_ZIP, readArtifactZip } from "../src/artifacts.js";
 import { OTHER, startServer, TOKEN } from "./helpers.js";
 
@@ -302,5 +303,30 @@ describe("files written straight to disk show up too", () => {
     // Someone else sees none of the person's artifacts.
     const theirs = await s.api<Info[]>("GET", "/api/artifacts", undefined, OTHER);
     expect(theirs.body).toEqual([]);
+  });
+});
+
+describe("the rule for the form of an answer (3.5.9)", () => {
+  it("is in the base instructions of an agent that can show files, once", async () => {
+    const systems: string[] = [];
+    s = await startServer((req) => {
+      systems.push(req.system ?? "");
+      return { text: "Two lines." };
+    });
+    const g = await s.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    const sid = (
+      await s.api<{ sessionId: string }>("POST", "/api/sessions", { agentId: g.body.id })
+    ).body.sessionId;
+    await (await s.core.send("me", sid, "How long should the window stay open?")).done;
+    const sys = systems[0] ?? "";
+    expect(sys).toContain(ARTIFACT_GUIDANCE);
+    expect(sys.split("## Choosing the form of an answer").length).toBe(2);
+    expect(ARTIFACT_GUIDANCE).toMatch(/```widget/);
+    expect(ARTIFACT_GUIDANCE).toMatch(/artefatti\/<name>\.html/);
+    expect(ARTIFACT_GUIDANCE).toMatch(/text to tell, widget to try on the spot, artifact to use/);
   });
 });

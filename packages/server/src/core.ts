@@ -139,6 +139,7 @@ import {
 import { z } from "zod";
 import { type Alert, type AlertText, alertText } from "./alerts.js";
 import { HumanApprovals } from "./approvals.js";
+import { ARTIFACT_GUIDANCE } from "./artifact-guidance.js";
 import { type ReapDeps, reapOrphan } from "./background-reap.js";
 import type { BackupDeps } from "./backup.js";
 import { type Browsers, browserTools } from "./browser.js";
@@ -1754,6 +1755,8 @@ export class RedGiantCore implements OrchestrationHost {
         await this.subprojectNote(agent),
         // A magic automation's conversation knows its task from the start (G33.3).
         magicSession ? MAGIC_PROMPT : "",
+        // Text, widget, artifact, board or project (3.5.9): for every agent that can show files.
+        tools.some((t) => t.def.name === "show_file") ? ARTIFACT_GUIDANCE : "",
         assignedTo
           ? `## Assigned to a project\nIn this conversation you work for the project "${(await this.projects.get(ownerId, assignedTo))?.name ?? assignedTo}", on tasks its orchestrator gives you. Your files here are your own worktree of that project; close each task with complete_task.`
           : "",

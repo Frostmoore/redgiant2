@@ -18,8 +18,32 @@ const temp = async () => {
   return d;
 };
 
+/** The form tasks' right answers (3.5.9): the answer, and the files it wrote. */
+const WIDGET_ANSWER =
+  "Move the tip:\n\n```widget\n<label>Tip <input type=range min=0 max=15 id=t></label><output id=o></output>\n<script>t.oninput=()=>o.textContent=(186*(1+t.value/100)/7).toFixed(2)</script>\n```\n";
+const FORMS: Record<string, Record<string, string>> = {
+  "form-text": {
+    _answer_md:
+      "Five to ten minutes with the window wide open is enough in winter; open it fully rather than tilting it.",
+  },
+  "form-widget": { _answer_md: WIDGET_ANSWER },
+  "form-artifact": {
+    _answer_md: "I made the bracket tool: it is open in the Canvas.",
+    "artefatti/Torneo.html":
+      '<!-- redgiant-artifact {"name":"Torneo","version":1,"libs":[]} -->\n<!doctype html><div id=b></div><script>b.textContent="bracket"</script>\n',
+  },
+  "form-project": {
+    _answer_md: "This is a project: I set up the app with a database and its first tests.",
+    "README.md": "# Bike shop\n",
+    "app/models.py": "class Customer: pass\n",
+  },
+};
+const asFiles = (f: Record<string, string>) =>
+  Object.fromEntries(Object.entries(f).map(([k, v]) => [k === "_answer_md" ? "_answer.md" : k, v]));
+
 /** What a correct answer looks like, per task: the verifiers must accept these. */
 const SOLUTIONS: Record<string, Record<string, string>> = {
+  ...Object.fromEntries(Object.entries(FORMS).map(([k, v]) => [k, asFiles(v)])),
   "multi-bug": {
     "inventory.js": `export class Inventory {
   constructor() {
@@ -179,6 +203,43 @@ describe("the evaluation tasks", () => {
       expect(passes(dir, task.verifier.command)).toBe(true);
     },
   );
+});
+
+describe("the form tasks (3.5.9)", () => {
+  const forms = Object.keys(FORMS);
+  it.each(forms.flatMap((task) => forms.filter((o) => o !== task).map((o) => [task, o] as const)))(
+    "%s: the verifier rejects the right answer of %s",
+    async (task, other) => {
+      const t = TASKS.find((x) => x.id === task);
+      if (!t) throw new Error(task);
+      const dir = await temp();
+      await materialise(dir, { ...t.files, [t.verifier.file]: t.verifier.content });
+      await materialise(dir, asFiles(FORMS[other] ?? {}));
+      expect(passes(dir, t.verifier.command)).toBe(false);
+    },
+  );
+
+  it("sends the question as it is and checks the answer the agent gave", async () => {
+    const asked: string[] = [];
+    const provider = new FakeProvider((req) => {
+      const first = req.messages.find((m) => m.role === "user")?.parts[0];
+      asked.push(first?.type === "text" ? first.text : "");
+      return { text: WIDGET_ANSWER, usage: { inputTokens: 100, outputTokens: 50 } };
+    });
+    const tasks = TASKS.filter((t) => t.id === "form-text" || t.id === "form-widget");
+    const results = await runEvals({
+      providers: new ProviderRegistry().register(provider),
+      models: [{ provider: "fake", model: "m" }],
+      tasks,
+      workDir: await temp(),
+    });
+    expect(results.map((r) => [r.task, r.passed])).toEqual([
+      ["form-text", false],
+      ["form-widget", true],
+    ]);
+    expect(results[0]?.detail).toMatch(/a widget where none was needed/);
+    expect(asked).toContain(tasks[0]?.prompt);
+  });
 });
 
 describe("runEvals", () => {

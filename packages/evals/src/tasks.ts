@@ -10,7 +10,66 @@ export interface EvalTask {
   prompt: string;
   /** Written next to the project's files after the run, then executed there. */
   verifier: { file: string; content: string; command: string };
+  /**
+   * The prompt goes as it is, without asking for a one-line summary: the task checks the form of
+   * the answer itself (3.5.9). Every run writes the agent's last answer to `_answer.md`.
+   */
+  plain?: boolean;
 }
+
+/** The agent's last answer, written next to the files before the verifier runs (3.5.9). */
+export const ANSWER_FILE = "_answer.md";
+
+/**
+ * A verifier of the form of an answer (3.5.9, study_artifacts.md §3.1): it reads `_answer.md` and
+ * the files under `artefatti/`, and checks the form the task expects.
+ */
+const formVerifier = (expect: "text" | "widget" | "artifact" | "project") => ({
+  file: "_verify.mjs",
+  // No backslashes in the script: it lives inside a template literal.
+  content: `import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+const expect = ${JSON.stringify(expect)};
+if (!existsSync("_answer.md")) throw new Error("no answer");
+const answer = readFileSync("_answer.md", "utf8");
+if (!answer.trim()) throw new Error("empty answer");
+const fence = String.fromCharCode(96).repeat(3);
+const widget = new RegExp(fence + "widget[^]*?<[a-z][^]*?" + fence, "i").test(answer);
+const artifacts = existsSync("artefatti")
+  ? readdirSync("artefatti").filter((f) => /[.]html?$/i.test(f) && statSync(join("artefatti", f)).isFile())
+  : [];
+const skip = new Set([".git", "node_modules", "artefatti", ".trash"]);
+const files = [];
+const walk = (dir) => {
+  for (const d of readdirSync(dir, { withFileTypes: true })) {
+    if (skip.has(d.name)) continue;
+    const p = dir === "." ? d.name : join(dir, d.name);
+    if (d.isDirectory()) walk(p);
+    else if (!/^(_answer[.]md|_verify[.]mjs|NOTES[.]md)$/.test(p)) files.push(p);
+  }
+};
+walk(".");
+const fail = (why) => {
+  throw new Error(why + " (widget: " + widget + ", artifacts: " + artifacts.join(",") + ", files: " + files.join(",") + ")");
+};
+if (expect !== "widget" && widget) fail("a widget where none was needed");
+if (expect !== "artifact" && artifacts.length > 0) fail("an artifact where none was needed");
+if (expect === "text" && files.length > 0) fail("files written for a question text answers");
+if (expect === "widget" && !widget) fail("no widget block in the answer");
+if (expect === "artifact") {
+  if (artifacts.length !== 1) fail("expected one artefatti/<name>.html");
+  const html = readFileSync(join("artefatti", artifacts[0]), "utf8");
+  if (!/<script[^a-z]/i.test(html)) fail("the artifact does nothing (no script)");
+}
+if (expect === "project" && files.length < 2 && !/(^|[^a-z])(project|progetto)([^a-z]|$)/i.test(answer))
+  fail("neither a project started nor proposed");
+console.log("ok");
+`,
+  command: "node _verify.mjs",
+});
+
+/** The folder the form tasks start from: nothing but a note (a project needs one commit). */
+const FORM_FILES = { "NOTES.md": "The person's notes folder.\n" };
 
 const py = (file: string, content: string) => ({
   file,
@@ -19,6 +78,43 @@ const py = (file: string, content: string) => ({
 });
 
 export const TASKS: EvalTask[] = [
+  // The form of an answer (3.5.9): text to tell, widget to try, artifact to use, project to last.
+  {
+    id: "form-text",
+    title: "Form: a question text answers",
+    files: FORM_FILES,
+    plain: true,
+    prompt:
+      "How long should I keep the bedroom window wide open in winter to change the air? It is about 14 square metres.",
+    verifier: formVerifier("text"),
+  },
+  {
+    id: "form-widget",
+    title: "Form: a calculation to try on the spot",
+    files: FORM_FILES,
+    plain: true,
+    prompt:
+      "Dinner for 7 came to 186 euros. Some of us want to leave a tip somewhere between 0 and 15%, others want to round up. Give me something right here in the chat where I can move the tip and see what each person pays.",
+    verifier: formVerifier("widget"),
+  },
+  {
+    id: "form-artifact",
+    title: "Form: a tool to keep and use again",
+    files: FORM_FILES,
+    plain: true,
+    prompt:
+      "Our tennis club runs a knock-out tournament every month with 8 to 16 players. I want a bracket tool I can keep and open again each month: type the players' names, click the winner of each match, see the whole bracket. No installation, it just has to work on my computer.",
+    verifier: formVerifier("artifact"),
+  },
+  {
+    id: "form-project",
+    title: "Form: software that lasts",
+    files: FORM_FILES,
+    plain: true,
+    prompt:
+      "I want the management system for my bike repair shop: customers, repair orders, spare parts in stock, invoices, logins for my two mechanics, a real database, and we will deploy it on the shop's server. Get it started.",
+    verifier: formVerifier("project"),
+  },
   {
     id: "fix-bug",
     title: "Fix a bug",
