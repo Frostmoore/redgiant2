@@ -13,6 +13,9 @@ const sources = Object.entries(
 /** Names and technical words that are the same in every language. */
 const NAMES = new Set([
   "RedGiant",
+  // Editors that speak ACP (G38.6).
+  "Zed",
+  "JetBrains",
   "Claude",
   "ChatGPT",
   "GitHub",

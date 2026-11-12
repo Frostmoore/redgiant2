@@ -1065,7 +1065,9 @@ export type SettingsSection =
   /** The projects: archive one, the archived ones and «Restore» (2026-11-09). */
   | "projects"
   /** Every artifact of the person: open, export, import, delete (3.5.9). */
-  | "artifacts";
+  | "artifacts"
+  /** External ACP agents as workers, and RedGiant inside editors (G38.6). */
+  | "acp";
 
 /** Older ways to open things, still used by the views: they land in the new places. */
 export type OpenRequest =

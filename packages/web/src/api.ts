@@ -1119,6 +1119,30 @@ export class Api {
       "GET",
       `/api/tools${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ""}`,
     );
+  /** External ACP agents (G38.6, Settings › External agents). */
+  acpWorkers = () =>
+    this.call<{
+      workers: import("@redgiant/protocol").AcpWorkerInfo[];
+      presets: { id: string; name: string; command: string; args: string[] }[];
+    }>("GET", "/api/acp/workers");
+  createAcpWorker = (
+    w: { name: string; projectId: string } & import("@redgiant/protocol").AcpWorkerConfig,
+  ) => this.call<import("@redgiant/protocol").AcpWorkerInfo>("POST", "/api/acp/workers", w);
+  updateAcpWorker = (agentId: string, c: import("@redgiant/protocol").AcpWorkerConfig) =>
+    this.call<import("@redgiant/protocol").AcpWorkerInfo>(
+      "PUT",
+      `/api/acp/workers/${encodeURIComponent(agentId)}`,
+      c,
+    );
+  removeAcpWorker = (agentId: string) =>
+    this.call("DELETE", `/api/acp/workers/${encodeURIComponent(agentId)}`);
+  /** Starts the command in an empty folder of its own and asks who it is (never a project). */
+  tryAcpWorker = (c: import("@redgiant/protocol").AcpWorkerConfig) =>
+    this.call<{ name: string; version?: string; loadSession: boolean; signIn: string[] }>(
+      "POST",
+      "/api/acp/try",
+      c,
+    );
   /** Background commands' and bash's limits (G36.16, Settings > Commands). */
   commandSettings = () =>
     this.call<{

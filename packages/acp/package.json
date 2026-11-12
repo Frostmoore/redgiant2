@@ -18,5 +18,8 @@
     "@redgiant/agent": "workspace:*",
     "@redgiant/protocol": "workspace:*",
     "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@redgiant/tools": "workspace:*"
   }
 }

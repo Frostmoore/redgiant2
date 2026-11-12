@@ -21,6 +21,7 @@ import {
   IconFolder,
   IconKey,
   IconLayers,
+  IconNodes,
   IconPuzzle,
   IconSettings,
   IconShield,
@@ -39,6 +40,7 @@ import { ChatPlatforms } from "./ChatPlatforms.js";
 import { CodeSettings } from "./CodeSettings.js";
 import { CommandLimits } from "./CommandLimits.js";
 import { Extensions } from "./Extensions.js";
+import { ExternalAgents } from "./ExternalAgents.js";
 import { General } from "./General.js";
 import { Hierarchy } from "./Hierarchy.js";
 import { ImportFrom } from "./ImportFrom.js";
@@ -77,6 +79,7 @@ const GROUPS: { title: () => string; sections: Section[] }[] = [
       { id: "knowledge", label: () => t("kbSection"), icon: <IconDatabase size={20} /> },
       { id: "automations", label: () => t("automations"), icon: <IconClock size={20} /> },
       { id: "extensions", label: () => t("extensions"), icon: <IconPuzzle size={20} /> },
+      { id: "acp", label: () => t("acpSection"), icon: <IconNodes size={20} /> },
       { id: "tools", label: () => t("toolsSection"), icon: <IconTool size={20} /> },
       { id: "commands", label: () => t("cmdSection"), icon: <IconTerminal size={20} /> },
       { id: "requests", label: () => t("rqSection"), icon: <IconBell size={20} /> },
@@ -187,6 +190,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "knowledge" && <Knowledge />}
         {section === "automations" && <Automations />}
         {section === "extensions" && <Extensions />}
+        {section === "acp" && <ExternalAgents />}
         {section === "tools" && <ToolsPage />}
         {section === "commands" && <CommandLimits />}
         {section === "requests" && <RequestsPage />}

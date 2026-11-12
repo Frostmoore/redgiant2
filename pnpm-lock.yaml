@@ -196,6 +196,10 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+    devDependencies:
+      '@redgiant/tools':
+        specifier: workspace:*
+        version: link:../tools
 
   packages/agent:
     dependencies:

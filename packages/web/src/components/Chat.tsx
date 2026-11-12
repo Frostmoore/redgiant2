@@ -11,7 +11,7 @@ import {
 } from "@redgiant/protocol";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { duration, kTokens } from "../format.js";
-import { danger, findTimingText, lang, t } from "../i18n.js";
+import { danger, findTimingText, lang, t, tOptional } from "../i18n.js";
 import {
   IconAlert,
   IconArrowDown,
@@ -328,6 +328,31 @@ function UserItem({
   );
 }
 
+/**
+ * A tool call's head in the chat: its name and the gist of its input. An external ACP agent's own
+ * actions (G38.6, `acp_<kind>`) show their kind in words and the title the agent gave them.
+ */
+export function toolHead(tool: string, raw: unknown): { name: string; summary: string } {
+  const input = typeof raw === "object" && raw ? (raw as Record<string, unknown>) : undefined;
+  const acp = tool.match(/^acp_([a-z_]+)$/)?.[1];
+  const first = (...v: unknown[]) => v.find((x) => typeof x === "string" && x.length > 0);
+  if (acp) {
+    const name = tOptional(`acpKind_${acp}`) ?? t("acpKind_other");
+    return { name, summary: String(first(input?.title, input?.command, input?.path) ?? "") };
+  }
+  const summary = input
+    ? String(
+        input.command ??
+          input.path ??
+          input.pattern ??
+          input.query ??
+          input.url ??
+          JSON.stringify(input),
+      )
+    : "";
+  return { name: tool, summary };
+}
+
 function ToolLine({
   item,
   agentId,
@@ -336,18 +361,7 @@ function ToolLine({
   agentId: string;
 }) {
   const [open, setOpen] = useState(false);
-  const input = item.input as Record<string, unknown> | undefined;
-  const summary =
-    typeof input === "object" && input
-      ? String(
-          input.command ??
-            input.path ??
-            input.pattern ??
-            input.query ??
-            input.url ??
-            JSON.stringify(input),
-        )
-      : "";
+  const { name, summary } = toolHead(item.tool, item.input);
   const state = !item.result ? "running" : item.result.ok ? "done" : "failed";
   const picture = item.result?.output.match(/^Saved (images\/\S+\.png)/)?.[1];
   // What a file tool changed (2026-11-05): its diff, shown at once, and how many lines.
@@ -372,7 +386,7 @@ function ToolLine({
             <IconClose />
           )}
         </span>
-        <span class="tname">{item.tool}</span>
+        <span class="tname">{name}</span>
         {item.viaScript && <span class="tvia">{t("viaScript")}</span>}
         <span class="tsum">{summary.replace(/\s+/g, " ").slice(0, 140)}</span>
         {took && <span class="ttook">{took}</span>}
