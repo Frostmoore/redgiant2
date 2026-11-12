@@ -11,6 +11,7 @@ import { open, readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   ARTIFACT_DIR,
+  type ArtifactGrant,
   ArtifactHeader,
   ArtifactManifest,
   artifactHeaderOf,
@@ -18,6 +19,7 @@ import {
 } from "@redgiant/protocol";
 import { LocalWorkspace } from "@redgiant/tools";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { checkItems } from "./artifact-bridge.js";
 import { BadRequestError, NotFoundError, type RedGiantCore } from "./core.js";
 import { FileService } from "./files.js";
 import { installedVersion } from "./updates.js";
@@ -40,8 +42,12 @@ export interface ArtifactInfo {
   libs: string[];
   /** Capabilities it asks for (3.6); granted only by the person, never by the file. */
   wants: string[];
-  /** Capabilities the person granted it: none before 3.6, and never carried by an import. */
+  /** Capabilities the person granted it (3.6), never carried by an import. */
   granted: string[];
+  /** The grants in full: `ask`'s agent, cap and spending (3.6, G38.7). */
+  grants: ArtifactGrant[];
+  /** It keeps data of its own (`storage`, 3.6): the export may carry it. */
+  hasData: boolean;
   from: string | null;
   size: number;
   modifiedAt: string;
@@ -145,6 +151,11 @@ export class ArtifactService {
         const head = await readStart(abs);
         const h = artifactHeaderOf(head);
         const path = `${ARTIFACT_DIR}/${d.name}`;
+        const grants = await this.core.artifactBridge.grantsOf(ownerId, place.scope, path);
+        const hasData =
+          Object.keys(
+            await this.core.artifactBridge.readStorage(place.root, path).catch(() => ({})),
+          ).length > 0;
         out.push({
           scope: place.scope,
           place: place.name,
@@ -156,7 +167,9 @@ export class ArtifactService {
           version: h?.version ?? null,
           libs: h?.libs ?? [],
           wants: h?.wants ?? [],
-          granted: [],
+          granted: grants.map((g) => g.capability),
+          grants,
+          hasData,
           from: h?.from ?? null,
           size: st.size,
           modifiedAt: st.mtime.toISOString(),
@@ -183,28 +196,36 @@ export class ArtifactService {
 
   /**
    * A `.rgartifact`: the HTML (with a header written when it had none, so the other RedGiant
-   * knows its name), its manifest with the file's sha256, and no data (storage comes in 3.6).
+   * knows its name), its manifest with the file's sha256, and its data (`storage`, 3.6) only when
+   * the person chose to carry it.
    */
   async exportZip(
     ownerId: string,
     scope: string,
     path: string,
+    opts: { data?: boolean } = {},
   ): Promise<{ bytes: Uint8Array; name: string }> {
     const raw = await this.text(ownerId, scope, path);
     const file = path.split("/").pop() ?? "artefatto.html";
     const header =
       artifactHeaderOf(raw) ?? ArtifactHeader.parse({ name: file.replace(/\.html?$/i, "") });
     const html = strToU8(artifactHeaderOf(raw) ? raw : withArtifactHeader(raw, header));
+    const root = await this.core.scopeFolder(ownerId, scope);
+    const items = opts.data ? await this.core.artifactBridge.readStorage(root, path) : {};
+    const hasData = Object.keys(items).length > 0;
     const manifest: ArtifactManifest = {
       format: "rgartifact-1",
       header,
       sha256: sha256(html),
       redgiant: installedVersion() ?? "source",
-      hasData: false,
+      hasData,
     };
     const bytes = zipSync({
       "artifact.html": html,
       "manifest.json": strToU8(`${JSON.stringify(manifest, null, 2)}\n`),
+      ...(hasData && {
+        "data.json": strToU8(`${JSON.stringify({ format: "rgartifact-data-1", items })}\n`),
+      }),
     });
     return { bytes, name: `${file.replace(/\.html?$/i, "")}.rgartifact` };
   }
@@ -220,15 +241,22 @@ export class ArtifactService {
 
   /**
    * A `.rgartifact` into a place's `artefatti/`: checked whole before anything is written (size,
-   * names, exactly one HTML, manifest, sha256, header), written as a new file (a taken name
-   * becomes «name (2).html»), with no capability granted, and marked «not run yet». Nothing in
-   * it runs here.
+   * names, exactly one HTML, manifest, sha256, header, its data: text only, within the limit),
+   * written as a new file (a taken name becomes «name (2).html»), with no capability granted, and
+   * marked «not run yet». Nothing in it runs here. Its data comes along unless `withData` is false.
    */
   async importZip(
     ownerId: string,
     scope: string,
     zip: Uint8Array,
-  ): Promise<{ path: string; name: string; header: ArtifactHeader; dataIgnored: boolean }> {
+    opts: { withData?: boolean } = {},
+  ): Promise<{
+    path: string;
+    name: string;
+    header: ArtifactHeader;
+    dataIgnored: boolean;
+    dataImported: boolean;
+  }> {
     // The place first: an archived project or a place that is not theirs refuses before reading.
     this.core.assertWritable(ownerId, scope);
     await this.core.scopeFolder(ownerId, scope).catch(() => {
@@ -261,6 +289,18 @@ export class ArtifactService {
       throw new ArtifactImportError(
         "artifact.html has no valid header (<!-- redgiant-artifact {…} -->)",
       );
+    // Its data, checked before anything is written: text keys and values, at most 5 MB.
+    let items: Record<string, string> | undefined;
+    const dataBytes = files["data.json"];
+    if (dataBytes && opts.withData !== false) {
+      try {
+        const j = JSON.parse(strFromU8(dataBytes)) as { format?: unknown; items?: unknown };
+        if (j.format !== "rgartifact-data-1") throw new Error("not rgartifact-data-1");
+        items = checkItems(j.items);
+      } catch (err) {
+        throw new ArtifactImportError(`data.json is not valid: ${(err as Error).message}`);
+      }
+    }
     const written = await this.files.write(
       ownerId,
       scope,
@@ -277,11 +317,19 @@ export class ArtifactService {
         payload: { scope, path: written.path, name: header.name, by: "human" },
       },
     });
+    const dataImported = items !== undefined && Object.keys(items).length > 0;
+    if (items && dataImported)
+      await this.core.artifactBridge.writeStorage(
+        await this.core.scopeFolder(ownerId, scope),
+        written.path,
+        items,
+      );
     return {
       path: written.path,
       name: header.name,
       header,
-      dataIgnored: files["data.json"] !== undefined,
+      dataIgnored: files["data.json"] !== undefined && !dataImported,
+      dataImported,
     };
   }
 }
