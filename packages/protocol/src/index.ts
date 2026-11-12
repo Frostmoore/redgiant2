@@ -16,6 +16,7 @@ export * from "./doc-pdf.js";
 export * from "./doc-svg.js";
 export * from "./events.js";
 export * from "./find-timing.js";
+export * from "./firstboot.js";
 export * from "./image-filters.js";
 export * as imagePx from "./image-pixels.js";
 export * from "./image-text.js";

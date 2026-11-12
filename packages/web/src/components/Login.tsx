@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { loginMethods, passwordLogin } from "../api.js";
+import { type LoginMethods, loginMethods, passwordLogin, setupCodeLogin } from "../api.js";
 import { t } from "../i18n.js";
 import { Logo } from "../icons.js";
 import { signIn } from "../state.js";
@@ -36,9 +36,56 @@ function TokenForm() {
   );
 }
 
+/**
+ * The first start from another device (G39.3): the one-time code shown on the machine's
+ * screen or in its log opens the wizard; nothing else is reachable without it.
+ */
+function SetupCodeForm() {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const submit = async (e: Event) => {
+    e.preventDefault();
+    setError(null);
+    try {
+      await signIn(await setupCodeLogin(value.trim()));
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      setError(
+        code === "wrong"
+          ? t("fbCodeWrong")
+          : code === "too_many"
+            ? t("fbCodeTooMany")
+            : code === "none"
+              ? t("fbCodeNone")
+              : explain(err),
+      );
+    }
+  };
+  return (
+    <form class="login-setup-code" onSubmit={(e) => void submit(e)}>
+      <h1 class="login-title">{t("fbCodeTitle")}</h1>
+      <p class="dim">{t("fbCodeHint")}</p>
+      <input
+        type="text"
+        autocomplete="one-time-code"
+        autocapitalize="characters"
+        spellcheck={false}
+        aria-label={t("fbCodeLabel")}
+        placeholder="ABCDE-FGHJK"
+        value={value}
+        onInput={(e) => setValue((e.target as HTMLInputElement).value)}
+      />
+      {error && <div class="notice error">{error}</div>}
+      <button type="submit" class="primary" disabled={!value.trim()}>
+        {t("fbCodeGo")}
+      </button>
+    </form>
+  );
+}
+
 /** Signing in (G24.6): the password when there is one (and the app's code), else the token. */
 export function Login() {
-  const [methods, setMethods] = useState<{ password: boolean; code: boolean } | null>(null);
+  const [methods, setMethods] = useState<LoginMethods | null>(null);
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [needCode, setNeedCode] = useState(false);
@@ -62,7 +109,14 @@ export function Login() {
         <div class="logo">
           <Logo size={40} /> RedGiant
         </div>
-        {methods?.password ? (
+        {methods?.setupCode && !methods.password ? (
+          <>
+            <SetupCodeForm />
+            <Advanced label={t("loginWithToken")}>
+              <TokenForm />
+            </Advanced>
+          </>
+        ) : methods?.password ? (
           <>
             <form onSubmit={(e) => void submit(e)}>
               <input

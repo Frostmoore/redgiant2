@@ -16,6 +16,7 @@ import {
   skippable,
   stepAfter,
   stepsFor,
+  stepsOf,
   suggestModel,
   sysmemAdviceDue,
 } from "../src/wizard.js";
@@ -37,25 +38,60 @@ const hw = (o: Partial<SetupState["hardware"]> = {}) =>
   }) as SetupState["hardware"];
 
 describe("the wizard's steps (2026-11-06)", () => {
-  it("adds where the code lives and access from outside only for the advanced mode", () => {
+  it("adds where the code lives only for the advanced mode; access from outside for everyone (G39.3)", () => {
     const standard = stepsFor("standard");
     expect(standard).toEqual(stepsFor(undefined));
     expect(standard).not.toContain("wzCode");
+    expect(standard.slice(0, 5)).toEqual([
+      "wzWelcome",
+      "wzRole",
+      "wzAccount",
+      "wzMachine",
+      "wzMode",
+    ]);
     const advanced = stepsFor("advanced");
     expect(advanced.slice(advanced.indexOf("wzTelegram"), -1)).toEqual([
       "wzTelegram",
+      "wzStorage",
       "wzCode",
       "wzRemote",
       "wzSafety",
     ]);
-    // Choosing "advanced" on its step: the next one is still the brain, the list just grew.
-    expect(stepAfter(advanced, "wzTelegram")).toBe("wzCode");
-    expect(stepAfter(standard, "wzTelegram")).toBe("wzSafety");
+    expect(stepAfter(advanced, "wzStorage")).toBe("wzCode");
+    expect(stepAfter(standard, "wzStorage")).toBe("wzRemote");
     expect(stepAfter(standard, "wzDone")).toBe("wzDone");
-    expect(standard.filter(skippable)).toEqual(["wzBrain", "wzLocal", "wzImport", "wzTelegram"]);
+    expect(standard.filter((k) => skippable(k))).toEqual([
+      "wzAccount",
+      "wzBrain",
+      "wzLocal",
+      "wzImport",
+      "wzTelegram",
+      "wzStorage",
+      "wzRemote",
+    ]);
     // Coming from another agent? (G36.7): optional, right after the agents are named.
     expect(stepAfter(standard, "wzAssign")).toBe("wzImport");
     expect(skippable("wzSafety")).toBe(false);
+  });
+
+  it("a node has only its own few steps; local models are not offered where none fits (G39.3)", () => {
+    expect(stepsFor("advanced", { role: "node" })).toEqual([
+      "wzWelcome",
+      "wzRole",
+      "wzAccount",
+      "wzMachine",
+      "wzDone",
+    ]);
+    expect(stepsFor("standard", { local: false })).not.toContain("wzLocal");
+    expect(stepsFor("standard", { local: true })).toContain("wzLocal");
+    expect(stepsOf({ config: { role: "node" } })).toHaveLength(5);
+    expect(stepsOf({ config: {}, offer: { local: false } })).not.toContain("wzLocal");
+  });
+
+  it("the password step cannot be skipped after signing in with the setup code (G39.3)", () => {
+    expect(skippable("wzAccount")).toBe(true);
+    expect(skippable("wzAccount", { mustSetPassword: true })).toBe(false);
+    expect(skippable("wzStorage", { mustSetPassword: true })).toBe(true);
   });
 
   it("knows a ready choice of approvals in any order, and a choice of one's own", () => {

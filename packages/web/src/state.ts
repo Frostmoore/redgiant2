@@ -1050,6 +1050,8 @@ export type SideView =
 
 export type SettingsSection =
   | "general"
+  /** The machine, the role, storage and backups, SSH (G39.3). */
+  | "system"
   | "setup"
   | "agents"
   | "memory"

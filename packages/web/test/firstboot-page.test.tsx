@@ -1,0 +1,215 @@
+// @vitest-environment jsdom
+// G39.3: the first boot anywhere. Settings › System shows the machine (what is missing said so),
+// changes the role only after our own window warns; the storage step lists only removable
+// disks, says when this installation cannot mount them and takes a folder instead; the login page
+// of a first start asks for the one-time code. No native checkboxes, radios or dialogs.
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/preact";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { lang } from "../src/i18n.js";
+
+const calls: [string, unknown[]][] = [];
+const GB = 1024 ** 3;
+const state = {
+  config: { completed: true, role: "full" },
+  system: {
+    os: "linux",
+    arch: "x64",
+    cpu: { model: "Intel N100", cores: 4 },
+    ram: { totalGb: 16, freeGb: { value: 11.2 } },
+    disks: {
+      value: [
+        {
+          name: "nvme0n1",
+          path: "/dev/nvme0n1",
+          type: "disk",
+          sizeBytes: 512 * GB,
+          removable: false,
+          hotplug: false,
+          transport: "nvme",
+          model: "Fanxiang S500",
+          label: "",
+          uuid: "",
+          fstype: "",
+          mountpoint: "",
+          freeBytes: null,
+          disk: "nvme0n1",
+        },
+      ],
+    },
+    gpus: { value: [{ maker: "intel", name: "Intel UHD Graphics", vramGb: null }] },
+    virt: { missing: "not_installed" },
+  },
+  offer: { cloud: true, local: true, maxModelGb: 6, reason: "cpu" },
+};
+const storage = {
+  dataDir: "/var/lib/redgiant/data",
+  dataFreeGb: 400,
+  dataTotalGb: 476,
+  method: "none",
+  candidates: [
+    {
+      name: "sda1",
+      path: "/dev/sda1",
+      type: "part",
+      sizeBytes: 2000 * GB,
+      removable: false,
+      hotplug: true,
+      transport: "usb",
+      model: "Elements",
+      label: "Eternatus",
+      uuid: "5E3A-91F0",
+      fstype: "exfat",
+      mountpoint: "",
+      freeBytes: null,
+      disk: "sda",
+      usable: true,
+      target: "/var/lib/redgiant/backups/Eternatus",
+    },
+  ],
+  backups: null,
+  running: false,
+};
+let methods: Record<string, unknown> = { password: false, code: false, setupCode: true };
+const fakeApi = new Proxy(
+  {},
+  {
+    get: (_t, name: string) => {
+      if (name === "then") return undefined;
+      return (...args: unknown[]) => {
+        calls.push([name, args]);
+        if (name === "setup") return Promise.resolve(state);
+        if (name === "setupStorage") return Promise.resolve(storage);
+        if (name === "setupSsh") return Promise.resolve({ available: false });
+        if (name === "setupBackupFolder")
+          return Promise.resolve({ destination: { kind: "folder", path: args[0] } });
+        return Promise.resolve({});
+      };
+    },
+  },
+);
+vi.mock("../src/state.js", async (orig) => ({
+  ...(await orig<typeof import("../src/state.js")>()),
+  getApi: () => fakeApi,
+  refresh: () => Promise.resolve(),
+}));
+
+const { SystemSettings, StoragePanel, passwordProblem } = await import(
+  "../src/components/FirstBoot.js"
+);
+const { Login } = await import("../src/components/Login.js");
+const { Dialogs } = await import("../src/components/dialogs.js");
+
+const NATIVE = 'input[type="checkbox"], input[type="radio"]';
+
+beforeEach(() => {
+  lang.value = "it";
+  calls.length = 0;
+  methods = { password: false, code: false, setupCode: true };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push(["fetch", [url, init?.body]]);
+      if (url === "/api/auth/methods") return new Response(JSON.stringify(methods));
+      if (url === "/api/auth/setup-code")
+        return new Response(JSON.stringify({ error: "Wrong code", code: "wrong" }), {
+          status: 400,
+        });
+      return new Response("{}");
+    }),
+  );
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+describe("Settings › System (G39.3)", () => {
+  it("shows the machine and says what the system did not tell, never a guess", async () => {
+    const r = render(<SystemSettings />);
+    await waitFor(() => r.getByText("La macchina"));
+    const text = r.container.textContent ?? "";
+    expect(text).toContain("Intel N100");
+    expect(text).toContain("16 GB in tutto");
+    expect(text).toContain("11,2 GB liberi adesso");
+    expect(text).toContain("Intel UHD Graphics");
+    expect(text).toContain("Fanxiang S500");
+    expect(text).toContain("non noto: manca il programma che lo dice");
+    expect(text).toContain("Modelli nel cloud: sempre disponibili.");
+    expect(text).toContain("fino a circa 6 GB");
+    expect(r.container.querySelectorAll(NATIVE)).toHaveLength(0);
+  });
+
+  it("changes the role only after our own window warns, and not when refused", async () => {
+    const r = render(
+      <>
+        <SystemSettings />
+        <Dialogs />
+      </>,
+    );
+    await waitFor(() => r.getByText("Nodo di un altro RedGiant"));
+    fireEvent.click(r.getByText("Nodo di un altro RedGiant"));
+    await waitFor(() => r.getByText("Trasformare questo RedGiant in un nodo?"));
+    expect(r.container.textContent).toContain("restano salvati, intatti");
+    fireEvent.click(r.getByText("Annulla"));
+    await new Promise((d) => setTimeout(d, 0));
+    expect(calls.some(([n]) => n === "setupRole")).toBe(false);
+    fireEvent.click(r.getByText("Nodo di un altro RedGiant"));
+    await waitFor(() => r.getByText("Rendilo un nodo"));
+    fireEvent.click(r.getByText("Rendilo un nodo"));
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "setupRole")?.[1]).toEqual(["node", true]),
+    );
+  });
+});
+
+describe("where backups go (G39.3)", () => {
+  it("lists the removable disk, says it cannot be mounted here, and takes a folder", async () => {
+    const r = render(<StoragePanel />);
+    await waitFor(() => r.getByText("Eternatus"));
+    const text = r.container.textContent ?? "";
+    expect(text).toContain("/var/lib/redgiant/data");
+    expect(text).toContain("400 GB liberi su 476 GB");
+    expect(text).toContain("Questa installazione non può montare dischi");
+    expect(text).toContain("Qui non si può montare");
+    fireEvent.click(r.getByText("Eternatus"));
+    expect(calls.some(([n]) => n === "setupBackupDisk")).toBe(false);
+    const input = r.container.querySelector(".fb-folder input") as HTMLInputElement;
+    fireEvent.input(input, { target: { value: "/mnt/nas/redgiant" } });
+    fireEvent.click(r.getByText("Usa questa cartella"));
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "setupBackupFolder")?.[1]).toEqual(["/mnt/nas/redgiant"]),
+    );
+  });
+
+  it("checks the password pair before sending it", () => {
+    expect(passwordProblem("", "", false)).toBeUndefined();
+    expect(passwordProblem("", "", true)).toBe("fbPasswordNeeded");
+    expect(passwordProblem("short", "short", false)).toBe("fbPasswordWeak");
+    expect(passwordProblem("aaaaaaaaaaaa", "aaaaaaaaaaaa", false)).toBe("fbPasswordWeak");
+    expect(passwordProblem("una-password-lunga", "una-password-lungA", false)).toBe(
+      "fbPasswordDiffer",
+    );
+    expect(passwordProblem("una-password-lunga", "una-password-lunga", true)).toBeUndefined();
+  });
+});
+
+describe("the first start from another device (G39.3)", () => {
+  it("asks for the one-time code, and explains a wrong one", async () => {
+    const r = render(<Login />);
+    await waitFor(() => r.getByText("Primo avvio"));
+    const input = r.getByLabelText("Codice di configurazione") as HTMLInputElement;
+    fireEvent.input(input, { target: { value: "abcde-fghjk" } });
+    fireEvent.click(r.getByText("Inizia"));
+    await waitFor(() => r.getByText("Codice sbagliato: controllalo sullo schermo della macchina."));
+    expect(calls.find(([n, a]) => n === "fetch" && a[0] === "/api/auth/setup-code")?.[1][1]).toBe(
+      JSON.stringify({ code: "abcde-fghjk" }),
+    );
+  });
+
+  it("with a password the usual sign-in comes back", async () => {
+    methods = { password: true, code: false, setupCode: false };
+    const r = render(<Login />);
+    await waitFor(() => r.getByPlaceholderText("Password"));
+    expect(r.queryByText("Primo avvio")).toBeNull();
+  });
+});

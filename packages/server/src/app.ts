@@ -85,6 +85,7 @@ import { svgRoutes } from "./editor/svg-routes.js";
 import { MailboxNotFoundError } from "./email.js";
 import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
+import { firstBootRoutes } from "./firstboot-routes.js";
 import { HuggingFace } from "./hf.js";
 import { importRoutes } from "./import-routes.js";
 import { knowledgeRoutes } from "./knowledge/routes.js";
@@ -899,6 +900,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       // Signing in with a password (G24.6): the password is the credential.
       "/api/auth/methods",
       "/api/auth/login",
+      // The one-time code of a first start (G39.3) is the credential.
+      "/api/auth/setup-code",
       // The service sends the person back here after signing in; the state is the credential.
       "/api/extensions/oauth/callback",
     ];
@@ -974,7 +977,41 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     err instanceof LoginError
       ? c.json({ error: err.message, code: err.code }, err.code === "too_many" ? 429 : 400)
       : Promise.reject(err);
-  app.get("/api/auth/methods", async (c) => c.json(await core.logins.status(loginOwner), 200));
+  app.get("/api/auth/methods", async (c) =>
+    c.json(
+      {
+        ...(await core.logins.status(loginOwner)),
+        // A first start waiting for its one-time code (G39.3).
+        setupCode: Boolean(options.setup?.setupCode.active),
+      },
+      200,
+    ),
+  );
+  // The first start from another device (G39.3): the one-time code opens one session.
+  app.post("/api/auth/setup-code", async (c) => {
+    const b = z
+      .object({ code: z.string().min(1).max(40) })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "A code is needed", code: "wrong" }, 400);
+    const sc = options.setup?.setupCode;
+    if (!sc || options.setup?.completed)
+      return c.json({ error: "There is no setup code now", code: "none" }, 400);
+    const r = await sc.use(b.data.code, clientAddress(c));
+    if (r === "too_many")
+      return c.json({ error: "Too many wrong tries: wait 15 minutes", code: "too_many" }, 429);
+    if (r !== "ok")
+      return c.json(
+        { error: r === "none" ? "There is no setup code now" : "Wrong code", code: r },
+        400,
+      );
+    return c.json(
+      await core.logins.openSession(
+        loginOwner,
+        `${(c.req.header("user-agent") ?? "Browser").slice(0, 60)} (setup code)`,
+      ),
+      200,
+    );
+  });
   app.post("/api/auth/login", async (c) => {
     const b = z
       .object({ password: z.string().min(1).max(500), code: z.string().max(12).optional() })
@@ -1007,7 +1044,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       .safeParse(await c.req.json().catch(() => ({})));
     if (!b.success) return c.json({ error: "A password is needed" }, 400);
     try {
-      await core.logins.setPassword(owner(c), b.data.password);
+      // The page that sets it stays signed in (the wizard after a setup code, G39.3).
+      const keep = await core.logins.sessionIdOf(bearer(c.req.header("authorization")));
+      await core.logins.setPassword(owner(c), b.data.password, keep);
       return c.json({ ok: true }, 200);
     } catch (err) {
       return loginFailure(c, err);
@@ -1403,6 +1442,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   browserRoutes(app, core.browserLinks, owner, clientAddress);
   // Mandatory and breaking updates (G36.19): the status, the safety backup, found backups.
   updateRoutes(app, core, owner, options.setup);
+  // The first boot anywhere (G39.3): role, storage, backups' destination, what reaches the machine.
+  firstBootRoutes(app, options.setup, () => options.setup?.scheduler);
   // The knowledge (G36, the RAG): collections, sources, models, search, citations.
   knowledgeRoutes(app, () => core.knowledge, owner);
 

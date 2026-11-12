@@ -16,6 +16,7 @@ import {
   IconClock,
   IconCode,
   IconCompass,
+  IconCpu,
   IconDatabase,
   IconDollar,
   IconFolder,
@@ -43,6 +44,7 @@ import { CodeSettings } from "./CodeSettings.js";
 import { CommandLimits } from "./CommandLimits.js";
 import { Extensions } from "./Extensions.js";
 import { ExternalAgents } from "./ExternalAgents.js";
+import { SystemSettings } from "./FirstBoot.js";
 import { General } from "./General.js";
 import { Hierarchy } from "./Hierarchy.js";
 import { ImportFrom } from "./ImportFrom.js";
@@ -110,6 +112,7 @@ const GROUPS: { title: () => string; sections: Section[] }[] = [
     sections: [
       { id: "code", label: () => t("wzCode"), icon: <IconFolder size={20} /> },
       { id: "remote", label: () => t("wzRemote"), icon: <IconShield size={20} /> },
+      { id: "system", label: () => t("fbSystemSection"), icon: <IconCpu size={20} /> },
       { id: "machines", label: () => t("mcSection"), icon: <IconServer size={20} /> },
       { id: "backup", label: () => t("backup"), icon: <IconArchive size={20} /> },
       { id: "platform", label: () => t("platformView"), icon: <IconLayers size={20} /> },
@@ -207,6 +210,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "subscriptions" && <Subscriptions />}
         {section === "code" && <CodeSettings />}
         {section === "remote" && <RemoteSettings />}
+        {section === "system" && <SystemSettings />}
         {section === "machines" && <Machines />}
         {section === "budgets" && <Budgets />}
         {section === "backup" && <Backup />}

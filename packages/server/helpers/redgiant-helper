@@ -1,0 +1,178 @@
+#!/bin/sh
+# redgiant-helper (G39.3): the few root actions RedGiant may ask of its machine, each checked
+# again here whatever the server sent. One request (arguments, or one line on stdin with
+# --stdin for a systemd socket unit with Accept=yes), one JSON line back. See
+# packages/server/src/os-helper.ts for the protocol.
+#
+#   list | mount <uuid> <label> | unmount <label> | ssh-status | ssh-on <base64 key> | ssh-off
+#   | tailscale
+#
+# Rules: only filesystems on a disk that can be unplugged (RM, HOTPLUG or USB), never a disk
+# with a system mount point; mounted nosuid,nodev,noexec under /var/lib/redgiant/backups/<label>;
+# SSH with keys only (no passwords, no root login), keys in one file of RedGiant's own.
+set -eu
+set -f
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+BASE=/var/lib/redgiant/backups
+OWNER_UID=${REDGIANT_HELPER_UID:-${SUDO_UID:-0}}
+OWNER_GID=${REDGIANT_HELPER_GID:-${SUDO_GID:-0}}
+SSH_USER=${REDGIANT_SSH_USER:-redgiant}
+SSH_KEYS=/etc/redgiant/ssh/authorized_keys
+SSH_CONF=/etc/ssh/sshd_config.d/50-redgiant.conf
+COLUMNS_LSBLK=NAME,PATH,TYPE,SIZE,RM,HOTPLUG,TRAN,MODEL,LABEL,UUID,FSTYPE,MOUNTPOINT
+
+fail() { printf '{"ok":false,"error":"%s"}\n' "$1"; exit 1; }
+ok() { printf '{"ok":true%s}\n' "${1:-}"; exit 0; }
+
+case "$OWNER_UID$OWNER_GID" in *[!0-9]*) fail bad_owner ;; esac
+
+if [ "${1:-}" = "--stdin" ]; then
+  IFS= read -r line || fail bad_request
+  case "$line" in *[!A-Za-z0-9._+/=\ -]*) fail bad_request ;; esac
+  # shellcheck disable=SC2086 # the words were checked above, and globbing is off (set -f)
+  set -- $line
+fi
+
+op=${1:-}
+[ $# -ge 1 ] && shift
+
+valid_label() {
+  case "$1" in
+    '' | .* | -* | *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 40 ]
+}
+valid_uuid() {
+  case "$1" in '' | *[!A-Fa-f0-9-]*) return 1 ;; esac
+  [ "${#1}" -ge 4 ] && [ "${#1}" -le 36 ]
+}
+
+# A mount point that belongs to the system (anything but the places for removable disks).
+system_mount() {
+  case "$1" in
+    '') return 1 ;;
+    "$BASE"/* | /media/* | /run/media/* | /mnt/*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+case "$op" in
+  list)
+    [ $# -eq 0 ] || fail bad_request
+    out=$(lsblk -J -b -o "$COLUMNS_LSBLK" 2>/dev/null) || fail lsblk_failed
+    printf '{"ok":true,"lsblk":%s}\n' "$(printf '%s' "$out" | tr -d '\n')"
+    exit 0
+    ;;
+
+  mount)
+    [ $# -eq 2 ] || fail bad_request
+    uuid=$1
+    label=$2
+    valid_uuid "$uuid" || fail bad_request
+    valid_label "$label" || fail bad_request
+    dev=$(blkid -U "$uuid" 2>/dev/null) || fail not_found
+    case "$dev" in /dev/*) ;; *) fail not_found ;; esac
+    parent=$(lsblk -no PKNAME "$dev" 2>/dev/null | head -n1 | tr -d ' ')
+    [ -n "$parent" ] || parent=$(basename "$dev")
+    disk=/dev/$parent
+    set -- $(lsblk -dno RM,HOTPLUG,TRAN "$disk" 2>/dev/null)
+    rm=${1:-0}
+    hot=${2:-0}
+    tran=${3:-}
+    if [ "$rm" != 1 ] && [ "$hot" != 1 ] && [ "$tran" != usb ]; then fail not_removable; fi
+    # Nothing on the same disk may be a system mount point.
+    for mp in $(lsblk -rno MOUNTPOINT "$disk" 2>/dev/null); do
+      if system_mount "$mp"; then fail system_disk; fi
+    done
+    fs=$(lsblk -no FSTYPE "$dev" 2>/dev/null | head -n1 | tr -d ' ')
+    target=$BASE/$label
+    case "$fs" in
+      ext4 | ext3 | ext2 | xfs | btrfs | f2fs) opts=nosuid,nodev,noexec ;;
+      exfat | vfat | ntfs | ntfs3)
+        opts=nosuid,nodev,noexec,uid=$OWNER_UID,gid=$OWNER_GID,umask=077
+        ;;
+      *) fail unsupported_filesystem ;;
+    esac
+    current=$(lsblk -no MOUNTPOINT "$dev" 2>/dev/null | head -n1)
+    if [ -n "$current" ]; then
+      [ "$current" = "$target" ] && ok ",\"path\":\"$target\""
+      fail mounted_elsewhere
+    fi
+    mkdir -p "$target"
+    chmod 0750 "$target"
+    mount -t "$fs" -o "$opts" "$dev" "$target" 2>/dev/null || fail mount_failed
+    # Linux filesystems: a folder of RedGiant's own on the disk.
+    case "$fs" in
+      ext4 | ext3 | ext2 | xfs | btrfs | f2fs)
+        chown "$OWNER_UID:$OWNER_GID" "$target"
+        ;;
+    esac
+    ok ",\"path\":\"$target\""
+    ;;
+
+  unmount)
+    [ $# -eq 1 ] || fail bad_request
+    valid_label "$1" || fail bad_request
+    target=$BASE/$1
+    mountpoint -q "$target" || ok
+    umount "$target" 2>/dev/null || fail busy
+    rmdir "$target" 2>/dev/null || true
+    ok
+    ;;
+
+  ssh-status)
+    [ $# -eq 0 ] || fail bad_request
+    on=false
+    if [ -f "$SSH_CONF" ] && systemctl is-active --quiet ssh 2>/dev/null; then on=true; fi
+    keys=0
+    [ -f "$SSH_KEYS" ] && keys=$(grep -c '^[a-z]' "$SSH_KEYS" || true)
+    ok ",\"on\":$on,\"keys\":$keys"
+    ;;
+
+  ssh-on)
+    [ $# -eq 1 ] || fail bad_request
+    key=$(printf '%s' "$1" | base64 -d 2>/dev/null) || fail bad_key
+    case "$key" in
+      *"$(printf '\n')"*) fail bad_key ;;
+      ssh-ed25519\ * | ssh-rsa\ * | ecdsa-sha2-nistp*\ * | sk-ssh-ed25519@openssh.com\ * | sk-ecdsa-sha2-nistp256@openssh.com\ *) ;;
+      *) fail bad_key ;;
+    esac
+    id "$SSH_USER" >/dev/null 2>&1 || fail no_user
+    mkdir -p "$(dirname "$SSH_KEYS")"
+    touch "$SSH_KEYS"
+    grep -qxF "$key" "$SSH_KEYS" || printf '%s\n' "$key" >>"$SSH_KEYS"
+    chmod 0644 "$SSH_KEYS"
+    umask 022
+    cat >"$SSH_CONF" <<EOF
+# Written by RedGiant (Settings > System): keys only, one user.
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+AllowUsers $SSH_USER
+AuthorizedKeysFile $SSH_KEYS
+EOF
+    sshd -t 2>/dev/null || { rm -f "$SSH_CONF"; fail bad_config; }
+    systemctl enable --now ssh >/dev/null 2>&1 || fail ssh_failed
+    systemctl reload ssh >/dev/null 2>&1 || true
+    ok
+    ;;
+
+  ssh-off)
+    [ $# -eq 0 ] || fail bad_request
+    systemctl disable --now ssh >/dev/null 2>&1 || true
+    rm -f "$SSH_CONF"
+    ok
+    ;;
+
+  tailscale)
+    [ $# -eq 0 ] || fail bad_request
+    command -v tailscale >/dev/null 2>&1 || fail not_installed
+    out=$(tailscale status --json 2>/dev/null) || fail stopped
+    printf '{"ok":true,"status":%s}\n' "$(printf '%s' "$out" | tr -d '\n')"
+    exit 0
+    ;;
+
+  *) fail unknown_op ;;
+esac

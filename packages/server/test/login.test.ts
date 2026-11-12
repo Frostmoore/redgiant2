@@ -96,11 +96,19 @@ describe("signing in with a password", () => {
       });
       return { status: r.status, body: (await r.json()) as Record<string, unknown> };
     };
-    expect((await anon("GET", "/api/auth/methods")).body).toEqual({ password: false, code: false });
+    expect((await anon("GET", "/api/auth/methods")).body).toEqual({
+      password: false,
+      code: false,
+      setupCode: false,
+    });
     expect(
       (await s.api("PUT", "/api/auth/password", { password: "una-password-lunga" })).status,
     ).toBe(200);
-    expect((await anon("GET", "/api/auth/methods")).body).toEqual({ password: true, code: false });
+    expect((await anon("GET", "/api/auth/methods")).body).toEqual({
+      password: true,
+      code: false,
+      setupCode: false,
+    });
     expect((await anon("POST", "/api/auth/login", { password: "wrong" })).body.code).toBe("wrong");
     const ok = await anon("POST", "/api/auth/login", { password: "una-password-lunga" });
     expect(ok.status).toBe(200);

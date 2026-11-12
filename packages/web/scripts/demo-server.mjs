@@ -14,6 +14,7 @@ import {
   DockerBrowserLauncher,
   debugLog,
   exportBackup,
+  FirstBoot,
   GitHosts,
   HuggingFace,
   JobFailure,
@@ -1595,6 +1596,94 @@ const setup = new SetupService({
   core,
   dataDir: join(dir, "data"),
   ownerId: "local",
+  // The machine (G39.3) acted out: a USB disk «Eternatus», SSH, Tailscale already running.
+  firstBoot: new FirstBoot({
+    dataDir: join(dir, "data"),
+    helper: {
+      how: "socket",
+      call: async (o) => {
+        const GB = 1024 ** 3;
+        if (o.op === "list")
+          return {
+            ok: true,
+            lsblk: {
+              blockdevices: [
+                {
+                  name: "nvme0n1",
+                  type: "disk",
+                  size: 512 * GB,
+                  rm: false,
+                  tran: "nvme",
+                  model: "Fanxiang S500",
+                  children: [
+                    {
+                      name: "nvme0n1p2",
+                      type: "part",
+                      size: 511 * GB,
+                      fstype: "ext4",
+                      uuid: "1111-2222",
+                      mountpoint: "/",
+                    },
+                  ],
+                },
+                {
+                  name: "sda",
+                  type: "disk",
+                  size: 2000 * GB,
+                  rm: false,
+                  hotplug: true,
+                  tran: "usb",
+                  model: "Elements 25A3",
+                  children: [
+                    {
+                      name: "sda1",
+                      type: "part",
+                      size: 2000 * GB,
+                      fstype: "exfat",
+                      label: "Eternatus",
+                      uuid: "5E3A-91F0",
+                    },
+                  ],
+                },
+                {
+                  name: "sdb",
+                  type: "disk",
+                  size: 32 * GB,
+                  rm: true,
+                  tran: "usb",
+                  model: "Cruzer",
+                  children: [
+                    {
+                      name: "sdb1",
+                      type: "part",
+                      size: 32 * GB,
+                      label: "STICK",
+                      uuid: "ABCD-1234",
+                      fstype: "iso9660",
+                    },
+                  ],
+                },
+              ],
+            },
+          };
+        if (o.op === "mount") {
+          const path = join(dir, "backups", o.label);
+          await mkdir(path, { recursive: true });
+          return { ok: true, path };
+        }
+        if (o.op === "ssh-status") return { ok: true, on: false, keys: 0 };
+        if (o.op === "tailscale")
+          return {
+            ok: true,
+            status: {
+              BackendState: "Running",
+              Self: { DNSName: "coder.tail1234.ts.net.", TailscaleIPs: ["100.64.0.7"] },
+            },
+          };
+        return { ok: true };
+      },
+    },
+  }),
   // GitHub acted out: tokens with "good" in them work.
   git: new GitHosts({
     fetch: async (url, init) => {
@@ -2774,6 +2863,8 @@ await setup.applyAtStartup();
 core.vaultSystem = async () => setup.keysForVault();
 // DEMO_FRESH=1: a fresh install, the setup wizard takes the whole page (2026-11-06).
 if (!process.env.DEMO_FRESH) await setup.complete();
+// DEMO_SETUP_CODE=1 (G39.3): a first start from another device, its one-time code in the log.
+else if (process.env.DEMO_SETUP_CODE) await setup.startSetupCode(port, false);
 const running = await serve(core, new TokenAuth({ [token]: "local" }), {
   port,
   host: process.env.DEMO_HOST ?? "0.0.0.0",

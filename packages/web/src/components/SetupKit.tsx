@@ -33,6 +33,11 @@ export interface Wz {
   next: { current: (() => Promise<boolean>) | undefined };
   /** Ends the wizard, then does `then` (open a chat…). */
   finish: (then?: () => void) => void;
+  /**
+   * Signed in with a first start's setup code and no password yet (G39.3): the password step
+   * cannot be skipped, or the page could not sign in again later.
+   */
+  mustSetPassword?: boolean;
 }
 export const WzCtx = createContext<Wz | null>(null);
 export const useWz = () => useContext(WzCtx) as Wz;
