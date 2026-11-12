@@ -79,6 +79,11 @@ wait_for() { # regex seconds: true once the serial console shows it
   local deadline=$((SECONDS + $2))
   while [ $SECONDS -lt $deadline ]; do
     grep -aqE "$1" "$SERIAL" && return 0
+    # Nothing to boot, or a kernel that cannot go on: no point waiting for the rest.
+    if grep -aqE "No bootable option or device was found|Kernel panic|Booting from Hard Disk\.\.\.[[:space:]]*Boot failed|error: no such device|ALERT! .* does not exist" "$SERIAL"; then
+      echo "::error::the machine did not boot"
+      return 1
+    fi
     kill -0 "$QEMU_PID" 2>/dev/null || { echo "::error::QEMU exited"; return 1; }
     sleep 5
   done
