@@ -289,6 +289,7 @@ import {
   vaultTool,
 } from "./vault.js";
 import { type TranscriptionConfig, transcribe } from "./voice.js";
+import { WakeModels } from "./wake-models.js";
 
 /** What started an automation's run, in the words the agent reads with its data (G33.3). */
 const STARTED_BY: Partial<Record<RunContext["trigger"], string>> = {
@@ -4660,6 +4661,13 @@ export class RedGiantCore implements OrchestrationHost {
    * necessarily the interface's: that is the hint given to the service (its two letters, «zh» for
    * «zh-Hant»); without one, the language the caller passed.
    */
+  /** The hands-free voice's wake-word models (G38.4), in the data folder. */
+  get wakeModels(): WakeModels {
+    this.wakeModelsCache ??= new WakeModels(dirname(this.o.workspacesDir));
+    return this.wakeModelsCache;
+  }
+  private wakeModelsCache: WakeModels | undefined;
+
   async transcribe(audio: Uint8Array, mime: string, language?: string): Promise<string> {
     if (!this.o.transcription)
       throw new BadRequestError("No transcription service: set one in the configuration");

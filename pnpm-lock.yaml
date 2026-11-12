@@ -872,6 +872,9 @@ importers:
       three:
         specifier: ^0.187.0
         version: 0.187.0
+      vosk-browser:
+        specifier: 0.0.8
+        version: 0.0.8
       xlsx:
         specifier: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
         version: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
@@ -4351,6 +4354,11 @@ packages:
     resolution: {integrity: sha512-Sc5u1VVln93y1Xnz4R+CunOZc7R9LUcTmhj7Rc7Eg3HVcf7rVn2FOoa812fe0W8p3jD7xeoGSYbfqCGGH2B6xw==}
     hasBin: true
 
+  uuid@9.0.0:
+    resolution: {integrity: sha512-MXcSTerfPa4uqyzStbRoTgt5XIe3x5+42+q1sDuy3R5MDk66URdLMOZe5aPX/SQd+kuYAh0FdP/pO28IkQyTeg==}
+    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+    hasBin: true
+
   vary@1.1.2:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
@@ -4443,6 +4451,9 @@ packages:
         optional: true
       jsdom:
         optional: true
+
+  vosk-browser@0.0.8:
+    resolution: {integrity: sha512-df9MuChirUGKxP/+4k8tBV6hJOic8IRdJXv64+ET0Ue5CddOzLZINiHOWCka765gBzHJWNtQKgaYakS0FXZIJA==}
 
   w3c-keyname@2.2.8:
     resolution: {integrity: sha512-dpojBhNsCNN7T82Tm7k26A6G9ML3NkhDsnw9n/eoxSRlVBB4CEtIQ/KTCLI2Fwf3ataSXRhYFkQi3SlnFwPvPQ==}
@@ -8177,6 +8188,8 @@ snapshots:
 
   uuid@14.0.3: {}
 
+  uuid@9.0.0: {}
+
   vary@1.1.2: {}
 
   vite-prerender-plugin@0.5.14(vite@8.3.5(@types/node@26.6.6)(yaml@2.9.1)):
@@ -8223,6 +8236,10 @@ snapshots:
       jsdom: 29.1.1(@noble/hashes@1.8.0)
     transitivePeerDependencies:
       - msw
+
+  vosk-browser@0.0.8:
+    dependencies:
+      uuid: 9.0.0
 
   w3c-keyname@2.2.8: {}
 

@@ -54,5 +54,6 @@ export * from "./tool-choice.js";
 export * from "./updates.js";
 export * from "./vault.js";
 export * from "./voice.js";
+export * from "./wake-models.js";
 export * from "./win-engine.js";
 export * from "./ws.js";

@@ -57,6 +57,7 @@
     "rxjs": "^7.8.2",
     "simple-icons": "^16.36.0",
     "three": "^0.187.0",
+    "vosk-browser": "0.0.8",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "yaml": "^2.9.1"
   },

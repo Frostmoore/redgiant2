@@ -105,6 +105,7 @@ import { updateRoutes } from "./update-routes.js";
 import { UpdateRequiredError } from "./updates.js";
 import { VaultError } from "./vault.js";
 import { MAX_AUDIO_BYTES, TranscriptionError } from "./voice.js";
+import { isWakeLang, WAKE_MODELS, wakeFile } from "./wake-models.js";
 import { COMPRESSIBLE, CompressedFiles, MIN_COMPRESS, pickEncoding } from "./web-compress.js";
 import type { OpenPages } from "./ws.js";
 
@@ -905,6 +906,9 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     if (
       open.includes(c.req.path) ||
       c.req.path.startsWith("/api/browser-ext/") ||
+      // The wake-word models (G38.4): public speech models (Apache-2.0), read by the page's
+      // worker, which cannot send the sign-in; only the prepared files, never anything else.
+      (c.req.method === "GET" && c.req.path.startsWith("/api/voice/wake-models/")) ||
       /^\/api\/automations\/[\w-]+\/hook(\/[\w-]+)?$/.test(c.req.path)
     )
       return next();
@@ -1832,6 +1836,32 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       if (err instanceof TranscriptionError) return c.json({ error: err.message }, 502);
       throw err;
     }
+  });
+  // Hands-free voice (G38.4): the wake word's model, downloaded here once with its bar, then
+  // read by the page, which listens for the wake word on its own.
+  app.get("/api/voice/wake-model", async (c) => {
+    const lang = c.req.query("lang");
+    if (!isWakeLang(lang)) return c.json({ error: "Unknown language" }, 400);
+    return c.json(await core.wakeModels.state(lang), 200);
+  });
+  app.post("/api/voice/wake-model", async (c) => {
+    const { lang } = (await c.req.json().catch(() => ({}))) as { lang?: string };
+    if (!isWakeLang(lang)) return c.json({ error: "Unknown language" }, 400);
+    const job = core.wakeModels.ensure(core.jobs, owner(c), lang);
+    return c.json({ ...(await core.wakeModels.state(lang)), ...(job && { job }) }, 200);
+  });
+  app.get("/api/voice/wake-models/:file", async (c) => {
+    const lang = (Object.keys(WAKE_MODELS) as (keyof typeof WAKE_MODELS)[]).find(
+      (l) => wakeFile(l) === c.req.param("file"),
+    );
+    if (!lang) return c.json({ error: "Not found" }, 404);
+    const data = await core.wakeModels.read(lang).catch(() => undefined);
+    if (!data) return c.json({ error: "Not downloaded yet" }, 404);
+    return c.body(new Uint8Array(data), 200, {
+      "content-type": "application/gzip",
+      // Versioned names: the page's second load is the browser's own copy.
+      "cache-control": "public, max-age=31536000, immutable",
+    });
   });
   app.get("/api/platform/changes", async (c) => c.json(await core.changes.list(owner(c)), 200));
   app.post("/api/platform/changes/:id/undo", async (c) => {
