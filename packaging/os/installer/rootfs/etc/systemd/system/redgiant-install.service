@@ -1,0 +1,18 @@
+# RedGiant OS installer on the first screen (and on the serial console for automated installs).
+[Unit]
+Description=RedGiant OS installer
+After=systemd-user-sessions.service live-config.service
+Conflicts=getty@tty1.service
+Before=getty.target
+
+[Service]
+ImportCredential=redgiant.install.*
+ExecStart=/usr/local/sbin/redgiant-install
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=multi-user.target

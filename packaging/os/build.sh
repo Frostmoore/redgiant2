@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# RedGiant OS (G39.1, G39.2): builds the images from Debian 13 in the builder container
+# (builder.Dockerfile). Every format starts from the same disk image:
+#
+#   build.sh --arch amd64|arm64 --stack <redgiant-os-stack.json> --out <dir>
+#            [--formats qcow2,raw,iso] [--os-version x.y.z] [--no-preload] [--mirror <url>]
+#
+#   <dir>/redgiant-os-<ver>-<arch>.qcow2      Proxmox, KVM, UTM, clouds (fills its disk at start)
+#   <dir>/redgiant-os-<ver>-<arch>.raw.zst    the disk itself (what the installer writes)
+#   <dir>/redgiant-os-<ver>-x86_64.iso        installer for a USB stick (amd64 only)
+#
+# Tools (all Debian's): mmdebstrap for the system, systemd-repart --offline for the disk (no loop
+# devices), GRUB with Debian's signed shim for UEFI (Secure Boot included) and GRUB for BIOS on
+# x86_64. The kernel, initramfs and GRUB are Debian's usual ones, so apt updates them as on any
+# Debian. Reproducible from the same Debian snapshot (--mirror http://snapshot.debian.org/…) and
+# SOURCE_DATE_EPOCH (the commit's time). More formats: add a function format_<name> below.
+set -euo pipefail
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$HERE/../.." && pwd)
+ARCH="" STACK="" OUT="" FORMATS=qcow2,raw,iso OS_VERSION="" PRELOAD=1
+MIRROR=${MIRROR:-http://deb.debian.org/debian}
+SECURITY_MIRROR=${SECURITY_MIRROR:-http://deb.debian.org/debian-security}
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --arch) ARCH=$2 && shift ;;
+    --stack) STACK=$2 && shift ;;
+    --out) OUT=$2 && shift ;;
+    --formats) FORMATS=$2 && shift ;;
+    --os-version) OS_VERSION=$2 && shift ;;
+    --no-preload) PRELOAD=0 ;;
+    --mirror) MIRROR=$2 && shift ;;
+    *) echo "unknown option $1" >&2 && exit 2 ;;
+  esac
+  shift
+done
+[ -n "$ARCH" ] && [ -r "$STACK" ] && [ -n "$OUT" ] || {
+  echo "usage: build.sh --arch amd64|arm64 --stack <stack.json> --out <dir> [--formats qcow2,raw,iso]" >&2
+  exit 2
+}
+VERSION=$(jq -r .version "$STACK")
+OS_VERSION=${OS_VERSION:-$VERSION}
+export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git -C "$REPO_ROOT" log -1 --format=%ct 2>/dev/null || date +%s)}
+case "$ARCH" in
+  amd64) KARCH=x86_64 EFI=x64 EFIUP=X64 GRUB_EFI=x86_64-efi CONSOLE="console=tty0 console=ttyS0,115200" ;;
+  arm64) KARCH=arm64 EFI=aa64 EFIUP=AA64 GRUB_EFI=arm64-efi CONSOLE="console=tty0 console=ttyAMA0,115200" ;;
+  *) echo "arch: amd64 or arm64" >&2 && exit 2 ;;
+esac
+NAME=redgiant-os-$OS_VERSION-$KARCH
+WORK=$OUT/work-$ARCH
+ROOT=$WORK/rootfs
+mkdir -p "$OUT"
+rm -rf "$WORK"
+mkdir -p "$WORK"
+step() { printf '\n== %s\n' "$*"; }
+
+# Fixed for this build (the same inputs give the same ids): the disk's partitions and the file
+# GRUB looks for to find the system.
+uuid() { python3 -c "import uuid,sys; print(uuid.uuid5(uuid.NAMESPACE_URL, sys.argv[1]))" "redgiant-os/$OS_VERSION/$ARCH/$SOURCE_DATE_EPOCH/$1"; }
+ROOT_UUID=$(uuid root)
+ESP_UUID=$(uuid esp)
+DISK_ID=$(uuid disk)
+
+# 1. The system ----------------------------------------------------------------------------------
+PACKAGES=(
+  systemd systemd-sysv systemd-resolved udev dbus kmod iproute2 iputils-ping netbase
+  ca-certificates curl jq socat openssl qrencode less vim-tiny sudo tzdata
+  avahi-daemon avahi-utils libnss-mdns
+  docker.io docker-compose
+  openssh-server unattended-upgrades
+  cloud-guest-utils gdisk fdisk parted e2fsprogs dosfstools exfatprogs pciutils usbutils
+  initramfs-tools zstd linux-image-"$ARCH" firmware-linux-free firmware-realtek
+  grub2-common grub-efi-"$ARCH"-bin grub-efi-"$ARCH"-signed shim-signed
+)
+[ "$ARCH" = amd64 ] && PACKAGES+=(grub-pc-bin intel-microcode amd64-microcode)
+step "Debian 13 for $ARCH (mmdebstrap, $MIRROR)"
+mmdebstrap --variant=apt --architectures="$ARCH" --components="main non-free-firmware" \
+  --include="$(IFS=,; echo "${PACKAGES[*]}")" \
+  --customize-hook="sync-in $HERE/rootfs /" \
+  --customize-hook="copy-in $HERE/setup-chroot.sh /tmp" \
+  --customize-hook='chroot "$1" sh /tmp/setup-chroot.sh' \
+  trixie "$ROOT" \
+  "deb $MIRROR trixie main non-free-firmware" \
+  "deb $MIRROR trixie-updates main non-free-firmware" \
+  "deb $SECURITY_MIRROR trixie-security main non-free-firmware"
+
+step "RedGiant $VERSION in the system"
+SHARE=$ROOT/usr/share/redgiant-os
+install -d "$SHARE"
+install -m 0644 "$STACK" "$SHARE/stack.json"
+install -m 0644 "$HERE/compose.os.yaml" "$SHARE/compose.os.yaml"
+echo "$OS_VERSION" >"$SHARE/os-version"
+# The public half of the update key (the same as the server's): checks what an update brings.
+sed -n '/BEGIN PUBLIC KEY/,/END PUBLIC KEY/p' "$REPO_ROOT/packages/server/src/release-key.ts" |
+  sed 's/^.*\(-----BEGIN\)/\1/; s/\(KEY-----\).*$/\1/' >"$SHARE/release-key.pem"
+grep -q "END PUBLIC KEY" "$SHARE/release-key.pem" || : >"$SHARE/release-key.pem"
+ln -sf ../run/systemd/resolve/stub-resolv.conf "$ROOT/etc/resolv.conf"
+install -d "$ROOT/etc/redgiant-os"
+echo "RedGiant OS $OS_VERSION" >"$ROOT/etc/redgiant-os/disk-$DISK_ID"
+cat >"$ROOT/etc/fstab" <<EOF
+# RedGiant OS: the system and its EFI partition (the data lives in /var/lib/redgiant).
+PARTUUID=$ROOT_UUID  /          ext4  errors=remount-ro  0 1
+PARTUUID=$ESP_UUID   /boot/efi  vfat  umask=0077,nofail  0 2
+EOF
+cat >"$ROOT/etc/default/grub" <<EOF
+# RedGiant OS: Debian's update-grub reads this when a new kernel comes.
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=3
+GRUB_DISTRIBUTOR="RedGiant OS"
+GRUB_CMDLINE_LINUX_DEFAULT=""
+GRUB_CMDLINE_LINUX="$CONSOLE"
+GRUB_DISABLE_OS_PROBER=true
+GRUB_DISABLE_RECOVERY=true
+EOF
+
+if [ "$PRELOAD" = 1 ]; then
+  step "The images of the stack, built in (first start without a download)"
+  install -d -m 0700 "$ROOT/var/lib/redgiant/preload"
+  jq -r --arg a "$ARCH" '.images[$a][] | [.ref, .digest, .id] | @tsv' "$STACK" |
+    while IFS=$'\t' read -r ref digest id; do
+      tar="$ROOT/var/lib/redgiant/preload/$(echo "$ref" | tr '/:' '__').tar"
+      skopeo copy --quiet --retry-times 3 "docker://${ref%:*}@$digest" "docker-archive:$tar:$ref"
+      # Docker gives a loaded image the id of its config: it must be the pinned one.
+      config=$(tar -xOf "$tar" manifest.json | jq -r '.[0].Config' | sed 's#^blobs/sha256/##; s#\.json$##')
+      [ "sha256:$config" = "$id" ] || { echo "$ref: config $config is not the pinned $id" >&2; exit 1; }
+      echo "$ref $(du -h "$tar" | cut -f1)"
+    done
+fi
+
+# 2. Boot ----------------------------------------------------------------------------------------
+step "Boot: GRUB (UEFI with Debian's signed shim$([ "$ARCH" = amd64 ] && echo ", and BIOS"))"
+FIND="search --no-floppy --file --set=root /etc/redgiant-os/disk-$DISK_ID"
+install -d "$ROOT/boot/grub"
+cat >"$ROOT/boot/grub/grub.cfg" <<EOF
+# RedGiant OS: replaced by Debian's update-grub when a new kernel comes.
+set default=0
+set timeout=3
+menuentry 'RedGiant OS' {
+  $FIND
+  linux /vmlinuz root=PARTUUID=$ROOT_UUID ro $CONSOLE
+  initrd /initrd.img
+}
+EOF
+[ -e "$ROOT/vmlinuz" ] && [ -e "$ROOT/initrd.img" ] || { echo "no /vmlinuz or /initrd.img" >&2; exit 1; }
+ESP=$ROOT/boot/efi
+install -d "$ESP/EFI/BOOT" "$ESP/EFI/debian"
+for dir in BOOT debian; do
+  cp "$ROOT/usr/lib/shim/shim$EFI.efi.signed" "$ESP/EFI/$dir/shim$EFI.efi"
+  cp "$ROOT/usr/lib/shim/mm$EFI.efi.signed" "$ESP/EFI/$dir/mm$EFI.efi"
+  cp "$ROOT/usr/lib/grub/$GRUB_EFI-signed/grub$EFI.efi.signed" "$ESP/EFI/$dir/grub$EFI.efi"
+  printf '%s\nset prefix=($root)/boot/grub\nconfigfile $prefix/grub.cfg\n' "$FIND" >"$ESP/EFI/$dir/grub.cfg"
+done
+# The removable path: what any firmware starts without a boot entry of its own.
+mv "$ESP/EFI/BOOT/shim$EFI.efi" "$ESP/EFI/BOOT/BOOT$EFIUP.EFI"
+if [ "$ARCH" = amd64 ]; then
+  cp -r "$ROOT/usr/lib/grub/i386-pc" "$ROOT/boot/grub/"
+fi
+
+# 3. The disk ------------------------------------------------------------------------------------
+step "The disk (systemd-repart, offline)"
+DEFS=$WORK/repart.d
+mkdir -p "$DEFS"
+if [ "$ARCH" = amd64 ]; then
+  printf '[Partition]\nType=21686148-6449-6e6f-744e-656564454649\nLabel=bios\nSizeMinBytes=1M\nSizeMaxBytes=1M\n' >"$DEFS/00-bios.conf"
+fi
+printf '[Partition]\nType=esp\nLabel=esp\nUUID=%s\nFormat=vfat\nCopyFiles=/boot/efi:/\nSizeMinBytes=256M\nSizeMaxBytes=256M\n' "$ESP_UUID" >"$DEFS/10-esp.conf"
+printf '[Partition]\nType=root\nLabel=redgiant-root\nUUID=%s\nFormat=ext4\nCopyFiles=/:/\nExcludeFiles=/boot/efi/\nMinimize=guess\nPaddingMinBytes=0\n' "$ROOT_UUID" >"$DEFS/20-root.conf"
+RAW=$WORK/$NAME.raw
+rm -f "$RAW"
+systemd-repart --offline=yes --empty=create --size=auto --dry-run=no --no-pager \
+  --architecture="$KARCH" --seed="$DISK_ID" --root="$ROOT" --definitions="$DEFS" "$RAW"
+sfdisk -d "$RAW"
+
+if [ "$ARCH" = amd64 ]; then
+  step "BIOS: GRUB in the BIOS boot partition"
+  G=$WORK/grub-pc
+  mkdir -p "$G"
+  printf '%s\nset prefix=($root)/boot/grub\n' "$FIND" >"$G/early.cfg"
+  grub-mkimage -O i386-pc -d "$ROOT/usr/lib/grub/i386-pc" -c "$G/early.cfg" -p /boot/grub \
+    -o "$G/core.img" biosdisk part_gpt part_msdos ext2 search search_fs_file configfile normal \
+    linux echo test gzio
+  cp "$ROOT/usr/lib/grub/i386-pc/boot.img" "$G/"
+  # grub-bios-setup asks /proc/self/mountinfo which device holds its directory: it is told the
+  # image (as mkosi does), so it embeds itself in the BIOS boot partition with no loop device.
+  echo "1 0 1:1 / / - ext4 $RAW rw" >"$G/mountinfo"
+  unshare --mount bash -c "mount --bind '$G/mountinfo' /proc/self/mountinfo && grub-bios-setup --directory '$G' '$RAW'"
+fi
+
+# 4. Formats -------------------------------------------------------------------------------------
+format_raw() {
+  step "raw.zst"
+  zstd -q -T0 -19 --long=27 -f "$RAW" -o "$OUT/$NAME.raw.zst"
+  stat -c %s "$RAW" >"$OUT/$NAME.raw.size"
+}
+format_qcow2() {
+  step "qcow2"
+  qemu-img convert -c -O qcow2 "$RAW" "$OUT/$NAME.qcow2"
+  # A virtual disk of 32 GB (thin): the system fills it at the first start.
+  qemu-img resize -q "$OUT/$NAME.qcow2" 32G
+}
+format_iso() {
+  [ "$ARCH" = amd64 ] || { echo "iso: x86_64 only for now"; return 0; }
+  [ -r "$OUT/$NAME.raw.zst" ] || format_raw
+  "$HERE/installer/build-iso.sh" --payload "$OUT/$NAME.raw.zst" --size "$(cat "$OUT/$NAME.raw.size")" \
+    --version "$OS_VERSION" --efi-root "$ROOT" --mirror "$MIRROR" --security-mirror "$SECURITY_MIRROR" \
+    --work "$WORK/iso" --out "$OUT/redgiant-os-$OS_VERSION-x86_64.iso"
+}
+for f in ${FORMATS//,/ }; do "format_$f"; done
+step "Done"
+ls -la "$OUT"

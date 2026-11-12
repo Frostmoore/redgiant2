@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# RedGiant OS installer (G39.2): writes RedGiant OS to a disk of this machine. One question: which
+# disk (it is erased), confirmed by typing its name. Nothing else is asked; RedGiant's own setup
+# happens later, in the browser.
+# For automated installs (and CI), two system credentials answer the question:
+#   redgiant.install.disk=/dev/vda   redgiant.install.confirm=yes
+# (qemu: -smbios type=11,value=io.systemd.credential:redgiant.install.disk=/dev/vda)
+set -uo pipefail
+MEDIUM=/run/live/medium
+PAYLOAD=$(ls "$MEDIUM"/redgiant/redgiant-os-*.raw.zst 2>/dev/null | head -1)
+SIZE=$(cat "${PAYLOAD%.zst}.size" 2>/dev/null || echo 0)
+cred() { cat "${CREDENTIALS_DIRECTORY:-/nonexistent}/$1" 2>/dev/null || true; }
+AUTO_DISK=$(cred redgiant.install.disk)
+AUTO_YES=$(cred redgiant.install.confirm)
+say() { # the screen, and the serial console of a virtual machine
+  echo "REDGIANT-INSTALL $*"
+  echo "REDGIANT-INSTALL $*" >/dev/console 2>/dev/null || true
+}
+die() {
+  say "FAILED: $*"
+  [ -n "$AUTO_DISK" ] && { sleep 2; systemctl poweroff; }
+  echo
+  read -r -p "  Press Enter to restart. " _ || true
+  systemctl reboot
+  exit 1
+}
+# The disk holding this installer: never offered.
+medium_disk() {
+  local src
+  src=$(findmnt -no SOURCE "$MEDIUM" 2>/dev/null | head -1)
+  [ -n "$src" ] && { lsblk -no PKNAME "$src" 2>/dev/null | head -1; basename "$src"; }
+}
+candidates() { # name size model, disks of 16 GB or more
+  local skip
+  skip=$(medium_disk | sort -u)
+  lsblk -dbn -o NAME,SIZE,TYPE,MODEL | awk '$3 == "disk"' | while read -r name size _ model; do
+    case "$name" in loop* | ram* | zram* | sr*) continue ;; esac
+    grep -qxF "$name" <<<"$skip" && continue
+    [ "$size" -ge 16000000000 ] || continue
+    printf '%s\t%s\t%s\n' "$name" "$(awk -v b="$size" 'BEGIN { printf "%.0f GB", b / 1e9 }')" "${model:-disk}"
+  done
+}
+
+clear 2>/dev/null || true
+printf '\n  RedGiant OS installer\n\n'
+[ -r "$PAYLOAD" ] || die "the system image is missing from the installer"
+mapfile -t disks < <(candidates)
+if [ -n "$AUTO_DISK" ]; then
+  target=$AUTO_DISK
+  [ "$AUTO_YES" = yes ] || die "redgiant.install.confirm=yes is needed with redgiant.install.disk"
+  printf '%s\n' "${disks[@]}" | cut -f1 | grep -qxF "$(basename "$target")" || die "$target is not a disk that can be used"
+else
+  [ ${#disks[@]} -gt 0 ] || die "no disk of 16 GB or more was found"
+  echo "  RedGiant OS takes a whole disk. Everything on the disk you choose is erased."
+  echo
+  i=1
+  for d in "${disks[@]}"; do
+    IFS=$'\t' read -r name size model <<<"$d"
+    printf '   %d) %-10s %8s  %s\n' "$i" "$name" "$size" "$model"
+    i=$((i + 1))
+  done
+  echo
+  while true; do
+    read -r -p "  Disk number: " n
+    [[ $n =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le ${#disks[@]} ] && break
+  done
+  name=$(cut -f1 <<<"${disks[$((n - 1))]}")
+  target=/dev/$name
+  echo
+  echo "  Everything on $target ($(cut -f2,3 <<<"${disks[$((n - 1))]}" | tr '\t' ' ')) will be erased."
+  read -r -p "  Type the disk's name ($name) to confirm, anything else to stop: " answer
+  [ "$answer" = "$name" ] || { echo "  Nothing was written."; read -r -p "  Press Enter to restart. " _; systemctl reboot; exit 0; }
+fi
+
+say "writing to $target"
+for p in $(lsblk -lnpo NAME "$target" | tail -n +2); do umount "$p" 2>/dev/null || true; done
+wipefs -a -q "$target" 2>/dev/null || true
+# The bar: amount, speed and time left.
+if ! zstd -dc --long=27 "$PAYLOAD" | pv -f -s "$SIZE" -N "RedGiant OS" | dd of="$target" bs=4M oflag=direct status=none; then
+  die "writing to $target failed"
+fi
+sync
+# The backup GPT at the disk's real end; the system grows into the rest at its first start.
+sgdisk -e "$target" >/dev/null 2>&1 || true
+partprobe "$target" 2>/dev/null || true
+say "DONE $target"
+if [ -n "$AUTO_DISK" ]; then
+  systemctl poweroff
+else
+  echo
+  echo "  RedGiant OS is installed. Remove the USB stick, then press Enter to restart."
+  echo "  After the restart, the screen shows the address to open in a browser."
+  read -r _ || true
+  systemctl reboot
+fi
