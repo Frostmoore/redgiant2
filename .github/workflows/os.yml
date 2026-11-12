@@ -139,14 +139,16 @@ jobs:
         run: packaging/os/test/boot-test.sh boot --arch arm64 --firmware uefi --disk "$OUT"/redgiant-os-*-arm64.qcow2 --logs logs --timeout 7200
         timeout-minutes: 130
       - name: Sizes and sha256
-        if: ${{ env.SKIP != '1' }}
+        if: ${{ always() && env.SKIP != '1' }}
         run: |
           cd "$OUT"
           rm -f ./*.size redgiant-os-stack.json
+          ls redgiant-os-* >/dev/null 2>&1 || exit 0
           sha256sum redgiant-os-* | tee SHA256SUMS-${{ matrix.arch }}
           ls -la
+      # Also when a boot fails: the images can then be looked at.
       - uses: actions/upload-artifact@v4
-        if: ${{ env.SKIP != '1' }}
+        if: ${{ always() && env.SKIP != '1' }}
         with:
           name: redgiant-os-${{ matrix.arch }}
           path: /mnt/os/*

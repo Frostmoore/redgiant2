@@ -154,7 +154,8 @@ for dir in BOOT debian; do
   cp "$ROOT/usr/lib/shim/shim$EFI.efi.signed" "$ESP/EFI/$dir/shim$EFI.efi"
   cp "$ROOT/usr/lib/shim/mm$EFI.efi.signed" "$ESP/EFI/$dir/mm$EFI.efi"
   cp "$ROOT/usr/lib/grub/$GRUB_EFI-signed/grub$EFI.efi.signed" "$ESP/EFI/$dir/grub$EFI.efi"
-  printf '%s\nset prefix=($root)/boot/grub\nconfigfile $prefix/grub.cfg\n' "$FIND" >"$ESP/EFI/$dir/grub.cfg"
+  # What it finds goes to the console too (a serial console shows why a machine does not start).
+  printf 'echo "RedGiant OS: looking for the system (%s)"\n%s\necho "RedGiant OS: system on $root"\nset prefix=($root)/boot/grub\nconfigfile $prefix/grub.cfg\necho "RedGiant OS: no system disk found"\nls\n' "$DISK_ID" "$FIND" >"$ESP/EFI/$dir/grub.cfg"
 done
 # The removable path: what any firmware starts without a boot entry of its own.
 mv "$ESP/EFI/BOOT/shim$EFI.efi" "$ESP/EFI/BOOT/BOOT$EFIUP.EFI"
