@@ -448,6 +448,11 @@ interface Live {
   model: ModelSpec;
   /** The conversation chose its own model (composer), not the agent's. */
   ownModel: boolean;
+  /**
+   * The agent's model changed while a turn ran (G38.9): applied when the turn ends, before the
+   * next message in line, never inside the turn.
+   */
+  modelPending?: { model: ModelSpec; by: { agentId: string; name: string } };
   /** Messages waiting for the turn now running to end (G24.14f). */
   queue?: {
     text: string;
@@ -5489,6 +5494,110 @@ export class RedGiantCore implements OrchestrationHost {
   }
 
   /**
+   * Whether a model is one of the person's (G38.9): its provider is configured and, when the
+   * provider lists its models, the model is among them. Undefined when it is; else what is wrong
+   * and the models there are.
+   */
+  async modelProblem(m: { provider: string; model: string }): Promise<string | undefined> {
+    const choices = await this.models();
+    const listed = (provider?: string) => {
+      const ids = choices
+        .filter((c) => !provider || c.provider === provider)
+        .map((c) => `${c.provider}/${c.model}`);
+      const others = this.o.providers
+        .list()
+        .map((p) => p.id)
+        .filter((id) => !choices.some((c) => c.provider === id) && (!provider || id === provider));
+      const all = [...ids.slice(0, 60), ...others.map((id) => `${id} (any model)`)];
+      return all.length ? `Available: ${all.join(", ")}.` : "No model is configured.";
+    };
+    if (!this.o.providers.has(m.provider))
+      return `"${m.provider}" is not one of the person's providers. ${listed()}`;
+    const own = choices.filter((c) => c.provider === m.provider);
+    if (own.length > 0 && !own.some((c) => c.model === m.model))
+      return `"${m.model}" is not one of the person's models on ${m.provider}. ${listed(m.provider)}`;
+    return undefined;
+  }
+
+  /**
+   * An agent's model changed for the person (G38.9: another agent asked with set_agent_model and
+   * the person said yes). Its next conversations use it. Its open conversations that follow the
+   * agent's model record a session.model_changed event and are rebuilt once with it before their
+   * next message: an idle one now, a working one when its turn ends. Those where the person chose
+   * a model in the composer keep theirs. The backup model the agent had stays.
+   */
+  async setAgentModel(
+    ownerId: string,
+    agentId: string,
+    model: ModelSpec,
+    by: AgentRecord,
+  ): Promise<{ now: number; afterTurn: number; ownModel: number }> {
+    const a = this.registry.get(agentId);
+    if (!a || a.ownerId !== ownerId) throw new NotFoundError(`Agent "${agentId}" not found`);
+    if (this.acpWorkers.get(ownerId, agentId))
+      throw new BadRequestError(
+        `${a.name} is an external agent: its own program chooses its model`,
+      );
+    const next: ModelSpec = { ...model, ...(a.model?.fallback && { fallback: a.model.fallback }) };
+    await this.registry.configure({ type: "human", ownerId }, agentId, { model: next });
+    const who = { agentId: by.id, name: by.name };
+    const out = { now: 0, afterTurn: 0, ownModel: 0 };
+    for (const [id, l] of [...this.live]) {
+      if (l.agentId !== agentId) continue;
+      if (l.ownModel) out.ownModel++;
+      else if (l.running) {
+        l.modelPending = { model: next, by: who };
+        out.afterTurn++;
+      } else {
+        await this.recordModelChange(id, l, next, who);
+        out.now++;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Out of memory at once (a message arriving meanwhile rebuilds it, never runs on the old
+   * model), then the event in the conversation's log.
+   */
+  private async recordModelChange(
+    sessionId: string,
+    l: Live,
+    model: ModelSpec,
+    by: { agentId: string; name: string },
+  ): Promise<void> {
+    if (this.live.get(sessionId) === l) this.live.delete(sessionId);
+    await this.store.append({
+      ownerId: l.ownerId,
+      projectId: l.projectId,
+      agentId: l.agentId,
+      sessionId,
+      body: { type: "session.model_changed", payload: { model, by } },
+    });
+  }
+
+  /**
+   * After a turn: a model change that waited for it (G38.9) is applied, then the next message in
+   * line goes to the rebuilt conversation.
+   */
+  private turnOver(ownerId: string, sessionId: string, l: Live): void {
+    const pending = l.modelPending;
+    if (!pending) {
+      this.drain(ownerId, sessionId, l);
+      return;
+    }
+    delete l.modelPending;
+    this.recordModelChange(sessionId, l, pending.model, pending.by)
+      .then(async () => {
+        if (!l.queue?.length) return;
+        const fresh = await this.open(ownerId, sessionId);
+        fresh.queue = [...(fresh.queue ?? []), ...l.queue.splice(0)];
+        this.drain(ownerId, sessionId, fresh);
+      })
+      .catch(() => this.drain(ownerId, sessionId, l));
+  }
+
+  /**
    * The model (and effort) of one conversation, chosen in the composer; null goes back to the
    * agent's. The next turn uses it; the conversation's history is kept as it is.
    */
@@ -5815,7 +5924,7 @@ export class RedGiantCore implements OrchestrationHost {
           l.running = null;
           this.sharedMemory.turnEnded(sessionId);
           notify("idle", "end_turn");
-          this.drain(ownerId, sessionId, l);
+          this.turnOver(ownerId, sessionId, l);
         });
       l.turn = done.then(
         () => {},
@@ -5868,7 +5977,7 @@ export class RedGiantCore implements OrchestrationHost {
         await this.afterTurn(ownerId, sessionId, started, watch === true, r, err).catch(() => {});
         await this.reportTasks(sessionId, r, err).catch(() => {});
       })
-      .finally(() => this.drain(ownerId, sessionId, l));
+      .finally(() => this.turnOver(ownerId, sessionId, l));
     return { done };
   }
 

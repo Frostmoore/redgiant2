@@ -137,7 +137,8 @@ export const DANGER_IDS = Object.keys(en);
 
 /**
  * Dangers that are not on the Safety page because nobody switches them (G38.1: every email an
- * agent sends asks the person). Their words only, for the request's chips.
+ * agent sends asks the person; G38.9: every change of another agent's model). Their words only,
+ * for the request's chips.
  */
 const FIXED: Record<"it" | "en", Record<string, Words>> = {
   en: {
@@ -145,11 +146,19 @@ const FIXED: Record<"it" | "en", Record<string, Words>> = {
       name: "Sending an email",
       hint: "An agent sends an email from one of your mailboxes: you see who it goes to and what it says before it leaves.",
     },
+    "agent-model": {
+      name: "Changing an agent's model",
+      hint: "An agent moves another agent to a different model, as you asked it: you choose the models your agents use.",
+    },
   },
   it: {
     "outgoing-mail": {
       name: "Inviare un'email",
       hint: "Un agente invia un'email da una delle tue caselle: vedi a chi va e cosa dice prima che parta.",
+    },
+    "agent-model": {
+      name: "Cambiare il modello di un agente",
+      hint: "Un agente passa un altro agente a un modello diverso, come gli hai chiesto: i modelli dei tuoi agenti li scegli tu.",
     },
   },
 };

@@ -47,7 +47,14 @@ export type Action =
    * Choose which tools the target gets (G34.5): switching them off or on. Only the human does it,
    * for their own agents; no agent, not even God, chooses another's tools (nor its own).
    */
-  | "tools";
+  | "tools"
+  /**
+   * Change the target's model (G38.9, decision «Il modello degli agenti lo sceglie la persona»):
+   * only on the person's request, and the person approves every change. God for any agent but a
+   * god, an orchestrator for its own project's agents (not those assigned to it); nobody for
+   * itself. Agents create only sub-agents, whose model follows theirs.
+   */
+  | "model";
 
 /** Lookup used to walk up the tree. */
 export type Resolve = (id: string) => AgentNode | undefined;
@@ -104,6 +111,7 @@ export function can(
 
   switch (a.kind) {
     case "god":
+      if (action === "model") return target.kind !== "god";
       if (action === "configure" && target.kind === "god") return false;
       if (action === "stop" && self) return false;
       if (action === "spawn") return target.kind !== "subagent" && target.kind !== "inspector";
@@ -116,6 +124,7 @@ export function can(
       const assigned = a.projectId !== null && (target.projects?.includes(a.projectId) ?? false);
       if (assigned && !inProject) return action === "read" || action === "message";
       if (!inProject || (target.kind !== "agent" && target.kind !== "subagent")) return false;
+      if (action === "model") return true;
       if (action === "configure") return false;
       // Children are created by their parent (or by God and the human), never by a grandparent.
       if (action === "spawn") return false;
@@ -124,7 +133,7 @@ export function can(
     case "agent": {
       if (self) return action === "read" || action === "spawn";
       const child = target.kind === "subagent" && target.parentId === a.id;
-      return child && action !== "configure" && action !== "spawn";
+      return child && action !== "configure" && action !== "spawn" && action !== "model";
     }
     case "subagent":
       return self && action === "read";

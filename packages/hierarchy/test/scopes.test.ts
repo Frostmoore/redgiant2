@@ -83,6 +83,9 @@ O9 read      A9 yes | O9 message  A9 no  | O9 stop    A9 no  | O9 spawn   O9 no 
 A9 read      S9 yes | A9 message  S9 no  | A9 spawn   A9 no  | A9 read    A9 yes | S9 read S9 yes | S9 message A9 no
 I9 read      A9 yes | I9 read     S9 yes | I9 message A9 no  | I1 read    A9 no  | O1 read A9 no
 O2 message   A7 yes | O2 stop     A7 yes | O9 message A7 no  | O9 read    A7 yes | I9 read A7 yes | P1 message O9 no
+G  model     O1 yes | G  model     A1 yes | G  model    P1 yes | G  model   S1 yes | G  model G no | G model X no | G model A9 no
+O1 model     A1 yes | O1 model     A4 yes | O1 model   S1 yes | O1 model  O1 no  | O1 model A3 no | O1 model A6 no | O1 model P3 no | O2 model A6 yes
+A1 model     S1 no  | A1 model     A1 no  | S1 model   S1 no  | I1 model  A1 no  | D model G no | P1 model P2 no | P1 model P1 no | O9 model A9 no
 `
   .trim()
   .split(/\s*[|\n]\s*/)
@@ -121,6 +124,7 @@ describe("scope table", () => {
       approve: false,
       join: false,
       tools: false,
+      model: false,
     };
     for (const id of ["O9", "A9", "S9", "I9"])
       for (const [action, ok] of Object.entries(want))

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AgentSpec } from "./agents.js";
+import { AgentSpec, ModelSpec } from "./agents.js";
 import { AutomationRunStatus, AutomationTrigger } from "./automations.js";
 import { CanvasDo, CanvasTargetSchema } from "./canvas.js";
 import { MAX_NOTES, MAX_QUOTES, MessageQuote } from "./chat-tools.js";
@@ -42,6 +42,20 @@ export const EventBody = z.discriminatedUnion("type", [
       why: z.string(),
       /** "session": this conversation only; "agent": from now on for this agent too. */
       scope: z.enum(["session", "agent"]),
+    }),
+  }),
+  /**
+   * The agent's model changed at the person's request (G38.9): another agent asked with
+   * set_agent_model and the person said yes. Recorded in the agent's open conversations between
+   * two turns, never inside one; the next request is built once with the new model (the prefix
+   * changes here, like a compaction), and resuming reads the agent's model as it is now.
+   */
+  z.object({
+    type: z.literal("session.model_changed"),
+    payload: z.object({
+      model: ModelSpec,
+      /** The agent that made the change for the person. */
+      by: z.object({ agentId: z.string(), name: z.string() }),
     }),
   }),
   /** A flat-subscription engine's own conversation id (G21): resuming continues it. */

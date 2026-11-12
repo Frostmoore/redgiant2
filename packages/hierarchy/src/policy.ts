@@ -18,8 +18,15 @@ export const OUTSIDE_PROJECT = "outside-project";
  */
 export const OUTGOING_MAIL = "outgoing-mail";
 
+/**
+ * Another agent's model changing (G38.9, decision «Il modello degli agenti lo sceglie la persona»):
+ * an agent does it only when the person asked, and the person approves every change. Never a
+ * parent agent, never a rule or a mode that lets it through.
+ */
+export const AGENT_MODEL = "agent-model";
+
 /** Dangers only the person answers whatever their settings say (the broker reads this). */
-export const ALWAYS_HUMAN: readonly string[] = [OUTGOING_MAIL];
+export const ALWAYS_HUMAN: readonly string[] = [OUTGOING_MAIL, AGENT_MODEL];
 
 import type { AgentKind, CriticalDetail, PermissionMode } from "@redgiant/protocol";
 
@@ -414,6 +421,14 @@ function evaluateRules(mode: PermissionMode, call: ToolCallInfo, s: PolicySettin
       decision: "ask",
       reasons: ["sends an email"],
       danger: [...danger, OUTGOING_MAIL],
+      critical: [],
+    };
+  // Another agent's model (G38.9) is the person's choice: every change asks them.
+  if (call.name === "set_agent_model" && !rules.some((r) => r.decision === "deny"))
+    return {
+      decision: "ask",
+      reasons: ["changes another agent's model"],
+      danger: [...danger, AGENT_MODEL],
       critical: [],
     };
   for (const d of ["deny", "ask", "allow"] as const) {

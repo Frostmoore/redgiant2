@@ -4250,6 +4250,9 @@ const en = {
   toolWhy_merge_work: "without it the agents' work stays apart",
   tool_create_agent: "Create agents",
   toolDo_create_agent: "Adds an agent under itself.",
+  tool_set_agent_model: "Change an agent's model",
+  toolDo_set_agent_model:
+    "Moves an agent under it to the model you named, only when you ask, and with your yes.",
   tool_create_project: "Create projects",
   toolDo_create_project: "Creates a new project with its own folder.",
   tool_list_agents: "See the agents",
@@ -9574,6 +9577,9 @@ const it: Record<Key, string> = {
   toolWhy_merge_work: "senza, il lavoro degli agenti resta da parte",
   tool_create_agent: "Creare agenti",
   toolDo_create_agent: "Aggiunge un agente sotto di sé.",
+  tool_set_agent_model: "Cambiare il modello di un agente",
+  toolDo_set_agent_model:
+    "Passa un agente sotto di sé al modello che hai indicato, solo se glielo chiedi e con il tuo sì.",
   tool_create_project: "Creare progetti",
   toolDo_create_project: "Crea un progetto nuovo con la sua cartella.",
   tool_list_agents: "Vedere gli agenti",

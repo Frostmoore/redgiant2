@@ -267,6 +267,10 @@ function mailMoveSentence({ l, i, q }: Ctx): string {
 
 type Sentence = (c: Ctx) => string | undefined;
 
+/** A model as the person reads it: «anthropic/claude-x». */
+const modelName = (i: Input) =>
+  [str(i.provider), str(i.model)].filter((s): s is string => s !== undefined).join("/") || "?";
+
 /** One sentence per tool, both languages: the table `requestSentence` reads. */
 const SENTENCES: Record<string, Record<Lang, Sentence>> = {
   // An artifact's first use of a capability (3.6, G38.7): granted by the person only.
@@ -382,6 +386,12 @@ const SENTENCES: Record<string, Record<Lang, Sentence>> = {
       `Crea l'agente ${q(str(i.name) ?? "?")}${str(i.project_id) ? ` nel progetto ${name(i.project_id)}` : ""}`,
     en: ({ i, name, q }) =>
       `Creates the agent ${q(str(i.name) ?? "?")}${str(i.project_id) ? ` in the project ${name(i.project_id)}` : ""}`,
+  },
+  set_agent_model: {
+    it: ({ i, name, q }) =>
+      `Passa l'agente ${name(i.agent_id)} al modello ${q(modelName(i))}${str(i.effort) ? ` (effort ${str(i.effort)})` : ""}`,
+    en: ({ i, name, q }) =>
+      `Moves the agent ${name(i.agent_id)} to the model ${q(modelName(i))}${str(i.effort) ? ` (effort ${str(i.effort)})` : ""}`,
   },
   create_project: {
     it: ({ i, q }) => `Crea il progetto ${q(str(i.name) ?? "?")}`,
@@ -570,6 +580,8 @@ const DANGER_LABELS = new Set(
     "Secret files",
     // The email's danger (G38.1): its chip and the fields say it.
     "sends an email",
+    // Another agent's model (G38.9): the chip and the sentence say it.
+    "changes another agent's model",
   ].map((s) => s.toLowerCase()),
 );
 

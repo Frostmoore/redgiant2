@@ -106,6 +106,8 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   one("complete_task", "agents", true),
   one("merge_work", "agents", true),
   one("create_agent", "agents"),
+  // Another agent's model, on the person's request and with their yes (G38.9).
+  one("set_agent_model", "agents"),
   one("create_project", "agents"),
   one("list_agents", "agents"),
   one("read_agent", "agents"),

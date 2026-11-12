@@ -232,6 +232,12 @@ const TABLE: Row[] = [
     "Creates the agent “Tester” in the project “Collaudo 3.5.3”",
   ],
   [
+    "set_agent_model",
+    { agent_id: "a1", provider: "anthropic", model: "claude-x", effort: "high" },
+    "Passa l'agente «Coder» al modello «anthropic/claude-x» (effort high)",
+    "Moves the agent “Coder” to the model “anthropic/claude-x” (effort high)",
+  ],
+  [
     "browser_click",
     { name: "Invia" },
     "Preme «Invia» nel browser",

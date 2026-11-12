@@ -12,7 +12,7 @@ import {
   type PermissionBroker,
   type PersistentBudget,
 } from "@redgiant/hierarchy";
-import type { Event, ImagePart, ModelSpec } from "@redgiant/protocol";
+import { Effort, type Event, type ImagePart, type ModelSpec } from "@redgiant/protocol";
 import { complete, costUsd, type ProviderRegistry, streamWithFallback } from "@redgiant/providers";
 import {
   commitAll,
@@ -75,6 +75,18 @@ export interface OrchestrationHost {
   isRunning?(sessionId: string): boolean;
   /** Stops a conversation's background commands (a sub-agent's work ended, p3.3.1). */
   stopCommands?(sessionId: string): Promise<void>;
+  /**
+   * Whether a model is one of the person's (G38.9): undefined when it is, else what is wrong,
+   * with the models they have.
+   */
+  modelProblem?(model: { provider: string; model: string }): Promise<string | undefined>;
+  /** An agent's model changed for the person (G38.9), who approved it: see the core. */
+  setAgentModel?(
+    ownerId: string,
+    agentId: string,
+    model: ModelSpec,
+    by: AgentRecord,
+  ): Promise<{ now: number; afterTurn: number; ownModel: number }>;
 }
 
 /** How a sub-agent's work ended, as its tab shows it. */
@@ -298,12 +310,22 @@ const CreateAgentInput = z.object({
     .optional(),
   model: z
     .object({
-      provider: z.string(),
-      model: z.string(),
-      effort: z.enum(["low", "medium", "high", "max"]).optional(),
+      provider: z.string().min(1),
+      model: z.string().min(1),
+      effort: Effort.optional(),
     })
     .optional(),
 });
+
+/**
+ * What the model tools say (G38.9, decision «Il modello degli agenti lo sceglie la persona»): the
+ * person chooses the models; an agent sets one only when the person asked for it.
+ */
+export const MODEL_PARAM_DESCRIPTION =
+  "Set it ONLY when the person explicitly asked for a model for this agent (the one they named); otherwise leave it out and the person's default applies. Never choose a model yourself.";
+
+export const SET_AGENT_MODEL_DESCRIPTION =
+  "Move an agent below you to another model, ONLY when the person explicitly asked for it: use the model they named, never one you chose yourself (not to save money, not for a harder task). The person approves every change. The agent's next conversations use it; its open ones switch between two turns, never inside one. A conversation where the person chose a model in the composer keeps that one.";
 
 /** How much of an agent's latest answer one read_agent call returns. */
 const READ_AGENT_CHARS = 20_000;
@@ -742,11 +764,13 @@ export function orchestrationTools(
             },
             model: {
               type: "object",
+              description: MODEL_PARAM_DESCRIPTION,
               properties: {
                 provider: { type: "string" },
                 model: { type: "string" },
-                effort: { type: "string" },
+                effort: { type: "string", enum: Effort.options },
               },
+              required: ["provider", "model"],
             },
           },
           required: ["kind", "name", "role"],
@@ -757,6 +781,8 @@ export function orchestrationTools(
         if (!creatable.includes(i.kind as AgentRecord["kind"])) {
           return { content: `You can create: ${creatable.join(", ")}.`, isError: true };
         }
+        const problem = i.model && (await host.modelProblem?.(i.model));
+        if (problem) return { content: `${problem} The agent was not created.`, isError: true };
         const a = await host.registry.create(me, {
           kind: i.kind as AgentRecord["kind"],
           parentId: self.id,
@@ -778,6 +804,63 @@ export function orchestrationTools(
             tools += ` Not switched off (unknown or essential): ${r.ignored.join(", ")}.`;
         }
         return `Created ${a.kind} ${a.name} (${a.id}) in project ${a.projectId ?? "-"}.${tools}`;
+      },
+    } as Tool);
+
+    // Another agent's model (G38.9): on the person's request only, and the person approves it
+    // (the policy's `agent-model`). Who may is decided before the person is asked.
+    const SetModelInput = z
+      .object({
+        agent_id: z.string().min(1),
+        provider: z.string().min(1),
+        model: z.string().min(1),
+        effort: Effort.optional(),
+      })
+      .superRefine((i, ctx) => {
+        const a = host.registry.get(i.agent_id);
+        if (!a || a.ownerId !== self.ownerId)
+          ctx.addIssue({ code: "custom", path: ["agent_id"], message: `No agent "${i.agent_id}"` });
+        else if (!can(me, "model", a, host.registry.resolve))
+          ctx.addIssue({
+            code: "custom",
+            path: ["agent_id"],
+            message: `You cannot change ${a.name}'s model: only an agent below you (not yourself, not one assigned from another project)`,
+          });
+      });
+    tools.push({
+      def: {
+        name: "set_agent_model",
+        description: SET_AGENT_MODEL_DESCRIPTION,
+        inputSchema: {
+          type: "object",
+          properties: {
+            agent_id: { type: "string" },
+            provider: { type: "string" },
+            model: { type: "string" },
+            effort: { type: "string", enum: Effort.options },
+          },
+          required: ["agent_id", "provider", "model"],
+        },
+      },
+      schema: SetModelInput,
+      async run(i: z.infer<typeof SetModelInput>) {
+        if (!host.setAgentModel) throw new Error("Changing an agent's model is not available here");
+        const problem = await host.modelProblem?.(i);
+        if (problem) return { content: `${problem} Nothing changed.`, isError: true };
+        const a = target(i.agent_id);
+        const r = await host.setAgentModel(
+          self.ownerId,
+          a.id,
+          { provider: i.provider, model: i.model, ...(i.effort && { effort: i.effort }) },
+          self,
+        );
+        const notes = [
+          r.now > 0 && `its open conversations (${r.now}) use it from their next message`,
+          r.afterTurn > 0 && `${r.afterTurn} working now switch when their turn ends`,
+          r.ownModel > 0 &&
+            `${r.ownModel} keep the model the person chose for them in the composer`,
+        ].filter(Boolean);
+        return `${a.name} now uses ${i.provider}/${i.model}${i.effort ? ` (effort ${i.effort})` : ""} in its next conversations${notes.length ? `; ${notes.join("; ")}` : ""}.`;
       },
     } as Tool);
   }
