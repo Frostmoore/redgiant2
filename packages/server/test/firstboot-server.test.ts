@@ -146,7 +146,9 @@ describe("the one-time setup code (G39.3)", () => {
     expect(await c.use("x", "a")).toBe("none");
     const code = await c.issue();
     expect((await readFile(join(dir, "setup-code.txt"), "utf8")).trim()).toBe(code);
-    expect(((await stat(join(dir, "setup-code.txt"))).mode & 0o777).toString(8)).toBe("600");
+    // Readable by its owner only (Windows has no such mode bits).
+    if (process.platform !== "win32")
+      expect(((await stat(join(dir, "setup-code.txt"))).mode & 0o777).toString(8)).toBe("600");
     for (let i = 0; i < 5; i++) expect(await c.use("WRONG-CODE0", "a")).toBe("wrong");
     expect(await c.use(code, "a")).toBe("too_many");
     now += 16 * 60_000;
@@ -233,7 +235,18 @@ describe("where backups go (G39.3)", () => {
     ["a disk of the person's", "/mnt/nas/redgiant", null],
     ["a home folder", "/home/me/Backups", null],
   ])("a folder: %s", (_, path, want) => {
-    expect(folderRefusal(path, "/data/redgiant")).toBe(want);
+    expect(folderRefusal(path, "/data/redgiant", "linux")).toBe(want);
+  });
+
+  it.each([
+    ["relative", "Backups", "not_absolute"],
+    ["a drive's root", "D:\\", "system"],
+    ["Windows' folder", "C:\\Windows\\Temp\\x", "system"],
+    ["the programs", "c:/Program Files/RedGiant", "system"],
+    ["inside the data", "C:\\Users\\me\\RedGiant\\data\\b", "data"],
+    ["an external disk", "E:\\Backup RedGiant", null],
+  ])("a folder on Windows: %s", (_, path, want) => {
+    expect(folderRefusal(path, "C:\\Users\\Me\\RedGiant\\data", "win32")).toBe(want);
   });
 
   it("mounts only the removable disk picked, through the helper, and never a system disk", async () => {
@@ -296,7 +309,7 @@ describe("where backups go (G39.3)", () => {
     });
     expect(disk?.body.code).toBe("cannot_mount");
     const sys = await s?.api<{ code: string }>("PUT", "/api/setup/backups/folder", {
-      path: "/usr/x",
+      path: process.platform === "win32" ? "C:\\Windows\\x" : "/usr/x",
     });
     expect(sys?.body.code).toBe("folder_system");
     const ok = await s?.api<BackupSettings>("PUT", "/api/setup/backups/folder", { path: out });

@@ -5,7 +5,7 @@
 import { constants } from "node:fs";
 import { access, mkdir, readdir, readFile, rm, statfs, writeFile } from "node:fs/promises";
 import { platform } from "node:os";
-import { isAbsolute, join, normalize } from "node:path";
+import { join, posix, win32 } from "node:path";
 import type {
   BackupDestination,
   BlockDisk,
@@ -28,7 +28,7 @@ import { HelperError, type OsHelper } from "./os-helper.js";
 const GB = 1024 ** 3;
 const round = (n: number) => Math.round(n * 10) / 10;
 
-/** Folders a backup folder may never be in (the system's own). */
+/** Folders a backup folder may never be in (the system's own), on Linux and macOS. */
 const SYSTEM_DIRS = [
   "/bin",
   "/boot",
@@ -41,20 +41,42 @@ const SYSTEM_DIRS = [
   "/sbin",
   "/sys",
   "/usr",
+  "/System",
+  "/Library",
 ];
+/** The same on Windows (any drive's root is refused too). */
+const WINDOWS_DIRS = ["\\windows", "\\program files", "\\program files (x86)", "\\programdata"];
 
-/** Why a folder cannot take backups, or null when it can (still to be checked as writable). */
+/**
+ * Why a folder cannot take backups, or null when it can (still to be checked as writable): it
+ * must be a full path, not a system folder, and not inside the data folder (a backup there is
+ * lost with the data).
+ */
 export function folderRefusal(
   path: string,
   dataDir: string,
+  os: NodeJS.Platform = platform(),
 ): "not_absolute" | "system" | "data" | null {
-  if (!isAbsolute(path) || path.includes("\0")) return "not_absolute";
-  const p = normalize(path).replace(/\/+$/, "") || "/";
+  if (path.includes("\0")) return "not_absolute";
+  if (os === "win32") {
+    if (!/^[A-Za-z]:[\\/]/.test(path)) return "not_absolute";
+    const p = win32
+      .normalize(path)
+      .replace(/[\\]+$/, "")
+      .toLowerCase();
+    const rest = p.slice(2);
+    if (!rest || WINDOWS_DIRS.some((d) => rest === d || rest.startsWith(`${d}\\`))) return "system";
+    const d = win32
+      .normalize(dataDir)
+      .replace(/[\\]+$/, "")
+      .toLowerCase();
+    return p === d || p.startsWith(`${d}\\`) ? "data" : null;
+  }
+  if (!posix.isAbsolute(path)) return "not_absolute";
+  const p = posix.normalize(path).replace(/\/+$/, "") || "/";
   if (p === "/" || SYSTEM_DIRS.some((d) => p === d || p.startsWith(`${d}/`))) return "system";
-  // Inside the data folder a backup is lost with it: it must be somewhere else.
-  const d = normalize(dataDir).replace(/\/+$/, "");
-  if (p === d || p.startsWith(`${d}/`)) return "data";
-  return null;
+  const d = posix.normalize(dataDir).replace(/\/+$/, "");
+  return p === d || p.startsWith(`${d}/`) ? "data" : null;
 }
 
 export class FirstBootError extends Error {
@@ -176,9 +198,11 @@ export class FirstBoot {
 
   /** A folder for backups: allowed, created, and written to once. */
   async checkFolder(path: string): Promise<BackupDestination & { kind: "folder" }> {
+    // The folder is a real one of the machine RedGiant runs on: its own system's rules.
     const why = folderRefusal(path, this.o.dataDir);
     if (why) throw new FirstBootError(`folder_${why}`);
-    const p = normalize(path).replace(/\/+$/, "");
+    const p =
+      platform() === "win32" ? win32.normalize(path) : posix.normalize(path).replace(/\/+$/, "");
     await this.writable(p);
     return { kind: "folder", path: p };
   }

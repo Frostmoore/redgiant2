@@ -474,7 +474,7 @@ describe("the privileged helper refuses before doing anything", () => {
     ["unmount .ssh", "bad_request"],
     ["rm -rf /", "unknown_op"],
     ["ssh-on not*base64", "bad_request"],
-  ])("%s", async (line, code) => {
+  ])("%s", { skip: process.platform === "win32" }, async (line, code) => {
     expect(await ask(line)).toBe(`{"ok":false,"error":"${code}"}`);
   });
 });
