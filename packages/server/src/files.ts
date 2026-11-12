@@ -100,6 +100,8 @@ export class FileService {
     const abs = await ws.resolve(path);
     const out: Entry[] = [];
     for (const d of await readdir(abs, { withFileTypes: true })) {
+      // git's own folder (every project has one since 3.5.12) is git's business, not the panel's.
+      if (d.name === ".git") continue;
       const full = `${abs}${sep}${d.name}`;
       const st = await lstat(full).catch(() => undefined);
       if (!st) continue;

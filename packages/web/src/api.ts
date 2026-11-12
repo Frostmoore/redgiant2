@@ -325,6 +325,9 @@ export interface Project {
   createdAt: string;
   /** Archived (2026-11-09): out of every list, read only until it is restored. */
   archivedAt?: string;
+  /** Whether its folder has its own git repository (3.5.12); on creation, why not. */
+  git?: boolean;
+  gitError?: string;
 }
 
 /** Who works in a project now: what archiving it stops (the window says it first). */
@@ -638,6 +641,9 @@ export class Api {
   createProject = (name: string) => this.call<Project>("POST", "/api/projects", { name });
   projectWork = (id: string) => this.call<ProjectWork>("GET", `/api/projects/${id}/work`);
   projectTasks = (id: string) => this.call<ProjectTask[]>("GET", `/api/projects/${id}/tasks`);
+  /** «Initialise git» (3.5.12): the repository a new project gets. */
+  initProjectGit = (id: string) =>
+    this.call<{ git: "created" | "present" }>("POST", `/api/projects/${id}/git`);
   archiveProject = (id: string) => this.call<unknown>("POST", `/api/projects/${id}/archive`);
   restoreProject = (id: string) => this.call<unknown>("POST", `/api/projects/${id}/restore`);
   agents = () => this.call<Agent[]>("GET", "/api/agents");

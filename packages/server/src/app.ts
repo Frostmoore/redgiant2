@@ -90,7 +90,8 @@ import { LoginError } from "./login.js";
 import { MagicNotFoundError, MagicStateError } from "./magic.js";
 import { personRoutes } from "./person-routes.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
-import { SubprojectError } from "./projects.js";
+import { hasOwnRepo } from "./project-git.js";
+import { ProjectError, SubprojectError } from "./projects.js";
 import { RefineError } from "./prompt-refiner.js";
 import { RoomError } from "./rooms.js";
 import type { SetupService } from "./setup.js";
@@ -130,6 +131,9 @@ const Project = z
     createdAt: z.string(),
     /** Archived (2026-11-09): read only, out of the lists, until it is restored. */
     archivedAt: z.string().optional(),
+    /** Whether its folder has its own git repository (3.5.12); on creation, why not. */
+    git: z.boolean().optional(),
+    gitError: z.string().optional(),
   })
   .openapi("Project");
 const Agent = z
@@ -1016,7 +1020,25 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   });
   const human = (c: Context<Env>) => ({ type: "human" as const, ownerId: owner(c) });
 
-  app.openapi(routes.listProjects, async (c) => c.json(await core.projects.list(owner(c)), 200));
+  app.openapi(routes.listProjects, async (c) => {
+    const list = await core.projects.list(owner(c));
+    // Whether each folder has its repository: Settings > Projects offers «Initialise git» (3.5.12).
+    return c.json(
+      await Promise.all(list.map(async (p) => ({ ...p, git: await hasOwnRepo(p.path) }))),
+      200,
+    );
+  });
+  // «Initialise git» (3.5.12): the repository a new project gets, for one that has none.
+  app.post("/api/projects/:id/git", async (c) => {
+    try {
+      const r = await core.projects.initGit(owner(c), c.req.param("id"));
+      if (r.git === "missing" || r.git === "failed") return c.json({ error: r.error }, 400);
+      return c.json(r, 200);
+    } catch (err) {
+      if (err instanceof ProjectError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
+  });
   app.openapi(routes.createProject, async (c) => {
     try {
       const { name, path } = c.req.valid("json");

@@ -8,6 +8,7 @@ import {
   applyEdit,
   baseTools,
   ffmpegHint,
+  gitHint,
   htmlToText,
   LocalWorkspace,
   PathOutsideWorkspaceError,
@@ -293,6 +294,23 @@ describe.skipIf(process.platform === "win32")("bash", () => {
       /command -v ffmpeg/,
     );
     expect(ffmpegHint("ls", "Permission denied")).toBeUndefined();
+  });
+
+  it("tells the agent when the project has no git repository (3.5.12), never silently", async () => {
+    const table: [string, boolean][] = [
+      ["fatal: not a git repository (or any of the parent directories): .git", true],
+      ["Fatal: Not a git repository: '/c/Users/Me/RedGiant/workspaces/me/shop'", true],
+      ["fatal: pathspec 'x' did not match any files", false],
+      ["", false],
+    ];
+    for (const [output, hinted] of table)
+      expect(gitHint(output) !== undefined, output).toBe(hinted);
+    expect(gitHint(table[0]?.[0] ?? "")).toMatch(/Initialise git/);
+    // The real thing: git in a folder without a repository (the temporary folder has none).
+    const r = await run("bash", { command: "git -C . log -1" });
+    expect(r.isError).toBe(true);
+    if (/not a git repository/i.test(r.content))
+      expect(r.content).toMatch(/Hint: this folder has no git repository/);
   });
 });
 

@@ -6,10 +6,19 @@ import { useEffect, useState } from "preact/hooks";
 import type { Project, ProjectTask, ProjectWork } from "../api.js";
 import { explain } from "../explain.js";
 import { t } from "../i18n.js";
-import { IconArchive, IconBox, IconChat, IconFolder, IconList, IconRestore } from "../icons.js";
+import {
+  IconArchive,
+  IconBox,
+  IconChat,
+  IconFolder,
+  IconGit,
+  IconList,
+  IconRestore,
+} from "../icons.js";
 import {
   agents,
   archivedProjects,
+  attempt,
   getApi,
   openSession,
   openTab,
@@ -26,6 +35,17 @@ const day = (iso: string | undefined) =>
   iso
     ? new Date(iso).toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" })
     : "";
+
+/**
+ * What the page says when a project was made without its git repository (3.5.12): never a
+ * repository claimed that is not there.
+ */
+export function noGitNotice(p: Project): string | undefined {
+  if (p.git !== false) return undefined;
+  if (!p.gitError) return t("pgNoGitAdopted", { name: p.name });
+  const why = /not installed/.test(p.gitError) ? t("pgWhyMissing") : p.gitError;
+  return t("pgNoGitCreated", { name: p.name, why });
+}
 
 /** Opens an archived project, read only, in a tab of its own. */
 export function openArchived(p: Project): void {
@@ -294,6 +314,17 @@ export function ArchivedProjectView({ projectId }: { projectId: string }) {
 /** Settings > Projects: archive one; the archived ones, with «Restore». */
 export function ProjectsPage() {
   const [asking, setAsking] = useState<Project>();
+  const [busy, setBusy] = useState<string>();
+  const [done, setDone] = useState<string>();
+  const initGit = async (p: Project) => {
+    setBusy(p.id);
+    setDone(undefined);
+    const r = await attempt(() => getApi().initProjectGit(p.id));
+    setBusy(undefined);
+    if (!r) return;
+    setDone(t("pgInitDone", { name: p.name }));
+    await refreshProjects();
+  };
   return (
     <WzPage
       after={
@@ -312,13 +343,33 @@ export function ProjectsPage() {
                 <IconBox size={15} /> {p.name}
               </span>
             }
-            help={<code>{p.path}</code>}
+            help={
+              <>
+                <code>{p.path}</code>
+                {p.git === false && (
+                  <span class="pa-pill nogit">
+                    <IconGit size={12} /> {t("pgNoGit")}
+                  </span>
+                )}
+              </>
+            }
           >
+            {p.git === false && (
+              <button
+                type="button"
+                class="wz-btn"
+                disabled={busy === p.id}
+                onClick={() => void initGit(p)}
+              >
+                <IconGit size={16} /> {t("pgInit")}
+              </button>
+            )}
             <button type="button" class="wz-btn" onClick={() => setAsking(p)}>
               <IconArchive size={16} /> {t("paArchive")}
             </button>
           </Row>
         ))}
+        {done && <p class="notice">{done}</p>}
       </Box>
       <Sub title={t("paArchivedTitle")} lead={t("paArchivedLead")} />
       <Box>

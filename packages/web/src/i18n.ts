@@ -2159,6 +2159,7 @@ const en = {
   limitWeekShort: "7d",
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
+  newsVersion: "Version {version}",
   news3511Phone: "The editors on a phone and a tablet",
   news3511PhoneText:
     "The Canvas takes the whole screen on a phone or tablet, with Chat to go back. Every editor works by touch: tap for the cursor, drag to scroll or move, pinch to zoom, two fingers to pan; the picture tools sit in a bar at the bottom. Documents and slides are view-only on a phone and editable on a tablet.",
@@ -2695,6 +2696,15 @@ const en = {
   paArchivedTitle: "Archived",
   paArchivedLead: "Read only. «Restore» puts the project back as it was, with its automations.",
   paFilesReadOnly: "Read only: the project is archived",
+  // A git repository in every project (3.5.12).
+  pgNoGitCreated:
+    "Project «{name}» created, but without a git repository: {why}. Create it from Settings › Projects («Initialise git») once git works.",
+  pgNoGitAdopted:
+    "Project «{name}» created on its folder, which has no git repository: Settings › Projects › «Initialise git» creates one.",
+  pgNoGit: "No git repository",
+  pgWhyMissing: "git is not installed on this computer yet",
+  pgInit: "Initialise git",
+  pgInitDone: "Git repository created for «{name}» (branch main).",
   // Settings › Artifacts (3.5.9): the collection, export and import.
   arSection: "Artifacts",
   arLead:
@@ -7219,6 +7229,7 @@ const it: Record<Key, string> = {
   limitWeekShort: "7g",
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
+  newsVersion: "Versione {version}",
   news3511Phone: "Gli editor sul telefono e sul tablet",
   news3511PhoneText:
     "Il Canvas prende tutto lo schermo del telefono o del tablet, con Chat per tornare indietro. Ogni editor funziona col dito: tocchi per il cursore, trascini per scorrere o spostare, pizzichi per ingrandire, due dita per muoverti; gli strumenti delle immagini stanno in una barra in basso. Documenti e presentazioni sul telefono si guardano, sul tablet si modificano.",
@@ -7759,6 +7770,14 @@ const it: Record<Key, string> = {
   paArchivedLead:
     "In sola lettura. «Ripristina» rimette il progetto com'era, con le sue automazioni.",
   paFilesReadOnly: "Sola lettura: il progetto è archiviato",
+  pgNoGitCreated:
+    "Progetto «{name}» creato, ma senza repository git: {why}. Crealo da Impostazioni › Progetti («Inizializza git») appena git funziona.",
+  pgNoGitAdopted:
+    "Progetto «{name}» creato sulla sua cartella, che non ha un repository git: Impostazioni › Progetti › «Inizializza git» lo crea.",
+  pgNoGit: "Senza repository git",
+  pgWhyMissing: "git non è ancora installato su questo computer",
+  pgInit: "Inizializza git",
+  pgInitDone: "Repository git creato per «{name}» (branch main).",
   // Impostazioni › Artefatti (3.5.9): la raccolta, esporta e importa.
   arSection: "Artefatti",
   arLead:

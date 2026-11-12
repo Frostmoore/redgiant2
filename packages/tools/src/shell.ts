@@ -82,7 +82,9 @@ export function bashTool(
       if (r.stderr) parts.push(`stderr:\n${r.stderr}`);
       const output = `${r.stdout}\n${r.stderr}`;
       const hint =
-        r.exitCode !== 0 ? (ffmpegHint(command, output) ?? cmdHint(command, output)) : undefined;
+        r.exitCode !== 0
+          ? (ffmpegHint(command, output) ?? cmdHint(command, output) ?? gitHint(output))
+          : undefined;
       if (hint) parts.push(hint);
       return {
         content: truncateMiddle(parts.join("\n"), maxOutputChars),
@@ -107,6 +109,15 @@ export function startFolder(ws: Workspace): string {
   if (!(ws instanceof SubprojectWorkspace) || !ws.own) return ws.root;
   const sep = ws.root.includes("\\") && !ws.root.includes("/") ? "\\" : "/";
   return `${ws.root.replace(/[\\/]+$/, "")}${sep}${ws.own.replaceAll("/", sep)}`;
+}
+
+/**
+ * A project folder without its git repository (3.5.12, the person's test: «fatal: not a git
+ * repository»): never silent, the agent learns how it gets one.
+ */
+export function gitHint(output: string): string | undefined {
+  if (!/fatal: not a git repository/i.test(output)) return undefined;
+  return 'Hint: this folder has no git repository. Every project should have one: the user can create it in Settings > Projects («Initialise git»), or you can, in the project\'s root: git init, git symbolic-ref HEAD refs/heads/main, git add -A, git commit -m "Initial commit". Say which you did.';
 }
 
 /**

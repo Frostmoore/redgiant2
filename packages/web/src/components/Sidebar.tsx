@@ -26,6 +26,7 @@ import {
   attempt,
   chatAgentId,
   getApi,
+  lastError,
   newSession,
   openOrchestrator,
   openSession,
@@ -40,7 +41,7 @@ import {
 } from "../state.js";
 import { askConfirm } from "./dialogs.js";
 import { FolderMenu } from "./FolderMenu.js";
-import { ArchivedList, ArchiveProjectDialog } from "./ProjectArchive.js";
+import { ArchivedList, ArchiveProjectDialog, noGitNotice } from "./ProjectArchive.js";
 
 const SHOWN = 8;
 
@@ -588,6 +589,9 @@ export function Sidebar() {
     setAdding(false);
     await refresh();
     setOpen(new Set([...open, `p:${project.id}`]));
+    // Without its git repository the project says so (3.5.12), never silently.
+    const noGit = noGitNotice(project);
+    if (noGit) lastError.value = noGit;
   };
   return (
     <nav class="bar">

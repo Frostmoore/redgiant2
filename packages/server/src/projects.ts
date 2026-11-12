@@ -2,6 +2,7 @@ import { mkdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, posix, win32 } from "node:path";
 import type { SqlClient } from "@redgiant/events";
+import { hasOwnRepo, initProjectRepo, type RepoState, type RunGit, runGit } from "./project-git.js";
 
 export interface Project {
   id: string;
@@ -12,6 +13,12 @@ export interface Project {
   createdAt: string;
   /** Archived (2026-11-09): out of every list and read only until it is restored. */
   archivedAt?: string;
+  /**
+   * Its own git repository (3.5.12): in the list, whether the folder has one; on creation, also
+   * why not (`gitError`: git missing or failing), never a repository claimed that is not there.
+   */
+  git?: boolean;
+  gitError?: string;
 }
 
 /** What archiving a project paused, to put back exactly when it is restored. */
@@ -242,6 +249,9 @@ export class ProjectStore {
     private readonly foldersInside?: string,
   ) {}
 
+  /** How git is run for the projects' repositories (a fake one in tests). */
+  runGit: RunGit = runGit;
+
   /** Called after a project is created (its repository, G24.5). */
   onCreate: ((project: Project) => Promise<void>) | undefined;
 
@@ -267,13 +277,30 @@ export class ProjectStore {
       throw err;
     }
     const project = (await this.get(ownerId, id)) as Project;
-    if (folder !== undefined) return project;
+    // An adopted folder keeps what it has; without a repository the page offers one.
+    if (folder !== undefined) return { ...project, git: await hasOwnRepo(path) };
     await mkdir(path, { recursive: true });
+    // Its own repository first (3.5.12), whatever host is connected or not.
+    const repo = await initProjectRepo(path, this.runGit);
+    if (repo.git === "missing" || repo.git === "failed")
+      console.warn(`project ${id}: no git repository: ${repo.error}`);
     // Its repository on GitHub or Gitea (G24.5): a failure there does not undo the project.
     await this.onCreate?.(project).catch((err) =>
       console.warn(`project ${id}: no repository: ${(err as Error).message}`),
     );
-    return project;
+    return withRepo(project, repo);
+  }
+
+  /**
+   * «Initialise git» for a project that has no repository (an adopted folder, or one made when
+   * git was missing): the same repository a new project gets. Archived projects are read only.
+   */
+  async initGit(ownerId: string, id: string): Promise<RepoState> {
+    const p = await this.get(ownerId, id);
+    if (!p) throw new ProjectError("Project not found");
+    if (p.archivedAt) throw new ProjectError(`${p.name} is archived: restore it first`);
+    await mkdir(p.path, { recursive: true });
+    return initProjectRepo(p.path, this.runGit);
   }
 
   /** The folder as it really is (links followed), once every rule lets it be a project. */
@@ -436,3 +463,8 @@ export class ProjectStore {
     ).map(fromRow);
   }
 }
+
+const withRepo = (p: Project, r: RepoState): Project =>
+  r.git === "missing" || r.git === "failed"
+    ? { ...p, git: false, gitError: r.error }
+    : { ...p, git: true };
