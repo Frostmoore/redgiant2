@@ -92,7 +92,7 @@ case "$MODE" in
     qemu-img create -q -f qcow2 -b "$(readlink -f "$DISK")" -F qcow2 "$RUN"
     start=$SECONDS
     run_qemu -drive "file=$RUN,if=virtio,format=qcow2" \
-      -nic "user,model=virtio-net-pci,romfile=,hostfwd=tcp:127.0.0.1:$PORT-:7600" \
+      -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$PORT-:7600" -device virtio-net-pci,netdev=net0,romfile= \
       -smbios "type=11,value=io.systemd.credential:redgiant.selftest=1"
     ok=1
     if wait_for "REDGIANT-SELFTEST (PASS|FAIL)$" "$TIMEOUT"; then
@@ -121,7 +121,7 @@ case "$MODE" in
     qemu-img create -q -f qcow2 "$DISK" 32G
     start=$SECONDS
     run_qemu -cdrom "$ISO" -boot d -no-reboot \
-      -drive "file=$DISK,if=virtio,format=qcow2" -nic "user,model=virtio-net-pci,romfile=" \
+      -drive "file=$DISK,if=virtio,format=qcow2" -netdev user,id=net0 -device virtio-net-pci,netdev=net0,romfile= \
       -smbios "type=11,value=io.systemd.credential:redgiant.install.disk=/dev/vda" \
       -smbios "type=11,value=io.systemd.credential:redgiant.install.confirm=yes"
     deadline=$((SECONDS + TIMEOUT))
