@@ -79,7 +79,7 @@ wait_for() { # regex seconds: true once the serial console shows it
   local deadline=$((SECONDS + $2))
   while [ $SECONDS -lt $deadline ]; do
     grep -aqE "$1" "$SERIAL" && return 0
-    kill -0 "$QEMU_PID" 2>/dev/null || return 1
+    kill -0 "$QEMU_PID" 2>/dev/null || { echo "::error::QEMU exited"; return 1; }
     sleep 5
   done
   return 1
@@ -92,13 +92,13 @@ case "$MODE" in
     qemu-img create -q -f qcow2 -b "$(readlink -f "$DISK")" -F qcow2 "$RUN"
     start=$SECONDS
     run_qemu -drive "file=$RUN,if=virtio,format=qcow2" \
-      -nic "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:$PORT-:7600" \
+      -nic "user,model=virtio-net-pci,romfile=,hostfwd=tcp:127.0.0.1:$PORT-:7600" \
       -smbios "type=11,value=io.systemd.credential:redgiant.selftest=1"
     ok=1
     if wait_for "REDGIANT-SELFTEST (PASS|FAIL)$" "$TIMEOUT"; then
       echo "self-test finished after $((SECONDS - start)) s"
     else
-      echo "::error::no self-test result within $TIMEOUT s"
+      echo "::error::no self-test result (after $((SECONDS - start)) s)"
       ok=0
     fi
     grep -a "REDGIANT-SELFTEST" "$SERIAL" | sed 's/\r$//'
@@ -121,7 +121,7 @@ case "$MODE" in
     qemu-img create -q -f qcow2 "$DISK" 32G
     start=$SECONDS
     run_qemu -cdrom "$ISO" -boot d -no-reboot \
-      -drive "file=$DISK,if=virtio,format=qcow2" -nic "user,model=virtio-net-pci" \
+      -drive "file=$DISK,if=virtio,format=qcow2" -nic "user,model=virtio-net-pci,romfile=" \
       -smbios "type=11,value=io.systemd.credential:redgiant.install.disk=/dev/vda" \
       -smbios "type=11,value=io.systemd.credential:redgiant.install.confirm=yes"
     deadline=$((SECONDS + TIMEOUT))
