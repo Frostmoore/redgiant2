@@ -4268,6 +4268,11 @@ const en = {
   acpKind_fetch: "fetch",
   acpKind_switch_mode: "mode",
   acpKind_other: "action",
+  acpEnv_name: '"{name}" is not a variable name.',
+  "acpEnv_secret-name":
+    "\"{name}\" looks like a key: keys go in RedGiant's keychain, never in an agent's variables.",
+  acpEnv_own: '"{name}" is RedGiant\'s own.',
+  "acpEnv_secret-value": 'The value of "{name}" looks like a key: keys go in RedGiant\'s keychain.',
   acpSection: "External agents (ACP)",
   acpPageQ: "Which other agents work for you?",
   acpPageLead:
@@ -9436,6 +9441,12 @@ const it: Record<Key, string> = {
   acpKind_fetch: "pagina web",
   acpKind_switch_mode: "modalità",
   acpKind_other: "azione",
+  acpEnv_name: '"{name}" non è un nome di variabile.',
+  "acpEnv_secret-name":
+    '"{name}" sembra una chiave: le chiavi vanno nel portachiavi di RedGiant, mai nelle variabili di un agente.',
+  acpEnv_own: '"{name}" è una variabile di RedGiant.',
+  "acpEnv_secret-value":
+    'Il valore di "{name}" sembra una chiave: le chiavi vanno nel portachiavi di RedGiant.',
   acpSection: "Agenti esterni (ACP)",
   acpPageQ: "Quali altri agenti lavorano per te?",
   acpPageLead:

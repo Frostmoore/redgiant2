@@ -1953,6 +1953,12 @@ export class RedGiantCore implements OrchestrationHost {
     if (!preview) this.acpEngines.set(sessionId, engine);
     const listeners = (): Iterable<(m: ServerMessage) => void> =>
       preview ? [] : (this.followers.get(sessionId) ?? []);
+    const guards = hierarchyGuards({
+      agent,
+      resolve: this.registry.resolve,
+      broker: this.broker,
+      budget: this.budget,
+    });
     const options = {
       store: this.store,
       providers: this.o.providers,
@@ -1980,12 +1986,9 @@ export class RedGiantCore implements OrchestrationHost {
             text: e.text ?? "",
           });
       },
-      ...hierarchyGuards({
-        agent,
-        resolve: this.registry.resolve,
-        broker: this.broker,
-        budget: this.budget,
-      }),
+      // Its RedGiant tool (complete_task) asks the broker like any other. RedGiant's spending caps
+      // count what RedGiant pays for models: the program spends on its own account, out of sight.
+      ...(guards.permission && { permission: guards.permission }),
     };
     const session = preview
       ? AgentSession.preview(options)

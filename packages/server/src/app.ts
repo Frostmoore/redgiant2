@@ -139,6 +139,8 @@ const Project = z
   .openapi("Project");
 const Agent = z
   .object({
+    /** An external ACP agent's (G38.6): its program runs its turns. */
+    external: z.literal("acp").optional(),
     id: z.string(),
     kind: AgentKind,
     parentId: z.string().nullable(),
@@ -1052,7 +1054,13 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.openapi(routes.listAgents, async (c) => {
     const { projectId } = c.req.valid("query");
     return c.json(
-      core.registry.list({ ownerId: owner(c), ...(projectId && { projectId }) }).map(agentOut),
+      core.registry
+        .list({ ownerId: owner(c), ...(projectId && { projectId }) })
+        .map((a) => ({
+          ...agentOut(a),
+          // An external ACP agent (G38.6): its program runs its turns.
+          ...(core.acpWorkers.get(owner(c), a.id) && { external: "acp" as const }),
+        })),
       200,
     );
   });

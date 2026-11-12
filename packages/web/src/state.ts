@@ -309,8 +309,12 @@ export function buildItems(events: Event[]): ChatItem[] {
           ...(e.payload.costUnknown && { costUnknown: true }),
           model: e.payload.model,
           stopReason: e.payload.stopReason,
-          // Older or hand-made events may lack the provider.
-          ...((e.payload.provider ?? "").startsWith("import:") && { imported: true }),
+          // Older or hand-made events may lack the provider. An external ACP agent's (G38.6) have
+          // no figures either: its program counts nothing RedGiant could show.
+          ...(((e.payload.provider ?? "").startsWith("import:") ||
+            e.payload.provider === "acp") && {
+            imported: true,
+          }),
         });
         if (e.payload.stepLimit) {
           limited = items.at(-1) as Extract<ChatItem, { kind: "assistant" }>;

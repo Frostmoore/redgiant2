@@ -41,18 +41,60 @@ export const ACP_PRESETS: { id: string; name: string; command: string; args: str
   { id: "kimi", name: "Kimi CLI", command: "kimi", args: ["acp"] },
 ];
 
+/** Words of a variable's name (between underscores) that make it a secret's. */
+const SECRET_WORDS = new Set([
+  "KEY",
+  "KEYS",
+  "APIKEY",
+  "TOKEN",
+  "SECRET",
+  "SECRETS",
+  "PASSWORD",
+  "PASSWD",
+  "PASS",
+  "CREDENTIAL",
+  "CREDENTIALS",
+  "AUTH",
+  "COOKIE",
+  "SESSION",
+  "PAT",
+]);
+
+/** Why a variable is refused for an external agent (G38.6); the page says it in its language. */
+export type AcpEnvIssue = "name" | "secret-name" | "own" | "secret-value";
+
 /**
- * What is wrong with a variable for an external agent, if anything (G38.6): never a secret.
- * Names that read as keys and values that look like one are refused, and RedGiant's own names.
+ * Why a variable for an external agent is refused, if it is (G38.6): never a secret. Names that
+ * read as keys and values that look like one are refused, and RedGiant's own names.
  */
-export function acpEnvProblem(name: string, value: string): string | undefined {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return `"${name}" is not a variable name`;
-  if (/(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION)/i.test(name))
-    return `"${name}" looks like a secret: keys go in RedGiant's keychain, never in an agent's variables`;
-  if (/^REDGIANT_/i.test(name)) return `"${name}" is RedGiant's own`;
-  if (looksSecret(value))
-    return `the value of "${name}" looks like a key: keys go in RedGiant's keychain`;
+export function acpEnvIssue(name: string, value: string): AcpEnvIssue | undefined {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return "name";
+  if (
+    name
+      .toUpperCase()
+      .split(/_+/)
+      .some((word) => SECRET_WORDS.has(word))
+  )
+    return "secret-name";
+  if (/^REDGIANT_/i.test(name)) return "own";
+  if (looksSecret(value)) return "secret-value";
   return undefined;
+}
+
+/** The same in words, for the server's answers and the log. */
+export function acpEnvProblem(name: string, value: string): string | undefined {
+  switch (acpEnvIssue(name, value)) {
+    case "name":
+      return `"${name}" is not a variable name`;
+    case "secret-name":
+      return `"${name}" looks like a secret: keys go in RedGiant's keychain, never in an agent's variables`;
+    case "own":
+      return `"${name}" is RedGiant's own`;
+    case "secret-value":
+      return `the value of "${name}" looks like a key: keys go in RedGiant's keychain`;
+    default:
+      return undefined;
+  }
 }
 
 function looksSecret(v: string): boolean {

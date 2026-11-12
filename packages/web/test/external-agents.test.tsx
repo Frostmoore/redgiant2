@@ -90,7 +90,7 @@ describe("Settings › External agents (G38.6)", () => {
     ] as HTMLInputElement[];
     fireEvent.input(name as HTMLInputElement, { target: { value: "OPENAI_API_KEY" } });
     fireEvent.input(value as HTMLInputElement, { target: { value: "x" } });
-    await waitFor(() => expect(r.getByText(/looks like a secret/)).toBeTruthy());
+    await waitFor(() => expect(r.getByText(/looks like a key: keys go in/)).toBeTruthy());
     const save = r.getByText("Save") as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     fireEvent.input(name as HTMLInputElement, { target: { value: "CODEX_HOME" } });

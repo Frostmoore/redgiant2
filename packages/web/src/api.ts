@@ -375,6 +375,8 @@ export interface Agent {
   /** Other projects it is assigned to, under their orchestrators (2026-11-03). */
   projects?: string[];
   status: "active" | "stopped";
+  /** An external ACP agent (G38.6): its program runs its turns, without RedGiant's figures. */
+  external?: "acp";
 }
 
 export interface SessionInfo {

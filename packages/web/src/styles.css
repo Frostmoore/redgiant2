@@ -18806,6 +18806,9 @@ html[data-theme="dark"] {
   flex-direction: column;
   gap: 6px;
 }
+.acp-env-add {
+  align-self: flex-start;
+}
 .acp-env-row {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto;

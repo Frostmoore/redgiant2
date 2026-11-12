@@ -328,6 +328,9 @@ function UserItem({
   );
 }
 
+/** An external ACP agent (G38.6): no «reading the context» line, its program does not tell. */
+const externalAgent = (id: string) => agents.value.find((a) => a.id === id)?.external === "acp";
+
 /**
  * A tool call's head in the chat: its name and the gist of its input. An external ACP agent's own
  * actions (G38.6, `acp_<kind>`) show their kind in words and the title the agent gave them.
@@ -1301,7 +1304,9 @@ function SubagentView({
               sessionId={tab.childSessionId}
             />
           ))}
-          {status === "running" && v.call && <TurnProgress call={v.call} />}
+          {status === "running" && v.call && !externalAgent(tab.childAgentId) && (
+            <TurnProgress call={v.call} />
+          )}
           {(v.thinking || v.text) && (
             <div class="bubble assistant streaming">
               {v.text ? (
@@ -1448,7 +1453,9 @@ function MainChat({ sessionId, agentId }: { sessionId: string; agentId: string }
               <div class="dim">{t("compacting")}</div>
             </div>
           )}
-          {v.state === "running" && v.call && !v.compacting && <TurnProgress call={v.call} />}
+          {v.state === "running" && v.call && !v.compacting && !externalAgent(agentId) && (
+            <TurnProgress call={v.call} />
+          )}
           {(v.thinking || v.text) && (
             <div class="bubble assistant streaming">
               {/* The reasoning as it comes (2026-11-05), folded away once the answer starts. */}

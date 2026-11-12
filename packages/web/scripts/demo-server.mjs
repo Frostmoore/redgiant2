@@ -1604,6 +1604,7 @@ if (process.env.DEMO_ACP) {
     env: {},
   });
   acpSession = await core.startSession("local", orch.id);
+  await core.nameSession(acpSession, "Ask Claude Code to add a health check");
   const at = (sessionId, agentId, body) =>
     core.store.append({ ownerId: "local", projectId: project.id, agentId, sessionId, body });
   await at(acpSession, null, {
@@ -1630,11 +1631,17 @@ if (process.env.DEMO_ACP) {
   });
   const task = (title, body) => `Task from Orch: «${title}»\n\n${body}`;
   const child = await core.startSession("local", worker.agentId);
+  // A task of its own, as `delegate` opens it: its program closes it with a verifier.
+  await core.tasks.open(core.registry.get(worker.agentId), child, "Add a health check", {
+    agentId: orch.id,
+    sessionId: acpSession,
+    name: orch.name,
+  });
   const steps = [
     "think The API routes live in src/app.py; a /health route answers 200 with the version.",
     "tool t1 Search for the routes in src",
     "write src/health.py def health(): return {'ok': True}",
-    "run node -e console.log('tests: 12 passed')",
+    "run node -e console.log('tests:12/12')",
     "say Added src/health.py with the route; the tests pass.",
     `done node -e "require('fs').accessSync('src/health.py')"`,
   ].join("\n");

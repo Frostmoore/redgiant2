@@ -82,6 +82,8 @@ adapter, Codex, Gemini CLI, GitHub Copilot CLI, Goose, OpenCode, Qwen Code, Kimi
 - It closes a task like the others (RD17): it ends its answer with `RG_COMPLETE_TASK {"verify_command": "…"}` and
   RedGiant runs the verifier in its folder.
 - Stopping it sends `session/cancel`.
+- RedGiant's spending caps do not stop it: they count what RedGiant pays for models, while the program spends on its
+  own account (its subscription or key), which RedGiant cannot see. Its messages show no cost.
 - Its variables never hold a secret: names that read as keys and values that look like one are refused, and RedGiant's
   own environment never reaches it (only `PATH`, `HOME` and the like). The agent uses its own sign-in (for Claude Code,
   `claude login` once in a terminal), or a key of RedGiant's keychain through an egress route.

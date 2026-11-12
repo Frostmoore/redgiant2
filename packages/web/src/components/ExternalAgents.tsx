@@ -4,7 +4,7 @@
 // and God hand it tasks like to any other; its program runs in the agent's own folder, and every
 // file, command and permission it asks for goes through RedGiant. Its variables never hold a key.
 import type { AcpWorkerConfig, AcpWorkerInfo } from "@redgiant/protocol";
-import { acpEnvProblem } from "@redgiant/protocol";
+import { acpEnvIssue } from "@redgiant/protocol";
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { Project } from "../api.js";
@@ -254,7 +254,10 @@ function WorkerWindow({
   const editing = d.agentId !== undefined;
   const envProblem = d.env
     .filter((v) => v.name.trim())
-    .map((v) => acpEnvProblem(v.name.trim(), v.value))
+    .map((v) => {
+      const issue = acpEnvIssue(v.name.trim(), v.value);
+      return issue && t(`acpEnv_${issue}`, { name: v.name.trim() });
+    })
     .find(Boolean);
   const pick = (id: string) => {
     const p = presets.find((x) => x.id === id);
@@ -418,7 +421,7 @@ function WorkerWindow({
           ))}
           <button
             type="button"
-            class="wz-link inl"
+            class="wz-btn quiet acp-env-add"
             onClick={() => set({ env: [...d.env, { name: "", value: "" }] })}
           >
             <IconPlus size={14} /> {t("acpEnvAdd")}
