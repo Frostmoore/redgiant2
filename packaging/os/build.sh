@@ -9,7 +9,7 @@
 #   <dir>/redgiant-os-<ver>-<arch>.raw.zst    the disk itself (what the installer writes)
 #   <dir>/redgiant-os-<ver>-x86_64.iso        installer for a USB stick (amd64 only)
 #
-# Tools (all Debian's): mmdebstrap for the system, systemd-repart --offline for the disk (no loop
+# Tools (all Debian's): mmdebstrap for the system, mkfs.ext4 -d, mtools and systemd-repart --offline for the disk (no loop
 # devices), GRUB with Debian's signed shim for UEFI (Secure Boot included) and GRUB for BIOS on
 # x86_64. The kernel, initramfs and GRUB are Debian's usual ones, so apt updates them as on any
 # Debian. Reproducible from the same Debian snapshot (--mirror http://snapshot.debian.org/…) and
@@ -148,7 +148,9 @@ menuentry 'RedGiant OS' {
 }
 EOF
 [ -e "$ROOT/vmlinuz" ] && [ -e "$ROOT/initrd.img" ] || { echo "no /vmlinuz or /initrd.img" >&2; exit 1; }
-ESP=$ROOT/boot/efi
+# The EFI partition's files, beside the system (mounted at /boot/efi once installed).
+ESP=$WORK/esp
+install -d "$ROOT/boot/efi"
 install -d "$ESP/EFI/BOOT" "$ESP/EFI/debian"
 for dir in BOOT debian; do
   cp "$ROOT/usr/lib/shim/shim$EFI.efi.signed" "$ESP/EFI/$dir/shim$EFI.efi"
@@ -164,18 +166,34 @@ if [ "$ARCH" = amd64 ]; then
 fi
 
 # 3. The disk ------------------------------------------------------------------------------------
-step "The disk (systemd-repart, offline)"
+step "The disk: ext4 and FAT made from their folders, placed by systemd-repart (offline)"
+# The two filesystems are made here (mkfs -d, mtools), not by repart's CopyFiles: repart leaves out
+# of the root whatever an ESP would be mounted over (/boot, with the kernel), and no loop device
+# is needed either way.
+ROOTIMG=$WORK/root.ext4
+ESPIMG=$WORK/esp.vfat
+used=$(du -sxb "$ROOT" | cut -f1)
+# Room for ext4's own structures and a little free space; the system grows into its disk at start.
+size=$(((used + used / 8 + 400 * 1048576) / 1048576))
+rm -f "$ROOTIMG" "$ESPIMG"
+truncate -s "${size}M" "$ROOTIMG"
+mkfs.ext4 -q -F -L redgiant-root -U "$ROOT_UUID" -E root_owner=0:0 -d "$ROOT" "$ROOTIMG"
+truncate -s 512M "$ESPIMG"
+mkfs.vfat -F 32 -n ESP "$ESPIMG" >/dev/null
+mcopy -s -i "$ESPIMG" "$ESP"/* ::/
+mdir -/ -i "$ESPIMG" ::/EFI | grep -iE "efi|cfg" || true
 DEFS=$WORK/repart.d
 mkdir -p "$DEFS"
 if [ "$ARCH" = amd64 ]; then
   printf '[Partition]\nType=21686148-6449-6e6f-744e-656564454649\nLabel=bios\nSizeMinBytes=1M\nSizeMaxBytes=1M\n' >"$DEFS/00-bios.conf"
 fi
-printf '[Partition]\nType=esp\nLabel=esp\nUUID=%s\nFormat=vfat\nCopyFiles=/boot/efi:/\nSizeMinBytes=512M\nSizeMaxBytes=512M\n' "$ESP_UUID" >"$DEFS/10-esp.conf"
-printf '[Partition]\nType=root\nLabel=redgiant-root\nUUID=%s\nFormat=ext4\nCopyFiles=/:/\nExcludeFiles=/boot/efi/\nMinimize=guess\nPaddingMinBytes=0\n' "$ROOT_UUID" >"$DEFS/20-root.conf"
+printf '[Partition]\nType=esp\nLabel=esp\nUUID=%s\nCopyBlocks=%s\n' "$ESP_UUID" "$ESPIMG" >"$DEFS/10-esp.conf"
+printf '[Partition]\nType=root\nLabel=redgiant-root\nUUID=%s\nCopyBlocks=%s\n' "$ROOT_UUID" "$ROOTIMG" >"$DEFS/20-root.conf"
 RAW=$WORK/$NAME.raw
 rm -f "$RAW"
 systemd-repart --offline=yes --empty=create --size=auto --dry-run=no --no-pager \
-  --architecture="$SDARCH" --seed="$DISK_ID" --root="$ROOT" --definitions="$DEFS" "$RAW"
+  --architecture="$SDARCH" --seed="$DISK_ID" --definitions="$DEFS" "$RAW"
+rm -f "$ROOTIMG" "$ESPIMG"
 sfdisk -d "$RAW"
 
 if [ "$ARCH" = amd64 ]; then
