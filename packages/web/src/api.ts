@@ -31,6 +31,8 @@ import {
   type MachineTest,
   type MachineView,
   type MagicAutomation,
+  type MagicExtension,
+  type MagicExtKind,
   type Mailbox as MailboxInfo,
   type ModelsCatalogStatus,
   type OcrLanguage,
@@ -1348,6 +1350,26 @@ export class Api {
   rejectMagic = (id: string, reason?: string) =>
     this.call<MagicAutomation>("POST", `/api/magic/${id}/reject`, reason ? { reason } : {});
   dismissMagic = (id: string) => this.call("DELETE", `/api/magic/${id}`);
+  /** Magic integrations and extensions (G38.3): a conversation with God that ends in a package. */
+  magicExts = () => this.call<MagicExtension[]>("GET", "/api/magic-ext");
+  magicExt = (id: string) => this.call<MagicExtension>("GET", `/api/magic-ext/${id}`);
+  startMagicExt = (kind: MagicExtKind, request: string) =>
+    this.call<MagicExtension>("POST", "/api/magic-ext", { kind, request });
+  approveMagicExt = (id: string) =>
+    this.call<MagicExtension>("POST", `/api/magic-ext/${id}/approve`, {});
+  rejectMagicExt = (id: string, reason?: string) =>
+    this.call<MagicExtension>("POST", `/api/magic-ext/${id}/reject`, reason ? { reason } : {});
+  retestMagicExt = (id: string) =>
+    this.call<MagicExtension>("POST", `/api/magic-ext/${id}/retest`, {});
+  /** The value goes straight into the keychain; it never comes back. */
+  addMagicExtCredential = (id: string, name: string, value: string) =>
+    this.call<MagicExtension>("POST", `/api/magic-ext/${id}/credential`, { name, value });
+  bindMagicExtCredential = (id: string, name: string) =>
+    this.call<MagicExtension>("POST", `/api/magic-ext/${id}/bind`, { name });
+  updateMagicExt = (id: string, request: string) =>
+    this.call<MagicExtension>("POST", `/api/magic-ext/${id}/update`, { request });
+  uninstallMagicExt = (id: string) => this.call("POST", `/api/magic-ext/${id}/uninstall`, {});
+  dismissMagicExt = (id: string) => this.call("DELETE", `/api/magic-ext/${id}`);
   /** Adds the routine's webhook to the project's repository (Gitea or GitHub). */
   repoHook = (id: string, secret: string, project: string) =>
     this.call("POST", `/api/automations/${id}/repo-hook`, { secret, project });

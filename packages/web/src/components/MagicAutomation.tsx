@@ -4,7 +4,7 @@
 // Nothing becomes an automation before the person's yes.
 import type { Automation, MagicAutomation, MagicNeed, Recipe } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
-import { t } from "../i18n.js";
+import { type Key, t } from "../i18n.js";
 import { IconAlert, IconChat, IconKey, IconPuzzle, IconSend, IconSpark } from "../icons.js";
 import { attempt, getApi, openTab } from "../state.js";
 import { Editor, fromRecipe, PLATFORM_NAMES, sentence } from "./AutomationEditor.js";
@@ -14,15 +14,36 @@ import { CredentialWindow } from "./Keychain.js";
 import { Acts } from "./SettingsKit.js";
 import { Field, Modal } from "./ui.js";
 
-const EXAMPLES = ["axMagicEx1", "axMagicEx2", "axMagicEx3"] as const;
+/** The words of a magic window: an automation's, or an integration's and an extension's (G38.3). */
+export interface MagicWords {
+  title: Key;
+  lead: Key;
+  ask: Key;
+  placeholder: Key;
+  examples: Key[];
+  promises: Key[];
+}
 
-/** The window where the person says what the automation should do. */
-export function MagicStart({
+const AUTOMATION_WORDS: MagicWords = {
+  title: "axMagic",
+  lead: "axMagicLead",
+  ask: "axMagicAsk",
+  placeholder: "axMagicPlaceholder",
+  examples: ["axMagicEx1", "axMagicEx2", "axMagicEx3"],
+  promises: ["axMagicPromise1", "axMagicPromise2", "axMagicPromise3"],
+};
+
+/** The window where the person says what the automation (or the integration) should do. */
+export function MagicStart<T = MagicAutomation>({
   onClose,
   onStarted,
+  words = AUTOMATION_WORDS,
+  start = (text) => getApi().startMagic(text) as Promise<T>,
 }: {
   onClose: () => void;
-  onStarted: (m: MagicAutomation) => void;
+  onStarted: (m: T) => void;
+  words?: MagicWords;
+  start?: (text: string) => Promise<T>;
 }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -31,7 +52,7 @@ export function MagicStart({
     setBusy(true);
     setError(undefined);
     try {
-      onStarted(await getApi().startMagic(text.trim()));
+      onStarted(await start(text.trim()));
     } catch (err) {
       setError(explain(err));
     } finally {
@@ -40,7 +61,7 @@ export function MagicStart({
   };
   return (
     <Modal
-      title={t("axMagic")}
+      title={t(words.title)}
       icon={
         <span class="mg-orb">
           <IconSpark size={20} />
@@ -65,28 +86,28 @@ export function MagicStart({
       }
     >
       <div class="wz-panel-in mg-start">
-        <p class="wz-lead2">{t("axMagicLead")}</p>
-        <Field label={t("axMagicAsk")}>
+        <p class="wz-lead2">{t(words.lead)}</p>
+        <Field label={t(words.ask)}>
           <textarea
             class="wz-field mg-ask"
             rows={5}
             value={text}
-            placeholder={t("axMagicPlaceholder")}
+            placeholder={t(words.placeholder)}
             onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
           />
         </Field>
         <span class="wz-lb">{t("axMagicExamples")}</span>
         <div class="mg-examples">
-          {EXAMPLES.map((k) => (
+          {words.examples.map((k) => (
             <button key={k} type="button" class="mg-example" onClick={() => setText(t(k))}>
               {t(k)}
             </button>
           ))}
         </div>
         <ul class="mg-promises">
-          <li>{t("axMagicPromise1")}</li>
-          <li>{t("axMagicPromise2")}</li>
-          <li>{t("axMagicPromise3")}</li>
+          {words.promises.map((k) => (
+            <li key={k}>{t(k)}</li>
+          ))}
         </ul>
         {error && <p class="notice error">{error}</p>}
       </div>
@@ -284,11 +305,17 @@ function Proposal({
 }
 
 /** Where the conversation stands, in three steps lit by border and background. */
-function Steps({ status }: { status: MagicAutomation["status"] }) {
-  const at = status === "building" ? 2 : status === "ready" ? 3 : 4;
+export function Steps({
+  status,
+  labels = ["axMagicStep1", "axMagicStep2", "axMagicStep3"],
+}: {
+  status: "building" | "testing" | "ready" | "done" | "dismissed";
+  labels?: Key[];
+}) {
+  const at = status === "building" ? 2 : status === "ready" || status === "testing" ? 3 : 4;
   return (
     <ol class="mg-steps">
-      {(["axMagicStep1", "axMagicStep2", "axMagicStep3"] as const).map((k, i) => (
+      {labels.map((k, i) => (
         <li key={k} class={i + 1 === at ? "cur" : i + 1 < at ? "past" : ""}>
           <span class="mg-step-n">{i + 1}</span>
           <span>{t(k)}</span>

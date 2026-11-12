@@ -19132,3 +19132,134 @@ html[data-theme="dark"] {
   color: var(--text);
   flex: none;
 }
+
+/* Magic integrations and extensions (G38.3): two magic buttons, the package beside the chat. */
+.mx-ctas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 4px 0 14px;
+}
+.mx-ctas .mg-cta {
+  margin: 0;
+}
+.mx-package .wz-lb {
+  margin-top: 4px;
+}
+.mx-testing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mx-reach p,
+.mx-installed,
+.mx-args {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+}
+.mx-args span {
+  color: var(--dim);
+  font-size: 14px;
+}
+.mx-reach code,
+.mx-installed code,
+.mx-args code,
+.mx-key-facts code {
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.mx-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mx-part {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--ok) 45%, var(--line));
+  background: var(--panel);
+  min-width: 0;
+}
+.mx-part.bad {
+  border-color: var(--warn);
+}
+.mx-part-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.mx-part-head b {
+  overflow-wrap: anywhere;
+}
+.mx-part-ico {
+  display: flex;
+  color: var(--dim);
+}
+.mx-part-kind {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--dim);
+}
+.mx-part-desc {
+  margin: 0;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+.mx-tests {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mx-tests li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.mx-tests li > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.mx-tests li small {
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+.mx-tests li.ok .icon {
+  color: var(--ok);
+}
+.mx-tests li.bad .icon {
+  color: var(--warn-text);
+}
+.mx-part details pre {
+  max-height: 260px;
+  overflow: auto;
+}
+.mx-key {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mx-key-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--dim);
+}
+.tl-ext {
+  margin-top: 18px;
+}
