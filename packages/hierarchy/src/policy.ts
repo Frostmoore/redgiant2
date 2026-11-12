@@ -260,6 +260,8 @@ export const READ_ONLY_TOOLS = new Set([
   "show_file",
   // Magic automations (G33.3): a proposal the person approves (or the list of links).
   "propose_automation",
+  // Magic integrations (G38.3): a package tested in a throwaway sandbox that the person installs.
+  "propose_magic_extension",
   // Asking the person to switch a tool back on (G36.15): the person's yes is asked by the tool itself.
   "request_tool",
   // Another machine's folders and text files (G38.2): looked at, never changed.

@@ -55,6 +55,8 @@ export const RESERVED = new Set([
   "skill_load",
   "skill_file",
   "propose_extension",
+  "propose_magic_extension",
+  "propose_automation",
 ]);
 
 export interface InstalledTool {

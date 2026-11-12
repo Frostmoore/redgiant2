@@ -337,6 +337,12 @@ export interface SystemKeyMeta {
   section: string;
   kind: VaultUsedBy["kind"];
   what: string;
+  /**
+   * G38.3: the tools that receive it through the proxy (a magic integration's tools) and when the
+   * person is asked; by default no tool and every time.
+   */
+  allowTools?: string[] | undefined;
+  ask?: VaultEntry["ask"] | undefined;
 }
 
 /** Told when the person changes the value of a key a part of RedGiant uses (or a backup brings it). */
@@ -723,8 +729,8 @@ export class Vault {
       notes: "",
       expires: null,
       // RedGiant uses it by itself; an agent only if the person allows it here.
-      ask: "always",
-      allow: { allAgents: false, agents: [], tools: [], automations: [] },
+      ask: meta.ask ?? "always",
+      allow: { allAgents: false, agents: [], tools: [...(meta.allowTools ?? [])], automations: [] },
       inject: meta.inject ?? { header: "Authorization", format: "Bearer {value}" },
       usedBy: { key, section: meta.section, kind: meta.kind, what: meta.what },
       createdAt: at,
@@ -733,6 +739,44 @@ export class Vault {
     this.data.entries.push(e);
     this.remember(e);
     return true;
+  }
+
+  /**
+   * G38.3: the person gives a credential to these tools (a magic integration's), adding the hosts
+   * it needs to the ones it may go to. Nothing changes when all is there already.
+   */
+  async bindTools(ownerId: string, name: string, tools: string[], hosts: string[] = []) {
+    this.need();
+    const e = this.entry(ownerId, name);
+    const addTools = tools.filter((t) => !e.allow.tools.includes(t));
+    const addHosts = hosts.map((h) => h.toLowerCase()).filter((h) => !e.hosts.includes(h));
+    if (addTools.length === 0 && addHosts.length === 0) return;
+    e.allow = { ...e.allow, tools: [...e.allow.tools, ...addTools] };
+    e.hosts = [...e.hosts, ...addHosts];
+    e.updatedAt = this.now().toISOString();
+    await this.save();
+    await this.publish();
+  }
+
+  /** G38.3: these tools no longer receive any credential (they were uninstalled). */
+  async unbindTools(ownerId: string, tools: string[]) {
+    if (!this.ready || tools.length === 0) return;
+    let changed = false;
+    for (const e of this.data.entries) {
+      if (e.ownerId !== ownerId || !e.allow.tools.some((t) => tools.includes(t))) continue;
+      e.allow = { ...e.allow, tools: e.allow.tools.filter((t) => !tools.includes(t)) };
+      changed = true;
+    }
+    if (!changed) return;
+    await this.save();
+    await this.publish();
+  }
+
+  /** G38.3: what the page needs of a credential, never its value. */
+  entryState(ownerId: string, name: string): { tools: string[]; hosts: string[] } | undefined {
+    if (!this.ready) return undefined;
+    const e = this.data.entries.find((x) => x.ownerId === ownerId && x.name === name);
+    return e ? { tools: [...e.allow.tools], hosts: [...e.hosts] } : undefined;
   }
 
   /** Sets (or with null removes) one key a part of RedGiant uses. */

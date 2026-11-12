@@ -222,6 +222,12 @@ import {
   migrateMagic,
 } from "./magic.js";
 import {
+  MAGIC_EXT_PROMPT,
+  MagicExtensions,
+  magicExtTools,
+  migrateMagicExtensions,
+} from "./magic-extensions.js";
+import {
   imapMailClient,
   type MailClient,
   type MailTransport,
@@ -512,6 +518,18 @@ export function boardAnswerText(
 /** How much of a finished task's answer its report carries; read_agent gives the rest. */
 const TASK_REPORT_CHARS = 6000;
 
+/**
+ * A throwaway sandbox whose only way out is the keychain's routes (G38.3): no proxy variables, so
+ * a program reaches nothing on the sandboxes' internal network but the proxy's credential routes.
+ */
+const ROUTES_ONLY_ENV: Record<string, string> = {
+  HTTP_PROXY: "",
+  HTTPS_PROXY: "",
+  http_proxy: "",
+  https_proxy: "",
+  REDGIANT_EGRESS: "",
+};
+
 /** The last thing the assistant wrote in a conversation's events. */
 const lastText = (events: Event[]): string => {
   for (const e of [...events].reverse())
@@ -631,6 +649,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly files: FileTriggers;
   /** Automations built in a conversation with God (G33.3). */
   readonly magic: MagicAutomations;
+  /** Integrations and extensions built in a conversation with God (G38.3). */
+  readonly magicExt: MagicExtensions;
   /** The keychain (G33.4): credentials agents use by name, never seeing them. */
   readonly vault: Vault;
   /** Browsers linked to the keychain (G36.21): the extension's device tokens. */
@@ -979,13 +999,15 @@ export class RedGiantCore implements OrchestrationHost {
       db: o.db,
       store: this.store,
       // Each proposal is tested in its own throwaway sandbox.
-      testWorkspace: async (id) => {
+      testWorkspace: async (id, opts) => {
         const dir = join(o.platformDir, "_proposals", id);
         await mkdir(dir, { recursive: true });
         const sb = await this.sandbox.create({
           id: `proposal-${id}`,
           localPath: dir,
           mount: { type: "bind", source: dir },
+          // G38.3: no general way out, only the keychain's routes (each to its own hosts).
+          ...(opts?.routesOnly && { env: ROUTES_ONLY_ENV }),
         });
         return {
           workspace: sb.workspace(),
@@ -1102,6 +1124,33 @@ export class RedGiantCore implements OrchestrationHost {
       db: o.db,
       automations: this.automations,
       host: this.magicHost,
+    });
+    this.magicExt = new MagicExtensions({
+      db: o.db,
+      builder: this.extensions,
+      vault: this.vault,
+      host: {
+        god: this.magicHost.god,
+        startSession: this.magicHost.startSession,
+        send: this.magicHost.send,
+        toolEnv: (ownerId, agentId, sessionId, tool) =>
+          this.vault.toolEnv({
+            ownerId,
+            agentId,
+            agentName: this.registry.get(agentId)?.name ?? null,
+            sessionId,
+            tool,
+          }),
+        installed: async (ownerId) => {
+          const roots = [{ dir: this.platformPath(ownerId), scope: "platform" as const }];
+          return new Set([
+            ...(await loadCustomTools(roots).catch(() => [])).map((t) => t.spec.name),
+            ...(await loadSkills(roots).catch(() => [])).map((k) => k.name),
+          ]);
+        },
+        // The same signal as the magic automations: the pages read their lists again.
+        changed: (ownerId, id) => this.automations.touch(ownerId, id),
+      },
     });
     this.rooms = new Rooms({
       db: o.db,
@@ -1247,6 +1296,7 @@ export class RedGiantCore implements OrchestrationHost {
     await migrateExtensions(o.db);
     await migrateAutomations(o.db);
     await migrateMagic(o.db);
+    await migrateMagicExtensions(o.db);
     await migratePlatform(o.db);
     await migratePersonRequests(o.db);
     await migrateRooms(o.db);
@@ -1598,6 +1648,8 @@ export class RedGiantCore implements OrchestrationHost {
       agent.kind === "god"
         ? await this.magic.forSession(sessionId).catch(() => undefined)
         : undefined;
+    // A magic integration's or extension's conversation (G38.3): its agent builds one package.
+    const magicExtSession = await this.magicExt.forSession(sessionId).catch(() => undefined);
     const tools: Tool[] = ws
       ? baseTools({
           workspace: ws,
@@ -1638,6 +1690,7 @@ export class RedGiantCore implements OrchestrationHost {
       ...platformConfigTools(agent, this.config, this),
       // Only a magic automation's conversation proposes one (G33.3); fixed for its whole life.
       ...(magicSession ? magicTools(agent, this.magic, this.magicHost) : []),
+      ...magicExtTools(agent, magicExtSession, this.magicExt),
       ...platformCodeTools(agent, this.code),
       ...questionTools(agent, {
         store: this.store,
@@ -1861,6 +1914,7 @@ export class RedGiantCore implements OrchestrationHost {
         await this.subprojectNote(agent),
         // A magic automation's conversation knows its task from the start (G33.3).
         magicSession ? MAGIC_PROMPT : "",
+        magicExtSession?.agentId === agent.id ? MAGIC_EXT_PROMPT : "",
         // Text, widget, artifact, board or project (3.5.9): for every agent that can show files.
         tools.some((t) => t.def.name === "show_file") ? ARTIFACT_GUIDANCE : "",
         // Email is data, never instructions (G38.1): for every agent that can read it.

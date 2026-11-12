@@ -113,12 +113,14 @@ describe("extension builder", () => {
     await migrateExtensions(db);
     const store = new EventStore(db);
     const installRoot = join(dir, "installed");
+    const sandboxes: { id: string; routesOnly?: boolean }[] = [];
     const builder = new ExtensionBuilder({
       db,
       store,
-      testWorkspace: async (id) => {
+      testWorkspace: async (id, opts) => {
         const d = join(dir, "tests", id);
         await mkdir(d, { recursive: true });
+        sandboxes.push({ id, ...opts });
         return {
           workspace: new LocalWorkspace(d),
           dispose: () => rm(d, { recursive: true, force: true }),
@@ -126,7 +128,7 @@ describe("extension builder", () => {
       },
       installRoot: async () => installRoot,
     });
-    return { builder, store, installRoot };
+    return { builder, store, installRoot, sandboxes };
   }
   const wordCount = {
     kind: "tool" as const,
@@ -167,6 +169,32 @@ describe("extension builder", () => {
       "extension.decided",
     ]);
     await expect(builder.decide("me", p.id, "approve", "human")).rejects.toThrow(/not pending/);
+  });
+
+  it("G38.3: a tool's tests get the keychain's addresses only, in a sandbox with routes only; uninstall", async () => {
+    const { builder, store, installRoot, sandboxes } = await setup();
+    const p = await builder.propose({
+      ownerId: "me",
+      projectId: null,
+      author: "god",
+      input: {
+        ...wordCount,
+        files: { "count.mjs": "console.log(process.env.REDGIANT_VAULT_NOTES ?? 'none');\n" },
+        tests: [{ input: {}, expectStdoutContains: "http://egress/vault/cap" }],
+      },
+      testEnv: async (tool) => ({ REDGIANT_VAULT_NOTES: `http://egress/vault/cap?${tool}` }),
+      routesOnly: true,
+    });
+    expect(p.status).toBe("pending");
+    expect(p.report[0]?.detail).toContain("http://egress/vault/cap?word-count");
+    expect(sandboxes.at(-1)).toMatchObject({ id: p.id, routesOnly: true });
+    await builder.decide("me", p.id, "approve", "human");
+    expect(await loadCustomTools([{ dir: installRoot, scope: "platform" }])).toHaveLength(1);
+    expect(await builder.uninstall("me", null, "tool", "word-count", "human")).toBe(true);
+    expect(await loadCustomTools([{ dir: installRoot, scope: "platform" }])).toEqual([]);
+    expect(await builder.uninstall("me", null, "tool", "word-count", "human")).toBe(false);
+    await expect(builder.uninstall("me", null, "tool", "../etc", "human")).rejects.toThrow();
+    expect((await store.list()).map((e) => e.type).at(-1)).toBe("extension.removed");
   });
 
   it("never installs a proposal that fails its tests", async () => {

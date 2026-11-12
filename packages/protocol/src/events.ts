@@ -592,6 +592,11 @@ export const EventBody = z.discriminatedUnion("type", [
       by: z.string(),
     }),
   }),
+  /** An installed tool or skill removed by the person (G38.3: a magic integration uninstalled). */
+  z.object({
+    type: z.literal("extension.removed"),
+    payload: z.object({ kind: z.enum(["tool", "skill"]), name: z.string(), by: z.string() }),
+  }),
   /** An automation started (status `running`) or ended; `skipped` when the previous run was still going. */
   z.object({
     type: z.literal("automation.run"),

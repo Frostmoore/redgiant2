@@ -136,6 +136,11 @@ export interface BuilderOptions {
   /** A fresh, isolated workspace to test a proposal in (a sandbox); removed afterwards. */
   testWorkspace: (
     proposalId: string,
+    /**
+     * G38.3: `routesOnly` takes the sandbox's general way out away (no proxy variables): what the
+     * tests reach goes only through the keychain's routes, each to its credential's hosts.
+     */
+    opts?: { routesOnly?: boolean },
   ) => Promise<{ workspace: Workspace; dispose: () => Promise<void> }>;
   /** Where approved extensions go: the platform's directory or the project's `.redgiant`. */
   installRoot: (ownerId: string, projectId: string | null) => Promise<string>;
@@ -163,6 +168,13 @@ export class ExtensionBuilder {
     author: string;
     input: ProposalInput;
     autoInstall?: boolean;
+    /**
+     * G38.3: the environment a tool's tests get, by tool: only the keychain's proxy addresses
+     * (`REDGIANT_VAULT_<NAME>`), never a value.
+     */
+    testEnv?: (tool: string) => Promise<Record<string, string>>;
+    /** G38.3: the tests reach nothing but the keychain's routes (see `testWorkspace`). */
+    routesOnly?: boolean;
   }): Promise<Proposal> {
     const input = ProposalInput.parse(o.input);
     const name = input.kind === "tool" ? input.spec.name : input.name;
@@ -189,7 +201,7 @@ export class ExtensionBuilder {
       }
     }
     const id = `prop_${randomUUID().slice(0, 8)}`;
-    const report = await this.test(id, input);
+    const report = await this.test(id, input, o.testEnv, o.routesOnly);
     const passed = report.every((r) => r.passed);
     // Code never installs by itself (G29.4, G36.8): an agent's skill with scripts waits too.
     const scripts = input.kind === "skill" && o.author !== "human" ? scriptFiles(input.files) : [];
@@ -261,16 +273,27 @@ export class ExtensionBuilder {
     return (await this.get(o.ownerId, id)) as Proposal;
   }
 
-  private async test(id: string, input: z.output<typeof ProposalInput>): Promise<TestResult[]> {
-    const { workspace, dispose } = await this.o.testWorkspace(id);
+  private async test(
+    id: string,
+    input: z.output<typeof ProposalInput>,
+    testEnv?: (tool: string) => Promise<Record<string, string>>,
+    routesOnly?: boolean,
+  ): Promise<TestResult[]> {
+    const { workspace, dispose } = await this.o.testWorkspace(
+      id,
+      routesOnly ? { routesOnly } : undefined,
+    );
     try {
       if (input.kind === "tool") {
         const results: TestResult[] = [];
+        const env = testEnv ? await testEnv(input.spec.name) : undefined;
         for (const [i, t] of input.tests.entries()) {
           const r = await runCustomTool(
             { spec: input.spec, files: input.files },
             workspace,
             t.input,
+            undefined,
+            env,
           );
           const okExit = r.exitCode === t.expectExitCode && !r.timedOut;
           const okOut =
@@ -355,6 +378,34 @@ export class ExtensionBuilder {
       status ? [ownerId, status] : [ownerId],
     );
     return rows.map(fromRow);
+  }
+
+  /**
+   * Removes an installed tool or skill (G38.3: the person uninstalls a magic integration). Only
+   * the person; written in the log.
+   */
+  async uninstall(
+    ownerId: string,
+    projectId: string | null,
+    kind: "tool" | "skill",
+    name: string,
+    by: string,
+  ): Promise<boolean> {
+    if (!NAME_RE.test(name)) throw new Error(`"${name}" is not an extension's name`);
+    const root = await this.o.installRoot(ownerId, projectId);
+    const dir = join(root, kind === "tool" ? "tools" : "skills", name);
+    const there = await lstat(dir).then(
+      () => true,
+      () => false,
+    );
+    if (!there) return false;
+    await rm(dir, { recursive: true, force: true });
+    await this.o.store.append({
+      ownerId,
+      projectId,
+      body: { type: "extension.removed", payload: { kind, name, by } },
+    });
+    return true;
   }
 
   /** Only the human decides (the API refuses anything else). */

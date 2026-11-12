@@ -25,6 +25,7 @@ export * from "./knowledge.js";
 export * from "./languages.js";
 export * from "./local-models.js";
 export * from "./machines.js";
+export * from "./magic-extensions.js";
 export * from "./mail.js";
 export * from "./mcp-catalog.js";
 export * from "./media.js";

@@ -92,6 +92,7 @@ import { localModelChoices } from "./local-models.js";
 import { LoginError } from "./login.js";
 import { MachineError, type MachinePatch } from "./machines.js";
 import { MagicNotFoundError, MagicStateError } from "./magic.js";
+import { MagicExtNotFoundError, MagicExtStateError } from "./magic-extensions.js";
 import { personRoutes } from "./person-routes.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
 import { hasOwnRepo } from "./project-git.js";
@@ -919,10 +920,12 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       err instanceof NotFoundError ||
       err instanceof AutomationNotFoundError ||
       err instanceof MailboxNotFoundError ||
-      err instanceof MagicNotFoundError
+      err instanceof MagicNotFoundError ||
+      err instanceof MagicExtNotFoundError
     )
       return c.json({ error: err.message }, 404);
-    if (err instanceof MagicStateError) return c.json({ error: err.message }, 400);
+    if (err instanceof MagicStateError || err instanceof MagicExtStateError)
+      return c.json({ error: err.message }, 400);
     if (err instanceof RecipeError) return c.json({ error: err.message }, 400);
     // A mandatory update is waiting (G36.19): refused, nothing lost; the page shows its window.
     if (err instanceof UpdateRequiredError)
@@ -3185,6 +3188,77 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   });
   app.delete("/api/magic/:id", async (c) => {
     await core.magic.dismiss(owner(c), c.req.param("id"));
+    return c.json({ ok: true }, 200);
+  });
+  // Magic integrations and extensions (G38.3): a conversation with God that ends in a tested
+  // package; only the person's «Approve and install» installs it.
+  app.get("/api/magic-ext", async (c) => c.json(await core.magicExt.list(owner(c)), 200));
+  app.post("/api/magic-ext", async (c) => {
+    const b = z
+      .object({
+        kind: z.enum(["integration", "extension"]),
+        request: z.string().trim().min(1).max(20_000),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "Write what you want" }, 400);
+    return c.json(await core.magicExt.create(owner(c), b.data.kind, b.data.request), 201);
+  });
+  app.get("/api/magic-ext/:id", async (c) =>
+    c.json(await core.magicExt.get(owner(c), c.req.param("id")), 200),
+  );
+  app.post("/api/magic-ext/:id/approve", async (c) =>
+    c.json(await core.magicExt.approve(owner(c), c.req.param("id")), 200),
+  );
+  app.post("/api/magic-ext/:id/reject", async (c) => {
+    const b = z
+      .object({ reason: z.string().max(4000).optional() })
+      .safeParse(await c.req.json().catch(() => ({})));
+    return c.json(
+      await core.magicExt.reject(
+        owner(c),
+        c.req.param("id"),
+        b.success ? b.data.reason : undefined,
+      ),
+      200,
+    );
+  });
+  app.post("/api/magic-ext/:id/retest", async (c) =>
+    c.json(await core.magicExt.retest(owner(c), c.req.param("id")), 200),
+  );
+  // The value goes straight into the keychain: never in an answer, a log or an event.
+  app.post("/api/magic-ext/:id/credential", async (c) => {
+    const b = z
+      .object({ name: z.string().min(1).max(48), value: z.string().min(1).max(20_000) })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "The credential needs its name and value" }, 400);
+    return c.json(
+      await core.magicExt.addCredential(owner(c), c.req.param("id"), b.data.name, b.data.value),
+      200,
+    );
+  });
+  app.post("/api/magic-ext/:id/bind", async (c) => {
+    const b = z
+      .object({ name: z.string().min(1).max(48) })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "Which credential?" }, 400);
+    return c.json(
+      await core.magicExt.bindCredential(owner(c), c.req.param("id"), b.data.name),
+      200,
+    );
+  });
+  app.post("/api/magic-ext/:id/update", async (c) => {
+    const b = z
+      .object({ request: z.string().trim().min(1).max(20_000) })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "Write what should change" }, 400);
+    return c.json(await core.magicExt.update(owner(c), c.req.param("id"), b.data.request), 200);
+  });
+  app.post("/api/magic-ext/:id/uninstall", async (c) => {
+    await core.magicExt.uninstall(owner(c), c.req.param("id"));
+    return c.json({ ok: true }, 200);
+  });
+  app.delete("/api/magic-ext/:id", async (c) => {
+    await core.magicExt.dismiss(owner(c), c.req.param("id"));
     return c.json({ ok: true }, 200);
   });
   // A routine on a project's repository events (G24.14c): the webhook is added on Gitea or GitHub.

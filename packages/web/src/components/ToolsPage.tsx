@@ -5,6 +5,7 @@
 import type { ToolGroup, ToolsView, ToolView } from "@redgiant/protocol";
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
+import type { Installed } from "../api.js";
 import { type Key, lang, t } from "../i18n.js";
 import {
   IconBook,
@@ -17,10 +18,11 @@ import {
   IconLayers,
   IconLock,
   IconMail,
+  IconPuzzle,
   IconSearch,
   IconUsers,
 } from "../icons.js";
-import { getApi } from "../state.js";
+import { getApi, openTab } from "../state.js";
 import { Head, Switch, WzPage } from "./SettingsKit.js";
 
 const GROUP_ICON: Record<ToolGroup, () => JSX.Element> = {
@@ -266,8 +268,66 @@ export function ToolsPage() {
               </div>
             )}
           />
+          <ExtensionTools />
         </>
       )}
     </WzPage>
+  );
+}
+
+/**
+ * The tools the extensions installed (G38.3: a magic integration's among them): every agent has
+ * them, outside the switches of the common tools; they are changed or removed in Extensions.
+ */
+function ExtensionTools() {
+  const [list, setList] = useState<Installed[]>([]);
+  useEffect(() => {
+    void getApi()
+      .installed()
+      .then(
+        (l) => setList(Array.isArray(l) ? l.filter((x) => x.kind === "tool") : []),
+        () => setList([]),
+      );
+  }, []);
+  if (list.length === 0) return null;
+  return (
+    <section class="tl-ext">
+      <h2 class="wz-sub tl-group">
+        <span class="tl-group-ico">
+          <IconPuzzle size={20} />
+        </span>
+        {t("tlExtTitle")}
+      </h2>
+      <p class="wz-subl">{t("tlExtLead")}</p>
+      {list.map((x) => (
+        <div key={`${x.scope}:${x.name}`} class="tl-row on" data-tool={x.name}>
+          <div class="tl-main">
+            <div class="tl-text">
+              <div class="tl-name">
+                <b>{x.name}</b>
+                <code class="tl-id">{x.name}</code>
+              </div>
+              <span>{x.description}</span>
+            </div>
+          </div>
+        </div>
+      ))}
+      <p class="wz-more">
+        <button
+          type="button"
+          class="wz-link"
+          onClick={() =>
+            openTab({
+              id: "settings",
+              type: "settings",
+              title: t("settings"),
+              section: "extensions",
+            })
+          }
+        >
+          {t("tlExtOpen")}
+        </button>
+      </p>
+    </section>
   );
 }

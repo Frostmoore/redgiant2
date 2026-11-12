@@ -6,6 +6,7 @@
 import {
   catalogConfig,
   type Guide,
+  type MagicExtension,
   MCP_CATALOG,
   type McpCatalogEntry,
   type McpCategory,
@@ -53,10 +54,19 @@ import {
   IconUpload,
 } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
-import { agents, attempt, getApi, getLive, openCanvas, projects } from "../state.js";
+import {
+  agents,
+  attempt,
+  automationsVersion,
+  getApi,
+  getLive,
+  openCanvas,
+  projects,
+} from "../state.js";
 import { explain } from "./Brain.js";
 import { Chat } from "./Chat.js";
 import { askConfirm } from "./dialogs.js";
+import { MagicExtChat, MagicExtStart } from "./MagicExtension.js";
 import { KindRow } from "./Media.js";
 import { Acts, Facts, Head, Seg, Sub, SwitchRow, Tile, WzPage } from "./SettingsKit.js";
 import { PHONE, useMedia } from "./SetupKit.js";
@@ -1055,11 +1065,15 @@ type Open =
   | "import"
   | "skill"
   | "server"
-  | "failed";
+  | "failed"
+  | { magicNew: "integration" | "extension" }
+  | { magicExt: string };
 
 /** Abilities for the agents: ask God, what waits, what is connected, the catalog, the rest. */
 export function Extensions() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  /** Magic integrations and extensions (G38.3), being built or installed. */
+  const [magic, setMagic] = useState<MagicExtension[]>([]);
   const [installed, setInstalled] = useState<Installed[]>([]);
   const [mcp, setMcp] = useState<McpEntry[]>([]);
   const [status, setStatus] = useState<McpStatus[]>();
@@ -1082,7 +1096,11 @@ export function Extensions() {
       },
     );
     void api.mcpStatus().then(setStatus, () => setStatus([]));
-  }, [version]);
+    void api.magicExts().then(
+      (l) => setMagic(Array.isArray(l) ? l : []),
+      () => setMagic([]),
+    );
+  }, [version, automationsVersion.value]);
   useEffect(() => {
     if (Date.now() > watchUntil) return;
     if (status && !status.some((s) => s.state === "login")) return;
@@ -1095,7 +1113,13 @@ export function Extensions() {
     );
     return () => clearTimeout(timer);
   }, [status, watchUntil]);
-  const pending = proposals.filter((p) => p.status === "pending");
+  // A magic package's parts wait inside its own window, approved together there.
+  const inMagic = new Set(magic.flatMap((m) => m.proposal?.parts.map((x) => x.proposalId) ?? []));
+  const pending = proposals.filter((p) => p.status === "pending" && !inMagic.has(p.id));
+  const openMagic =
+    open && typeof open === "object" && "magicExt" in open
+      ? magic.find((m) => m.id === open.magicExt)
+      : undefined;
   const failed = proposals.filter((p) => p.status === "failed").slice(0, 5);
   const close = () => setOpen(null);
   const doneAndClose = () => {
@@ -1126,6 +1150,17 @@ export function Extensions() {
           {open && typeof open === "object" && "proposal" in open && (
             <ProposalView p={open.proposal} onDone={reload} onClose={close} />
           )}
+          {open && typeof open === "object" && "magicNew" in open && (
+            <MagicExtStart
+              kind={open.magicNew}
+              onClose={close}
+              onStarted={(m) => {
+                setMagic((l) => [m, ...l.filter((x) => x.id !== m.id)]);
+                setOpen({ magicExt: m.id });
+              }}
+            />
+          )}
+          {openMagic && <MagicExtChat m={openMagic} onClose={close} onChange={() => reload()} />}
           {open && typeof open === "object" && "installed" in open && (
             <InstalledView x={open.installed} onClose={close} />
           )}
@@ -1163,6 +1198,54 @@ export function Extensions() {
       }
     >
       <Head eyebrow={t("extensions")} q={t("extAskTitle")} lead={t("extAskHelp")} />
+      {/* The magic buttons (G38.3): the same look and flow as the magic automation. */}
+      <div class="mx-ctas">
+        <button type="button" class="mg-cta" onClick={() => setOpen({ magicNew: "integration" })}>
+          <span class="mg-orb big">
+            <IconSpark size={26} />
+          </span>
+          <span class="mg-cta-text">
+            <b>{t("mxIntegration")}</b>
+            <span>{t("mxIntegrationTile")}</span>
+          </span>
+        </button>
+        <button type="button" class="mg-cta" onClick={() => setOpen({ magicNew: "extension" })}>
+          <span class="mg-orb big">
+            <IconSpark size={26} />
+          </span>
+          <span class="mg-cta-text">
+            <b>{t("mxExtension")}</b>
+            <span>{t("mxExtensionTile")}</span>
+          </span>
+        </button>
+      </div>
+      {magic.length > 0 && (
+        <>
+          <Sub title={t("mxListTitle")} lead={t("mxListLead")} />
+          <div class="wz-brain xw-grid mg-list">
+            {magic.map((m) => (
+              <Tile
+                key={m.id}
+                on={m.status === "ready" || m.status === "done"}
+                icon={<IconSpark />}
+                title={m.title}
+                badge={
+                  m.status === "ready"
+                    ? m.canApprove
+                      ? t("mxBadgeApprove")
+                      : t("mxBadgeMissing")
+                    : m.status === "done"
+                      ? t("mxBadgeInstalled")
+                      : undefined
+                }
+                text={m.request}
+                state={t(`mxState_${m.status}` as never)}
+                onClick={() => setOpen({ magicExt: m.id })}
+              />
+            ))}
+          </div>
+        </>
+      )}
       <AskGod />
 
       {pending.length > 0 && (
