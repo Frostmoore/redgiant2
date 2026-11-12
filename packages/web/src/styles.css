@@ -19377,3 +19377,101 @@ html[data-theme="dark"] {
     right: 12px;
   }
 }
+
+/* --- First boot anywhere (G39.3): role, machine, storage and backups, SSH, setup code ------- */
+.login-setup-code .login-title {
+  font-size: 1.35rem;
+  margin: 0 0 6px;
+}
+.login-setup-code input {
+  font-family: var(--mono);
+  font-size: 1.4rem;
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-transform: uppercase;
+}
+.fb-pair {
+  margin-top: 18px;
+}
+.fb-pair input:disabled {
+  background: var(--panel-2);
+  color: var(--dim);
+}
+.fb-disks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.fb-disks li {
+  overflow-wrap: anywhere;
+}
+.fb-offer,
+.fb-dest {
+  margin-top: 14px;
+}
+.fb-storage {
+  display: grid;
+  gap: 18px;
+  text-align: left;
+}
+.fb-folder {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.fb-folder .ui-field {
+  flex: 1 1 260px;
+  margin: 0;
+}
+.fb-when {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  margin-top: 12px;
+}
+.fb-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 6px;
+  margin: 0;
+  background: var(--panel);
+}
+.fb-stepper output {
+  min-width: 6.5em;
+  text-align: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.fb-last {
+  margin: 12px 0 0;
+}
+.fb-none,
+.fb-lan {
+  margin: 8px 0 0;
+}
+.fb-net {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+.fb-system .wz-scard {
+  margin-bottom: 18px;
+}
+.fb-system .wz-two {
+  margin-bottom: 18px;
+}
+@media (max-width: 640px) {
+  .fb-folder .wz-btn,
+  .fb-stepper {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
