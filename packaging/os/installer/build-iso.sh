@@ -39,7 +39,7 @@ mmdebstrap --variant=apt --architectures=amd64 --components="main non-free-firmw
 
 cp "$(readlink -f "$LIVE/vmlinuz")" "$ISO/live/vmlinuz"
 cp "$(readlink -f "$LIVE/initrd.img")" "$ISO/live/initrd.img"
-mksquashfs "$LIVE" "$ISO/live/filesystem.squashfs" -comp zstd -noappend -quiet \
+mksquashfs "$LIVE" "$ISO/live/filesystem.squashfs" -comp zstd -noappend -quiet -no-xattrs \
   -e boot -wildcards -e 'usr/share/doc/*' -e 'usr/share/man/*'
 cp "$PAYLOAD" "$ISO/redgiant/"
 echo "$SIZE" >"$ISO/redgiant/$(basename "${PAYLOAD%.zst}").size"
@@ -65,7 +65,7 @@ printf 'search --no-floppy --file --set=root /.disk/info\nset prefix=($root)/boo
   tee "$ISO/EFI/BOOT/grub.cfg" >"$ISO/EFI/debian/grub.cfg"
 EFIIMG=$ISO/boot/grub/efi.img
 rm -f "$EFIIMG"
-mkfs.vfat -C -n REDGIANT_EFI "$EFIIMG" 8192 >/dev/null
+mkfs.vfat -C -n RG_EFI "$EFIIMG" 8192 >/dev/null
 mmd -i "$EFIIMG" ::/EFI ::/EFI/BOOT ::/EFI/debian
 mcopy -i "$EFIIMG" "$ISO"/EFI/BOOT/* ::/EFI/BOOT/
 mcopy -i "$EFIIMG" "$ISO/EFI/debian/grub.cfg" ::/EFI/debian/
