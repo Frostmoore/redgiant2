@@ -293,6 +293,12 @@ const brain = (req) => {
     return {
       text: "Ecco il pacchetto: lo vedi qui accanto con i suoi test. Se manca una chiave, aggiungila dal pulsante: non scriverla qui.",
     };
+  // G38.4: a request said by voice gets an answer with its spoken version, and a table for the
+  // screen (the voice reads the first, never the second).
+  if (said.includes("<voice-mode>") && !results)
+    return {
+      text: "<spoken>A Roma sono le quindici e trenta. Ti ho messo anche gli altri fusi sullo schermo.</spoken>\n\nA Roma sono le **15:30** (ora dell'Europa centrale).\n\n| Città | Ora |\n|---|---|\n| Roma | 15:30 |\n| Londra | 14:30 |\n| New York | 09:30 |",
+    };
   // G38.1 (DEMO_MAIL): the secretary goes through the mail, sees the attack for what it is, and
   // a reply waits for the person's yes.
   if (process.env.DEMO_MAIL) {
@@ -1004,6 +1010,31 @@ const core = await RedGiantCore.create({
     machines: { dial: () => ({ host: "127.0.0.1", port: sshDemo.port }), connectTimeoutMs: 5000 },
   }),
 });
+// G38.4, DEMO_VOICE=1: a transcription service on 127.0.0.1 that hears DEMO_VOICE_TEXT in every
+// recording (each request body kept next to DEMO_VOICE_LOG), and the wake word's models
+// already prepared in DEMO_VOSK (the .tar.gz files `WakeModels` makes), so nothing is downloaded.
+if (process.env.DEMO_VOICE) {
+  const { createServer } = await import("node:http");
+  const { cp } = await import("node:fs/promises");
+  let heard = 0;
+  const stt = createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", async () => {
+      heard++;
+      if (process.env.DEMO_VOICE_LOG) {
+        await writeFile(`${process.env.DEMO_VOICE_LOG}-${heard}.bin`, Buffer.concat(chunks));
+        appendFileSync(process.env.DEMO_VOICE_LOG, `${new Date().toISOString()} heard ${heard}\n`);
+      }
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end(process.env.DEMO_VOICE_TEXT ?? "che ore sono a Roma adesso");
+    });
+  });
+  await new Promise((r) => stt.listen(0, "127.0.0.1", r));
+  core.setTranscription({ api: "openai", url: `http://127.0.0.1:${stt.address().port}/v1` });
+  if (process.env.DEMO_VOSK)
+    await cp(process.env.DEMO_VOSK, join(dir, "tools", "vosk"), { recursive: true });
+}
 // The models catalog row (3.5.4): the built-in catalog, GitHub never asked.
 core.catalog = new CatalogWatcher({ dataDir: dir, sources: [], feed: null });
 const me = { type: "human", ownerId: "local" };

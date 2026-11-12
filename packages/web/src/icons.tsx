@@ -214,6 +214,19 @@ export const IconMic = ({ size = 18 }: P) => (
     <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8" />
   </Svg>
 );
+/** Sound coming in: hands-free voice listening for the wake word (G38.4). */
+export const IconWave = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M3 10v4M7.5 7v10M12 4v16M16.5 8v8M21 11v2" />
+  </Svg>
+);
+/** Sound going out: the answer read aloud (G38.4). */
+export const IconSpeaker = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M11 5L6 9H2v6h4l5 4z" />
+    <path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14" />
+  </Svg>
+);
 export const IconSend = ({ size = 18 }: P) => (
   <Svg size={size}>
     <path d="M22 2L11 13M22 2l-7 20-4-9-9-4z" />
