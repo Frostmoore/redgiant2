@@ -169,7 +169,7 @@ mkdir -p "$DEFS"
 if [ "$ARCH" = amd64 ]; then
   printf '[Partition]\nType=21686148-6449-6e6f-744e-656564454649\nLabel=bios\nSizeMinBytes=1M\nSizeMaxBytes=1M\n' >"$DEFS/00-bios.conf"
 fi
-printf '[Partition]\nType=esp\nLabel=esp\nUUID=%s\nFormat=vfat\nCopyFiles=/boot/efi:/\nSizeMinBytes=256M\nSizeMaxBytes=256M\n' "$ESP_UUID" >"$DEFS/10-esp.conf"
+printf '[Partition]\nType=esp\nLabel=esp\nUUID=%s\nFormat=vfat\nCopyFiles=/boot/efi:/\nSizeMinBytes=512M\nSizeMaxBytes=512M\n' "$ESP_UUID" >"$DEFS/10-esp.conf"
 printf '[Partition]\nType=root\nLabel=redgiant-root\nUUID=%s\nFormat=ext4\nCopyFiles=/:/\nExcludeFiles=/boot/efi/\nMinimize=guess\nPaddingMinBytes=0\n' "$ROOT_UUID" >"$DEFS/20-root.conf"
 RAW=$WORK/$NAME.raw
 rm -f "$RAW"
