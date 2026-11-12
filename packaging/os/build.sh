@@ -189,7 +189,7 @@ if [ "$ARCH" = amd64 ]; then
   # grub-bios-setup asks /proc/self/mountinfo which device holds its directory: it is told the
   # image (as mkosi does), so it embeds itself in the BIOS boot partition with no loop device.
   echo "1 0 1:1 / / - ext4 $RAW rw" >"$G/mountinfo"
-  unshare --mount bash -c "mount --bind '$G/mountinfo' /proc/self/mountinfo && grub-bios-setup --directory '$G' '$RAW'"
+  unshare --mount bash -c "mount --bind '$G/mountinfo' /proc/self/mountinfo && /usr/lib/grub/i386-pc/grub-bios-setup --directory '$G' '$RAW'"
 fi
 
 # 4. Formats -------------------------------------------------------------------------------------
