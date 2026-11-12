@@ -84,7 +84,10 @@ async function setup() {
   await writeFile(join(root, "dati", "foto.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2]));
   // Links: one that leaves the folder, one that leaves the project, one that stays.
   await symlink(join(root, "src"), join(root, "dati", "fuori"));
-  await symlink("/etc/hostname", join(root, "dati", "host.txt"));
+  // A file outside the project (the platform's own folder would do on any system).
+  const outsideFile = join(srv.dir, "fuori-dal-progetto.txt");
+  await writeFile(outsideFile, "fuori");
+  await symlink(outsideFile, join(root, "dati", "host.txt"));
   await symlink(join(root, "dati", "vendite.csv"), join(root, "dati", "copia.csv"));
   // A clock that moves 100 ms a call, below the rate limit (its own test sets another).
   let now = 1_000_000;
