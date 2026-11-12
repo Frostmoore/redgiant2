@@ -3,6 +3,8 @@ import {
   type Automation,
   type AutomationRun,
   type BackupPreview,
+  type BackupSchedule,
+  type BackupSettings,
   type ClientMessage,
   type CloudEmbeddingModel,
   type Event,
@@ -25,6 +27,7 @@ import {
   type KnowledgeStatus,
   type LocalEmbeddingModel,
   type LocalModel,
+  type LocalOffer,
   type LocalRerankModel,
   type MachineAccess,
   type MachineAuth,
@@ -35,10 +38,12 @@ import {
   type MagicExtKind,
   type Mailbox as MailboxInfo,
   type ModelsCatalogStatus,
+  type NetDetected,
   type OcrLanguage,
   type PermissionRequestInfo,
   PROTOCOL_VERSION,
   type Recipe,
+  type RedGiantRole,
   type RefineEstimate,
   type RefineRequest,
   type RefineResult,
@@ -46,6 +51,9 @@ import {
   type ServerMessage,
   type SharedMemoryEntry,
   type SharedMemoryView,
+  type SshAccess,
+  type StorageInfo,
+  type SystemInfo,
   type UpdateStatus,
   type VaultBrowser,
   type VaultBrowserCode,
@@ -102,6 +110,10 @@ export interface SetupState {
   /** Model files inside WSL that the engine on Windows could run instead (2026-11-04). */
   config: {
     completed: boolean;
+    /** A complete RedGiant (default) or a node of another one (G39.3). */
+    role?: RedGiantRole;
+    /** Scheduled backups (G39.3). */
+    backups?: BackupSettings;
     /** The interface's language. */
     language?: "it" | "en";
     /** The language the agents speak to the person (G33.5, BCP-47). */
@@ -189,6 +201,10 @@ export interface SetupState {
     >
   >;
   providers: string[];
+  /** The machine as a whole (G39.3), each part said missing where the system does not tell. */
+  system: SystemInfo;
+  /** Cloud models always; local ones only when one fits (never forced). */
+  offer: LocalOffer;
   hardware: {
     os: string;
     cpu: string;
@@ -1102,6 +1118,25 @@ export class Api {
   claudeLogout = () => this.call("POST", "/api/subscriptions/claude/logout");
   limits = () => this.call<PlanLimits[]>("GET", "/api/limits");
   setupComplete = () => this.call("POST", "/api/setup/complete");
+  // The first boot anywhere (G39.3).
+  setupRole = (role: RedGiantRole, confirm?: boolean) =>
+    this.call("PUT", "/api/setup/role", { role, ...(confirm && { confirm }) });
+  setupStorage = () =>
+    this.call<StorageInfo & { backups: BackupSettings | null; running: boolean }>(
+      "GET",
+      "/api/setup/storage",
+    );
+  setupBackupDisk = (uuid: string) =>
+    this.call<BackupSettings>("POST", "/api/setup/backups/disk", { uuid });
+  setupBackupFolder = (path: string) =>
+    this.call<BackupSettings>("PUT", "/api/setup/backups/folder", { path });
+  setupBackups = (b: { schedule?: Partial<BackupSchedule>; destination?: null }) =>
+    this.call<BackupSettings>("PUT", "/api/setup/backups", b);
+  setupBackupRun = () => this.call<{ started: boolean }>("POST", "/api/setup/backups/run");
+  setupNet = () => this.call<NetDetected>("GET", "/api/setup/net");
+  setupSsh = () => this.call<SshAccess>("GET", "/api/setup/ssh");
+  setSetupSsh = (on: boolean, key?: string) =>
+    this.call<SshAccess>("PUT", "/api/setup/ssh", { on, ...(key && { key }) });
   hfSearch = (q: string) =>
     this.call<{ id: string; downloads: number; likes: number }[]>(
       "GET",
@@ -2335,11 +2370,31 @@ export class Live {
 }
 
 /** How this installation signs in (before any token): a password, and a code too. */
-export async function loginMethods(): Promise<{ password: boolean; code: boolean }> {
+export type LoginMethods = { password: boolean; code: boolean; setupCode?: boolean };
+export async function loginMethods(): Promise<LoginMethods> {
   const r = await fetch("/api/auth/methods");
-  return r.ok
-    ? ((await r.json()) as { password: boolean; code: boolean })
-    : { password: false, code: false };
+  return r.ok ? ((await r.json()) as LoginMethods) : { password: false, code: false };
+}
+
+/**
+ * The one-time code of a first start (G39.3) for a session token; remembered for this tab, so
+ * the wizard knows its password step cannot be skipped.
+ */
+export async function setupCodeLogin(code: string): Promise<string> {
+  const r = await fetch("/api/auth/setup-code", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  const data = (await r.json().catch(() => ({}))) as {
+    token?: string;
+    error?: string;
+    code?: string;
+  };
+  if (!r.ok || !data.token)
+    throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`, data.code);
+  sessionStorage.setItem("rg.viaSetupCode", "1");
+  return data.token;
 }
 
 /** A password (and code) for a session token; errors carry their code. */

@@ -9,6 +9,12 @@ import { lang, t } from "./i18n.js";
 /** The wizard's steps; the advanced installation adds where the code lives (G24.5). */
 export type StepKey =
   | "wzWelcome"
+  /** A complete RedGiant or a node of another one (G39.3). */
+  | "wzRole"
+  /** The password: from another device it is how one signs in afterwards (G39.3). */
+  | "wzAccount"
+  /** What the machine is, and what it can run (G39.3). */
+  | "wzMachine"
   | "wzMode"
   | "wzBrain"
   | "wzLocal"
@@ -17,27 +23,55 @@ export type StepKey =
   /** Coming from another agent? (G36.7, optional) */
   | "wzImport"
   | "wzTelegram"
+  /** Where the data lives and where backups go (G39.3). */
+  | "wzStorage"
   | "wzCode"
   | "wzRemote"
   | "wzSafety"
   | "wzDone";
 
-/** The two steps only the advanced installation has, right after Telegram. */
-export const ADVANCED_STEPS: readonly StepKey[] = ["wzCode", "wzRemote"];
+/** The step only the advanced installation has, after where backups go. */
+export const ADVANCED_STEPS: readonly StepKey[] = ["wzCode"];
 
-export const stepsFor = (mode: "standard" | "advanced" | undefined): StepKey[] => [
-  "wzWelcome",
-  "wzMode",
-  "wzBrain",
-  "wzLocal",
-  "wzNames",
-  "wzAssign",
-  "wzImport",
-  "wzTelegram",
-  ...(mode === "advanced" ? ADVANCED_STEPS : []),
-  "wzSafety",
-  "wzDone",
-];
+/** What changes the list besides the mode: the role, and whether local models fit (G39.3). */
+export interface StepContext {
+  role?: "full" | "node" | undefined;
+  /** false: no local model fits this machine, the step is not offered. */
+  local?: boolean | undefined;
+}
+
+export const stepsFor = (
+  mode: "standard" | "advanced" | undefined,
+  o: StepContext = {},
+): StepKey[] =>
+  // A node gets its agents, models and chats from the main RedGiant (pairing, G39.4).
+  o.role === "node"
+    ? ["wzWelcome", "wzRole", "wzAccount", "wzMachine", "wzDone"]
+    : [
+        "wzWelcome",
+        "wzRole",
+        "wzAccount",
+        "wzMachine",
+        "wzMode",
+        "wzBrain",
+        ...(o.local === false ? [] : (["wzLocal"] as const)),
+        "wzNames",
+        "wzAssign",
+        "wzImport",
+        "wzTelegram",
+        "wzStorage",
+        ...(mode === "advanced" ? ADVANCED_STEPS : []),
+        // Access from outside: offered to everyone, never needed (LAN only is a choice).
+        "wzRemote",
+        "wzSafety",
+        "wzDone",
+      ];
+
+/** The steps of a wizard's state. */
+export const stepsOf = (s: {
+  config: { mode?: "standard" | "advanced"; role?: "full" | "node" };
+  offer?: { local: boolean };
+}) => stepsFor(s.config.mode, { role: s.config.role, local: s.offer?.local });
 
 /** Steps that may be left for later: everything works without them. */
 const SKIPPABLE: readonly StepKey[] = [
@@ -45,10 +79,16 @@ const SKIPPABLE: readonly StepKey[] = [
   "wzLocal",
   "wzImport",
   "wzTelegram",
+  "wzStorage",
   "wzCode",
   "wzRemote",
 ];
-export const skippable = (k: StepKey) => SKIPPABLE.includes(k);
+/**
+ * The password step is skipped only by who can sign in otherwise: signed in with the setup
+ * code of a first start and without a password yet, the page would be locked out later.
+ */
+export const skippable = (k: StepKey, o: { mustSetPassword?: boolean } = {}) =>
+  SKIPPABLE.includes(k) || (k === "wzAccount" && !o.mustSetPassword);
 
 /** The step after `from` in a (possibly changed) list: choosing "advanced" adds two. */
 export function stepAfter(list: StepKey[], from: StepKey): StepKey {

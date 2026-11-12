@@ -7,7 +7,7 @@
 
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { SetupState } from "../api.js";
+import { loginMethods, type SetupState } from "../api.js";
 import { lang, setLang, t } from "../i18n.js";
 import {
   IconArrowRight,
@@ -56,7 +56,7 @@ import {
   type StepKey,
   skippable,
   stepAfter,
-  stepsFor,
+  stepsOf,
   type Way,
   waysInUse,
 } from "../wizard.js";
@@ -70,6 +70,16 @@ import {
   wayTiles,
 } from "./Brain.js";
 import { askConfirm } from "./dialogs.js";
+import {
+  AccountForm,
+  MachineFacts,
+  NetFound,
+  OfferNote,
+  passwordProblem,
+  RoleChoice,
+  SshPanel,
+  StoragePanel,
+} from "./FirstBoot.js";
 import { GitTiles } from "./GitCode.js";
 import { ImportFrom } from "./ImportFrom.js";
 import { AgentLanguagePicker } from "./LanguagePicker.js";
@@ -708,14 +718,82 @@ function CodeStep() {
   );
 }
 
+/** Access from outside (G39.3: offered to everyone, skippable; local network only is a choice). */
 function RemoteStep() {
   const { s, reload } = useWz();
   return (
     <div class="wz-inner">
-      <Head eyebrow={t("modeAdvanced")} q={t("wzRemoteQ")} lead={t("wzRemoteLead")} />
+      <Head q={t("wzRemoteQ")} lead={t("fbRemoteLead")} />
+      <NetFound />
       <div class="wz-card wz-left">
         <RemoteAccess s={s} onChange={reload} />
       </div>
+      <SshPanel />
+    </div>
+  );
+}
+
+/** A complete RedGiant or a node of another one (G39.3). */
+function RoleStep() {
+  const { s, reload } = useWz();
+  return (
+    <div class="wz-inner">
+      <Head q={t("fbRoleQ")} lead={t("fbRoleLead")} />
+      <RoleChoice s={s} reload={reload} />
+    </div>
+  );
+}
+
+/** The password: how one signs in from other devices afterwards (G39.3). */
+function AccountStep() {
+  const must = useWz().mustSetPassword === true;
+  const [pw, setPw] = useState(["", ""] as [string, string]);
+  const [error, setError] = useState<string>();
+  useOnNext(async () => {
+    const problem = passwordProblem(pw[0], pw[1], must);
+    if (problem) {
+      setError(t(problem));
+      return false;
+    }
+    if (!pw[0]) return true;
+    return (await attempt(() => getApi().setPassword(pw[0]))) !== undefined;
+  });
+  return (
+    <div class="wz-inner">
+      <Head q={t("fbAccountQ")} lead={t(must ? "fbAccountLeadMust" : "fbAccountLead")} />
+      <AccountForm
+        value={pw[0]}
+        again={pw[1]}
+        error={error}
+        onInput={(a, b) => {
+          setPw([a, b]);
+          setError(undefined);
+        }}
+      />
+    </div>
+  );
+}
+
+/** What the machine is and what it can run (G39.3). */
+function MachineStep() {
+  const { s } = useWz();
+  return (
+    <div class="wz-inner wide">
+      <Head q={t("fbMachineQ")} lead={t("fbMachineLead")} />
+      <div class="wz-card wz-left">
+        <MachineFacts sys={s.system} />
+      </div>
+      {s.config.role !== "node" && <OfferNote offer={s.offer} />}
+    </div>
+  );
+}
+
+/** Where the data lives, where backups go and when (G39.3). */
+function StorageStep() {
+  return (
+    <div class="wz-inner wide">
+      <Head q={t("fbStorageQ")} lead={t("fbStorageLead")} />
+      <StoragePanel />
     </div>
   );
 }
@@ -764,6 +842,14 @@ function Done() {
     });
   }, [s]);
   const items = recap(s, extra, providerName);
+  // A node (G39.3): its agents and models come from the main RedGiant once paired (G39.4).
+  if (s.config.role === "node")
+    return (
+      <div class="wz-inner">
+        <Head q={t("fbNodeDoneQ")} lead={t("fbNodeDoneLead")} />
+        <p class="wz-more dim">{t("wzRunAgainSettings")}</p>
+      </div>
+    );
   const god = s.names.god ?? "God";
   const demigod = s.names.demigod ?? "Demi-God";
   const linked = extra.telegramUser !== null;
@@ -865,6 +951,9 @@ function ImportStep() {
 
 const VIEWS: Record<StepKey, () => JSX.Element> = {
   wzWelcome: Welcome,
+  wzRole: RoleStep,
+  wzAccount: AccountStep,
+  wzMachine: MachineStep,
   wzMode: Mode,
   wzBrain: BrainStep,
   wzLocal: LocalStep,
@@ -872,6 +961,7 @@ const VIEWS: Record<StepKey, () => JSX.Element> = {
   wzAssign: AssignStep,
   wzImport: ImportStep,
   wzTelegram: TelegramStep,
+  wzStorage: StorageStep,
   wzCode: CodeStep,
   wzRemote: RemoteStep,
   wzSafety: SafetyStep,
@@ -929,6 +1019,12 @@ export function Setup({ onDone }: { onDone?: () => void }) {
   const stage = useRef<HTMLElement>(null);
   const reload = () => void attempt(() => getApi().setup()).then((x) => x && setS(x));
   useEffect(reload, []);
+  // Signed in with a first start's setup code and no password yet: the password step stays (G39.3).
+  const [must, setMust] = useState(false);
+  useEffect(() => {
+    if (sessionStorage.getItem("rg.viaSetupCode") !== "1") return;
+    void loginMethods().then((m) => setMust(!m.password));
+  }, [key]);
   useEffect(() => {
     stage.current?.scrollTo({ top: 0 });
   }, [key]);
@@ -938,7 +1034,7 @@ export function Setup({ onDone }: { onDone?: () => void }) {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  const steps = stepsFor(s?.config.mode);
+  const steps = s ? stepsOf(s) : stepsOf({ config: {} });
   const at = Math.max(0, steps.indexOf(key));
   const move = async (to: StepKey | "next", save: boolean) => {
     if (busy || !s) return;
@@ -951,7 +1047,7 @@ export function Setup({ onDone }: { onDone?: () => void }) {
     // The settings come back first: choosing "advanced" adds two steps after this one.
     const fresh = (await attempt(() => getApi().setup())) ?? s;
     setS(fresh);
-    const list = stepsFor(fresh.config.mode);
+    const list = stepsOf(fresh);
     const target = to === "next" ? stepAfter(list, key) : to;
     setDir(list.indexOf(target) >= list.indexOf(key) ? "r" : "l");
     setJump(false);
@@ -1007,7 +1103,15 @@ export function Setup({ onDone }: { onDone?: () => void }) {
       typeof matchMedia !== "undefined" &&
       matchMedia("(prefers-color-scheme: dark)").matches);
   const label = at === 0 ? t("wzStart") : key === "wzDone" ? t("wzFinish") : t("wzNext");
-  const ctx: Wz = { s, reload, go: (k) => void move(k, true), phone, next, finish };
+  const ctx: Wz = {
+    s,
+    reload,
+    go: (k) => void move(k, true),
+    phone,
+    next,
+    finish,
+    mustSetPassword: must,
+  };
   return (
     <WzCtx.Provider value={ctx}>
       <div class={`wz${onDone ? " first" : ""}`}>
@@ -1087,7 +1191,7 @@ export function Setup({ onDone }: { onDone?: () => void }) {
             </button>
             <button
               type="button"
-              class={`wz-btn quiet wz-skip${skippable(key) ? "" : " hide"}`}
+              class={`wz-btn quiet wz-skip${skippable(key, { mustSetPassword: must }) ? "" : " hide"}`}
               disabled={busy}
               onClick={() => void move("next", false)}
             >
