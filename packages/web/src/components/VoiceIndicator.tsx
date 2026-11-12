@@ -16,7 +16,9 @@ import {
 import { openTab } from "../state.js";
 import type { VoicePhase } from "../voice/machine.js";
 import {
+  audioAsleep,
   installVoice,
+  startHandsFree,
   micState,
   stopTalking,
   talkNow,
@@ -30,7 +32,7 @@ import { JobView, Progress } from "./ui.js";
 /** The indicator's look for a moment: its icon, its words, whether the microphone is live. */
 export function voiceLook(
   phase: VoicePhase,
-  o: { wake: boolean; paused: boolean; mic: string; model: string },
+  o: { wake: boolean; paused: boolean; mic: string; model: string; asleep?: boolean },
 ): { icon: JSX.Element; label: string; live: boolean; tone: string } {
   if (o.mic === "denied")
     return {
@@ -39,6 +41,9 @@ export function voiceLook(
       live: false,
       tone: "error",
     };
+  // The microphone is open but the browser keeps the sound asleep: nothing is heard yet.
+  if (o.asleep && o.mic === "open")
+    return { icon: <IconMic size={16} />, label: t("voiceTapToWake"), live: false, tone: "dim" };
   if (o.paused)
     return { icon: <IconMic size={16} />, label: t("voicePaused"), live: false, tone: "dim" };
   switch (phase) {
@@ -92,6 +97,7 @@ export function VoiceIndicator() {
   const look = voiceLook(state.phase, {
     wake: s.wake,
     paused: voicePaused.value,
+    asleep: audioAsleep.value,
     mic: micState.value,
     model: model.state,
   });
@@ -104,7 +110,11 @@ export function VoiceIndicator() {
         aria-label={`${t("voiceTitle")}: ${look.label}`}
         title={look.label}
         aria-expanded={open}
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          // A tap is what the browser waits for to wake the sound.
+          if (audioAsleep.value) void startHandsFree();
+          setOpen(!open);
+        }}
       >
         {look.icon}
         <span class="voice-ind-label">{look.label}</span>
@@ -125,7 +135,11 @@ export function VoiceIndicator() {
             <p class="notice error">{t("voiceModelError", { error: model.message })}</p>
           )}
           <div class="voice-pop-acts">
-            {busy ? (
+            {audioAsleep.value && micState.value === "open" ? (
+              <button type="button" class="wz-btn primary" onClick={() => void startHandsFree()}>
+                <IconMic size={16} /> {t("voiceWakeUp")}
+              </button>
+            ) : busy ? (
               <button type="button" class="wz-btn" onClick={() => stopTalking()}>
                 <IconStop /> {t("voiceStop")}
               </button>

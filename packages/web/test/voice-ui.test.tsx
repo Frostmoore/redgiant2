@@ -142,5 +142,8 @@ describe("the indicator", () => {
       dictionaries.it.voiceMicDenied,
     );
     expect(voiceLook("idle", { ...base, wake: false }).live).toBe(false);
+    // The sound still asleep (a reload, a phone): it asks for a tap, it does not claim to listen.
+    const asleep = voiceLook("idle", { ...base, asleep: true });
+    expect([asleep.label, asleep.live]).toEqual([dictionaries.it.voiceTapToWake, false]);
   });
 });

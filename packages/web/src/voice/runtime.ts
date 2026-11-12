@@ -35,6 +35,23 @@ export const wakeModel = signal<WakeModelState>({ state: "none" });
 export const micState = signal<"closed" | "opening" | "open" | "denied">("closed");
 /** The page is behind another one (or the phone is locked): nothing listens. */
 export const voicePaused = signal(false);
+/**
+ * The browser keeps the page's sound asleep until a tap (after a reload, on phones): nothing is
+ * heard then, and the indicator asks for the tap instead of saying it listens.
+ */
+export const audioAsleep = signal(false);
+
+/** The page's sound, created once; its state followed for the indicator. */
+function audioContext(): AudioContext {
+  if (!audio) {
+    const ctx = new AudioContext();
+    audio = ctx;
+    ctx.addEventListener("statechange", () => {
+      audioAsleep.value = ctx.state !== "running";
+    });
+  }
+  return audio;
+}
 
 // ---------- The browser's voice ----------
 
@@ -218,13 +235,14 @@ async function openMic(): Promise<void> {
     micState.value = "denied";
     return;
   }
-  audio ??= new AudioContext();
-  if (audio.state === "suspended") await audio.resume().catch(() => {});
-  const source = audio.createMediaStreamSource(stream);
+  const ctx = audioContext();
+  if (ctx.state === "suspended") await ctx.resume().catch(() => {});
+  audioAsleep.value = ctx.state !== "running";
+  const source = ctx.createMediaStreamSource(stream);
   // A ScriptProcessor: old, but every browser has it (iOS Safari included), and a frame every
   // ~85 ms is enough for speech.
-  processor = audio.createScriptProcessor(4096, 1, 1);
-  const rate = audio.sampleRate;
+  processor = ctx.createScriptProcessor(4096, 1, 1);
+  const rate = ctx.sampleRate;
   processor.onaudioprocess = (e) => {
     const samples = downsample(new Float32Array(e.inputBuffer.getChannelData(0)), rate, 16000);
     const c = voiceController();
@@ -239,7 +257,7 @@ async function openMic(): Promise<void> {
   };
   source.connect(processor);
   // Connected to the output (silent) or some browsers never call it.
-  processor.connect(audio.destination);
+  processor.connect(ctx.destination);
   micState.value = "open";
 }
 
@@ -357,8 +375,9 @@ export async function syncVoice(): Promise<void> {
 
 /** Switches hands-free on from a tap (the browser lets sound and voice start only from one). */
 export async function startHandsFree(): Promise<void> {
-  audio ??= new AudioContext();
-  await audio.resume().catch(() => {});
+  const ctx = audioContext();
+  await ctx.resume().catch(() => {});
+  audioAsleep.value = ctx.state !== "running";
   // iOS lets the page speak only after it spoke once from a tap.
   if (typeof speechSynthesis !== "undefined")
     speechSynthesis.speak(new SpeechSynthesisUtterance(""));
@@ -367,8 +386,9 @@ export async function startHandsFree(): Promise<void> {
 
 /** «Speak»: a request without the wake word. */
 export async function talkNow(): Promise<void> {
-  audio ??= new AudioContext();
-  await audio.resume().catch(() => {});
+  const ctx = audioContext();
+  await ctx.resume().catch(() => {});
+  audioAsleep.value = ctx.state !== "running";
   await openMic();
   if (micState.value !== "open") return;
   const c = voiceController();

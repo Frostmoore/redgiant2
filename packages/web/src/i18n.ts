@@ -733,6 +733,8 @@ const en = {
   voiceWaiting: "Listening for «Hey RedGiant»",
   voicePreparing: "Preparing the wake word",
   voiceTapToTalk: "Hands-free: tap to talk",
+  voiceTapToWake: "Tap to start listening",
+  voiceWakeUp: "Start listening",
   voiceWaitingHelp:
     "Only the wake word is listened for, inside this page: no audio leaves it until you say it.",
   voiceModelError: "The wake word could not start: {error}",
@@ -6098,6 +6100,8 @@ const it: Record<Key, string> = {
   voiceWaiting: "Sta ascoltando «Ehi RedGiant»",
   voicePreparing: "Preparo la parola di attivazione",
   voiceTapToTalk: "Mani libere: tocca per parlare",
+  voiceTapToWake: "Tocca per far partire l'ascolto",
+  voiceWakeUp: "Fai partire l'ascolto",
   voiceWaitingHelp:
     "Ascolta solo la parola di attivazione, dentro questa pagina: nessun audio esce finché non la dici.",
   voiceModelError: "La parola di attivazione non è partita: {error}",
