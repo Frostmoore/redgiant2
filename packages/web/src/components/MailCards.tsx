@@ -14,6 +14,21 @@ import { lang, t } from "../i18n.js";
 import { IconMail, IconPaperclip } from "../icons.js";
 
 const SHOWN = 8;
+
+/** «2026-11-02 10:00 UTC» in the person's time and words; anything else as it is. */
+export function mailDate(s: string): string {
+  const m = s.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC$/);
+  if (!m) return s;
+  const d = new Date(`${m[1]}T${m[2]}:00Z`);
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleString(lang.value === "it" ? "it-IT" : "en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 const PREVIEW = 600;
 
 /** A sender as people say it: the name, or the address. */
@@ -93,7 +108,7 @@ function SearchCard({ output }: { output: string }) {
                   <IconPaperclip size={12} />
                 </span>
               )}
-              <span class="mail-date">{m.date}</span>
+              <span class="mail-date">{mailDate(m.date)}</span>
             </li>
           ))}
         </ul>
@@ -118,7 +133,7 @@ function ReadCard({ output }: { output: string }) {
         <div class="mail-head-subject">{m.subject || "—"}</div>
         <div class="mail-head-line">
           <span class="mail-from">{m.from}</span>
-          <span class="mail-date">{m.date}</span>
+          <span class="mail-date">{mailDate(m.date)}</span>
         </div>
         <div class="mail-head-line dim">
           {t("mailCardTo")}: {m.to}

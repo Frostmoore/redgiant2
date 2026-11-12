@@ -33,7 +33,7 @@ vi.mock("../src/state.js", async (orig) => ({
 
 const state = await import("../src/state.js");
 const { PermissionCard } = await import("../src/components/Chat.js");
-const { MailToolCard, mailSummary } = await import("../src/components/MailCards.js");
+const { MailToolCard, mailDate, mailSummary } = await import("../src/components/MailCards.js");
 const { MailboxEditor } = await import("../src/components/EmailSettings.js");
 
 const send: PermissionRequestInfo = {
@@ -181,6 +181,14 @@ describe("the mail tools' cards (G38.1)", () => {
     expect(text.textContent?.endsWith("…")).toBe(true);
     fireEvent.click(container.querySelector("button.link") as HTMLElement);
     expect(text.textContent).toBe(body);
+  });
+
+  it("dates in the person's time and words", () => {
+    lang.value = "en";
+    expect(mailDate("2026-11-12 09:10 UTC")).toMatch(/12 Nov 2026/);
+    lang.value = "it";
+    expect(mailDate("2026-11-12 09:10 UTC")).toMatch(/12 nov 2026/);
+    expect(mailDate("yesterday")).toBe("yesterday");
   });
 
   it("the line says what was looked for, which message, to whom", () => {

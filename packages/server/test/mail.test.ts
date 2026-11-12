@@ -213,7 +213,7 @@ describe("drafts, replies and forwards (G38.1)", () => {
     expect(p.subject).toBe("Re: Monday");
     expect(p.inReplyTo).toBe("<monday-2@team.example>");
     expect(p.body).toMatch(
-      /^10 is fine\.\n\nOn 2026-11-04 08:00, Anna <anna@team.example> wrote:\n> Can we move it to 10\?/,
+      /^10 is fine\.\n\nOn 2026-11-04 08:00 UTC, Anna <anna@team.example> wrote:\n> Can we move it to 10\?/,
     );
     const only = await mail.prepare("me", { reply_to: 1, body: "Paid." });
     expect(only.to).toEqual(["Billing <billing@bank.example>"]);

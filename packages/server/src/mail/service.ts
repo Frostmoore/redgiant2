@@ -128,7 +128,8 @@ function day(v: string | undefined, what: string): Date | undefined {
   return d;
 }
 
-const when = (d: Date) => d.toISOString().slice(0, 16).replace("T", " ");
+/** A date the model and the page both read: «2026-11-02 10:00 UTC». */
+const when = (d: Date) => `${d.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 
 /** The text of a message: its plain part, or its HTML made into clean text by the parser. */
 const bodyOf = (p: { text?: string | undefined; html?: string | false | undefined }) =>
