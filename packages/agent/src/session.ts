@@ -687,6 +687,22 @@ export class AgentSession {
           });
           this.history.push({ message: { role: "assistant", parts: m.parts }, firstSeq: e.seq });
         },
+        onExternalTool: async (call) => {
+          watch.touch();
+          said();
+          await this.record({
+            type: "tool.call",
+            payload: { callId: call.callId, tool: call.name, input: call.input },
+          });
+        },
+        onExternalResult: async (result) => {
+          watch.touch();
+          said();
+          await this.record({
+            type: "tool.result",
+            payload: { callId: result.callId, ok: result.ok, output: result.output },
+          });
+        },
         runTool: async (call) => {
           // A tool's time is not the provider's: the watch waits while it runs.
           watch.pause();
@@ -765,7 +781,10 @@ export class AgentSession {
     hooks: (
       watch: StallWatch,
       said: () => void,
-    ) => Pick<EngineTurn, "onMessage" | "runTool" | "onCompaction">,
+    ) => Pick<
+      EngineTurn,
+      "onMessage" | "runTool" | "onCompaction" | "onExternalTool" | "onExternalResult"
+    >,
   ): Promise<{ resume: string; stopReason: StopReason }> {
     const limits = engine.stall ?? ENGINE_STALL;
     const delays = this.o.stallDelaysMs ?? STALL_RETRY_DELAYS_MS;

@@ -1,0 +1,22 @@
+{
+  "name": "@redgiant/acp",
+  "version": "0.1.0",
+  "description": "Agent Client Protocol both ways: RedGiant as an agent inside editors, and external ACP agents as RedGiant workers.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@agentclientprotocol/sdk": "2.6.0",
+    "@redgiant/agent": "workspace:*",
+    "@redgiant/protocol": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

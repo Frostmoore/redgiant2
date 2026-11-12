@@ -81,6 +81,21 @@ export const ClientMessage = z.discriminatedUnion("type", [
     via: z.literal("artifact").optional(),
   }),
   z.object({ type: z.literal("session.interrupt"), sessionId: z.string() }),
+  /**
+   * An editor shows this conversation through `redgiant-acp` (G38.6), with the agent's project open
+   * at `root` and its files offered: the agent's file tools read and write through the editor
+   * (`editor.fs`), so it sees unsaved buffers. Ends with `editor.detach` or the connection.
+   */
+  z.object({ type: z.literal("editor.attach"), sessionId: z.string(), root: z.string().min(1) }),
+  z.object({ type: z.literal("editor.detach"), sessionId: z.string() }),
+  /** The editor's answer to an `editor.fs` request. */
+  z.object({
+    type: z.literal("editor.fs.reply"),
+    requestId: z.string().max(80),
+    ok: z.boolean(),
+    content: z.string().optional(),
+    error: z.string().max(2000).optional(),
+  }),
   /** Background commands (p3.3.1): stop one (no confirmation), or take a finished one off the strip. */
   z.object({ type: z.literal("command.stop"), sessionId: z.string(), id: z.string() }),
   z.object({ type: z.literal("command.close"), sessionId: z.string(), id: z.string() }),
@@ -263,6 +278,18 @@ export const ServerMessage = z.discriminatedUnion("type", [
   }),
   /** A summary of the conversation is being made while the person waits (G24.14). */
   z.object({ type: z.literal("session.compacting"), sessionId: z.string(), busy: z.boolean() }),
+  /**
+   * A file of the agent's project read or written through the editor that shows the conversation
+   * (G38.6, after `editor.attach`); answered with `editor.fs.reply`. `path` is absolute.
+   */
+  z.object({
+    type: z.literal("editor.fs"),
+    requestId: z.string(),
+    sessionId: z.string(),
+    op: z.enum(["read", "write"]),
+    path: z.string(),
+    content: z.string().optional(),
+  }),
   /** A request that waits for the human; answered with `permission.resolve`. */
   z.object({ type: z.literal("permission.request"), request: PermissionRequestInfo }),
   z.object({

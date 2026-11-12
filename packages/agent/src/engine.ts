@@ -37,6 +37,16 @@ export interface EngineTurn {
    * an engine that stopped answering.
    */
   alive?: (() => void) | undefined;
+  /**
+   * A tool the engine ran itself (an external ACP agent, G38.6): recorded as it is, never run by
+   * RedGiant. Its result comes later through `onExternalResult`, with the same `callId`.
+   */
+  onExternalTool?:
+    | ((call: { callId: string; name: string; input: unknown }) => Promise<void>)
+    | undefined;
+  onExternalResult?:
+    | ((result: { callId: string; ok: boolean; output: string }) => Promise<void>)
+    | undefined;
   /** The engine summarised its own conversation (shown in the chat; RedGiant's history stays). */
   onCompaction?: ((info: { trigger: string; preTokens?: number | undefined }) => void) | undefined;
 }
