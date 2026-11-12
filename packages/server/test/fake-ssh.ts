@@ -18,6 +18,7 @@ import {
 } from "node:fs";
 import type { AddressInfo } from "node:net";
 import ssh2 from "ssh2";
+import { newSshKeyPair } from "../src/machines.js";
 
 const { Server, utils } = ssh2;
 const { STATUS_CODE, flagsToString } = utils.sftp;
@@ -61,7 +62,7 @@ export async function fakeSsh(o: {
   keys?: string[];
   password?: string;
 }): Promise<FakeSsh> {
-  const hostKey = o.hostKey ?? utils.generateKeyPairSync("ed25519").private;
+  const hostKey = o.hostKey ?? newSshKeyPair().private;
   const state: FakeSsh = {
     port: 0,
     hostKey,

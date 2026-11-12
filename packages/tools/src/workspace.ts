@@ -55,6 +55,12 @@ export interface SpawnedProcess {
   stderr: NodeJS.ReadableStream;
   /** Its folder as the program sees it (in a container, the container's path). */
   cwd: string;
+  /**
+   * Other names of the same folder, when it has more than one: the program's own `getcwd()`
+   * gives the real path (macOS `/var` is `/private/var`, a data folder behind a symlink, a
+   * Windows short name), so paths it sends may start with any of them.
+   */
+  aliases?: string[];
   /** Stops it and what it started. */
   kill(): void;
   /** Settles with its exit code when it ends. */
@@ -642,11 +648,13 @@ export class LocalWorkspace implements Workspace {
       child.once("exit", (code) => ok(code));
       child.once("error", () => ok(null));
     });
+    const real = await realpath(cwd).catch(() => cwd);
     return {
       stdin: child.stdin,
       stdout: child.stdout,
       stderr: child.stderr,
       cwd,
+      ...(real !== cwd && { aliases: [real] }),
       exited,
       kill: () => {
         if (child.exitCode !== null) return;

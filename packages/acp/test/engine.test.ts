@@ -1,6 +1,6 @@
 import type { EngineTurn } from "@redgiant/agent";
 import { describe, expect, it } from "vitest";
-import { AcpEngine, type AcpWorkerHost, type MappedCall } from "../src/index.js";
+import { AcpEngine, type AcpWorkerHost, insideFolder, type MappedCall } from "../src/index.js";
 import { type FakeAgent, fakeAgent } from "./fake-agent.js";
 
 function harness(
@@ -304,5 +304,32 @@ describe("AcpEngine: an external ACP agent as a RedGiant engine (G38.6)", () => 
     agent = fakeAgent();
     agent.script = [{ say: "fresh" }];
     expect((await h.engine.turn(turnOf("again").t)).stopReason).toBe("end_turn");
+  });
+});
+
+describe("insideFolder: a folder with more than one name (macOS /private, symlinks)", () => {
+  const names = ["/var/T/rg/work", "/private/var/T/rg/work"];
+  it.each([
+    ["notes.txt", "notes.txt"],
+    ["/var/T/rg/work/a/b.txt", "a/b.txt"],
+    ["/private/var/T/rg/work/notes.txt", "notes.txt"],
+    ["/private/var/T/rg/work", "."],
+    ["/private/var/T/rg/work/../escape.txt", undefined],
+    ["/var/T/rg/other.txt", undefined],
+    ["/etc/hostname", undefined],
+    ["../escape.txt", undefined],
+  ])("%s -> %s", (path, rel) => {
+    expect(insideFolder(names, path)).toBe(rel);
+  });
+  it("one name alone still refuses the other", () => {
+    expect(insideFolder(names[0] as string, "/private/var/T/rg/work/notes.txt")).toBeUndefined();
+  });
+  it("Windows names compare without case and with either separator", () => {
+    expect(
+      insideFolder(
+        ["C:\\Users\\RUNNER~1\\w", "C:\\Users\\runneradmin\\w"],
+        "c:/users/RunnerAdmin/w/x.txt",
+      ),
+    ).toBe("x.txt");
   });
 });

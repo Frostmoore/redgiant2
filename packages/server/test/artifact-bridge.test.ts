@@ -4,7 +4,8 @@
 // within the artifact's cap and a rate limit, rebuilt from the log; `storage` per artifact, text
 // only, 5 MB, exported only on request; `files` read only inside the granted folder of the
 // project, never a secret, a hidden file, a link that leaves or a path that climbs out.
-import { mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ARTIFACT_ASK_PER_MINUTE,
@@ -409,7 +410,9 @@ describe("the artifacts' bridge", () => {
     const other = ref("artefatti/god.html", "platform");
     const proot = await srv.core.scopeFolder("me", "platform");
     await mkdir(join(proot, "artefatti"), { recursive: true });
-    await symlink("/tmp", join(proot, "artefatti", ".dati"));
+    // A folder that exists on every system (on Windows "/tmp" is a drive's missing folder).
+    const outside = await mkdtemp(join(tmpdir(), "rg-outside-"));
+    await symlink(outside, join(proot, "artefatti", ".dati"), "junction");
     await srv.api("POST", "/api/artifacts/grant", {
       scope: "platform",
       path: "artefatti/god.html",
@@ -419,6 +422,15 @@ describe("the artifacts' bridge", () => {
       b.handle("me", other, { op: "storage.set", key: "a", value: "b" }),
       "forbidden",
     );
+    expect(await readdir(outside)).toEqual([]);
+    // A broken link is refused too, never a disk error.
+    await rm(join(proot, "artefatti", ".dati"));
+    await symlink(join(outside, "gone"), join(proot, "artefatti", ".dati"), "junction");
+    await failsWith(
+      b.handle("me", other, { op: "storage.set", key: "a", value: "b" }),
+      "forbidden",
+    );
+    await rm(outside, { recursive: true, force: true });
   });
 
   it("storage follows the person's move, and goes aside when they delete the artifact", async () => {

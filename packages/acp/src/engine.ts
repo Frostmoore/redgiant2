@@ -22,6 +22,8 @@ export interface AcpProcess {
   output: ReadableStream<Uint8Array>;
   /** Its folder as the process sees it (in a container, the container's path). */
   cwd: string;
+  /** Other names of the same folder (its real path behind a symlink or a short name). */
+  aliases?: string[];
   kill(): void;
   /** Settles when the process ends. */
   exited: Promise<number | null>;
@@ -142,9 +144,9 @@ export class AcpEngine implements Engine {
       .client({ name: "redgiant" })
       .onNotification("session/update", (ctx) => this.update(ctx.params))
       .onRequest("session/request_permission", (ctx) => this.permission(ctx.params, ctx.signal))
-      .onRequest("fs/read_text_file", (ctx) => this.readFile(ctx.params, proc.cwd))
-      .onRequest("fs/write_text_file", (ctx) => this.writeFile(ctx.params, proc.cwd))
-      .onRequest("terminal/create", (ctx) => this.createTerminal(ctx.params, proc.cwd))
+      .onRequest("fs/read_text_file", (ctx) => this.readFile(ctx.params, folderNames(proc)))
+      .onRequest("fs/write_text_file", (ctx) => this.writeFile(ctx.params, folderNames(proc)))
+      .onRequest("terminal/create", (ctx) => this.createTerminal(ctx.params, folderNames(proc)))
       .onRequest("terminal/output", (ctx) => this.terminalOutput(ctx.params))
       .onRequest("terminal/wait_for_exit", (ctx) => this.waitTerminal(ctx.params))
       .onRequest("terminal/kill", (ctx) => {
@@ -462,7 +464,11 @@ export class AcpEngine implements Engine {
     const cancelled: acp.RequestPermissionResponse = { outcome: { outcome: "cancelled" } };
     if (!run || p.sessionId !== run.sessionId || run.cancelled.aborted) return cancelled;
     const proc = await this.connection().then((x) => x.proc);
-    const call = permissionCall(p.toolCall, proc.cwd, run.tools.get(p.toolCall.toolCallId));
+    const call = permissionCall(
+      p.toolCall,
+      folderNames(proc),
+      run.tools.get(p.toolCall.toolCallId),
+    );
     const stop = new AbortController();
     const abort = () => stop.abort();
     signal.addEventListener("abort", abort, { once: true });
@@ -485,12 +491,12 @@ export class AcpEngine implements Engine {
     }
   }
 
-  private inside(cwd: string, path: string): string {
+  private inside(cwd: readonly string[], path: string): string {
     const rel = insideFolder(cwd, path);
     if (rel === undefined)
       throw acp.RequestError.invalidParams(
         { path },
-        `RedGiant refused: ${path} is outside this agent's folder (${cwd})`,
+        `RedGiant refused: ${path} is outside this agent's folder (${cwd[0]})`,
       );
     return rel;
   }
@@ -509,7 +515,7 @@ export class AcpEngine implements Engine {
 
   private async readFile(
     p: acp.ReadTextFileRequest,
-    cwd: string,
+    cwd: readonly string[],
   ): Promise<acp.ReadTextFileResponse> {
     const rel = this.inside(cwd, p.path);
     await this.checked({ callId: `acp-read-${rel}`, name: "read_file", input: { path: rel } });
@@ -529,7 +535,7 @@ export class AcpEngine implements Engine {
 
   private async writeFile(
     p: acp.WriteTextFileRequest,
-    cwd: string,
+    cwd: readonly string[],
   ): Promise<acp.WriteTextFileResponse> {
     const rel = this.inside(cwd, p.path);
     await this.checked({
@@ -543,7 +549,7 @@ export class AcpEngine implements Engine {
 
   private async createTerminal(
     p: acp.CreateTerminalRequest,
-    cwd: string,
+    cwd: readonly string[],
   ): Promise<acp.CreateTerminalResponse> {
     const dir = p.cwd ? this.inside(cwd, p.cwd) : ".";
     const args = p.args ?? [];
@@ -611,4 +617,9 @@ export class AcpEngine implements Engine {
   ): Promise<acp.WaitForTerminalExitResponse> {
     return this.terminal(p.terminalId).exit;
   }
+}
+
+/** Every name of the process's folder: the one it was given first, then its aliases. */
+function folderNames(proc: AcpProcess): string[] {
+  return [proc.cwd, ...(proc.aliases ?? [])];
 }

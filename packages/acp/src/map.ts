@@ -78,13 +78,20 @@ const isAbsoluteAny = (p: string) => posix.isAbsolute(p) || win32.isAbsolute(p);
  * A path an external agent gave, relative to its folder (`cwd`, as the process sees it), or
  * undefined when it lies outside: then RedGiant refuses it (the guardian, G38.6).
  */
-export function insideFolder(cwd: string, path: string): string | undefined {
-  const p = pathOf(cwd);
-  const abs = p.isAbsolute(path) ? p.normalize(path) : p.resolve(cwd, path);
-  const rel = p.relative(p.normalize(cwd), abs);
-  if (rel === "") return ".";
-  if (rel.startsWith("..") || p.isAbsolute(rel)) return undefined;
-  return p === win32 ? rel.replaceAll("\\", "/") : rel;
+export function insideFolder(cwd: string | readonly string[], path: string): string | undefined {
+  // The same folder may have several names (its real path behind a symlink, macOS `/private`):
+  // a path inside any of them is inside. Relative paths are read from the first.
+  const names = typeof cwd === "string" ? [cwd] : cwd;
+  for (const [i, root] of names.entries()) {
+    const p = pathOf(root);
+    if (i > 0 && !p.isAbsolute(path)) break;
+    const abs = p.isAbsolute(path) ? p.normalize(path) : p.resolve(root, path);
+    const rel = p.relative(p.normalize(root), abs);
+    if (rel === "") return ".";
+    if (rel.startsWith("..") || p.isAbsolute(rel)) continue;
+    return p === win32 ? rel.replaceAll("\\", "/") : rel;
+  }
+  return undefined;
 }
 
 /** Quotes a program and its arguments as a shell would read them (for the rules, never run). */
@@ -101,7 +108,7 @@ export function shellLine(command: string, args: readonly string[] = []): string
  */
 export function permissionCall(
   toolCall: acp.ToolCallUpdate,
-  cwd: string,
+  cwd: string | readonly string[],
   pending?: { kind?: acp.ToolKind | null; title?: string | null; rawInput?: unknown },
 ): MappedCall {
   const kind = toolCall.kind ?? pending?.kind ?? "other";

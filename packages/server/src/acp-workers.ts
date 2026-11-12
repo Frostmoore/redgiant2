@@ -77,6 +77,7 @@ export function processStreams(p: SpawnedProcess, log?: (line: string) => void):
       p.stdout as unknown as Readable,
     ) as unknown as ReadableStream<Uint8Array>,
     cwd: p.cwd,
+    ...(p.aliases && { aliases: p.aliases }),
     kill: () => p.kill(),
     exited: p.exited,
   };

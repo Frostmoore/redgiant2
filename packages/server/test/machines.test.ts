@@ -10,7 +10,7 @@ import type { ToolContext } from "@redgiant/agent";
 import type { Event, MachineTest, MachineView } from "@redgiant/protocol";
 import ssh2 from "ssh2";
 import { afterEach, describe, expect, it } from "vitest";
-import { homeOf, hostKeyOf, mayUse } from "../src/machines.js";
+import { homeOf, hostKeyOf, mayUse, newSshKeyPair } from "../src/machines.js";
 import { type SshToolsHost, sshTools } from "../src/ssh-tools.js";
 import { type FakeSsh, fakeSsh } from "./fake-ssh.js";
 import { startServer } from "./helpers.js";
@@ -76,6 +76,16 @@ async function everythingKept(server: Server): Promise<string> {
   ).o.db.query("SELECT key, value FROM rg_settings");
   return JSON.stringify(events) + JSON.stringify(rows);
 }
+
+describe("newSshKeyPair", () => {
+  it("never hands out a key ssh2 cannot read (its generator breaks about one in 256)", () => {
+    for (let i = 0; i < 2000; i++) {
+      const pair = newSshKeyPair("redgiant-test");
+      expect(ssh2.utils.parseKey(pair.private)).not.toBeInstanceOf(Error);
+      expect(ssh2.utils.parseKey(pair.public)).not.toBeInstanceOf(Error);
+    }
+  });
+});
 
 describe.runIf(process.platform !== "win32")(
   "machines over SSH (G38.2)",
@@ -226,7 +236,7 @@ describe.runIf(process.platform !== "win32")(
 
     it("an imported key: checked, its public half shown, a bad one refused", async () => {
       const { server } = await setup();
-      const pair = ssh2.utils.generateKeyPairSync("ed25519");
+      const pair = newSshKeyPair();
       const ok = await server.api<MachineView>("POST", "/api/settings/machines", {
         name: "own",
         host: "own.example.test",

@@ -730,11 +730,17 @@ export class ArtifactBridge {
     const rel = ArtifactBridge.storagePath(path);
     const abs = join(root, rel);
     const dir = dirname(abs);
-    await mkdir(dir, { recursive: true });
-    // The folder must stay ours: a link there would write elsewhere.
+    // The folder must stay ours: a link there would write elsewhere, and a broken one is no
+    // better (refused, never an error from the disk).
     const realRoot = await realpath(root);
-    const realDir = await realpath(dir);
-    if (!within(realRoot, realDir)) fail("forbidden", "The storage folder leaves the place");
+    const realDir = await mkdir(dir, { recursive: true })
+      .then(() => realpath(dir))
+      .catch(async (err: unknown) => {
+        if ((await lstat(dir).catch(() => undefined))?.isSymbolicLink()) return undefined;
+        throw err;
+      });
+    if (!realDir || !within(realRoot, realDir))
+      fail("forbidden", "The storage folder leaves the place");
     const st = await lstat(abs).catch(() => undefined);
     if (st && !st.isFile()) fail("forbidden", "The artifact's storage is not a plain file");
     // Not committed by habit: the person's data stays out of git (backups still carry it).

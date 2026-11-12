@@ -26,6 +26,20 @@ import ssh2 from "ssh2";
 import type { SystemKeyMeta, Vault } from "./vault.js";
 
 const { Client, utils } = ssh2;
+
+/**
+ * A new ed25519 key pair. ssh2's generator drops a leading zero byte about once in 256 keys,
+ * leaving a 31-byte public key that nothing (ssh2 itself included) can read: such a pair is
+ * thrown away and made again.
+ */
+export function newSshKeyPair(comment?: string): { private: string; public: string } {
+  for (;;) {
+    const pair = utils.generateKeyPairSync("ed25519", comment ? { comment } : {});
+    const priv = utils.parseKey(pair.private);
+    const pub = utils.parseKey(pair.public);
+    if (!(priv instanceof Error) && !(pub instanceof Error)) return pair;
+  }
+}
 export type SshClient = InstanceType<typeof Client>;
 
 const SETTING = "machines";
@@ -244,7 +258,7 @@ export class Machines {
             meta: this.meta(m, "key passphrase"),
           });
       } else {
-        const pair = utils.generateKeyPairSync("ed25519", { comment: `redgiant-${b.name}` });
+        const pair = newSshKeyPair(`redgiant-${b.name}`);
         m.publicKey = pair.public.trim();
         m.keySource = "generated";
         want.set(this.keyOf(id, "key"), { value: pair.private, meta: this.meta(m, "private key") });
@@ -299,7 +313,7 @@ export class Machines {
     if (touchesSecrets) {
       const vault = this.vault();
       if (p.newKey) {
-        const pair = utils.generateKeyPairSync("ed25519", { comment: `redgiant-${m.name}` });
+        const pair = newSshKeyPair(`redgiant-${m.name}`);
         await vault.setSystem(
           ownerId,
           this.keyOf(id, "key"),
