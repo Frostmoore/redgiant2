@@ -5507,9 +5507,9 @@ const en = {
   fbRoleNode: "Node of another RedGiant",
   fbRoleNodeText: "This machine works for a RedGiant you already have.",
   fbPairCode: "Enter the pairing code",
-  fbPairPlaceholder: "Pairing arrives in an update soon (G39.4)",
+  fbPairPlaceholder: "Arrives with G39.4",
   fbPairLater:
-    "The role is saved now; you will pair this node from the main RedGiant's Settings › Nodes when it arrives.",
+    "Pairing arrives in an update soon (G39.4). The role is saved now; you will pair this node from the main RedGiant's Settings › Nodes when it arrives.",
   fbToNodeQ: "Make this RedGiant a node?",
   fbToNodeText:
     "It will stop being a RedGiant of its own once paired: its agents, projects and conversations stay saved, untouched, but they rest until you make it complete again.",
@@ -11189,9 +11189,9 @@ const it: Record<Key, string> = {
   fbRoleNode: "Nodo di un altro RedGiant",
   fbRoleNodeText: "Questa macchina lavora per un RedGiant che hai già.",
   fbPairCode: "Inserisci il codice di abbinamento",
-  fbPairPlaceholder: "L'abbinamento arriva con un prossimo aggiornamento (G39.4)",
+  fbPairPlaceholder: "Arriva con G39.4",
   fbPairLater:
-    "Il ruolo è salvato adesso; abbinerai questo nodo da Impostazioni › Nodi del RedGiant principale, quando arriva.",
+    "L'abbinamento arriva con un prossimo aggiornamento (G39.4). Il ruolo è salvato adesso; abbinerai questo nodo da Impostazioni › Nodi del RedGiant principale, quando arriva.",
   fbToNodeQ: "Trasformare questo RedGiant in un nodo?",
   fbToNodeText:
     "Smetterà di essere un RedGiant a sé quando sarà abbinato: agenti, progetti e conversazioni restano salvati, intatti, ma fermi finché non lo rendi di nuovo completo.",

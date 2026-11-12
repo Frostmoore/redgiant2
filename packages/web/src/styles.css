@@ -19416,6 +19416,13 @@ html[data-theme="dark"] {
   gap: 18px;
   text-align: left;
 }
+.fb-storage .wz-sub,
+.fb-storage .wz-subl {
+  text-align: left;
+  margin-left: 0;
+  margin-right: 0;
+  max-width: none;
+}
 .fb-folder {
   display: flex;
   gap: 10px;

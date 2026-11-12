@@ -17,7 +17,6 @@ import type {
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
-import { bytes } from "../format.js";
 import { type Key, lang, t } from "../i18n.js";
 import {
   IconArchive,
@@ -52,8 +51,11 @@ function found<T>(f: Found<T>, show: (v: T) => ComponentChildren): ComponentChil
   return <span class="dim">{t(`fbMissing_${f.missing}` as Key)}</span>;
 }
 
-/** «2 TB», «512 GB». */
-const size = (b: number) => bytes(b);
+/** «1,8 TB», «512 GB»: a disk's size as people read it. */
+const size = (b: number) => {
+  const gb = b / 1024 ** 3;
+  return gb >= 1000 ? `${num(Math.round(gb / 102.4) / 10)} TB` : `${num(Math.round(gb))} GB`;
+};
 
 // --- Role -----------------------------------------------------------------------------------
 
