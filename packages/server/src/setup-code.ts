@@ -33,7 +33,8 @@ export function lanAddresses(ifaces: NodeJS.Dict<NetworkInterfaceInfo[]>): strin
   for (const [name, list] of Object.entries(ifaces)) {
     if (/^(lo|docker\d*|br-|veth|virbr|cni|flannel|tailscale|tun|wg)/.test(name)) continue;
     for (const a of list ?? [])
-      if (a.family === "IPv4" && !a.internal && !a.address.startsWith("169.254.")) out.push(a.address);
+      if (a.family === "IPv4" && !a.internal && !a.address.startsWith("169.254."))
+        out.push(a.address);
   }
   return out;
 }

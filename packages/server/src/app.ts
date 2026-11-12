@@ -85,6 +85,7 @@ import { svgRoutes } from "./editor/svg-routes.js";
 import { MailboxNotFoundError } from "./email.js";
 import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
+import { firstBootRoutes } from "./firstboot-routes.js";
 import { HuggingFace } from "./hf.js";
 import { importRoutes } from "./import-routes.js";
 import { knowledgeRoutes } from "./knowledge/routes.js";
@@ -1441,6 +1442,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   browserRoutes(app, core.browserLinks, owner, clientAddress);
   // Mandatory and breaking updates (G36.19): the status, the safety backup, found backups.
   updateRoutes(app, core, owner, options.setup);
+  // The first boot anywhere (G39.3): role, storage, backups' destination, what reaches the machine.
+  firstBootRoutes(app, options.setup, () => options.setup?.scheduler);
   // The knowledge (G36, the RAG): collections, sources, models, search, citations.
   knowledgeRoutes(app, () => core.knowledge, owner);
 

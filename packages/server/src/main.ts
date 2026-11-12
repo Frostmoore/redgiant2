@@ -27,6 +27,8 @@ import { RedGiantCore } from "./core.js";
 import { debugLog } from "./debug-log.js";
 import { localVaultEgress, routesFileEgress } from "./egress-routes.js";
 import { startEmbeddedDatabase } from "./embedded-db.js";
+import { FirstBoot } from "./firstboot.js";
+import { backupScheduler } from "./firstboot-routes.js";
 import { GitHosts } from "./git-hosts.js";
 import { HuggingFace } from "./hf.js";
 import { EmbeddingError, type KeyedFetch } from "./knowledge/embedders.js";
@@ -37,6 +39,7 @@ import { ensurePgvector } from "./knowledge/pgvector.js";
 import { KnowledgeService } from "./knowledge/service.js";
 import { CatalogWatcher } from "./models-catalog.js";
 import { NativeLauncher } from "./native-launcher.js";
+import { osHelperFrom } from "./os-helper.js";
 import { ensureGit } from "./portable-git.js";
 import { backgroundPuller, runtimeHooks } from "./runtime.js";
 import { serve } from "./serve.js";
@@ -358,6 +361,12 @@ const gitHosts = new GitHosts({
 });
 const setup = new SetupService({
   git: gitHosts,
+  // The machine (G39.3): disks for backups, SSH, what reaches it; root actions through the OS helper.
+  firstBoot: new FirstBoot({
+    dataDir,
+    hostDataDir: env.REDGIANT_HOST_DATA_DIR,
+    helper: osHelperFrom(env),
+  }),
   db,
   core,
   dataDir,
@@ -471,6 +480,16 @@ const running = await serve(core, new TokenAuth({ [token]: owner }), {
   webDir: env.REDGIANT_WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 console.log(`RedGiant listening on ${running.url} (sandbox: ${sandbox.kind})`);
+// A first start without a screen (G39.3): the one-time code for the page opened from another
+// device of the network; REDGIANT_SETUP_CODE=0 turns it off (the installer opens the page itself).
+if (env.REDGIANT_SETUP_CODE !== "0")
+  await setup
+    .startSetupCode(Number(env.REDGIANT_PORT ?? 7600), (await core.logins.status(owner)).password)
+    .catch((err) => console.warn(`setup code: ${(err as Error).message}`));
+// Scheduled backups (G39.3) into the destination chosen in the wizard or Settings › System.
+setup.scheduler = backupScheduler(core, setup, owner, () => installedVersion(env));
+setup.scheduler.start();
+shutdownHooks.push(async () => setup.scheduler?.stop());
 // Where the `redgiant` command line finds this server (G36.15); its token is the app's token.txt.
 await writeFile(
   join(dataDir, "address.txt"),

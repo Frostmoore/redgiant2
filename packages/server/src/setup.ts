@@ -1,10 +1,20 @@
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import type { SqlClient } from "@redgiant/events";
 import type { Platform } from "@redgiant/gateway";
 import { DEFAULT_POLICY } from "@redgiant/hierarchy";
-import type { Job, VaultSystemEntry } from "@redgiant/protocol";
+import type {
+  BackupDestination,
+  BackupSchedule,
+  BackupSettings,
+  Job,
+  LocalOffer,
+  RedGiantRole,
+  SystemInfo,
+  VaultSystemEntry,
+} from "@redgiant/protocol";
 import {
   agentLanguage,
   keyProvider,
@@ -27,10 +37,13 @@ import {
 } from "@redgiant/subscriptions";
 import { searchProvider } from "@redgiant/tools";
 import { stringify } from "yaml";
+import type { BackupScheduler } from "./backup-schedule.js";
 import type { RedGiantCore } from "./core.js";
 import { debugLog } from "./debug-log.js";
+import { discoverSystem, localOffer } from "./discovery.js";
 import { freePort } from "./embedded-db.js";
 import { ensureFfmpeg } from "./ffmpeg.js";
+import type { FirstBoot } from "./firstboot.js";
 import { GitHostError, type GitHosts, type GitHostsConfig } from "./git-hosts.js";
 import { detectHardware, type EngineVariant, type Hardware } from "./hardware.js";
 import { IMAGE_MODEL } from "./images.js";
@@ -40,6 +53,7 @@ import { elevenVoices } from "./media.js";
 import type { MoePrefetchState } from "./moe-prefetch.js";
 import { defaultTemplate, toPlaceholders } from "./prompts.js";
 import { REMOTE_STEPS, type RemoteRequest } from "./remote.js";
+import { lanAddresses, SetupCode, setupCodeBanner } from "./setup-code.js";
 import { BIG_BATCHES, type EnginePlan, MOE_BATCH } from "./stream.js";
 import { type SystemKeyMeta, shredFile } from "./vault.js";
 
@@ -316,7 +330,14 @@ export interface SetupConfig {
    * tokens and passwords are in the keychain.
    */
   chatSettings?: Partial<Record<Platform, Record<string, string>>>;
+  /** A complete RedGiant (the default) or a node of another one (G39.3; pairing in G39.4). */
+  role?: RedGiantRole;
+  /** Scheduled backups (G39.3): where they go and when; `setAt` is when they were set. */
+  backups?: BackupSettings & { setAt?: string };
 }
+
+/** The schedule a destination gets when none was chosen: every night at 3, seven kept. */
+export const DEFAULT_BACKUP_SCHEDULE: BackupSchedule = { every: "daily", hour: 3, keep: 7 };
 
 interface Secrets {
   /** Keys of the providers in `KEY_PROVIDERS`, by id. */
@@ -651,6 +672,10 @@ export interface SetupState {
   locked: Locked;
   providers: string[];
   hardware: Hardware;
+  /** The machine as a whole (G39.3), each part said missing where the system does not tell. */
+  system: SystemInfo;
+  /** What the wizard offers here: cloud models always, local ones only when one fits. */
+  offer: LocalOffer;
   names: {
     god: string | null;
     demigod: string | null;
@@ -760,8 +785,19 @@ export class SetupService {
       locked?: Locked;
       /** GitHub and Gitea (G24.5). */
       git?: GitHosts;
+      /** The machine: disks, mounting, SSH (G39.3). */
+      firstBoot?: FirstBoot;
     },
-  ) {}
+  ) {
+    this.setupCode = new SetupCode({ dataDir: o.dataDir });
+  }
+
+  /** Scheduled backups (G39.3), set by main once the core runs. */
+  scheduler: BackupScheduler | undefined;
+
+  get firstBoot(): FirstBoot | undefined {
+    return this.o.firstBoot;
+  }
 
   private get secretsFile() {
     return join(this.o.dataDir, "secrets.json");
@@ -1085,6 +1121,11 @@ export class SetupService {
     const [global] = (await this.o.core.budget.listFor(owner, [], [])).filter(
       (b) => b.scope === "global",
     );
+    const hardware = await detectHardware({
+      dataDir: this.o.dataDir,
+      ...(this.o.hooks.dockerRuntimes && { dockerRuntimes: this.o.hooks.dockerRuntimes }),
+    });
+    const fb = this.o.firstBoot;
     return {
       config: this.config,
       secretsSet: {
@@ -1102,10 +1143,12 @@ export class SetupService {
       },
       locked: this.locked,
       providers: this.o.core.providerIds(),
-      hardware: await detectHardware({
-        dataDir: this.o.dataDir,
-        ...(this.o.hooks.dockerRuntimes && { dockerRuntimes: this.o.hooks.dockerRuntimes }),
+      hardware,
+      system: await discoverSystem({
+        hardware,
+        ...(fb && { listDisks: () => fb.disks() }),
       }),
+      offer: localOffer(hardware.suggestion),
       names: {
         god: god?.name ?? null,
         demigod: demigod?.name ?? null,
@@ -2529,6 +2572,68 @@ export class SetupService {
 
   async complete(): Promise<void> {
     this.config.completed = true;
+    await this.save();
+    // The first start's code (G39.3) is gone with the wizard.
+    await this.setupCode.clear();
+  }
+
+  get completed(): boolean {
+    return this.config.completed;
+  }
+
+  /** The one-time code of a first start from another device (G39.3). */
+  readonly setupCode: SetupCode;
+
+  /**
+   * At a first start (wizard not completed, no password): a one-time code on the console and in
+   * the log, for the page opened from another device. Returns it, or null when not needed.
+   */
+  async startSetupCode(port: number, hasPassword: boolean): Promise<string | null> {
+    if (this.config.completed || hasPassword) return null;
+    const code = await this.setupCode.issue();
+    console.log(setupCodeBanner(code, port, lanAddresses(networkInterfaces())));
+    return code;
+  }
+
+  /**
+   * The role (G39.3). Once the wizard is completed, changing it needs `confirm` (the page warns
+   * first): a complete RedGiant that becomes a node stops being the main one when pairing comes.
+   */
+  async saveRole(role: RedGiantRole, confirm = false): Promise<void> {
+    const now = this.config.role ?? "full";
+    if (now === role) return;
+    if (this.config.completed && !confirm)
+      throw new SetupError("Changing the role needs a confirmation", "confirm_needed");
+    this.config.role = role;
+    await this.save();
+  }
+
+  get backups(): (BackupSettings & { setAt?: string }) | undefined {
+    return this.config.backups;
+  }
+
+  /** Where scheduled backups go and when (null destination: none, the schedule stays). */
+  async saveBackups(b: {
+    destination?: BackupDestination | null;
+    schedule?: Partial<BackupSchedule>;
+  }): Promise<BackupSettings> {
+    const cur = this.config.backups ?? { schedule: DEFAULT_BACKUP_SCHEDULE };
+    const schedule = { ...cur.schedule, ...b.schedule };
+    if (schedule.every !== "weekly") delete schedule.weekday;
+    const next: BackupSettings & { setAt?: string } = { ...cur, schedule };
+    if (b.destination === null) delete next.destination;
+    else if (b.destination) next.destination = b.destination;
+    // A new destination or time starts counting now: no backup the moment it is set.
+    next.setAt = new Date().toISOString();
+    this.config.backups = next;
+    await this.save();
+    return next;
+  }
+
+  /** How the last scheduled backup went. */
+  async recordBackup(last: NonNullable<BackupSettings["last"]>): Promise<void> {
+    if (!this.config.backups) return;
+    this.config.backups = { ...this.config.backups, last };
     await this.save();
   }
 
