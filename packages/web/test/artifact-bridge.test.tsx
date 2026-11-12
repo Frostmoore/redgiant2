@@ -32,7 +32,7 @@ vi.mock("../src/api.js", async (orig) => {
 });
 
 const state = await import("../src/state.js");
-const { frameMessage } = await import("../src/artifact-frame.js");
+const { bridgeRejection, frameMessage } = await import("../src/artifact-frame.js");
 const { bridgeResult, forgetFrame, forwardBridge } = await import("../src/artifact-bridge.js");
 const { ArtifactGrantCard } = await import("../src/components/ArtifactGrantCard.js");
 
@@ -86,6 +86,37 @@ describe("bridge messages from a frame (3.6)", () => {
       expect(frameMessage({ source: own, data: call(params) }, frame)).toBeUndefined();
     expect(
       frameMessage({ source: own, data: call({ op: "ask", prompt: "x" }, -1) }, frame),
+    ).toBeUndefined();
+  });
+
+  it("answers a call of the wrong shape with an error, only to its own frame", () => {
+    const own = win();
+    const frame = { contentWindow: own };
+    expect(
+      bridgeRejection({ source: own, data: call({ op: "files.write", path: "x" }, 4) }, frame),
+    ).toEqual({
+      id: 4,
+      error: { code: "bad_request", message: expect.any(String) },
+    });
+    expect(
+      bridgeRejection(
+        {
+          source: own,
+          data: call({ op: "storage.set", key: "a", value: "x".repeat(5 * 1024 * 1024 + 1) }, 5),
+        },
+        frame,
+      )?.error.code,
+    ).toBe("too_big");
+    // A good call, another window, another method, no id: nothing to say.
+    expect(
+      bridgeRejection({ source: own, data: call({ op: "storage.get", key: "a" }) }, frame),
+    ).toBeUndefined();
+    expect(bridgeRejection({ source: win(), data: call({ op: "x" }) }, frame)).toBeUndefined();
+    expect(
+      bridgeRejection({ source: own, data: { method: "ui/message", id: 1 } }, frame),
+    ).toBeUndefined();
+    expect(
+      bridgeRejection({ source: own, data: { method: "redgiant/bridge", params: {} } }, frame),
     ).toBeUndefined();
   });
 

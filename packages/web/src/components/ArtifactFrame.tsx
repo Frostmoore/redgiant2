@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { forgetFrame, forwardBridge } from "../artifact-bridge.js";
 import {
   addErrors,
+  bridgeRejection,
   ClickGuard,
   frameMessage,
   hostContext,
@@ -129,7 +130,16 @@ export function ArtifactFrame({
   useEffect(() => {
     const listen = (e: MessageEvent) => {
       const m = frameMessage(e, frame.current);
-      if (!m) return;
+      if (!m) {
+        // A bridge call of the wrong shape: an error back to it, nothing to the server.
+        const no = bridgeRejection(e, frame.current);
+        if (no)
+          frame.current?.contentWindow?.postMessage(
+            { jsonrpc: "2.0", method: "redgiant/bridge-result", ...no },
+            "*",
+          );
+        return;
+      }
       switch (m.method) {
         case "ui/notifications/initialized": {
           sendTheme();

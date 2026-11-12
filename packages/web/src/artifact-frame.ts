@@ -4,7 +4,10 @@
 // (`ui/message`), taken as the person's only right after a real click in that frame.
 import {
   ARTIFACT_CLICK_MS,
+  ARTIFACT_STORAGE_MAX,
   type ArtifactError,
+  type BridgeError,
+  BridgeFrameMessage,
   FrameMessage,
   frameMessageText,
 } from "@redgiant/protocol";
@@ -17,6 +20,39 @@ export function frameMessage(
   if (!frame || !e.source || e.source !== frame.contentWindow) return undefined;
   const r = FrameMessage.safeParse(e.data);
   return r.success ? r.data : undefined;
+}
+
+/**
+ * A bridge call of the wrong shape from this frame (3.6): answered with an error, so the artifact's
+ * promise does not wait for ever; it never reaches the server. Undefined for anything else.
+ */
+export function bridgeRejection(
+  e: { source: unknown; data: unknown },
+  frame: { contentWindow: unknown } | null | undefined,
+): { id: number; error: BridgeError } | undefined {
+  if (!frame || !e.source || e.source !== frame.contentWindow) return undefined;
+  const d = e.data as {
+    method?: unknown;
+    id?: unknown;
+    params?: { op?: unknown; value?: unknown };
+  };
+  if (!d || typeof d !== "object" || d.method !== "redgiant/bridge") return undefined;
+  if (typeof d.id !== "number" || !Number.isInteger(d.id) || d.id < 0 || d.id > 1e9)
+    return undefined;
+  if (BridgeFrameMessage.safeParse(d).success) return undefined;
+  const big =
+    d.params?.op === "storage.set" &&
+    typeof d.params.value === "string" &&
+    d.params.value.length > ARTIFACT_STORAGE_MAX;
+  return {
+    id: d.id,
+    error: big
+      ? {
+          code: "too_big",
+          message: `The storage holds at most ${ARTIFACT_STORAGE_MAX / 1024 / 1024} MB`,
+        }
+      : { code: "bad_request", message: "Not a bridge call RedGiant knows (see canvas_edit help)" },
+  };
 }
 
 /**

@@ -403,12 +403,17 @@ export class ArtifactBridge {
   /** The declared folder a path falls in (the longest), or a refusal. */
   private folderFor(header: ArtifactHeader, path: string): ArtifactCapability {
     const p = normalRel(path);
+    if (p === undefined)
+      return fail(
+        "forbidden",
+        `${path}: a path inside the project, with no "..", hidden parts, drive or scheme`,
+      );
     const folders = wantedCapabilities(header.wants)
       .filter((c): c is Extract<ArtifactCapability, { kind: "files" }> => c.kind === "files")
       .sort((x, y) => y.dir.length - x.dir.length);
     if (!folders.length)
       return fail("not_declared", 'The artifact\'s header asks for no folder ("files:<folder>/")');
-    const f = p !== undefined && folders.find((c) => `${p}/`.startsWith(c.dir));
+    const f = folders.find((c) => `${p}/`.startsWith(c.dir));
     if (!f)
       return fail(
         "forbidden",
