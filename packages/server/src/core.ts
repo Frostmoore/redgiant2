@@ -461,7 +461,7 @@ interface Live {
       clientId?: string;
       human?: boolean;
       taskReport?: boolean;
-      via?: "artifact";
+      via?: "artifact" | "voice";
     };
     resolve: (r: SendResult) => void;
     reject: (e: unknown) => void;
@@ -5665,7 +5665,7 @@ export class RedGiantCore implements OrchestrationHost {
       /** A task's report (3.5.6): the agent's open list of steps rides with it. */
       taskReport?: boolean;
       /** A button the person clicked in an artifact or a widget sent it (3.5.9). */
-      via?: "artifact";
+      via?: "artifact" | "voice";
     } = {},
   ): Promise<{ done: Promise<SendResult>; queued?: boolean }> {
     // A secret the person pasted (G33.4) never reaches the model nor the log: it is blanked here,
@@ -5778,7 +5778,7 @@ export class RedGiantCore implements OrchestrationHost {
       clientId?: string;
       human?: boolean;
       taskReport?: boolean;
-      via?: "artifact";
+      via?: "artifact" | "voice";
     },
   ): Promise<{ done: Promise<SendResult> }> {
     // Also for messages that waited in line: they are refused, not lost in the middle of a turn.

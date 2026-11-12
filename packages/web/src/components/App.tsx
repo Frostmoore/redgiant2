@@ -66,6 +66,7 @@ import { ConnectionLost, MemoryNotice } from "./PageHealth.js";
 import { preloadCanvas, SideArea } from "./SideArea.js";
 import { Sidebar } from "./Sidebar.js";
 import { UpdateGate } from "./UpdateGate.js";
+import { VoiceIndicator } from "./VoiceIndicator.js";
 import { WhatsNew } from "./WhatsNew.js";
 
 // Pages come when they open, not with the first chat (3.5.11): Settings and its pages, the
@@ -413,6 +414,7 @@ export function App() {
           <Logo /> <span class="name">RedGiant</span>
         </span>
         <Limits />
+        <VoiceIndicator />
         <button
           type="button"
           class={`icon-button ${explorerOpen.value ? "on" : ""}`}

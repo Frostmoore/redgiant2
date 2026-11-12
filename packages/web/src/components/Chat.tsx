@@ -23,6 +23,7 @@ import {
   IconFile,
   IconInfo,
   IconLayers,
+  IconMic,
   IconPlay,
   IconServer,
   IconShield,
@@ -271,6 +272,12 @@ function UserItem({
   return (
     <>
       {item.from && <div class="from">{item.from}</div>}
+      {item.via === "voice" && (
+        <div class="from via-voice" title={t("viaVoiceHint")}>
+          <IconMic size={11} />
+          {t("viaVoice")}
+        </div>
+      )}
       {item.via === "artifact" && (
         <div class="from via-artifact" title={t("viaArtifactHint")}>
           <IconCanvas size={11} />

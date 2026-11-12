@@ -50,6 +50,7 @@ import {
   tabOpened,
 } from "./viewers/live.js";
 import { copyOriginal } from "./viewers/office-bridge.js";
+import { stripVoiceHint } from "./voice/speakable.js";
 
 /** What the canvas shows (G25.1): a file or folder of a workspace, or a port of an agent. */
 export type CanvasTarget =
@@ -75,7 +76,7 @@ export type ChatItem =
       /** Passages of earlier messages it answers (G36.22). */
       quotes?: MessageQuote[];
       /** Sent by a button in an artifact or a widget (3.5.9). */
-      via?: "artifact";
+      via?: "artifact" | "voice";
     }
   | {
       kind: "assistant";
@@ -270,7 +271,8 @@ export function buildItems(events: Event[]): ChatItem[] {
         items.push({
           kind: "user",
           key,
-          text: e.payload.text,
+          // Said by voice (G38.4): the note for the model at its end is not the person's words.
+          text: e.payload.via === "voice" ? stripVoiceHint(e.payload.text) : e.payload.text,
           ts: e.ts,
           images: e.payload.images ?? [],
           ...(e.payload.from && { from: e.payload.from }),
@@ -1078,7 +1080,9 @@ export type SettingsSection =
   /** External ACP agents as workers, and RedGiant inside editors (G38.6). */
   | "acp"
   /** The person's machines over SSH (G38.2). */
-  | "machines";
+  | "machines"
+  /** Hands-free voice on this device (G38.4). */
+  | "voice";
 
 /** Older ways to open things, still used by the views: they land in the new places. */
 export type OpenRequest =

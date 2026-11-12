@@ -49,7 +49,7 @@ function firstLoad() {
 }
 
 const HEAVY_PACKAGES =
-  /^(@codemirror\/|codemirror$|@lezer\/|@univerjs\/|react$|react-dom|pdfjs-dist|three($|\/)|@svgedit\/|xlsx$|mammoth|@xterm\/|fflate|yaml$)/;
+  /^(@codemirror\/|codemirror$|@lezer\/|@univerjs\/|react$|react-dom|pdfjs-dist|three($|\/)|@svgedit\/|xlsx$|mammoth|@xterm\/|fflate|yaml$|vosk-browser)/;
 const HEAVY_FILES = [
   "components/Canvas.tsx",
   "components/Settings.tsx",

@@ -83,7 +83,7 @@ export const EventBody = z.discriminatedUnion("type", [
        * Sent by the person through an artifact or a widget (3.5.9): a button they clicked in it
        * («send to chat»). Shown like their other messages, marked.
        */
-      via: z.literal("artifact").optional(),
+      via: z.enum(["artifact", "voice"]).optional(),
     }),
   }),
   z.object({ type: z.literal("message.assistant.delta"), payload: text }),

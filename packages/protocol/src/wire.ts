@@ -79,7 +79,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
     /** Passages of earlier messages it answers (G36.22). */
     quotes: z.array(MessageQuote).max(MAX_QUOTES).optional(),
     /** A button the person clicked in an artifact or a widget sent it (3.5.9). */
-    via: z.literal("artifact").optional(),
+    via: z.enum(["artifact", "voice"]).optional(),
   }),
   z.object({ type: z.literal("session.interrupt"), sessionId: z.string() }),
   /**

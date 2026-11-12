@@ -21,6 +21,7 @@ import {
   IconFolder,
   IconKey,
   IconLayers,
+  IconMic,
   IconNodes,
   IconPuzzle,
   IconServer,
@@ -58,6 +59,7 @@ import { Subscriptions } from "./Subscriptions.js";
 import { Telegram } from "./Telegram.js";
 import { ToolsPage } from "./ToolsPage.js";
 import { Modal } from "./ui.js";
+import { VoiceSettingsPage } from "./VoiceSettings.js";
 
 type Section = { id: SettingsSection; label: () => string; icon: ComponentChildren };
 
@@ -69,6 +71,7 @@ const GROUPS: { title: () => string; sections: Section[] }[] = [
       { id: "general", label: () => t("general"), icon: <IconSettings size={20} /> },
       { id: "setup", label: () => t("setupWizard"), icon: <IconCompass size={20} /> },
       { id: "import", label: () => t("impSection"), icon: <IconUpload size={20} /> },
+      { id: "voice", label: () => t("voiceTitle"), icon: <IconMic size={20} /> },
     ],
   },
   {
@@ -186,6 +189,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "general" && <General />}
         {section === "setup" && <Setup />}
         {section === "import" && <ImportFrom />}
+        {section === "voice" && <VoiceSettingsPage />}
         {section === "agents" && <Hierarchy />}
         {section === "projects" && <ProjectsPage />}
         {section === "artifacts" && <Artifacts />}

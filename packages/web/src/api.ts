@@ -648,6 +648,20 @@ export class Api {
     return data.text ?? "";
   }
 
+  /** The wake word's model on the server (G38.4): there already, and its size. */
+  wakeModel = (lang: string) =>
+    this.call<{ ready: boolean; file: string; size: number | null }>(
+      "GET",
+      `/api/voice/wake-model?lang=${encodeURIComponent(lang)}`,
+    );
+  /** Downloads it on the server once (a job with its bar), unless it is there. */
+  prepareWakeModel = (lang: string) =>
+    this.call<{ ready: boolean; file: string; size: number | null; job?: Job }>(
+      "POST",
+      "/api/voice/wake-model",
+      { lang },
+    );
+
   projects = () => this.call<Project[]>("GET", "/api/projects");
   createProject = (name: string) => this.call<Project>("POST", "/api/projects", { name });
   projectWork = (id: string) => this.call<ProjectWork>("GET", `/api/projects/${id}/work`);
