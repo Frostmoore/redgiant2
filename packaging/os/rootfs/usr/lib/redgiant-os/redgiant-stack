@@ -6,7 +6,7 @@
 # never started.
 set -euo pipefail
 # shellcheck source=common.sh
-. /usr/lib/redgiant-os/common.sh
+. "$(dirname "$(readlink -f "$0")")/common.sh"
 
 secret() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-40}" || true; }
 

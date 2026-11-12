@@ -4,7 +4,7 @@
 # minute), [u] update RedGiant when a signed update is there, any other key refreshes.
 set -uo pipefail
 # shellcheck source=common.sh
-. /usr/lib/redgiant-os/common.sh
+. "$(dirname "$(readlink -f "$0")")/common.sh"
 export TERM=${TERM:-linux}
 
 status_line() {

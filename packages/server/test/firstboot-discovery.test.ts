@@ -480,8 +480,14 @@ describe("the privileged helper refuses before doing anything", () => {
     ["rm -rf /", "unknown_op"],
     ["ssh-on not*base64", "bad_request"],
     // A valid key passes every check up to the user (none on a test machine).
-    ["ssh-on c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUFBQkFnTUVCUVlIQ0FrS0N3d05EZzhRRVJJVEZCVVdGeGdaR2hzY0hSNGYgdGVzdEBleGFtcGxl", "no_user"],
-    ["ssh-on c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUFBQkFnTUVCUVlIQ0FrS0N3d05EZzhRRVJJVEZCVVdGeGdaR2hzY0hSNGYgdGVzdEBleGFtcGxlCnNzaC1lZDI1NTE5IEFBQUEgeA==", "bad_key"],
+    [
+      "ssh-on c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUFBQkFnTUVCUVlIQ0FrS0N3d05EZzhRRVJJVEZCVVdGeGdaR2hzY0hSNGYgdGVzdEBleGFtcGxl",
+      "no_user",
+    ],
+    [
+      "ssh-on c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUFBQkFnTUVCUVlIQ0FrS0N3d05EZzhRRVJJVEZCVVdGeGdaR2hzY0hSNGYgdGVzdEBleGFtcGxlCnNzaC1lZDI1NTE5IEFBQUEgeA==",
+      "bad_key",
+    ],
   ])("%s", { skip: process.platform === "win32" }, async (line, code) => {
     expect(await ask(line)).toBe(`{"ok":false,"error":"${code}"}`);
   });

@@ -8,7 +8,7 @@
 # breaking release is never applied in place. The OS itself updates through apt (security).
 set -euo pipefail
 # shellcheck source=common.sh
-. /usr/lib/redgiant-os/common.sh
+. "$(dirname "$(readlink -f "$0")")/common.sh"
 
 KEY=$SHARE/release-key.pem
 OUT=$STATE/os-update.json

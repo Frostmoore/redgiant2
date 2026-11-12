@@ -4,7 +4,7 @@
 # Results go to the console: REDGIANT-SELFTEST PASS or FAIL, one line per check.
 set -uo pipefail
 # shellcheck source=common.sh
-. /usr/lib/redgiant-os/common.sh
+. "$(dirname "$(readlink -f "$0")")/common.sh"
 out=/dev/console
 say() { echo "REDGIANT-SELFTEST $*" | tee -a "$out" /run/redgiant-selftest.log >/dev/null; }
 ok=1
