@@ -197,6 +197,33 @@ describe.runIf(process.platform !== "win32")(
       ).toMatchObject({ ok: false, code: "auth" });
     });
 
+    it("a change keeps what it does not name", async () => {
+      const { server } = await setup();
+      const { body: m } = await server.api<MachineView>("POST", "/api/settings/machines", {
+        name: "web",
+        host: "web.example.test",
+        port: 2222,
+        user: "deploy",
+        access: { everyone: false, agents: ["agent_a"], projects: [] },
+      });
+      const put = await server.api<MachineView>("PUT", `/api/settings/machines/${m.id}`, {
+        folder: "/srv/app",
+      });
+      expect(put.body).toMatchObject({
+        port: 2222,
+        folder: "/srv/app",
+        access: { everyone: false, agents: ["agent_a"] },
+        publicKey: m.publicKey,
+      });
+      const bad = await server.api("PUT", `/api/settings/machines/${m.id}`, { name: "no spaces" });
+      expect(bad.status).toBe(400);
+      // Another address is another machine: its key is asked again.
+      const moved = await server.api<MachineView>("PUT", `/api/settings/machines/${m.id}`, {
+        host: "new.example.test",
+      });
+      expect(moved.body.hostKey).toBeUndefined();
+    });
+
     it("an imported key: checked, its public half shown, a bad one refused", async () => {
       const { server } = await setup();
       const pair = ssh2.utils.generateKeyPairSync("ed25519");

@@ -263,14 +263,16 @@ export class Machines {
     const i = list.findIndex((m) => m.id === id);
     const old = list[i];
     if (!old) throw new MachineError("not-found", `There is no machine "${id}"`);
-    const check = MachineBody.partial().parse({
-      ...(p.name !== undefined && { name: p.name }),
-      ...(p.host !== undefined && { host: p.host }),
-      ...(p.port !== undefined && { port: p.port }),
-      ...(p.user !== undefined && { user: p.user }),
-      ...(typeof p.folder === "string" && { folder: p.folder }),
-      ...(p.access && { access: p.access }),
-    });
+    // Field by field: a partial schema would fill in the defaults (port 22, nobody may use it).
+    const f = MachineBody.shape;
+    const check = {
+      ...(p.name !== undefined && { name: f.name.parse(p.name) }),
+      ...(p.host !== undefined && { host: f.host.parse(p.host) }),
+      ...(p.port !== undefined && { port: f.port.parse(p.port) }),
+      ...(p.user !== undefined && { user: f.user.parse(p.user) }),
+      ...(typeof p.folder === "string" && p.folder !== "" && { folder: f.folder.parse(p.folder) }),
+      ...(p.access && { access: f.access.parse(p.access) }),
+    };
     if (
       check.name &&
       list.some((m) => m.id !== id && m.name.toLowerCase() === check.name?.toLowerCase())
