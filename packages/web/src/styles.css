@@ -18806,6 +18806,15 @@ html[data-theme="dark"] {
   flex-direction: column;
   gap: 6px;
 }
+.acp-group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.acp-group > legend {
+  padding: 0;
+}
 .acp-env-add {
   align-self: flex-start;
 }

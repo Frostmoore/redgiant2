@@ -18,7 +18,7 @@ import { Field, Modal } from "./ui.js";
 
 type Preset = { id: string; name: string; command: string; args: string[] };
 
-/** A labelled group of several controls (chips, rows): not a <label>, which would click the first. */
+/** A named group of several controls (chips, rows): not a <label>, which would click the first. */
 function Group({
   label,
   help,
@@ -29,11 +29,11 @@ function Group({
   children: ComponentChildren;
 }) {
   return (
-    <div class="ui-field" role="group" aria-label={label}>
-      <span class="ui-label">{label}</span>
+    <fieldset class="ui-field acp-group">
+      <legend class="ui-label">{label}</legend>
       {children}
       {help && <span class="ui-help">{help}</span>}
-    </div>
+    </fieldset>
   );
 }
 const OTHER = "other";
