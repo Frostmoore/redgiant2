@@ -57,7 +57,11 @@ export function speak(text: string): Promise<void> {
   return new Promise((done) => {
     const pieces = chunksForVoice(text);
     let left = pieces.length;
+    // Some browsers never say the end (no voice installed, a headless one): the reading is
+    // over after the time it would take at a slow pace, so the conversation goes on.
+    const limit = setTimeout(() => end(), 4000 + text.length * 90);
     const end = () => {
+      clearTimeout(limit);
       hushed = undefined;
       done();
     };

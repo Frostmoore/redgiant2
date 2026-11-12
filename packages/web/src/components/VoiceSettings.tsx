@@ -4,7 +4,7 @@
 // are said plainly.
 import { useEffect, useState } from "preact/hooks";
 import { t } from "../i18n.js";
-import { IconMic, IconSpeaker } from "../icons.js";
+import { IconSpeaker } from "../icons.js";
 import { openTab, platformInfo, sessionRows } from "../state.js";
 import { prepareWakeWord, speak, startHandsFree, voicesFor, wakeModel } from "../voice/runtime.js";
 import { setVoiceSettings, voiceSettings } from "../voice/settings.js";
@@ -180,9 +180,7 @@ export function VoiceSettingsPage() {
 
       <Sub title={t("vcLimitsTitle")} />
       <Box class="vc-limits">
-        <p>
-          <IconMic size={16} /> {t("vcLimitPrivacy")}
-        </p>
+        <p>{t("vcLimitPrivacy")}</p>
         <p>{t("vcLimitForeground")}</p>
         <p>{t("vcLimitIos")}</p>
         <p>{t("vcLimitSpeakers")}</p>

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dictionaries, lang } from "../src/i18n.js";
 
 const started = vi.fn(async () => {});
-const prepared = vi.fn(async () => {});
+const prepared = vi.fn(async (_lang: string) => {});
 vi.mock("../src/voice/runtime.js", async (orig) => ({
   ...(await orig<typeof import("../src/voice/runtime.js")>()),
   startHandsFree: () => started(),
