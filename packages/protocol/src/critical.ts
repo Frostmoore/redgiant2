@@ -38,6 +38,7 @@ const en: Record<CriticalId, CriticalWords> = {
       "Changing the Windows registry",
       "Stopping or removing services and drivers",
       "Switching off the antivirus or the firewall, adding users",
+      "On one of your machines (SSH): sudo, switching it off or restarting it, installing system programs",
     ],
   },
   "critical-delete": {
@@ -48,6 +49,7 @@ const en: Record<CriticalId, CriticalWords> = {
       "Formatting a disk",
       "Deleting a database",
       "Deleting a repository or branches online, or forcing a push over main",
+      "On one of your machines (SSH), deleting outside its working folder",
     ],
   },
   "critical-secret": {
@@ -84,6 +86,7 @@ const it: Record<CriticalId, CriticalWords> = {
       "Cambiare il registro di Windows",
       "Fermare o togliere servizi e driver",
       "Spegnere l'antivirus o il firewall, aggiungere utenti",
+      "Su una delle tue macchine (SSH): sudo, spegnerla o riavviarla, installare programmi di sistema",
     ],
   },
   "critical-delete": {
@@ -94,6 +97,7 @@ const it: Record<CriticalId, CriticalWords> = {
       "Formattare un disco",
       "Cancellare un database",
       "Cancellare un repository o dei rami online, o forzare un invio sopra main",
+      "Su una delle tue macchine (SSH), cancellare fuori dalla sua cartella di lavoro",
     ],
   },
   "critical-secret": {
@@ -181,6 +185,11 @@ export const CRITICAL_ACTIONS = [
   "protect-db",
   "protect-policy",
   "protect-code",
+  // Another machine (G38.2): what is dangerous there besides the rules of this computer.
+  "remote-sudo",
+  "remote-power",
+  "remote-install",
+  "remote-delete-outside",
 ] as const;
 export type CriticalAction = (typeof CRITICAL_ACTIONS)[number];
 
@@ -193,6 +202,8 @@ export const CriticalDetail = z.object({
   secret: z.string().optional(),
   /** Deletes what is inside the folder (find -delete, rsync --delete), not the folder itself. */
   inside: z.boolean().optional(),
+  /** The person's machine it happens on (G38.2, `ssh_run`, `ssh_copy`); none: this computer. */
+  machine: z.string().optional(),
 });
 export type CriticalDetail = z.infer<typeof CriticalDetail>;
 
@@ -274,6 +285,10 @@ const SENTENCES: Record<Lang, Record<CriticalAction, Sentence>> = {
     "protect-db": () => "Changes RedGiant's own settings or history in its database",
     "protect-policy": () => "Changes RedGiant's permission rules",
     "protect-code": () => "Puts new RedGiant code live: it could switch off its protections",
+    "remote-sudo": (_, x) => `Runs a command as administrator: ${x.t}`,
+    "remote-power": () => "Switches the machine off or restarts it",
+    "remote-install": (_, x) => `Installs or removes system programs: ${x.t}`,
+    "remote-delete-outside": (_, x) => `${x.del} outside the machine's working folder: ${x.t}`,
   },
   it: {
     "system-delete": (_, x) => `${x.del} file del sistema del computer: ${x.t}`,
@@ -325,6 +340,11 @@ const SENTENCES: Record<Lang, Record<CriticalAction, Sentence>> = {
     "protect-policy": () => "Cambia le regole dei permessi di RedGiant",
     "protect-code": () =>
       "Mette in funzione codice nuovo di RedGiant: potrebbe spegnere le sue protezioni",
+    "remote-sudo": (_, x) => `Esegue un comando come amministratore: ${x.t}`,
+    "remote-power": () => "Spegne o riavvia la macchina",
+    "remote-install": (_, x) => `Installa o toglie programmi di sistema: ${x.t}`,
+    "remote-delete-outside": (_, x) =>
+      `${x.del} fuori dalla cartella di lavoro della macchina: ${x.t}`,
   },
 };
 
@@ -341,7 +361,11 @@ export function criticalSentence(lang: string, d: CriticalDetail): string {
       : d.inside
         ? "Deletes for good everything in"
         : "Deletes for good";
-  return SENTENCES[l][d.action](d, { t: d.target ?? "", s: secretWords(l, d.secret), del });
+  const text = SENTENCES[l][d.action](d, { t: d.target ?? "", s: secretWords(l, d.secret), del });
+  if (!d.machine) return text;
+  // On another machine (G38.2): which one first.
+  const where = l === "it" ? `Sulla macchina «${d.machine}»` : `On the machine «${d.machine}»`;
+  return `${where}: ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
 }
 
 /** The title of a truly dangerous request, on the page and in every chat. */

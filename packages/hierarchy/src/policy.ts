@@ -1,5 +1,5 @@
 import type { ToolCallInfo } from "@redgiant/agent";
-import { criticalOf } from "./critical.js";
+import { criticalOf, type RemoteMachineInfo } from "./critical.js";
 import {
   editReadsOnly,
   type LockedFolder,
@@ -167,7 +167,12 @@ export interface PolicySettings {
    * What the truly dangerous requests need besides the folders (G36.17b): the keychain's values
    * (read when a call is checked, never stored here) and RedGiant's own files.
    */
-  critical?: { knownSecrets?: () => readonly string[]; protectedPaths?: readonly string[] };
+  critical?: {
+    knownSecrets?: () => readonly string[];
+    protectedPaths?: readonly string[];
+    /** The person's machines (G38.2): their working folders and homes, read when a call is checked. */
+    machines?: () => Readonly<Record<string, RemoteMachineInfo>>;
+  };
   /**
    * Archived projects' folders (p3.5.3): no agent writes there or runs a command there, whatever
    * the rules, the mode or the person would answer. Refused at once, never asked.
@@ -241,6 +246,9 @@ export const READ_ONLY_TOOLS = new Set([
   "propose_automation",
   // Asking the person to switch a tool back on (G36.15): the person's yes is asked by the tool itself.
   "request_tool",
+  // Another machine's folders and text files (G38.2): looked at, never changed.
+  "ssh_list",
+  "ssh_read",
 ]);
 
 /**
@@ -273,11 +281,18 @@ const toolWords = (name: string) =>
     .replace(/[-\s]+/g, "_")
     .toLowerCase();
 
+/**
+ * A command on another machine (G38.2, `ssh_run`) is classified with the same rules as one here:
+ * every rule for `bash` applies to it too.
+ */
+const ruleApplies = (pattern: string, tool: string) =>
+  toolMatches(pattern, tool) || (pattern === "bash" && tool === "ssh_run");
+
 export function classify(call: ToolCallInfo, rules: DangerRule[]): DangerRule[] {
   return rules.filter(
     (r) =>
       r.enabled !== false &&
-      toolMatches(r.tool, call.name) &&
+      ruleApplies(r.tool, call.name) &&
       !r.except?.includes(call.name) &&
       (!r.name || new RegExp(r.name, "i").test(toolWords(call.name))) &&
       new RegExp(r.pattern, "i").test(subject(call, r.field)),
@@ -331,6 +346,7 @@ export function evaluate(mode: PermissionMode, call: ToolCallInfo, s: PolicySett
     ...(s.home && { home: s.home }),
     ...(s.critical?.knownSecrets && { knownSecrets: s.critical.knownSecrets() }),
     ...(s.critical?.protectedPaths && { protectedPaths: s.critical.protectedPaths }),
+    ...(s.critical?.machines && { machines: s.critical.machines() }),
   });
   if (hits.length === 0) return e;
   const critical = hits.map((h) => h.id);
