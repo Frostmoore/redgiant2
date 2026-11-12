@@ -2,7 +2,7 @@
 [Unit]
 Description=RedGiant OS self-test
 ConditionCredential=redgiant.selftest
-After=redgiant.service avahi-daemon.service redgiant-host.socket
+After=redgiant.service avahi-daemon.service redgiant-helper.socket
 Wants=redgiant.service
 
 [Service]

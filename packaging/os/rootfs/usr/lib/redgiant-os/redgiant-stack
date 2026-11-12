@@ -13,7 +13,7 @@ secret() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-40}" || tru
 # The settings with the keys, written once (0600, root only): the same .env the installer writes.
 settings() {
   install -d -m 0700 "$STATE"
-  install -d -m 0755 "$MEDIA"
+  install -d -m 0755 "$BACKUPS"
   if [ ! -s "$STATE/stack.env" ]; then
     umask 077
     {

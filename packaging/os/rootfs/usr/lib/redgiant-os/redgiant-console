@@ -30,6 +30,10 @@ screen() {
     echo
     qrencode -t ANSIUTF8 -m 2 "http://$first:$PORT" 2>/dev/null | sed 's/^/  /'
   fi
+  # The first start's one-time code (G39.3): the page asks for it, then it is gone.
+  if [ -s "$SETUP_CODE" ]; then
+    printf '\n  First start: the page asks for this code:  \033[1m%s\033[0m\n' "$(head -c 64 "$SETUP_CODE" | tr -cd 'A-Za-z0-9 -')"
+  fi
   printf '\n  RedGiant: %s' "$s"
   upd=$(jq -r 'select(.state == "available") | " · update to \(.latest) ready: press [u]"' "$STATE/os-update.json" 2>/dev/null)
   reboot=""

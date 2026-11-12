@@ -6,7 +6,10 @@
 STATE=/var/lib/redgiant
 SHARE=/usr/share/redgiant-os
 STACK_DIR=$STATE/stack
-MEDIA=$STATE/media
+# Disks the OS helper mounts for backups (redgiant-helper), seen at the same path in the container.
+BACKUPS=$STATE/backups
+# The one-time code of the first start (G39.3), written by the server into its data volume.
+SETUP_CODE=$STATE/docker/volumes/redgiant-data/_data/setup-code.txt
 PORT=7600
 # Overridable in /etc/redgiant-os/os.conf (the repository whose releases update this machine).
 REPO=Frostmoore/redgiant2

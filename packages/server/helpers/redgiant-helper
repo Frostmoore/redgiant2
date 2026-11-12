@@ -95,6 +95,8 @@ case "$op" in
         ;;
       *) fail unsupported_filesystem ;;
     esac
+    # Linux 6.9+ mounts "ntfs" read-only (the old driver's name): ntfs3 writes.
+    [ "$fs" = ntfs ] && fs=ntfs3
     current=$(lsblk -no MOUNTPOINT "$dev" 2>/dev/null | head -n1)
     if [ -n "$current" ]; then
       [ "$current" = "$target" ] && ok ",\"path\":\"$target\""
@@ -134,11 +136,17 @@ case "$op" in
   ssh-on)
     [ $# -eq 1 ] || fail bad_request
     key=$(printf '%s' "$1" | base64 -d 2>/dev/null) || fail bad_key
+    # A newline would add a second line to authorized_keys ("$(printf '\n')" is empty: a literal).
+    nl='
+'
     case "$key" in
-      *"$(printf '\n')"*) fail bad_key ;;
+      *"$nl"*) fail bad_key ;;
       ssh-ed25519\ * | ssh-rsa\ * | ecdsa-sha2-nistp*\ * | sk-ssh-ed25519@openssh.com\ * | sk-ecdsa-sha2-nistp256@openssh.com\ *) ;;
       *) fail bad_key ;;
     esac
+    if command -v ssh-keygen >/dev/null 2>&1; then
+      printf '%s\n' "$key" | ssh-keygen -l -f - >/dev/null 2>&1 || fail bad_key
+    fi
     id "$SSH_USER" >/dev/null 2>&1 || fail no_user
     mkdir -p "$(dirname "$SSH_KEYS")"
     touch "$SSH_KEYS"

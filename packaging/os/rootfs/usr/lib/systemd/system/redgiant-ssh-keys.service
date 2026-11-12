@@ -1,0 +1,12 @@
+# Every machine its own SSH host keys, made at the first start (none are built into the image),
+# so the helper's `sshd -t` passes when Settings switch SSH on.
+[Unit]
+Description=RedGiant OS: SSH host keys
+ConditionPathExists=!/etc/ssh/ssh_host_ed25519_key
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A
+
+[Install]
+WantedBy=multi-user.target

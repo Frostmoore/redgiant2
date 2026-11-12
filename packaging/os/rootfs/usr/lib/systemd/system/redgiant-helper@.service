@@ -1,0 +1,11 @@
+[Unit]
+Description=RedGiant OS helper request
+
+[Service]
+ExecStart=/usr/lib/redgiant/redgiant-helper --stdin
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+# Disks mounted for backups belong to the container's user (node).
+Environment=REDGIANT_HELPER_UID=1000 REDGIANT_HELPER_GID=1000
+TimeoutSec=120

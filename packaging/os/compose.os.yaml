@@ -3,16 +3,17 @@
 services:
   redgiant:
     environment:
-      # The OS's host helper (redgiant-hostd): SSH, USB disks, RedGiant's update.
       REDGIANT_OS: "1"
-      REDGIANT_HOST_HELPER: /run/redgiant-host/host.sock
+      # The OS helper (packages/server/src/os-helper.ts): backup disks, SSH.
+      REDGIANT_OS_HELPER_SOCKET: /run/redgiant-helper/helper.sock
     volumes:
+      # The directory, not the socket: systemd may make the socket again.
       - type: bind
-        source: /run/redgiant-host
-        target: /run/redgiant-host
-      # Disks the helper mounts later (backups on an external disk) appear here as /media/<uuid>.
+        source: /run/redgiant-helper
+        target: /run/redgiant-helper
+      # Disks the helper mounts later (backups on an external disk) appear at the same path.
       - type: bind
-        source: /var/lib/redgiant/media
-        target: /media
+        source: /var/lib/redgiant/backups
+        target: /var/lib/redgiant/backups
         bind:
           propagation: rslave

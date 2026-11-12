@@ -74,9 +74,15 @@ PACKAGES=(
 )
 [ "$ARCH" = amd64 ] && PACKAGES+=(grub-pc-bin intel-microcode amd64-microcode)
 step "Debian 13 for $ARCH (mmdebstrap, $MIRROR)"
+# What goes over Debian: packaging/os/rootfs and the OS helper (G39.3, whose protocol is the
+# server's: packages/server/src/os-helper.ts).
+OVERLAY=$WORK/overlay
+mkdir -p "$OVERLAY"
+cp -a "$HERE/rootfs/." "$OVERLAY/"
+install -D -m 0755 "$REPO_ROOT/packages/server/helpers/redgiant-helper" "$OVERLAY/usr/lib/redgiant/redgiant-helper"
 mmdebstrap --variant=apt --architectures="$ARCH" --components="main non-free-firmware" \
   --include="$(IFS=,; echo "${PACKAGES[*]}")" \
-  --customize-hook="sync-in $HERE/rootfs /" \
+  --customize-hook="sync-in $OVERLAY /" \
   --customize-hook="copy-in $HERE/setup-chroot.sh /tmp" \
   --customize-hook='chroot "$1" sh /tmp/setup-chroot.sh' \
   trixie "$ROOT" \

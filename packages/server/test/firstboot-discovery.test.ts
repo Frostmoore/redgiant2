@@ -463,7 +463,12 @@ describe("the privileged helper refuses before doing anything", () => {
   const helper = fileURLToPath(new URL("../helpers/redgiant-helper", import.meta.url));
   const ask = (line: string) =>
     new Promise<string>((resolve) => {
-      const p = execFile("sh", [helper, "--stdin"], (_err, out) => resolve(String(out).trim()));
+      const p = execFile(
+        "sh",
+        [helper, "--stdin"],
+        { env: { ...process.env, REDGIANT_SSH_USER: "redgiant-test-no-such-user" } },
+        (_err, out) => resolve(String(out).trim()),
+      );
       p.stdin?.end(`${line}\n`);
     });
   it.each([
@@ -474,6 +479,9 @@ describe("the privileged helper refuses before doing anything", () => {
     ["unmount .ssh", "bad_request"],
     ["rm -rf /", "unknown_op"],
     ["ssh-on not*base64", "bad_request"],
+    // A valid key passes every check up to the user (none on a test machine).
+    ["ssh-on c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUFBQkFnTUVCUVlIQ0FrS0N3d05EZzhRRVJJVEZCVVdGeGdaR2hzY0hSNGYgdGVzdEBleGFtcGxl", "no_user"],
+    ["ssh-on c3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSUFBQkFnTUVCUVlIQ0FrS0N3d05EZzhRRVJJVEZCVVdGeGdaR2hzY0hSNGYgdGVzdEBleGFtcGxlCnNzaC1lZDI1NTE5IEFBQUEgeA==", "bad_key"],
   ])("%s", { skip: process.platform === "win32" }, async (line, code) => {
     expect(await ask(line)).toBe(`{"ok":false,"error":"${code}"}`);
   });
