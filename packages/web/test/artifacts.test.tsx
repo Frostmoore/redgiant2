@@ -312,3 +312,73 @@ describe("artifacts in the canvas (3.5.9)", () => {
     expect(r.queryByText("Esegui")).toBeNull();
   });
 });
+
+describe("widgets that look like RedGiant (3.5.12)", () => {
+  /** A widget card with its frame drawn and listening. */
+  const card = async () => {
+    const { WidgetCard } = await import("../src/components/ArtifactFrame.js");
+    const r = render(<WidgetCard sessionId="s1" seq={7} index={0} title="Umidità" />);
+    const iframe = (await waitFor(() => {
+      const f = r.container.querySelector("iframe");
+      if (!f) throw new Error("no frame yet");
+      return f;
+    })) as HTMLIFrameElement;
+    await new Promise((ok) => setTimeout(ok, 60));
+    const post = (data: unknown) =>
+      window.dispatchEvent(new MessageEvent("message", { source: iframe.contentWindow, data }));
+    return { r, iframe, post };
+  };
+
+  it("is a quiet card: the name small, the actions as quiet buttons with drawn icons", async () => {
+    const { r } = await card();
+    const head = r.container.querySelector(".widget-head") as HTMLElement;
+    expect(head.querySelector(".widget-name")?.textContent).toBe("Umidità");
+    // No heavy buttons in the head: two quiet actions, each with an icon and words.
+    expect(head.querySelectorAll(".button")).toHaveLength(0);
+    const acts = [...head.querySelectorAll(".widget-tools .widget-act")];
+    expect(acts.map((b) => b.textContent)).toEqual(["Apri nel Canvas", "Tienilo"]);
+    for (const b of acts) expect(b.querySelector("svg")).not.toBeNull();
+    // No symbol characters as icons.
+    expect(head.textContent).not.toMatch(/[←-➿\u{1f300}-\u{1faff}]/u);
+  });
+
+  it("forgets old errors at every load of the page, here and on the server", async () => {
+    const { r, post } = await card();
+    const fresh = () =>
+      calls.filter(
+        ([n, a]) => n === "artifactErrors" && (a[0] as { fresh?: boolean }).fresh === true,
+      );
+    // The first load: whatever the server kept from an older version is forgotten.
+    post({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
+    await waitFor(() => expect(fresh()).toHaveLength(1));
+    post({
+      jsonrpc: "2.0",
+      method: "redgiant/error",
+      params: { kind: "error", message: "boom is not defined", where: "line 3:1" },
+    });
+    await waitFor(() => r.getByText("1 errore"));
+    // The agent fixed it; the page loads the new version, which says nothing.
+    post({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
+    await waitFor(() => expect(r.queryByText("1 errore")).toBeNull());
+    await waitFor(() => expect(fresh()).toHaveLength(2));
+  });
+
+  it("keeps the widget's frame in the page's colour scheme (else the browser paints it black)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const css = readFileSync(join(import.meta.dirname, "..", "src", "styles.css"), "utf8");
+    const rule = /\.artifact-frame\.auto iframe \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(rule).toContain("background: transparent");
+    expect(rule).not.toContain("color-scheme");
+  });
+
+  it("tells the frame its theme, its colours and the language", async () => {
+    const { hostContext } = await import("../src/artifact-frame.js");
+    document.documentElement.style.setProperty("--panel-2", "#eef0f4");
+    document.documentElement.style.setProperty("--accent-soft", "#fbe0dc");
+    const c = hostContext(document, window, "it");
+    expect(c.locale).toBe("it");
+    expect(c.styles.variables["--rg-panel-2"]).toBe("#eef0f4");
+    expect(c.styles.variables["--rg-accent-soft"]).toBe("#fbe0dc");
+  });
+});

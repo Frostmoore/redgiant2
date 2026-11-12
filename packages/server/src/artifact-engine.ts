@@ -21,6 +21,7 @@ import {
   artifactHeaderOf,
   isArtifactPath,
 } from "@redgiant/protocol";
+import { KIT_SCRIPT, KIT_STYLE, KIT_STYLE_WIDGET } from "./artifact-kit.js";
 import { lockedPage } from "./webrtc-lockdown.js";
 
 const require = createRequire(import.meta.url);
@@ -415,24 +416,29 @@ export function missingImports(code: string, map: Record<string, string>): strin
   return [...out];
 }
 
-/** The theme variables a page gets before the host says its own (light, then dark). */
-const BASE_STYLE = `:root{color-scheme:light dark;--rg-bg:#f6f7f9;--rg-panel:#ffffff;--rg-line:#dde1e8;--rg-text:#1c2230;--rg-dim:#6b7385;--rg-accent:#d23a2c;--rg-ok:#2e9d5b;--rg-warn:#c99a14;--rg-err:#d23d3d;--rg-radius:10px;--rg-font:system-ui,-apple-system,"Segoe UI",sans-serif;--rg-mono:ui-monospace,Consolas,monospace}@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--rg-bg:#15171c;--rg-panel:#1c1f26;--rg-line:#313642;--rg-text:#e8e6e3;--rg-dim:#8f96a3;--rg-accent:#ef4b3a}}:root[data-theme=dark]{color-scheme:dark}:root[data-theme=light]{color-scheme:light}:where(body){font-family:var(--rg-font);color:var(--rg-text)}`;
-
 /**
  * Our runtime, first in the page: errors (window.onerror, rejections, console.error, a library or
  * script that did not load) and the page's height go to the page around it; the theme comes from
  * it; `redgiant.sendMessage(text)` asks to send a message to the chat (the page decides). Links
  * that would leave go to the person, as in every agent-made page (3.5.8).
  */
+/** Where the runtime's line offset goes, filled once the page is whole (`prepared`). */
+const LINE_OFFSET = "0/*rg-line-offset*/";
+
 function runtime(initial: ArtifactError[]): string {
-  return `(()=>{"use strict";const P=window.parent;const S=m=>{try{P.postMessage(Object.assign({jsonrpc:"2.0"},m),"*")}catch(_){}};const seen=new Set();const all=[];let n=0;const E=(kind,message,where)=>{message=String(message==null?"":message).slice(0,2000);const k=kind+"|"+message+"|"+(where||"");if(seen.has(k)||n>=${ARTIFACT_ERRORS_MAX})return;seen.add(k);n++;const p={kind,message};if(where)p.where=String(where).slice(0,200);all.push(p);S({method:"redgiant/error",params:p})};const txt=x=>{if(x&&x.message)return x.message;if(typeof x==="string")return x;try{return JSON.stringify(x)}catch(_){return String(x)}};addEventListener("error",e=>{const t=e.target;if(t&&t!==window&&t.tagName){E("lib","Could not load "+(t.src||t.href||t.tagName.toLowerCase()));return}E("error",e.message||txt(e.error),e.lineno?"line "+e.lineno+(e.colno?":"+e.colno:""):"")},true);addEventListener("unhandledrejection",e=>E("rejection",txt(e.reason)));const ce=console.error;console.error=function(){try{E("console",Array.prototype.map.call(arguments,txt).join(" "))}catch(_){}return ce.apply(console,arguments)};for(const x of ${JSON.stringify(initial)})E(x.kind,x.message,x.where);let last=-1;const size=()=>{const b=document.body;if(!b)return;const c=getComputedStyle(b);const h=Math.ceil(Math.max(b.scrollHeight,b.getBoundingClientRect().height)+(parseFloat(c.marginTop)||0)+(parseFloat(c.marginBottom)||0));if(h!==last){last=h;S({method:"ui/notifications/size-changed",params:{height:h}})}};const watch=()=>{try{const o=new ResizeObserver(size);o.observe(document.documentElement);if(document.body)o.observe(document.body)}catch(_){}size()};if(document.readyState==="loading")addEventListener("DOMContentLoaded",watch);else watch();addEventListener("load",size);const theme=p=>{if(!p||typeof p!=="object")return;const r=document.documentElement;if(p.theme==="dark"||p.theme==="light"){r.dataset.theme=p.theme;r.style.colorScheme=p.theme}const v=p.styles&&p.styles.variables;if(v&&typeof v==="object")for(const k of Object.keys(v))if(/^--rg-[a-z0-9-]{1,40}$/.test(k))r.style.setProperty(k,String(v[k]).slice(0,200));try{dispatchEvent(new CustomEvent("redgiant:theme",{detail:{theme:p.theme}}))}catch(_){}};addEventListener("message",e=>{if(e.source!==P)return;const d=e.data;if(d&&d.method==="ui/notifications/host-context-changed"){theme(d.params);last=-1;size();for(const p of all)S({method:"redgiant/error",params:p})}});let id=0;window.redgiant=Object.freeze({sendMessage:t=>{S({method:"ui/message",id:++id,params:{role:"user",content:[{type:"text",text:String(t)}]}})}});const out=u=>{try{P.postMessage({redgiant:"open-link",url:String(new URL(u,location.href))},"*")}catch(_){}};document.addEventListener("click",e=>{const a=e.target instanceof Element?e.target.closest("a[href]"):null;if(!a||a.hasAttribute("download"))return;let u;try{u=new URL(a.href,location.href)}catch(_){return}if(u.protocol!=="http:"&&u.protocol!=="https:")return;if(u.origin===location.origin&&u.pathname===location.pathname&&u.hash)return;e.preventDefault();out(u.href)},true);window.open=u=>{if(u)out(u);return null};S({method:"ui/notifications/initialized",params:{}})})();`;
+  // A load says «initialized» first, then its errors: the page knows what belongs to this load.
+  return `(()=>{"use strict";const P=window.parent;const S=m=>{try{P.postMessage(Object.assign({jsonrpc:"2.0"},m),"*")}catch(_){}};const seen=new Set();const all=[];let n=0;const E=(kind,message,where)=>{message=String(message==null?"":message).slice(0,2000);const k=kind+"|"+message+"|"+(where||"");if(seen.has(k)||n>=${ARTIFACT_ERRORS_MAX})return;seen.add(k);n++;const p={kind,message};if(where)p.where=String(where).slice(0,200);all.push(p);S({method:"redgiant/error",params:p})};const txt=x=>{if(x&&x.message)return x.message;if(typeof x==="string")return x;try{return JSON.stringify(x)}catch(_){return String(x)}};const OFF=${LINE_OFFSET};const at=(l,c)=>l?"line "+(l>OFF?l-OFF:l)+(c?":"+c:""):"";const top=x=>{const s=x&&x.stack;if(typeof s!=="string")return"";const f=s.split("\\n").map(z=>z.trim()).filter(z=>z&&z.indexOf(String(x.message))<0)[0];return f?f.replace(/^at /,"").replace(/\\(?(?:[a-z-]+:\\/\\/[^\\s()]*?|<anonymous>):(\\d+):(\\d+)\\)?/g,(m,l,c)=>"("+at(+l,+c)+")").slice(0,150):""};const here=location.protocol+"//"+location.host;let LANG=navigator.language||"en";const lost=it=>it?["Immagine esterna bloccata","Immagine non caricata"]:["External image blocked","Image not loaded"];const hole=(t,u)=>{if(t.tagName!=="IMG"||t.dataset.rgBlocked)return;const ext=/^https?:/i.test(u)&&u.indexOf(here)!==0;t.dataset.rgBlocked=ext?"outside":"failed";const s=document.createElement("span");s.className="rg-img-blocked";s.dataset.rgExt=ext?"1":"";s.setAttribute("role","img");s.title=u;s.textContent=lost(/^it/i.test(LANG))[ext?0:1];if(t.alt)s.setAttribute("aria-label",t.alt+": "+s.textContent);const w=t.getAttribute("width"),h=t.getAttribute("height");if(w)s.style.width=/^\\d+$/.test(w)?w+"px":w;if(h)s.style.minHeight=/^\\d+$/.test(h)?h+"px":h;try{t.after(s)}catch(_){}};addEventListener("error",e=>{const t=e.target;if(t&&t!==window&&t.tagName){const tag=t.tagName.toLowerCase();const u=String(t.currentSrc||t.src||t.href||"");const far=/^https?:/i.test(u)&&u.indexOf(here)!==0;if(tag==="script"){if(u&&!far&&u.indexOf("/lib/")>=0)E("lib","Could not load the library file "+u.split("/lib/")[1]);else if(u)E("blocked","Could not load the script "+u+(far?" (artifacts reach no network: put the code in the page, or use a library RedGiant serves)":""));else E("error","An inline <script type=module> did not run: one of its imports could not be loaded or resolved");return}hole(t,u);E("blocked",(tag==="img"?"Picture":tag==="link"?"Stylesheet":"File")+" not loaded: "+(u||tag)+(far?" (artifacts reach no network: use a data: or blob: URL"+(tag==="link"?", or a <style>":"")+")":""));return}const w=at(e.lineno,e.colno),f=top(e.error);E("error",e.message||txt(e.error),w&&f&&f[0]!=="("?w+", at "+f:w||f)},true);addEventListener("unhandledrejection",e=>{const f=top(e.reason);E("rejection",txt(e.reason),f?"at "+f:"")});const ce=console.error;console.error=function(){try{E("console",Array.prototype.map.call(arguments,txt).join(" "))}catch(_){}return ce.apply(console,arguments)};let last=-1;const size=()=>{const b=document.body;if(!b)return;const c=getComputedStyle(b);const h=Math.ceil(Math.max(b.scrollHeight,b.getBoundingClientRect().height)+(parseFloat(c.marginTop)||0)+(parseFloat(c.marginBottom)||0));if(h!==last){last=h;S({method:"ui/notifications/size-changed",params:{height:h}})}};const watch=()=>{try{const o=new ResizeObserver(size);o.observe(document.documentElement);if(document.body)o.observe(document.body)}catch(_){}size()};if(document.readyState==="loading")addEventListener("DOMContentLoaded",watch);else watch();addEventListener("load",size);const theme=p=>{if(!p||typeof p!=="object")return;const r=document.documentElement;if(p.theme==="dark"||p.theme==="light"){r.dataset.theme=p.theme;r.style.colorScheme=p.theme}const v=p.styles&&p.styles.variables;if(v&&typeof v==="object")for(const k of Object.keys(v))if(/^--rg-[a-z0-9-]{1,40}$/.test(k))r.style.setProperty(k,String(v[k]).slice(0,200));try{dispatchEvent(new CustomEvent("redgiant:theme",{detail:{theme:p.theme}}))}catch(_){}};addEventListener("message",e=>{if(e.source!==P)return;const d=e.data;if(d&&d.method==="ui/notifications/host-context-changed"){const lc=d.params&&d.params.locale;if(typeof lc==="string"&&lc){LANG=lc;for(const x of document.querySelectorAll(".rg-img-blocked"))x.textContent=lost(/^it/i.test(LANG))[x.dataset.rgExt?0:1]}theme(d.params);last=-1;size();for(const p of all)S({method:"redgiant/error",params:p})}});let id=0;window.redgiant=Object.freeze({sendMessage:t=>{S({method:"ui/message",id:++id,params:{role:"user",content:[{type:"text",text:String(t)}]}})}});const out=u=>{try{P.postMessage({redgiant:"open-link",url:String(new URL(u,location.href))},"*")}catch(_){}};document.addEventListener("click",e=>{const a=e.target instanceof Element?e.target.closest("a[href]"):null;if(!a||a.hasAttribute("download"))return;let u;try{u=new URL(a.href,location.href)}catch(_){return}if(u.protocol!=="http:"&&u.protocol!=="https:")return;if(u.origin===location.origin&&u.pathname===location.pathname&&u.hash)return;e.preventDefault();out(u.href)},true);window.open=u=>{if(u)out(u);return null};${KIT_SCRIPT}S({method:"ui/notifications/initialized",params:{}});for(const x of ${JSON.stringify(initial)})E(x.kind,x.message,x.where)})();`;
 }
 
-/** What a page gets before its own code: our runtime, the import map, the theme's variables. */
+/**
+ * What a page gets before its own code: our runtime, the import map, then the design kit (the
+ * theme's variables and RedGiant's look, in a cascade layer the page's own CSS overrides).
+ */
 async function prepared(
   html: string,
   prefix: string,
   header: ArtifactHeader | undefined,
+  kind: "artifact" | "widget" = "artifact",
 ): Promise<string> {
   const libs = header?.libs ?? [];
   const map = importMap(prefix, libs);
@@ -447,7 +453,10 @@ async function prepared(
     if (JSX_TYPES.test(type)) {
       const c = await compileJsx(m[2] ?? "", jsxFrom);
       if (c.error) errors.push({ kind: "compile", message: c.error });
-      const code = (c.code ?? "").replace(/<\/script/gi, "<\\/script");
+      let code = (c.code ?? "").replace(/<\/script/gi, "<\\/script");
+      // As many lines as the source, at least: the lines after it keep their numbers in errors.
+      const short = lines(m[2] ?? "") - lines(code);
+      if (short > 0) code += "\n".repeat(short);
       modules.push(code);
       parts.push({
         start: m.index,
@@ -464,16 +473,21 @@ async function prepared(
         kind: "lib",
         message: `"${s}" is not a library RedGiant serves (artifacts reach no internet): use one of react, preact, d3, chart.js, three, papaparse, xlsx, lucide, marked${libs.includes("mermaid") ? ", mermaid" : ' (mermaid with "libs":["mermaid"] in the header)'}, or put the code in the page`,
       });
-  const head = `<meta charset="utf-8"><script>${runtime(errors.slice(0, ARTIFACT_ERRORS_MAX))}</script><script type="importmap">${JSON.stringify({ imports: map })}</script><style>${BASE_STYLE}</style>`;
+  const head = `<meta charset="utf-8"><script>${runtime(errors.slice(0, ARTIFACT_ERRORS_MAX))}</script><script type="importmap">${JSON.stringify({ imports: map })}</script><style id="rg-kit">${kind === "widget" ? KIT_STYLE_WIDGET : KIT_STYLE}</style>`;
   // WebRTC off before anything (3.5.10): the lockdown is the page's very first script.
-  if (/<head[^>]*>/i.test(body))
-    return lockedPage(body.replace(/<head[^>]*>/i, (h) => `${h}${head}`));
-  if (/<html[^>]*>/i.test(body))
-    return lockedPage(body.replace(/<html[^>]*>/i, (h) => `${h}<head>${head}</head>`));
-  return lockedPage(
-    `<!doctype html><html><head>${head}<meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${body}</body></html>`,
-  );
+  const page = /<head[^>]*>/i.test(body)
+    ? lockedPage(body.replace(/<head[^>]*>/i, (h) => `${h}${head}`))
+    : /<html[^>]*>/i.test(body)
+      ? lockedPage(body.replace(/<html[^>]*>/i, (h) => `${h}<head>${head}</head>`))
+      : lockedPage(
+          `<!doctype html><html><head>${head}<meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${body}</body></html>`,
+        );
+  // The lines we put in come before the page's own: errors say the line of the file's source.
+  return page.replace(LINE_OFFSET, String(lines(page) - lines(body)));
 }
+
+/** Line breaks in a text. */
+const lines = (s: string) => s.split("\n").length - 1;
 
 /** An artifact's page as the frame gets it. */
 export function artifactPage(html: string, prefix: string): Promise<string> {
@@ -481,14 +495,14 @@ export function artifactPage(html: string, prefix: string): Promise<string> {
 }
 
 /**
- * A widget's page: the block's HTML (a whole document or a fragment), with a transparent
- * background and no margin, so it sits in the chat bubble.
+ * A widget's page: the block's HTML (a whole document or a fragment). The kit gives it a
+ * transparent background and little margin, so it sits in the chat's card.
  */
 export function widgetPage(html: string, prefix: string): Promise<string> {
   const whole = /<html[\s>]/i.test(html)
     ? html
-    : `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>:where(html,body){background:transparent;margin:0}:where(body){padding:2px}</style></head><body>${html}</body></html>`;
-  return prepared(whole, prefix, artifactHeaderOf(html));
+    : `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${html}</body></html>`;
+  return prepared(whole, prefix, artifactHeaderOf(html), "widget");
 }
 
 /** A widget kept as an artifact (`Tienilo`): its header written, its name made into a file name. */
@@ -579,16 +593,32 @@ export class ArtifactErrors {
     return fresh.length;
   }
 
-  /** The page loaded it again: what it says now replaces what it said before. */
-  reset(key: string): void {
+  /** When the person's page last loaded each artifact (ms). */
+  private readonly loadedAt = new Map<string, number>();
+
+  /** The page loaded it (again): what it says now replaces what it said before. */
+  reset(key: string, now = Date.now()): void {
     this.last.delete(key);
+    this.loadedAt.set(key, now);
+    if (this.loadedAt.size > 2000)
+      this.loadedAt.delete(this.loadedAt.keys().next().value as string);
   }
 
-  /** The last errors of one artifact, in words (canvas_look), or "". */
-  text(key: string): string {
-    const e = this.last.get(key);
-    if (!e?.length) return "";
-    return `It met ${e.length} error${e.length === 1 ? "" : "s"} in the person's page: ${e.map(errorLine).join("; ")}.`;
+  /**
+   * What the person's page met, in words (canvas_look), or "" when it never said. `changedAt`: when
+   * the file last changed (ms): errors from before it are told as such (3.5.12), never as current.
+   */
+  text(key: string, changedAt?: number): string {
+    const e = this.last.get(key) ?? [];
+    const loaded = this.loadedAt.get(key);
+    const stale = changedAt !== undefined && (loaded === undefined || loaded < changedAt);
+    const list = `${e.length} error${e.length === 1 ? "" : "s"}: ${e.map(errorLine).join("; ")}`;
+    if (e.length && stale)
+      return `The person's page has not run your last change yet; before it, the page met ${list}.`;
+    if (e.length) return `It met ${list} in the person's page.`;
+    if (loaded === undefined) return "";
+    if (stale) return "The person's page has not run your last change yet.";
+    return "No errors in the person's page since the last change.";
   }
 
   /** A line for a conversation (Fanne un progetto…), carried like the errors. */
@@ -629,7 +659,25 @@ An HTML file in ${ARTIFACT_DIR}/ (or any HTML whose first line is the header) ru
 - Header, first line: <!-- redgiant-artifact {"name":"Budget","version":1,"libs":["react","chartjs"]} -->. Raise "version" when you change it. "libs" from: react, preact, d3, chartjs, three, papaparse, sheetjs, lucide, mermaid, marked (mermaid loads only when listed).
 - Imports by bare name through RedGiant's import map: "react", "react-dom/client", "react/jsx-runtime", "preact", "preact/hooks", "d3", "chart.js/auto", "three", "three/addons/…", "papaparse", "xlsx", "lucide", "marked", "mermaid". Use <script type="module">, or <script type="text/babel"> for JSX/TSX (compiled by RedGiant; React's automatic runtime, Preact's when libs has preact and not react).
 - Not allowed (blocked by the frame): fetch/XHR/WebSocket, WebRTC, pictures or fonts from the web, CDNs, other frames, popups, form posts, localStorage. Pictures: data: or blob: URLs; files: an <input type=file> the person picks.
-- Theme: CSS variables --rg-bg, --rg-panel, --rg-line, --rg-text, --rg-dim, --rg-accent, --rg-ok, --rg-warn, --rg-err, --rg-radius, --rg-font, --rg-mono follow the person's light or dark theme (event "redgiant:theme").
+- Look: RedGiant's design kit comes first in the page (its own CSS wins, but write none for looks): plain elements are styled, plus the rg- classes (rg-stack, rg-grid, rg-row, rg-card, rg-field with rg-input and a unit, rg-slider, rg-stats/rg-stat/rg-delta, rg-result ok|warn|bad|info, rg-chip, rg-tabs, rg-actions, rg-primary/rg-ghost/rg-danger buttons, rg-muted, rg-scroll for wide tables).
+- Theme: CSS variables --rg-bg, --rg-panel, --rg-panel-2, --rg-line, --rg-text, --rg-dim, --rg-accent, --rg-ok, --rg-warn, --rg-err, --rg-info, --rg-radius, --rg-font, --rg-mono follow the person's light or dark theme (event "redgiant:theme": redraw charts then).
 - redgiant.sendMessage(text) (max 4000 characters), from a button the person clicks, sends text to the chat as their message.
-- Errors (exceptions, rejected promises, console.error, a library that is not there, JSX that does not compile) come back to you with your next tool result and in canvas_look.
-- The same HTML in a \`\`\`widget block of your answer runs in the chat instead (at most 64 KB).`;
+- Errors (exceptions with the line of your source and where they happened, rejected promises, console.error, a library that is not there, JSX that does not compile, something from outside that was blocked) come back to you with your next tool result and in canvas_look; each new load of the page starts a fresh list.
+- The same HTML in a \`\`\`widget block of your answer runs in the chat instead (at most 64 KB).
+
+### Design kit examples
+Humidity after airing a room (a widget):
+<div class="rg-stack">
+  <div class="rg-grid">
+    <label class="rg-field">Inside<span class="rg-input"><input id="ti" type="number" value="20"><span>°C</span></span></label>
+    <label class="rg-field">Outside<span class="rg-input"><input id="te" type="number" value="8"><span>°C</span></span></label>
+    <label class="rg-field">Humidity outside<span class="rg-input"><input id="ue" type="number" value="85"><span>%</span></span></label>
+  </div>
+  <div class="rg-result ok" id="res"><span class="rg-title" id="verdict">Dry enough</span><span class="rg-value" id="out">41%</span><span class="rg-muted">after airing</span></div>
+  <div class="rg-actions"><button class="rg-primary" id="go">Send to the chat</button></div>
+</div>
+(script: on "input" recompute, set #res's class to "rg-result ok|warn|bad" and the texts; #go calls redgiant.sendMessage.)
+Two loans with a slider:
+<label class="rg-field">Years<div class="rg-slider"><input id="y" type="range" min="10" max="30" value="25" data-unit=" years"></div></label>
+<div class="rg-stats"><div class="rg-stat"><span class="rg-label">Payment A</span><strong id="a">863 €</strong></div><div class="rg-stat"><span class="rg-label">Payment B</span><strong id="b">826 €</strong><span class="rg-delta down ok" id="d">37 € less a month</span></div></div>
+A small table: <table><thead><tr><th>Item</th><th>October</th><th>Change</th></tr></thead><tbody><tr><td>Bills</td><td>212,00 €</td><td>+14%</td></tr></tbody></table> (numbers align right by themselves).`;

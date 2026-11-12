@@ -100,9 +100,13 @@ export function widgetOf(
 
 /** One error an artifact or widget met, as the frame's runtime reports it. */
 export const ArtifactError = z.object({
-  kind: z.enum(["error", "rejection", "console", "lib", "compile"]),
+  /**
+   * `lib`: a library file RedGiant serves did not load; `blocked` (3.5.12): something from outside
+   * (a picture, a script, a style) the frame does not let in, since artifacts reach no network.
+   */
+  kind: z.enum(["error", "rejection", "console", "lib", "compile", "blocked"]),
   message: z.string().max(2000),
-  /** Where, when the browser says ("line 12"). */
+  /** Where, when the browser says: the line in the file's own source, and the stack's top. */
   where: z.string().max(200).optional(),
 });
 export type ArtifactError = z.infer<typeof ArtifactError>;

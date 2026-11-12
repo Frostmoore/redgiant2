@@ -18107,8 +18107,9 @@ fieldset.vw-seg {
 .artifact-frame.auto iframe {
   flex: none;
   max-height: 70vh;
+  /* Transparent: the card shows through. The frame keeps the page's colour scheme (inherited): a
+     scheme different from the page inside makes the browser paint it opaque (the black box). */
   background: transparent;
-  color-scheme: normal;
 }
 .artifact-ask {
   display: flex;
@@ -18140,52 +18141,115 @@ fieldset.vw-seg {
   font-weight: 600;
   cursor: help;
 }
+/* A widget in the chat (3.5.12): a quiet card, part of the answer. The name small, the actions
+   shown on hover or focus (always on touch screens), the saved line a small note. */
 .widget-card {
   flex: none;
   align-self: stretch;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-  overflow: hidden;
   max-width: 760px;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgb(16 24 40 / 0.04);
 }
 .widget-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px 6px 10px;
-  border-bottom: 1px solid var(--line);
-  font-size: 13px;
+  gap: 8px;
+  min-height: 26px;
+  padding: 0 0 4px 4px;
+  font-size: 12px;
   color: var(--dim);
 }
-.widget-head strong {
-  color: var(--text);
-  font-weight: 600;
+.widget-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
+  font-weight: 500;
+}
+.widget-name svg {
+  flex: none;
+  opacity: 0.8;
+}
+.widget-name span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.widget-head .spacer {
-  flex: 1;
+.widget-tools {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s ease;
 }
-.widget-card .artifact-frame {
-  padding: 8px 10px;
+.widget-card:hover .widget-tools,
+.widget-card:focus-within .widget-tools {
+  opacity: 1;
 }
-.widget-head .button.tiny,
+@media (hover: none) {
+  .widget-tools {
+    opacity: 1;
+  }
+}
+.widget-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.widget-act:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.widget-act:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.widget-act:disabled {
+  cursor: default;
+}
+.widget-act.done {
+  color: var(--ok);
+}
+.widget-loading {
+  padding: 12px 4px;
+  font-size: 13px;
+  color: var(--dim);
+}
+.widget-kept {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 4px 0;
+  font-size: 11.5px;
+  color: var(--dim);
+}
+.widget-kept svg {
+  color: var(--ok);
+  flex: none;
+}
+.widget-card .artifact-ask {
+  margin: 8px -10px -10px;
+  border-radius: 0 0 11px 11px;
+}
 .canvas-head .art-make {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   white-space: nowrap;
-}
-.widget-loading {
-  padding: 12px;
-  font-size: 13px;
-}
-.widget-kept {
-  padding: 4px 10px 6px;
-  font-size: 12px;
 }
 .via-artifact {
   display: inline-flex;
@@ -18199,9 +18263,8 @@ fieldset.vw-seg {
     margin-left: calc(-1 * var(--gut, 0px) / 2);
     margin-right: calc(-1 * var(--gut, 0px) / 2);
   }
-  .widget-head .button.tiny {
-    padding-left: 6px;
-    padding-right: 6px;
+  .widget-act {
+    padding: 0 6px;
   }
 }
 /* An artifact's head carries more (views, errors, «Fanne un progetto»): it wraps when narrow. */

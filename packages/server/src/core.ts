@@ -3081,8 +3081,13 @@ export class RedGiantCore implements OrchestrationHost {
         });
         // An artifact: what it met when the person's page ran it (3.5.9).
         if (file && (await isArtifactFile(abs, file.path))) {
+          const changed = await stat(abs).then(
+            (st) => st.mtimeMs,
+            () => undefined,
+          );
           const met = this.artifactErrors.text(
             ArtifactErrors.fileKey(agent.ownerId, file.scope, file.path),
+            changed,
           );
           looked.text = `${looked.text}\n\nIt is an artifact. ${met || "No error reported by the person's page so far."}`;
         }

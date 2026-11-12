@@ -1,0 +1,118 @@
+<!-- redgiant-artifact {"name":"Galleria del kit","version":1,"libs":[]} -->
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Galleria del kit</title>
+</head>
+<body>
+<div class="rg-stack">
+  <div>
+    <h1>Il kit di RedGiant</h1>
+    <p class="rg-muted">HTML semplice e qualche classe <code>rg-</code>: niente CSS scritto dall'agente.</p>
+  </div>
+
+  <div class="rg-grid" style="--rg-min:280px">
+    <section class="rg-card rg-stack">
+      <h3>Confronta due mutui</h3>
+      <div class="rg-grid">
+        <label class="rg-field">Importo<span class="rg-input"><input id="amount" type="number" value="180000" step="1000"><span>€</span></span></label>
+        <label class="rg-field">Tasso A<span class="rg-input"><input id="ra" type="number" value="3.1" step="0.05"><span>%</span></span></label>
+        <label class="rg-field">Tasso B<span class="rg-input"><input id="rb" type="number" value="2.7" step="0.05"><span>%</span></span><small>con polizza obbligatoria</small></label>
+      </div>
+      <label class="rg-field">Durata
+        <div class="rg-slider"><input id="years" type="range" min="10" max="30" value="25" data-unit=" anni"></div>
+        <div class="rg-scale"><span>10 anni</span><span>30 anni</span></div>
+      </label>
+      <div class="rg-stats">
+        <div class="rg-stat"><span class="rg-label">Rata A</span><strong id="pa">–</strong></div>
+        <div class="rg-stat"><span class="rg-label">Rata B</span><strong id="pb">–</strong><span class="rg-delta down" id="diff"></span></div>
+      </div>
+      <div class="rg-actions"><button type="button" class="rg-primary">Manda il confronto in chat</button><button type="button" class="rg-ghost">Azzera</button></div>
+    </section>
+
+    <section class="rg-card rg-stack">
+      <h3>Risultati</h3>
+      <div class="rg-result ok"><span class="rg-title">Aria asciutta</span>Dopo il ricambio l'umidità scende al 41%.</div>
+      <div class="rg-result warn"><span class="rg-title">Al limite</span>Sopra il 60% arieggia due volte al giorno.</div>
+      <div class="rg-result bad"><span class="rg-title">Troppo umida</span>Con il 78% la condensa resta sui vetri.</div>
+      <div class="rg-result info">I valori sono stime per una stanza di 30 m³.</div>
+      <div class="rg-row"><span class="rg-chip ok">Pagato</span><span class="rg-chip warn">In attesa</span><span class="rg-chip bad">Scaduto</span><span class="rg-chip info">Nuovo</span><span class="rg-chip">Bozza</span></div>
+    </section>
+  </div>
+
+  <section class="rg-card rg-stack">
+    <div class="rg-row"><h3>Spese di casa</h3><span class="rg-spacer"></span>
+      <div class="rg-tabs"><button type="button" aria-controls="t-mese">Mese</button><button type="button" aria-controls="t-anno">Anno</button></div>
+    </div>
+    <div class="rg-stats">
+      <div class="rg-stat"><span class="rg-label">Spese di ottobre</span><strong>1.284 <small>€</small></strong><span class="rg-delta down">−8% su settembre</span></div>
+      <div class="rg-stat"><span class="rg-label">Bollette</span><strong>212 <small>€</small></strong><span class="rg-delta up bad">+14%</span></div>
+      <div class="rg-stat"><span class="rg-label">Risparmio</span><strong>23%</strong><span class="rg-delta up">+3 punti</span></div>
+    </div>
+    <div id="t-mese">
+      <table>
+        <thead><tr><th>Voce</th><th>Ottobre</th><th>Settembre</th><th>Variazione</th></tr></thead>
+        <tbody>
+          <tr><td>Spesa</td><td>486,20 €</td><td>512,90 €</td><td>−5,2%</td></tr>
+          <tr><td>Bollette</td><td>212,00 €</td><td>186,00 €</td><td>+14,0%</td></tr>
+          <tr><td>Trasporti</td><td>138,50 €</td><td>164,00 €</td><td>−15,5%</td></tr>
+          <tr><td>Svago</td><td>96,00 €</td><td>140,00 €</td><td>−31,4%</td></tr>
+        </tbody>
+        <tfoot><tr><td>Totale</td><td>932,70 €</td><td>1.002,90 €</td><td>−7,0%</td></tr></tfoot>
+      </table>
+    </div>
+    <div id="t-anno"><p class="rg-muted">Da gennaio: 12.408 € in tutto.</p></div>
+  </section>
+
+  <div class="rg-grid" style="--rg-min:280px">
+    <section class="rg-card rg-stack">
+      <h3>Moduli</h3>
+      <label class="rg-field">Nome<input type="text" placeholder="Mario Rossi"></label>
+      <div class="rg-grid" style="--rg-min:120px">
+        <label class="rg-field">Città<select><option>Milano</option><option>Torino</option><option>Bologna</option></select></label>
+        <label class="rg-field">Data<input type="date" value="2026-11-12"></label>
+      </div>
+      <label class="rg-field">Note<textarea placeholder="Qualcosa da aggiungere?"></textarea></label>
+      <div class="rg-row">
+        <label><input type="checkbox" checked> Fattura</label>
+        <label><input type="checkbox"> Consegna</label>
+        <label><input type="checkbox" role="switch" aria-checked="true" checked> Avvisami</label>
+      </div>
+      <div class="rg-row">
+        <label><input type="radio" name="p" checked> Carta</label>
+        <label><input type="radio" name="p"> Bonifico</label>
+        <label><input type="radio" name="p" disabled> Contanti</label>
+      </div>
+      <div class="rg-actions"><button type="button" class="rg-primary">Salva</button><button type="button">Anteprima</button><button type="button" class="rg-ghost">Annulla</button><button type="button" class="rg-danger rg-sm">Elimina</button><button type="button" disabled>Spenta</button></div>
+    </section>
+
+    <section class="rg-card rg-stack">
+      <h3>Altro</h3>
+      <label class="rg-field">Caricamento<progress value="64" max="100"></progress></label>
+      <label class="rg-field">Disco<meter value="0.82" low="0.6" high="0.8" optimum="0.2"></meter></label>
+      <label class="rg-field">Batteria<meter value="0.9" low="0.2" high="0.5" optimum="1"></meter></label>
+      <fieldset><legend>Riepilogo</legend>Totale: <output>1.284 €</output> in <code>ottobre.csv</code></fieldset>
+      <details><summary>Come si calcola</summary><p>La rata è <code>P·i / (1 − (1+i)^−n)</code>, con <code>i</code> il tasso mensile.</p></details>
+      <hr>
+      <p>Testo normale con un <a href="https://example.com">collegamento</a> e una nota <small>piccola</small>.</p>
+    </section>
+  </div>
+</div>
+<script>
+const v = (id) => Number(document.getElementById(id).value);
+const eur = (n) => n.toLocaleString("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+const rata = (p, r, y) => { const i = r / 1200, n = y * 12; return i ? (p * i) / (1 - (1 + i) ** -n) : p / n; };
+function calc() {
+  const a = rata(v("amount"), v("ra"), v("years")), b = rata(v("amount"), v("rb"), v("years"));
+  document.getElementById("pa").textContent = eur(a);
+  document.getElementById("pb").textContent = eur(b);
+  const d = document.getElementById("diff");
+  d.className = "rg-delta " + (b <= a ? "down ok" : "up bad");
+  d.textContent = eur(Math.abs(b - a)) + " al mese";
+}
+for (const i of document.querySelectorAll("input")) i.addEventListener("input", calc);
+calc();
+</script>
+</body>
+</html>

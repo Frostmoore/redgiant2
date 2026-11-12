@@ -15,8 +15,8 @@ import {
   hostContext,
   messageText,
 } from "../artifact-frame.js";
-import { t } from "../i18n.js";
-import { IconAlert, IconCanvas, IconCheck, IconSend, IconX } from "../icons.js";
+import { lang, t } from "../i18n.js";
+import { IconAlert, IconAside, IconCanvas, IconCheck, IconPin, IconSend, IconX } from "../icons.js";
 import { frontSession, getApi, getLive, openCanvas } from "../state.js";
 import { theme } from "../theme.js";
 
@@ -67,7 +67,11 @@ export function ArtifactFrame({
     const w = frame.current?.contentWindow;
     if (!w) return;
     w.postMessage(
-      { jsonrpc: "2.0", method: "ui/notifications/host-context-changed", params: hostContext() },
+      {
+        jsonrpc: "2.0",
+        method: "ui/notifications/host-context-changed",
+        params: hostContext(document, window, lang.value),
+      },
       "*",
     );
   };
@@ -75,6 +79,7 @@ export function ArtifactFrame({
     () =>
       effect(() => {
         void theme.value;
+        void lang.value;
         requestAnimationFrame(sendTheme);
       }),
     [],
@@ -124,12 +129,15 @@ export function ArtifactFrame({
       switch (m.method) {
         case "ui/notifications/initialized": {
           sendTheme();
-          // Loaded again: what it said before is forgotten, here and on the server.
-          if (loads.current++ > 0 && errors.current.length) {
+          // Every load (3.5.12): the page says «initialized» before its errors, so what it said
+          // before (an older version, an earlier visit) is forgotten, here and on the server.
+          if (loads.current++ > 0 || errors.current.length) {
             errors.current = [];
             onErrors?.([]);
-            flush(true);
           }
+          queued.current = [];
+          clearTimeout(timer.current);
+          flush(true);
           return;
         }
         case "ui/notifications/size-changed":
@@ -270,29 +278,40 @@ export function WidgetCard({
   };
   return (
     <div class="widget-card" data-widget={`${seq}.${index}`}>
+      {/* Quiet (3.5.12): the name small, the actions shown on hover or focus (always on touch). */}
       <div class="widget-head">
-        <IconCanvas size={13} />
-        <strong>{name}</strong>
+        <span class="widget-name" title={name}>
+          <IconCanvas size={12} />
+          <span>{name}</span>
+        </span>
         {errors.length > 0 && (
           <span class="artifact-errors" title={errors.map((e) => e.message).join("\n")}>
             <IconAlert size={12} />
             {errors.length === 1 ? t("artError1") : t("artErrors", { n: String(errors.length) })}
           </span>
         )}
-        <div class="spacer" />
-        <button type="button" class="button tiny" disabled={busy} onClick={() => void open()}>
-          {t("widgetOpenCanvas")}
-        </button>
-        <button
-          type="button"
-          class="button tiny"
-          disabled={busy || !!kept}
-          title={kept ? t("widgetKept", { path: kept.path }) : t("widgetKeepHint")}
-          onClick={() => void open()}
-        >
-          {kept ? <IconCheck size={12} /> : null}
-          {kept ? t("widgetKeptShort") : t("widgetKeep")}
-        </button>
+        <div class="widget-tools">
+          <button
+            type="button"
+            class="widget-act"
+            disabled={busy}
+            title={t("widgetOpenCanvas")}
+            onClick={() => void open()}
+          >
+            <IconAside size={13} />
+            <span>{t("widgetOpenCanvas")}</span>
+          </button>
+          <button
+            type="button"
+            class={`widget-act${kept ? " done" : ""}`}
+            disabled={busy || !!kept}
+            title={kept ? t("widgetKept", { path: kept.path }) : t("widgetKeepHint")}
+            onClick={() => void open()}
+          >
+            {kept ? <IconCheck size={13} /> : <IconPin size={13} />}
+            <span>{kept ? t("widgetKeptShort") : t("widgetKeep")}</span>
+          </button>
+        </div>
       </div>
       {error ? (
         <p class="notice error">{error}</p>
@@ -308,7 +327,12 @@ export function WidgetCard({
       ) : (
         <div class="widget-loading dim">{t("loading")}</div>
       )}
-      {kept && <div class="dim widget-kept">{t("widgetKept", { path: kept.path })}</div>}
+      {kept && (
+        <div class="widget-kept">
+          <IconCheck size={11} />
+          <span>{t("widgetKept", { path: kept.path })}</span>
+        </div>
+      )}
     </div>
   );
 }

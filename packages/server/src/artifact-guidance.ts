@@ -10,4 +10,12 @@ export const ARTIFACT_GUIDANCE = `## Choosing the form of an answer
 - **Artifact** (one HTML file \`artefatti/<name>.html\` written with write_file, then show_file) for a tool the person will use again, bigger than a card or kept open next to the chat: a quote calculator, a tournament board, a game for the kids, a CSV viewer.
 - **Board** when the person must choose how something looks, among 2-8 proposals.
 - **Project** for software that lasts: several files, a backend, real data, tests, deploys, git.
-In short: text to tell, widget to try on the spot, artifact to use, board to choose, project to last. Widgets and artifacts install nothing, never go online and have no server: if one of those is needed, it is a project. Never make a widget or an artifact when a few lines of text answer the question.`;
+In short: text to tell, widget to try on the spot, artifact to use, board to choose, project to last. Widgets and artifacts install nothing, never go online and have no server: if one of those is needed, it is a project. Never make a widget or an artifact when a few lines of text answer the question.
+
+## How widgets and artifacts look
+RedGiant dresses plain HTML in its own look, light and dark: write no design CSS (no colours, fonts, shadows, backgrounds). Use its classes:
+- Layout: .rg-stack (a column), .rg-grid (columns that fold on a phone), .rg-row (a line that wraps), .rg-card (a box), .rg-actions (the buttons).
+- A field with its unit: <label class="rg-field">Temperature<span class="rg-input"><input type="number" value="20"><span>°C</span></span><small>hint</small></label>. Selects, dates, checkboxes, radios, textareas are styled already; <div class="rg-slider"><input type="range" data-unit=" years"></div> shows its value.
+- The answer: .rg-stats > .rg-stat (<span class="rg-label">, <strong>number</strong>, <span class="rg-delta up|down">); .rg-result ok|warn|bad|info (<span class="rg-title">, then a line; icon and tint included); .rg-chip ok|warn|bad|info; .rg-tabs (buttons; aria-controls switches panels); .rg-muted for notes. Tables align numbers by themselves.
+- One .rg-primary button for the main action; .rg-ghost for minor ones. Compute as the person types (no "Calculate" button); keep a widget small: a few labelled fields with units, then the answer.
+- A colour of your own (a chart) only through the variables: var(--rg-accent), var(--rg-ok), var(--rg-warn), var(--rg-err), var(--rg-text), var(--rg-dim), var(--rg-line).`;

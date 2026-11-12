@@ -64,22 +64,31 @@ export const messageText = frameMessageText;
 const VARS = [
   "bg",
   "panel",
+  "panel-2",
   "line",
   "text",
   "dim",
   "accent",
+  "accent-2",
+  "accent-soft",
   "ok",
   "warn",
+  "warn-text",
   "err",
   "radius",
   "mono",
 ];
 
-/** The page's theme as frames get it (`ui/notifications/host-context-changed`). */
+/** The page's theme and language as frames get them (`ui/notifications/host-context-changed`). */
 export function hostContext(
   doc: Document = document,
   win: Window = window,
-): { theme: "light" | "dark"; styles: { variables: Record<string, string> } } {
+  locale: string = doc.documentElement.lang || "en",
+): {
+  theme: "light" | "dark";
+  locale: string;
+  styles: { variables: Record<string, string> };
+} {
   const css = win.getComputedStyle(doc.documentElement);
   const variables: Record<string, string> = {};
   for (const v of VARS) {
@@ -94,7 +103,8 @@ export function hostContext(
     (set !== "light" &&
       typeof win.matchMedia === "function" &&
       win.matchMedia("(prefers-color-scheme: dark)").matches);
-  return { theme: dark ? "dark" : "light", styles: { variables } };
+  // The language too (3.5.12): the frame's own words (a blocked picture's placeholder).
+  return { theme: dark ? "dark" : "light", locale, styles: { variables } };
 }
 
 /** Errors of one frame, deduplicated, at most 20: what the page shows and sends on. */

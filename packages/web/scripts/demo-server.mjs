@@ -73,39 +73,63 @@ function demoPdf(line) {
   return out;
 }
 
-/** The widget of the humidity question (3.5.9): three numbers, a result, a button for the chat. */
-const HUMIDITY_WIDGET = `<style>
-  .w { font: 14px var(--rg-font); color: var(--rg-text); display: grid; gap: 10px; }
-  .g { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
-  label { display: grid; gap: 4px; color: var(--rg-dim); font-size: 12px; }
-  input { font: inherit; padding: 6px 8px; border: 1px solid var(--rg-line); border-radius: 8px; background: var(--rg-panel); color: var(--rg-text); }
-  .r { padding: 10px 12px; border-radius: var(--rg-radius); background: color-mix(in srgb, var(--rg-accent) 10%, var(--rg-panel)); }
-  .r strong { font-size: 22px; color: var(--rg-accent); }
-  button { justify-self: start; font: inherit; padding: 7px 14px; border-radius: 8px; border: 0; background: var(--rg-accent); color: #fff; cursor: pointer; }
-</style>
-<div class="w">
-  <div class="g">
-    <label>Temperatura dentro (°C)<input id="ti" type="number" value="20"></label>
-    <label>Umidità dentro (%)<input id="ui" type="number" value="70"></label>
-    <label>Temperatura fuori (°C)<input id="te" type="number" value="8"></label>
-    <label>Umidità fuori (%)<input id="ue" type="number" value="85"></label>
+/**
+ * The widget of the humidity question (3.5.9), written with the design kit (3.5.12): four fields
+ * with their units, the answer at once in a tinted result, one primary action.
+ */
+const HUMIDITY_WIDGET = `<div class="rg-stack">
+  <div class="rg-grid" style="--rg-min:120px">
+    <label class="rg-field">Dentro<span class="rg-input"><input id="ti" type="number" value="20"><span>°C</span></span></label>
+    <label class="rg-field">Umidità dentro<span class="rg-input"><input id="ui" type="number" value="70"><span>%</span></span></label>
+    <label class="rg-field">Fuori<span class="rg-input"><input id="te" type="number" value="8"><span>°C</span></span></label>
+    <label class="rg-field">Umidità fuori<span class="rg-input"><input id="ue" type="number" value="85"><span>%</span></span></label>
   </div>
-  <div class="r">Dopo il ricambio d'aria, a <span id="tt">20</span> °C: <strong id="out">–</strong> di umidità</div>
-  <button id="go">Analizza la mia situazione</button>
+  <div class="rg-result" id="res">
+    <span class="rg-title" id="verdict">–</span>
+    <span class="rg-value" id="out">–</span>
+    <span class="rg-muted" id="note"></span>
+  </div>
+  <div class="rg-actions"><button class="rg-primary" id="go">Analizza la mia situazione</button></div>
 </div>
 <script>
 const sat = (t) => 6.112 * Math.exp((17.67 * t) / (t + 243.5)) * 2.1674 / (273.15 + t);
 const v = (id) => Number(document.getElementById(id).value);
 function calc() {
   const rh = Math.min(100, (sat(v("te")) * v("ue")) / sat(v("ti")));
+  const tone = rh < 60 ? "ok" : rh < 70 ? "warn" : "bad";
+  document.getElementById("res").className = "rg-result " + tone;
+  document.getElementById("verdict").textContent =
+    tone === "ok" ? "Aria asciutta: niente condensa" : tone === "warn" ? "Al limite: arieggia più spesso" : "Ancora umida: la condensa resta";
   document.getElementById("out").textContent = rh.toFixed(0) + "%";
-  document.getElementById("tt").textContent = v("ti");
+  document.getElementById("note").textContent =
+    "di umidità a " + v("ti") + " °C dopo il ricambio (prima " + v("ui") + "%)";
   return rh;
 }
 document.querySelectorAll("input").forEach((i) => i.addEventListener("input", calc));
 calc();
 document.getElementById("go").onclick = () =>
   redgiant.sendMessage(\`Analizza la mia situazione: dentro \${v("ti")} °C e \${v("ui")}%, fuori \${v("te")} °C e \${v("ue")}%; dopo il ricambio l'umidità scende a \${calc().toFixed(0)}%.\`);
+</script>`;
+
+/**
+ * The same question as a model writes it without the design kit (3.5.12): plain elements, no CSS.
+ * The kit must make it look like RedGiant anyway.
+ */
+const PLAIN_WIDGET = `<div>
+  <p><label for="ti">Temperatura dentro (°C)</label> <input id="ti" type="number" value="20"></p>
+  <p><label for="ui">Umidità dentro (%)</label> <input id="ui" type="number" value="70"></p>
+  <p><label for="te">Temperatura fuori (°C)</label> <input id="te" type="number" value="8"></p>
+  <p><label for="ue">Umidità fuori (%)</label> <input id="ue" type="number" value="85"></p>
+  <fieldset><legend>Risultato</legend>Dopo il ricambio: <output id="out">–</output></fieldset>
+  <p><button id="go">Manda i valori in chat</button></p>
+</div>
+<script>
+const sat = (t) => 6.112 * Math.exp((17.67 * t) / (t + 243.5)) * 2.1674 / (273.15 + t);
+const v = (id) => Number(document.getElementById(id).value);
+const calc = () => { const rh = Math.min(100, (sat(v("te")) * v("ue")) / sat(v("ti"))); document.getElementById("out").textContent = rh.toFixed(0) + "%"; return rh; };
+document.querySelectorAll("input").forEach((i) => i.addEventListener("input", calc));
+calc();
+document.getElementById("go").onclick = () => redgiant.sendMessage("Dentro " + v("ti") + " °C, fuori " + v("te") + " °C: dopo il ricambio " + calc().toFixed(0) + "%.");
 </script>`;
 
 let turn = 0;
@@ -630,6 +654,10 @@ const brain = (req) => {
   if (said.includes("umidità avrò in casa"))
     return {
       text: `Dipende da quanto è umida l'aria di fuori: entrando si scalda, e la sua umidità relativa scende. Prova con i tuoi valori:\n\n\`\`\`widget Umidità dopo il ricambio d'aria\n${HUMIDITY_WIDGET}\n\`\`\`\n\nSotto il 60% la condensa sui vetri sparisce.`,
+    };
+  if (said.includes("widget senza stile"))
+    return {
+      text: `Ecco il calcolo, scritto senza CSS:\n\n\`\`\`widget Umidità (HTML semplice)\n${PLAIN_WIDGET}\n\`\`\`\n`,
     };
   if (said.startsWith("Analizza la mia situazione"))
     return {
@@ -2061,13 +2089,15 @@ if (process.env.DEMO_CHAT_TOOLS) {
 // (stopped a third of the way, so its bar and time left show), a picture waiting for the OCR, and a
 // conversation whose answer cites the documents. Embeddings acted out (no model).
 // 3.5.9, DEMO_ARTIFACTS=1: a widget in an answer and three artifacts (a CSV explorer in React, one
-// that fails, one that tries to get out).
+// that fails, one that tries to get out); 3.5.12: a widget with no CSS and the design kit's gallery.
 let widgetSession;
 let artifactSession;
+let plainWidgetSession;
+let kitSession;
 if (process.env.DEMO_ARTIFACTS) {
   const into = join(core.platformPath("local"), "artefatti");
   await mkdir(into, { recursive: true });
-  for (const f of ["esplora-csv.html", "rotto.html", "ostile.html"])
+  for (const f of ["esplora-csv.html", "galleria-kit.html", "rotto.html", "ostile.html"])
     await copyFile(new URL(`./demo-files/artefatti/${f}`, import.meta.url), join(into, f));
   widgetSession = await core.startSession("local", god.id);
   await (
@@ -2077,9 +2107,15 @@ if (process.env.DEMO_ARTIFACTS) {
       "Che umidità avrò in casa dopo aver aperto le finestre dieci minuti?",
     )
   ).done;
+  // 3.5.12: a widget written with no CSS at all, which the design kit dresses.
+  plainWidgetSession = await core.startSession("local", god.id);
+  await (await core.send("local", plainWidgetSession, "Lo stesso, come widget senza stile")).done;
   artifactSession = await core.startSession("local", god.id);
   await (await core.send("local", artifactSession, "Mostra il file artefatti/esplora-csv.html"))
     .done;
+  // 3.5.12: the design kit's components, in one artifact.
+  kitSession = await core.startSession("local", god.id);
+  await (await core.send("local", kitSession, "Mostra il file artefatti/galleria-kit.html")).done;
 }
 
 let knowledgeSession;
@@ -2225,7 +2261,7 @@ console.log(
     ...(viewerSession && { viewerSession }),
     ...(canvasSession && { canvasSession }),
     ...(knowledgeSession && { knowledgeSession }),
-    ...(widgetSession && { widgetSession, artifactSession }),
+    ...(widgetSession && { widgetSession, artifactSession, plainWidgetSession, kitSession }),
     ...(subSession && { subSession }),
     ...(toolsSession && { toolsSession, branchSession }),
   }),

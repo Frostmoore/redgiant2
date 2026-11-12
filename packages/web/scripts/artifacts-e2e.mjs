@@ -176,7 +176,7 @@ for (const scheme of ["light", "dark"]) {
   const bg = await page
     .frameLocator(".widget-card iframe")
     .locator("input#ti")
-    .evaluate((i) => getComputedStyle(i).backgroundColor);
+    .evaluate((i) => getComputedStyle(i.closest(".rg-input") ?? i).backgroundColor);
   console.log(`     ${scheme}: input background ${bg}`);
   check(
     scheme === "dark" ? bg === "rgb(28, 31, 38)" : bg === "rgb(255, 255, 255)",
@@ -196,7 +196,7 @@ for (const scheme of ["light", "dark"]) {
     const bg2 = await page
       .frameLocator(".widget-card iframe")
       .locator("input#ti")
-      .evaluate((i) => getComputedStyle(i).backgroundColor);
+      .evaluate((i) => getComputedStyle(i.closest(".rg-input") ?? i).backgroundColor);
     check(bg2 === "rgb(28, 31, 38)", `the widget follows a theme switch (${bg2})`);
     await page.screenshot({ path: join(out, "light-1b-widget-after-switch.png") });
 
@@ -281,7 +281,7 @@ for (const scheme of ["light", "dark"]) {
     scheme,
     { width: 1440, height: 900 },
     artifactSession,
-    "Mostra il file artef",
+    "artefatti/esplora-csv",
   );
   // The agent showed it: its line in the chat opens it in the canvas, as an artifact, App first.
   await page.locator(".canvas-line", { hasText: "esplora-csv.html" }).first().click();
@@ -315,7 +315,7 @@ for (const scheme of ["light", "dark"]) {
     "light",
     { width: 1440, height: 900 },
     artifactSession,
-    "Mostra il file artef",
+    "artefatti/esplora-csv",
   );
   const popups = [];
   page.on("popup", (p) => popups.push(p.url()));
@@ -392,7 +392,7 @@ for (const scheme of ["light", "dark"]) {
     "light",
     { width: 1440, height: 900 },
     artifactSession,
-    "Mostra il file artef",
+    "artefatti/esplora-csv",
   );
   await page.evaluate(() => {
     window.__rtc = {};
