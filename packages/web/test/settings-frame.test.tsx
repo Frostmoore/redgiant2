@@ -76,7 +76,7 @@ describe("Settings drawn as the wizard", () => {
     expect(r.container.querySelector(".st-pick")?.textContent).toContain("Telegram");
     fireEvent.click(r.container.querySelector(".st-pick") as HTMLElement);
     const sheet = r.container.querySelector(".ui-modal") as HTMLElement;
-    expect(sheet.querySelectorAll(".st-nav-item")).toHaveLength(25);
+    expect(sheet.querySelectorAll(".st-nav-item")).toHaveLength(26);
   });
 
   it("General: theme and language in segments, and a window for each square", async () => {
