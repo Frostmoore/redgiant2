@@ -61,3 +61,17 @@ mdns_name() {
   n=$(avahi-resolve -a "$(addresses | head -1)" 2>/dev/null | awk '{ print $2 }')
   echo "${n:-$(hostname).local}"
 }
+
+# The login prompts' text (/etc/issue.d/50-redgiant.issue): the real addresses, never Docker's
+# bridges (agetty's own \4 may pick one). Prompts already shown are redrawn when it changes.
+write_issue() {
+  local f=/etc/issue.d/50-redgiant.issue new a
+  new=$(
+    printf 'RedGiant: http://%s:%s\n' "$(mdns_name)" "$PORT"
+    for a in $(addresses); do printf 'RedGiant: http://%s:%s\n' "$a" "$PORT"; done
+    echo
+  )
+  [ "$new" = "$(cat "$f" 2>/dev/null)" ] && return 0
+  printf '%s\n' "$new" >"$f.new" && mv "$f.new" "$f"
+  agetty --reload 2>/dev/null || true
+}

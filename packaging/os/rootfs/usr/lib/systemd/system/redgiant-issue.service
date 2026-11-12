@@ -1,0 +1,13 @@
+# The address on the login prompts, before they show (the console keeps it current afterwards).
+[Unit]
+Description=RedGiant OS: the address on the login prompts
+After=network-online.target avahi-daemon.service
+Wants=network-online.target
+Before=getty.target getty@tty2.service serial-getty@ttyS0.service serial-getty@ttyAMA0.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/redgiant-os/redgiant-issue
+
+[Install]
+WantedBy=multi-user.target

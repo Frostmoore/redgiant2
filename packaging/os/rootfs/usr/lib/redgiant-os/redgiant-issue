@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# RedGiant OS (G39.1): writes the address on the login prompts (redgiant-issue.service).
+set -uo pipefail
+# shellcheck source=common.sh
+. "$(dirname "$(readlink -f "$0")")/common.sh"
+write_issue

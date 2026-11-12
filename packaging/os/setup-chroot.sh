@@ -6,7 +6,7 @@ set -eu
 # The services of the OS. SSH is installed but off: RedGiant's Settings switch it on (key only).
 systemctl enable systemd-networkd.service systemd-resolved.service avahi-daemon.service \
   docker.service redgiant-growroot.service redgiant.service redgiant-console.service \
-  redgiant-helper.socket redgiant-ssh-keys.service redgiant-os-check.timer redgiant-selftest.service \
+  redgiant-helper.socket redgiant-ssh-keys.service redgiant-issue.service redgiant-os-check.timer redgiant-selftest.service \
   apt-daily.timer apt-daily-upgrade.timer
 systemctl disable ssh.service ssh.socket 2>/dev/null || true
 # Docker starts its containers itself; nothing waits for a network that may never come.

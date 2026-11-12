@@ -56,6 +56,7 @@ token_screen() {
 }
 
 while true; do
+  write_issue
   screen
   key=""
   read -rsn1 -t 15 key || true
