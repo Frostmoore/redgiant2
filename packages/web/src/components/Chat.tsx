@@ -1,5 +1,6 @@
 import { useComputed } from "@preact/signals";
 import {
+  ARTIFACT_GRANT_TOOL,
   type AssistantPart,
   criticalSentences,
   type Event,
@@ -65,6 +66,7 @@ import {
 } from "../state.js";
 import { canvasKind } from "../viewers/canvas-kind.js";
 import { WidgetCard } from "./ArtifactFrame.js";
+import { ArtifactGrantCard } from "./ArtifactGrantCard.js";
 import { noEnter, useArmed } from "./armed.js";
 import {
   AsidePanel,
@@ -562,6 +564,8 @@ function OtherWork({ sessionId, agentId }: { sessionId: string; agentId: string 
 export function PermissionCard({ r }: { r: PermissionRequestInfo }) {
   // A switched-off tool asked back (G36.15) has its own words and choices.
   if (r.tool === "request_tool") return <ToolRequestCard r={r} />;
+  // An artifact's first use of a capability (3.6, G38.7): its own words and the spending cap.
+  if (r.tool === ARTIFACT_GRANT_TOOL) return <ArtifactGrantCard r={r} />;
   return <ToolPermission r={r} />;
 }
 

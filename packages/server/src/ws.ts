@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import {
+  ARTIFACT_GRANT_TOOL,
   ClientMessage,
   DocFile,
   docKey,
@@ -11,6 +12,7 @@ import {
   type ServerMessage,
 } from "@redgiant/protocol";
 import { type WebSocket, WebSocketServer } from "ws";
+import { BridgeFailure } from "./artifact-bridge.js";
 import type { AuthProvider, Principal } from "./auth.js";
 import type { RedGiantCore } from "./core.js";
 import type { Outcome } from "./editor/host.js";
@@ -346,6 +348,24 @@ export function attachWebSocket(
               .reportArtifactErrors(owner, msg.ref, msg.errors, msg.sessionId)
               .catch(() => {});
             return;
+          // The artifacts' bridge (3.6, G38.7): answered when done, never awaited here (a question
+          // to the model must not hold this connection's other messages).
+          case "artifact.bridge": {
+            const { requestId } = msg;
+            void core.artifactBridge.handle(owner, msg.ref, msg.call, msg.sessionId).then(
+              (result) => send({ type: "artifact.bridge.result", requestId, result }),
+              (err: unknown) =>
+                send({
+                  type: "artifact.bridge.result",
+                  requestId,
+                  error:
+                    err instanceof BridgeFailure
+                      ? { code: err.code, message: err.message.slice(0, 2000) }
+                      : { code: "failed", message: "The bridge call failed" },
+                }),
+            );
+            return;
+          }
           case "canvas.state":
             core.canvasLive.answer(owner, msg.requestId, msg.state);
             return;
@@ -522,6 +542,15 @@ export function attachWebSocket(
           case "permission.resolve": {
             const pending = core.approvals.list(owner).find((r) => r.requestId === msg.requestId);
             // A switched-off tool asked back (G36.15): "always" is for that agent, never a rule.
+            // An artifact's capability (3.6, G38.7): the person's yes, with the cap they chose;
+            // never a rule, never «this conversation».
+            if (pending?.tool === ARTIFACT_GRANT_TOOL) {
+              if (msg.decision === "allow")
+                core.artifactBridge.chooseCap(msg.requestId, msg.capUsd);
+              if (!core.approvals.decide(owner, msg.requestId, msg.decision, msg.reason, "web"))
+                return fail("not_found", "No such pending request");
+              return;
+            }
             const toolRequest = pending?.tool === "request_tool";
             if (toolRequest)
               core.toolRequestScope(msg.requestId, msg.remember ? "always" : msg.scope);

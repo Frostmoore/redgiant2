@@ -179,6 +179,7 @@ export const CRITICAL_ACTIONS = [
   "secret-file",
   "secret-attach",
   "mail-delete",
+  "secret-artifact-read",
   "pay-tool",
   "pay-service",
   "pay-button",
@@ -283,6 +284,8 @@ const SENTENCES: Record<Lang, Record<CriticalAction, Sentence>> = {
       x.t
         ? `Deletes emails for good from ${x.t}: they do not go to the bin`
         : "Deletes emails for good: they do not go to the bin",
+    "secret-artifact-read": (_, x) =>
+      `An artifact reads ${x.t}: a secret or one of RedGiant's own files (never allowed)`,
     "pay-tool": (_, x) => `Pays or buys with real money through ${x.t}`,
     "pay-service": (_, x) =>
       `Makes a payment with real money through ${x.t || "a payment service"}`,
@@ -342,6 +345,8 @@ const SENTENCES: Record<Lang, Record<CriticalAction, Sentence>> = {
       x.t
         ? `Cancella per sempre delle email da ${x.t}: non passano dal cestino`
         : "Cancella per sempre delle email: non passano dal cestino",
+    "secret-artifact-read": (_, x) =>
+      `Un artefatto legge ${x.t}: un segreto o un file di RedGiant (mai permesso)`,
     "pay-tool": (_, x) => `Paga o compra con soldi veri attraverso ${x.t}`,
     "pay-service": (_, x) =>
       `Fa un pagamento con soldi veri attraverso ${x.t || "un servizio di pagamento"}`,

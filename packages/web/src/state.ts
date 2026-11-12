@@ -37,6 +37,7 @@ import {
   type Room,
   type Subproject,
 } from "./api.js";
+import { bridgeResult } from "./artifact-bridge.js";
 import { t, tOptional } from "./i18n.js";
 import { coversNow } from "./phone.js";
 import {
@@ -808,6 +809,10 @@ export function applyMessage(m: ServerMessage): void {
       return;
     case "permission.closed":
       approvals.value = approvals.value.filter((r) => r.requestId !== m.requestId);
+      return;
+    // An artifact's bridge call answered (3.6, G38.7): to the frame that asked.
+    case "artifact.bridge.result":
+      bridgeResult(m);
       return;
     case "question.request":
       if (!questions.value.some((q) => q.requestId === m.request.requestId)) {

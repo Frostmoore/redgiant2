@@ -828,6 +828,60 @@ button.bar-settings {
 .ar-ro {
   color: var(--warn-text);
 }
+/* What an artifact asks for (3.6, G38.7): one line each, its state, and the person's buttons. */
+.ar-perms {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.ar-perms-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dim);
+}
+.ar-perm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius, 8px);
+}
+.ar-perm.on {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+}
+.ar-perm-what {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+}
+.ar-perm-acts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ar-perm-acts .wz-chips {
+  margin: 0;
+}
+.artifact-grant-where {
+  margin: 0 0 6px;
+}
+.artifact-grant-cap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 6px 0;
+}
+.artifact-grant-cap .wz-chips {
+  margin: 0;
+}
 .ar-acts {
   display: flex;
   flex-wrap: nowrap;

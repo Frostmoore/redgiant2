@@ -1,4 +1,5 @@
 import {
+  type ArtifactGrant,
   type Automation,
   type AutomationRun,
   type BackupPreview,
@@ -443,6 +444,10 @@ export interface ArtifactInfo {
   libs: string[];
   wants: string[];
   granted: string[];
+  /** The grants in full (3.6): `ask`'s agent, cap and spending. */
+  grants: ArtifactGrant[];
+  /** It keeps data of its own (`storage`, 3.6). */
+  hasData: boolean;
   from: string | null;
   size: number;
   modifiedAt: string;
@@ -1405,13 +1410,29 @@ export class Api {
       "GET",
       `/api/artifacts/state?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
     );
+  /** The person grants an artifact a capability it declared (3.6), with `ask`'s cap. */
+  artifactGrant = (scope: string, path: string, capability: string, capUsd?: number) =>
+    this.call<ArtifactGrant[]>("POST", "/api/artifacts/grant", {
+      scope,
+      path,
+      capability,
+      ...(capUsd !== undefined && { capUsd }),
+    });
+  /** The person takes a capability back (3.6). */
+  artifactRevoke = (scope: string, path: string, capability: string) =>
+    this.call<ArtifactGrant[]>("POST", "/api/artifacts/revoke", { scope, path, capability });
   /** «Run» on an imported artifact: it opens as an app from now on. */
   artifactRun = (scope: string, path: string) =>
     this.call<{ pendingRun: false }>("POST", "/api/artifacts/run", { scope, path });
   /** An artifact as a `.rgartifact` (zip) or as its bare HTML. */
-  async artifactExport(scope: string, path: string, as: "zip" | "html"): Promise<Blob> {
+  async artifactExport(
+    scope: string,
+    path: string,
+    as: "zip" | "html",
+    data = false,
+  ): Promise<Blob> {
     const r = await fetch(
-      `/api/artifacts/export?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}&as=${as}`,
+      `/api/artifacts/export?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}&as=${as}${data ? "&data=1" : ""}`,
       { headers: { authorization: `Bearer ${this.token}` } },
     );
     if (!r.ok) {
@@ -1424,7 +1445,7 @@ export class Api {
   async artifactImport(
     scope: string,
     file: Blob,
-  ): Promise<{ path: string; name: string; dataIgnored: boolean }> {
+  ): Promise<{ path: string; name: string; dataIgnored: boolean; dataImported?: boolean }> {
     const r = await fetch(`/api/artifacts/import?scope=${encodeURIComponent(scope)}`, {
       method: "POST",
       headers: {
@@ -1439,6 +1460,7 @@ export class Api {
       path: string;
       name: string;
       dataIgnored: boolean;
+      dataImported?: boolean;
     };
     if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`, data.code);
     return data;

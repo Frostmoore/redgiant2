@@ -142,6 +142,7 @@ import {
 import { z } from "zod";
 import { type Alert, type AlertText, alertText } from "./alerts.js";
 import { HumanApprovals } from "./approvals.js";
+import { ArtifactBridge } from "./artifact-bridge.js";
 import {
   ARTIFACT_SHOWN,
   ARTIFACT_TOOL_LINE,
@@ -646,6 +647,20 @@ export class RedGiantCore implements OrchestrationHost {
   readonly canvasLive = new CanvasLive();
   /** What artifacts and widgets met in the person's page (3.5.9), on its way to the agents. */
   readonly artifactErrors = new ArtifactErrors();
+  /** The artifacts' bridge (3.6, G38.7): ask, storage, files, granted by the person. */
+  get artifactBridge(): ArtifactBridge {
+    this.bridgeOnce ??= new ArtifactBridge(this);
+    return this.bridgeOnce;
+  }
+  private bridgeOnce: ArtifactBridge | undefined;
+  /** RedGiant's own files (G36.17b), for the bridge's read rule. */
+  protectedFiles(): readonly string[] {
+    return this.protectedPaths;
+  }
+  /** The model of an agent with none of its own (the person's default). */
+  defaultModelSpec(): ModelSpec | undefined {
+    return this.o.defaultModel;
+  }
   /** The editor (G37.1): one owner of every open file, the person's and the agents' edits. */
   readonly editor: EditorHost;
   /** The sheet family (G37.3): CSV/TSV in place, ODS with LibreOffice's «toppa». */
@@ -1217,6 +1232,8 @@ export class RedGiantCore implements OrchestrationHost {
     await o.db.query("DROP TABLE IF EXISTS rg_devices");
     await migrateLogin(o.db);
     const core = new RedGiantCore(o);
+    // The artifacts' bridge from the start: it follows the person's deletions and moves (3.6).
+    void core.artifactBridge;
     await core.vault.open();
     await core.browserLinks.load();
     await core.registry.load();

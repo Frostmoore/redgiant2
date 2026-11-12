@@ -615,6 +615,82 @@ const TABLE: Case[] = [
     REMOTE,
   ],
   ["remote mkfs", ...ssh("mkfs.ext4 /dev/sdb1"), "critical-delete", REMOTE],
+  // An artifact reading through the bridge (3.6, G38.7): secrets and RedGiant's own files never
+  // reach a page that runs a model's code; the bridge refuses these at once, never asks.
+  ["artifact reads .env", "artifact_read", { path: "/work/app/.env" }, "critical-secret"],
+  [
+    "artifact reads .env.local",
+    "artifact_read",
+    { path: "/work/app/dati/.env.local" },
+    "critical-secret",
+  ],
+  [
+    "artifact reads secrets.json",
+    "artifact_read",
+    { path: "/work/app/dati/secrets.json" },
+    "critical-secret",
+  ],
+  [
+    "artifact reads a private key",
+    "artifact_read",
+    { path: "/work/app/dati/id_ed25519" },
+    "critical-secret",
+  ],
+  [
+    "artifact reads a .pem",
+    "artifact_read",
+    { path: "/work/app/dati/server.pem" },
+    "critical-secret",
+  ],
+  [
+    "artifact reads credentials.json",
+    "artifact_read",
+    { path: "/work/app/dati/credentials.json" },
+    "critical-secret",
+  ],
+  ["artifact reads .npmrc", "artifact_read", { path: "/work/app/dati/.npmrc" }, "critical-secret"],
+  [
+    "artifact reads .git-credentials",
+    "artifact_read",
+    { path: "/work/app/.git-credentials" },
+    "critical-secret",
+  ],
+  [
+    "artifact reads .git/config",
+    "artifact_read",
+    { path: "/work/app/.git/config" },
+    "critical-secret",
+  ],
+  [
+    "artifact reads the keychain",
+    "artifact_read",
+    { path: "/data/keychain/vault.bin" },
+    "critical-secret",
+    { ...LINUX, protectedPaths: ["/data/secrets.json", "/data/keychain", "/data/postgres"] },
+  ],
+  [
+    "artifact reads RedGiant's secrets.json",
+    "artifact_read",
+    { path: "/data/secrets.json" },
+    "critical-secret",
+    { ...LINUX, protectedPaths: ["/data/secrets.json", "/data/keychain", "/data/postgres"] },
+  ],
+  [
+    "artifact reads the database folder",
+    "artifact_read",
+    { path: "/data/postgres/base/1" },
+    "critical-secret",
+    { ...LINUX, protectedPaths: ["/data/secrets.json", "/data/keychain", "/data/postgres"] },
+  ],
+  ["artifact reads a CSV", "artifact_read", { path: "/work/app/dati/vendite.csv" }, null],
+  ["artifact reads a spreadsheet", "artifact_read", { path: "/work/app/dati/conti.xlsx" }, null],
+  ["artifact reads .env.example", "artifact_read", { path: "/work/app/dati/.env.example" }, null],
+  [
+    "artifact reads a file named env.csv",
+    "artifact_read",
+    { path: "/work/app/dati/env.csv" },
+    null,
+  ],
 
   // Ordinary work.
   ["npm publish (a deploy, not critical)", ...bash("npm publish"), null],

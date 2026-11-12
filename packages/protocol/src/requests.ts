@@ -8,6 +8,7 @@
  */
 
 import { preparedMailOf } from "./mail.js";
+import { ARTIFACT_GRANT_TOOL, grantSentence } from "./artifact-bridge.js";
 
 type Lang = "it" | "en";
 const lng = (lang: string): Lang => (lang === "it" ? "it" : "en");
@@ -268,6 +269,11 @@ type Sentence = (c: Ctx) => string | undefined;
 
 /** One sentence per tool, both languages: the table `requestSentence` reads. */
 const SENTENCES: Record<string, Record<Lang, Sentence>> = {
+  // An artifact's first use of a capability (3.6, G38.7): granted by the person only.
+  [ARTIFACT_GRANT_TOOL]: {
+    it: ({ i }) => grantSentence("it", i),
+    en: ({ i }) => grantSentence("en", i),
+  },
   platform_project: {
     it: ({ i, name }) =>
       i.action === "restore"
