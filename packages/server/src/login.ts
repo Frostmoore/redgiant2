@@ -220,6 +220,15 @@ export class LoginStore {
         throw new LoginError("wrong", "Wrong code");
       }
     }
+    this.failures.delete(address);
+    return this.openSession(ownerId, name);
+  }
+
+  /**
+   * A session without a password: only for whoever proved otherwise who they are (the
+   * one-time setup code of a first start, G39.3).
+   */
+  async openSession(ownerId: string, name: string): Promise<{ token: string; expiresAt: string }> {
     const id = `ls_${randomBytes(6).toString("hex")}`;
     const token = `rgs_${randomBytes(24).toString("base64url")}`;
     const expiresAt = new Date(this.now() + (this.o.sessionDays ?? 30) * DAY).toISOString();
@@ -227,8 +236,17 @@ export class LoginStore {
       "INSERT INTO rg_login_sessions (id, owner_id, token_hash, name, expires_at) VALUES ($1, $2, $3, $4, $5)",
       [id, ownerId, hash(token), name.slice(0, 80) || "Browser", expiresAt],
     );
-    this.failures.delete(address);
     return { token, expiresAt };
+  }
+
+  /** The id of a password session's token (to keep it when the password changes). */
+  async sessionIdOf(token: string | undefined): Promise<string | undefined> {
+    if (!token?.startsWith("rgs_")) return undefined;
+    const [r] = await this.db.query<{ id: string }>(
+      "SELECT id FROM rg_login_sessions WHERE token_hash = $1",
+      [hash(token)],
+    );
+    return r?.id;
   }
 
   async sessions(ownerId: string): Promise<LoginSession[]> {
