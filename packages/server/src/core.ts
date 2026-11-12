@@ -186,6 +186,8 @@ import {
   type MailboxInput,
   type MailSender,
 } from "./email.js";
+import { type MachineOptions, Machines } from "./machines.js";
+import { type SshToolsHost, sshTools } from "./ssh-tools.js";
 import { FileTriggers } from "./file-triggers.js";
 import type { GitHosts } from "./git-hosts.js";
 import { IMAGE_MODEL, imageFileName } from "./images.js";
@@ -310,6 +312,11 @@ export interface CoreOptions {
   mailbox?: Mailbox;
   /** How automation messages leave by email (tests use a fake; SMTP otherwise, G33.3). */
   mailSender?: MailSender;
+  /**
+   * Tests only (G38.2): where a machine really is (a fake SSH server on 127.0.0.1), and how long
+   * to wait for it. Never the person's network.
+   */
+  machines?: Pick<MachineOptions, "dial" | "connectTimeoutMs">;
   providers: ProviderRegistry;
   /** Root of the project workspaces. */
   workspacesDir: string;
@@ -586,6 +593,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly rooms: Rooms;
   /** Routines on email: the person's mailbox, read every few minutes (G24.14c). */
   readonly email: EmailWatcher;
+  /** The person's machines over SSH (G38.2): keys in the keychain, host keys fixed. */
+  readonly machines: Machines;
   /** Routines on files that change in a project's folder (G33.3). */
   readonly files: FileTriggers;
   /** Automations built in a conversation with God (G33.3). */
@@ -1009,6 +1018,11 @@ export class RedGiantCore implements OrchestrationHost {
       owners: async () => [...new Set(this.registry.list({}).map((a) => a.ownerId))],
       vault: this.vault,
     });
+    this.machines = new Machines({
+      db: o.db,
+      vault: () => this.vault,
+      ...o.machines,
+    });
     this.files = new FileTriggers({
       automations: this.automations,
       projectPath: async (ownerId, projectId) =>
@@ -1080,6 +1094,8 @@ export class RedGiantCore implements OrchestrationHost {
           critical: {
             knownSecrets: () => this.vault.values(agent.ownerId),
             protectedPaths: this.protectedPaths,
+            // The person's machines (G38.2): their working folders, for the commands run there.
+            machines: () => this.machines.rulesInfo(agent.ownerId),
           },
         };
         // The system's scratch folder is free too (on Windows it is not /tmp).
@@ -1668,7 +1684,12 @@ export class RedGiantCore implements OrchestrationHost {
             })),
         // The keychain (G33.4): always offered; without credentials it says where to add them.
         vaultTool(agent, this.vault, (sid) => this.automationOfSession(sid)),
+        // The person's machines (G38.2): always offered; the list is asked (ssh_list), never in
+        // the prompt, so adding a machine moves nothing in a running conversation.
+        ...sshTools(ws, this.sshHost(agent, assignedTo)),
       );
+      // What the permission rules read about the machines, fresh for this conversation.
+      await this.machines.list(ownerId).catch(() => []);
     }
     if (agent.kind === "assistant") tools.push(this.requestConnectionTool(agent));
     if (
@@ -2079,6 +2100,32 @@ export class RedGiantCore implements OrchestrationHost {
    * Pull requests and issues on the project's repository (G24.14c), through the server with the
    * person's token. Opening one asks the person first (danger `git-publish`).
    */
+  /** What the SSH tools of an agent reach (G38.2). */
+  private sshHost(agent: AgentRecord, assignedTo?: string): SshToolsHost {
+    const ownerId = agent.ownerId;
+    return {
+      machines: () =>
+        this.machines.allowed(ownerId, {
+          id: agent.id,
+          parentId: agent.parentId,
+          projectId: assignedTo ?? agent.projectId,
+        }),
+      connect: (_ctx, m, signal) =>
+        this.machines.connect(ownerId, m, { ...(signal && { signal }) }),
+      record: async (ctx, e) => {
+        await this.store.append({
+          ownerId,
+          projectId: ctx.projectId,
+          agentId: ctx.agentId,
+          sessionId: ctx.sessionId,
+          body: { type: "remote.command", payload: e },
+        });
+      },
+      maxMs: (owner) => this.commandSettings.get(owner).bashMaxMs,
+      background: this.commands,
+    };
+  }
+
   private repoTools(projectId: string): Tool[] {
     const act = (a: Parameters<GitHosts["repoAction"]>[3]) => {
       const f = this.repoActions;

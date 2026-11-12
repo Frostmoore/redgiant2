@@ -12,6 +12,8 @@ export * from "./core.js";
 export { debugLog } from "./debug-log.js";
 export * from "./egress-routes.js";
 export * from "./email.js";
+export * from "./machines.js";
+export * from "./ssh-tools.js";
 export * from "./engine-errors.js";
 export * from "./export.js";
 export * from "./files.js";

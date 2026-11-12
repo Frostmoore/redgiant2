@@ -270,6 +270,25 @@ export const EventBody = z.discriminatedUnion("type", [
       exitCode: z.number().int().nullable(),
     }),
   }),
+  /**
+   * What an agent did on one of the person's machines (G38.2): a command (with its exit code and
+   * how long it took), a copy, a look at a folder or a file. Never a secret: the command as the
+   * agent wrote it, which machine, how it went.
+   */
+  z.object({
+    type: z.literal("remote.command"),
+    payload: z.object({
+      machine: z.string(),
+      kind: z.enum(["run", "upload", "download", "list", "read"]),
+      command: z.string(),
+      cwd: z.string().optional(),
+      status: z.enum(["done", "failed", "timeout", "stopped", "refused", "background"]),
+      exitCode: z.number().int().nullable(),
+      durationMs: z.number().int().nonnegative(),
+      bytes: z.number().int().nonnegative().optional(),
+      callId: z.string().optional(),
+    }),
+  }),
   /** Taken off the strip by the person: stays off on every device and after a restart. */
   z.object({
     type: z.literal("command.closed"),

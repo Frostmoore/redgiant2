@@ -52,6 +52,8 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   one("edit_package", "files"),
   one("blender", "files"),
   { id: "repo", group: "files", prefix: "repo_" },
+  // The person's machines over SSH (G38.2): commands, copies, folders and files there.
+  { id: "ssh", group: "files", prefix: "ssh_" },
   one("fetch", "web"),
   one("web_search", "web"),
   { id: "browser", group: "web", prefix: "browser_" },
