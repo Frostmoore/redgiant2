@@ -14,6 +14,7 @@ import {
   criticalChatLines,
   dangerWords,
   type ImagePart,
+  mailRequestLines,
   type PermissionRequestInfo,
   PLAN_APPROVE,
   PLAN_REVISE,
@@ -565,6 +566,8 @@ export class ChatBridge {
       }),
       // What happens, in words and with the call's arguments (3.5.6); the raw input comes last.
       `${requestSentence(lang, info.tool, info.input, info.names)}.`,
+      // An email about to leave (G38.1): who it goes to and what it says, field by field.
+      ...mailRequestLines(lang, info.input),
       ...(reasons.length ? [s("why", { reasons: reasons.join("; ") })] : []),
       ...(info.danger.length
         ? [s("danger", { danger: info.danger.map((d) => dangerWords(lang, d).name).join(", ") })]

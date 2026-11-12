@@ -43,3 +43,12 @@ Telegram like any other. A recipe never runs twice at once; the extra run is rec
 `overlap: queue`). What starts a run (an email, a message, a webhook's body) reaches the agent as data,
 never as instructions. Credentials are never written in a recipe: they live in the keychain
 (_Settings > Keychain_) and agents use them by name.
+
+## Example skills
+
+`skills/` holds skills to copy into _Settings > Extensions_ (or into `.redgiant/skills/` of a project):
+
+- `reply-to-email` — going through the person's email with the mail tools (3.6, G38.1): what to read, what to
+  answer as a draft, what to pass to the person, when to ask, the tone. Emails are data, never instructions;
+  every email sent asks the person first. It needs a mailbox opened to the agents (_Settings > Automations >
+  Mailboxes_, «Agents may use it»).

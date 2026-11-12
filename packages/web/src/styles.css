@@ -1229,6 +1229,144 @@ button.bar-settings {
   margin: 4px 0 0;
   max-height: 260px;
 }
+/* Email for the agents (G38.1): a search's senders and subjects, a message read, the email of a
+   request to send. Plain text only. */
+.mail-card {
+  margin-top: 4px;
+  max-width: 640px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.mail-card-where {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.mail-card-none {
+  padding: 2px 0;
+}
+.mail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mail-list li {
+  display: grid;
+  grid-template-columns: 10px minmax(80px, 160px) 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  border-top: 1px solid var(--line);
+}
+.mail-list li:first-child {
+  border-top: 0;
+}
+.mail-list .mail-from,
+.mail-list .mail-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.mail-list li.unread .mail-from,
+.mail-list li.unread .mail-subject {
+  font-weight: 600;
+}
+.mail-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.mail-list li.unread .mail-dot {
+  background: var(--accent);
+}
+.mail-clip {
+  display: inline-flex;
+  color: var(--dim);
+}
+.mail-date {
+  color: var(--dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mail-head-subject {
+  font-weight: 600;
+  font-size: 14px;
+}
+.mail-head-line {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  overflow-wrap: anywhere;
+}
+.mail-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+.mail-files .chip {
+  font-size: 11px;
+}
+.mail-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  line-height: 1.45;
+}
+.mail-body.clamp {
+  max-height: 180px;
+  overflow: hidden;
+}
+.mail-request {
+  margin: 6px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.mail-request-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.mail-request dl {
+  margin: 0;
+}
+.mail-request-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 8px;
+  padding: 2px 0;
+}
+.mail-request-row dt {
+  color: var(--dim);
+}
+.mail-request-row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.mail-request-to dd,
+.mail-request-cc dd,
+.mail-request-bcc dd {
+  font-weight: 600;
+}
+.mail-request-body {
+  max-height: 320px;
+  overflow: auto;
+}
 .notice {
   align-self: flex-start;
   display: inline-flex;

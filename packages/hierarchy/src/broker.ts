@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { PermissionDecision, ToolCallInfo } from "@redgiant/agent";
 import type { EventStore } from "@redgiant/events";
 import type { CriticalDetail, PermissionMode } from "@redgiant/protocol";
-import { evaluate, type PolicySettings } from "./policy.js";
+import { ALWAYS_HUMAN, evaluate, type PolicySettings } from "./policy.js";
 import { type AgentNode, approvalChain, type Resolve } from "./scopes.js";
 
 export interface ApprovalRequest {
@@ -84,7 +84,7 @@ export class PermissionBroker {
       sessionId &&
       this.sessionAllows.get(sessionId)?.has(call.name) &&
       ev.critical.length === 0 &&
-      !ev.danger.some((d) => settings.humanOnly.includes(d))
+      !ev.danger.some((d) => settings.humanOnly.includes(d) || ALWAYS_HUMAN.includes(d))
     )
       return { allow: true };
     if (ev.decision === "deny") return { allow: false, reason: ev.reasons.join("; ") };
@@ -100,7 +100,8 @@ export class PermissionBroker {
     };
     // Parent agents never decide a danger the person kept for themself, nor a truly dangerous one.
     const humanOnly =
-      ev.critical.length > 0 || ev.danger.some((d) => settings.humanOnly.includes(d));
+      ev.critical.length > 0 ||
+      ev.danger.some((d) => settings.humanOnly.includes(d) || ALWAYS_HUMAN.includes(d));
     for (const approver of approvalChain(agent, this.o.resolve)) {
       if (approver && (humanOnly || !settings.approverKinds.includes(approver.kind))) continue;
       await this.log(agent, sessionId, {

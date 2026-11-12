@@ -12,6 +12,15 @@ import {
 /** The guardian's danger: writing outside the agent's folders (only the human approves it). */
 export const OUTSIDE_PROJECT = "outside-project";
 
+/**
+ * An email leaving through `mail_send` (G38.1): a message, so an ordinary request that only the
+ * person answers. Not a pattern the person can switch off: every send asks, whatever the rules.
+ */
+export const OUTGOING_MAIL = "outgoing-mail";
+
+/** Dangers only the person answers whatever their settings say (the broker reads this). */
+export const ALWAYS_HUMAN: readonly string[] = [OUTGOING_MAIL];
+
 import type { AgentKind, CriticalDetail, PermissionMode } from "@redgiant/protocol";
 
 export type Decision = "allow" | "ask" | "deny";
@@ -249,7 +258,18 @@ export const READ_ONLY_TOOLS = new Set([
   // Another machine's folders and text files (G38.2): looked at, never changed.
   "ssh_list",
   "ssh_read",
+  // Searching the person's mailboxes (G38.1) changes nothing; reading uses PEEK (nothing marked
+  // as read) and only writes when it saves the attachments (below).
+  "mail_search",
 ]);
+
+/** mail_read writes into the workspace only when it saves the attachments (G38.1). */
+const mailReadOnly = (input: unknown) =>
+  !(
+    input &&
+    typeof input === "object" &&
+    (input as { save_attachments?: unknown }).save_attachments
+  );
 
 /**
  * The read-only tools that may run together within one answer (the session's batches). The
@@ -367,7 +387,9 @@ function evaluateRules(mode: PermissionMode, call: ToolCallInfo, s: PolicySettin
   const danger = matched.map((r) => r.id);
   // canvas_edit's catalog and dry runs only read (G37.1).
   const readOnly =
-    READ_ONLY_TOOLS.has(call.name) || (call.name === "canvas_edit" && editReadsOnly(call.input));
+    READ_ONLY_TOOLS.has(call.name) ||
+    (call.name === "canvas_edit" && editReadsOnly(call.input)) ||
+    (call.name === "mail_read" && mailReadOnly(call.input));
   const out = (decision: Decision, ...reasons: string[]): Evaluation => ({
     decision,
     reasons,
@@ -386,6 +408,14 @@ function evaluateRules(mode: PermissionMode, call: ToolCallInfo, s: PolicySettin
       toolMatches(r.tool, call.name) &&
       (!r.match || new RegExp(r.match, "i").test(JSON.stringify(call.input ?? ""))),
   );
+  // An email leaving (G38.1) always asks the person: no allow rule, no mode lets it through.
+  if (call.name === "mail_send" && !rules.some((r) => r.decision === "deny"))
+    return {
+      decision: "ask",
+      reasons: ["sends an email"],
+      danger: [...danger, OUTGOING_MAIL],
+      critical: [],
+    };
   for (const d of ["deny", "ask", "allow"] as const) {
     if (rules.some((r) => r.decision === d)) return out(d, `rule: ${d} ${call.name}`);
   }

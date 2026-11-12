@@ -3085,6 +3085,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         secure: z.boolean(),
       })
       .optional(),
+    /** Open to the agents' mail tools (G38.1). */
+    agents: z.boolean().optional(),
   });
   app.get("/api/settings/mailboxes", async (c) =>
     c.json(
@@ -3109,12 +3111,17 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     }
   });
   app.put("/api/settings/mailboxes/:id", async (c) => {
+    const raw = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const b = MailboxBody.partial()
       .extend({ smtp: MailboxBody.shape.smtp.unwrap().nullable().optional() })
-      .safeParse(await c.req.json().catch(() => ({})));
+      .safeParse(raw);
     if (!b.success) return c.json({ error: b.error.issues[0]?.message ?? "Bad mailbox" }, 400);
+    // Only what was sent changes (G38.1: switching «Agents may use it» alone must not fill in the
+    // defaults, a port among them, and try the mailbox again).
     const patch = Object.fromEntries(
-      Object.entries(b.data).filter(([, v]) => v !== undefined),
+      Object.entries(b.data).filter(
+        ([k, v]) => v !== undefined && raw && typeof raw === "object" && k in raw,
+      ),
     ) as Parameters<typeof core.updateMailbox>[2];
     try {
       return c.json(await core.updateMailbox(owner(c), c.req.param("id"), patch), 200);

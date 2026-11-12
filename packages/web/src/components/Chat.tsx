@@ -80,6 +80,7 @@ import { CommandStrip } from "./CommandStrip.js";
 import { Composer, packMessage } from "./Composer.js";
 import { askText } from "./dialogs.js";
 import { Images } from "./Images.js";
+import { MailRequestPreview, MailToolCard, mailSummary } from "./MailCards.js";
 import { MetricsBar } from "./MetricsBar.js";
 import { ModelMenu, modelName } from "./ModelMenu.js";
 import { ArchivedNotice } from "./ProjectArchive.js";
@@ -349,7 +350,8 @@ function ToolLine({
   const machine =
     item.tool.startsWith("ssh_") && typeof input?.machine === "string" ? input.machine : undefined;
   const summary =
-    typeof input === "object" && input
+    mailSummary(item.tool, input) ??
+    (typeof input === "object" && input
       ? String(
           copy ??
             input.command ??
@@ -359,7 +361,7 @@ function ToolLine({
             input.url ??
             JSON.stringify(input),
         )
-      : "";
+      : "");
   const state = !item.result ? "running" : item.result.ok ? "done" : "failed";
   const picture = item.result?.output.match(/^Saved (images\/\S+\.png)/)?.[1];
   // What a file tool changed (2026-11-05): its diff, shown at once, and how many lines.
@@ -405,6 +407,9 @@ function ToolLine({
           <span class="dim">{t("toolSeen")}</span>
           <Images images={item.result.images} />
         </div>
+      )}
+      {item.result?.ok && item.tool.startsWith("mail_") && (
+        <MailToolCard tool={item.tool} output={item.result.output} />
       )}
       {diff && (
         <div
@@ -618,6 +623,7 @@ function ToolPermission({ r }: { r: PermissionRequestInfo }) {
         <span>{t("permAsks", { agent: r.agentName })}</span>
       </div>
       <p class="permission-what">{what}</p>
+      {r.tool === "mail_send" && <MailRequestPreview input={r.input} />}
       {(reasons.length > 0 || r.danger.length > 0) && (
         <div class="dim permission-because">
           {reasons.length > 0 && (

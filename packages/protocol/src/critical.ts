@@ -177,6 +177,8 @@ export const CRITICAL_ACTIONS = [
   "secret-paste",
   "secret-send",
   "secret-file",
+  "secret-attach",
+  "mail-delete",
   "pay-tool",
   "pay-service",
   "pay-button",
@@ -276,6 +278,11 @@ const SENTENCES: Record<Lang, Record<CriticalAction, Sentence>> = {
     "secret-paste": (_, x) => `Sends ${x.s} to a public paste site: ${x.t}`,
     "secret-send": (_, x) => `Sends ${x.s} out to ${x.t}`,
     "secret-file": (_, x) => `Writes ${x.s} into ${x.t}, a file that can end up in git and online`,
+    "secret-attach": (_, x) => `Attaches a file of passwords or keys to an email: ${x.t}`,
+    "mail-delete": (_, x) =>
+      x.t
+        ? `Deletes emails for good from ${x.t}: they do not go to the bin`
+        : "Deletes emails for good: they do not go to the bin",
     "pay-tool": (_, x) => `Pays or buys with real money through ${x.t}`,
     "pay-service": (_, x) =>
       `Makes a payment with real money through ${x.t || "a payment service"}`,
@@ -330,6 +337,11 @@ const SENTENCES: Record<Lang, Record<CriticalAction, Sentence>> = {
     "secret-paste": (_, x) => `Manda ${x.s} a un sito pubblico di incolla-testo: ${x.t}`,
     "secret-send": (_, x) => `Manda fuori ${x.s} a ${x.t}`,
     "secret-file": (_, x) => `Scrive ${x.s} in ${x.t}, un file che può finire in git e online`,
+    "secret-attach": (_, x) => `Allega a un'email un file di password o chiavi: ${x.t}`,
+    "mail-delete": (_, x) =>
+      x.t
+        ? `Cancella per sempre delle email da ${x.t}: non passano dal cestino`
+        : "Cancella per sempre delle email: non passano dal cestino",
     "pay-tool": (_, x) => `Paga o compra con soldi veri attraverso ${x.t}`,
     "pay-service": (_, x) =>
       `Fa un pagamento con soldi veri attraverso ${x.t || "un servizio di pagamento"}`,

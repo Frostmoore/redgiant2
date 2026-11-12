@@ -318,6 +318,63 @@ const TABLE: Case[] = [
   ],
   ["fetch of a page", "fetch", { url: "https://example.com/docs" }, null],
 
+  // Email for the agents (G38.1): sending is an ordinary request for the person (a message),
+  // unless a secret leaves with it; deleting mail for good is critical, moving it to the bin is not.
+  [
+    "an email with a keychain value",
+    "mail_send",
+    { to: ["x@y.z"], body: "here: correct-horse-battery" },
+    "critical-secret",
+    { ...LINUX, knownSecrets: ["correct-horse-battery"] },
+  ],
+  [
+    "a prepared email (from a draft) with a keychain value",
+    "mail_send",
+    { draft_id: 4, message: { to: ["x@y.z"], body: "pw correct-horse-battery" } },
+    "critical-secret",
+    { ...LINUX, knownSecrets: ["correct-horse-battery"] },
+  ],
+  [
+    "an email with an API key",
+    "mail_send",
+    { to: ["x@y.z"], body: `key ${KEY}` },
+    "critical-secret",
+  ],
+  [
+    "a draft with an API key",
+    "mail_draft",
+    { to: ["x@y.z"], body: `key ${KEY}` },
+    "critical-secret",
+  ],
+  [
+    "an email with the .env attached",
+    "mail_send",
+    { to: ["x@y.z"], body: "the config", attachments: ["app/.env"] },
+    "critical-secret",
+  ],
+  [
+    "an email with a private key attached (from a draft)",
+    "mail_send",
+    { draft_id: 2, message: { to: ["x@y.z"], attachments: [{ name: "id_ed25519", size: 400 }] } },
+    "critical-secret",
+  ],
+  [
+    "an ordinary email",
+    "mail_send",
+    { to: ["x@y.z"], subject: "Report", body: "The report is ready.", attachments: ["report.pdf"] },
+    null,
+  ],
+  ["an ordinary draft", "mail_draft", { reply_to: 42, body: "Thanks, see you Monday." }, null],
+  [
+    "deleting emails for good",
+    "mail_move",
+    { mailbox: "Work", folder: "INBOX", ids: [4, 5], action: "delete" },
+    "critical-delete",
+  ],
+  ["moving emails to the bin", "mail_move", { ids: [4], action: "trash" }, null],
+  ["archiving an email", "mail_move", { ids: [4], action: "archive" }, null],
+  ["reading an email", "mail_read", { id: 4 }, null],
+
   // Payments.
   ["an MCP payment", "mcp__stripe__create_payment_intent", { amount: 1000 }, "critical-payment"],
   ["listing payments", "mcp__stripe__list_payments", {}, null],

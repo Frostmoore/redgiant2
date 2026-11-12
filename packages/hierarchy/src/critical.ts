@@ -1202,7 +1202,48 @@ const OUTBOUND = (name: string) =>
     "image_generation",
     "video_generation",
     "audio_generation",
+    // Email (G38.1): what is sent, and a draft kept on the mail server.
+    "mail_send",
+    "mail_draft",
   ].includes(name);
+
+/**
+ * Email (G38.1): a file of secrets attached (a workspace path, or a draft's attachment by name),
+ * and mail deleted for good (moving it to the bin is not).
+ */
+function mailRules(name: string, input: Record<string, unknown>, add: Add) {
+  if (name === "mail_move" && input.action === "delete") {
+    const ids = Array.isArray(input.ids) ? input.ids.length : 0;
+    const where = [input.mailbox, input.folder].filter((x) => typeof x === "string").join(", ");
+    return add(
+      "critical-delete",
+      `deletes ${ids || "some"} email(s) for good${where ? ` from ${where}` : ""}`,
+      { action: "mail-delete", ...(where ? { target: where } : {}) },
+    );
+  }
+  if (name !== "mail_send" && name !== "mail_draft") return;
+  const prepared = (input.message && typeof input.message === "object" ? input.message : {}) as {
+    attachments?: unknown;
+  };
+  const names = [
+    ...(Array.isArray(input.attachments) ? input.attachments : []),
+    ...(Array.isArray(prepared.attachments) ? prepared.attachments : []),
+  ]
+    .map((a) =>
+      typeof a === "string"
+        ? a
+        : a && typeof a === "object" && typeof (a as { name?: unknown }).name === "string"
+          ? (a as { name: string }).name
+          : "",
+    )
+    .filter(Boolean);
+  const secret = names.find((n) => SECRET_FILE_NAME.test(n));
+  if (secret)
+    add("critical-secret", `attaches a file of secrets to an email: ${secret}`, {
+      action: "secret-attach",
+      target: secret,
+    });
+}
 
 function outboundRules(call: ToolCallInfo, input: unknown, w: Where, add: Add) {
   const text = JSON.stringify(input ?? "");
@@ -1333,6 +1374,7 @@ export function criticalOf(call: ToolCallInfo, ctx: CriticalContext = {}): Criti
       action: "pay-button",
       target: short(input.name),
     });
+  if (name.startsWith("mail_")) mailRules(name, input, add);
   if (OUTBOUND(name)) outboundRules(call, call.input, w, add);
   return hits;
 }
