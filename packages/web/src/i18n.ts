@@ -4266,6 +4266,10 @@ const en = {
   toolDo_propose_automation:
     "In a magic automation's conversation, proposes the finished automation.",
   toolWhy_propose_automation: "that conversation exists for it",
+  tool_propose_magic_extension: "Propose the integration",
+  toolDo_propose_magic_extension:
+    "In a magic integration's or extension's conversation, proposes the tested package.",
+  toolWhy_propose_magic_extension: "that conversation exists for it",
   tool_platform_status: "RedGiant's state",
   toolDo_platform_status: "Reads how RedGiant is set up: agents, models, rules.",
   tool_platform_changes: "History of changes",
@@ -9590,6 +9594,10 @@ const it: Record<Key, string> = {
   toolDo_propose_automation:
     "Nella conversazione di un'automazione magica propone l'automazione pronta.",
   toolWhy_propose_automation: "quella conversazione esiste per questo",
+  tool_propose_magic_extension: "Proporre l'integrazione",
+  toolDo_propose_magic_extension:
+    "Nella conversazione di un'integrazione o estensione magica propone il pacchetto provato.",
+  toolWhy_propose_magic_extension: "quella conversazione esiste per questo",
   tool_platform_status: "Stato di RedGiant",
   toolDo_platform_status: "Legge come è impostato RedGiant: agenti, modelli, regole.",
   tool_platform_changes: "Storico delle modifiche",

@@ -114,6 +114,8 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   one("ask_inspector", "agents"),
   // A magic automation's conversation exists to propose one.
   one("propose_automation", "platform", true),
+  // A magic integration's or extension's conversation exists to propose one (G38.3).
+  one("propose_magic_extension", "platform", true),
   one("platform_status", "platform"),
   one("platform_changes", "platform"),
   one("platform_configure_agent", "platform"),
