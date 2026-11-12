@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# RedGiant OS (G39.1): the root partition fills its disk (a bigger virtual disk, or the image
+# written to a bigger drive). Runs at every start; does nothing once the disk is full.
+set -uo pipefail
+src=$(findmnt -no SOURCE /)
+disk=$(lsblk -no PKNAME "$src" | head -1)
+part=$(cat "/sys/class/block/$(basename "$src")/partition" 2>/dev/null)
+[ -n "$disk" ] && [ -n "$part" ] || exit 0
+# The backup GPT header at the real end of the disk, then the partition, then the filesystem.
+sgdisk -e "/dev/$disk" >/dev/null 2>&1 || true
+partprobe "/dev/$disk" 2>/dev/null || true
+if growpart "/dev/$disk" "$part" | grep -q CHANGED; then
+  echo "root partition grown"
+fi
+resize2fs "$src" >/dev/null 2>&1 || true

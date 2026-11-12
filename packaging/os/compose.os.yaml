@@ -1,0 +1,18 @@
+# RedGiant OS (G39.1): what the OS adds to the release's compose.yaml.
+#   docker compose -f compose.yaml -f /usr/share/redgiant-os/compose.os.yaml …
+services:
+  redgiant:
+    environment:
+      # The OS's host helper (redgiant-hostd): SSH, USB disks, RedGiant's update.
+      REDGIANT_OS: "1"
+      REDGIANT_HOST_HELPER: /run/redgiant-host/host.sock
+    volumes:
+      - type: bind
+        source: /run/redgiant-host
+        target: /run/redgiant-host
+      # Disks the helper mounts later (backups on an external disk) appear here as /media/<uuid>.
+      - type: bind
+        source: /var/lib/redgiant/media
+        target: /media
+        bind:
+          propagation: rslave

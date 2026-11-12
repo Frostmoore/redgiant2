@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# RedGiant OS (G39.1): the checks CI runs in QEMU, started only when the machine is given the
+# credential redgiant.selftest (qemu -smbios type=11,value=io.systemd.credential:redgiant.selftest=1).
+# Results go to the console: REDGIANT-SELFTEST PASS or FAIL, one line per check.
+set -uo pipefail
+# shellcheck source=common.sh
+. /usr/lib/redgiant-os/common.sh
+out=/dev/console
+say() { echo "REDGIANT-SELFTEST $*" | tee -a "$out" /run/redgiant-selftest.log >/dev/null; }
+ok=1
+check() { # name command…
+  local name=$1
+  shift
+  if "$@" >/dev/null 2>&1; then say "ok   $name"; else say "FAIL $name"; ok=0; fi
+}
+for _ in $(seq 1 180); do healthy && break; sleep 5; done
+check "redgiant.service active" systemctl is-active --quiet redgiant.service
+check "api/health" curl -fsS "http://localhost:$PORT/api/health"
+check "images pinned" /usr/lib/redgiant-os/redgiant-stack images
+check "mdns redgiant.local" avahi-resolve -4 -n "$(hostname).local"
+check "issue shows the address" grep -q "$PORT" /etc/issue.d/50-redgiant.issue
+check "ssh disabled" bash -c '! systemctl is-active --quiet ssh.service'
+check "host helper" bash -c 'echo "{\"op\":\"status\"}" | socat - UNIX-CONNECT:/run/redgiant-host/host.sock | jq -e .ok'
+check "unattended-upgrades on" bash -c 'apt-config dump | grep -q "APT::Periodic::Unattended-Upgrade \"1\""'
+say "addresses $(addresses | tr '\n' ' ')"
+say "health $(curl -fsS "http://localhost:$PORT/api/health" 2>&1)"
+if [ "$ok" = 1 ]; then say PASS; else say FAIL; fi

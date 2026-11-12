@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# RedGiant OS (G39.1): updates RedGiant (its containers) from the latest release.
+#   redgiant-os-update check     looks, writes /var/lib/redgiant/os-update.json
+#   redgiant-os-update apply     check, then pull the new stack, start it, roll back if unhealthy
+#   redgiant-os-update gate <installed> <release.json>   the rule alone (tested against assessRelease)
+# Only files signed with the update key count (release.json and redgiant-os-stack.json, RSA
+# SHA-256, the key in /usr/share/redgiant-os/release-key.pem): unsigned, nothing is applied. A
+# breaking release is never applied in place. The OS itself updates through apt (security).
+set -euo pipefail
+# shellcheck source=common.sh
+. /usr/lib/redgiant-os/common.sh
+
+KEY=$SHARE/release-key.pem
+OUT=$STATE/os-update.json
+WORK=$STATE/update
+
+# The update gate, as assessRelease (packages/protocol/src/release.ts) decides it: change both
+# together. none | normal | mandatory | breaking.
+gate() {
+  local installed=$1 info=$2 latest kind own below_clean below_req
+  latest=$(jq -r .version "$info")
+  [ "$(vercmp "$installed" "$latest")" -ge 0 ] && { echo none; return; }
+  kind=$(jq -r '.kind // "normal"' "$info")
+  own=$(jq -r '.minVersion // .version' "$info")
+  below() { [ -n "$1" ] && [ "$(vercmp "$installed" "$1")" -lt 0 ]; }
+  below_clean=$(jq -r '.cleanInstallBelow // empty' "$info")
+  below_req=$(jq -r '.requiredBelow // empty' "$info")
+  if below "$below_clean" || { [ "$kind" = breaking ] && below "$own"; }; then echo breaking; return; fi
+  if below "$below_req" || { [ "$kind" = mandatory ] && below "$own"; }; then echo mandatory; return; fi
+  echo normal
+}
+
+signed() { # file: true when file.sig is its signature by the update key
+  [ -s "$KEY" ] && [ -s "$1.sig" ] || return 1
+  openssl dgst -sha256 -verify "$KEY" -signature <(base64 -d "$1.sig") "$1" >/dev/null 2>&1
+}
+
+write_state() { # state latest gate note
+  local tmp
+  tmp=$(mktemp "$STATE/.os-update.XXXXXX")
+  jq -n --arg s "$1" --arg l "$2" --arg g "$3" --arg n "$4" --arg i "$(installed_version)" \
+    --arg at "$(date -u +%FT%TZ)" \
+    '{state: $s, installed: $i, latest: (if $l == "" then null else $l end), gate: $g,
+      note: (if $n == "" then null else $n end), checkedAt: $at}' >"$tmp"
+  chmod 644 "$tmp"
+  mv "$tmp" "$OUT"
+}
+
+download() { # url file
+  curl -fsSL --retry 3 --max-time 120 -o "$2" "$1"
+}
+
+# Fetches the latest release's release.json and stack, checked; sets LATEST and GATE.
+check() {
+  local rel installed url name
+  install -d -m 0700 "$WORK"
+  rm -f "$WORK"/*
+  rel=$(curl -fsSL --max-time 30 -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/$REPO/releases/latest") || { write_state unreachable "" none ""; return 1; }
+  LATEST=$(jq -r '.tag_name // empty' <<<"$rel")
+  LATEST=${LATEST#v}
+  installed=$(installed_version)
+  for name in release.json release.json.sig redgiant-os-stack.json redgiant-os-stack.json.sig; do
+    url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$rel" | head -1)
+    [ -n "$url" ] && download "$url" "$WORK/$name" || true
+  done
+  if [ "$(vercmp "$installed" "${LATEST:-0.0.0}")" -ge 0 ]; then
+    GATE=none
+    write_state latest "$LATEST" none ""
+    return 0
+  fi
+  if ! [ -s "$WORK/redgiant-os-stack.json" ] || ! signed "$WORK/redgiant-os-stack.json" ||
+    ! [ -s "$WORK/release.json" ] || ! signed "$WORK/release.json" ||
+    [ "$(jq -r .version "$WORK/release.json")" != "$LATEST" ] ||
+    [ "$(jq -r .version "$WORK/redgiant-os-stack.json")" != "$LATEST" ]; then
+    GATE=none
+    write_state unsigned "$LATEST" none "the release carries no signed stack for RedGiant OS"
+    return 1
+  fi
+  GATE=$(gate "$installed" "$WORK/release.json")
+  write_state available "$LATEST" "$GATE" "$(jq -r '.note.en // empty' "$WORK/release.json")"
+}
+
+wait_healthy() {
+  local i
+  for i in $(seq 1 120); do
+    healthy && return 0
+    sleep 5
+  done
+  return 1
+}
+
+apply() {
+  check || exit 1
+  case "$GATE" in
+    none) log "RedGiant $(installed_version) is the latest"; return 0 ;;
+    breaking)
+      write_state breaking "$LATEST" breaking "a clean install is needed: back up, then reinstall"
+      log "$LATEST needs a clean install: not applied"
+      exit 1
+      ;;
+  esac
+  local stack=$WORK/redgiant-os-stack.json prev=""
+  jq -e --arg a "$(arch)" '.format == 1 and (.images[$a] | length > 0)' "$stack" >/dev/null ||
+    { write_state error "$LATEST" "$GATE" "the stack has no images for this processor"; exit 1; }
+  write_state applying "$LATEST" "$GATE" ""
+  # The new images first, all of them, while the old version keeps running.
+  [ -r "$STATE/stack.json" ] && prev=$STATE/stack.json.prev && cp "$STATE/stack.json" "$prev"
+  install -m 0644 "$stack" "$STATE/stack.json.new"
+  if ! /usr/lib/redgiant-os/redgiant-stack images-of "$STATE/stack.json.new"; then
+    rm -f "$STATE/stack.json.new"
+    write_state error "$LATEST" "$GATE" "the new images could not be downloaded"
+    exit 1
+  fi
+  mv "$STATE/stack.json.new" "$STATE/stack.json"
+  if /usr/lib/redgiant-os/redgiant-stack up && wait_healthy; then
+    write_state latest "$LATEST" none ""
+    log "RedGiant $LATEST is running"
+    return 0
+  fi
+  # Back to the version that ran: the previous applied stack, or the one built in.
+  if [ -n "$prev" ]; then mv "$prev" "$STATE/stack.json"; else rm -f "$STATE/stack.json"; fi
+  /usr/lib/redgiant-os/redgiant-stack up || true
+  write_state error "$LATEST" "$GATE" "$LATEST did not come up; the previous version is running again"
+  exit 1
+}
+
+case "${1:-}" in
+  check) check ;;
+  apply) apply ;;
+  gate) gate "$2" "$3" ;;
+  *)
+    echo "usage: redgiant-os-update check | apply | gate <installed> <release.json>" >&2
+    exit 2
+    ;;
+esac

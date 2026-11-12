@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# RedGiant OS (G39.1): the host helper. RedGiant runs in a container; the few things it may ask of
+# the machine itself go through this, one JSON request per connection on
+# /run/redgiant-host/host.sock (redgiant-host.socket, Accept=yes: stdin and stdout are the socket).
+# Only the fixed operations below exist; nothing in a request is ever run as a command.
+#
+#   {"op":"status"}
+#   {"op":"ssh.enable","keys":["ssh-ed25519 AAAA… name"]}   key-only, user "redgiant"
+#   {"op":"ssh.disable"}
+#   {"op":"disks.list"}                                       disks that are not the system's
+#   {"op":"disks.mount","device":"/dev/sdb1"}                → /media/<uuid> in the container
+#   {"op":"disks.unmount","device":"/dev/sdb1"}
+#   {"op":"update.check"} / {"op":"update.apply"}           RedGiant's signed stack (redgiant-os-update)
+#
+# Answers: {"ok":true,…} or {"ok":false,"error":"…"}. The socket belongs to the docker group, like
+# Docker's own socket the server already holds: this adds no power the container did not have.
+set -uo pipefail
+# shellcheck source=common.sh
+. /usr/lib/redgiant-os/common.sh
+
+reply() { jq -cn "$@"; }
+fail() {
+  reply --arg e "$1" '{ok: false, error: $e}'
+  exit 0
+}
+
+IFS= read -r -t 10 line || fail "no request"
+[ ${#line} -le 65536 ] || fail "request too long"
+op=$(jq -r '.op // empty' <<<"$line" 2>/dev/null) || fail "not JSON"
+
+ssh_enabled() { systemctl is-enabled --quiet ssh.service 2>/dev/null && echo true || echo false; }
+KEYS=/home/redgiant/.ssh/authorized_keys
+
+# The disks holding the system or RedGiant's data: never listed, never mounted.
+system_disks() {
+  local m src
+  for m in / /boot/efi "$STATE"; do
+    src=$(findmnt -no SOURCE --target "$m" 2>/dev/null | head -1) || continue
+    [ -n "$src" ] || continue
+    lsblk -no PKNAME "$src" 2>/dev/null | head -1
+    basename "$src"
+  done | sort -u
+}
+
+disks_json() {
+  local sys
+  sys=$(system_disks | jq -R . | jq -sc .)
+  lsblk -J -b -o NAME,PATH,TYPE,SIZE,MODEL,SERIAL,TRAN,RM,HOTPLUG,FSTYPE,LABEL,UUID,MOUNTPOINT 2>/dev/null |
+    jq --argjson sys "$sys" --arg media "$MEDIA" '[.blockdevices[]
+      | select(.type == "disk" and (.name as $n | $sys | index($n) | not))
+      | select(.name | test("^(loop|ram|zram|sr)") | not)
+      | {name, path, size, model, serial, tran, removable: (.rm or .hotplug),
+         partitions: [(.children // [.])[] | select(.fstype != null)
+           | {path, fstype, label, uuid, size,
+              mounted: ((.mountpoint // "") | startswith($media)),
+              container: (if ((.mountpoint // "") | startswith($media)) then "/media/" + .uuid else null end)}]}]'
+}
+
+# The partition's facts when it may be mounted: a filesystem we read, on a disk that is not the system's.
+check_device() {
+  local dev=$1 parent
+  [[ $dev =~ ^/dev/[A-Za-z0-9._-]+$ ]] || fail "not a device"
+  [ -b "$dev" ] || fail "no such device"
+  parent=$(lsblk -no PKNAME "$dev" 2>/dev/null | head -1)
+  [ -n "$parent" ] || parent=$(basename "$dev")
+  system_disks | grep -qxF "$parent" && fail "that disk holds the system"
+  system_disks | grep -qxF "$(basename "$dev")" && fail "that disk holds the system"
+  FSTYPE=$(lsblk -no FSTYPE "$dev" | head -1)
+  UUID=$(lsblk -no UUID "$dev" | head -1)
+  [[ $UUID =~ ^[A-Za-z0-9-]+$ ]] || fail "the partition has no filesystem id"
+}
+
+case "$op" in
+  status)
+    upd=null
+    [ -r "$STATE/os-update.json" ] && upd=$(cat "$STATE/os-update.json")
+    reply --arg v "$(installed_version)" --arg os "$(cat "$SHARE/os-version" 2>/dev/null)" \
+      --arg debian "$(cat /etc/debian_version)" --argjson ssh "$(ssh_enabled)" \
+      --argjson keys "$( [ -r "$KEYS" ] && grep -c . "$KEYS" || echo 0)" \
+      --argjson reboot "$( [ -e /run/reboot-required ] && echo true || echo false)" \
+      --argjson update "$upd" \
+      '{ok: true, redgiant: $v, os: $os, debian: $debian, ssh: {enabled: $ssh, keys: $keys},
+        rebootRequired: $reboot, update: $update}'
+    ;;
+  ssh.enable)
+    keys=$(jq -r '.keys // [] | .[]' <<<"$line") || fail "keys must be a list"
+    [ -n "$keys" ] || fail "at least one public key is needed (the OS never allows passwords)"
+    tmp=$(mktemp)
+    while IFS= read -r k; do
+      [[ $k =~ ^(ssh-ed25519|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com|ssh-rsa)\ [A-Za-z0-9+/=]+(\ [[:print:]]{0,200})?$ ]] ||
+        { rm -f "$tmp"; fail "not an OpenSSH public key"; }
+      ssh-keygen -l -f /dev/stdin <<<"$k" >/dev/null 2>&1 || { rm -f "$tmp"; fail "not a valid public key"; }
+      echo "$k" >>"$tmp"
+    done <<<"$keys"
+    install -d -m 0700 -o redgiant -g redgiant /home/redgiant/.ssh
+    install -m 0600 -o redgiant -g redgiant "$tmp" "$KEYS"
+    rm -f "$tmp"
+    systemctl enable --now ssh.service >/dev/null 2>&1 || fail "ssh did not start"
+    reply --argjson n "$(grep -c . "$KEYS")" '{ok: true, enabled: true, keys: $n, user: "redgiant"}'
+    ;;
+  ssh.disable)
+    systemctl disable --now ssh.service ssh.socket >/dev/null 2>&1 || true
+    reply '{ok: true, enabled: false}'
+    ;;
+  disks.list)
+    reply --argjson d "$(disks_json)" '{ok: true, disks: $d}'
+    ;;
+  disks.mount)
+    dev=$(jq -r '.device // empty' <<<"$line")
+    check_device "$dev"
+    target="$MEDIA/$UUID"
+    if ! findmnt -rno TARGET "$target" >/dev/null 2>&1; then
+      install -d -m 0755 "$target"
+      case "$FSTYPE" in
+        ext4 | ext3 | ext2 | xfs | btrfs) opts=nosuid,nodev,noexec ;;
+        # No owners on these: the files belong to the container's user (node, 1000).
+        vfat | exfat) opts=nosuid,nodev,noexec,uid=1000,gid=1000,umask=0022 ;;
+        ntfs) FSTYPE=ntfs3 opts=nosuid,nodev,noexec,uid=1000,gid=1000,umask=0022 ;;
+        *) rmdir "$target" 2>/dev/null; fail "unsupported filesystem: ${FSTYPE:-none}" ;;
+      esac
+      mount -t "$FSTYPE" -o "$opts" "$dev" "$target" 2>/dev/null || { rmdir "$target" 2>/dev/null; fail "the disk did not mount"; }
+    fi
+    # The folder RedGiant writes into; the rest of the disk stays as it was.
+    install -d -m 0755 "$target/RedGiant" 2>/dev/null || true
+    case "$FSTYPE" in ext* | xfs | btrfs) chown 1000:1000 "$target/RedGiant" 2>/dev/null || true ;; esac
+    reply --arg p "/media/$UUID" '{ok: true, path: $p, folder: ($p + "/RedGiant")}'
+    ;;
+  disks.unmount)
+    dev=$(jq -r '.device // empty' <<<"$line")
+    check_device "$dev"
+    target="$MEDIA/$UUID"
+    if findmnt -rno TARGET "$target" >/dev/null 2>&1; then
+      sync
+      umount "$target" 2>/dev/null || fail "the disk is in use"
+    fi
+    rmdir "$target" 2>/dev/null || true
+    reply '{ok: true}'
+    ;;
+  update.check)
+    /usr/lib/redgiant-os/redgiant-os-update check >/dev/null 2>&1 || true
+    reply --argjson u "$(cat "$STATE/os-update.json" 2>/dev/null || echo null)" '{ok: true, update: $u}'
+    ;;
+  update.apply)
+    # Applying restarts the container that asked: it runs on its own, the answer comes first.
+    systemctl start --no-block redgiant-os-update.service || fail "the update did not start"
+    reply '{ok: true, started: true}'
+    ;;
+  *) fail "unknown operation" ;;
+esac

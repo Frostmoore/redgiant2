@@ -1,0 +1,6 @@
+// RedGiant OS: Debian's security updates install by themselves (unattended-upgrades' default
+// origins: the release and its security archive, Docker Engine included). A new kernel waits
+// for the next restart (the console says so).
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";

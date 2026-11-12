@@ -1,0 +1,2 @@
+# The SSH user (key only, no password): administers the machine.
+redgiant ALL=(ALL) NOPASSWD: ALL

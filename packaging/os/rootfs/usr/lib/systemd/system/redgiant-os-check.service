@@ -1,0 +1,8 @@
+[Unit]
+Description=RedGiant OS: look for a RedGiant update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=-/usr/lib/redgiant-os/redgiant-os-update check

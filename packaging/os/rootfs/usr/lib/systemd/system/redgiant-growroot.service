@@ -1,0 +1,12 @@
+[Unit]
+Description=RedGiant OS: the root partition fills its disk
+DefaultDependencies=no
+After=local-fs.target
+Before=redgiant.service docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/redgiant-os/redgiant-growroot
+
+[Install]
+WantedBy=multi-user.target

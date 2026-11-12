@@ -1,0 +1,14 @@
+# CI's checks (G39.1), only on a machine given the credential redgiant.selftest.
+[Unit]
+Description=RedGiant OS self-test
+ConditionCredential=redgiant.selftest
+After=redgiant.service avahi-daemon.service redgiant-host.socket
+Wants=redgiant.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/redgiant-os/redgiant-selftest
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=multi-user.target

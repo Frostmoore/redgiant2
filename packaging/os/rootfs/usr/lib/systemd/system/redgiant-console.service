@@ -1,0 +1,20 @@
+# The machine's screen: address, QR code and status on tty1 (the other consoles keep a login).
+[Unit]
+Description=RedGiant OS console
+After=systemd-user-sessions.service network-online.target
+Conflicts=getty@tty1.service
+Before=getty.target
+
+[Service]
+ExecStart=/usr/lib/redgiant-os/redgiant-console
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=getty.target

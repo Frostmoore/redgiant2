@@ -1,0 +1,15 @@
+# The host helper (redgiant-hostd): what RedGiant, in its container, may ask of the machine.
+[Unit]
+Description=RedGiant OS host helper socket
+
+[Socket]
+ListenStream=/run/redgiant-host/host.sock
+DirectoryMode=0755
+SocketUser=root
+SocketGroup=docker
+SocketMode=0660
+Accept=yes
+MaxConnections=8
+
+[Install]
+WantedBy=sockets.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=RedGiant OS: update RedGiant from its signed release
+After=network-online.target redgiant.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/redgiant-os/redgiant-os-update apply
+TimeoutStartSec=2h

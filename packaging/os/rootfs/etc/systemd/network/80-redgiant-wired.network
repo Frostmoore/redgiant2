@@ -1,0 +1,10 @@
+# RedGiant OS: every wired network card asks for an address (DHCP and IPv6).
+[Match]
+Type=ether
+Kind=!*
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+MulticastDNS=no
+LLMNR=no

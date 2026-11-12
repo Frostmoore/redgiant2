@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# RedGiant OS (G39.1): the screen of the machine (tty1). The address(es), a QR code to open the page
+# from a phone and the status; nothing else. Keys: [t] the access link with the token (a QR, for one
+# minute), [u] update RedGiant when a signed update is there, any other key refreshes.
+set -uo pipefail
+# shellcheck source=common.sh
+. /usr/lib/redgiant-os/common.sh
+export TERM=${TERM:-linux}
+
+status_line() {
+  local s
+  if healthy; then s="running"; elif systemctl is-active --quiet redgiant.service; then s="starting"; else s="stopped"; fi
+  echo "$s"
+}
+
+screen() {
+  local first name s upd reboot
+  first=$(addresses | head -1)
+  name=$(mdns_name)
+  s=$(status_line)
+  clear
+  printf '\n  \033[1;31mRedGiant\033[0m  %s   ·   RedGiant OS %s (Debian %s)\n\n' \
+    "$(installed_version)" "$(cat "$SHARE/os-version" 2>/dev/null)" "$(cat /etc/debian_version)"
+  if [ -z "$first" ]; then
+    printf '  No network yet: connect a cable (or check the network of the virtual machine).\n\n'
+  else
+    printf '  Open from a computer or phone on the same network:\n\n'
+    printf '     \033[1mhttp://%s:%s\033[0m\n' "$name" "$PORT"
+    addresses | while read -r a; do printf '     http://%s:%s\n' "$a" "$PORT"; done
+    echo
+    qrencode -t ANSIUTF8 -m 2 "http://$first:$PORT" 2>/dev/null | sed 's/^/  /'
+  fi
+  printf '\n  RedGiant: %s' "$s"
+  upd=$(jq -r 'select(.state == "available") | " · update to \(.latest) ready: press [u]"' "$STATE/os-update.json" 2>/dev/null)
+  reboot=""
+  [ -e /run/reboot-required ] && reboot="  ·  system updated: restart when convenient"
+  printf '%s%s\n' "$upd" "$reboot"
+  printf '\n  [t] show the access link with your token    [u] update RedGiant    any key: refresh\n'
+}
+
+token_screen() {
+  local first token url
+  first=$(addresses | head -1)
+  token=$(env_value REDGIANT_TOKEN)
+  [ -n "$first" ] && [ -n "$token" ] || return
+  url="http://$first:$PORT/#token=$token"
+  clear
+  printf '\n  The access link (it opens RedGiant already signed in). Anyone who sees it can use it.\n\n'
+  qrencode -t ANSIUTF8 -m 2 "$url" | sed 's/^/  /'
+  printf '\n  %s\n\n  Hidden again in one minute, or press a key.\n' "$url"
+  read -rsn1 -t 60 || true
+}
+
+while true; do
+  screen
+  key=""
+  read -rsn1 -t 15 key || true
+  case "$key" in
+    t | T) token_screen ;;
+    u | U)
+      clear
+      echo "  Updating RedGiant…"
+      /usr/lib/redgiant-os/redgiant-os-update apply 2>&1 | sed 's/^/  /'
+      sleep 5
+      ;;
+  esac
+done

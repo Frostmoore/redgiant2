@@ -1,0 +1,20 @@
+# RedGiant OS (G39.1): RedGiant's compose stack (server, egress proxy, Postgres).
+[Unit]
+Description=RedGiant
+Documentation=https://github.com/Frostmoore/redgiant2/blob/main/docs/INSTALL-OS.md
+Requires=docker.service
+After=docker.service network-online.target redgiant-growroot.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/redgiant-os/redgiant-stack up
+ExecStop=/usr/lib/redgiant-os/redgiant-stack down
+# The first start loads the built-in images (or downloads them): minutes on a slow disk.
+TimeoutStartSec=45min
+Restart=on-failure
+RestartSec=30s
+
+[Install]
+WantedBy=multi-user.target

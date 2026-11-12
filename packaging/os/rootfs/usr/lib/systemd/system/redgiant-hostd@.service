@@ -1,0 +1,9 @@
+[Unit]
+Description=RedGiant OS host helper request
+
+[Service]
+ExecStart=/usr/lib/redgiant-os/redgiant-hostd
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+TimeoutSec=120
