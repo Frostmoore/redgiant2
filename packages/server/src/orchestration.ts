@@ -23,6 +23,7 @@ import {
 } from "@redgiant/sandbox";
 import type { Workspace } from "@redgiant/tools";
 import { z } from "zod";
+import { type RepoState, repoSentence } from "./project-git.js";
 import type { ProjectStore } from "./projects.js";
 import type { Rooms } from "./rooms.js";
 
@@ -684,7 +685,8 @@ export function orchestrationTools(
     tools.push({
       def: {
         name: "create_project",
-        description: "Create a new project (a workspace with its own git repository).",
+        description:
+          "Create a new project: its own folder, with a git repository (branch main) when git works on this computer; the result says if it does not.",
         inputSchema: {
           type: "object",
           properties: { name: { type: "string" } },
@@ -694,7 +696,11 @@ export function orchestrationTools(
       schema: z.object({ name: z.string().min(1) }),
       async run({ name }) {
         const p = await host.projects.create(self.ownerId, name);
-        return `Created project ${p.id}. Create its orchestrator with create_agent (kind "orchestrator", project_id "${p.id}").`;
+        const repo: RepoState =
+          p.git === false
+            ? { git: "missing", error: p.gitError ?? "git did not work" }
+            : { git: "created" };
+        return `Created project ${p.id} (folder ${p.path}). ${repoSentence(repo)} Create its orchestrator with create_agent (kind "orchestrator", project_id "${p.id}").`;
       },
     } as Tool);
   }

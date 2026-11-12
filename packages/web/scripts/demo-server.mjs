@@ -1268,6 +1268,10 @@ if (process.env.DEMO_ARCHIVE === "1") {
     `name: old-site-check\non:\n  cron: "0 9 * * 1"\nagent: orchestrator\nproject: ${old.id}\ninstructions: Check the old site's links.\n`,
   );
   await core.config.project("local", "human", old.id, true);
+  // A folder adopted as it is, without a git repository (3.5.12): «Initialise git» in Settings.
+  const notes = await mkdtemp(join(tmpdir(), "rg-demo-notes-"));
+  await writeFile(join(notes, "README.md"), "# Notes\n");
+  await core.projects.create("local", "Notes", notes);
   const shop = await core.projects.create("local", "Shop");
   const shopLead = await core.registry.create(
     { type: "agent", agent: god },

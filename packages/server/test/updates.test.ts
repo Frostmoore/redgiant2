@@ -253,7 +253,9 @@ describe("the safety backup of a breaking update", () => {
     expect(file).toMatch(/redgiant-3\.4\.0-\d{4}\.rgbackup$/);
     expect(existsSync(join(job.vars.folder as string, "LEGGIMI-README.txt"))).toBe(true);
     const check = await verifyBackup(file);
-    expect(check).toMatchObject({ version: "3.4.0", projects: 1, files: 1, conversations: 1 });
+    expect(check).toMatchObject({ version: "3.4.0", projects: 1, conversations: 1 });
+    // index.html, and the project's own git repository (3.5.12), which travels with it.
+    expect(check.files).toBeGreaterThan(1);
 
     // A new installation (the clean install): its wizard finds the backup and restores it.
     const b = await startServer(() => ({ text: "ok" }));
