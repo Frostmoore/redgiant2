@@ -32,7 +32,7 @@ echo "== installer system (mmdebstrap)"
 mmdebstrap --variant=apt --architectures=amd64 --components="main non-free-firmware" \
   --include=systemd,systemd-sysv,udev,kmod,live-boot,linux-image-amd64,initramfs-tools,zstd,pv,gdisk,parted,util-linux,firmware-linux-free,firmware-realtek \
   --customize-hook="sync-in $HERE/rootfs /" \
-  --customize-hook='chroot "$1" sh -c "chmod 755 /usr/local/sbin/redgiant-install && systemctl enable redgiant-install.service && echo redgiant-installer >/etc/hostname && passwd -l root >/dev/null && : >/etc/machine-id && apt-get clean && rm -rf /var/lib/apt/lists/*"' \
+  --customize-hook='chroot "$1" sh -c "chmod 755 /usr/local/sbin/redgiant-install && systemctl enable redgiant-install.service && echo redgiant-installer >/etc/hostname && : >/etc/machine-id && apt-get clean && rm -rf /var/lib/apt/lists/*"' \
   trixie "$LIVE" \
   "deb $MIRROR trixie main non-free-firmware" \
   "deb $SECURITY_MIRROR trixie-security main non-free-firmware"
