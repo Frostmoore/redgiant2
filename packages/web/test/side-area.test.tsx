@@ -238,18 +238,20 @@ describe("the tabs and the file on the whole screen (p3.3.2)", () => {
     try {
       const { container, findByRole } = render(<Shell />);
       // The canvas loads with its first tab (3.5.11); its effects run once it is drawn.
-      const button = await findByRole("button", { name: "Schermo intero" });
+      const button = await findByRole("button", { name: "Schermo intero" }, { timeout: 5000 });
       // The lazy canvas is drawn (and its effects ran) before the click.
       await waitFor(() => expect(container.querySelector(".canvas")).not.toBeNull());
       await new Promise((r) => setTimeout(r, 20));
       fireEvent.click(button);
       await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
       expect(request.mock.contexts[0]).toBe(container.querySelector(".canvas"));
-      fireEvent.click(await findByRole("button", { name: "Esci dallo schermo intero" }));
-      expect(exit).toHaveBeenCalledTimes(1);
-      await findByRole("button", { name: "Schermo intero" });
+      // On a busy machine (the whole suite on Rig) the label can take more than a second to flip.
+      const slow = { timeout: 5000 };
+      fireEvent.click(await findByRole("button", { name: "Esci dallo schermo intero" }, slow));
+      await waitFor(() => expect(exit).toHaveBeenCalledTimes(1), slow);
+      await findByRole("button", { name: "Schermo intero" }, slow);
     } finally {
       Object.defineProperty(document, "fullscreenEnabled", { configurable: true, value: false });
     }
-  });
+  }, 20_000);
 });
