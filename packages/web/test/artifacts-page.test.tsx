@@ -55,6 +55,8 @@ const art = (o: Record<string, unknown>) => ({
   libs: ["chartjs"],
   wants: [],
   granted: [],
+  grants: [],
+  hasData: false,
   from: "agent_shop",
   size: 2048,
   modifiedAt: "2026-11-11T10:00:00Z",
@@ -202,8 +204,83 @@ describe("Settings › Artifacts (3.5.9)", () => {
         "project:shop",
         "artefatti/preventivi.html",
         "zip",
+        false,
       ]),
     );
     expect(url).toHaveBeenCalled();
+  });
+});
+
+describe("Settings › Artifacts: the bridge's permissions (3.6)", () => {
+  it("shows what it asks for, granted or not, with the cap; grants and takes back", async () => {
+    listed = [
+      art({
+        wants: ["ask", "storage", "files:dati/", "nonsense"],
+        granted: ["ask"],
+        grants: [{ capability: "ask", agentId: "agent_shop", capUsd: 2, spentUsd: 0.25, at: "x" }],
+      }),
+    ];
+    const r = page();
+    await waitFor(() => expect(r.getByText("Permessi")).toBeTruthy());
+    const text = r.container.textContent ?? "";
+    expect(text).toContain("Chiede di fare domande a");
+    expect(text).toContain("spesi 0.25 $ di 2 $");
+    expect(text).toContain("Chiede di tenere dati suoi su RedGiant");
+    expect(text).toContain(
+      "Chiede di leggere i file della cartella dati/ del progetto (solo lettura)",
+    );
+    expect(text).not.toContain("nonsense");
+    expect(r.getAllByText("concesso")).toHaveLength(1);
+    expect(r.getAllByText("non concesso")).toHaveLength(2);
+    fireEvent.click(r.getByText("Togli"));
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "artifactRevoke")?.[1]).toEqual([
+        "project:shop",
+        "artefatti/preventivi.html",
+        "ask",
+      ]),
+    );
+    fireEvent.click(r.getAllByText("Concedi")[1] as HTMLElement);
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "artifactGrant")?.[1]).toEqual([
+        "project:shop",
+        "artefatti/preventivi.html",
+        "files:dati/",
+        undefined,
+      ]),
+    );
+    // A new cap for a granted ask applies at once.
+    fireEvent.click(r.getByText("5 $"));
+    await waitFor(() =>
+      expect(calls.filter(([n]) => n === "artifactGrant").at(-1)?.[1]).toEqual([
+        "project:shop",
+        "artefatti/preventivi.html",
+        "ask",
+        5,
+      ]),
+    );
+    expect(r.container.querySelector("input[type=checkbox], input[type=radio]")).toBeNull();
+  });
+
+  it("exports its saved data only when the person switches it on", async () => {
+    listed = [art({ hasData: true, wants: ["storage"], granted: ["storage"], grants: [] })];
+    URL.createObjectURL = vi.fn(() => "blob:x");
+    URL.revokeObjectURL = () => {};
+    const r = page();
+    await waitFor(() => expect(r.getByText("Calcolo preventivi")).toBeTruthy());
+    expect(r.getByText(/ha dati salvati/)).toBeTruthy();
+    fireEvent.click(r.getByText("Esporta"));
+    const sw = r.getByRole("switch", { name: "Includi i dati salvati" });
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(sw);
+    fireEvent.click(r.getByText("Un file .rgartifact"));
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "artifactExport")?.[1]).toEqual([
+        "project:shop",
+        "artefatti/preventivi.html",
+        "zip",
+        true,
+      ]),
+    );
   });
 });

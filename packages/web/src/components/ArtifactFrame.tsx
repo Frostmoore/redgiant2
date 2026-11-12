@@ -8,6 +8,7 @@
 import { effect } from "@preact/signals";
 import { ARTIFACT_SANDBOX, type ArtifactError, type ArtifactRef } from "@redgiant/protocol";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { forgetFrame, forwardBridge } from "../artifact-bridge.js";
 import {
   addErrors,
   ClickGuard,
@@ -61,6 +62,9 @@ export function ArtifactFrame({
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const loads = useRef(0);
   const refKey = JSON.stringify(artifact);
+  // Who the bridge's calls belong to: forgotten when the frame goes or shows something else.
+  const bridgeOwner = useMemo(() => ({}), [src, refKey]);
+  useEffect(() => () => forgetFrame(bridgeOwner), [bridgeOwner]);
 
   /** The theme, sent to the frame (only to it) at its start and at every change. */
   const sendTheme = () => {
@@ -153,6 +157,22 @@ export function ArtifactFrame({
           timer.current = setTimeout(() => flush(), 400);
           return;
         }
+        // The bridge (3.6, G38.7): to the server with the artifact this frame shows; the answer
+        // comes back to this window only, while it still shows the same load.
+        case "redgiant/bridge": {
+          const win = frame.current?.contentWindow;
+          if (!win) return;
+          const load = loads.current;
+          forwardBridge(m, {
+            win,
+            owner: bridgeOwner,
+            ref: artifact,
+            sessionId: sessionId ?? frontSession(),
+            current: () => frame.current?.contentWindow === win && loads.current === load,
+            send: (msg) => getLive().send(msg),
+          });
+          return;
+        }
         case "ui/message": {
           const text = messageText(m);
           if (!text) return;
@@ -174,7 +194,7 @@ export function ArtifactFrame({
       clearTimeout(timer.current);
       flush();
     };
-  }, [src, refKey, sessionId, auto, guard]);
+  }, [src, refKey, sessionId, auto, guard, bridgeOwner]);
 
   const to = sessionId ?? frontSession();
   const past = useRef<HTMLSpanElement>(null);

@@ -4,23 +4,32 @@
 // «Delete» (our window, then the file explorer's own deletion: same trash, same permissions)
 // and «Import» (a `.rgartifact` into the place the person picks). An archived project's
 // artifacts are read only. The same import runs when a `.rgartifact` is dropped on the explorer.
-import { ARTIFACT_DIR } from "@redgiant/protocol";
+import {
+  ARTIFACT_ASK_CAP_DEFAULT,
+  ARTIFACT_ASK_CAPS,
+  ARTIFACT_DIR,
+  capabilitySentence,
+  capabilityWord,
+  parseCapability,
+} from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { ArtifactInfo } from "../api.js";
 import { bytes } from "../format.js";
-import { t } from "../i18n.js";
+import { lang, t } from "../i18n.js";
 import {
   IconCode,
   IconDownload,
   IconExternal,
   IconFileZip,
+  IconShield,
   IconTrash,
   IconUpload,
 } from "../icons.js";
-import { getApi, openCanvas, projects } from "../state.js";
+import { agents, getApi, openCanvas, projects } from "../state.js";
+import { usd } from "./ArtifactGrantCard.js";
 import { explain } from "./Brain.js";
 import { askConfirm } from "./dialogs.js";
-import { Acts, Box, BoxButton, Head, Row, Sub, WzPage } from "./SettingsKit.js";
+import { Acts, Box, BoxButton, Chips, Head, Row, Sub, SwitchRow, WzPage } from "./SettingsKit.js";
 import { Modal } from "./ui.js";
 
 /** A place's name as the page says it: God's folder and the desk in the person's language. */
@@ -49,7 +58,7 @@ export const isRgArtifact = (name: string) => /\.rgartifact$/i.test(name);
 export async function importArtifact(
   scope: string,
   file: Blob,
-): Promise<{ path: string; name: string; dataIgnored: boolean }> {
+): Promise<{ path: string; name: string; dataIgnored: boolean; dataImported?: boolean }> {
   return getApi().artifactImport(scope, file);
 }
 
@@ -64,12 +73,16 @@ const save = (blob: Blob, name: string) => {
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
 
-/** «Export»: the `.rgartifact` for another RedGiant, or the bare HTML with its warning. */
+/**
+ * «Export»: the `.rgartifact` for another RedGiant (with its saved data only when the person
+ * switches it on, 3.6), or the bare HTML with its warning.
+ */
 function ExportDialog({ a, onClose }: { a: ArtifactInfo; onClose: () => void }) {
   const [error, setError] = useState<string>();
+  const [data, setData] = useState(false);
   const go = async (as: "zip" | "html") => {
     try {
-      const blob = await getApi().artifactExport(a.scope, a.path, as);
+      const blob = await getApi().artifactExport(a.scope, a.path, as, as === "zip" && data);
       save(blob, as === "zip" ? a.file.replace(/\.html?$/i, ".rgartifact") : a.file);
       onClose();
     } catch (err) {
@@ -89,6 +102,14 @@ function ExportDialog({ a, onClose }: { a: ArtifactInfo; onClose: () => void }) 
       }
     >
       <div class="wz-panel-in ar-export">
+        {a.hasData && (
+          <SwitchRow
+            title={t("arExportData")}
+            help={t("arExportDataHint")}
+            on={data}
+            onChange={setData}
+          />
+        )}
         <BoxButton title={t("arExportZip")} pill=".rgartifact" onClick={() => void go("zip")}>
           <span class="sb-box-p">{t("arExportZipText")}</span>
         </BoxButton>
@@ -107,7 +128,12 @@ function ImportDialog({
   onClose,
 }: {
   file: File;
-  onClose: (done?: { name: string; place: string; dataIgnored: boolean }) => void;
+  onClose: (done?: {
+    name: string;
+    place: string;
+    dataIgnored: boolean;
+    dataImported?: boolean | undefined;
+  }) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -116,7 +142,7 @@ function ImportDialog({
     setError(undefined);
     try {
       const r = await importArtifact(scope, file);
-      onClose({ name: r.name, place, dataIgnored: r.dataIgnored });
+      onClose({ name: r.name, place, dataIgnored: r.dataIgnored, dataImported: r.dataImported });
     } catch (err) {
       setError(explain(err));
       setBusy(false);
@@ -158,23 +184,127 @@ function ImportDialog({
   );
 }
 
+/**
+ * What an artifact asks for (3.6, G38.7), each with its state: granted (with `ask`'s spending and
+ * cap) and «Take back», or «Allow». Granted only here or on the first use's card, never by the
+ * file; an imported copy starts with nothing.
+ */
+function Permissions({
+  a,
+  onChanged,
+  onError,
+}: {
+  a: ArtifactInfo;
+  onChanged: () => void;
+  onError: (e: string) => void;
+}) {
+  const wants = [...new Set(a.wants.map((w) => w.trim()))].filter((w) => parseCapability(w));
+  const [cap, setCap] = useState<number>(ARTIFACT_ASK_CAP_DEFAULT);
+  if (!wants.length) return null;
+  const agent = (id: string | null | undefined) =>
+    (id && agents.value.find((x) => x.id === id)?.name) || undefined;
+  const act = async (fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+      onChanged();
+    } catch (err) {
+      onError(explain(err));
+    }
+  };
+  return (
+    <div class="ar-perms">
+      <span class="ar-perms-title">{t("arPerms")}</span>
+      {wants.map((w) => {
+        const c = parseCapability(w);
+        const word = c ? capabilityWord(c) : w;
+        const g = a.grants.find((x) => x.capability === word);
+        const isAsk = word === "ask";
+        return (
+          <div key={word} class={`ar-perm${g ? " on" : ""}`}>
+            <span class="ar-perm-what">
+              <IconShield size={14} />
+              <span>
+                {t("arWants", {
+                  what: capabilitySentence(lang.value, word, agent(g?.agentId ?? a.from)),
+                })}
+              </span>
+              <span class={`chip${g ? " ok" : ""}`}>{g ? t("arPermGranted") : t("arPermNot")}</span>
+              {g && isAsk && g.capUsd !== undefined && (
+                <span class="dim">
+                  {t("arSpent", { spent: usd(g.spentUsd ?? 0), cap: usd(g.capUsd) })}
+                </span>
+              )}
+            </span>
+            {!a.readOnly && (
+              <span class="ar-perm-acts">
+                {isAsk && (
+                  <Chips
+                    options={ARTIFACT_ASK_CAPS.map((x): { id: number; label: string } => ({
+                      id: x,
+                      label: usd(x),
+                    }))}
+                    value={[g?.capUsd ?? cap]}
+                    onChange={(v) => {
+                      const next = v[0];
+                      if (next === undefined) return;
+                      setCap(next);
+                      // Granted already: the new cap applies at once.
+                      if (g) void act(() => getApi().artifactGrant(a.scope, a.path, word, next));
+                    }}
+                  />
+                )}
+                {g ? (
+                  <button
+                    type="button"
+                    class="wz-btn small"
+                    onClick={() => void act(() => getApi().artifactRevoke(a.scope, a.path, word))}
+                  >
+                    {t("arRevoke")}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    class="wz-btn small"
+                    disabled={a.pendingRun}
+                    title={a.pendingRun ? t("arPending") : undefined}
+                    onClick={() =>
+                      void act(() =>
+                        getApi().artifactGrant(a.scope, a.path, word, isAsk ? cap : undefined),
+                      )
+                    }
+                  >
+                    {t("arGrant")}
+                  </button>
+                )}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** One artifact: its name and facts, then Open, Export, Delete. */
 function ArtifactRow({
   a,
   onExport,
   onDeleted,
+  onChanged,
   onError,
 }: {
   a: ArtifactInfo;
   onExport: () => void;
   onDeleted: () => void;
+  onChanged: () => void;
   onError: (e: string) => void;
 }) {
   const facts = [
     a.file,
     a.version !== null ? t("arVersion", { n: String(a.version) }) : t("arNoHeader"),
     a.libs.length > 0 ? t("arLibs", { libs: a.libs.join(", ") }) : "",
-    a.from ? t("arFrom", { who: a.from }) : "",
+    a.from ? t("arFrom", { who: agents.value.find((x) => x.id === a.from)?.name ?? a.from }) : "",
+    a.hasData ? t("arHasData") : "",
     bytes(a.size),
     day(a.modifiedAt),
   ].filter(Boolean);
@@ -204,6 +334,7 @@ function ArtifactRow({
         <>
           {facts.join(" · ")}
           {a.readOnly && <span class="ar-ro"> · {t("arReadOnly")}</span>}
+          <Permissions a={a} onChanged={onChanged} onError={onError} />
         </>
       }
     >
@@ -269,7 +400,7 @@ export function Artifacts() {
                 setPicked(undefined);
                 if (!done) return;
                 setNote(
-                  `${t("arImported", { name: done.name, place: done.place })}${done.dataIgnored ? ` ${t("arDataIgnored")}` : ""}`,
+                  `${t("arImported", { name: done.name, place: done.place })}${done.dataImported ? ` ${t("arDataImported")}` : done.dataIgnored ? ` ${t("arDataIgnored")}` : ""}`,
                 );
                 load();
               }}
@@ -311,6 +442,7 @@ export function Artifacts() {
                 a={a}
                 onExport={() => setExporting(a)}
                 onDeleted={load}
+                onChanged={load}
                 onError={setError}
               />
             ))}
