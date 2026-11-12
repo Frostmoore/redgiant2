@@ -166,7 +166,34 @@ export class ArtifactBridge {
           e.type === "workspace.changed")
       )
         this.grantsCache.delete(e.ownerId);
+      // The person deleted or moved an artifact: its data goes with it (aside, or to its new
+      // name), never to another file that later takes the same name.
+      if (e.type === "workspace.changed" && e.ownerId && e.payload)
+        void this.followFile(e.ownerId, e.payload).catch(() => {});
     });
+  }
+
+  /** Moves an artifact's storage after the person deleted or renamed the artifact. */
+  private async followFile(
+    ownerId: string,
+    p: { scope: string; action: string; path: string; to?: string | undefined },
+  ): Promise<void> {
+    if (p.action !== "delete" && p.action !== "rename") return;
+    if (!/^artefatti\/[^\\/]+\.html?$/i.test(p.path)) return;
+    const root = await this.core.scopeFolder(ownerId, p.scope);
+    const from = join(root, ArtifactBridge.storagePath(p.path));
+    if (!(await lstat(from).catch(() => undefined))?.isFile()) return;
+    let to: string;
+    if (p.action === "rename" && p.to && /^artefatti\/[^\\/]+\.html?$/i.test(p.to)) {
+      to = join(root, ArtifactBridge.storagePath(p.to));
+      if (await lstat(to).catch(() => undefined)) return;
+    } else {
+      // Kept aside, as the artifact itself goes to the trash: nothing is lost.
+      const stem = basename(from, ".json");
+      to = join(dirname(from), "eliminati", `${stem}-${this.now()}.json`);
+      await mkdir(dirname(to), { recursive: true });
+    }
+    await rename(from, to);
   }
 
   // ---- grants -------------------------------------------------------------------------------

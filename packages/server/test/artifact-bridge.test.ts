@@ -418,6 +418,48 @@ describe("the artifacts' bridge", () => {
     );
   });
 
+  it("storage follows the person's move, and goes aside when they delete the artifact", async () => {
+    const { srv, root } = await setup();
+    person(srv, "allow");
+    const b = srv.core.artifactBridge;
+    await b.handle("me", ref("artefatti/cruscotto.html"), {
+      op: "storage.set",
+      key: "k",
+      value: "mio",
+    });
+    const moved = await srv.api("POST", "/api/files/op", {
+      op: "rename",
+      scope: "project:shop",
+      path: "artefatti/cruscotto.html",
+      to: "artefatti/pannello.html",
+    });
+    expect(moved.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(Object.keys(await b.readStorage(root, "artefatti/pannello.html"))).toEqual(["k"]);
+    // Moved: nothing granted any more (another file now).
+    expect(await b.grantsOf("me", "project:shop", "artefatti/pannello.html")).toEqual([]);
+    await srv.api("POST", "/api/files/op", {
+      op: "delete",
+      scope: "project:shop",
+      path: "artefatti/pannello.html",
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(await b.readStorage(root, "artefatti/pannello.html")).toEqual({});
+    // A new artifact with the same name starts empty; the old data is kept aside.
+    await srv.api("PUT", "/api/files/content", {
+      scope: "project:shop",
+      path: "artefatti/pannello.html",
+      content: art("Pannello", ["storage"], undefined),
+    });
+    expect(
+      await b.handle("me", ref("artefatti/pannello.html"), { op: "storage.get", key: "k" }),
+    ).toEqual({
+      value: null,
+    });
+    const { readdir } = await import("node:fs/promises");
+    expect((await readdir(join(root, "artefatti/.dati/eliminati"))).length).toBe(1);
+  });
+
   it("rate limits: calls per second and questions per minute", async () => {
     const { srv } = await setup();
     person(srv, "allow", 2);

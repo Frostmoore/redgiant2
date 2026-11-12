@@ -1195,6 +1195,8 @@ export class RedGiantCore implements OrchestrationHost {
     await o.db.query("DROP TABLE IF EXISTS rg_devices");
     await migrateLogin(o.db);
     const core = new RedGiantCore(o);
+    // The artifacts' bridge from the start: it follows the person's deletions and moves (3.6).
+    void core.artifactBridge;
     await core.vault.open();
     await core.browserLinks.load();
     await core.registry.load();
