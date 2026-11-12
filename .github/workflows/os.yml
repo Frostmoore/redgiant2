@@ -1,0 +1,187 @@
+# RedGiant OS (G39.1, G39.2): builds the images on GitHub's runners (x86_64 and arm64, each on its
+# own processor), boots every one in QEMU headless and checks it (packaging/os/test/boot-test.sh).
+# Runs by hand, on a version branch when the OS's files change, and from release.yml for a tag
+# (publish: the images are attached to the release with SHA256SUMS signed like release.json).
+# The release does that only while the repository variable REDGIANT_OS_RELEASE is "true".
+name: RedGiant OS
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "RedGiant version whose images the OS carries (empty: the latest release)"
+        type: string
+        default: ""
+      arm64:
+        description: "Also build and boot the arm64 images (emulated boot: slow)"
+        type: boolean
+        default: true
+  push:
+    branches: ["p[0-9]*", "a[0-9]*", "b[0-9]*"]
+    paths:
+      - "packaging/os/**"
+      - "packages/server/helpers/**"
+      - ".github/workflows/os.yml"
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+      publish:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  stack:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WANTED: ${{ inputs.version }}
+        run: |
+          v="${WANTED#v}"
+          [ -n "$v" ] || v=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name | sed 's/^v//')
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a version: $v"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: The stack, pinned by digest
+        run: |
+          mkdir -p dist
+          node packaging/os/stack.mjs --version "${{ steps.v.outputs.version }}" --out dist/redgiant-os-stack.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: redgiant-os-stack
+          path: dist/redgiant-os-stack.json
+          retention-days: 7
+
+  build:
+    needs: stack
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            formats: qcow2,raw,iso
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            formats: qcow2,raw
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    env:
+      OUT: /mnt/os
+    steps:
+      - name: Skip arm64 when not wanted
+        if: ${{ matrix.arch == 'arm64' && github.event_name == 'workflow_dispatch' && !inputs.arm64 }}
+        run: echo "SKIP=1" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        if: ${{ env.SKIP != '1' }}
+      - uses: actions/download-artifact@v4
+        if: ${{ env.SKIP != '1' }}
+        with:
+          name: redgiant-os-stack
+          path: stack
+      - name: Room on the disk
+        if: ${{ env.SKIP != '1' }}
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p "$OUT" && sudo chown "$(id -u):$(id -g)" "$OUT"
+          df -h / "$OUT"
+      - name: Build (mmdebstrap, systemd-repart)
+        if: ${{ env.SKIP != '1' }}
+        run: |
+          docker build -q -f packaging/os/builder.Dockerfile -t redgiant-os-builder packaging/os
+          cp stack/redgiant-os-stack.json "$OUT/"
+          docker run --rm --privileged -e SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+            -v "$PWD:/src" -v "$OUT:/out" redgiant-os-builder \
+            /src/packaging/os/build.sh --arch ${{ matrix.arch }} --stack /out/redgiant-os-stack.json \
+            --out /out --formats ${{ matrix.formats }}
+          sudo rm -rf "$OUT"/work-*
+          sudo chown -R "$(id -u):$(id -g)" "$OUT"
+          ls -la "$OUT"
+      - name: QEMU
+        if: ${{ env.SKIP != '1' }}
+        run: |
+          sudo apt-get update -q
+          if [ "${{ matrix.arch }}" = amd64 ]; then
+            sudo apt-get install -y -q --no-install-recommends qemu-system-x86 qemu-utils ovmf
+          else
+            sudo apt-get install -y -q --no-install-recommends qemu-system-arm qemu-utils qemu-efi-aarch64
+          fi
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; echo "KVM: yes"; else echo "KVM: no (emulated)"; fi
+      - name: Boot the qcow2 (UEFI, Secure Boot) and check
+        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' }}
+        run: packaging/os/test/boot-test.sh boot --arch amd64 --firmware uefi --secureboot --disk "$OUT"/redgiant-os-*-x86_64.qcow2 --logs logs --timeout 2400
+      - name: Boot the qcow2 (BIOS) and check
+        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' }}
+        run: packaging/os/test/boot-test.sh boot --arch amd64 --firmware bios --disk "$OUT"/redgiant-os-*-x86_64.qcow2 --logs logs --timeout 2400
+      - name: Install from the ISO (BIOS), then boot the installed disk (UEFI) and check
+        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' }}
+        run: |
+          packaging/os/test/boot-test.sh install --firmware bios --iso "$OUT"/redgiant-os-*-x86_64.iso --disk "$RUNNER_TEMP/installed.qcow2" --logs logs --timeout 1800
+          packaging/os/test/boot-test.sh boot --arch amd64 --firmware uefi --disk "$RUNNER_TEMP/installed.qcow2" --logs logs --timeout 2400
+      - name: Boot the qcow2 (arm64, UEFI) and check
+        if: ${{ env.SKIP != '1' && matrix.arch == 'arm64' }}
+        run: packaging/os/test/boot-test.sh boot --arch arm64 --firmware uefi --disk "$OUT"/redgiant-os-*-arm64.qcow2 --logs logs --timeout 7200
+        timeout-minutes: 130
+      - name: Sizes and sha256
+        if: ${{ env.SKIP != '1' }}
+        run: |
+          cd "$OUT"
+          rm -f ./*.size redgiant-os-stack.json
+          sha256sum redgiant-os-* | tee SHA256SUMS-${{ matrix.arch }}
+          ls -la
+      - uses: actions/upload-artifact@v4
+        if: ${{ env.SKIP != '1' }}
+        with:
+          name: redgiant-os-${{ matrix.arch }}
+          path: /mnt/os/*
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && env.SKIP != '1' }}
+        with:
+          name: redgiant-os-${{ matrix.arch }}-logs
+          path: logs/serial-*.log
+          retention-days: 7
+
+  # Attached to the tag's release, only when release.yml asks (behind REDGIANT_OS_RELEASE).
+  publish:
+    if: ${{ inputs.publish && startsWith(github.ref, 'refs/tags/') }}
+    needs: [stack, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: redgiant-os-*
+          path: dl
+      - name: SHA256SUMS and the stack, signed with the update key
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          mkdir -p rel
+          find dl -type f \( -name 'redgiant-os-*.qcow2' -o -name 'redgiant-os-*.raw.zst' -o -name 'redgiant-os-*.iso' -o -name redgiant-os-stack.json \) -exec cp {} rel/ \;
+          (cd rel && sha256sum redgiant-os-* > SHA256SUMS-os)
+          [ -n "$UPDATE_SIGNING_KEY" ] || { echo "UPDATE_SIGNING_KEY is missing: the OS's files must be signed"; exit 1; }
+          node packaging/update/sign.mjs rel/SHA256SUMS-os
+          node packaging/update/sign.mjs rel/redgiant-os-stack.json
+          ls -la rel
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" rel/* --clobber

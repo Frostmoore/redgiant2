@@ -279,6 +279,22 @@ jobs:
           fail_on_unmatched_files: false
           generate_release_notes: true
 
+  # RedGiant OS (G39.1, G39.2): the installer ISO, the qcow2 and raw disks for x86_64 and arm64 and
+  # the signed stack the OS updates RedGiant from, built and booted in QEMU by os.yml, attached
+  # with SHA256SUMS-os signed like release.json. Off until we ship it: set the repository
+  # variable REDGIANT_OS_RELEASE to "true".
+  os-images:
+    if: ${{ !inputs.only && !inputs.dry_run && startsWith(github.ref, 'refs/tags/') && vars.REDGIANT_OS_RELEASE == 'true' }}
+    # The images it pins must be published first.
+    needs: [images, release-info]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/os.yml
+    with:
+      version: ${{ github.ref_name }}
+      publish: true
+    secrets: inherit
+
   # The keychain's browser extension (G36.21): the zips for Chromium (Chrome, Edge, Brave, Opera)
   # and Firefox, with the release's version in their manifests, attached to the tag's release.
   browser-extension:
