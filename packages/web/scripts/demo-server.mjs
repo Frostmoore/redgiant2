@@ -133,6 +133,137 @@ document.getElementById("go").onclick = () => redgiant.sendMessage("Dentro " + v
 </script>`;
 
 let turn = 0;
+/**
+ * G38.3 (DEMO_MAGIC): God's packages for the magic integrations and extensions. Notion waits for
+ * its key (its tests fail without it); the CSV totals pass; the VAT check is installed.
+ */
+const NOTION_MJS = `import { readFileSync } from "node:fs";
+const { query = "" } = JSON.parse(readFileSync(process.argv.at(-1), "utf8"));
+const base = process.env.REDGIANT_VAULT_NOTION_API;
+if (!base) { console.error("notion_api is not given to this tool yet"); process.exit(2); }
+const r = await fetch(base + "/api.notion.com/v1/search", {
+  method: "POST",
+  headers: { "content-type": "application/json", "Notion-Version": "2022-06-28" },
+  body: JSON.stringify({ query, page_size: 10 }),
+});
+if (!r.ok) { console.error("Notion: HTTP " + r.status); process.exit(1); }
+const { results } = await r.json();
+for (const p of results) console.log(p.id, p.url);
+`;
+const CSV_MJS = `import { readFileSync } from "node:fs";
+const { csv } = JSON.parse(readFileSync(process.argv.at(-1), "utf8"));
+const [head, ...rows] = csv.trim().split("\\n").map((l) => l.split(","));
+const totals = head.map((h, i) => [h, rows.reduce((n, r) => n + (Number(r[i]) || 0), 0)]);
+for (const [h, n] of totals.slice(1)) console.log(h + ": " + n);
+`;
+const PIVA_MJS = `import { readFileSync } from "node:fs";
+const { piva } = JSON.parse(readFileSync(process.argv.at(-1), "utf8"));
+const d = String(piva).replace(/\\D/g, "");
+let s = 0;
+for (let i = 0; i < 10; i++) { let x = Number(d[i]); if (i % 2) { x *= 2; if (x > 9) x -= 9; } s += x; }
+console.log(d.length === 11 && (10 - (s % 10)) % 10 === Number(d[10]) ? "valid" : "not valid");
+`;
+const MAGIC_DEMO = [
+  {
+    when: "Collegami a Notion",
+    manifest: {
+      name: "notion",
+      title: "Notion: le tue pagine",
+      summary:
+        "Gli agenti cercano nelle tue pagine di Notion e ne creano di nuove, con la chiave di un'integrazione interna che tieni nel Portachiavi.",
+      hosts: ["api.notion.com"],
+      credentials: [
+        {
+          name: "notion_api",
+          service: "Notion",
+          why: "Per leggere e scrivere le pagine che condividi con l'integrazione.",
+          help: "Su notion.so/my-integrations crea un'integrazione interna e copia il suo «Internal Integration Secret».",
+        },
+      ],
+      tools: [
+        {
+          name: "notion-search",
+          description:
+            "Searches the person's Notion pages by words; prints each page's id and link.",
+          input_schema: {
+            type: "object",
+            properties: { query: { type: "string", description: "Words to look for" } },
+            required: ["query"],
+          },
+          command: "node search.mjs",
+          files: { "search.mjs": NOTION_MJS },
+          tests: [{ input: { query: "riunione" }, expectExitCode: 0 }],
+        },
+        {
+          name: "notion-create-page",
+          description: "Creates a page in Notion under a parent page, with a title and a text.",
+          input_schema: {
+            type: "object",
+            properties: {
+              parent: { type: "string" },
+              title: { type: "string" },
+              text: { type: "string" },
+            },
+            required: ["parent", "title"],
+          },
+          command: "node search.mjs",
+          files: { "search.mjs": NOTION_MJS },
+          tests: [{ input: { query: "" }, expectExitCode: 0 }],
+        },
+      ],
+      skills: [],
+    },
+  },
+  {
+    when: "Trasforma un CSV",
+    manifest: {
+      name: "csv-totals",
+      title: "Totali di un CSV",
+      summary: "Somma le colonne di un CSV e dice i totali; lavora senza rete.",
+      tools: [
+        {
+          name: "csv-totals",
+          description: "Adds up every numeric column of a CSV text and prints the totals.",
+          input_schema: {
+            type: "object",
+            properties: { csv: { type: "string" } },
+            required: ["csv"],
+          },
+          command: "node totals.mjs",
+          files: { "totals.mjs": CSV_MJS },
+          tests: [
+            {
+              input: { csv: "mese,entrate,uscite\ngennaio,100,40\nfebbraio,50,10" },
+              expectStdoutContains: "entrate: 150",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    when: "Controlla che partita IVA",
+    manifest: {
+      name: "piva",
+      title: "Partita IVA",
+      summary: "Controlla che una partita IVA italiana sia scritta bene (la cifra di controllo).",
+      tools: [
+        {
+          name: "piva-check",
+          description: "Checks an Italian VAT number's check digit; prints valid or not valid.",
+          input_schema: { type: "object", properties: { piva: { type: "string" } } },
+          command: "node piva.mjs",
+          files: { "piva.mjs": PIVA_MJS },
+          tests: [
+            { input: { piva: "01114601006" }, expectStdoutContains: "valid" },
+            { input: { piva: "01114601007" }, expectStdoutContains: "not valid" },
+          ],
+        },
+      ],
+    },
+  },
+];
+
 const brain = (req) => {
   const last = req.messages.at(-1);
   // A tool's pictures (canvas_look, G36.12) come in the same message as the results.
@@ -142,6 +273,26 @@ const brain = (req) => {
     last.parts.every((p) => p.type === "tool_result" || p.type === "image");
   turn++;
   const said = last?.parts.find((p) => p.type === "text")?.text ?? "";
+  // G38.3: a magic integration's or extension's conversation ends in a package.
+  if (/^Magic (integration|extension): /.test(said) && !results) {
+    const demo = MAGIC_DEMO.find((d) => said.includes(d.when));
+    if (demo)
+      return {
+        text: "Ho capito. Preparo il pacchetto e lo provo nella sandbox.",
+        toolCalls: [{ name: "propose_magic_extension", input: demo.manifest }],
+      };
+  }
+  if (
+    results &&
+    last.parts.some(
+      (p) =>
+        p.type === "tool_result" &&
+        String(p.content).startsWith("Proposed. The person sees the package"),
+    )
+  )
+    return {
+      text: "Ecco il pacchetto: lo vedi qui accanto con i suoi test. Se manca una chiave, aggiungila dal pulsante: non scriverla qui.",
+    };
   // G38.1 (DEMO_MAIL): the secretary goes through the mail, sees the attack for what it is, and
   // a reply waits for the person's yes.
   if (process.env.DEMO_MAIL) {
@@ -2559,6 +2710,33 @@ if (process.env.DEMO_SSH) {
     sshSession,
     `Esegui ${JSON.stringify([{ name: "ssh_run", input: { machine: "web", command: "sudo systemctl restart app" } }])}`,
   );
+}
+// DEMO_MAGIC=1 (G38.3): three magic packages. Notion waits for its key, the CSV totals wait for
+// the person's yes, the VAT check is installed.
+if (process.env.DEMO_MAGIC) {
+  const wait = async (id, status) => {
+    for (let i = 0; i < 400; i++) {
+      if ((await core.magicExt.get("local", id)).status === status) return;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  };
+  const notion = await core.magicExt.create(
+    "local",
+    "integration",
+    "Collegami a Notion: cerca nelle mie pagine e creane di nuove",
+  );
+  const csv = await core.magicExt.create(
+    "local",
+    "extension",
+    "Trasforma un CSV in un grafico e dimmi i totali",
+  );
+  const piva = await core.magicExt.create(
+    "local",
+    "extension",
+    "Controlla che partita IVA e codice fiscale siano validi",
+  );
+  await Promise.all([wait(notion.id, "ready"), wait(csv.id, "ready"), wait(piva.id, "ready")]);
+  await core.magicExt.approve("local", piva.id);
 }
 await debugLog.configure({ dir: join(dir, "logs") });
 await setup.applyAtStartup();

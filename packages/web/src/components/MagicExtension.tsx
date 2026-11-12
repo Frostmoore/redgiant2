@@ -102,7 +102,9 @@ function Part({ p }: { p: MagicPart }) {
             {x.passed ? <IconCheck size={16} /> : <IconX size={16} />}
             <span>
               {x.name}
-              {!x.passed && <small>{x.detail.split("\n").slice(0, 3).join(" · ")}</small>}
+              {!x.passed && (
+                <small>{x.detail.split("\n").filter(Boolean).slice(0, 3).join(" · ")}</small>
+              )}
             </span>
           </li>
         ))}
