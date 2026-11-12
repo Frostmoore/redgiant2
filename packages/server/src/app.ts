@@ -28,6 +28,8 @@ import {
   Effort,
   ImagePart,
   LOCAL_OWNER_ID,
+  MachineAccess,
+  MachineBody,
   MEDIA_KINDS,
   type ModelSpec as ModelSpecType,
   PermissionMode,
@@ -88,6 +90,7 @@ import { importRoutes } from "./import-routes.js";
 import { knowledgeRoutes } from "./knowledge/routes.js";
 import { localModelChoices } from "./local-models.js";
 import { LoginError } from "./login.js";
+import { MachineError, type MachinePatch } from "./machines.js";
 import { MagicNotFoundError, MagicStateError } from "./magic.js";
 import { personRoutes } from "./person-routes.js";
 import { ConfigError, PlatformPolicy } from "./platform.js";
@@ -2991,6 +2994,89 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     await core.email.remove(owner(c));
     return c.json({ ok: true }, 200);
   });
+  // The person's machines over SSH (G38.2). Keys, passphrases and passwords go straight to the
+  // keychain and are never sent back; the page gets the public key and the fingerprints.
+  const machineError = (c: Context, err: unknown) => {
+    if (!(err instanceof MachineError)) throw err;
+    const status = err.code === "not-found" ? 404 : err.code === "vault" ? 409 : 400;
+    return c.json(
+      { error: err.message, code: err.code, ...(err.hostKey && { hostKey: err.hostKey }) },
+      status,
+    );
+  };
+  app.get("/api/settings/machines", async (c) =>
+    c.json({ machines: await core.machines.list(owner(c)) }, 200),
+  );
+  app.post("/api/settings/machines", async (c) => {
+    const b = MachineBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success)
+      return c.json(
+        {
+          error: `A name, the host and the user are needed (${b.error.issues[0]?.path.join(".")})`,
+        },
+        400,
+      );
+    try {
+      return c.json(await core.machines.add(owner(c), b.data), 201);
+    } catch (err) {
+      return machineError(c, err);
+    }
+  });
+  const MachinePatchBody = z.object({
+    name: z.string().optional(),
+    host: z.string().optional(),
+    port: z.number().int().optional(),
+    user: z.string().optional(),
+    folder: z.string().max(1000).nullable().optional(),
+    access: MachineAccess.optional(),
+    password: z.string().max(500).nullable().optional(),
+    privateKey: z.string().max(20_000).optional(),
+    passphrase: z.string().max(500).nullable().optional(),
+    newKey: z.boolean().optional(),
+  });
+  app.put("/api/settings/machines/:id", async (c) => {
+    const b = MachinePatchBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: b.error.issues[0]?.message ?? "Bad machine" }, 400);
+    const patch = Object.fromEntries(
+      Object.entries(b.data).filter(([, v]) => v !== undefined),
+    ) as MachinePatch;
+    try {
+      return c.json(await core.machines.update(owner(c), c.req.param("id"), patch), 200);
+    } catch (err) {
+      if (err instanceof z.ZodError)
+        return c.json({ error: err.issues[0]?.message ?? "Bad machine" }, 400);
+      return machineError(c, err);
+    }
+  });
+  app.delete("/api/settings/machines/:id", async (c) => {
+    try {
+      await core.machines.remove(owner(c), c.req.param("id"));
+      return c.json({ ok: true }, 200);
+    } catch (err) {
+      return machineError(c, err);
+    }
+  });
+  app.post("/api/settings/machines/:id/test", async (c) => {
+    try {
+      return c.json(await core.machines.test(owner(c), c.req.param("id")), 200);
+    } catch (err) {
+      return machineError(c, err);
+    }
+  });
+  app.post("/api/settings/machines/:id/trust", async (c) => {
+    const b = z
+      .object({ fingerprint: z.string().regex(/^SHA256:[A-Za-z0-9+/]{20,}$/) })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "The fingerprint the person saw is needed" }, 400);
+    try {
+      return c.json(
+        await core.machines.trust(owner(c), c.req.param("id"), b.data.fingerprint),
+        200,
+      );
+    } catch (err) {
+      return machineError(c, err);
+    }
+  });
   // Many mailboxes, each with its name and category (G33.3); passwords are never sent back.
   const MailboxBody = z.object({
     name: z.string().max(80).default(""),
@@ -3007,6 +3093,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
         secure: z.boolean(),
       })
       .optional(),
+    /** Open to the agents' mail tools (G38.1). */
+    agents: z.boolean().optional(),
   });
   app.get("/api/settings/mailboxes", async (c) =>
     c.json(
@@ -3031,12 +3119,17 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     }
   });
   app.put("/api/settings/mailboxes/:id", async (c) => {
+    const raw = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const b = MailboxBody.partial()
       .extend({ smtp: MailboxBody.shape.smtp.unwrap().nullable().optional() })
-      .safeParse(await c.req.json().catch(() => ({})));
+      .safeParse(raw);
     if (!b.success) return c.json({ error: b.error.issues[0]?.message ?? "Bad mailbox" }, 400);
+    // Only what was sent changes (G38.1: switching «Agents may use it» alone must not fill in the
+    // defaults, a port among them, and try the mailbox again).
     const patch = Object.fromEntries(
-      Object.entries(b.data).filter(([, v]) => v !== undefined),
+      Object.entries(b.data).filter(
+        ([k, v]) => v !== undefined && raw && typeof raw === "object" && k in raw,
+      ),
     ) as Parameters<typeof core.updateMailbox>[2];
     try {
       return c.json(await core.updateMailbox(owner(c), c.req.param("id"), patch), 200);

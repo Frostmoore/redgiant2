@@ -1,6 +1,7 @@
 import type { Usage } from "./types.js";
 
-export type BudgetScope = "agent" | "project" | "global";
+/** `artifact` (3.6, G38.7): the spending cap the person chose for one artifact's `ask`. */
+export type BudgetScope = "agent" | "project" | "global" | "artifact";
 
 export interface BudgetLimit {
   /** Maximum spend in USD; omit for no limit. */

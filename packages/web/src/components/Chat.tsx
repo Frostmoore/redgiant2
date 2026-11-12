@@ -1,5 +1,6 @@
 import { useComputed } from "@preact/signals";
 import {
+  ARTIFACT_GRANT_TOOL,
   type AssistantPart,
   criticalSentences,
   type Event,
@@ -23,6 +24,7 @@ import {
   IconInfo,
   IconLayers,
   IconPlay,
+  IconServer,
   IconShield,
   IconSpinner,
   IconStop,
@@ -64,6 +66,7 @@ import {
 } from "../state.js";
 import { canvasKind } from "../viewers/canvas-kind.js";
 import { WidgetCard } from "./ArtifactFrame.js";
+import { ArtifactGrantCard } from "./ArtifactGrantCard.js";
 import { noEnter, useArmed } from "./armed.js";
 import {
   AsidePanel,
@@ -79,6 +82,7 @@ import { CommandStrip } from "./CommandStrip.js";
 import { Composer, packMessage } from "./Composer.js";
 import { askText } from "./dialogs.js";
 import { Images } from "./Images.js";
+import { MailRequestPreview, MailToolCard, mailSummary } from "./MailCards.js";
 import { MetricsBar } from "./MetricsBar.js";
 import { ModelMenu, modelName } from "./ModelMenu.js";
 import { ArchivedNotice } from "./ProjectArchive.js";
@@ -364,7 +368,32 @@ function ToolLine({
   agentId: string;
 }) {
   const [open, setOpen] = useState(false);
-  const { name, summary } = toolHead(item.tool, item.input);
+  const head = toolHead(item.tool, item.input);
+  const input = item.input as Record<string, unknown> | undefined;
+  // A copy to or from one of the person's machines (G38.2): which way, from where to where.
+  const copy =
+    item.tool === "ssh_copy" && input
+      ? input.direction === "download"
+        ? `${String(input.remote ?? "")} -> ${String(input.local ?? "")}`
+        : `${String(input.local ?? "")} -> ${String(input.remote ?? "")}`
+      : undefined;
+  // The machine a remote call works on, beside the tool's name.
+  const machine =
+    item.tool.startsWith("ssh_") && typeof input?.machine === "string" ? input.machine : undefined;
+  const summary = item.tool.startsWith("acp_")
+    ? head.summary
+    : (mailSummary(item.tool, input) ??
+      (typeof input === "object" && input
+        ? String(
+            copy ??
+              input.command ??
+              input.path ??
+              input.pattern ??
+              input.query ??
+              input.url ??
+              JSON.stringify(input),
+          )
+        : ""));
   const state = !item.result ? "running" : item.result.ok ? "done" : "failed";
   const picture = item.result?.output.match(/^Saved (images\/\S+\.png)/)?.[1];
   // What a file tool changed (2026-11-05): its diff, shown at once, and how many lines.
@@ -389,7 +418,13 @@ function ToolLine({
             <IconClose />
           )}
         </span>
-        <span class="tname">{name}</span>
+        <span class="tname">{head.name}</span>
+        {machine && (
+          <span class="tmachine" title={t("toolOnMachine", { name: machine })}>
+            <IconServer size={12} />
+            {machine}
+          </span>
+        )}
         {item.viaScript && <span class="tvia">{t("viaScript")}</span>}
         <span class="tsum">{summary.replace(/\s+/g, " ").slice(0, 140)}</span>
         {took && <span class="ttook">{took}</span>}
@@ -404,6 +439,9 @@ function ToolLine({
           <span class="dim">{t("toolSeen")}</span>
           <Images images={item.result.images} />
         </div>
+      )}
+      {item.result?.ok && item.tool.startsWith("mail_") && (
+        <MailToolCard tool={item.tool} output={item.result.output} />
       )}
       {diff && (
         <div
@@ -556,6 +594,8 @@ function OtherWork({ sessionId, agentId }: { sessionId: string; agentId: string 
 export function PermissionCard({ r }: { r: PermissionRequestInfo }) {
   // A switched-off tool asked back (G36.15) has its own words and choices.
   if (r.tool === "request_tool") return <ToolRequestCard r={r} />;
+  // An artifact's first use of a capability (3.6, G38.7): its own words and the spending cap.
+  if (r.tool === ARTIFACT_GRANT_TOOL) return <ArtifactGrantCard r={r} />;
   return <ToolPermission r={r} />;
 }
 
@@ -617,6 +657,7 @@ function ToolPermission({ r }: { r: PermissionRequestInfo }) {
         <span>{t("permAsks", { agent: r.agentName })}</span>
       </div>
       <p class="permission-what">{what}</p>
+      {r.tool === "mail_send" && <MailRequestPreview input={r.input} />}
       {(reasons.length > 0 || r.danger.length > 0) && (
         <div class="dim permission-because">
           {reasons.length > 0 && (

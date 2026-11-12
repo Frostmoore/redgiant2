@@ -37,6 +37,7 @@ import {
   type Room,
   type Subproject,
 } from "./api.js";
+import { bridgeResult } from "./artifact-bridge.js";
 import { t, tOptional } from "./i18n.js";
 import { coversNow } from "./phone.js";
 import {
@@ -813,6 +814,10 @@ export function applyMessage(m: ServerMessage): void {
     case "permission.closed":
       approvals.value = approvals.value.filter((r) => r.requestId !== m.requestId);
       return;
+    // An artifact's bridge call answered (3.6, G38.7): to the frame that asked.
+    case "artifact.bridge.result":
+      bridgeResult(m);
+      return;
     case "question.request":
       if (!questions.value.some((q) => q.requestId === m.request.requestId)) {
         questions.value = [...questions.value, m.request];
@@ -1071,7 +1076,9 @@ export type SettingsSection =
   /** Every artifact of the person: open, export, import, delete (3.5.9). */
   | "artifacts"
   /** External ACP agents as workers, and RedGiant inside editors (G38.6). */
-  | "acp";
+  | "acp"
+  /** The person's machines over SSH (G38.2). */
+  | "machines";
 
 /** Older ways to open things, still used by the views: they land in the new places. */
 export type OpenRequest =

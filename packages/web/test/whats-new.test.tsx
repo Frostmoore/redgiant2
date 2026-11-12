@@ -54,8 +54,16 @@ describe("the items", () => {
 describe("newsSince", () => {
   it("keeps only what is newer than the version seen, grouped, newest first", () => {
     const groups = newsSince("3.5.6");
-    expect(groups.map((g) => g.version)).toEqual(["3.5.11", "3.5.10", "3.5.9", "3.5.8", "3.5.7"]);
-    expect(groups[0]?.items.map((i) => i.title)).toEqual([
+    expect(groups.map((g) => g.version)).toEqual([
+      "3.5.12",
+      "3.5.11",
+      "3.5.10",
+      "3.5.9",
+      "3.5.8",
+      "3.5.7",
+    ]);
+    expect(groups[0]?.items.map((i) => i.title)).toEqual(["news3512Widgets", "news3512Fixes"]);
+    expect(groups[1]?.items.map((i) => i.title)).toEqual([
       "news3511Phone",
       "news3511Keys",
       "news3511Fast",
@@ -99,6 +107,7 @@ describe("the window", () => {
     await waitFor(() => expect(r.getByText(t("news3511Phone"))).toBeTruthy());
     const heads = [...r.container.querySelectorAll(".news-group-head")].map((h) => h.textContent);
     expect(heads).toEqual([
+      "Versione 3.5.12",
       "Versione 3.5.11",
       "Versione 3.5.10",
       "Versione 3.5.9",
@@ -106,7 +115,7 @@ describe("the window", () => {
       "Versione 3.5.7",
     ]);
     const chips = [...r.container.querySelectorAll(".news-chip")].map((c) => c.textContent);
-    expect(chips.slice(0, 4)).toEqual(["3.5.11", "3.5.11", "3.5.11", "3.5.10"]);
+    expect(chips.slice(0, 5)).toEqual(["3.5.12", "3.5.12", "3.5.11", "3.5.11", "3.5.11"]);
     expect(chips).toHaveLength(newsSince("3.5.6").flatMap((g) => g.items).length);
     expect(r.queryByText(t("news356Steps"))).toBeNull();
     fireEvent.click(r.getByText("Ho capito"));

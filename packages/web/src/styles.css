@@ -828,6 +828,60 @@ button.bar-settings {
 .ar-ro {
   color: var(--warn-text);
 }
+/* What an artifact asks for (3.6, G38.7): one line each, its state, and the person's buttons. */
+.ar-perms {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.ar-perms-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dim);
+}
+.ar-perm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius, 8px);
+}
+.ar-perm.on {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+}
+.ar-perm-what {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+}
+.ar-perm-acts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ar-perm-acts .wz-chips {
+  margin: 0;
+}
+.artifact-grant-where {
+  margin: 0 0 6px;
+}
+.artifact-grant-cap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 6px 0;
+}
+.artifact-grant-cap .wz-chips {
+  margin: 0;
+}
 .ar-acts {
   display: flex;
   flex-wrap: nowrap;
@@ -1228,6 +1282,144 @@ button.bar-settings {
 .tool pre {
   margin: 4px 0 0;
   max-height: 260px;
+}
+/* Email for the agents (G38.1): a search's senders and subjects, a message read, the email of a
+   request to send. Plain text only. */
+.mail-card {
+  margin-top: 4px;
+  max-width: 640px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.mail-card-where {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.mail-card-none {
+  padding: 2px 0;
+}
+.mail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mail-list li {
+  display: grid;
+  grid-template-columns: 10px minmax(80px, 160px) 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  border-top: 1px solid var(--line);
+}
+.mail-list li:first-child {
+  border-top: 0;
+}
+.mail-list .mail-from,
+.mail-list .mail-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.mail-list li.unread .mail-from,
+.mail-list li.unread .mail-subject {
+  font-weight: 600;
+}
+.mail-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.mail-list li.unread .mail-dot {
+  background: var(--accent);
+}
+.mail-clip {
+  display: inline-flex;
+  color: var(--dim);
+}
+.mail-date {
+  color: var(--dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mail-head-subject {
+  font-weight: 600;
+  font-size: 14px;
+}
+.mail-head-line {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  overflow-wrap: anywhere;
+}
+.mail-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+.mail-files .chip {
+  font-size: 11px;
+}
+.mail-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  line-height: 1.45;
+}
+.mail-body.clamp {
+  max-height: 180px;
+  overflow: hidden;
+}
+.mail-request {
+  margin: 6px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.mail-request-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.mail-request dl {
+  margin: 0;
+}
+.mail-request-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 8px;
+  padding: 2px 0;
+}
+.mail-request-row dt {
+  color: var(--dim);
+}
+.mail-request-row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.mail-request-to dd,
+.mail-request-cc dd,
+.mail-request-bcc dd {
+  font-weight: 600;
+}
+.mail-request-body {
+  max-height: 320px;
+  overflow: auto;
 }
 .notice {
   align-self: flex-start;
@@ -18823,4 +19015,120 @@ html[data-theme="dark"] {
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto;
   gap: 6px;
   align-items: center;
+}
+
+/* Settings > Machines (G38.2): one card per machine, its keys as copyable code. */
+.mc-page .mc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.mc-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mc-ico {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex: none;
+}
+.mc-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.mc-title b {
+  font-size: 1.05rem;
+}
+.mc-state {
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.mc-state.ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.mc-state.bad {
+  color: var(--err);
+  border-color: var(--err);
+}
+.mc-state.new {
+  color: var(--warn-text);
+  border-color: var(--warn);
+}
+.mc-pub {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mc-copy {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.mc-code,
+.mc-fp {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+.mc-code {
+  flex: 1;
+  display: block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  user-select: all;
+}
+.mc-tofu,
+.mc-changed {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.mc-tofu p,
+.mc-changed p {
+  margin: 4px 0;
+}
+.mc-changed {
+  background: var(--critical-soft);
+  color: var(--critical-text);
+  border-color: var(--critical);
+}
+.mc-editor textarea.mc-key {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  width: 100%;
+}
+.mc-hint {
+  margin: 4px 0 8px;
+}
+.mc-safety {
+  margin-top: 14px;
+  font-size: 0.85rem;
+}
+/* The machine a remote call works on, in the chat's tool cards (G38.2). */
+.tool .tmachine {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  flex: none;
 }

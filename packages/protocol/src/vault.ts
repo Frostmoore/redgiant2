@@ -113,7 +113,7 @@ export interface VaultSystemEntry {
   section: string;
   /** What it is for, in English (the page has its own words for the known ones). */
   what: string;
-  kind: "provider" | "chat" | "email" | "mcp" | "git" | "search" | "other";
+  kind: "provider" | "chat" | "email" | "mcp" | "git" | "search" | "ssh" | "other";
   /** Set by whoever installed the server (an environment variable): it cannot change here. */
   locked?: boolean | undefined;
 }

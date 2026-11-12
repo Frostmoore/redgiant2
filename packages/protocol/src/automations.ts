@@ -272,6 +272,11 @@ export const Mailbox = z.object({
   user: z.string(),
   /** Where it sends from (for `notify.to: [email]`), when set. */
   smtp: z.object({ host: z.string(), port: z.number().int(), secure: z.boolean() }).optional(),
+  /**
+   * The agents may search, read, draft and send from it (G38.1); off until the person switches it
+   * on. Sending asks the person every time.
+   */
+  agents: z.boolean().optional(),
   createdAt: z.string(),
 });
 export type Mailbox = z.infer<typeof Mailbox>;

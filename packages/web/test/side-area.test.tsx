@@ -3,7 +3,7 @@
 // kept on this device, within limits, a double click back to normal), «Maximize» over the whole
 // window with «Back to chat» and Esc, a file on the whole screen, tabs whose long titles end
 // with «…» and keep the whole title in their tooltip.
-import { cleanup, fireEvent, render } from "@testing-library/preact";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lang } from "../src/i18n.js";
 
@@ -239,9 +239,11 @@ describe("the tabs and the file on the whole screen (p3.3.2)", () => {
       const { container, findByRole } = render(<Shell />);
       // The canvas loads with its first tab (3.5.11); its effects run once it is drawn.
       const button = await findByRole("button", { name: "Schermo intero" });
+      // The lazy canvas is drawn (and its effects ran) before the click.
+      await waitFor(() => expect(container.querySelector(".canvas")).not.toBeNull());
       await new Promise((r) => setTimeout(r, 20));
       fireEvent.click(button);
-      expect(request).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
       expect(request.mock.contexts[0]).toBe(container.querySelector(".canvas"));
       fireEvent.click(await findByRole("button", { name: "Esci dallo schermo intero" }));
       expect(exit).toHaveBeenCalledTimes(1);

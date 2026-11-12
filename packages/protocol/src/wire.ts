@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BridgeCall, BridgeError } from "./artifact-bridge.js";
 import { CanvasState } from "./canvas.js";
 import { MAX_QUOTES, MessageQuote } from "./chat-tools.js";
 import { CriticalDetail } from "./critical.js";
@@ -119,6 +120,19 @@ export const ClientMessage = z.discriminatedUnion("type", [
     reason: z.string().max(1000).optional(),
     /** Answered in an editor through `redgiant-acp` (G38.6), recorded as where it was decided. */
     via: z.literal("editor").optional(),
+    /** An artifact's `ask` granted (3.6, G38.7): the spending cap the person chose (USD). */
+    capUsd: z.number().positive().max(1000).optional(),
+  }),
+  /**
+   * A call an artifact's frame made through the bridge (3.6, G38.7). `ref` is the artifact the
+   * page shows in that frame (never what the frame says); answered by `artifact.bridge.result`.
+   */
+  z.object({
+    type: z.literal("artifact.bridge"),
+    requestId: z.string().min(1).max(80),
+    ref: ArtifactRef,
+    sessionId: z.string().max(80).optional(),
+    call: BridgeCall,
   }),
   /**
    * Errors an artifact or a widget met in the page (3.5.9): the agent reads them with its next
@@ -294,6 +308,13 @@ export const ServerMessage = z.discriminatedUnion("type", [
   }),
   /** A request that waits for the human; answered with `permission.resolve`. */
   z.object({ type: z.literal("permission.request"), request: PermissionRequestInfo }),
+  /** The answer to an artifact's bridge call (3.6, G38.7), for that page only. */
+  z.object({
+    type: z.literal("artifact.bridge.result"),
+    requestId: z.string(),
+    result: z.unknown().optional(),
+    error: BridgeError.optional(),
+  }),
   z.object({
     type: z.literal("permission.closed"),
     requestId: z.string(),

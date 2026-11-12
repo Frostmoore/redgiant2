@@ -270,6 +270,25 @@ export const EventBody = z.discriminatedUnion("type", [
       exitCode: z.number().int().nullable(),
     }),
   }),
+  /**
+   * What an agent did on one of the person's machines (G38.2): a command (with its exit code and
+   * how long it took), a copy, a look at a folder or a file. Never a secret: the command as the
+   * agent wrote it, which machine, how it went.
+   */
+  z.object({
+    type: z.literal("remote.command"),
+    payload: z.object({
+      machine: z.string(),
+      kind: z.enum(["run", "upload", "download", "list", "read"]),
+      command: z.string(),
+      cwd: z.string().optional(),
+      status: z.enum(["done", "failed", "timeout", "stopped", "refused", "background"]),
+      exitCode: z.number().int().nullable(),
+      durationMs: z.number().int().nonnegative(),
+      bytes: z.number().int().nonnegative().optional(),
+      callId: z.string().optional(),
+    }),
+  }),
   /** Taken off the strip by the person: stays off on every device and after a restart. */
   z.object({
     type: z.literal("command.closed"),
@@ -506,6 +525,32 @@ export const EventBody = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("artifact.run"),
     payload: z.object({ scope: z.string(), path: z.string(), by: z.string() }),
+  }),
+  /**
+   * The person granted an artifact one capability it declared (3.6, G38.7): `ask` names the agent
+   * that answers and the spending cap they chose. Rebuilt from the log; an import, a deletion or
+   * a move of the file starts it again with nothing granted.
+   */
+  z.object({
+    type: z.literal("artifact.granted"),
+    payload: z.object({
+      scope: z.string(),
+      path: z.string(),
+      capability: z.string(),
+      agentId: z.string().optional(),
+      capUsd: z.number().positive().optional(),
+      by: z.string(),
+    }),
+  }),
+  /** The person took a capability back (Settings › Artifacts). */
+  z.object({
+    type: z.literal("artifact.revoked"),
+    payload: z.object({
+      scope: z.string(),
+      path: z.string(),
+      capability: z.string(),
+      by: z.string(),
+    }),
   }),
   z.object({
     type: z.literal("terminal.opened"),

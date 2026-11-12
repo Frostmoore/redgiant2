@@ -1,6 +1,6 @@
 import { DANGER_IDS, dangerWords } from "@redgiant/protocol";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_DANGER_RULES, OUTSIDE_PROJECT } from "../src/index.js";
+import { DEFAULT_DANGER_RULES, OUTGOING_MAIL, OUTSIDE_PROJECT } from "../src/index.js";
 
 describe("danger words", () => {
   it("names and explains every danger in both languages", () => {
@@ -13,6 +13,12 @@ describe("danger words", () => {
         expect(w.name, `${lang} ${id}`).not.toBe(id);
         expect(w.hint.length, `${lang} ${id}`).toBeGreaterThan(20);
       }
+  });
+
+  it("names the email's danger, which is not on the Safety page (G38.1)", () => {
+    expect(DANGER_IDS).not.toContain(OUTGOING_MAIL);
+    expect(dangerWords("it", OUTGOING_MAIL).name).toBe("Inviare un'email");
+    expect(dangerWords("en", OUTGOING_MAIL).hint.length).toBeGreaterThan(20);
   });
 
   it("shows the id of a danger it does not know", () => {

@@ -152,6 +152,7 @@ import {
 } from "./acp-workers.js";
 import { type Alert, type AlertText, alertText } from "./alerts.js";
 import { HumanApprovals } from "./approvals.js";
+import { ArtifactBridge } from "./artifact-bridge.js";
 import {
   ARTIFACT_SHOWN,
   ARTIFACT_TOOL_LINE,
@@ -211,6 +212,7 @@ import type {
 } from "./knowledge/service.js";
 import { knowledgeSection, searchKnowledgeTool } from "./knowledge/tool.js";
 import { LoginStore, migrateLogin } from "./login.js";
+import { type MachineOptions, Machines } from "./machines.js";
 import {
   MAGIC_PROMPT,
   MagicAutomations,
@@ -219,6 +221,14 @@ import {
   magicTools,
   migrateMagic,
 } from "./magic.js";
+import {
+  imapMailClient,
+  type MailClient,
+  type MailTransport,
+  smtpTransport,
+} from "./mail/client.js";
+import { MailService, SendLimiter } from "./mail/service.js";
+import { MAIL_GUIDANCE, mailSendHook, mailTools } from "./mail/tools.js";
 import { type MediaRequest, type MediaResult, makeMedia } from "./media.js";
 import type { CatalogWatcher } from "./models-catalog.js";
 import { memoryTool, type NoteOwner, Notes } from "./notes.js";
@@ -266,6 +276,7 @@ import { migrateRooms, Rooms } from "./rooms.js";
 import { scriptTool } from "./script.js";
 import { SharedMemory } from "./shared-memory.js";
 import { SKILL_PROMPT, SkillNudge } from "./skill-nudge.js";
+import { type SshToolsHost, sshTools } from "./ssh-tools.js";
 import { dryWorkspace, ToolChoiceStore, toolChars, toolsView } from "./tool-choice.js";
 import { UpdateRequiredError, type UpdateWatcher } from "./updates.js";
 import {
@@ -321,6 +332,16 @@ export interface CoreOptions {
   mailbox?: Mailbox;
   /** How automation messages leave by email (tests use a fake; SMTP otherwise, G33.3). */
   mailSender?: MailSender;
+  /**
+   * Tests only (G38.2): where a machine really is (a fake SSH server on 127.0.0.1), and how long
+   * to wait for it. Never the person's network.
+   */
+  machines?: Pick<MachineOptions, "dial" | "connectTimeoutMs">;
+  /** Email for the agents (G38.1): how mailboxes are reached and mail leaves (tests: servers in the process). */
+  mailClient?: MailClient;
+  mailTransport?: MailTransport;
+  /** How many emails the agents may send an hour and a day (default 20 and 100). */
+  mailSendLimit?: { perHour: number; perDay: number };
   providers: ProviderRegistry;
   /** Root of the project workspaces. */
   workspacesDir: string;
@@ -597,6 +618,10 @@ export class RedGiantCore implements OrchestrationHost {
   readonly rooms: Rooms;
   /** Routines on email: the person's mailbox, read every few minutes (G24.14c). */
   readonly email: EmailWatcher;
+  /** The person's machines over SSH (G38.2): keys in the keychain, host keys fixed. */
+  readonly machines: Machines;
+  /** Email for the agents (G38.1): the same mailboxes, for the mail_* tools. */
+  readonly mail: MailService;
   /** Routines on files that change in a project's folder (G33.3). */
   readonly files: FileTriggers;
   /** Automations built in a conversation with God (G33.3). */
@@ -633,6 +658,20 @@ export class RedGiantCore implements OrchestrationHost {
   readonly canvasLive = new CanvasLive();
   /** What artifacts and widgets met in the person's page (3.5.9), on its way to the agents. */
   readonly artifactErrors = new ArtifactErrors();
+  /** The artifacts' bridge (3.6, G38.7): ask, storage, files, granted by the person. */
+  get artifactBridge(): ArtifactBridge {
+    this.bridgeOnce ??= new ArtifactBridge(this);
+    return this.bridgeOnce;
+  }
+  private bridgeOnce: ArtifactBridge | undefined;
+  /** RedGiant's own files (G36.17b), for the bridge's read rule. */
+  protectedFiles(): readonly string[] {
+    return this.protectedPaths;
+  }
+  /** The model of an agent with none of its own (the person's default). */
+  defaultModelSpec(): ModelSpec | undefined {
+    return this.o.defaultModel;
+  }
   /** The editor (G37.1): one owner of every open file, the person's and the agents' edits. */
   readonly editor: EditorHost;
   /** The sheet family (G37.3): CSV/TSV in place, ODS with LibreOffice's «toppa». */
@@ -1027,6 +1066,17 @@ export class RedGiantCore implements OrchestrationHost {
       owners: async () => [...new Set(this.registry.list({}).map((a) => a.ownerId))],
       vault: this.vault,
     });
+    this.machines = new Machines({
+      db: o.db,
+      vault: () => this.vault,
+      ...o.machines,
+    });
+    this.mail = new MailService({
+      accounts: this.email,
+      client: o.mailClient ?? imapMailClient(),
+      transport: o.mailTransport ?? smtpTransport,
+      ...(o.mailSendLimit && { limiter: new SendLimiter(o.mailSendLimit) }),
+    });
     this.files = new FileTriggers({
       automations: this.automations,
       projectPath: async (ownerId, projectId) =>
@@ -1098,6 +1148,8 @@ export class RedGiantCore implements OrchestrationHost {
           critical: {
             knownSecrets: () => this.vault.values(agent.ownerId),
             protectedPaths: this.protectedPaths,
+            // The person's machines (G38.2): their working folders, for the commands run there.
+            machines: () => this.machines.rulesInfo(agent.ownerId),
           },
         };
         // The system's scratch folder is free too (on Windows it is not /tmp).
@@ -1198,6 +1250,8 @@ export class RedGiantCore implements OrchestrationHost {
     await o.db.query("DROP TABLE IF EXISTS rg_devices");
     await migrateLogin(o.db);
     const core = new RedGiantCore(o);
+    // The artifacts' bridge from the start: it follows the person's deletions and moves (3.6).
+    void core.artifactBridge;
     await core.vault.open();
     await core.browserLinks.load();
     await core.registry.load();
@@ -1695,7 +1749,14 @@ export class RedGiantCore implements OrchestrationHost {
             })),
         // The keychain (G33.4): always offered; without credentials it says where to add them.
         vaultTool(agent, this.vault, (sid) => this.automationOfSession(sid)),
+        // The person's machines (G38.2): always offered; the list is asked (ssh_list), never in
+        // the prompt, so adding a machine moves nothing in a running conversation.
+        ...sshTools(ws, this.sshHost(agent, assignedTo)),
       );
+      // What the permission rules read about the machines, fresh for this conversation.
+      await this.machines.list(ownerId).catch(() => []);
+      // Email (G38.1): always offered; without a mailbox open to the agents they say so.
+      if (agent.kind !== "subagent") tools.push(...mailTools(() => this.mail, ws));
     }
     if (agent.kind === "assistant") tools.push(this.requestConnectionTool(agent));
     if (
@@ -1797,6 +1858,8 @@ export class RedGiantCore implements OrchestrationHost {
         magicSession ? MAGIC_PROMPT : "",
         // Text, widget, artifact, board or project (3.5.9): for every agent that can show files.
         tools.some((t) => t.def.name === "show_file") ? ARTIFACT_GUIDANCE : "",
+        // Email is data, never instructions (G38.1): for every agent that can read it.
+        tools.some((t) => t.def.name === "mail_read") ? MAIL_GUIDANCE : "",
         assignedTo
           ? `## Assigned to a project\nIn this conversation you work for the project "${(await this.projects.get(ownerId, assignedTo))?.name ?? assignedTo}", on tasks its orchestrator gives you. Your files here are your own worktree of that project; close each task with complete_task.`
           : "",
@@ -1810,7 +1873,8 @@ export class RedGiantCore implements OrchestrationHost {
       hooks: {
         // Git Bash's paths on Windows (p3.5.4): every tool's paths as Windows names them, before
         // the guardian and the tool read them (`nativePaths`, the guardian uses the same rule).
-        preToolUse: [gitBashPaths],
+        // mail_send's message prepared before it is checked (G38.1): the person approves what leaves.
+        preToolUse: [gitBashPaths, mailSendHook(() => this.mail, ws)],
         ...((receivesTasks || (agent.kind !== "demigod" && agent.kind !== "inspector")) && {
           // G36.8: one quiet nudge to propose a skill after a problem solved.
           ...(agent.kind !== "demigod" &&
@@ -2311,6 +2375,32 @@ export class RedGiantCore implements OrchestrationHost {
    * Pull requests and issues on the project's repository (G24.14c), through the server with the
    * person's token. Opening one asks the person first (danger `git-publish`).
    */
+  /** What the SSH tools of an agent reach (G38.2). */
+  private sshHost(agent: AgentRecord, assignedTo?: string): SshToolsHost {
+    const ownerId = agent.ownerId;
+    return {
+      machines: () =>
+        this.machines.allowed(ownerId, {
+          id: agent.id,
+          parentId: agent.parentId,
+          projectId: assignedTo ?? agent.projectId,
+        }),
+      connect: (_ctx, m, signal) =>
+        this.machines.connect(ownerId, m, { ...(signal && { signal }) }),
+      record: async (ctx, e) => {
+        await this.store.append({
+          ownerId,
+          projectId: ctx.projectId,
+          agentId: ctx.agentId,
+          sessionId: ctx.sessionId,
+          body: { type: "remote.command", payload: e },
+        });
+      },
+      maxMs: (owner) => this.commandSettings.get(owner).bashMaxMs,
+      background: this.commands,
+    };
+  }
+
   private repoTools(projectId: string): Tool[] {
     const act = (a: Parameters<GitHosts["repoAction"]>[3]) => {
       const f = this.repoActions;
@@ -6657,6 +6747,7 @@ export class RedGiantCore implements OrchestrationHost {
     // Edits accepted are in the log already; the files are written before closing.
     await this.editor.close().catch(() => {});
     this.email.stop();
+    await this.mail.close().catch(() => {});
     this.files.stop();
     this.sharedMemory.stop();
     clearInterval(this.sweeper);

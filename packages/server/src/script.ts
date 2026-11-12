@@ -25,6 +25,8 @@ const NOT_FROM_SCRIPTS = new Set([
   "ask_user",
   "propose_plan",
   "complete_task",
+  // An email leaves only from its own call, prepared for the person's approval (G38.1).
+  "mail_send",
 ]);
 
 const MAX_CALLS = 200;

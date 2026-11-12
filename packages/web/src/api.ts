@@ -1,4 +1,5 @@
 import {
+  type ArtifactGrant,
   type Automation,
   type AutomationRun,
   type BackupPreview,
@@ -25,6 +26,10 @@ import {
   type LocalEmbeddingModel,
   type LocalModel,
   type LocalRerankModel,
+  type MachineAccess,
+  type MachineAuth,
+  type MachineTest,
+  type MachineView,
   type MagicAutomation,
   type Mailbox as MailboxInfo,
   type ModelsCatalogStatus,
@@ -441,6 +446,10 @@ export interface ArtifactInfo {
   libs: string[];
   wants: string[];
   granted: string[];
+  /** The grants in full (3.6): `ask`'s agent, cap and spending. */
+  grants: ArtifactGrant[];
+  /** It keeps data of its own (`storage`, 3.6). */
+  hasData: boolean;
   from: string | null;
   size: number;
   modifiedAt: string;
@@ -1264,6 +1273,7 @@ export class Api {
     user: string;
     password: string;
     smtp?: { host: string; port: number; secure: boolean };
+    agents?: boolean;
   }) => this.call<MailboxInfo>("POST", "/api/settings/mailboxes", b);
   updateMailbox = (
     id: string,
@@ -1276,10 +1286,48 @@ export class Api {
       user: string;
       password: string;
       smtp: { host: string; port: number; secure: boolean } | null;
+      agents: boolean;
     }>,
   ) => this.call<MailboxInfo>("PUT", `/api/settings/mailboxes/${encodeURIComponent(id)}`, b);
   removeMailbox = (id: string) =>
     this.call("DELETE", `/api/settings/mailboxes/${encodeURIComponent(id)}`);
+  /** The person's machines over SSH (G38.2): public keys and fingerprints, never a secret. */
+  machines = () => this.call<{ machines: MachineView[] }>("GET", "/api/settings/machines");
+  addMachine = (b: {
+    name: string;
+    host: string;
+    port: number;
+    user: string;
+    auth: MachineAuth;
+    privateKey?: string;
+    passphrase?: string;
+    password?: string;
+    folder?: string;
+    access: MachineAccess;
+  }) => this.call<MachineView>("POST", "/api/settings/machines", b);
+  updateMachine = (
+    id: string,
+    b: Partial<{
+      name: string;
+      host: string;
+      port: number;
+      user: string;
+      folder: string | null;
+      access: MachineAccess;
+      password: string | null;
+      privateKey: string;
+      passphrase: string | null;
+      newKey: boolean;
+    }>,
+  ) => this.call<MachineView>("PUT", `/api/settings/machines/${encodeURIComponent(id)}`, b);
+  removeMachine = (id: string) =>
+    this.call("DELETE", `/api/settings/machines/${encodeURIComponent(id)}`);
+  testMachine = (id: string) =>
+    this.call<MachineTest>("POST", `/api/settings/machines/${encodeURIComponent(id)}/test`);
+  trustMachine = (id: string, fingerprint: string) =>
+    this.call<MachineView>("POST", `/api/settings/machines/${encodeURIComponent(id)}/trust`, {
+      fingerprint,
+    });
   /** The recipe as the server reads it, or why not, and its next times (G33.3). */
   previewAutomation = (yaml: string, count = 5) =>
     this.call<{ recipe: Recipe | null; error: string | null; next: string[] }>(
@@ -1388,13 +1436,29 @@ export class Api {
       "GET",
       `/api/artifacts/state?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
     );
+  /** The person grants an artifact a capability it declared (3.6), with `ask`'s cap. */
+  artifactGrant = (scope: string, path: string, capability: string, capUsd?: number) =>
+    this.call<ArtifactGrant[]>("POST", "/api/artifacts/grant", {
+      scope,
+      path,
+      capability,
+      ...(capUsd !== undefined && { capUsd }),
+    });
+  /** The person takes a capability back (3.6). */
+  artifactRevoke = (scope: string, path: string, capability: string) =>
+    this.call<ArtifactGrant[]>("POST", "/api/artifacts/revoke", { scope, path, capability });
   /** «Run» on an imported artifact: it opens as an app from now on. */
   artifactRun = (scope: string, path: string) =>
     this.call<{ pendingRun: false }>("POST", "/api/artifacts/run", { scope, path });
   /** An artifact as a `.rgartifact` (zip) or as its bare HTML. */
-  async artifactExport(scope: string, path: string, as: "zip" | "html"): Promise<Blob> {
+  async artifactExport(
+    scope: string,
+    path: string,
+    as: "zip" | "html",
+    data = false,
+  ): Promise<Blob> {
     const r = await fetch(
-      `/api/artifacts/export?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}&as=${as}`,
+      `/api/artifacts/export?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}&as=${as}${data ? "&data=1" : ""}`,
       { headers: { authorization: `Bearer ${this.token}` } },
     );
     if (!r.ok) {
@@ -1407,7 +1471,7 @@ export class Api {
   async artifactImport(
     scope: string,
     file: Blob,
-  ): Promise<{ path: string; name: string; dataIgnored: boolean }> {
+  ): Promise<{ path: string; name: string; dataIgnored: boolean; dataImported?: boolean }> {
     const r = await fetch(`/api/artifacts/import?scope=${encodeURIComponent(scope)}`, {
       method: "POST",
       headers: {
@@ -1422,6 +1486,7 @@ export class Api {
       path: string;
       name: string;
       dataIgnored: boolean;
+      dataImported?: boolean;
     };
     if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`, data.code);
     return data;

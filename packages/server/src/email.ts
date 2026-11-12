@@ -123,7 +123,12 @@ export function smtpFor(a: Pick<EmailAccount, "host">): {
 }
 
 /** What the person writes for a mailbox: the account and how they call and file it. */
-export type MailboxInput = EmailAccount & { name: string; category: string };
+export type MailboxInput = EmailAccount & {
+  name: string;
+  category: string;
+  /** Open to the agents' mail tools (G38.1); off unless the person says so. */
+  agents?: boolean | undefined;
+};
 
 /** What is kept in the database about a mailbox (no password). */
 type Stored = Omit<MailboxInfo, "smtp"> & { smtp?: EmailAccount["smtp"] };
@@ -349,6 +354,7 @@ export class EmailWatcher {
       secure: i.secure,
       user: i.user,
       ...(i.smtp && { smtp: i.smtp }),
+      ...(i.agents === true && { agents: true }),
       createdAt: new Date().toISOString(),
     };
     await this.writeSecret(ownerId, box, i.password);
@@ -394,8 +400,10 @@ export class EmailWatcher {
       if (account.host !== box.host || account.user !== box.user)
         await this.setLast(id, ownerId, last);
     }
-    const { smtp: _old, ...rest } = box;
+    const { smtp: _old, agents: _agents, ...rest } = box;
     const smtp = i.smtp === null ? undefined : (i.smtp ?? box.smtp);
+    // Opening it to the agents (G38.1) needs no new connection.
+    const agents = i.agents ?? box.agents;
     const next: Stored = {
       ...rest,
       host: account.host,
@@ -405,6 +413,7 @@ export class EmailWatcher {
       ...(i.name !== undefined && { name: i.name.trim() || account.user }),
       ...(i.category !== undefined && { category: i.category.trim() || "other" }),
       ...(smtp && { smtp }),
+      ...(agents === true && { agents: true }),
     };
     await this.setSetting(
       ownerId,
