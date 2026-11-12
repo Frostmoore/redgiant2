@@ -42,8 +42,8 @@ VERSION=$(jq -r .version "$STACK")
 OS_VERSION=${OS_VERSION:-$VERSION}
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git -C "$REPO_ROOT" log -1 --format=%ct 2>/dev/null || date +%s)}
 case "$ARCH" in
-  amd64) KARCH=x86_64 EFI=x64 EFIUP=X64 GRUB_EFI=x86_64-efi CONSOLE="console=tty0 console=ttyS0,115200" ;;
-  arm64) KARCH=arm64 EFI=aa64 EFIUP=AA64 GRUB_EFI=arm64-efi CONSOLE="console=tty0 console=ttyAMA0,115200" ;;
+  amd64) KARCH=x86_64 SDARCH=x86-64 EFI=x64 EFIUP=X64 GRUB_EFI=x86_64-efi CONSOLE="console=tty0 console=ttyS0,115200" ;;
+  arm64) KARCH=arm64 SDARCH=arm64 EFI=aa64 EFIUP=AA64 GRUB_EFI=arm64-efi CONSOLE="console=tty0 console=ttyAMA0,115200" ;;
   *) echo "arch: amd64 or arm64" >&2 && exit 2 ;;
 esac
 NAME=redgiant-os-$OS_VERSION-$KARCH
@@ -174,7 +174,7 @@ printf '[Partition]\nType=root\nLabel=redgiant-root\nUUID=%s\nFormat=ext4\nCopyF
 RAW=$WORK/$NAME.raw
 rm -f "$RAW"
 systemd-repart --offline=yes --empty=create --size=auto --dry-run=no --no-pager \
-  --architecture="$KARCH" --seed="$DISK_ID" --root="$ROOT" --definitions="$DEFS" "$RAW"
+  --architecture="$SDARCH" --seed="$DISK_ID" --root="$ROOT" --definitions="$DEFS" "$RAW"
 sfdisk -d "$RAW"
 
 if [ "$ARCH" = amd64 ]; then
