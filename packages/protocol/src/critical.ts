@@ -173,6 +173,7 @@ export const CRITICAL_ACTIONS = [
   "secret-paste",
   "secret-send",
   "secret-file",
+  "secret-artifact-read",
   "pay-tool",
   "pay-service",
   "pay-button",
@@ -265,6 +266,8 @@ const SENTENCES: Record<Lang, Record<CriticalAction, Sentence>> = {
     "secret-paste": (_, x) => `Sends ${x.s} to a public paste site: ${x.t}`,
     "secret-send": (_, x) => `Sends ${x.s} out to ${x.t}`,
     "secret-file": (_, x) => `Writes ${x.s} into ${x.t}, a file that can end up in git and online`,
+    "secret-artifact-read": (_, x) =>
+      `An artifact reads ${x.t}: a secret or one of RedGiant's own files (never allowed)`,
     "pay-tool": (_, x) => `Pays or buys with real money through ${x.t}`,
     "pay-service": (_, x) =>
       `Makes a payment with real money through ${x.t || "a payment service"}`,
@@ -315,6 +318,8 @@ const SENTENCES: Record<Lang, Record<CriticalAction, Sentence>> = {
     "secret-paste": (_, x) => `Manda ${x.s} a un sito pubblico di incolla-testo: ${x.t}`,
     "secret-send": (_, x) => `Manda fuori ${x.s} a ${x.t}`,
     "secret-file": (_, x) => `Scrive ${x.s} in ${x.t}, un file che può finire in git e online`,
+    "secret-artifact-read": (_, x) =>
+      `Un artefatto legge ${x.t}: un segreto o un file di RedGiant (mai permesso)`,
     "pay-tool": (_, x) => `Paga o compra con soldi veri attraverso ${x.t}`,
     "pay-service": (_, x) =>
       `Fa un pagamento con soldi veri attraverso ${x.t || "un servizio di pagamento"}`,

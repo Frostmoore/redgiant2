@@ -507,6 +507,32 @@ export const EventBody = z.discriminatedUnion("type", [
     type: z.literal("artifact.run"),
     payload: z.object({ scope: z.string(), path: z.string(), by: z.string() }),
   }),
+  /**
+   * The person granted an artifact one capability it declared (3.6, G38.7): `ask` names the agent
+   * that answers and the spending cap they chose. Rebuilt from the log; an import, a deletion or
+   * a move of the file starts it again with nothing granted.
+   */
+  z.object({
+    type: z.literal("artifact.granted"),
+    payload: z.object({
+      scope: z.string(),
+      path: z.string(),
+      capability: z.string(),
+      agentId: z.string().optional(),
+      capUsd: z.number().positive().optional(),
+      by: z.string(),
+    }),
+  }),
+  /** The person took a capability back (Settings › Artifacts). */
+  z.object({
+    type: z.literal("artifact.revoked"),
+    payload: z.object({
+      scope: z.string(),
+      path: z.string(),
+      capability: z.string(),
+      by: z.string(),
+    }),
+  }),
   z.object({
     type: z.literal("terminal.opened"),
     payload: z.object({ terminalId: z.string(), scope: z.string(), by: z.string() }),

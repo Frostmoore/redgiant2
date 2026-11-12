@@ -23,6 +23,9 @@ interface Row {
   spent_tok: string | number;
 }
 
+/** The keys `listFor` gives: an artifact's cap (3.6) is read with its artifact, never listed. */
+type ListedKey = { scope: "agent" | "project" | "global"; id: string };
+
 /** Spend counters and limits stored in Postgres (they survive restarts). */
 export class PersistentBudget {
   constructor(
@@ -66,13 +69,13 @@ export class PersistentBudget {
     ownerId: string,
     projectIds: string[],
     agentIds: string[],
-  ): Promise<(BudgetKey & { limit: BudgetLimit; used: Spend })[]> {
+  ): Promise<(ListedKey & { limit: BudgetLimit; used: Spend })[]> {
     const rows = await this.db.query<Row>(
       "SELECT * FROM rg_budgets WHERE (scope = 'global' AND key = $1) OR (scope = 'project' AND key = ANY($2)) OR (scope = 'agent' AND key = ANY($3)) ORDER BY scope, key",
       [ownerId, projectIds, agentIds],
     );
     return rows.map((r) => ({
-      scope: r.scope,
+      scope: r.scope as ListedKey["scope"],
       id: r.key,
       limit: {
         ...(r.limit_usd !== null && { usd: r.limit_usd }),
@@ -150,13 +153,16 @@ export class PersistentBudget {
     const after = await this.check(keys);
     for (const b of after) {
       if (before.has(`${b.key.scope}:${b.key.id}`)) continue;
+      // An artifact's cap (3.6) is said to the artifact itself, not logged as a budget's.
+      if (b.key.scope === "artifact") continue;
+      const scope = b.key.scope;
       const usdLimit = b.limit.usd !== undefined && b.used.usd >= b.limit.usd;
       await this.store.append({
         ...at,
         body: {
           type: "budget.exceeded",
           payload: {
-            scope: b.key.scope,
+            scope,
             limit: usdLimit ? (b.limit.usd ?? 0) : (b.limit.tokens ?? 0),
             used: usdLimit ? b.used.usd : b.used.tokens,
           },

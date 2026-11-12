@@ -2,6 +2,7 @@
 // an agent's answer, run in the same isolated frame as an artifact. The page and the server split
 // an answer the same way; the frame talks to the page with MCP Apps' message names.
 import { z } from "zod";
+import { BridgeFrameMessage } from "./artifact-bridge.js";
 
 /**
  * The sandbox of an artifact or a widget (3.5.9, study §4.1): scripts and forms only, in an opaque
@@ -148,6 +149,8 @@ export const FrameMessage = z.union([
   }),
   z.object({ method: z.literal("ui/notifications/initialized"), params: z.object({}).optional() }),
   z.object({ method: z.literal("redgiant/error"), params: ArtifactError }),
+  /** A bridge call (3.6, G38.7): `ask`, `storage`, `files`; only artifacts, never widgets. */
+  BridgeFrameMessage,
 ]);
 export type FrameMessage = z.infer<typeof FrameMessage>;
 

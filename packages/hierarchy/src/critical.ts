@@ -27,6 +27,7 @@
 import { posix, win32 } from "node:path";
 import type { ToolCallInfo } from "@redgiant/agent";
 import {
+  ARTIFACT_READ_TOOL,
   type CriticalAction,
   type CriticalDetail,
   type CriticalId,
@@ -1021,6 +1022,29 @@ function fileRules(input: Record<string, unknown>, name: string, w: Where, add: 
     );
 }
 
+/** Files an artifact must never read (3.6, G38.7): secrets, sign-ins, a repository's settings. */
+const ARTIFACT_SECRET_FILE =
+  /(^|[\\/])(\.env(\.[\w-]+)?|\.dev\.vars|[^\\/]*\.(pem|key|p12|pfx|jks|keystore)|id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|credentials\.json|\.netrc|\.npmrc|\.pypirc|\.git-credentials|\.pgpass|service-account[^\\/]*\.json|secrets?\.(json|ya?ml|toml|env)|keychain[^\\/]*)$/i;
+
+/**
+ * An artifact reading a file through the bridge (3.6, G38.7): a secret or RedGiant's own files
+ * would reach a page that runs a model's code. The bridge refuses these at once, never asks.
+ */
+function artifactReadRules(input: Record<string, unknown>, w: Where, add: Add) {
+  const p = typeof input.path === "string" ? input.path : undefined;
+  if (!p) return;
+  const l = locate(p, w);
+  const secret =
+    (ARTIFACT_SECRET_FILE.test(p) && !EXAMPLE_FILE.test(p)) ||
+    /(^|[\\/])\.git([\\/]|$)/.test(p) ||
+    (l !== undefined && isProtected(l, w));
+  if (secret)
+    add("critical-secret", `an artifact reads ${p}, a secret or RedGiant's own file`, {
+      action: "secret-artifact-read",
+      target: p,
+    });
+}
+
 /**
  * canvas_edit (G37.1) writes like edit_file: into its path (a tab without one is in the agent's
  * workspace, the tool checks it), the text its operations write. Its catalog and dry runs write
@@ -1186,6 +1210,7 @@ export function criticalOf(call: ToolCallInfo, ctx: CriticalContext = {}): Criti
   if (name === "bash" && typeof input.command === "string") shellRules(input.command, w, add);
   else if (name === "write_file" || name === "edit_file") fileRules(input, name, w, add);
   else if (name === "canvas_edit") editorRules(input, w, add);
+  else if (name === ARTIFACT_READ_TOOL) artifactReadRules(input, w, add);
   else if (name === "run_script") textRules(JSON.stringify(call.input ?? ""), add);
   if (name.startsWith("mcp__")) {
     const words = toolWords(name);

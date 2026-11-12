@@ -1,5 +1,6 @@
 export * from "./agents.js";
 export * from "./artifact.js";
+export * from "./artifact-bridge.js";
 export * from "./automations.js";
 export * from "./backup.js";
 export * from "./canvas.js";
