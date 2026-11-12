@@ -294,28 +294,3 @@ export function acpStopReason(r: string | undefined): acp.StopReason {
       return "end_turn";
   }
 }
-
-/**
- * Variables a person may give an external agent (G38.6): never a secret. Names that read as
- * keys and values that look like one are refused; credentials belong to egress routes.
- */
-export function envProblem(name: string, value: string): string | undefined {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return `"${name}" is not a variable name`;
-  if (/(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION)/i.test(name))
-    return `"${name}" looks like a secret: keys go in RedGiant's keychain, never in an agent's variables`;
-  if (/^REDGIANT_/i.test(name)) return `"${name}" is RedGiant's own`;
-  if (looksSecret(value))
-    return `the value of "${name}" looks like a key: keys go in RedGiant's keychain`;
-  return undefined;
-}
-
-function looksSecret(v: string): boolean {
-  return (
-    /\b(sk|pk|rk|ghp|gho|ghs|github_pat|glpat|xox[abps]|AKIA|AIza|ya29)[-_A-Za-z0-9]{12,}/.test(
-      v,
-    ) ||
-    /-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(v) ||
-    // A long run of key-like characters with no spaces nor slashes (paths and words are fine).
-    /^(?=.*\d)(?=.*[a-zA-Z])[A-Za-z0-9+_=-]{32,}$/.test(v)
-  );
-}

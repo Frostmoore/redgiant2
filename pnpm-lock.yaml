@@ -277,10 +277,16 @@ importers:
 
   packages/cli:
     dependencies:
+      '@redgiant/acp':
+        specifier: workspace:*
+        version: link:../acp
       '@redgiant/protocol':
         specifier: workspace:*
         version: link:../protocol
     devDependencies:
+      '@agentclientprotocol/sdk':
+        specifier: 2.6.0
+        version: 2.6.0(zod@4.6.7)
       '@electric-sql/pglite':
         specifier: ^0.5.13
         version: 0.5.13
@@ -440,6 +446,9 @@ importers:
 
   packages/server:
     dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: 2.6.0
+        version: 2.6.0(zod@4.6.7)
       '@codemirror/state':
         specifier: ^6.7.6
         version: 6.7.6
@@ -458,6 +467,9 @@ importers:
       '@pdf-lib/standard-fonts':
         specifier: 1.0.0
         version: 1.0.0
+      '@redgiant/acp':
+        specifier: workspace:*
+        version: link:../acp
       '@redgiant/agent':
         specifier: workspace:*
         version: link:../agent

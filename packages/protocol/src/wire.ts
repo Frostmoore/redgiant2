@@ -117,6 +117,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
     scope: z.enum(["once", "session", "always"]).optional(),
     /** Denied with words the agent reads ("not that file, the other one"). */
     reason: z.string().max(1000).optional(),
+    /** Answered in an editor through `redgiant-acp` (G38.6), recorded as where it was decided. */
+    via: z.literal("editor").optional(),
   }),
   /**
    * Errors an artifact or a widget met in the page (3.5.9): the agent reads them with its next

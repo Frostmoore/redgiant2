@@ -5,6 +5,8 @@ import {
   type ExecOptions,
   type ExecResult,
   LocalWorkspace,
+  type SpawnedProcess,
+  type SpawnOptions,
   type Terminal,
   type TerminalOptions,
 } from "@redgiant/tools";
@@ -274,10 +276,67 @@ export class ContainerWorkspace extends LocalWorkspace {
     return this.exec([file, ...args].map(shellQuote).join(" "), options);
   }
 
+  /** An external agent's program (G38.6) in the container: `docker exec -i`, no shell. */
+  override async spawn(file: string, args: string[], o: SpawnOptions): Promise<SpawnedProcess> {
+    const cwd = o.cwd
+      ? posix.join(this.containerPath, o.cwd.replaceAll("\\", "/"))
+      : this.containerPath;
+    if (cwd !== this.containerPath && !cwd.startsWith(`${this.containerPath}/`))
+      throw new Error(`"${o.cwd}" is outside the workspace`);
+    const exec = await this.container.exec({
+      Cmd: [file, ...args],
+      WorkingDir: cwd,
+      ...(o.env && { Env: Object.entries(o.env).map(([k, v]) => `${k}=${v}`) }),
+      AttachStdin: true,
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: false,
+    });
+    const stream = await exec.start({ hijack: true, stdin: true });
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    this.container.modem.demuxStream(stream, stdout, stderr);
+    const exited = new Promise<number | null>((ok) => {
+      const done = () => {
+        stdout.end();
+        stderr.end();
+        void exec.inspect().then(
+          (i) => ok(i.ExitCode ?? null),
+          () => ok(null),
+        );
+      };
+      stream.on("end", done);
+      stream.on("close", done);
+      stream.on("error", done);
+    });
+    return {
+      stdin: stream,
+      stdout,
+      stderr,
+      cwd,
+      exited,
+      kill: () => {
+        stream.end();
+        stream.destroy();
+      },
+    };
+  }
+
   override async exec(
     command: string,
-    { timeoutMs, signal, env, onOutput }: ExecOptions,
+    { timeoutMs, signal, env, onOutput, cwd: under }: ExecOptions,
   ): Promise<ExecResult> {
+    const workDir =
+      under && under !== "."
+        ? posix.join(this.containerPath, under.replaceAll("\\", "/"))
+        : this.containerPath;
+    if (workDir !== this.containerPath && !workDir.startsWith(`${this.containerPath}/`))
+      return {
+        stdout: "",
+        stderr: `"${under}" is outside the workspace`,
+        exitCode: null,
+        timedOut: false,
+      };
     const pidFile = `/tmp/rg-exec-${randomUUID()}.pid`;
     const limited = Number.isFinite(timeoutMs);
     const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
@@ -288,7 +347,7 @@ export class ContainerWorkspace extends LocalWorkspace {
       : `echo $$ > ${pidFile}; exec bash -c ${shellQuote(command)}`;
     const exec = await this.container.exec({
       Cmd: ["bash", "-c", script],
-      WorkingDir: this.containerPath,
+      WorkingDir: workDir,
       ...(env && { Env: Object.entries(env).map(([k, v]) => `${k}=${v}`) }),
       AttachStdout: true,
       AttachStderr: true,

@@ -254,6 +254,7 @@ export function redgiantAgent(o: BridgeOptions): acp.AgentApp {
         requestId: r.requestId,
         decision: id === "deny" ? "deny" : "allow",
         remember: false,
+        via: "editor",
         ...(id === "allow_session" && { scope: "session" as const }),
       });
     } catch (err) {

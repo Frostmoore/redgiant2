@@ -7,6 +7,8 @@ import {
   type ExecOptions,
   type ExecResult,
   ReadOnlyWorkspaceError,
+  type SpawnedProcess,
+  type SpawnOptions,
   shellKind,
   type Terminal,
   type TerminalOptions,
@@ -112,6 +114,15 @@ export class SubprojectWorkspace implements Workspace {
 
   execFile(file: string, args: string[], options: ExecOptions): Promise<ExecResult> {
     return this.inner.execFile(file, args, options);
+  }
+
+  /** In its own subfolder, like its commands. */
+  spawn(file: string, args: string[], o: SpawnOptions): Promise<SpawnedProcess> {
+    if (!this.inner.spawn) return Promise.reject(new Error("This workspace cannot start programs"));
+    return this.inner.spawn(file, args, {
+      ...o,
+      cwd: o.cwd ? posix.join(this.own, norm(o.cwd)) : this.own,
+    });
   }
 
   openTerminal(options: TerminalOptions): Promise<Terminal> {

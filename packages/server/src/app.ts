@@ -40,6 +40,7 @@ import type { TelegramGateway } from "@redgiant/telegram";
 import { PathOutsideWorkspaceError } from "@redgiant/tools";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
+import { acpRoutes } from "./acp-routes.js";
 import {
   artifactHeaders,
   artifactPage,
@@ -1379,6 +1380,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   artifactRoutes(app, core, owner);
   // Commands' limits and requests to the person (G36.16, G36.17).
   personRoutes(app, core, owner);
+  acpRoutes(app, core, owner);
   sheetRoutes(app, core, owner);
   svgRoutes(app, core, owner);
   modelRoutes(app, core, owner);

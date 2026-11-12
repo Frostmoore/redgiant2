@@ -87,6 +87,8 @@ export function attachWebSocket(
     let offScreen: (() => void) | undefined;
     let offPage: (() => void) | undefined;
     const follows = new Map<string, () => void>();
+    /** Conversations an editor on this connection shows with its files (G38.6). */
+    const editorLinks = new Map<string, () => void>();
     // Files open in the editor (G37.1): this page's subscriber id for each.
     const docs = new Map<string, { file: DocFile; subId: string }>();
     const docSub = (file: DocFile) => docs.get(docKey(file));
@@ -510,6 +512,23 @@ export function attachWebSocket(
           case "session.interrupt":
             await core.interrupt(owner, msg.sessionId);
             return;
+          case "editor.attach": {
+            if (!(await core.ownsSession(owner, msg.sessionId)))
+              return fail("not_found", "No such conversation");
+            editorLinks.get(msg.sessionId)?.();
+            editorLinks.set(
+              msg.sessionId,
+              await core.editorLinks.attach(owner, msg.sessionId, msg.root, send),
+            );
+            return;
+          }
+          case "editor.detach":
+            editorLinks.get(msg.sessionId)?.();
+            editorLinks.delete(msg.sessionId);
+            return;
+          case "editor.fs.reply":
+            core.editorLinks.reply(msg);
+            return;
           case "command.stop":
             await core.stopCommand(owner, msg.sessionId, msg.id);
             return;
@@ -525,7 +544,15 @@ export function attachWebSocket(
             const toolRequest = pending?.tool === "request_tool";
             if (toolRequest)
               core.toolRequestScope(msg.requestId, msg.remember ? "always" : msg.scope);
-            if (!core.approvals.decide(owner, msg.requestId, msg.decision, msg.reason, "web"))
+            if (
+              !core.approvals.decide(
+                owner,
+                msg.requestId,
+                msg.decision,
+                msg.reason,
+                msg.via ?? "web",
+              )
+            )
               return fail("not_found", "No such pending request");
             if (toolRequest) return;
             // For this conversation only (2026-11-05): never for a danger, which asks every time.
@@ -566,6 +593,7 @@ export function attachWebSocket(
     ws.on("close", () => {
       clearTimeout(helloTimer);
       for (const off of follows.values()) off();
+      for (const off of editorLinks.values()) off();
       const owner = principal?.ownerId;
       if (owner)
         for (const d of docs.values())

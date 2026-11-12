@@ -11,15 +11,18 @@
     }
   },
   "bin": {
-    "redgiant": "./dist/main.js"
+    "redgiant": "./dist/main.js",
+    "redgiant-acp": "./dist/acp-main.js"
   },
   "files": [
     "dist"
   ],
   "dependencies": {
+    "@redgiant/acp": "workspace:*",
     "@redgiant/protocol": "workspace:*"
   },
   "devDependencies": {
+    "@agentclientprotocol/sdk": "2.6.0",
     "@electric-sql/pglite": "^0.5.13",
     "@redgiant/providers": "workspace:*",
     "@redgiant/server": "workspace:*"

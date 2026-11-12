@@ -5,6 +5,7 @@ import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
 import { promisify } from "node:util";
+import { AcpEngine } from "@redgiant/acp";
 import {
   AgentSession,
   type AsideResult,
@@ -62,6 +63,8 @@ import {
   type PolicySettings,
 } from "@redgiant/hierarchy";
 import {
+  type AcpWorkerConfig,
+  type AcpWorkerInfo,
   type AgentKind,
   type ArtifactError,
   type ArtifactRef,
@@ -140,6 +143,13 @@ import {
   type Workspace,
 } from "@redgiant/tools";
 import { z } from "zod";
+import {
+  AcpWorkerError,
+  AcpWorkerStore,
+  acpConfigProblem,
+  acpWorkerHost,
+  probeAcp,
+} from "./acp-workers.js";
 import { type Alert, type AlertText, alertText } from "./alerts.js";
 import { HumanApprovals } from "./approvals.js";
 import {
@@ -179,6 +189,7 @@ import { svgCopyOfOriginal, svgFamily } from "./editor/svg-family.js";
 import { textFamily } from "./editor/text-family.js";
 import { type CanvasEditHost, canvasEditTool } from "./editor/tool.js";
 import { ZetaOffice } from "./editor/zeta.js";
+import { EditorLinks } from "./editor-links.js";
 import {
   type EmailAccount,
   EmailWatcher,
@@ -632,6 +643,12 @@ export class RedGiantCore implements OrchestrationHost {
   readonly pictures: ImageFamily;
   /** The rule for the agents' edits, for an agent or a file (G37.1). */
   readonly editorSettings: OwnerSettings<EditorSettings>;
+  /** External ACP agents (G38.6): the program each such agent of a project runs as. */
+  readonly acpWorkers: AcpWorkerStore;
+  /** Editors showing a conversation through `redgiant-acp` (G38.6): its files through them. */
+  readonly editorLinks = new EditorLinks();
+  /** Their engines by conversation: one program per conversation, kept between turns. */
+  private readonly acpEngines = new Map<string, AcpEngine>();
   /** Documents and presentations (G37.4): LibreOffice on the server, ZetaOffice for the page. */
   readonly office: { engine: OfficeEngine; family: OfficeFamily; zeta: ZetaOffice };
   /** Background commands of every conversation (p3.3.1): bash with background, bash_output. */
@@ -810,6 +827,7 @@ export class RedGiantCore implements OrchestrationHost {
       EditorSettings,
       DEFAULT_EDITOR_SETTINGS,
     );
+    this.acpWorkers = new AcpWorkerStore(o.db);
     // Documents and presentations (G37.4): LibreOffice applies the edits on the server when no
     // page has the full editor open; the page's editor (ZetaOffice) is served from the data folder.
     const officeEngine =
@@ -1193,6 +1211,7 @@ export class RedGiantCore implements OrchestrationHost {
     await core.commandSettings.load();
     await core.requestSettings.load();
     await core.editorSettings.load();
+    await core.acpWorkers.load();
     await core.tasks.rebuild();
     await core.reapCommands();
     return core;
@@ -1488,13 +1507,16 @@ export class RedGiantCore implements OrchestrationHost {
     const agent = record;
     if (agent.status !== "active" && preview !== "dry")
       throw new Error(`Agent "${agent.name}" is stopped`);
+    // An external ACP agent (G38.6): its program runs the turns, RedGiant records and checks.
+    if (preview !== "dry" && this.acpWorkers.get(ownerId, agentId))
+      return this.buildAcp(agent, sessionId, resume, preview === true, assignedTo);
     const model =
       sessionModel ??
       this.registry.effectiveModel(agentId) ??
       this.o.defaultModel ??
       (preview === "dry" ? { provider: "none", model: "none" } : undefined);
     if (!model) throw new NoModelError(`No model configured for "${agent.name}" or its ancestors`);
-    const ws =
+    const folder =
       preview === "dry"
         ? agent.kind === "demigod"
           ? undefined
@@ -1507,6 +1529,11 @@ export class RedGiantCore implements OrchestrationHost {
               subprojectId: undefined,
             } as AgentRecord)
           : await this.workspaceFor(agent);
+    // An editor showing this conversation with its folder open serves its text files (G38.6).
+    const ws =
+      folder && !preview && this.sandbox.kind === "host"
+        ? this.editorLinks.wrap(folder, sessionId)
+        : folder;
     // A magic automation's conversation (G33.3): God builds one automation with the person.
     const magicSession =
       agent.kind === "god"
@@ -1876,6 +1903,208 @@ export class RedGiantCore implements OrchestrationHost {
       ownModel: sessionModel !== undefined,
       usedAt: Date.now(),
     };
+  }
+
+  /**
+   * A conversation of an external ACP agent (G38.6): an `AcpEngine` runs its turns in the
+   * agent's own folder; its only RedGiant tool is complete_task (RD17), which it asks for with a
+   * marked line. The model is the program's own (`acp/<name>`), never RedGiant's.
+   */
+  private async buildAcp(
+    agent: AgentRecord,
+    sessionId: string,
+    resume: boolean,
+    preview: boolean,
+    assignedTo: string | undefined,
+  ): Promise<Live> {
+    const { ownerId, id: agentId } = agent;
+    const ws = assignedTo
+      ? await this.workspaceFor({
+          ...agent,
+          kind: "agent",
+          projectId: assignedTo,
+          subprojectId: undefined,
+        } as AgentRecord)
+      : await this.workspaceFor(agent);
+    if (!ws) throw new Error(`${agent.name} has no folder to work in`);
+    const model: ModelSpec = { provider: "acp", model: agent.name };
+    const receivesTasks =
+      assignedTo !== undefined || ["orchestrator", "agent", "subagent"].includes(agent.kind);
+    const tools: Tool[] = receivesTasks
+      ? [completeTaskTool(agent, ws, this.broker, this.tasks)]
+      : [];
+    this.acpEngines.get(sessionId)?.close();
+    const engine = new AcpEngine({
+      name: agent.name,
+      host: acpWorkerHost({
+        ws,
+        agent,
+        sessionId,
+        broker: this.broker,
+        // Read at each start: a change in Settings applies from the next program started.
+        config: () => {
+          const c = this.acpWorkers.get(ownerId, agentId);
+          if (!c) throw new Error(`${agent.name} is no longer an external agent`);
+          return c;
+        },
+        log: (line) => debugLog.write("acp", `${agent.name}: ${line}`),
+      }),
+    });
+    if (!preview) this.acpEngines.set(sessionId, engine);
+    const listeners = (): Iterable<(m: ServerMessage) => void> =>
+      preview ? [] : (this.followers.get(sessionId) ?? []);
+    const options = {
+      store: this.store,
+      providers: this.o.providers,
+      model,
+      engine,
+      // The program keeps its own instructions; this is what RedGiant's log says it is.
+      system: `${agent.name} is an external agent (ACP): its program runs its own turns in ${ws.root}.`,
+      tools,
+      hooks: receivesTasks ? { stop: [this.tasks.stopHook(agentId)] } : {},
+      sessionId,
+      ownerId,
+      projectId: assignedTo ?? agent.projectId,
+      agentId,
+      priority: PRIORITY[agent.kind],
+      maxTurns: ({ person }: { person: boolean }) => this.maxTurnsFor(ownerId, person),
+      historyTool: false,
+      cacheScope: assignedTo ?? agent.projectId ?? `platform-${agent.ownerId}`,
+      live: (e: StreamEvent) => {
+        if (e.type !== "text_delta" && e.type !== "thinking_delta") return;
+        for (const f of listeners())
+          f({
+            type: "delta",
+            sessionId,
+            kind: e.type === "text_delta" ? "text" : "thinking",
+            text: e.text ?? "",
+          });
+      },
+      ...hierarchyGuards({
+        agent,
+        resolve: this.registry.resolve,
+        broker: this.broker,
+        budget: this.budget,
+      }),
+    };
+    const session = preview
+      ? AgentSession.preview(options)
+      : resume
+        ? await AgentSession.resume(options)
+        : await AgentSession.start(options);
+    return {
+      id: sessionId,
+      ownerId,
+      agentId,
+      projectId: agent.projectId,
+      session,
+      running: null,
+      get listeners() {
+        return listeners();
+      },
+      model,
+      ownModel: false,
+      usedAt: Date.now(),
+    };
+  }
+
+  /** Whether a conversation is this person's (an editor may attach to it, G38.6). */
+  async ownsSession(ownerId: string, sessionId: string): Promise<boolean> {
+    const [row] = await this.o.db.query<{ owner_id: string }>(
+      "SELECT owner_id FROM rg_sessions WHERE id = $1",
+      [sessionId],
+    );
+    return row?.owner_id === ownerId;
+  }
+
+  /** The person's external agents (Settings › External agents, G38.6). */
+  listAcpWorkers(ownerId: string): AcpWorkerInfo[] {
+    return Object.entries(this.acpWorkers.all(ownerId)).flatMap(([agentId, c]) => {
+      const a = this.registry.get(agentId);
+      if (!a || a.ownerId !== ownerId) return [];
+      return [{ agentId, name: a.name, projectId: a.projectId, status: a.status, ...c }];
+    });
+  }
+
+  /**
+   * A new external agent in a project (G38.6): an agent under the project's orchestrator, so
+   * the orchestrator (and God) delegate to it like to any other, whose turns its program runs.
+   */
+  async createAcpWorker(
+    ownerId: string,
+    i: { name: string; projectId: string } & AcpWorkerConfig,
+  ): Promise<AcpWorkerInfo> {
+    const problem = acpConfigProblem(i);
+    if (problem) throw new BadRequestError(problem);
+    if (!(await this.projects.get(ownerId, i.projectId)))
+      throw new NotFoundError(`Project "${i.projectId}" not found`);
+    const orch = this.registry
+      .list({ ownerId, activeOnly: true })
+      .find((a) => a.kind === "orchestrator" && a.projectId === i.projectId);
+    if (!orch) throw new BadRequestError("The project has no orchestrator yet");
+    const agent = await this.registry.create(
+      { type: "human", ownerId },
+      {
+        kind: "agent",
+        parentId: orch.id,
+        projectId: i.projectId,
+        name: i.name,
+        role: `External agent (ACP): ${[i.command, ...i.args].join(" ").slice(0, 200)}`,
+      },
+    );
+    const c = await this.acpWorkers.set(ownerId, agent.id, {
+      command: i.command,
+      args: i.args,
+      env: i.env,
+    });
+    return {
+      agentId: agent.id,
+      name: agent.name,
+      projectId: agent.projectId,
+      status: agent.status,
+      ...c,
+    };
+  }
+
+  /** Changes an external agent's program: its conversations start it anew at their next turn. */
+  async updateAcpWorker(ownerId: string, agentId: string, raw: unknown): Promise<AcpWorkerInfo> {
+    const a = this.registry.get(agentId);
+    if (!a || a.ownerId !== ownerId || !this.acpWorkers.get(ownerId, agentId))
+      throw new NotFoundError(`External agent "${agentId}" not found`);
+    const c = await this.acpWorkers.set(ownerId, agentId, raw).catch((err: Error) => {
+      throw err instanceof AcpWorkerError ? new BadRequestError(err.message) : err;
+    });
+    for (const [id, l] of this.live)
+      if (l.agentId === agentId && !l.running) {
+        this.acpEngines.get(id)?.close();
+        this.acpEngines.delete(id);
+        this.live.delete(id);
+      }
+    return { agentId, name: a.name, projectId: a.projectId, status: a.status, ...c };
+  }
+
+  /** Stops an external agent (its conversations and log stay, as for any stopped agent). */
+  async removeAcpWorker(ownerId: string, agentId: string): Promise<void> {
+    const a = this.registry.get(agentId);
+    if (!a || a.ownerId !== ownerId || !this.acpWorkers.get(ownerId, agentId))
+      throw new NotFoundError(`External agent "${agentId}" not found`);
+    for (const [id, l] of this.live)
+      if (l.agentId === agentId) {
+        l.running?.abort();
+        this.acpEngines.get(id)?.close();
+        this.acpEngines.delete(id);
+        this.live.delete(id);
+      }
+    if (a.status === "active")
+      await this.registry.stop({ type: "human", ownerId }, agentId, "external agent removed");
+    await this.acpWorkers.remove(ownerId, agentId);
+  }
+
+  /** Tries an external agent's command in an empty folder (never a project): who answers. */
+  probeAcpWorker(c: AcpWorkerConfig) {
+    const problem = acpConfigProblem(c);
+    if (problem) throw new BadRequestError(problem);
+    return probeAcp(c);
   }
 
   /** The tools a new agent starts without, chosen by the agent that made it (G36.14). */
@@ -6431,6 +6660,8 @@ export class RedGiantCore implements OrchestrationHost {
     this.inspector.stop();
     this.code?.unwatch();
     for (const l of this.live.values()) l.running?.abort();
+    for (const e of this.acpEngines.values()) e.close();
+    this.acpEngines.clear();
     // Background commands stop with their whole tree (p3.3.1): nothing is left running.
     await this.commands.stopAll();
     this.approvals.denyAll();

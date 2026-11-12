@@ -34,6 +34,31 @@ export interface ExecOptions {
    */
   onOutput?: ((text: string, stream: "out" | "err") => void) | undefined;
   onSpawn?: ((pid: number) => void) | undefined;
+  /**
+   * Where it runs, relative to the root (G38.6: an external agent's terminal in a subfolder);
+   * the root when absent. A folder outside the workspace is refused.
+   */
+  cwd?: string | undefined;
+}
+
+export interface SpawnOptions {
+  /** Relative to the root; the root when absent. */
+  cwd?: string | undefined;
+  /** Extra variables, joined to `agentEnv()`. Never a secret (CLAUDE.md). */
+  env?: Record<string, string> | undefined;
+}
+
+/** A long-running program with its input and output piped (G38.6: an external ACP agent). */
+export interface SpawnedProcess {
+  stdin: NodeJS.WritableStream;
+  stdout: NodeJS.ReadableStream;
+  stderr: NodeJS.ReadableStream;
+  /** Its folder as the program sees it (in a container, the container's path). */
+  cwd: string;
+  /** Stops it and what it started. */
+  kill(): void;
+  /** Settles with its exit code when it ends. */
+  exited: Promise<number | null>;
 }
 
 /** One process as the system lists it: its id, its parent's id, when it was created (any unit). */
@@ -203,6 +228,11 @@ export interface Workspace {
   execFile(file: string, args: string[], options: ExecOptions): Promise<ExecResult>;
   /** Opens an interactive shell in the workspace root. */
   openTerminal(options: TerminalOptions): Promise<Terminal>;
+  /**
+   * Starts a program that keeps running, its stdin and stdout piped, without any shell (G38.6:
+   * an external ACP agent). Not every workspace can (then it is absent).
+   */
+  spawn?(file: string, args: string[], options: SpawnOptions): Promise<SpawnedProcess>;
 }
 
 /** An interactive shell with a pseudo-terminal (the user's terminal in the web UI). */
@@ -387,6 +417,30 @@ export const IGNORED_DIRS = [
   "target",
 ];
 
+/**
+ * A program's file on Windows (G38.6): a bare name is looked up on the PATH with PATHEXT, so
+ * `npx` finds `npx.cmd`; anything else stays as written.
+ */
+export function windowsProgram(
+  file: string,
+  env: NodeJS.ProcessEnv = agentEnv(),
+  exists: (p: string) => boolean = existsSync,
+): string {
+  if (/[\\/]/.test(file) || /\.[a-z0-9]+$/i.test(file)) return file;
+  const path = Object.entries(env).find(([k]) => k.toUpperCase() === "PATH")?.[1] ?? "";
+  const exts = (env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
+  for (const dir of path.split(";").filter(Boolean))
+    for (const ext of exts) {
+      const p = join(dir, `${file}${ext.toLowerCase()}`);
+      if (exists(p)) return p;
+    }
+  return file;
+}
+
+/** An argument for cmd.exe: quoted when it has spaces or cmd's own characters. */
+const windowsQuote = (a: string) =>
+  /^[\w@%+=:,./\\-]+$/.test(a) ? a : `"${a.replaceAll('"', '""')}"`;
+
 export class LocalWorkspace implements Workspace {
   readonly root: string;
 
@@ -568,7 +622,57 @@ export class LocalWorkspace implements Workspace {
     };
   }
 
+  /** An external agent's program (G38.6): no shell, its own process group, piped. */
+  async spawn(file: string, args: string[], o: SpawnOptions): Promise<SpawnedProcess> {
+    const cwd = o.cwd ? await this.resolve(o.cwd) : this.root;
+    const group = process.platform !== "win32";
+    const program = process.platform === "win32" ? windowsProgram(file) : file;
+    // A Windows batch file (npx.cmd) runs only through cmd: the person wrote the command.
+    const batch = /\.(cmd|bat)$/i.test(program);
+    const child = spawn(program, batch ? args.map(windowsQuote) : args, {
+      cwd,
+      env: o.env ? { ...agentEnv(), ...o.env } : agentEnv(),
+      detached: group,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      ...(batch && { shell: true }),
+    });
+    const started = (BigInt(Date.now()) + 11_644_473_600_000n) * 10_000n;
+    const exited = new Promise<number | null>((ok) => {
+      child.once("exit", (code) => ok(code));
+      child.once("error", () => ok(null));
+    });
+    return {
+      stdin: child.stdin,
+      stdout: child.stdout,
+      stderr: child.stderr,
+      cwd,
+      exited,
+      kill: () => {
+        if (child.exitCode !== null) return;
+        if (child.pid)
+          void killTree(child.pid, process.platform, undefined, undefined, undefined, started);
+        else child.kill("SIGKILL");
+      },
+    };
+  }
+
   private run(
+    file: string,
+    args: string[],
+    { timeoutMs, signal, env, onOutput, onSpawn, cwd: under }: ExecOptions,
+    shell?: string,
+  ): Promise<ExecResult> {
+    if (under && under !== ".")
+      return this.resolve(under).then(
+        (cwd) => this.runIn(cwd, file, args, { timeoutMs, signal, env, onOutput, onSpawn }, shell),
+        (err: Error) => ({ stdout: "", stderr: err.message, exitCode: null, timedOut: false }),
+      );
+    return this.runIn(this.root, file, args, { timeoutMs, signal, env, onOutput, onSpawn }, shell);
+  }
+
+  private runIn(
+    cwd: string,
     file: string,
     args: string[],
     { timeoutMs, signal, env, onOutput, onSpawn }: ExecOptions,
@@ -581,7 +685,7 @@ export class LocalWorkspace implements Workspace {
       // Its start as a Windows file time: its orphans are still found if it ends first.
       const started = (BigInt(Date.now()) + 11_644_473_600_000n) * 10_000n;
       const child = spawn(file, args, {
-        cwd: this.root,
+        cwd,
         ...(shell && { shell }),
         env: env ? { ...agentEnv(), ...env } : agentEnv(),
         detached: group,

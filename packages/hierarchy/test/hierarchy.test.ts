@@ -353,6 +353,35 @@ describe("PermissionBroker", () => {
     expect(yes.asked).toEqual(["human", "human"]);
   });
 
+  it("never turns an agent's own request into a yes by the rules alone (G38.6)", async () => {
+    // Auto mode would allow `ls`; the external agent asked, so someone decides.
+    const yes = await setup({ Coder: "escalate" }, "allow");
+    expect(
+      await yes.broker.check(yes.t.sub, call("bash", { command: "ls" }), "s1", { ask: true }),
+    ).toEqual({ allow: true });
+    expect(yes.asked).toEqual(["Coder", "Orchestrator p1", "God", "human"]);
+  });
+
+  it("keeps a rule's no for an agent's own request, without asking anyone (G38.6)", async () => {
+    const no = await setup({}, "allow", { rules: [{ tool: "bash", decision: "deny" }] });
+    expect(
+      (await no.broker.check(no.t.sub, call("bash", { command: "ls" }), "s1", { ask: true })).allow,
+    ).toBe(false);
+    expect(no.asked).toEqual([]);
+  });
+
+  it("answers no when the turn stops while the person is asked (G38.6)", async () => {
+    const wait = await setup({}, "never", { approverKinds: [] });
+    const stop = new AbortController();
+    const pending = wait.broker.check(wait.t.sub, call("bash", { command: "ls" }), "s1", {
+      ask: true,
+      signal: stop.signal,
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    stop.abort();
+    expect((await pending).allow).toBe(false);
+  });
+
   it("lets the parent approve an ordinary risky call", async () => {
     const { t, broker, asked } = await setup({ Coder: "allow" });
     expect(await broker.check(t.sub, call("bash", { command: "rm -rf dist" }))).toEqual({

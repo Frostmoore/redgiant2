@@ -73,10 +73,25 @@ export class PermissionBroker {
     agent: AgentNode,
     call: ToolCallInfo,
     sessionId?: string,
+    o: {
+      /**
+       * The agent itself asked before acting (G38.6: an external ACP agent's permission request):
+       * the rules alone never make it a yes; someone decides (a parent, the person, their
+       * classifier). A rule's no still stands.
+       */
+      ask?: boolean;
+      /** Stops waiting (the turn was cancelled): a no. */
+      signal?: AbortSignal;
+    } = {},
   ): Promise<PermissionDecision> {
     const settings = this.o.settingsFor(agent);
-    const ev = evaluate(this.o.modeFor(agent), call, settings);
+    const evaluated = evaluate(this.o.modeFor(agent), call, settings);
+    const ev =
+      o.ask && evaluated.decision === "allow"
+        ? { ...evaluated, decision: "ask" as const, reasons: ["the agent asks before doing this"] }
+        : evaluated;
     if (ev.decision === "allow") return { allow: true };
+    if (o.signal?.aborted) return { allow: false, reason: "the turn was stopped" };
     // Allowed for this conversation by the person, unless it is a danger only they approve or a
     // truly dangerous one (G36.17b: asked every time).
     if (
@@ -114,7 +129,7 @@ export class PermissionBroker {
       });
       const answer = approver
         ? await this.o.askAgent(approver, request).catch(() => "escalate" as const)
-        : await this.human(request, settings);
+        : await this.human(request, settings, o.signal);
       // Where the person answered (p3.5.4): the page, a chat, or their time running out.
       const via = approver ? undefined : this.o.answeredVia?.(request.requestId);
       if (typeof answer === "object" && "by" in answer) {
@@ -193,8 +208,13 @@ export class PermissionBroker {
     this.sessionAllows.set(sessionId, set);
   }
 
-  private async human(request: ApprovalRequest, s: PolicySettings): Promise<HumanAnswer> {
+  private async human(
+    request: ApprovalRequest,
+    s: PolicySettings,
+    signal?: AbortSignal,
+  ): Promise<HumanAnswer> {
     const controller = new AbortController();
+    signal?.addEventListener("abort", () => controller.abort(), { once: true });
     // A channel that fails or is cancelled counts as a refusal, never as an approval.
     const asked = this.o.askHuman(request, controller.signal).catch(() => "deny" as const);
     if (s.askTimeoutMs === undefined) return asked;
