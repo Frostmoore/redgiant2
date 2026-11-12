@@ -34,6 +34,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch replaces a build still running (a tag's run is never cancelled).
+concurrency:
+  group: os-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   stack:
     runs-on: ubuntu-latest
