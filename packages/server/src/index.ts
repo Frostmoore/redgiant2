@@ -33,6 +33,7 @@ export {
 } from "./knowledge/service.js";
 export * from "./local-models.js";
 export * from "./login.js";
+export * from "./machines.js";
 export * from "./models-catalog.js";
 export * from "./notes.js";
 export * from "./orchestration.js";
@@ -47,6 +48,7 @@ export * from "./serve.js";
 export * from "./setup.js";
 export * from "./shared-memory.js";
 export * from "./site-match.js";
+export * from "./ssh-tools.js";
 export * from "./terminal.js";
 export * from "./tool-choice.js";
 export * from "./updates.js";

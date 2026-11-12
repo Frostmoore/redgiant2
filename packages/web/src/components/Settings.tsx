@@ -22,6 +22,7 @@ import {
   IconKey,
   IconLayers,
   IconPuzzle,
+  IconServer,
   IconSettings,
   IconShield,
   IconTelegram,
@@ -44,6 +45,7 @@ import { Hierarchy } from "./Hierarchy.js";
 import { ImportFrom } from "./ImportFrom.js";
 import { Keychain } from "./Keychain.js";
 import { Knowledge } from "./Knowledge.js";
+import { Machines } from "./Machines.js";
 import { Platform } from "./Platform.js";
 import { ProjectsPage } from "./ProjectArchive.js";
 import { RemoteSettings } from "./RemoteSettings.js";
@@ -102,6 +104,7 @@ const GROUPS: { title: () => string; sections: Section[] }[] = [
     sections: [
       { id: "code", label: () => t("wzCode"), icon: <IconFolder size={20} /> },
       { id: "remote", label: () => t("wzRemote"), icon: <IconShield size={20} /> },
+      { id: "machines", label: () => t("mcSection"), icon: <IconServer size={20} /> },
       { id: "backup", label: () => t("backup"), icon: <IconArchive size={20} /> },
       { id: "platform", label: () => t("platformView"), icon: <IconLayers size={20} /> },
     ],
@@ -196,6 +199,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "subscriptions" && <Subscriptions />}
         {section === "code" && <CodeSettings />}
         {section === "remote" && <RemoteSettings />}
+        {section === "machines" && <Machines />}
         {section === "budgets" && <Budgets />}
         {section === "backup" && <Backup />}
         {section === "platform" && <Platform />}

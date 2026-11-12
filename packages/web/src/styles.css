@@ -18756,3 +18756,119 @@ html[data-theme="dark"] {
   min-height: 24px;
   margin-left: 8px;
 }
+
+/* Settings > Machines (G38.2): one card per machine, its keys as copyable code. */
+.mc-page .mc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.mc-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mc-ico {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex: none;
+}
+.mc-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.mc-title b {
+  font-size: 1.05rem;
+}
+.mc-state {
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.mc-state.ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.mc-state.bad {
+  color: var(--err);
+  border-color: var(--err);
+}
+.mc-state.new {
+  color: var(--warn-text);
+  border-color: var(--warn);
+}
+.mc-pub {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mc-copy {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.mc-code,
+.mc-fp {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+.mc-code {
+  flex: 1;
+  display: block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  user-select: all;
+}
+.mc-tofu,
+.mc-changed {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.mc-tofu p,
+.mc-changed p {
+  margin: 4px 0;
+}
+.mc-changed {
+  background: var(--critical-soft);
+  color: var(--critical-text);
+  border-color: var(--critical);
+}
+.mc-editor textarea.mc-key {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  width: 100%;
+}
+.mc-hint {
+  margin: 4px 0 8px;
+}
+.mc-safety {
+  margin-top: 14px;
+  font-size: 0.85rem;
+}
+/* The machine a remote call works on, in the chat's tool cards (G38.2). */
+.tool .tmachine {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  flex: none;
+}

@@ -56,6 +56,7 @@ const PAGE_OF: Record<string, Key> = {
   chats: "chats",
   code: "wzCode",
   remote: "wzRemote",
+  machines: "mcSection",
   automations: "automations",
   extensions: "extensions",
 };

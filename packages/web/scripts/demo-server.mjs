@@ -759,6 +759,16 @@ const brain = (req) => {
   };
 };
 
+// DEMO_SSH=1 (G38.2): a fake SSH server (ssh2's own, the tests' helper) on 127.0.0.1, its
+// commands run by the local sh in a temporary folder that stands for the machine.
+const sshDemo = { port: 0 };
+let sshFake;
+let sshHome;
+if (process.env.DEMO_SSH) {
+  sshHome = await mkdtemp(join(tmpdir(), "rg-demo-machine-"));
+  await mkdir(join(sshHome, "releases"), { recursive: true });
+  await writeFile(join(sshHome, "app.log"), "12:00:01 started on :8080\n12:00:02 ready\n");
+}
 const core = await RedGiantCore.create({
   db: wrap(pg),
   providers: new ProviderRegistry()
@@ -806,6 +816,10 @@ const core = await RedGiantCore.create({
   platformDir: join(dir, "platform"),
   defaultModel: { provider: "fake", model: "demo-model" },
   askAgent: async () => "escalate",
+  // DEMO_SSH=1 (G38.2): every machine leads to a fake SSH server on 127.0.0.1, never a real one.
+  ...(process.env.DEMO_SSH && {
+    machines: { dial: () => ({ host: "127.0.0.1", port: sshDemo.port }), connectTimeoutMs: 5000 },
+  }),
 });
 // The models catalog row (3.5.4): the built-in catalog, GitHub never asked.
 core.catalog = new CatalogWatcher({ dataDir: dir, sources: [], feed: null });
@@ -2243,6 +2257,66 @@ if (process.env.DEMO_KNOWLEDGE) {
   await (await core.send("local", knowledgeSession, "Quanto dura la garanzia della lavatrice?"))
     .done;
 }
+// DEMO_SSH=1 (G38.2): two machines in Settings > Machines and a chat with remote commands, the
+// last one truly dangerous (sudo on «web») waiting for the person.
+let sshSession;
+let sshAgent;
+if (process.env.DEMO_SSH) {
+  const web = await core.machines.add("local", {
+    name: "web",
+    host: "web.example.test",
+    user: "deploy",
+    folder: sshHome,
+    access: { everyone: true },
+  });
+  await core.machines.add("local", {
+    name: "pi",
+    host: "pi.example.test",
+    user: "pi",
+    folder: "~/stazione-meteo",
+    access: { everyone: false, agents: [orch.id], projects: [] },
+  });
+  const { fakeSsh } = await import("../../server/test/fake-ssh.ts");
+  sshFake = await fakeSsh({ home: sshHome, keys: [web.publicKey] });
+  sshDemo.port = sshFake.port;
+  const first = await core.machines.test("local", web.id);
+  await core.machines.trust("local", web.id, first.hostKey.fingerprint);
+  await core.machines.test("local", web.id);
+  // God (the project «Demo» is over its budget in the demo, so its agents do not start turns).
+  sshAgent = god.id;
+  await mkdir(core.platformPath("local"), { recursive: true });
+  await writeFile(join(core.platformPath("local"), "README.md"), "# Demo\n\nThe site.\n");
+  sshSession = await core.startSession("local", god.id);
+  const run = async (calls) =>
+    (await core.send("local", sshSession, `Esegui ${JSON.stringify(calls)}`)).done;
+  await run([{ name: "ssh_list", input: {} }]);
+  await run([
+    { name: "ssh_run", input: { machine: "web", command: "uname -s; tail -n 2 app.log" } },
+  ]);
+  await run([
+    {
+      name: "ssh_copy",
+      input: {
+        machine: "web",
+        direction: "upload",
+        local: "README.md",
+        remote: "releases/README.md",
+      },
+    },
+  ]);
+  await run([
+    {
+      name: "ssh_run",
+      input: { machine: "web", command: "ls releases && grep -c Demo releases/README.md" },
+    },
+  ]);
+  // Truly dangerous on another machine: the red card names it, and waits.
+  void core.send(
+    "local",
+    sshSession,
+    `Esegui ${JSON.stringify([{ name: "ssh_run", input: { machine: "web", command: "sudo systemctl restart app" } }])}`,
+  );
+}
 await debugLog.configure({ dir: join(dir, "logs") });
 await setup.applyAtStartup();
 core.vaultSystem = async () => setup.keysForVault();
@@ -2268,5 +2342,6 @@ console.log(
     ...(widgetSession && { widgetSession, artifactSession, plainWidgetSession, kitSession }),
     ...(subSession && { subSession }),
     ...(toolsSession && { toolsSession, branchSession }),
+    ...(sshSession && { sshSession, sshAgent }),
   }),
 );

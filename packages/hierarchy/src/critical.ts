@@ -44,6 +44,17 @@ export interface CriticalContext {
   knownSecrets?: readonly string[];
   /** RedGiant's own files (its settings, its keychain, its database): touching them is critical. */
   protectedPaths?: readonly string[];
+  /**
+   * The person's machines (G38.2), by name: where commands start there and what counts as their
+   * project (the working folder). A machine not here has none: every deletion there is outside.
+   */
+  machines?: Readonly<Record<string, RemoteMachineInfo>>;
+}
+
+/** What the rules need of a machine: its working folder and the home of the user it logs in as. */
+export interface RemoteMachineInfo {
+  folder?: string | undefined;
+  home?: string | undefined;
 }
 
 /**
@@ -158,6 +169,8 @@ interface Where {
   home: string;
   cwd: string;
   ctx: CriticalContext;
+  /** On another machine (G38.2): any deletion outside its working folder is critical. */
+  remote?: boolean;
 }
 
 /** Variables that point to known places, as bash, PowerShell and cmd write them. */
@@ -680,13 +693,64 @@ function deleteTarget(l: Loc, recursive: boolean, w: Where, add: Add, how: strin
   const important = isImportant(l, w);
   if (important)
     return add("critical-delete", `${how} ${important.text}`, say(important.action, showPath(l)));
-  if (recursive && l.kind === "path" && !inRoots(l, w) && !inTmp(l) && !CACHE_PART.test(l.path))
+  if (
+    (recursive || w.remote) &&
+    l.kind === "path" &&
+    !inRoots(l, w) &&
+    !inTmp(l) &&
+    !CACHE_PART.test(l.path)
+  )
     add(
       "critical-delete",
-      `${how} a folder outside the project, for good: ${l.path}`,
-      say("delete-outside", l.path),
+      w.remote
+        ? `${how} outside the machine's working folder, for good: ${l.path}`
+        : `${how} a folder outside the project, for good: ${l.path}`,
+      say(w.remote ? "remote-delete-outside" : "delete-outside", l.path),
     );
 }
+
+/** Running as another user on another machine (G38.2): the prefix and the commands. */
+const REMOTE_SUDO = new Set(["sudo", "doas", "su", "pkexec", "runuser"]);
+/** What else is dangerous on another machine (G38.2): switching it off, its system programs. */
+const REMOTE_COMMANDS: [RegExp, string, CriticalAction][] = [
+  [
+    /^(shutdown|reboot|poweroff|halt|systemctl\s+(reboot|poweroff|halt|kexec|suspend|hibernate)|init\s+[06]|telinit\s+[06])\b/,
+    "switches the machine off or restarts it",
+    "remote-power",
+  ],
+  [
+    /^(apt|apt-get|aptitude)\s+(-\S+\s+)*(install|remove|purge|reinstall|autoremove|upgrade|full-upgrade|dist-upgrade)\b/,
+    "installs or removes system programs",
+    "remote-install",
+  ],
+  [
+    /^(yum|dnf|zypper|microdnf)\s+(-\S+\s+)*(install|in|remove|rm|erase|reinstall|update|upgrade|up|dup|autoremove|groupinstall)\b/,
+    "installs or removes system programs",
+    "remote-install",
+  ],
+  [
+    /^dpkg\s+.*(-i|--install|-r|--remove|-p|--purge)\b/,
+    "installs or removes system programs",
+    "remote-install",
+  ],
+  [
+    /^rpm\s+.*(-i|-u|-e|--install|--upgrade|--erase)\b/,
+    "installs or removes system programs",
+    "remote-install",
+  ],
+  [/^pacman\s+(-\S*[SRU]\S*)\b/, "installs or removes system programs", "remote-install"],
+  [/^apk\s+(-\S+\s+)*(add|del|upgrade)\b/, "installs or removes system programs", "remote-install"],
+  [
+    /^(snap|flatpak)\s+(install|remove|uninstall|refresh)\b/,
+    "installs or removes system programs",
+    "remote-install",
+  ],
+  [
+    /^(emerge|pkg|brew|port)\s+(-\S+\s+)*(install|uninstall|remove|delete|upgrade)\b/,
+    "installs or removes system programs",
+    "remote-install",
+  ],
+];
 
 function writeTarget(l: Loc | undefined, w: Where, add: Add, how = "changes") {
   if (!l) return;
@@ -842,6 +906,23 @@ function shellRules(command: string, w: Where, add: Add, depth = 0): void {
     const name = baseName(first);
     if (!name) continue;
     const line = [name, ...args].join(" ").toLowerCase();
+    if (here.remote) {
+      // As another user (sudo in front, or su itself), then what switches it off or changes its programs.
+      const prefix = c.words.slice(0, c.words.length - ws.length).map(baseName);
+      if (REMOTE_SUDO.has(name) || prefix.some((p) => REMOTE_SUDO.has(p)))
+        add("critical-system", `runs a command as administrator: ${short(c.text.trim())}`, {
+          action: "remote-sudo",
+          target: short(c.text.trim()),
+        });
+      // As written: pacman's -S installs, its -s searches.
+      const said = [name, ...args].join(" ");
+      for (const [re, why, action] of REMOTE_COMMANDS)
+        if (re.test(said))
+          add("critical-system", why, {
+            action,
+            ...(action === "remote-install" && { target: short(said) }),
+          });
+    }
     // Shells inside shells.
     if (["bash", "sh", "zsh", "dash", "ksh"].includes(name)) {
       const i = args.findIndex((a) => /^-[a-z]*c$/.test(a));
@@ -1163,6 +1244,44 @@ const PROTECTION_TOOLS: Record<string, [string, CriticalAction]> = {
 
 // -------------------------------------------------------------------------------------------
 
+/**
+ * The person's machines (G38.2): a command there is read with the same rules, its working folder
+ * standing for the project (none: every deletion is outside), its user's home for `~`, and
+ * RedGiant's own files left out (they are on this computer). Sudo, switching it off and its
+ * system programs are critical there too. Each hit says which machine.
+ */
+function remoteRules(input: Record<string, unknown>, ctx: CriticalContext, add: Add) {
+  const machine = typeof input.machine === "string" ? input.machine : "";
+  const m = ctx.machines?.[machine];
+  const home = m?.home ? posixKey(m.home) : "/__remote_home__";
+  const folder = m?.folder ? posixKey(m.folder) : undefined;
+  const base = folder ?? home;
+  const cwd =
+    typeof input.cwd === "string" && input.cwd.trim()
+      ? posix.resolve(base, input.cwd.trim().replace(/^~(?=\/|$)/, home))
+      : base;
+  const w: Where = {
+    roots: folder ? [folder] : [],
+    home,
+    cwd,
+    ctx: { ...ctx, protectedPaths: [] },
+    remote: true,
+  };
+  const there: Add = (id, why, say) =>
+    add(id, `on the machine "${machine}": ${why}`, {
+      ...say,
+      // Not "your" home there: the home of the user it logs in as.
+      action: say.action === "delete-your-home" ? "delete-home" : say.action,
+      machine,
+    });
+  if (input.direction === undefined && typeof input.command === "string")
+    shellRules(input.command, w, there);
+  // An upload writes there: into its system folders is critical (a download writes here, inside
+  // the agent's workspace, and the tool keeps it there).
+  if (input.direction === "upload" && typeof input.remote === "string")
+    writeTarget(locate(input.remote, w), w, there, "uploads into");
+}
+
 /** Whether a tool call is truly dangerous, and why: one hit per kind, in the order found. */
 export function criticalOf(call: ToolCallInfo, ctx: CriticalContext = {}): CriticalHit[] {
   const hits: CriticalHit[] = [];
@@ -1184,6 +1303,7 @@ export function criticalOf(call: ToolCallInfo, ctx: CriticalContext = {}): Criti
   const protection = PROTECTION_TOOLS[name];
   if (protection) add("critical-protections", protection[0], { action: protection[1] });
   if (name === "bash" && typeof input.command === "string") shellRules(input.command, w, add);
+  else if (name.startsWith("ssh_")) remoteRules(input, ctx, add);
   else if (name === "write_file" || name === "edit_file") fileRules(input, name, w, add);
   else if (name === "canvas_edit") editorRules(input, w, add);
   else if (name === "run_script") textRules(JSON.stringify(call.input ?? ""), add);

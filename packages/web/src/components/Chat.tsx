@@ -23,6 +23,7 @@ import {
   IconInfo,
   IconLayers,
   IconPlay,
+  IconServer,
   IconShield,
   IconSpinner,
   IconStop,
@@ -337,10 +338,21 @@ function ToolLine({
 }) {
   const [open, setOpen] = useState(false);
   const input = item.input as Record<string, unknown> | undefined;
+  // A copy to or from one of the person's machines (G38.2): which way, from where to where.
+  const copy =
+    item.tool === "ssh_copy" && input
+      ? input.direction === "download"
+        ? `${String(input.remote ?? "")} -> ${String(input.local ?? "")}`
+        : `${String(input.local ?? "")} -> ${String(input.remote ?? "")}`
+      : undefined;
+  // The machine a remote call works on, beside the tool's name.
+  const machine =
+    item.tool.startsWith("ssh_") && typeof input?.machine === "string" ? input.machine : undefined;
   const summary =
     typeof input === "object" && input
       ? String(
-          input.command ??
+          copy ??
+            input.command ??
             input.path ??
             input.pattern ??
             input.query ??
@@ -373,6 +385,12 @@ function ToolLine({
           )}
         </span>
         <span class="tname">{item.tool}</span>
+        {machine && (
+          <span class="tmachine" title={t("toolOnMachine", { name: machine })}>
+            <IconServer size={12} />
+            {machine}
+          </span>
+        )}
         {item.viaScript && <span class="tvia">{t("viaScript")}</span>}
         <span class="tsum">{summary.replace(/\s+/g, " ").slice(0, 140)}</span>
         {took && <span class="ttook">{took}</span>}

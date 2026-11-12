@@ -593,6 +593,9 @@ importers:
       smol-toml:
         specifier: ^1.9.1
         version: 1.9.1
+      ssh2:
+        specifier: ^1.17.0
+        version: 1.17.0
       tesseract.js:
         specifier: 7.0.0
         version: 7.0.0
@@ -621,6 +624,9 @@ importers:
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
+      '@types/ssh2':
+        specifier: ^1.15.6
+        version: 1.15.6
       '@types/three':
         specifier: ^0.187.0
         version: 0.187.0

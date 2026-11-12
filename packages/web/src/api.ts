@@ -25,6 +25,10 @@ import {
   type LocalEmbeddingModel,
   type LocalModel,
   type LocalRerankModel,
+  type MachineAccess,
+  type MachineAuth,
+  type MachineTest,
+  type MachineView,
   type MagicAutomation,
   type Mailbox as MailboxInfo,
   type ModelsCatalogStatus,
@@ -1254,6 +1258,43 @@ export class Api {
   ) => this.call<MailboxInfo>("PUT", `/api/settings/mailboxes/${encodeURIComponent(id)}`, b);
   removeMailbox = (id: string) =>
     this.call("DELETE", `/api/settings/mailboxes/${encodeURIComponent(id)}`);
+  /** The person's machines over SSH (G38.2): public keys and fingerprints, never a secret. */
+  machines = () => this.call<{ machines: MachineView[] }>("GET", "/api/settings/machines");
+  addMachine = (b: {
+    name: string;
+    host: string;
+    port: number;
+    user: string;
+    auth: MachineAuth;
+    privateKey?: string;
+    passphrase?: string;
+    password?: string;
+    folder?: string;
+    access: MachineAccess;
+  }) => this.call<MachineView>("POST", "/api/settings/machines", b);
+  updateMachine = (
+    id: string,
+    b: Partial<{
+      name: string;
+      host: string;
+      port: number;
+      user: string;
+      folder: string | null;
+      access: MachineAccess;
+      password: string | null;
+      privateKey: string;
+      passphrase: string | null;
+      newKey: boolean;
+    }>,
+  ) => this.call<MachineView>("PUT", `/api/settings/machines/${encodeURIComponent(id)}`, b);
+  removeMachine = (id: string) =>
+    this.call("DELETE", `/api/settings/machines/${encodeURIComponent(id)}`);
+  testMachine = (id: string) =>
+    this.call<MachineTest>("POST", `/api/settings/machines/${encodeURIComponent(id)}/test`);
+  trustMachine = (id: string, fingerprint: string) =>
+    this.call<MachineView>("POST", `/api/settings/machines/${encodeURIComponent(id)}/trust`, {
+      fingerprint,
+    });
   /** The recipe as the server reads it, or why not, and its next times (G33.3). */
   previewAutomation = (yaml: string, count = 5) =>
     this.call<{ recipe: Recipe | null; error: string | null; next: string[] }>(
