@@ -8,8 +8,7 @@
 // is recorded in the conversation's log (`remote.command`: machine, command, exit code, time).
 import { createReadStream, createWriteStream } from "node:fs";
 import { lstat, mkdir, readdir, realpath } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
-import { posix } from "node:path";
+import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { Tool, ToolContext } from "@redgiant/agent";
 import type { MachineView } from "@redgiant/protocol";

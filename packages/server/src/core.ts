@@ -186,8 +186,6 @@ import {
   type MailboxInput,
   type MailSender,
 } from "./email.js";
-import { type MachineOptions, Machines } from "./machines.js";
-import { type SshToolsHost, sshTools } from "./ssh-tools.js";
 import { FileTriggers } from "./file-triggers.js";
 import type { GitHosts } from "./git-hosts.js";
 import { IMAGE_MODEL, imageFileName } from "./images.js";
@@ -202,6 +200,7 @@ import type {
 } from "./knowledge/service.js";
 import { knowledgeSection, searchKnowledgeTool } from "./knowledge/tool.js";
 import { LoginStore, migrateLogin } from "./login.js";
+import { type MachineOptions, Machines } from "./machines.js";
 import {
   MAGIC_PROMPT,
   MagicAutomations,
@@ -257,6 +256,7 @@ import { migrateRooms, Rooms } from "./rooms.js";
 import { scriptTool } from "./script.js";
 import { SharedMemory } from "./shared-memory.js";
 import { SKILL_PROMPT, SkillNudge } from "./skill-nudge.js";
+import { type SshToolsHost, sshTools } from "./ssh-tools.js";
 import { dryWorkspace, ToolChoiceStore, toolChars, toolsView } from "./tool-choice.js";
 import { UpdateRequiredError, type UpdateWatcher } from "./updates.js";
 import {

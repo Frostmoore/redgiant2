@@ -12,8 +12,8 @@ import {
   readdirSync,
   readSync,
   realpathSync,
-  statSync,
   type Stats,
+  statSync,
   writeSync,
 } from "node:fs";
 import type { AddressInfo } from "node:net";

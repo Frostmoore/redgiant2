@@ -10,7 +10,7 @@ import type { ToolContext } from "@redgiant/agent";
 import type { Event, MachineTest, MachineView } from "@redgiant/protocol";
 import ssh2 from "ssh2";
 import { afterEach, describe, expect, it } from "vitest";
-import { hostKeyOf, homeOf, mayUse } from "../src/machines.js";
+import { homeOf, hostKeyOf, mayUse } from "../src/machines.js";
 import { type SshToolsHost, sshTools } from "../src/ssh-tools.js";
 import { type FakeSsh, fakeSsh } from "./fake-ssh.js";
 import { startServer } from "./helpers.js";
@@ -483,6 +483,19 @@ describe.runIf(process.platform !== "win32")(
       expect(log).toMatch(/# run {6}\[web\] echo started/);
       expect(log).toMatch(/out {2}started\n[^\n]*out {2}finished/);
       expect(records[0]).toMatchObject({ status: "background", machine: "web" });
+    });
+
+    it("the example skill (docs/skills/remote-machine) loads and names only real tools", async () => {
+      const { loadSkills } = await import("@redgiant/extensions");
+      const docs = join(import.meta.dirname, "..", "..", "..", "docs");
+      const [skill] = (await loadSkills([{ dir: docs, scope: "platform" }])).filter(
+        (x) => x.name === "remote-machine",
+      );
+      expect(skill?.description).toMatch(/ssh_run/);
+      const names = sshTools(undefined, {} as SshToolsHost).map((x) => x.def.name);
+      const said = [...new Set(skill?.body.match(/\bssh_[a-z]+/g) ?? [])].sort();
+      expect(said).toEqual([...names].sort());
+      expect(skill?.body).toMatch(/never see a key or a password/);
     });
 
     it("who may use a machine, and the home of its user", () => {
