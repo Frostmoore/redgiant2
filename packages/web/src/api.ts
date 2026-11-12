@@ -1685,6 +1685,15 @@ export class Api {
   /** The open copy of a DOCX/PPTX (made with its bar when missing). */
   officeCopy = (scope: string, path: string) =>
     this.call<{ path: string; job?: string }>("POST", "/api/editor/office/copy", { scope, path });
+  /** An original's open copy, if it exists, and whether it is older than the original (p3.5.12). */
+  editorCopy = (scope: string, path: string) =>
+    this.call<{ copy: string | null; stale?: boolean }>(
+      "GET",
+      `/api/editor/copy?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(path)}`,
+    );
+  /** «Rifai la copia»: the open copy made again from its original, as a job (p3.5.12). */
+  remakeCopy = (scope: string, path: string) =>
+    this.call<{ job: string }>("POST", "/api/editor/copy/remake", { scope, path });
   /** «Esporta come…»: the document in another format. */
   async officeExport(scope: string, path: string, to: string): Promise<Blob> {
     const r = await fetch("/api/editor/office/export", {

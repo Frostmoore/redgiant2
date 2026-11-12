@@ -60,9 +60,9 @@ export const blendOf = (abs: string) => {
 };
 
 /** Makes the GLB copy of an OBJ/STL/PLY here (atomic), unless it is there already. */
-export async function writeJsCopy(abs: string): Promise<boolean> {
+export async function writeJsCopy(abs: string, again = false): Promise<boolean> {
   const out = join(dirname(abs), modelCopyOfOriginal(basename(abs)) as string);
-  if (existsSync(out)) return false;
+  if (existsSync(out) && !again) return false;
   const glb = jsModelToGlb(new Uint8Array(await readFile(abs)), basename(abs));
   await mkdir(dirname(out), { recursive: true });
   await writeFile(`${out}.part`, glb);

@@ -17,7 +17,7 @@ import {
 } from "@redgiant/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { atomicWrite, EditorHost } from "../src/editor/host.js";
-import { textFamily } from "../src/editor/text-family.js";
+import { overlaps, textFamily } from "../src/editor/text-family.js";
 import { memoryDb } from "./pglite.js";
 
 let dir: string;
@@ -375,6 +375,82 @@ describe("EditorHost: undo", () => {
     expect(u4).toBeDefined();
   });
 
+  // p3.5.12 (the person's test of 3.5.11): «Annulla questa modifica» on one of many lines added
+  // one below the other was refused because the next one «changed the same place later».
+  const TWELVE = Array.from({ length: 12 }, (_, i) => `l${i + 1}`).join("\n");
+  it.each([1, 2, 7, 10, 14, 19, 20])(
+    "p3.5.12: 20 lines added one below the other; undoing revision %i alone works",
+    async (target) => {
+      await writeFile(join(dir, "ws", file.path), TWELVE);
+      const h = host();
+      let text = TWELVE;
+      for (let k = 0; k < 20; k++) {
+        const out = await h.apply(ME, file, {
+          author: ADA,
+          baseRevision: k,
+          ops: agentOps(text, [{ op: "insert", line: 11 + k, text: `new${k + 1}\n` }]),
+          groupId: "turn:1",
+        });
+        expect(out.ok).toBe(true);
+        text = (await h.read(ME, file)).model?.toString() ?? "";
+      }
+      const out = await h.undo(ME, file, { revision: target }, PERSONA);
+      expect(out).toMatchObject({ ok: true, revision: 21 });
+      const lines = TWELVE.split("\n");
+      const added = Array.from({ length: 20 }, (_, i) => `new${i + 1}`).filter(
+        (l) => l !== `new${target}`,
+      );
+      expect((await h.read(ME, file)).model?.toString()).toBe(
+        [...lines.slice(0, 10), ...added, ...lines.slice(10)].join("\n"),
+      );
+    },
+  );
+
+  it("p3.5.12: text added at a line's end, then a line right below: the first undoes alone", async () => {
+    const h = host();
+    // «two» becomes «two!», then a whole line goes right after it (where «three» began).
+    await h.apply(ME, file, {
+      author: PERSONA,
+      baseRevision: 0,
+      ops: [personOp(LINES, { from: 7, insert: "!" })],
+      groupId: "p1",
+    });
+    const t1 = "one\ntwo!\nthree\nfour\nfive";
+    await h.apply(ME, file, {
+      author: ADA,
+      baseRevision: 1,
+      ops: agentOps(t1, [{ op: "insert", line: 3, text: "between\n" }]),
+      groupId: "turn:1",
+    });
+    expect(await h.undo(ME, file, { revision: 1 }, PERSONA)).toMatchObject({ ok: true });
+    expect((await h.read(ME, file)).model?.toString()).toBe("one\ntwo\nbetween\nthree\nfour\nfive");
+    // And the line below undoes alone too, with the first one back.
+    expect(await h.undo(ME, file, { revision: 3 }, PERSONA)).toMatchObject({ ok: true });
+    expect(await h.undo(ME, file, { revision: 2 }, PERSONA)).toMatchObject({ ok: true });
+    expect((await h.read(ME, file)).model?.toString()).toBe("one\ntwo!\nthree\nfour\nfive");
+  });
+
+  it("p3.5.12: a later change inside what the revision added still holds it", async () => {
+    const h = host();
+    await h.apply(ME, file, {
+      author: ADA,
+      baseRevision: 0,
+      ops: agentOps(LINES, [{ op: "insert", line: 3, text: "added line\n" }]),
+      groupId: "turn:1",
+    });
+    const t1 = "one\ntwo\nadded line\nthree\nfour\nfive";
+    // The person types inside the added line.
+    await h.apply(ME, file, {
+      author: PERSONA,
+      baseRevision: 1,
+      ops: [personOp(t1, { from: 13, insert: "new " })],
+      groupId: "p1",
+    });
+    const out = await h.undo(ME, file, { revision: 1 }, PERSONA);
+    expect(out.ok === false && out.code).toBe("conflict");
+    expect(out.ok === false && out.conflict).toBe(2);
+  });
+
   it("«Annulla tutto il turno» takes back the whole group, the person's change in between stays", async () => {
     const h = host();
     await three(h);
@@ -567,5 +643,32 @@ describe("EditorHost: proposals, notes, blobs", () => {
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
     expect([...((await h.blob(hash)) ?? [])]).toEqual([1, 2, 3, 255]);
     expect(await h.blob("../../etc/passwd")).toBeUndefined();
+  });
+});
+
+describe("p3.5.12: the same place in a text is a true overlap, not a shared edge", () => {
+  const base = "0123456789";
+  const c = (spec: { from: number; to?: number; insert?: string }) =>
+    ChangeSet.of(spec, base.length);
+  it.each([
+    // [what, a, b, same place]
+    ["a deletion and an insertion at its end", { from: 2, to: 4 }, { from: 4, insert: "x" }, false],
+    [
+      "a deletion and an insertion at its start",
+      { from: 2, to: 4 },
+      { from: 2, insert: "x" },
+      false,
+    ],
+    ["a deletion and an insertion inside it", { from: 2, to: 4 }, { from: 3, insert: "x" }, true],
+    ["an insertion and a deletion around it", { from: 3, insert: "x" }, { from: 2, to: 4 }, true],
+    ["two insertions at one point", { from: 3, insert: "x" }, { from: 3, insert: "y" }, true],
+    ["two insertions side by side", { from: 3, insert: "x" }, { from: 4, insert: "y" }, false],
+    ["two ranges that share an edge", { from: 2, to: 4 }, { from: 4, to: 6 }, false],
+    ["two ranges that share a character", { from: 2, to: 5 }, { from: 4, to: 6 }, true],
+    ["a range inside another", { from: 1, to: 8 }, { from: 4, to: 5, insert: "z" }, true],
+    ["far apart", { from: 0, to: 1 }, { from: 8, to: 9 }, false],
+  ] as const)("%s: %s", (_what, a, b, same) => {
+    expect(overlaps(c(a), c(b))).toBe(same);
+    expect(overlaps(c(b), c(a))).toBe(same);
   });
 });

@@ -16651,6 +16651,24 @@ fieldset.vw-seg {
     display: none;
   }
 }
+/* An open copy older than its original (p3.5.12): the line and «Rifai la copia» beside it. */
+.copy-stale {
+  align-items: center;
+}
+.copy-stale > .button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.copy-stale .error {
+  color: var(--err);
+}
+/* On a phone, over a document or a presentation (p3.5.12): only to look at. */
+.canvas-phone-note {
+  align-items: center;
+}
 
 /* PDFs (G37.8): pdf.js's viewer and its editor inside the editor's shell. */
 .doc-main > .pdfed {

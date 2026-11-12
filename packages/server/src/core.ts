@@ -161,11 +161,11 @@ import { type CanvasToolsHost, canvasTools } from "./canvas-tools.js";
 import { canvasView } from "./canvas-view.js";
 import { CHAT_AGENT_PROMPT, ChatError, DailyChat, migrateChat } from "./chat.js";
 import { CodeChanges, platformCodeTools, type SourceOptions } from "./code.js";
-import { FileConverter } from "./convert.js";
+import { FileConverter, readManifest } from "./convert.js";
 import { Programs } from "./convert-programs.js";
 import { convertTools, vaultFigma } from "./convert-tools.js";
 import { debugLog } from "./debug-log.js";
-import { originalOfSheetCopy } from "./editor/copies.js";
+import { copyOfAnyOriginal, originalOfSheetCopy } from "./editor/copies.js";
 import { EditorHost, type EditorHostOptions } from "./editor/host.js";
 import { ImageFamily, oraCopyOfOriginal } from "./editor/image-family.js";
 import { JS_COPIES } from "./editor/model/convert.js";
@@ -3018,7 +3018,12 @@ export class RedGiantCore implements OrchestrationHost {
     ctx: ToolContext,
   ): Promise<string | undefined> {
     const where = await this.scopeOf(agent.ownerId, r.abs).catch(() => undefined);
-    const target = { kind: "file" as const, ...(where ?? { scope: "outside", path: r.abs }) };
+    // An original with an open copy: the copy, in the original's tab (p3.5.12).
+    const through = where ? await this.shownThroughCopy(agent.ownerId, where) : undefined;
+    const target = {
+      kind: "file" as const,
+      ...(through?.file ?? { scope: "outside", path: r.abs }),
+    };
     if (!where) (await this.shownOutside(agent.ownerId)).add(r.abs);
     this.artifactErrors.shown(
       ArtifactErrors.fileKey(agent.ownerId, target.scope, target.path),
@@ -3033,6 +3038,7 @@ export class RedGiantCore implements OrchestrationHost {
     });
     if (!where)
       return "It is outside every workspace: the canvas shows it as it is, in the viewer for its kind, and converts nothing.";
+    if (through?.said) return through.said;
     if (await isArtifactFile(r.abs, where.path)) return ARTIFACT_SHOWN.trim();
     try {
       const root = await this.scopeRoot(agent.ownerId, where.scope);
@@ -3175,7 +3181,11 @@ export class RedGiantCore implements OrchestrationHost {
    * The open copy the editor works on for a closed file, made if missing: a DOCX's ODT (G37.4),
    * an AI/EPS's SVG (G37.6), a PSD's OpenRaster (G37.5); undefined when the file has none.
    */
-  private async openCopy(ownerId: string, file: DocFile): Promise<DocFile | undefined> {
+  private async openCopy(
+    ownerId: string,
+    file: DocFile,
+    again = false,
+  ): Promise<DocFile | undefined> {
     // A 3D file's GLB copy (G37.7): OBJ/STL/PLY made here, the others through Blender.
     const model = modelCopyOfOriginal(file.path);
     if (model) {
@@ -3183,8 +3193,9 @@ export class RedGiantCore implements OrchestrationHost {
       const here = await stat(join(dirname(abs), `${basename(abs)}.open`, basename(model)))
         .then((s) => s.isFile())
         .catch(() => false);
-      if (!here) {
-        if (JS_COPIES.test(file.path) && !this.programs.find("blender")) await writeJsCopy(abs);
+      if (!here || again) {
+        if (JS_COPIES.test(file.path) && !this.programs.find("blender"))
+          await writeJsCopy(abs, again);
         else
           await this.converter.convert(await this.scopeRoot(ownerId, file.scope), file.path, {
             owner: ownerId,
@@ -3202,7 +3213,7 @@ export class RedGiantCore implements OrchestrationHost {
     const root = await this.scopeRoot(ownerId, file.scope);
     const ws = new LocalWorkspace(root);
     const here = await stat(await ws.resolve(copy)).catch(() => undefined);
-    if (!here?.isFile()) {
+    if (!here?.isFile() || again) {
       // A Photoshop file's OpenRaster copy is made by our own code (G37.5): nothing to download.
       if (!copy.endsWith(".ora") && !this.programs.find("libreoffice"))
         await this.programs.ensure(ownerId, "libreoffice");
@@ -3212,6 +3223,78 @@ export class RedGiantCore implements OrchestrationHost {
       });
     }
     return { scope: file.scope, path: copy };
+  }
+
+  /**
+   * The open copy an original's tab shows instead of it (p3.5.12, the person's test of 3.5.11:
+   * show_file on a PPTX showed it without the slide added to its ODP copy): when the copy exists,
+   * and `stale` when the original changed since the copy was made (outside RedGiant: writing it
+   * back from the copy keeps the copy's record fresh).
+   */
+  async copyShown(
+    ownerId: string,
+    file: DocFile,
+  ): Promise<{ copy: DocFile; stale: boolean } | undefined> {
+    if (file.scope === "outside") return undefined;
+    const copy = copyOfAnyOriginal(file.path);
+    if (!copy) return undefined;
+    const root = await this.scopeRoot(ownerId, file.scope).catch(() => undefined);
+    if (!root) return undefined;
+    const ws = new LocalWorkspace(root);
+    const here = await ws
+      .resolve(copy)
+      .then((abs) => stat(abs))
+      .catch(() => undefined);
+    if (!here?.isFile()) return undefined;
+    const st = await ws
+      .resolve(file.path)
+      .then((abs) => stat(abs))
+      .catch(() => undefined);
+    const made = await readManifest(root, file.path);
+    const stale =
+      !!st &&
+      !!made &&
+      (made.sourceSize !== st.size || made.sourceModifiedAt !== st.mtime.toISOString());
+    return { copy: { scope: file.scope, path: copy }, stale };
+  }
+
+  /**
+   * «Rifai la copia» (p3.5.12): the open copy made again from its original, over the old one. The
+   * editor sees the copy change on disk (a change from outside, undoable like any other).
+   */
+  async remakeCopy(ownerId: string, file: DocFile): Promise<DocFile> {
+    this.assertWritable(ownerId, file.scope);
+    if (!copyOfAnyOriginal(file.path))
+      throw new BadRequestError(`${basename(file.path)} has no open copy to make again`);
+    // What the editor still holds for the old copy goes to disk first, then is replaced.
+    await this.editor.flush();
+    const copy = await this.openCopy(ownerId, file, true);
+    if (!copy) throw new BadRequestError(`${basename(file.path)} has no open copy to make again`);
+    return copy;
+  }
+
+  /**
+   * What the canvas opens for a file an agent shows: an original with an open copy shows the copy
+   * in its tab (p3.5.12), with a line for the agent saying so.
+   */
+  private async shownThroughCopy(
+    ownerId: string,
+    file: DocFile,
+  ): Promise<{ file: DocFile; said?: string }> {
+    const shown = await this.copyShown(ownerId, file).catch(() => undefined);
+    if (!shown) return { file };
+    const name = basename(file.path);
+    return {
+      file: shown.copy,
+      said: [
+        `${name} has an open copy, ${shown.copy.path}: the canvas shows that copy in ${name}'s tab, with the bar saying it is a copy, because that is where the edits are (canvas_edit edits it; ${name} changes only if the person turned on writing it back).`,
+        ...(shown.stale
+          ? [
+              `${name} changed outside after the copy was made: the copy does not have those changes. The bar tells the person and offers «Rifai la copia» (the copy made again from ${name}; its edits are replaced, and stay undoable).`,
+            ]
+          : []),
+      ].join(" "),
+    };
   }
 
   /** A file on disk as the editor names it (its workspace's scope and path), if it is in one. */
@@ -3884,6 +3967,7 @@ export class RedGiantCore implements OrchestrationHost {
       run: async (i: z.infer<typeof Input>, ctx) => {
         if (!!i.path === (i.port !== undefined))
           return { content: "Give either path or port.", isError: true };
+        let copyNote: string | undefined;
         let target:
           | { kind: "file"; scope: string; path: string }
           | { kind: "port"; agentId: string; port: number; path?: string };
@@ -3892,7 +3976,13 @@ export class RedGiantCore implements OrchestrationHost {
           if (!(await ws.exists(i.path).catch(() => false)))
             return { content: `There is no "${i.path}" in your workspace.`, isError: true };
           const abs = await new LocalWorkspace(ws.root).resolve(i.path);
-          target = { kind: "file", ...(await this.scopeOf(agent.ownerId, abs)) };
+          // An original with an open copy: the copy, in the original's tab (p3.5.12).
+          const through = await this.shownThroughCopy(
+            agent.ownerId,
+            await this.scopeOf(agent.ownerId, abs),
+          );
+          target = { kind: "file", ...through.file };
+          copyNote = through.said;
         } else {
           target = {
             kind: "port",
@@ -3927,7 +4017,7 @@ export class RedGiantCore implements OrchestrationHost {
           sessionId: ctx.sessionId,
           body: { type: "canvas.show", payload: { title, target } },
         });
-        return `Shown in the canvas: ${title}. The person sees it next to the chat; it updates when the files change.${artifact ? ARTIFACT_SHOWN : ""}`;
+        return `Shown in the canvas: ${title}. The person sees it next to the chat; it updates when the files change.${artifact ? ARTIFACT_SHOWN : ""}${copyNote ? `\n${copyNote}` : ""}`;
       },
     } as Tool;
   }

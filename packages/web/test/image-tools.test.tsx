@@ -15,6 +15,7 @@ import {
   brushStep,
   DEFAULT_OPTIONS,
   defaultShown,
+  deleteKeyDoes,
   type ImageTool,
   marqueeRect,
   SELECTING,
@@ -270,4 +271,24 @@ describe("one gesture, one undo, Ctrl+Z after its revision (p3.5.7)", () => {
     c.reset(20);
     await w3;
   });
+});
+
+describe("p3.5.12: Delete on the picture or a layer, as Photoshop", () => {
+  it.each([
+    // selection, typing, layers, a layer chosen → what Delete does
+    [true, false, 3, true, "clear"],
+    [true, false, 1, true, "clear"],
+    [false, false, 3, true, "layer"],
+    [false, false, 2, true, "layer"],
+    [false, false, 1, true, "last-layer"],
+    [false, false, 3, false, undefined],
+    [false, false, 0, false, undefined],
+    [false, true, 3, true, undefined],
+    [true, true, 3, true, undefined],
+  ] as const)(
+    "selection %s, typing %s, %i layers, chosen %s: %s",
+    (selection, typing, layers, current, does) => {
+      expect(deleteKeyDoes({ selection, typing, layers, current })).toBe(does);
+    },
+  );
 });

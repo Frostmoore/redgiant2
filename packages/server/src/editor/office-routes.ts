@@ -9,6 +9,9 @@
 //   POST /api/editor/office/replace      the person's find and replace (the editor without ZetaOffice)
 //   POST /api/editor/office/copy         the open copy of a DOCX/PPTX… (made with its bar if missing)
 //   POST /api/editor/office/export       «Esporta come…»: the document in another format, to download
+//   GET  /api/editor/copy?scope&path     an original's open copy, if it exists, and whether it is
+//                                        older than the original (p3.5.12, any closed format)
+//   POST /api/editor/copy/remake         «Rifai la copia»: made again from the original, as a job
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { basename, extname } from "node:path";
@@ -174,6 +177,32 @@ export function officeRoutes<E extends { Variables: any }>(
       { name: basename(file.path) },
     );
     return c.json({ path: copy, job: job.id }, 202);
+  });
+
+  app.get("/api/editor/copy", async (c) => {
+    const file = fileOf(c.req.query("scope"), c.req.query("path"));
+    const shown = await core.copyShown(owner(c), file);
+    return c.json(shown ? { copy: shown.copy.path, stale: shown.stale } : { copy: null }, 200);
+  });
+
+  app.post("/api/editor/copy/remake", async (c) => {
+    const o = owner(c);
+    const b = await c.req
+      .json<{ scope?: string; path?: string }>()
+      .catch(() => ({}) as Record<string, never>);
+    const file = fileOf(b.scope, b.path);
+    core.assertWritable(o, file.scope);
+    const job = core.jobs.start(
+      o,
+      "convert_file",
+      ["convert"],
+      async (h) => {
+        h.step("convert");
+        return core.remakeCopy(o, file);
+      },
+      { name: basename(file.path) },
+    );
+    return c.json({ job: job.id }, 202);
   });
 
   app.post("/api/editor/office/export", async (c) => {
