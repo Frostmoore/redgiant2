@@ -16,6 +16,7 @@ import {
   IconKey,
   IconLayers,
   IconLock,
+  IconMail,
   IconSearch,
   IconUsers,
 } from "../icons.js";
@@ -28,6 +29,7 @@ const GROUP_ICON: Record<ToolGroup, () => JSX.Element> = {
   memory: () => <IconBook size={20} />,
   credentials: () => <IconKey size={20} />,
   canvas: () => <IconCanvas size={20} />,
+  mail: () => <IconMail size={20} />,
   talk: () => <IconChat size={20} />,
   agents: () => <IconUsers size={20} />,
   platform: () => <IconLayers size={20} />,

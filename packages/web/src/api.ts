@@ -1232,6 +1232,7 @@ export class Api {
     user: string;
     password: string;
     smtp?: { host: string; port: number; secure: boolean };
+    agents?: boolean;
   }) => this.call<MailboxInfo>("POST", "/api/settings/mailboxes", b);
   updateMailbox = (
     id: string,
@@ -1244,6 +1245,7 @@ export class Api {
       user: string;
       password: string;
       smtp: { host: string; port: number; secure: boolean } | null;
+      agents: boolean;
     }>,
   ) => this.call<MailboxInfo>("PUT", `/api/settings/mailboxes/${encodeURIComponent(id)}`, b);
   removeMailbox = (id: string) =>

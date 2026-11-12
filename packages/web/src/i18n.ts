@@ -3400,6 +3400,9 @@ const en = {
   axSmtpHost: "Sending server (SMTP)",
   axSmtpHostHelp: "Only to get messages by email; empty: the usual one.",
   axSmtpPort: "Sending port",
+  axMailboxAgents: "Agents may use it",
+  axMailboxAgentsHelp:
+    "They search, read and write drafts here; every email they send asks you first and shows it whole.",
   axMailboxAdd: "Add a mailbox",
   axMailboxAddText: "As many as you like, each in its category.",
   axMagic: "Magic automation",
@@ -4215,6 +4218,36 @@ const en = {
   tool_knowledge_status: "See the knowledge's state",
   toolDo_knowledge_status:
     "Tells which collections there are, what was read and whether the search goes by meaning.",
+  // G38.1: email for the agents
+  toolGrp_mail: "Email",
+  tool_mail_search: "Search email",
+  toolDo_mail_search:
+    "Searches the mailboxes you opened to the agents by sender, subject, words, dates, unread or attachments.",
+  tool_mail_read: "Read email",
+  toolDo_mail_read:
+    "Reads one email as plain text and lists its attachments; it can save them in its folder. Nothing is marked as read.",
+  tool_mail_draft: "Write drafts",
+  toolDo_mail_draft:
+    "Writes a draft, a reply or a forward in your Drafts, with files attached; nothing is sent.",
+  tool_mail_send: "Send email",
+  toolDo_mail_send:
+    "Sends an email or a draft; you always see it whole and say yes or no before it leaves.",
+  tool_mail_move: "File email",
+  toolDo_mail_move:
+    "Marks read or unread, flags, archives, moves to the bin or a folder; deleting for good asks you.",
+  mailCardNone: "No message found",
+  mailCardMore: "{n} more",
+  mailCardAttachments: "{n} attachments",
+  mailCardAttachment: "1 attachment",
+  mailCardSaved: "saved",
+  mailCardShowAll: "Show all",
+  mailCardShowLess: "Show less",
+  mailCardFolder: "{mailbox}, {folder}",
+  mailCardDraft: "Draft",
+  mailCardTo: "To",
+  mailCardSubject: "Subject",
+  mailCardUnread: "unread",
+  mailPermTitle: "The email, as it would leave",
   dlgOk: "OK",
   dlgMake: "Make",
   dlgPath: "Name, with its folder if you want one (docs/note.md)",
@@ -8469,6 +8502,9 @@ const it: Record<Key, string> = {
   axSmtpHost: "Server per mandare (SMTP)",
   axSmtpHostHelp: "Serve solo per ricevere i messaggi via email; vuoto: quello solito.",
   axSmtpPort: "Porta per mandare",
+  axMailboxAgents: "Gli agenti possono usarla",
+  axMailboxAgentsHelp:
+    "Cercano, leggono e scrivono bozze qui; ogni email che inviano te la chiede prima e te la mostra intera.",
   axMailboxAdd: "Aggiungi casella",
   axMailboxAddText: "Quante vuoi, ognuna nella sua categoria.",
   axMagic: "Automazione magica",
@@ -9301,6 +9337,36 @@ const it: Record<Key, string> = {
   tool_knowledge_status: "Vedere lo stato della Conoscenza",
   toolDo_knowledge_status:
     "Dice quali raccolte ci sono, cosa è stato letto e se la ricerca va per significato.",
+  // G38.1: email per gli agenti
+  toolGrp_mail: "Email",
+  tool_mail_search: "Cercare nella posta",
+  toolDo_mail_search:
+    "Cerca nelle caselle che hai aperto agli agenti per mittente, oggetto, parole, date, non lette o allegati.",
+  tool_mail_read: "Leggere la posta",
+  toolDo_mail_read:
+    "Legge un'email come testo semplice ed elenca gli allegati; può salvarli nella sua cartella. Non segna niente come letto.",
+  tool_mail_draft: "Scrivere bozze",
+  toolDo_mail_draft:
+    "Scrive una bozza, una risposta o un inoltro nelle tue Bozze, con file allegati; non invia niente.",
+  tool_mail_send: "Inviare email",
+  toolDo_mail_send:
+    "Invia un'email o una bozza; la vedi sempre intera e dici sì o no prima che parta.",
+  tool_mail_move: "Sistemare la posta",
+  toolDo_mail_move:
+    "Segna come letta o da leggere, mette la stella, archivia, sposta nel cestino o in una cartella; cancellare per sempre lo chiede a te.",
+  mailCardNone: "Nessun messaggio trovato",
+  mailCardMore: "altri {n}",
+  mailCardAttachments: "{n} allegati",
+  mailCardAttachment: "1 allegato",
+  mailCardSaved: "salvato",
+  mailCardShowAll: "Mostra tutto",
+  mailCardShowLess: "Mostra meno",
+  mailCardFolder: "{mailbox}, {folder}",
+  mailCardDraft: "Bozza",
+  mailCardTo: "A",
+  mailCardSubject: "Oggetto",
+  mailCardUnread: "da leggere",
+  mailPermTitle: "L'email, come partirebbe",
   dlgOk: "OK",
   dlgMake: "Crea",
   dlgPath: "Nome, con la cartella se ti serve (docs/nota.md)",

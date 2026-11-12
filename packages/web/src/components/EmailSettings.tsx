@@ -13,7 +13,7 @@ import { t } from "../i18n.js";
 import { IconPlus, IconSend } from "../icons.js";
 import { attempt, getApi } from "../state.js";
 import { explain } from "./Brain.js";
-import { Acts, Chips, Row, Sub, Switch, Tile } from "./SettingsKit.js";
+import { Acts, Chips, Row, Sub, Switch, SwitchRow, Tile } from "./SettingsKit.js";
 import { Advanced, Field, Modal } from "./ui.js";
 
 type Shown = { configured: boolean; host?: string; port?: number; secure?: boolean; user?: string };
@@ -266,6 +266,8 @@ export function MailboxEditor({
   const [password, setPassword] = useState("");
   const [smtpHost, setSmtpHost] = useState(box?.smtp?.host ?? "");
   const [smtpPort, setSmtpPort] = useState(box?.smtp?.port ?? 465);
+  // Open to the agents' mail tools (G38.1): off until the person says so.
+  const [agents, setAgents] = useState(box?.agents === true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const cats = [...new Set([...DEFAULT_CATEGORIES, ...categories, category])];
@@ -288,6 +290,7 @@ export function MailboxEditor({
           user: user.trim(),
           ...(password && { password }),
           smtp: smtp ?? null,
+          agents,
         });
       else
         await getApi().addMailbox({
@@ -299,6 +302,7 @@ export function MailboxEditor({
           user: user.trim(),
           password,
           ...(smtp && { smtp }),
+          agents,
         });
       onClose();
     } catch (err) {
@@ -348,6 +352,12 @@ export function MailboxEditor({
               onInput={(e) => setPassword(v(e))}
             />
           </Field>
+          <SwitchRow
+            title={t("axMailboxAgents")}
+            help={t("axMailboxAgentsHelp")}
+            on={agents}
+            onChange={setAgents}
+          />
           <Advanced>
             <Field label={t("emailPort")}>
               <input type="number" value={port} onInput={(e) => setPort(Number(v(e)) || 993)} />
