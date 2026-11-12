@@ -18,8 +18,8 @@ import type { VoicePhase } from "../voice/machine.js";
 import {
   audioAsleep,
   installVoice,
-  startHandsFree,
   micState,
+  startHandsFree,
   stopTalking,
   talkNow,
   voiceController,
