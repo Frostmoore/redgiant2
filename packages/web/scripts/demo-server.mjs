@@ -1581,6 +1581,99 @@ if (process.env.DEMO_SUBAGENTS) {
 if (subSession)
   await (await core.send("local", subSession, "Start the test server, the tests and the build."))
     .done;
+// G38.6, DEMO_ACP=1: an external ACP agent (the tests' fake program, never a real agent) working
+// for the Demo project's orchestrator: its thinking, its own actions, a file, a command and the
+// task closed with a verifier; then a second task that waits for the person's yes.
+let acpSession;
+if (process.env.DEMO_ACP) {
+  const fake = fileURLToPath(
+    new URL("../../server/test/fixtures/fake-acp-agent.mjs", import.meta.url),
+  );
+  const worker = await core.createAcpWorker("local", {
+    name: "Claude Code",
+    projectId: project.id,
+    command: process.execPath,
+    args: [fake],
+    env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: "16000" },
+  });
+  await core.createAcpWorker("local", {
+    name: "Codex",
+    projectId: project.id,
+    command: "npx",
+    args: ["-y", "@agentclientprotocol/codex-acp"],
+    env: {},
+  });
+  acpSession = await core.startSession("local", orch.id);
+  const at = (sessionId, agentId, body) =>
+    core.store.append({ ownerId: "local", projectId: project.id, agentId, sessionId, body });
+  await at(acpSession, null, {
+    type: "message.user",
+    payload: { text: "Ask Claude Code to add a health check to the API." },
+  });
+  await at(acpSession, orch.id, {
+    type: "message.assistant",
+    payload: {
+      parts: [{ type: "text", text: "Handing it to Claude Code, our external agent." }],
+      metrics: {
+        inputTokens: 4000,
+        outputTokens: 120,
+        cachedReadTokens: 3500,
+        contextUsed: 4120,
+        contextWindow: 200000,
+        startedAt: new Date().toISOString(),
+        source: "server",
+      },
+      costUsd: 0.004,
+      model: "claude-opus-5-5",
+      stopReason: "tool_use",
+    },
+  });
+  const task = (title, body) => `Task from Orch: «${title}»\n\n${body}`;
+  const child = await core.startSession("local", worker.agentId);
+  const steps = [
+    "think The API routes live in src/app.py; a /health route answers 200 with the version.",
+    "tool t1 Search for the routes in src",
+    "write src/health.py def health(): return {'ok': True}",
+    "run node -e console.log('tests: 12 passed')",
+    "say Added src/health.py with the route; the tests pass.",
+    `done node -e "require('fs').accessSync('src/health.py')"`,
+  ].join("\n");
+  await at(acpSession, orch.id, {
+    type: "subagent.started",
+    payload: {
+      childSessionId: child,
+      childAgentId: worker.agentId,
+      via: "delegate",
+      title: "Add a health check",
+      task: "Add GET /health to the API, answering 200 with the version.",
+    },
+  });
+  await (await core.send("local", child, task("Add a health check", steps))).done;
+  await at(acpSession, orch.id, {
+    type: "subagent.ended",
+    payload: { childSessionId: child, status: "done", summary: "Added src/health.py" },
+  });
+  // A second task: its program asks before a command, and the person is asked.
+  const second = await core.startSession("local", worker.agentId);
+  await at(acpSession, orch.id, {
+    type: "subagent.started",
+    payload: {
+      childSessionId: second,
+      childAgentId: worker.agentId,
+      via: "delegate",
+      title: "Clean the build",
+      task: "Remove the old build folder and rebuild.",
+    },
+  });
+  void core
+    .send(
+      "local",
+      second,
+      task("Clean the build", "say Removing the old build first.\nask rm -rf build"),
+    )
+    .then(({ done }) => done)
+    .catch(() => {});
+}
 // G36.16, G36.17, DEMO_REQUESTS=1: background commands without a time limit, and «Non chiedermi
 // niente»: the classifier said yes to an install, no to a deletion, answered a question, and a
 // push (only the person approves it) still reaches the person and waits for their answer.
@@ -2267,6 +2360,7 @@ console.log(
     ...(knowledgeSession && { knowledgeSession }),
     ...(widgetSession && { widgetSession, artifactSession, plainWidgetSession, kitSession }),
     ...(subSession && { subSession }),
+    ...(acpSession && { acpSession }),
     ...(toolsSession && { toolsSession, branchSession }),
   }),
 );

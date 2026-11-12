@@ -2,6 +2,7 @@ import * as acp from "@agentclientprotocol/sdk";
 import type { Engine, EngineTurn } from "@redgiant/agent";
 import type { AssistantPart, MessageMetrics, StopReason } from "@redgiant/protocol";
 import {
+  COMPLETE_MARK,
   chooseOption,
   completionOf,
   contentText,
@@ -250,7 +251,12 @@ export class AcpEngine implements Engine {
           .filter(Boolean)
           .join("\n\n")
       : "";
-    let text = prelude ? `${prelude}\n\n---\n\n${t.text}` : t.text;
+    // RedGiant's reminders and tasks name complete_task, a tool it does not have: the line it has.
+    const how =
+      !prelude && closesTasks && /complete_task/.test(t.text)
+        ? `\n\n(To close a task, end your answer with the ${COMPLETE_MARK} line, as RedGiant explained.)`
+        : "";
+    let text = prelude ? `${prelude}\n\n---\n\n${t.text}` : `${t.text}${how}`;
     let images = t.images;
     for (let attempt = 0; ; attempt++) {
       const out = await this.prompt(c, sessionId, text, images, t, init);

@@ -160,7 +160,7 @@ describe("external ACP agents as workers (G38.6)", () => {
     ).toBe(true);
     expect(list.find((e) => e.type === "engine.session")?.payload).toMatchObject({ engine: "acp" });
     // Its folder is its own worktree of the project.
-    expect(text).toMatch(/\.worktrees\/agent_/);
+    expect(text).toMatch(/\.worktrees[\\/]agent_/);
     const message = list.find((e) => e.type === "message.assistant");
     expect(message?.payload && "provider" in message.payload && message.payload.provider).toBe(
       "acp",

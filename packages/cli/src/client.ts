@@ -33,6 +33,8 @@ export class RedGiantClient {
   /** Opens the live channel; resolves after the server's welcome. */
   live(
     onMessage: (m: ServerMessage) => void,
+    /** The channel closed after it opened (the server stopped or restarted). */
+    onClose?: () => void,
   ): Promise<{ send: (m: ClientMessage) => void; close: () => void }> {
     const ws = new WebSocket(`${this.url.replace(/^http/, "ws").replace(/\/$/, "")}/ws`);
     return new Promise((ok, ko) => {
@@ -47,9 +49,10 @@ export class RedGiantClient {
           ok({ send: (x) => ws.send(JSON.stringify(x)), close: () => ws.close() });
         onMessage(m);
       });
-      ws.addEventListener("close", (e) =>
-        ko(new Error(`Connection closed (${e.code} ${e.reason})`)),
-      );
+      ws.addEventListener("close", (e) => {
+        ko(new Error(`Connection closed (${e.code} ${e.reason})`));
+        onClose?.();
+      });
       ws.addEventListener("error", () => ko(new Error(`Cannot connect to ${this.url}`)));
     });
   }

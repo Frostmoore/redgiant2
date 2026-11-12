@@ -5,6 +5,7 @@
 // file, command and permission it asks for goes through RedGiant. Its variables never hold a key.
 import type { AcpWorkerConfig, AcpWorkerInfo } from "@redgiant/protocol";
 import { acpEnvProblem } from "@redgiant/protocol";
+import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { Project } from "../api.js";
 import { t } from "../i18n.js";
@@ -16,6 +17,25 @@ import { Acts, Box, Chips, Head, Row, Sub, WzPage } from "./SettingsKit.js";
 import { Field, Modal } from "./ui.js";
 
 type Preset = { id: string; name: string; command: string; args: string[] };
+
+/** A labelled group of several controls (chips, rows): not a <label>, which would click the first. */
+function Group({
+  label,
+  help,
+  children,
+}: {
+  label: string;
+  help?: string;
+  children: ComponentChildren;
+}) {
+  return (
+    <div class="ui-field" role="group" aria-label={label}>
+      <span class="ui-label">{label}</span>
+      {children}
+      {help && <span class="ui-help">{help}</span>}
+    </div>
+  );
+}
 const OTHER = "other";
 
 /** The settings snippet for Zed (`agent_servers`, verified 2026-11-12). */
@@ -313,7 +333,7 @@ function WorkerWindow({
       }
     >
       {!editing && (
-        <Field label={t("acpWhich")}>
+        <Group label={t("acpWhich")}>
           <Chips
             options={[
               ...presets.map((p) => ({ id: p.id, label: p.name })),
@@ -322,7 +342,7 @@ function WorkerWindow({
             value={[d.preset]}
             onChange={([v]) => pick(v ?? OTHER)}
           />
-        </Field>
+        </Group>
       )}
       {!editing && (
         <Field label={t("acpName")}>
@@ -333,13 +353,13 @@ function WorkerWindow({
         </Field>
       )}
       {!editing && (
-        <Field label={t("acpProject")} help={t("acpProjectHelp")}>
+        <Group label={t("acpProject")} help={t("acpProjectHelp")}>
           <Chips
             options={projects.map((p) => ({ id: p.id, label: p.name }))}
             value={[d.projectId]}
             onChange={([v]) => set({ projectId: v ?? "" })}
           />
-        </Field>
+        </Group>
       )}
       <Field label={t("acpCommand")} help={t("acpCommandHelp")}>
         <input
@@ -358,7 +378,7 @@ function WorkerWindow({
           onInput={(e) => set({ args: (e.target as HTMLTextAreaElement).value, preset: OTHER })}
         />
       </Field>
-      <Field label={t("acpEnv")} help={t("acpEnvHelp")}>
+      <Group label={t("acpEnv")} help={t("acpEnvHelp")}>
         <div class="acp-env">
           {d.env.map((v, i) => (
             <div class="acp-env-row" key={i}>
@@ -404,7 +424,7 @@ function WorkerWindow({
             <IconPlus size={14} /> {t("acpEnvAdd")}
           </button>
         </div>
-      </Field>
+      </Group>
       {envProblem && <p class="notice error">{envProblem}</p>}
       {tried && <p class="notice ok">{tried}</p>}
       {error && <p class="notice error">{error}</p>}

@@ -21,6 +21,7 @@ export interface RedGiantLink {
   api<T>(method: string, path: string, body?: unknown): Promise<T>;
   live(
     onMessage: (m: ServerMessage) => void,
+    onClose?: () => void,
   ): Promise<{ send: (m: ClientMessage) => void; close: () => void }>;
 }
 
@@ -90,12 +91,38 @@ export function redgiantAgent(o: BridgeOptions): acp.AgentApp {
   const realpath = o.realpath ?? ((p: string) => fsRealpath(p).catch(() => p));
   const log = (l: string) => o.log?.(l);
 
+  let closing = false;
+  /**
+   * The channel to RedGiant, opened again after the server restarted: the conversations shown
+   * are followed again (and their editors attached); a turn that was running is lost with it.
+   */
   const live = () => {
-    channel ??= o.link.live(onMessage).catch((err) => {
-      channel = undefined;
-      throw err;
-    });
-    return channel;
+    if (channel) return channel;
+    const opened = o.link
+      .live(onMessage, () => {
+        if (channel !== opened || closing) return;
+        channel = undefined;
+        log("RedGiant closed the connection; it is opened again at the next message");
+        for (const b of sessions.values()) {
+          b.synced = false;
+          const t = b.turn;
+          b.turn = undefined;
+          t?.fail(acp.RequestError.internalError(undefined, "RedGiant closed the connection"));
+        }
+      })
+      .then((c) => {
+        for (const b of sessions.values()) {
+          c.send({ type: "session.follow", sessionId: b.rgSession, history: true });
+          if (b.editorFiles) c.send({ type: "editor.attach", sessionId: b.rgSession, root: b.cwd });
+        }
+        return c;
+      })
+      .catch((err) => {
+        if (channel === opened) channel = undefined;
+        throw err;
+      });
+    channel = opened;
+    return opened;
   };
   const send = async (m: ClientMessage) => (await live()).send(m);
 
@@ -347,10 +374,15 @@ export function redgiantAgent(o: BridgeOptions): acp.AgentApp {
       fresh,
       ...(replay && { replay }),
     };
+    const known = channel !== undefined;
     sessions.set(rgSession, b);
     byRg.set(rgSession, rgSession);
-    await send({ type: "session.follow", sessionId: rgSession, history: true });
-    if (editorFiles) await send({ type: "editor.attach", sessionId: rgSession, root: cwd });
+    // A channel opened now follows every known conversation by itself.
+    const c = await live();
+    if (known) {
+      c.send({ type: "session.follow", sessionId: rgSession, history: true });
+      if (editorFiles) c.send({ type: "editor.attach", sessionId: rgSession, root: cwd });
+    }
     return b;
   }
 
@@ -419,6 +451,7 @@ export function redgiantAgent(o: BridgeOptions): acp.AgentApp {
     .onConnect((c) => {
       editor = c.client;
       void c.closed.finally(() => {
+        closing = true;
         void channel?.then(
           (x) => x.close(),
           () => {},
