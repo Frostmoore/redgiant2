@@ -1054,13 +1054,11 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   app.openapi(routes.listAgents, async (c) => {
     const { projectId } = c.req.valid("query");
     return c.json(
-      core.registry
-        .list({ ownerId: owner(c), ...(projectId && { projectId }) })
-        .map((a) => ({
-          ...agentOut(a),
-          // An external ACP agent (G38.6): its program runs its turns.
-          ...(core.acpWorkers.get(owner(c), a.id) && { external: "acp" as const }),
-        })),
+      core.registry.list({ ownerId: owner(c), ...(projectId && { projectId }) }).map((a) => ({
+        ...agentOut(a),
+        // An external ACP agent (G38.6): its program runs its turns.
+        ...(core.acpWorkers.get(owner(c), a.id) && { external: "acp" as const }),
+      })),
       200,
     );
   });
