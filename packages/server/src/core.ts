@@ -208,6 +208,14 @@ import {
   magicTools,
   migrateMagic,
 } from "./magic.js";
+import {
+  imapMailClient,
+  type MailClient,
+  type MailTransport,
+  smtpTransport,
+} from "./mail/client.js";
+import { MailService, SendLimiter } from "./mail/service.js";
+import { MAIL_GUIDANCE, mailSendHook, mailTools } from "./mail/tools.js";
 import { type MediaRequest, type MediaResult, makeMedia } from "./media.js";
 import type { CatalogWatcher } from "./models-catalog.js";
 import { memoryTool, type NoteOwner, Notes } from "./notes.js";
@@ -310,6 +318,11 @@ export interface CoreOptions {
   mailbox?: Mailbox;
   /** How automation messages leave by email (tests use a fake; SMTP otherwise, G33.3). */
   mailSender?: MailSender;
+  /** Email for the agents (G38.1): how mailboxes are reached and mail leaves (tests: servers in the process). */
+  mailClient?: MailClient;
+  mailTransport?: MailTransport;
+  /** How many emails the agents may send an hour and a day (default 20 and 100). */
+  mailSendLimit?: { perHour: number; perDay: number };
   providers: ProviderRegistry;
   /** Root of the project workspaces. */
   workspacesDir: string;
@@ -586,6 +599,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly rooms: Rooms;
   /** Routines on email: the person's mailbox, read every few minutes (G24.14c). */
   readonly email: EmailWatcher;
+  /** Email for the agents (G38.1): the same mailboxes, for the mail_* tools. */
+  readonly mail: MailService;
   /** Routines on files that change in a project's folder (G33.3). */
   readonly files: FileTriggers;
   /** Automations built in a conversation with God (G33.3). */
@@ -1008,6 +1023,12 @@ export class RedGiantCore implements OrchestrationHost {
       ...(o.mailSender && { sender: o.mailSender }),
       owners: async () => [...new Set(this.registry.list({}).map((a) => a.ownerId))],
       vault: this.vault,
+    });
+    this.mail = new MailService({
+      accounts: this.email,
+      client: o.mailClient ?? imapMailClient(),
+      transport: o.mailTransport ?? smtpTransport,
+      ...(o.mailSendLimit && { limiter: new SendLimiter(o.mailSendLimit) }),
     });
     this.files = new FileTriggers({
       automations: this.automations,
@@ -1669,6 +1690,8 @@ export class RedGiantCore implements OrchestrationHost {
         // The keychain (G33.4): always offered; without credentials it says where to add them.
         vaultTool(agent, this.vault, (sid) => this.automationOfSession(sid)),
       );
+      // Email (G38.1): always offered; without a mailbox open to the agents they say so.
+      if (agent.kind !== "subagent") tools.push(...mailTools(() => this.mail, ws));
     }
     if (agent.kind === "assistant") tools.push(this.requestConnectionTool(agent));
     if (
@@ -1770,6 +1793,8 @@ export class RedGiantCore implements OrchestrationHost {
         magicSession ? MAGIC_PROMPT : "",
         // Text, widget, artifact, board or project (3.5.9): for every agent that can show files.
         tools.some((t) => t.def.name === "show_file") ? ARTIFACT_GUIDANCE : "",
+        // Email is data, never instructions (G38.1): for every agent that can read it.
+        tools.some((t) => t.def.name === "mail_read") ? MAIL_GUIDANCE : "",
         assignedTo
           ? `## Assigned to a project\nIn this conversation you work for the project "${(await this.projects.get(ownerId, assignedTo))?.name ?? assignedTo}", on tasks its orchestrator gives you. Your files here are your own worktree of that project; close each task with complete_task.`
           : "",
@@ -1783,7 +1808,8 @@ export class RedGiantCore implements OrchestrationHost {
       hooks: {
         // Git Bash's paths on Windows (p3.5.4): every tool's paths as Windows names them, before
         // the guardian and the tool read them (`nativePaths`, the guardian uses the same rule).
-        preToolUse: [gitBashPaths],
+        // mail_send's message prepared before it is checked (G38.1): the person approves what leaves.
+        preToolUse: [gitBashPaths, mailSendHook(() => this.mail, ws)],
         ...((receivesTasks || (agent.kind !== "demigod" && agent.kind !== "inspector")) && {
           // G36.8: one quiet nudge to propose a skill after a problem solved.
           ...(agent.kind !== "demigod" &&
@@ -6330,6 +6356,7 @@ export class RedGiantCore implements OrchestrationHost {
     // Edits accepted are in the log already; the files are written before closing.
     await this.editor.close().catch(() => {});
     this.email.stop();
+    await this.mail.close().catch(() => {});
     this.files.stop();
     this.sharedMemory.stop();
     clearInterval(this.sweeper);

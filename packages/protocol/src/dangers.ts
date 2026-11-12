@@ -135,11 +135,30 @@ const it: Record<string, Words> = {
 
 export const DANGER_IDS = Object.keys(en);
 
+/**
+ * Dangers that are not on the Safety page because nobody switches them (G38.1: every email an
+ * agent sends asks the person). Their words only, for the request's chips.
+ */
+const FIXED: Record<"it" | "en", Record<string, Words>> = {
+  en: {
+    "outgoing-mail": {
+      name: "Sending an email",
+      hint: "An agent sends an email from one of your mailboxes: you see who it goes to and what it says before it leaves.",
+    },
+  },
+  it: {
+    "outgoing-mail": {
+      name: "Inviare un'email",
+      hint: "Un agente invia un'email da una delle tue caselle: vedi a chi va e cosa dice prima che parta.",
+    },
+  },
+};
+
 export function dangerWords(lang: "it" | "en", id: string): Words {
   // The truly dangerous requests (G36.17b) travel with the dangers of a request too.
   if (isCriticalId(id)) {
     const w = criticalWords(lang, id);
     return { name: w.name, hint: w.hint };
   }
-  return (lang === "it" ? it : en)[id] ?? { name: id, hint: "" };
+  return (lang === "it" ? it : en)[id] ?? FIXED[lang][id] ?? { name: id, hint: "" };
 }

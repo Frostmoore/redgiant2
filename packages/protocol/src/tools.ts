@@ -10,6 +10,7 @@ export const TOOL_GROUPS = [
   "memory",
   "credentials",
   "canvas",
+  "mail",
   "talk",
   "agents",
   "platform",
@@ -81,6 +82,12 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   one("image_generation", "canvas"),
   one("video_generation", "canvas"),
   one("audio_generation", "canvas"),
+  // Email (G38.1): the mailboxes the person opened to the agents; sending always asks them.
+  one("mail_search", "mail"),
+  one("mail_read", "mail"),
+  one("mail_draft", "mail"),
+  one("mail_send", "mail"),
+  one("mail_move", "mail"),
   // Questions and plans: plan mode ends only through propose_plan.
   one("ask_user", "talk", true),
   // A switched-off tool comes back only through the person (G36.15): the way to ask must stay.

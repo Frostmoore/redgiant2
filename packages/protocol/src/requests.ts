@@ -7,6 +7,8 @@
  * in the details. The truly dangerous requests keep their own words (`criticalSentence`).
  */
 
+import { preparedMailOf } from "./mail.js";
+
 type Lang = "it" | "en";
 const lng = (lang: string): Lang => (lang === "it" ? "it" : "en");
 
@@ -170,6 +172,98 @@ function mcpToolSentence(l: Lang, tool: string, q: (s: string) => string): strin
     : `Uses ${q(words)} of the connected service ${q(server)}`;
 }
 
+/** Addresses as a list the person reads: «anna@x.it, bob@y.it e altri 3». */
+function people(l: Lang, list: string[]): string {
+  if (list.length === 0) return "?";
+  const shown = list.slice(0, 3).join(", ");
+  const more = list.length - 3;
+  if (more <= 0) return shown;
+  return l === "it" ? `${shown} e altri ${more}` : `${shown} and ${more} more`;
+}
+
+const addresses = (v: unknown): string[] =>
+  (Array.isArray(v) ? v : typeof v === "string" ? v.split(/[,;]/) : [])
+    .filter((x): x is string => typeof x === "string")
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+/** An email leaving (G38.1): to whom, with which subject and from which mailbox. */
+function mailSendSentence({ l, i, q }: Ctx): string {
+  const it = l === "it";
+  const m = preparedMailOf(i);
+  const to = m ? [...m.to, ...m.cc, ...m.bcc] : addresses(i.to);
+  const subject = m?.subject ?? str(i.subject);
+  const box = m?.mailbox || str(i.mailbox);
+  if (!m && to.length === 0 && num(i.draft_id) !== undefined)
+    return it ? `Invia la bozza ${num(i.draft_id)}` : `Sends the draft ${num(i.draft_id)}`;
+  const files = m?.attachments.length ?? (Array.isArray(i.attachments) ? i.attachments.length : 0);
+  const parts = [
+    it ? `Invia un'email a ${people(l, to)}` : `Sends an email to ${people(l, to)}`,
+    subject
+      ? it
+        ? ` con oggetto ${q(short(subject, 100))}`
+        : ` with the subject ${q(short(subject, 100))}`
+      : "",
+    files
+      ? it
+        ? `, ${files === 1 ? "1 allegato" : `${files} allegati`}`
+        : `, ${files === 1 ? "1 attachment" : `${files} attachments`}`
+      : "",
+    box ? (it ? `, dalla casella ${q(box)}` : `, from the mailbox ${q(box)}`) : "",
+  ];
+  return parts.join("");
+}
+
+function mailDraftSentence({ l, i, q }: Ctx): string {
+  const it = l === "it";
+  const to = addresses(i.to);
+  const subject = str(i.subject);
+  const about = subject
+    ? it
+      ? ` con oggetto ${q(short(subject, 100))}`
+      : ` with the subject ${q(short(subject, 100))}`
+    : "";
+  if (num(i.reply_to) !== undefined)
+    return it
+      ? `Prepara una bozza di risposta ${i.reply_all === true ? "a tutti " : ""}all'email ${num(i.reply_to)}`
+      : `Drafts a reply${i.reply_all === true ? " to all" : ""} to the email ${num(i.reply_to)}`;
+  if (num(i.forward) !== undefined)
+    return it
+      ? `Prepara una bozza per inoltrare l'email ${num(i.forward)}${to.length ? ` a ${people(l, to)}` : ""}`
+      : `Drafts a forward of the email ${num(i.forward)}${to.length ? ` to ${people(l, to)}` : ""}`;
+  return it
+    ? `Prepara una bozza di email${to.length ? ` a ${people(l, to)}` : ""}${about}`
+    : `Drafts an email${to.length ? ` to ${people(l, to)}` : ""}${about}`;
+}
+
+function mailMoveSentence({ l, i, q }: Ctx): string {
+  const it = l === "it";
+  const n = Array.isArray(i.ids) ? i.ids.length : 0;
+  const what = it ? (n === 1 ? "1 email" : `${n} email`) : n === 1 ? "1 email" : `${n} emails`;
+  switch (i.action) {
+    case "delete":
+      return it
+        ? `Cancella per sempre ${what}: non passano dal cestino`
+        : `Deletes ${what} for good: they do not go to the bin`;
+    case "trash":
+      return it ? `Sposta nel cestino ${what}` : `Moves ${what} to the bin`;
+    case "archive":
+      return it ? `Archivia ${what}` : `Archives ${what}`;
+    case "read":
+      return it ? `Segna come lette ${what}` : `Marks ${what} as read`;
+    case "unread":
+      return it ? `Segna come da leggere ${what}` : `Marks ${what} as unread`;
+    case "flag":
+      return it ? `Mette la stella a ${what}` : `Flags ${what}`;
+    case "unflag":
+      return it ? `Toglie la stella a ${what}` : `Unflags ${what}`;
+    default:
+      return it
+        ? `Sposta ${what} nella cartella ${q(str(i.to) ?? "?")}`
+        : `Moves ${what} to the folder ${q(str(i.to) ?? "?")}`;
+  }
+}
+
 type Sentence = (c: Ctx) => string | undefined;
 
 /** One sentence per tool, both languages: the table `requestSentence` reads. */
@@ -331,6 +425,19 @@ const SENTENCES: Record<string, Record<Lang, Sentence>> = {
     it: ({ i, q }) => `Avvia l'automazione ${q(str(i.automation) ?? "?")}`,
     en: ({ i, q }) => `Runs the automation ${q(str(i.automation) ?? "?")}`,
   },
+  mail_send: { it: mailSendSentence, en: mailSendSentence },
+  mail_draft: { it: mailDraftSentence, en: mailDraftSentence },
+  mail_move: { it: mailMoveSentence, en: mailMoveSentence },
+  mail_read: {
+    it: ({ i }) =>
+      i.save_attachments
+        ? `Legge l'email ${num(i.id) ?? "?"} e ne salva gli allegati nella sua cartella`
+        : `Legge l'email ${num(i.id) ?? "?"}`,
+    en: ({ i }) =>
+      i.save_attachments
+        ? `Reads the email ${num(i.id) ?? "?"} and saves its attachments in its folder`
+        : `Reads the email ${num(i.id) ?? "?"}`,
+  },
   image_generation: {
     it: () => "Crea un'immagine",
     en: () => "Makes a picture",
@@ -455,6 +562,8 @@ const DANGER_LABELS = new Set(
     "Sends, publishes, pays or deletes in the browser",
     "Opens a pull request or an issue",
     "Secret files",
+    // The email's danger (G38.1): its chip and the fields say it.
+    "sends an email",
   ].map((s) => s.toLowerCase()),
 );
 
