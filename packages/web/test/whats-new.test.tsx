@@ -54,20 +54,13 @@ describe("the items", () => {
 describe("newsSince", () => {
   it("keeps only what is newer than the version seen, grouped, newest first", () => {
     const groups = newsSince("3.5.6");
-    expect(groups.map((g) => g.version)).toEqual([
-      "3.5.12",
-      "3.5.11",
-      "3.5.10",
-      "3.5.9",
-      "3.5.8",
-      "3.5.7",
-    ]);
-    expect(groups[0]?.items.map((i) => i.title)).toEqual(["news3512Widgets", "news3512Fixes"]);
-    expect(groups[1]?.items.map((i) => i.title)).toEqual([
-      "news3511Phone",
-      "news3511Keys",
-      "news3511Fast",
-    ]);
+    // Newest first (the current release on top: this test does not change with every release).
+    const versions = groups.map((g) => g.version);
+    expect(versions[0]).toBe(NEWS_VERSION);
+    expect(versions.slice(-6)).toEqual(["3.5.12", "3.5.11", "3.5.10", "3.5.9", "3.5.8", "3.5.7"]);
+    const of = (v: string) => groups.find((g) => g.version === v)?.items.map((i) => i.title);
+    expect(of("3.5.12")).toEqual(["news3512Widgets", "news3512Fixes"]);
+    expect(of("3.5.11")).toEqual(["news3511Phone", "news3511Keys", "news3511Fast"]);
     expect(groups.flatMap((g) => g.items).some((i) => i.version === "3.5.6")).toBe(false);
   });
 
@@ -106,7 +99,8 @@ describe("the window", () => {
     const r = render(<WhatsNew />);
     await waitFor(() => expect(r.getByText(t("news3511Phone"))).toBeTruthy());
     const heads = [...r.container.querySelectorAll(".news-group-head")].map((h) => h.textContent);
-    expect(heads).toEqual([
+    expect(heads[0]).toBe(`Versione ${NEWS_VERSION}`);
+    expect(heads.slice(-6)).toEqual([
       "Versione 3.5.12",
       "Versione 3.5.11",
       "Versione 3.5.10",
@@ -115,7 +109,8 @@ describe("the window", () => {
       "Versione 3.5.7",
     ]);
     const chips = [...r.container.querySelectorAll(".news-chip")].map((c) => c.textContent);
-    expect(chips.slice(0, 5)).toEqual(["3.5.12", "3.5.12", "3.5.11", "3.5.11", "3.5.11"]);
+    expect(chips[0]).toBe(NEWS_VERSION);
+    expect(chips.filter((c) => c === "3.5.11")).toHaveLength(3);
     expect(chips).toHaveLength(newsSince("3.5.6").flatMap((g) => g.items).length);
     expect(r.queryByText(t("news356Steps"))).toBeNull();
     fireEvent.click(r.getByText("Ho capito"));

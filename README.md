@@ -275,7 +275,7 @@ RedGiant is in pre-alpha. What comes next, in order:
   layered images with Photoshop-like tools, 3D models, artifacts and widgets): a real editor in the Canvas for
   every file it can open, with the agent working in the same editor as you, on a computer, a tablet or a
   phone, by mouse, touch or keyboard.
-- **3.6 — Long arms**: SSH to other machines, integrations and extensions created on request, email
+- **3.6 — Long arms** (released): SSH to other machines, integrations and extensions created on request, email
   for the agents, hands-free voice, ACP both ways (RedGiant inside editors, other
   agents as workers), and artifacts that can ask the agent, keep their data and read project files.
 - **3.7 — RedGiant on a mini PC**: a ready-made system to install with Proxmox, connected to your

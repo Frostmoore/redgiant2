@@ -2253,6 +2253,24 @@ const en = {
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
   newsVersion: "Version {version}",
+  news360Mail: "Email for the agents",
+  news360MailText:
+    "Agents can search, read, draft, reply and forward from the mailboxes you open to them (each mailbox has «Agents can use it», off at first). Sending always asks you, with the real recipients and text, and an email's words are data, never orders.",
+  news360Ssh: "Your other machines over SSH",
+  news360SshText:
+    "Add a machine in Settings › Machines: the key stays in the Keychain and you trust its fingerprint the first time. Agents run commands, copy files and read folders there; sudo, shutting down, installing system packages and deleting outside the working folder are red requests.",
+  news360Acp: "RedGiant in your editor, and other agents at work",
+  news360AcpText:
+    "With redgiant-acp, editors like Zed and JetBrains talk to God or a project's agent. And Claude Code, Codex, Gemini CLI and other ACP agents can work for your orchestrators: you see them like sub-agents and their requests come to you.",
+  news360Magic: "Magic integrations and extensions",
+  news360MagicText:
+    "In Extensions, describe a service or a tool you want: God asks, builds it with its tests, tries it in a sandbox, and Approve and install stays off until nothing is missing. Keys go into the Keychain and reach only the sites the extension declared.",
+  news360Voice: "Hands-free voice",
+  news360VoiceText:
+    "Say «Ehi RedGiant», ask, and hear the answer; keep talking without the wake word, say «basta» to stop. The wake word is heard inside your browser, so nothing leaves the page until then. Settings › Voice.",
+  news360Bridge: "Artifacts that ask, remember and read",
+  news360BridgeText:
+    "With your permission an artifact can ask the agent that made it (with a spending cap you choose), keep its own data, and read files of a folder you allow, never secrets. Grant and take back each permission in Settings › Artifacts.",
   news3512Widgets: "Widgets and artifacts that look like RedGiant",
   news3512WidgetsText:
     "Widgets in the answers and artifacts in the Canvas now share RedGiant's look in the light and dark themes: fields with their units, results that stand out, our buttons and tables, even when the agent writes plain HTML. Their errors reach the agent with the right line, and old ones are cleared once fixed.",
@@ -7734,6 +7752,24 @@ const it: Record<Key, string> = {
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
   newsVersion: "Versione {version}",
+  news360Mail: "La posta per gli agenti",
+  news360MailText:
+    "Gli agenti cercano, leggono, preparano bozze, rispondono e inoltrano dalle caselle che apri a loro (ogni casella ha «Gli agenti possono usarla», spento all'inizio). L'invio chiede sempre a te, con i destinatari e il testo veri, e le parole di un'email sono dati, mai ordini.",
+  news360Ssh: "Le tue altre macchine via SSH",
+  news360SshText:
+    "Aggiungi una macchina in Impostazioni › Macchine: la chiave resta nel Portachiavi e la sua impronta la confermi tu la prima volta. Gli agenti ci eseguono comandi, copiano file e leggono cartelle; sudo, spegnimenti, pacchetti di sistema e cancellazioni fuori dalla cartella di lavoro sono richieste rosse.",
+  news360Acp: "RedGiant nel tuo editor, e altri agenti al lavoro",
+  news360AcpText:
+    "Con redgiant-acp editor come Zed e JetBrains parlano con God o con un agente di progetto. E Claude Code, Codex, Gemini CLI e gli altri agenti ACP possono lavorare per i tuoi orchestratori: li vedi come sotto-agenti e le loro richieste arrivano a te.",
+  news360Magic: "Integrazioni ed estensioni magiche",
+  news360MagicText:
+    "In Estensioni descrivi un servizio o uno strumento che ti serve: God chiede, lo costruisce con i suoi test, lo prova in una sandbox, e «Approva e installa» resta spento finché manca qualcosa. Le chiavi vanno nel Portachiavi e raggiungono solo i siti che l'estensione ha dichiarato.",
+  news360Voice: "La voce a mani libere",
+  news360VoiceText:
+    "Di' «Ehi RedGiant», chiedi, e senti la risposta; continua a parlare senza ripetere la parola, di' «basta» per chiudere. La parola si riconosce dentro il browser, quindi fino a lì niente esce dalla pagina. Impostazioni › Voce.",
+  news360Bridge: "Artefatti che chiedono, ricordano e leggono",
+  news360BridgeText:
+    "Con il tuo permesso un artefatto può chiedere all'agente che l'ha fatto (con un tetto di spesa che scegli tu), tenere dati suoi e leggere i file di una cartella che autorizzi, mai i segreti. Dai e togli ogni permesso in Impostazioni › Artefatti.",
   news3512Widgets: "Widget e artefatti con l'aspetto di RedGiant",
   news3512WidgetsText:
     "I widget nelle risposte e gli artefatti nel Canvas hanno ora l'aspetto di RedGiant, in chiaro e in scuro: campi con l'unità, risultati in evidenza, i nostri pulsanti e le nostre tabelle, anche quando l'agente scrive HTML semplice. I loro errori arrivano all'agente con la riga giusta, e quelli vecchi spariscono una volta corretti.",
