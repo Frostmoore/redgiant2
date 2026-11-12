@@ -59,7 +59,7 @@ describe("wake-word models (G38.4)", () => {
     const dir = await temp();
     await writeFile(join(dir, "m.tar.gz"), out);
     const { stdout } = await run("tar", ["-tzf", join(dir, "m.tar.gz")]);
-    expect(stdout.split("\n").filter(Boolean)).toEqual([
+    expect(stdout.split(/\r?\n/).filter(Boolean)).toEqual([
       "vosk-model-small-it-0.22/",
       "vosk-model-small-it-0.22/am/",
       "vosk-model-small-it-0.22/am/final.mdl",
