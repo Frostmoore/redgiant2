@@ -18,8 +18,10 @@ export function fallbackOf(c: {
    */
   phone?: boolean | undefined;
 }): OfficeFallback | undefined {
-  if (!c.secure) return "insecure";
+  // A phone first (p3.5.12): over plain http too (a phone on the home network), the reason that
+  // stays is the phone's, so the person reads why the document is only looked at there.
   if (c.phone) return "phone";
+  if (!c.secure) return "insecure";
   // Chromium says how much memory the device has (GB, rounded): LibreOffice wants 1-2 GB.
   if (typeof c.memory === "number" && c.memory > 0 && c.memory < 4) return "memory";
   if (c.isolated === false) return "browser";
@@ -72,8 +74,32 @@ export function copyOriginal(path: string): string | undefined {
     originalOf(p) ??
     p.match(/^(.*\.(xlsx|xlsm|xls|numbers))\.open\/[^/]+\.ods$/i)?.[1] ??
     p.match(/^(.*\.(ai|eps|epsf|epsi|ps))\.open\/[^/]+\.svg$/i)?.[1] ??
-    p.match(/^(.*\.(obj|stl|ply|fbx|blend|usd|usda|usdc|usdz|abc))\.open\/[^/]+\.glb$/i)?.[1]
+    p.match(/^(.*\.(obj|stl|ply|fbx|blend|usd|usda|usdc|usdz|abc))\.open\/[^/]+\.glb$/i)?.[1] ??
+    p.match(/^(.*\.(psd|psb))\.open\/[^/]+\.ora$/i)?.[1]
   );
+}
+
+/**
+ * The closed originals whose open copy lives in their tab (the server's `copyOfAnyOriginal`):
+ * documents, presentations, sheets, drawings, 3D files, Photoshop files.
+ */
+const HAS_COPY =
+  /\.(docx|docm|dotx|doc|rtf|pptx|pptm|ppsx|ppt|xlsx|xlsm|xls|numbers|ai|eps|epsf|epsi|ps|obj|stl|ply|fbx|blend|usd|usda|usdc|usdz|abc|psd|psb)$/i;
+
+/**
+ * What a canvas tab asks the server about open copies (p3.5.12, the person's test of 3.5.11: the
+ * PPTX was shown without the slide added to its ODP copy, and no bar said so). An original that
+ * may have one: whether it does (then the tab shows the copy, with its bar). A copy: whether it
+ * is older than its original (changed outside since), to offer «Rifai la copia».
+ */
+export function copyQuestion(
+  path: string,
+): { original: string; showing: "original" | "copy" } | undefined {
+  const p = path.replace(/\\/g, "/");
+  const original = copyOriginal(p);
+  if (original) return { original, showing: "copy" };
+  if (HAS_COPY.test(p) && !/\.open\//.test(p)) return { original: path, showing: "original" };
+  return undefined;
 }
 
 /** Whether the editor's document family takes this file (the canvas opens it editable). */

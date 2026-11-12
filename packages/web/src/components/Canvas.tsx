@@ -12,16 +12,19 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "../i18n.js";
 import {
   IconAlert,
+  IconClose,
   IconCode,
   IconDownload,
   IconExternal,
   IconFolderPlus,
   IconFullscreen,
   IconFullscreenExit,
+  IconInfo,
   IconKeyboard,
   IconPlay,
   IconRefresh,
 } from "../icons.js";
+import { phoneScreen, phoneViewNote } from "../phone.js";
 import {
   type CanvasTarget,
   canvasViewId,
@@ -29,14 +32,16 @@ import {
   getApi,
   lastError,
   openCanvas,
+  retargetCanvas,
 } from "../state.js";
 import { canvasKind } from "../viewers/canvas-kind.js";
 import { extensionOf, viewerFor } from "../viewers/kind.js";
 import { CanvasTab, lastMove, report, setTabKind } from "../viewers/live.js";
-import { hasOfficeCopy, isOfficeFile } from "../viewers/office-bridge.js";
+import { copyQuestion, hasOfficeCopy, isOfficeFile } from "../viewers/office-bridge.js";
 import { bytesText, download, type ViewerSource } from "../viewers/source.js";
 import { ArtifactFrame } from "./ArtifactFrame.js";
 import { shortcutsOpen } from "./Shortcuts.js";
+import { CopyStale } from "./viewers/CopyBar.js";
 import { DocEditor, editableInCanvas } from "./viewers/DocEditor.js";
 import { EditPictureButton, IMAGE_FLAT, pictureEditable } from "./viewers/ImageEditor.js";
 import { EditCopyButton, EditCopyNote } from "./viewers/OfficeEditor.js";
@@ -190,6 +195,44 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
       clearInterval(timer);
     };
   }, [key, site, artifact, editable, folder]);
+  // Open copies (p3.5.12): an original that has one is shown through it, in its tab (with the
+  // copy's bar); a copy older than its original says so and offers «Rifai la copia».
+  const copyQ =
+    target.kind === "file" && target.scope !== "outside" ? copyQuestion(target.path) : undefined;
+  const [copyWait, setCopyWait] = useState(copyQ?.showing === "original");
+  const [stale, setStale] = useState(false);
+  const [copyAsked, setCopyAsked] = useState(0);
+  useEffect(() => {
+    setStale(false);
+    if (!copyQ || target.kind !== "file") {
+      setCopyWait(false);
+      return;
+    }
+    const scope = target.scope;
+    setCopyWait(copyQ.showing === "original");
+    let live = true;
+    void getApi()
+      .editorCopy(scope, copyQ.original)
+      .then(
+        (r) => {
+          if (!live) return;
+          if (copyQ.showing === "copy") setStale(!!r.copy && r.stale === true);
+          else if (r.copy) retargetCanvas(id, { kind: "file", scope, path: r.copy });
+          setCopyWait(false);
+        },
+        () => live && setCopyWait(false),
+      );
+    return () => {
+      live = false;
+    };
+  }, [key, copyAsked]);
+  // On a phone documents and presentations are only looked at: said over them (p3.5.12).
+  const [phoneNoteClosed, setPhoneNoteClosed] = useState(false);
+  const phoneNote =
+    !phoneNoteClosed &&
+    target.kind === "file" &&
+    target.scope !== "outside" &&
+    phoneViewNote({ phone: phoneScreen(), path: target.path, editor: isOfficeFile(target.path) });
   const url = link && `${link}${link.includes("?") ? "&" : "?"}v=${version}-${reloads}`;
   const name = target.kind === "file" ? fileName(target.path) : title;
   return (
@@ -361,15 +404,38 @@ export function Canvas({ title, target }: { title: string; target: CanvasTarget 
           </a>
         )}
       </div>
-      {target.kind === "file" &&
+      {phoneNote ? (
+        <div class="canvas-edit-strip canvas-phone-note" role="note">
+          <IconInfo size={13} />
+          <span class="canvas-edit-text">{t("phoneViewOnly")}</span>
+          <button
+            type="button"
+            class="icon-button tiny"
+            title={t("dismiss")}
+            aria-label={t("dismiss")}
+            onClick={() => setPhoneNoteClosed(true)}
+          >
+            <IconClose size={12} />
+          </button>
+        </div>
+      ) : (
+        target.kind === "file" &&
         target.scope !== "outside" &&
         (hasOfficeCopy(target.path) || isOfficeFile(target.path)) && (
           <EditCopyNote editing={!hasOfficeCopy(target.path)} />
-        )}
+        )
+      )}
+      {stale && copyQ && target.kind === "file" && (
+        <CopyStale
+          scope={target.scope}
+          original={copyQ.original}
+          onDone={() => setCopyAsked((n) => n + 1)}
+        />
+      )}
       <div class={`canvas-body ${site || artifact ? "canvas-site" : "canvas-viewer"}`}>
         {error ? (
           <p class="notice error">{error}</p>
-        ) : !url ? (
+        ) : !url || copyWait ? (
           <div class="empty">{t("loading")}</div>
         ) : artifact && target.kind === "file" ? (
           (artView === "source" || pendingRun) && target.scope !== "outside" ? (

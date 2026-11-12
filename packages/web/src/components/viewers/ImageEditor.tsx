@@ -64,6 +64,7 @@ import {
   brushStep,
   DEFAULT_OPTIONS,
   defaultShown,
+  deleteKeyDoes,
   groupOf,
   type ImageTool,
   SELECTING,
@@ -72,7 +73,7 @@ import {
 } from "../../viewers/image-tools.js";
 import { OwnUndo } from "../../viewers/own-undo.js";
 import { download } from "../../viewers/source.js";
-import { askText } from "../dialogs.js";
+import { askConfirm, askText } from "../dialogs.js";
 import { CopyBar } from "./CopyBar.js";
 import { DEFAULT_TEXT_OPTIONS, ImageOptions, type TextOptions } from "./ImageOptions.js";
 import { ImageToolbar } from "./ImageToolbar.js";
@@ -532,7 +533,7 @@ export function ImageEditor({ file }: { file: DocFile }) {
     if (k === "enter") return x.commit() ? act(() => {}) : undefined;
     if (k === "escape") return x.cancel() ? act(() => {}) : undefined;
     if (k === "backspace" && x.polyBack()) return act(() => {});
-    if (k === "delete" || k === "backspace") return act(() => x.fillSelection("", true));
+    if (k === "delete" || k === "backspace") return act(() => deleteKey(x));
     const arrows: Record<string, [number, number]> = {
       arrowleft: [-1, 0],
       arrowright: [1, 0],
@@ -557,6 +558,40 @@ export function ImageEditor({ file }: { file: DocFile }) {
     if (k === "d") return act(() => setColors("#000000", "#ffffff"));
     const to = toolForKey(k, e.shiftKey, tool, shown);
     if (to) act(() => setTool(to));
+  };
+  /** Delete or Backspace on the picture or a layer: the selection's pixels, else the layer. */
+  const deleteKey = (x: ImageIsland) => {
+    const does = deleteKeyDoes({
+      selection: !!x.selection,
+      typing: x.typing,
+      layers: layers.length,
+      current: !!cur,
+    });
+    if (does === "clear") x.fillSelection("", true);
+    else if (does) void deleteLayer(x);
+  };
+  /** The layer chosen goes away; the last one only after a question (the picture is left empty). */
+  const deleteLayer = async (x: ImageIsland) => {
+    if (layers.length <= 1) {
+      const yes = await askConfirm(t("imgLayerDeleteLast"), {
+        text: t("imgLayerDeleteLastText"),
+        yes: t("imgLayerDelete"),
+        danger: true,
+      });
+      if (!yes || isl.current !== x) return;
+    }
+    x.deleteLayer();
+    area.current?.focus();
+  };
+  /** Delete or Backspace on a layer of the panel (its button has the focus). */
+  const onLayersKey = (e: KeyboardEvent) => {
+    const x = isl.current;
+    if (!x || (e.key !== "Delete" && e.key !== "Backspace")) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!(e.target as HTMLElement).closest(".img-layer")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    deleteKey(x);
   };
   const onKeyUp = (e: KeyboardEvent) => {
     const x = isl.current;
@@ -917,7 +952,7 @@ export function ImageEditor({ file }: { file: DocFile }) {
             <h4>
               <IconLayers size={14} /> {t("imgLayers")}
             </h4>
-            <ul class="img-layers">
+            <ul class="img-layers" onKeyDown={onLayersKey}>
               {layers.map((l) => (
                 <li key={l.id} class={l.id === current ? "current" : ""}>
                   <button
@@ -1034,8 +1069,11 @@ export function ImageEditor({ file }: { file: DocFile }) {
               </Btn>
               <Btn
                 label={t("imgLayerDelete")}
-                on={run((x) => x.deleteLayer())}
-                disabled={!cur || layers.length < 2}
+                on={() => {
+                  const x = isl.current;
+                  if (x) void deleteLayer(x);
+                }}
+                disabled={!cur}
               >
                 <IconTrash size={14} />
               </Btn>

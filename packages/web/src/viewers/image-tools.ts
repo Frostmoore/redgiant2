@@ -76,6 +76,24 @@ export function toolForKey(
   return g.tools[(i + 1) % g.tools.length];
 }
 
+/**
+ * What Delete or Backspace does on the picture or the layers panel (p3.5.12, the person's test of
+ * 3.5.11), as Photoshop: with pixels selected they are cleared; with none, the layer chosen goes
+ * away (one revision, one Ctrl+Z), after a question only when it is the last one. Nothing while a
+ * text is typed (the keys are the text's) or with no layer chosen.
+ */
+export function deleteKeyDoes(o: {
+  selection: boolean;
+  typing: boolean;
+  layers: number;
+  current: boolean;
+}): "clear" | "layer" | "last-layer" | undefined {
+  if (o.typing) return undefined;
+  if (o.selection) return "clear";
+  if (!o.current || o.layers < 1) return undefined;
+  return o.layers === 1 ? "last-layer" : "layer";
+}
+
 /** Tools that draw a selection (Shift adds, Alt takes away, both intersect). */
 export const SELECTING: ReadonlySet<ImageTool> = new Set([
   "marquee-rect",

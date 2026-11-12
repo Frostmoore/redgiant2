@@ -35,6 +35,7 @@ import {
   type RLayer,
   readImage,
   readOra,
+  writeImage,
   writeJpeg,
   writeOra,
 } from "../src/editor/image/model.js";
@@ -452,6 +453,21 @@ describe("the agent's operations", () => {
     expect(baked.layers[1]?.mask).toBeUndefined();
     expect(at(baked.layers[1]?.px as Rgba, 0, 0)[3]).toBe(0);
     roundTrip(mk, agent(mk, [{ op: "delete_mask", layer: "Nascosto" }]));
+  });
+
+  it("p3.5.12: Delete removes layers one by one, the last too (one action each), undone exactly", () => {
+    const m = base();
+    const ids = m.layers.map((l) => l.id);
+    let now = m;
+    for (const id of ids) now = roundTrip(now, [{ t: "remove", layer: id }]);
+    expect(now.layers).toHaveLength(0);
+    // An empty picture is still written and read: a transparent one of the same size.
+    const back = readOra(writeOra(now, blobs));
+    expect([back.width, back.height, back.layers.length]).toEqual([64, 48, 0]);
+    const png = readImage(
+      writeImage({ ...readImage(pngOf(solid(8, 6, [1, 2, 3, 255]))), layers: [] }, blobs),
+    );
+    expect(at(png.layers[0]?.px as Rgba, 3, 3)).toEqual([0, 0, 0, 0]);
   });
 
   it("refuses what it cannot do, with the reason", () => {

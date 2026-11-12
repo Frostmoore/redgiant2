@@ -285,6 +285,38 @@ export function lineCounts(
   return { changed, added, removed, ...(first !== undefined && { first, last }) };
 }
 
+/**
+ * Whether two change sets made on the same text change the same place (p3.5.12): a true overlap,
+ * not a shared edge. Two ranges overlap when they share a character; an insertion meets a range
+ * only strictly inside it; two insertions meet only at the very same point (which goes first is
+ * then a guess). A change that ends where the other begins (a line added right below another
+ * added line, the person's test of 3.5.11) is another place: the undo moves over it.
+ */
+function meet(fa: number, ta: number, fb: number, tb: number): boolean {
+  if (fa === ta && fb === tb) return fa === fb;
+  if (fa === ta) return fb < fa && fa < tb;
+  if (fb === tb) return fa < fb && fb < ta;
+  return fa < tb && fb < ta;
+}
+
+export function overlaps(a: ChangeSet, b: ChangeSet): boolean {
+  const ranges: [number, number][] = [];
+  b.iterChangedRanges((from, to) => {
+    ranges.push([from, to]);
+  });
+  let hit = false;
+  a.iterChangedRanges((fa, ta) => {
+    if (hit) return;
+    for (const [fb, tb] of ranges) {
+      if (meet(fa, ta, fb, tb)) {
+        hit = true;
+        return;
+      }
+    }
+  });
+  return hit;
+}
+
 /** «changed 2 lines and added 3 lines», or undefined when no whole line moved. */
 function linesText(n: { changed: number; added: number; removed: number }): string | undefined {
   const parts = [
@@ -363,14 +395,7 @@ export const textFamily: DocFamily<Text> = {
     return opOf(c);
   },
 
-  conflicts(a, b) {
-    const later = cs(b);
-    let hit = false;
-    cs(a).iterChangedRanges((fromA, toA) => {
-      if (!hit && later.touchesRange(fromA, toA)) hit = true;
-    });
-    return hit;
-  },
+  conflicts: (a, b) => overlaps(cs(a), cs(b)),
 
   // The op that came later goes first where both insert at one point (as the page maps it).
   map: (a, b) => opOf(cs(a).map(cs(b), true)),

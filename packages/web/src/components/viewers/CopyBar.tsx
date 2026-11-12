@@ -3,9 +3,12 @@
 // help), and what stays in the file without being editable here, folded away. Never a native
 // checkbox (the person's decision of 2026-11-09): our switch.
 import type { ComponentChildren } from "preact";
+import { useEffect, useState } from "preact/hooks";
 import { t } from "../../i18n.js";
-import { IconCopy, IconInfo } from "../../icons.js";
-import { SmallSwitch } from "../ui.js";
+import { IconAlert, IconCopy, IconInfo, IconRefresh, IconSpinner } from "../../icons.js";
+import { getApi } from "../../state.js";
+import { askConfirm } from "../dialogs.js";
+import { SmallSwitch, useJob } from "../ui.js";
 
 export interface CopyRewrite {
   on: boolean;
@@ -90,5 +93,63 @@ export function KeptInFile({ items, how }: { items: string[]; how?: string | und
         ))}
       </ul>
     </details>
+  );
+}
+
+/**
+ * The copy is older than its original (p3.5.12): the original changed outside after the copy
+ * was made, so the copy does not have those changes. «Rifai la copia» makes it again from the
+ * original (after a question: the copy's edits are replaced, and stay undoable).
+ */
+export function CopyStale({
+  scope,
+  original,
+  onDone,
+}: {
+  scope: string;
+  /** The original's path. */
+  original: string;
+  onDone: () => void;
+}) {
+  const name = original.split(/[\\/]/).pop() ?? original;
+  const [jobId, setJobId] = useState<string>();
+  const [error, setError] = useState<string>();
+  const job = useJob(jobId);
+  useEffect(() => {
+    if (!job || job.state === "running") return;
+    setJobId(undefined);
+    if (job.state === "done") onDone();
+    else setError(job.error?.message ?? t("uiFailedGeneric"));
+  }, [job?.state]);
+  const remake = async () => {
+    const yes = await askConfirm(t("copyRemakeAsk", { name }), {
+      text: t("copyRemakeAskText", { name }),
+      yes: t("copyRemake"),
+    });
+    if (!yes) return;
+    setError(undefined);
+    try {
+      setJobId((await getApi().remakeCopy(scope, original)).job);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  return (
+    <div class="canvas-edit-strip copy-stale" role="status">
+      <IconAlert size={13} />
+      <div class="canvas-edit-text">
+        <span>{t("copyStale", { name })}</span>
+        {error && <span class="error">{error}</span>}
+      </div>
+      <button
+        type="button"
+        class="button tiny"
+        disabled={jobId !== undefined}
+        onClick={() => void remake()}
+      >
+        {jobId ? <IconSpinner size={12} /> : <IconRefresh size={12} />}
+        <span>{jobId ? t("copyRemaking") : t("copyRemake")}</span>
+      </button>
+    </div>
   );
 }

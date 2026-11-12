@@ -176,15 +176,14 @@ describe("canvas_edit and the editor over the WebSocket (G37.1)", () => {
     const read = await (s as Server).core.editor.read("me", file);
     expect(read.model?.toString()).toBe(`CBA${TEXT}`);
     // An undo from the page, then a proposal answered: each acknowledged by its id.
-    // Undoing B: C was written at the very same point after it, so it is refused (never a guess).
+    // Undoing B: C was written right before it, touching it but not on it (p3.5.12): another
+    // place, so the undo moves over it.
     a.send({ type: "doc.undo", file, clientId: "u0", revision: 2 });
-    expect(await a.waitFor("doc.rejected", (m) => m.clientId === "u0")).toMatchObject({
-      code: "conflict",
-      conflict: 3,
-    });
+    expect(await a.waitFor("doc.ack", (m) => m.clientId === "u0")).toMatchObject({ revision: 4 });
+    expect((await (s as Server).core.editor.read("me", file)).model?.toString()).toBe(`CA${TEXT}`);
     a.send({ type: "doc.undo", file, clientId: "u1", revision: 3 });
-    expect(await a.waitFor("doc.ack", (m) => m.clientId === "u1")).toMatchObject({ revision: 4 });
-    expect((await (s as Server).core.editor.read("me", file)).model?.toString()).toBe(`BA${TEXT}`);
+    expect(await a.waitFor("doc.ack", (m) => m.clientId === "u1")).toMatchObject({ revision: 5 });
+    expect((await (s as Server).core.editor.read("me", file)).model?.toString()).toBe(`A${TEXT}`);
     a.send({ type: "doc.undo", file, clientId: "u2", revision: 99 });
     expect(await a.waitFor("doc.rejected", (m) => m.clientId === "u2")).toMatchObject({
       code: "nothing",

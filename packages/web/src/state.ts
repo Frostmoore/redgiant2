@@ -1360,6 +1360,20 @@ export function openCanvas(title: string, target: CanvasTarget, keep = false): s
   return id;
 }
 
+/**
+ * A tab's file replaced by another in the same tab, without bringing it forward (p3.5.12: an
+ * original shown through its open copy, found once the tab asked). Nothing when it is closed.
+ */
+export function retargetCanvas(id: string, target: CanvasTarget): void {
+  const was = sideViews.value.find((v) => v.id === id);
+  if (!was || was.type !== "canvas") return;
+  if (was.target.kind === "file" && target.kind === "file" && was.target.path === target.path)
+    return;
+  forgetPlace(id);
+  sideViews.value = sideViews.value.map((v) => (v.id === id ? { ...was, target } : v));
+  persistCanvas();
+}
+
 /** What the canvas shows now, for an agent that looks (G36.12): tabs, the active one, places. */
 export function canvasSnapshot(): CanvasState {
   const views = sideViews.value.filter(

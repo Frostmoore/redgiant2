@@ -149,5 +149,45 @@ export const coarsePointer = (): boolean =>
 export const isPhoneScreen = (w: number, h: number, coarse: boolean): boolean =>
   coarse && Math.min(w, h) > 0 && Math.min(w, h) < 600;
 
+/**
+ * A phone (p3.5.12): a finger on a short screen, or the browser saying it is one (Chromium's
+ * `userAgentData.mobile`, the «Mobile» of an Android phone's or an iPhone's name), so a phone
+ * whose pointer or screen reads otherwise (desktop site, a large phone on its side) still is one.
+ * A tablet says neither.
+ */
+export function isPhone(o: {
+  w: number;
+  h: number;
+  coarse: boolean;
+  mobile?: boolean | undefined;
+  ua?: string | undefined;
+}): boolean {
+  if (isPhoneScreen(o.w, o.h, o.coarse)) return true;
+  if (o.mobile === true) return true;
+  return !!o.ua && /\b(iPhone|iPod)\b|\bAndroid\b.*\bMobile\b/.test(o.ua);
+}
+
 export const phoneScreen = (): boolean =>
-  typeof screen !== "undefined" && isPhoneScreen(screen.width, screen.height, coarsePointer());
+  typeof screen !== "undefined" &&
+  isPhone({
+    w: screen.width,
+    h: screen.height,
+    coarse: coarsePointer(),
+    mobile: (navigator as { userAgentData?: { mobile?: boolean } }).userAgentData?.mobile,
+    ua: navigator.userAgent,
+  });
+
+/** Documents and presentations: on a phone they are only looked at (3.5.11, G37.9). */
+const VIEW_ONLY =
+  /\.(docx|docm|dotx|dotm|doc|dot|rtf|wpd|wps|odt|ott|fodt|pages|pptx|pptm|potx|ppsx|ppt|pps|pot|odp|otp|fodp|key)$/i;
+
+/**
+ * Whether the canvas shows the «only to look at on a phone» line over a file (p3.5.12, the
+ * person's test of 3.5.11: lettera.docx opened on the phone with no word of it). Every document
+ * or presentation shown on a phone, whoever opened it (an agent's show_file, the list of files),
+ * before and after «Modifica»; not where the document editor runs, which says it itself (its
+ * pages and Find and Replace). Never in the way: a line, which can be closed.
+ */
+export function phoneViewNote(o: { phone: boolean; path: string; editor: boolean }): boolean {
+  return o.phone && !o.editor && VIEW_ONLY.test(o.path);
+}

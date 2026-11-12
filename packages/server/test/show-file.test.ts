@@ -1,8 +1,11 @@
 // show_file (G34.1): an agent opens a file in the person's canvas; outside its folders the
 // guardian asks the person first, and only a file shown that way can be opened from outside.
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Event } from "@redgiant/protocol";
 import { afterEach, describe, expect, it } from "vitest";
+import { copyOfAnyOriginal, originalOfAnyCopy } from "../src/editor/copies.js";
 import { startServer, wsClient } from "./helpers.js";
 
 type Server = Awaited<ReturnType<typeof startServer>>;
@@ -175,5 +178,136 @@ describe("show_file (G34.1)", () => {
       (await s.api("POST", "/api/canvas/link", { kind: "file", scope: "outside", path: OUTSIDE }))
         .status,
     ).toBe(400);
+  });
+});
+
+describe("p3.5.12: an original with an open copy shows the copy (the person's test of 3.5.11)", () => {
+  it("show_file and show on a PPTX open its ODP copy in its tab and say so; older copies are said", async () => {
+    let said: string[] = [];
+    let step = 0;
+    s = await startServer((req) => {
+      const r = resultOf(req);
+      if (r !== undefined) said.push(r);
+      step++;
+      if (step === 1) return { toolCalls: [{ name: "show_file", input: { path: "deck.pptx" } }] };
+      if (step === 2) return { toolCalls: [{ name: "show", input: { path: "deck.pptx" } }] };
+      return { text: "Shown." };
+    }, ROOM);
+    const root = s.core.platformPath("me");
+    await mkdir(join(root, "deck.pptx.open"), { recursive: true });
+    await writeFile(join(root, "deck.pptx"), "the original, two slides");
+    await writeFile(join(root, "deck.pptx.open", "deck.odp"), "the copy, three slides");
+    const ask = (path: string) =>
+      s?.api<{ copy: string | null; stale?: boolean }>(
+        "GET",
+        `/api/editor/copy?scope=platform&path=${encodeURIComponent(path)}`,
+      );
+    // No record of when it was made: a copy, not said older.
+    expect((await ask("deck.pptx"))?.body).toEqual({
+      copy: "deck.pptx.open/deck.odp",
+      stale: false,
+    });
+    // Made from the original as it is now: fresh.
+    const st = await stat(join(root, "deck.pptx"));
+    const manifest = (size: number) =>
+      writeFile(
+        join(root, "deck.pptx.open", "conversion.json"),
+        JSON.stringify({
+          source: "deck.pptx",
+          sourceSize: size,
+          sourceModifiedAt: st.mtime.toISOString(),
+          format: "pptx",
+          outputs: [{ path: "deck.pptx.open/deck.odp", ext: "odp" }],
+          losses: [],
+          via: ["libreoffice"],
+          convertedAt: st.mtime.toISOString(),
+        }),
+      );
+    await manifest(st.size);
+    expect((await ask("deck.pptx"))?.body.stale).toBe(false);
+    // The original changed outside since: older.
+    await manifest(st.size + 1);
+    expect((await ask("deck.pptx"))?.body.stale).toBe(true);
+    // No copy for a file without one, nor for the copy itself.
+    await writeFile(join(root, "notes.docx"), "x");
+    expect((await ask("notes.docx"))?.body).toEqual({ copy: null });
+    expect((await ask("deck.pptx.open/deck.odp"))?.body).toEqual({ copy: null });
+
+    const sessionId = await god(s);
+    said = [];
+    await (await s.core.send("me", sessionId, "Show me the deck")).done;
+    const events = (await s.api<Event[]>("GET", `/api/sessions/${sessionId}/events`)).body;
+    const shown = events.filter((e) => e.type === "canvas.show").map((e) => e.payload);
+    const copy = { kind: "file", scope: "platform", path: "deck.pptx.open/deck.odp" };
+    expect(shown).toEqual([
+      { title: "deck.pptx", target: copy },
+      { title: "deck.pptx", target: copy },
+    ]);
+    expect(said[0]).toMatch(/deck\.pptx has an open copy, deck\.pptx\.open\/deck\.odp/);
+    expect(said[0]).toMatch(/changed outside after the copy was made.*«Rifai la copia»/);
+    expect(said[1]).toMatch(/^Shown in the canvas: deck\.pptx\..*has an open copy/s);
+  });
+
+  it("«Rifai la copia» makes the copy again from the original (a 3D file's GLB)", async () => {
+    s = await startServer(() => ({ text: "ok" }), ROOM);
+    const root = s.core.platformPath("me");
+    await mkdir(root, { recursive: true });
+    await writeFile(join(root, "tri.obj"), "v 0 0 0\nv 1 0 0\nv 1 1 0\nf 1 2 3\n");
+    const made = await s.api<{ path: string }>("POST", "/api/editor/model/copy", {
+      scope: "platform",
+      path: "tri.obj",
+    });
+    expect(made.body.path).toBe("tri.obj.open/tri.glb");
+    const before = await readFile(join(root, "tri.obj.open", "tri.glb"));
+    await writeFile(join(root, "tri.obj"), "v 0 0 0\nv 2 0 0\nv 2 2 0\nv 0 2 0\nf 1 2 3 4\n");
+    const r = await s.api<{ job: string }>("POST", "/api/editor/copy/remake", {
+      scope: "platform",
+      path: "tri.obj",
+    });
+    expect(r.status).toBe(202);
+    let job: { state: string } = { state: "running" };
+    for (let i = 0; i < 200 && job.state === "running"; i++) {
+      job = (await s.api<{ state: string }>("GET", `/api/jobs/${r.body.job}`)).body;
+      if (job.state === "running") await new Promise((ok) => setTimeout(ok, 50));
+    }
+    expect(job.state).toBe("done");
+    const after = await readFile(join(root, "tri.obj.open", "tri.glb"));
+    expect(Buffer.compare(before, after)).not.toBe(0);
+    // A file with no open copy kind is refused.
+    await writeFile(join(root, "a.txt"), "x");
+    const bad = await s.api<{ job: string }>("POST", "/api/editor/copy/remake", {
+      scope: "platform",
+      path: "a.txt",
+    });
+    const failed = await (async () => {
+      let j: { state: string } = { state: "running" };
+      for (let i = 0; i < 200 && j.state === "running"; i++) {
+        j = (await s?.api<{ state: string }>("GET", `/api/jobs/${bad.body.job}`))?.body ?? j;
+        if (j.state === "running") await new Promise((ok) => setTimeout(ok, 50));
+      }
+      return j.state;
+    })();
+    expect(failed).toBe("failed");
+  });
+});
+
+describe("p3.5.12: which originals have a copy shown in their tab, and back", () => {
+  it.each([
+    ["deck.pptx", "deck.pptx.open/deck.odp"],
+    ["a/lettera.docx", "a/lettera.docx.open/lettera.odt"],
+    ["bilancio.xlsx", "bilancio.xlsx.open/bilancio.ods"],
+    ["logo.ai", "logo.ai.open/logo.svg"],
+    ["fig.eps", "fig.eps.open/fig.svg"],
+    ["art/poster.psd", "art/poster.psd.open/poster.ora"],
+    ["tri.obj", "tri.obj.open/tri.glb"],
+    ["photo.png", undefined],
+    ["notes.txt", undefined],
+    ["deck.pptx.open/deck.odp", undefined],
+  ])("%s → %s", (original, copy) => {
+    expect(copyOfAnyOriginal(original)).toBe(copy);
+    if (copy) expect(originalOfAnyCopy(copy)).toBe(original);
+  });
+  it("a PNG's own layers are not a copy shown instead of it", () => {
+    expect(originalOfAnyCopy("photo.png.open/photo.ora")).toBeUndefined();
   });
 });

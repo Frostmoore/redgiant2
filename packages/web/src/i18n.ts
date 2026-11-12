@@ -984,6 +984,15 @@ const en = {
     "Saving waits for LibreOffice, which is coming down (the first time only): your changes are safe.",
   sheetSaveFailed: "Not saved yet: {reason}. It is tried again by itself; your changes are safe.",
   copyBarOf: "Open copy of {name}",
+  copyStale:
+    "{name} changed outside after this copy was made: the copy does not have those changes.",
+  copyRemake: "Redo the copy",
+  phoneViewOnly:
+    "On the phone documents and presentations are only looked at. For small fixes: «Edit» (Find and Replace) or ask an agent; to edit, open it on a computer or a tablet.",
+  copyRemaking: "Making the copy…",
+  copyRemakeAsk: "Make the copy of {name} again?",
+  copyRemakeAskText:
+    "The copy is made again from {name} as it is now: the edits made in the copy are replaced (Ctrl+Z brings them back).",
   copyBarRewrite: "Write the original too",
   copyBarKindOpen: "open",
   copyBarPlainOff:
@@ -4923,6 +4932,8 @@ const en = {
   imgLayerDuplicate: "Duplicate the layer",
   imgLayerCopyName: "{name} copy",
   imgLayerDelete: "Delete the layer",
+  imgLayerDeleteLast: "Delete the last layer?",
+  imgLayerDeleteLastText: "The picture is left empty. Ctrl+Z brings the layer back.",
   imgLayerUp: "Move up",
   imgLayerDown: "Move down",
   imgLayerMerge: "Merge with the layer below",
@@ -6037,6 +6048,15 @@ const it: Record<Key, string> = {
     "Il salvataggio aspetta LibreOffice, che si sta scaricando (solo la prima volta): le modifiche sono al sicuro.",
   sheetSaveFailed: "Non ancora salvato: {reason}. Riprovo da solo; le modifiche sono al sicuro.",
   copyBarOf: "Copia aperta di {name}",
+  copyStale:
+    "{name} è cambiato fuori da qui dopo che è stata fatta questa copia: la copia non ha quei cambiamenti.",
+  copyRemake: "Rifai la copia",
+  phoneViewOnly:
+    "Sul telefono documenti e presentazioni si guardano soltanto. Per piccole correzioni: «Modifica» (Trova e Sostituisci) o chiedi a un agente; per modificarli aprili da un computer o da un tablet.",
+  copyRemaking: "Rifaccio la copia…",
+  copyRemakeAsk: "Rifare la copia di {name}?",
+  copyRemakeAskText:
+    "La copia viene rifatta da {name} com'è adesso: le modifiche fatte nella copia vengono sostituite (Ctrl+Z le riporta).",
   copyBarRewrite: "Riscrivi anche l'originale",
   copyBarKindOpen: "aperta",
   copyBarPlainOff:
@@ -10027,6 +10047,8 @@ const it: Record<Key, string> = {
   imgLayerDuplicate: "Duplica il livello",
   imgLayerCopyName: "{name} copia",
   imgLayerDelete: "Elimina il livello",
+  imgLayerDeleteLast: "Eliminare l'ultimo livello?",
+  imgLayerDeleteLastText: "L'immagine resta vuota. Ctrl+Z riporta il livello.",
   imgLayerUp: "Sposta su",
   imgLayerDown: "Sposta giù",
   imgLayerMerge: "Unisci con il livello sotto",
