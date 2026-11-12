@@ -7,8 +7,8 @@
  * in the details. The truly dangerous requests keep their own words (`criticalSentence`).
  */
 
-import { preparedMailOf } from "./mail.js";
 import { ARTIFACT_GRANT_TOOL, grantSentence } from "./artifact-bridge.js";
+import { preparedMailOf } from "./mail.js";
 
 type Lang = "it" | "en";
 const lng = (lang: string): Lang => (lang === "it" ? "it" : "en");
