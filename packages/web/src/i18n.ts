@@ -2169,6 +2169,12 @@ const en = {
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
   newsVersion: "Version {version}",
+  news3512Widgets: "Widgets and artifacts that look like RedGiant",
+  news3512WidgetsText:
+    "Widgets in the answers and artifacts in the Canvas now share RedGiant's look in the light and dark themes: fields with their units, results that stand out, our buttons and tables, even when the agent writes plain HTML. Their errors reach the agent with the right line, and old ones are cleared once fixed.",
+  news3512Fixes: "Fixes from the last test",
+  news3512FixesText:
+    "Opening a Word or PowerPoint file shows the edited copy with its bar, and offers to remake it when the original changed. Undo this change works on neighbouring lines too. Delete removes the selected layer in pictures. Every new project starts with its own git repository. And here, each item now shows its version.",
   news3511Phone: "The editors on a phone and a tablet",
   news3511PhoneText:
     "The Canvas takes the whole screen on a phone or tablet, with Chat to go back. Every editor works by touch: tap for the cursor, drag to scroll or move, pinch to zoom, two fingers to pan; the picture tools sit in a bar at the bottom. Documents and slides are view-only on a phone and editable on a tablet.",
@@ -7250,6 +7256,12 @@ const it: Record<Key, string> = {
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
   newsVersion: "Versione {version}",
+  news3512Widgets: "Widget e artefatti con l'aspetto di RedGiant",
+  news3512WidgetsText:
+    "I widget nelle risposte e gli artefatti nel Canvas hanno ora l'aspetto di RedGiant, in chiaro e in scuro: campi con l'unità, risultati in evidenza, i nostri pulsanti e le nostre tabelle, anche quando l'agente scrive HTML semplice. I loro errori arrivano all'agente con la riga giusta, e quelli vecchi spariscono una volta corretti.",
+  news3512Fixes: "Le correzioni dell'ultimo collaudo",
+  news3512FixesText:
+    "Aprendo un file Word o PowerPoint si vede la copia modificata con la sua barra, e se l'originale è cambiato si può rifare la copia. «Annulla questa modifica» funziona anche su righe vicine. Canc elimina il livello scelto nelle immagini. Ogni progetto nuovo nasce con il suo repository git. E qui ogni voce mostra la sua versione.",
   news3511Phone: "Gli editor sul telefono e sul tablet",
   news3511PhoneText:
     "Il Canvas prende tutto lo schermo del telefono o del tablet, con Chat per tornare indietro. Ogni editor funziona col dito: tocchi per il cursore, trascini per scorrere o spostare, pizzichi per ingrandire, due dita per muoverti; gli strumenti delle immagini stanno in una barra in basso. Documenti e presentazioni sul telefono si guardano, sul tablet si modificano.",

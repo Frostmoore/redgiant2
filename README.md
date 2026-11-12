@@ -276,16 +276,13 @@ RedGiant is in pre-alpha. What comes next, in order:
   every file it can open, with the agent working in the same editor as you, on a computer, a tablet or a
   phone, by mouse, touch or keyboard.
 - **3.6 — Long arms**: SSH to other machines, integrations and extensions created on request, email
-  for the agents, hands-free voice, model evaluations, ACP both ways (RedGiant inside editors, other
+  for the agents, hands-free voice, ACP both ways (RedGiant inside editors, other
   agents as workers), and artifacts that can ask the agent, keep their data and read project files.
 - **3.7 — RedGiant on a mini PC**: a ready-made system to install with Proxmox, connected to your
   other RedGiant.
-- **3.8 — The right model for every agent**: God and the orchestrators choose the model of each agent
-  they create, by what it can do and what it costs for the same result, and move it to a stronger one
-  when the work needs it (the biggest models only with your yes).
-- **3.9 and 3.10 — Video and 3D generation**: a video editor shared by you and the agent, and 3D
+- **3.8 and 3.9 — Video and 3D generation**: a video editor shared by you and the agent, and 3D
   generation with local or cloud engines, finished in Blender.
-- **3.11 — Emulators in the Canvas**: an Android emulator or the iOS simulator found on the computer
+- **3.10 — Emulators in the Canvas**: an Android emulator or the iOS simulator found on the computer
   opens in the Canvas, for you and for the agents trying the apps they build.
 - **4.0 — Alpha**: native apps for Windows, Linux and macOS, companion apps for Android and iOS, and the
   Linux distribution for every mini-PC and virtual machine.
