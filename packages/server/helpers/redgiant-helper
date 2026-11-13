@@ -147,6 +147,21 @@ wait_known() {
   return 1
 }
 
+# iwd keeps a known network in memory: it is dropped through D-Bus (Forget, which also erases
+# its file), never by removing the file alone. Waits, up to 5 s, until iwd no longer lists it.
+forget_known() {
+  o=$(iwd_objects) || return 0
+  for k in $(known_of "$o" "$1"); do
+    busctl --timeout=10 call net.connman.iwd "$k" net.connman.iwd.KnownNetwork Forget >/dev/null 2>&1 || true
+  done
+  i=0
+  while [ $i -lt 10 ]; do
+    o=$(iwd_objects) && [ -z "$(known_of "$o" "$1")" ] && return 0
+    sleep 0.5
+    i=$((i + 1))
+  done
+}
+
 # Wi-Fi cards switched off (or blocked by rfkill) are switched on: asking for Wi-Fi means wanting it.
 power_on() {
   rfkill unblock wifi >/dev/null 2>&1 || true
@@ -388,6 +403,8 @@ EOF
     old=$IWD_DIR/.redgiant-old.$$
     had=0
     if [ -e "$file" ]; then cp -p "$file" "$old" && had=1; fi
+    # A new password for a saved network: iwd forgets the old one first (it would keep it).
+    if command -v busctl >/dev/null 2>&1 && iwd_objects >/dev/null; then forget_known "$ssid"; fi
     {
       [ "$3" = hidden ] && printf '[Settings]\nHidden=true\n\n'
       if [ "$kind" = psk ]; then
@@ -402,7 +419,12 @@ EOF
     chmod 0600 "$tmp"
     mv -f "$tmp" "$file"
     undo() {
-      if [ "$had" = 1 ]; then mv -f "$old" "$file"; else rm -f "$file"; fi
+      if command -v busctl >/dev/null 2>&1 && iwd_objects >/dev/null; then forget_known "$ssid"; fi
+      rm -f "$file"
+      if [ "$had" = 1 ]; then
+        mv -f "$old" "$file"
+        wait_known "$ssid" || true
+      fi
     }
     if ! command -v busctl >/dev/null 2>&1 || ! objs=$(iwd_objects); then
       # iwd is not running yet (the first start): saved, it joins the network when it starts.
@@ -446,10 +468,12 @@ EOF
       ok ',"state":"saved"'
     fi
     undo
+    # iwd's error name only (no secret can be in it), for the page's details.
+    detail=$(printf '%s' "$err" | grep -o 'net\.connman\.iwd\.[A-Za-z]*' | head -n1)
     case "$err" in
       *InProgress* | *"in progress"*) fail busy ;;
       *NotFound* | *"not found"*) fail not_found ;;
-      *) fail connect_failed ;;
+      *) printf '{"ok":false,"error":"connect_failed","detail":"%s"}\n' "$detail"; exit 1 ;;
     esac
     ;;
 

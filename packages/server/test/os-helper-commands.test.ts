@@ -154,9 +154,11 @@ describe("the helper's Wi-Fi commands", { skip: !tools }, () => {
   });
 
   it("leaves nothing saved when the network refuses the password", async () => {
+    writeFileSync(fake("objects.json"), objects([{ name: "Casa Rossi", known: true }]));
     writeFileSync(fake("refuse"), "");
     const r = await ask(`wifi-connect ${b64("Casa Rossi")} ${b64("sbagliata!")} visible`);
-    expect(r).toEqual({ ok: false, error: "connect_failed" });
+    expect(r).toMatchObject({ ok: false, error: "connect_failed" });
+    expect(calls()).toContain("KnownNetwork Forget");
     expect(existsSync(psk("Casa Rossi"))).toBe(false);
   });
 
