@@ -195,10 +195,168 @@ jobs:
           path: logs/**/serial-*.log
           retention-days: 7
 
+  # The container template (G39.2): Proxmox, LXC, Incus. Started in Incus here (LXC, unprivileged,
+  # nesting), as Proxmox runs it; the Proxmox helper script is checked by shellcheck here and by its
+  # tests (packaging/os/test/proxmox.test.ts) in CI.
+  lxc:
+    needs: stack
+    if: ${{ !inputs.only || contains(inputs.only, 'lxc') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      OUT: /mnt/os
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell scripts (shellcheck)
+        run: |
+          shellcheck --version | head -2
+          shellcheck -x packaging/os/proxmox/redgiant-proxmox.sh packaging/os/lxc/lxc.sh packaging/os/raspi/raspi.sh \
+            packaging/os/test/lxc-test.sh packaging/os/test/boot-test.sh
+          bash packaging/os/proxmox/redgiant-proxmox.sh --help | head -5
+      - uses: actions/download-artifact@v4
+        with:
+          name: redgiant-os-stack
+          path: stack
+      - name: Room on the disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p "$OUT" && sudo chown "$(id -u):$(id -g)" "$OUT"
+          df -h / "$OUT"
+      - name: Build the template
+        timeout-minutes: 90
+        run: |
+          docker build -q -f packaging/os/builder.Dockerfile -t redgiant-os-builder packaging/os
+          cp stack/redgiant-os-stack.json "$OUT/"
+          docker run --rm --privileged -e SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+            -v "$PWD:/src" -v "$OUT:/out" redgiant-os-builder \
+            /src/packaging/os/build.sh --arch amd64 --board lxc --stack /out/redgiant-os-stack.json --out /out
+          sudo rm -rf "$OUT"/work-*
+          sudo chown -R "$(id -u):$(id -g)" "$OUT"
+          ls -la "$OUT"
+      - name: Incus
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends incus
+          sudo incus admin init --minimal
+          # Docker's firewall drops forwarded traffic; the container's bridge is let through.
+          sudo iptables -I DOCKER-USER -i incusbr0 -j ACCEPT || true
+          sudo iptables -I DOCKER-USER -o incusbr0 -j ACCEPT || true
+          sudo incus version
+      - name: Start the template in Incus and check
+        timeout-minutes: 50
+        run: sudo packaging/os/test/lxc-test.sh --template "$OUT"/redgiant-os-*-x86_64-lxc.tar.zst --logs logs/lxc --timeout 1500
+      - name: sha256
+        if: ${{ always() }}
+        run: |
+          cd "$OUT"
+          rm -f redgiant-os-stack.json
+          ls redgiant-os-* >/dev/null 2>&1 || exit 0
+          sha256sum redgiant-os-* | tee SHA256SUMS-amd64-lxc
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: redgiant-os-amd64-lxc
+          path: /mnt/os/*
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: redgiant-os-amd64-lxc-logs
+          path: logs/lxc/*.log
+          retention-days: 7
+
+  # Raspberry Pi 4 (G39.2): no Pi here, so the image's layout and files are checked (build.sh does it
+  # as it writes them, and here again from the file), then its system is started on QEMU's virt
+  # machine with the image's own kernel and initramfs (emulated: slow) and checked like the others.
+  raspi:
+    needs: stack
+    if: ${{ !inputs.only || contains(inputs.only, 'raspi') }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    env:
+      OUT: /mnt/os
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: redgiant-os-stack
+          path: stack
+      - name: Room on the disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p "$OUT" && sudo chown "$(id -u):$(id -g)" "$OUT"
+          df -h / "$OUT"
+      - name: Build the image
+        timeout-minutes: 90
+        run: |
+          docker build -q -f packaging/os/builder.Dockerfile -t redgiant-os-builder packaging/os
+          cp stack/redgiant-os-stack.json "$OUT/"
+          docker run --rm --privileged -e SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+            -v "$PWD:/src" -v "$OUT:/out" redgiant-os-builder \
+            /src/packaging/os/build.sh --arch arm64 --board raspi --stack /out/redgiant-os-stack.json --out /out
+          sudo rm -rf "$OUT"/work-*
+          sudo chown -R "$(id -u):$(id -g)" "$OUT"
+          ls -la "$OUT"
+      - name: The image's partitions and boot files
+        timeout-minutes: 20
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends mtools qemu-system-arm qemu-utils
+          img="$RUNNER_TEMP/raspi.img"
+          xz -dc "$OUT"/redgiant-os-*-arm64-raspi.img.xz > "$img"
+          sfdisk -d "$img" | tee "$RUNNER_TEMP/layout"
+          grep -q "label: dos" "$RUNNER_TEMP/layout"
+          grep -qE "start= +8192, size= +1048576, type=c, bootable" "$RUNNER_TEMP/layout"
+          grep -qE "start= +1056768, .*type=83" "$RUNNER_TEMP/layout"
+          [ "$(blkid -p -O $((8192 * 512)) -s LABEL -o value "$img")" = RASPIFIRM ]
+          [ "$(blkid -p -O $((1056768 * 512)) -s LABEL -o value "$img")" = RASPIROOT ]
+          fat="$img@@$((8192 * 512))"
+          mdir -b -i "$fat" ::/ | tee "$RUNNER_TEMP/boot-files"
+          for f in config.txt cmdline.txt start4.elf fixup4.dat bcm2711-rpi-4-b.dtb README-RedGiant.txt; do
+            grep -qi "/$f\$" "$RUNNER_TEMP/boot-files" || { echo "::error::no $f on the boot partition"; exit 1; }
+          done
+          mtype -i "$fat" ::/config.txt ::/cmdline.txt
+          mtype -i "$fat" ::/config.txt | grep -q "arm_64bit=1"
+          mtype -i "$fat" ::/cmdline.txt | grep -q "root=LABEL=RASPIROOT"
+          mkdir -p "$RUNNER_TEMP/kernel"
+          mcopy -i "$fat" "::/$(grep -io 'vmlinuz-[^ ]*' "$RUNNER_TEMP/boot-files" | head -1)" "$RUNNER_TEMP/kernel/vmlinuz"
+          mcopy -i "$fat" "::/$(grep -io 'initrd.img-[^ ]*' "$RUNNER_TEMP/boot-files" | head -1)" "$RUNNER_TEMP/kernel/initrd.img"
+          ls -la "$RUNNER_TEMP/kernel"
+      - name: Start the image's system on QEMU (arm64 virt, its kernel) and check
+        timeout-minutes: 130
+        run: |
+          packaging/os/test/boot-test.sh boot --arch arm64 --firmware direct --disk "$RUNNER_TEMP/raspi.img" \
+            --kernel "$RUNNER_TEMP/kernel/vmlinuz" --initrd "$RUNNER_TEMP/kernel/initrd.img" \
+            --append "root=LABEL=RASPIROOT rw console=ttyAMA0,115200 net.ifnames=0 rootwait" \
+            --logs logs/raspi --timeout 7200
+          rm -f "$RUNNER_TEMP/raspi.img"
+      - name: sha256
+        if: ${{ always() }}
+        run: |
+          cd "$OUT"
+          rm -f redgiant-os-stack.json
+          ls redgiant-os-* >/dev/null 2>&1 || exit 0
+          sha256sum redgiant-os-* | tee SHA256SUMS-arm64-raspi
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: redgiant-os-arm64-raspi
+          path: /mnt/os/*
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: redgiant-os-arm64-raspi-logs
+          path: logs/raspi/serial-*.log
+          retention-days: 7
+
   # Attached to the tag's release, only when release.yml asks (behind REDGIANT_OS_RELEASE).
   publish:
     if: ${{ inputs.publish && startsWith(github.ref, 'refs/tags/') }}
-    needs: [stack, build]
+    needs: [stack, build, lxc, raspi]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -216,8 +374,10 @@ jobs:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: |
           mkdir -p rel
-          find dl -type f \( -name 'redgiant-os-*.qcow2' -o -name 'redgiant-os-*.raw.zst' -o -name 'redgiant-os-*.iso' -o -name 'redgiant-os-*.vhdx.zip' -o -name 'redgiant-os-*.ova' -o -name redgiant-os-stack.json \) -exec cp {} rel/ \;
-          (cd rel && sha256sum redgiant-os-* > SHA256SUMS-os)
+          find dl -type f \( -name 'redgiant-os-*.qcow2' -o -name 'redgiant-os-*.raw.zst' -o -name 'redgiant-os-*.iso' -o -name 'redgiant-os-*.vhdx.zip' -o -name 'redgiant-os-*.ova' -o -name 'redgiant-os-*-lxc.tar.zst' -o -name 'redgiant-os-*-raspi.img.xz' -o -name redgiant-os-stack.json \) -exec cp {} rel/ \;
+          # The Proxmox host's helper script, listed and signed with the images.
+          cp packaging/os/proxmox/redgiant-proxmox.sh rel/
+          (cd rel && sha256sum redgiant-os-* redgiant-proxmox.sh > SHA256SUMS-os)
           [ -n "$UPDATE_SIGNING_KEY" ] || { echo "UPDATE_SIGNING_KEY is missing: the OS's files must be signed"; exit 1; }
           node packaging/update/sign.mjs rel/SHA256SUMS-os
           node packaging/update/sign.mjs rel/redgiant-os-stack.json

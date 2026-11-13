@@ -11,10 +11,13 @@ better; the disk needs 16 GB or more.
 | You have                                    | Download                                    |
 | ------------------------------------------- | ------------------------------------------- |
 | A PC to dedicate to RedGiant (x86_64)       | `redgiant-os-<version>-x86_64.iso`          |
-| Proxmox, KVM/libvirt, UTM, a cloud (x86_64) | `redgiant-os-<version>-x86_64.qcow2`        |
+| Proxmox (a VM; or the script, below)        | `redgiant-os-<version>-x86_64.qcow2`        |
+| Proxmox, LXC, Incus (a container)           | `redgiant-os-<version>-x86_64-lxc.tar.zst`  |
+| KVM/libvirt, UTM, a cloud (x86_64)          | `redgiant-os-<version>-x86_64.qcow2`        |
 | Hyper-V (Windows)                           | `redgiant-os-<version>-x86_64.vhdx.zip`     |
 | VirtualBox, VMware                          | `redgiant-os-<version>-x86_64.ova`          |
 | The same on arm64 (Ampere, Graviton, UTM)   | `redgiant-os-<version>-arm64.qcow2`         |
+| A Raspberry Pi 4, 400 or CM4                | `redgiant-os-<version>-arm64-raspi.img.xz`  |
 | Something that wants a raw disk             | `redgiant-os-<version>-<arch>.raw.zst`      |
 | A server that already runs Docker           | not this page: see [INSTALL.md](INSTALL.md) |
 
@@ -37,22 +40,79 @@ from your router, by cable).
 
 ## On Proxmox
 
+### With the script (a VM or a container)
+
+In the Proxmox host's shell (as root, the node's "Shell" button):
+
+```sh
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Frostmoore/redgiant2/main/packaging/os/proxmox/redgiant-proxmox.sh)"
+```
+
+It asks for the id (the next free one by default), the storage, the network bridge and the disk
+size, shows what it will create and waits for a yes. Then it downloads the release's image,
+checks `SHA256SUMS-os` against its signature (RedGiant's update key, built into the script) and
+the image against `SHA256SUMS-os`, creates the machine, starts it and prints its address and the
+code the first start asks for. It never touches a machine that exists: an id that is taken is
+refused. The same with options, without questions:
+
+```sh
+bash redgiant-proxmox.sh --vm --storage local-lvm --bridge vmbr0 --disk 64 --memory 8192 --yes
+bash redgiant-proxmox.sh --lxc --storage local-zfs --bridge vmbr1 --vlan 20 --yes
+bash redgiant-proxmox.sh --lxc --dry-run      # shows the commands, changes nothing
+```
+
+`--help` lists the rest (`--id`, `--name`, `--cores`, `--cpu`, `--version`, `--from <dir>` for files
+already downloaded, `--no-start`). The script is attached to every release too, listed in
+`SHA256SUMS-os`.
+
+- **VM** (`--vm`, the default): q35, OVMF (UEFI) with Secure Boot (Microsoft's keys enrolled: Debian's
+  shim is signed by them), virtio disk (discard, iothread) and network, the guest agent (Proxmox's
+  summary shows the address), a serial console beside the screen, started at boot.
+- **Container** (`--lxc`): unprivileged, with the features **`nesting=1,keyctl=1`** (Docker runs inside
+  the container and needs both), `ostype unmanaged` (Proxmox leaves the system's own network,
+  DHCP, alone), started at boot. Lighter than a VM, but no backups to USB disks (a container
+  cannot mount them) and the host's kernel is the one that runs. On ZFS, Docker needs ZFS 2.2 or
+  newer (Proxmox VE 8.1+) for its overlay storage; on LVM-thin and directories it just works.
+
+### By hand: a VM
+
 Upload the qcow2 to the Proxmox host (for example into `/var/lib/vz/template/`), then in the
 host's shell:
 
 ```sh
 qm create 9000 --name redgiant --memory 4096 --cores 2 --cpu host \
-  --net0 virtio,bridge=vmbr0 --ostype l26 --scsihw virtio-scsi-single \
-  --bios ovmf --machine q35 --efidisk0 local-lvm:0,efitype=4m,pre-enrolled-keys=1
-qm importdisk 9000 redgiant-os-<version>-x86_64.qcow2 local-lvm
-qm set 9000 --scsi0 local-lvm:vm-9000-disk-1,discard=on,ssd=1 --boot order=scsi0
+  --net0 virtio,bridge=vmbr0 --ostype l26 --scsihw virtio-scsi-single --agent enabled=1 \
+  --bios ovmf --machine q35 --efidisk0 local-lvm:1,efitype=4m,pre-enrolled-keys=1 \
+  --scsi0 local-lvm:0,import-from=/var/lib/vz/template/redgiant-os-<version>-x86_64.qcow2,discard=on,ssd=1 \
+  --boot order=scsi0
 qm resize 9000 scsi0 64G
 qm start 9000
 ```
 
 Change the id (9000), the storage (`local-lvm`) and the bridge (`vmbr0`) to yours; the disk can
-be any size of 16 GB or more, the system grows into it at start. SeaBIOS works too: leave out
+be any size of 32 GB or more, the system grows into it at start. SeaBIOS works too: leave out
 `--bios`, `--machine` and `--efidisk0`. The console tab of the machine shows the address.
+
+### By hand: a container
+
+Put `redgiant-os-<version>-x86_64-lxc.tar.zst` in a storage for templates (Datacenter, the node,
+`local`, CT Templates, Upload), then:
+
+```sh
+pct create 9001 local:vztmpl/redgiant-os-<version>-x86_64-lxc.tar.zst --hostname redgiant \
+  --ostype unmanaged --unprivileged 1 --features nesting=1,keyctl=1 \
+  --cores 2 --memory 4096 --swap 512 --rootfs local-lvm:32 \
+  --net0 name=eth0,bridge=vmbr0,ip=dhcp,ip6=auto --onboot 1
+pct start 9001
+```
+
+In the web interface: Create CT, the template, **unprivileged**, and after creating it Options,
+Features: **keyctl** and **nesting** on, before the first start. The container's console shows
+the address; `pct exec 9001 -- cat /etc/issue.d/50-redgiant.issue` too.
+
+**LXC and Incus** outside Proxmox take the same template (`incus image import metadata.tar.gz
+<template>` with a small `metadata.yaml`, then `incus launch … -c security.nesting=true`); CI starts
+it that way (`packaging/os/test/lxc-test.sh`).
 
 ## On Hyper-V
 
@@ -95,6 +155,39 @@ an Intel E1000 network card, which both have.
 
 To make the disk bigger, enlarge it in the machine's settings before the first start (VirtualBox:
 Tools, Media; VMware: Hard Disk, Expand): the system grows into it.
+
+## On a Raspberry Pi
+
+`redgiant-os-<version>-arm64-raspi.img.xz` is for the **Raspberry Pi 4 Model B, 400 and Compute
+Module 4** (4 GB of memory or more is best; 2 GB is the minimum), from a microSD card or a USB
+disk of 16 GB or more (an SSD on USB 3 is much faster than a card).
+
+1. Write the image: in [Raspberry Pi Imager](https://www.raspberrypi.com/software/) choose your Pi,
+   then "Use custom" with the `.img.xz`, then the card or disk. When Imager asks "apply OS
+   customisation settings?", answer **No**: those settings are for Raspberry Pi OS, RedGiant OS
+   asks for nothing. Or [balenaEtcher](https://etcher.balena.io/), or on Linux and macOS
+   `xzcat redgiant-os-<version>-arm64-raspi.img.xz | sudo dd of=/dev/<card> bs=4M status=progress conv=fsync`.
+2. Put it in the Pi, connect the network cable and switch it on. The first start fills the card
+   and loads RedGiant (a few minutes, more on a slow card), then the screen (HDMI 0) shows the
+   address; or open `http://redgiant.local:7600`.
+
+To start from a USB disk, the Pi's bootloader must be recent (Raspberry Pi OS: `sudo rpi-eeprom-update`;
+boards made since late 2020 already have it). The boot partition (`RASPIFIRM`, FAT, what a computer shows
+when the card is plugged in) holds the firmware, Debian's kernel and `config.txt`/`cmdline.txt`,
+which the system rewrites at every kernel update: settings go in `/etc/default/raspi-firmware`
+(and `raspi-firmware-custom`, `raspi-extra-cmdline`) on the Pi itself.
+
+How it is made: like Debian's own Raspberry Pi images (raspi.debian.net): Debian 13's
+`raspi-firmware` and kernel, an MBR card with the FAT partition and the ext4 system, no GRUB. So
+the kernel and the firmware come with Debian's security updates like everything else.
+
+- **Raspberry Pi 5**: not yet. Debian 13's kernel does not drive the Pi 5's network and USB chip
+  (RP1); the image will start on it when Debian's kernel does. Until then, on a Pi 5 run RedGiant
+  in Docker on Raspberry Pi OS (64-bit): see [INSTALL.md](INSTALL.md#linux).
+- **Raspberry Pi 3**: not supported (1 GB of memory is too little for RedGiant).
+- **Tested** on QEMU (the image's own kernel and system on an emulated arm64 machine, with every
+  check of the other images), and its partitions and boot files are checked in CI; a real Pi is
+  not part of CI.
 
 ## On KVM / libvirt, UTM and clouds
 
@@ -177,6 +270,11 @@ image). The workflow `.github/workflows/os.yml` builds both processors on GitHub
 boots every image in QEMU. Every format is a `format_<name>` function in `build.sh`: the VHDX and
 the OVA are converted from the same disk (`qemu-img`, the OVF descriptor by `formats/vm.py`) and
 boot in CI through those files (the VHDX with UEFI, the OVA's disk with BIOS and an E1000 card).
+`--board lxc` makes the container template (`lxc/lxc.sh`: the same system without a kernel or a
+boot loader; CI starts it in Incus) and `--board raspi` the Raspberry Pi image (`raspi/raspi.sh`; CI
+checks its partitions and files and starts its system on QEMU's arm64 machine). The Proxmox host's
+script is `proxmox/redgiant-proxmox.sh` (tests: `test/proxmox.test.ts`, with stand-ins for `qm`,
+`pct`, `pvesh` and `pvesm`).
 
 ```sh
 node packaging/os/stack.mjs --version 3.7.0 --out out/redgiant-os-stack.json

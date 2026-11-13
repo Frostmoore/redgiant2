@@ -3,6 +3,8 @@
 #
 #   boot-test.sh boot    --arch amd64|arm64 --firmware uefi|bios [--secureboot] --disk <qcow2> --logs <dir>
 #                        [--nic e1000]   (--disk: any format qemu-img reads: qcow2, vhdx, vmdk, raw)
+#   boot-test.sh boot    --arch arm64 --firmware direct --kernel <vmlinuz> --initrd <initrd> --append <args> …
+#                        (the kernel started by QEMU itself: the Raspberry Pi image's system on QEMU's virt)
 #   boot-test.sh install --iso <iso> --disk <new qcow2> --logs <dir> [--firmware bios|uefi]
 #
 # boot: the machine gets the credential redgiant.selftest, so redgiant-selftest prints its checks on
@@ -16,6 +18,7 @@ set -uo pipefail
 MODE=${1:-}
 shift || true
 ARCH=amd64 FIRMWARE=uefi SECUREBOOT=0 DISK="" ISO="" LOGS=. WORK="" TIMEOUT=${TIMEOUT:-3600} PORT=17600 NIC=virtio-net-pci
+KERNEL="" INITRD="" APPEND=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --arch) ARCH=$2 && shift ;;
@@ -29,6 +32,9 @@ while [ $# -gt 0 ]; do
     --timeout) TIMEOUT=$2 && shift ;;
     # The network card (VirtualBox and VMware: e1000).
     --nic) NIC=$2 && shift ;;
+    --kernel) KERNEL=$2 && shift ;;
+    --initrd) INITRD=$2 && shift ;;
+    --append) APPEND=$2 && shift ;;
     *) echo "unknown option $1" >&2 && exit 2 ;;
   esac
   shift
@@ -107,7 +113,9 @@ case "$MODE" in
     RUN=$WORK/run-$ARCH-$FIRMWARE.qcow2
     qemu-img create -q -f qcow2 -b "$(readlink -f "$DISK")" -F "$(qemu-img info --output=json "$DISK" | jq -r .format)" "$RUN"
     start=$SECONDS
-    run_qemu -drive "file=$RUN,if=virtio,format=qcow2" \
+    DIRECT=()
+    [ "$FIRMWARE" = direct ] && DIRECT=(-kernel "$KERNEL" -initrd "$INITRD" -append "$APPEND")
+    run_qemu "${DIRECT[@]}" -drive "file=$RUN,if=virtio,format=qcow2" \
       -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$PORT-:7600" -device "$NIC,netdev=net0,romfile=" \
       -smbios "type=11,value=io.systemd.credential:redgiant.selftest=1"
     ok=1

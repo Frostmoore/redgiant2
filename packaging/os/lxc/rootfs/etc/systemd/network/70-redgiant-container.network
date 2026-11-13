@@ -1,0 +1,11 @@
+# RedGiant OS in a container (Proxmox, LXC, Incus): the network card the host gives (eth0, a veth
+# that the wired rule leaves out) asks for an address. Docker's own veths are named veth*.
+[Match]
+Name=eth*
+Virtualization=container
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+MulticastDNS=no
+LLMNR=no
