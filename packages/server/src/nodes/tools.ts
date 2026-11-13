@@ -133,6 +133,7 @@ export function nodeTools(host: NodeToolsHost): Tool[] {
           input.command,
           { timeoutMs: wait, signal: ctx.signal, ...(input.cwd && { cwd: input.cwd }) },
           approved,
+          { projectId: ctx.projectId, agentId: ctx.agentId, sessionId: ctx.sessionId },
         );
         const parts = [
           `Node: ${target.name}${input.cwd ? `, in ${input.cwd}` : ""}`,

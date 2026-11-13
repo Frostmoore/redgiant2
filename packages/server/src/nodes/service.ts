@@ -48,7 +48,7 @@ import {
   dialNode,
   fingerprintOf,
   identityFromPem,
-  NodeChannelError,
+  type NodeChannelError,
   type NodeIdentity,
   newIdentity,
   type SecureLink,

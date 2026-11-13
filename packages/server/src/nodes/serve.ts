@@ -127,10 +127,17 @@ export function nodeHandlers(o: NodeServeOptions): NodeHandlers {
           `The guardian of this machine refused: the command writes outside its sandbox (${outside.slice(0, 3).join(", ")}). Only a machine that manages this one may.`,
         );
       // Truly dangerous: only what the asker's person said yes to.
-      const hits = criticalOf({ name: "bash", input: { command } } as never, {
-        roots: [ws.root],
-        home: ws.root,
-      });
+      // Read as a command of this machine (its real folders) and as one on a node (its
+      // administrator, switching it off, its system programs), as the asking side read it.
+      const local = criticalOf(
+        { callId: "", name: "bash", input: { command } },
+        {
+          roots: [ws.root],
+          home: ws.root,
+        },
+      );
+      const asNode = criticalOf({ callId: "", name: "node_run", input: { node: "here", command } });
+      const hits = [...local, ...asNode.filter((h) => !local.some((l) => l.id === h.id))];
       const approved = new Set(Array.isArray(b.approvedCritical) ? b.approvedCritical : []);
       const missing = hits.filter((h) => !approved.has(h.id));
       if (missing.length)

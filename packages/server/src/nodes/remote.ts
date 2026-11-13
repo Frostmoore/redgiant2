@@ -19,6 +19,13 @@ import {
 } from "@redgiant/tools";
 import type { NodeError, Nodes } from "./service.js";
 
+/** Where a request is logged on the asking side: the conversation that asked. */
+export interface NodeLogPlace {
+  projectId?: string | null;
+  agentId?: string | null;
+  sessionId?: string | null;
+}
+
 /** A sandbox name for the node: the spec id with only safe characters. */
 const sandboxName = (id: string) => id.replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 80) || "default";
 
@@ -94,14 +101,20 @@ export class NodeWorkspace implements Workspace {
    * A command whose truly dangerous parts the person said yes to (`approved`: the ids of
    * `criticalOf`, asked by the broker here): the node checks them again and refuses any other.
    */
-  execApproved(command: string, o: ExecOptions, approved: string[]): Promise<ExecResult> {
-    return this.run({ command }, o, approved);
+  execApproved(
+    command: string,
+    o: ExecOptions,
+    approved: string[],
+    log?: NodeLogPlace,
+  ): Promise<ExecResult> {
+    return this.run({ command }, o, approved, log && { ...log, what: `exec ${command}` });
   }
 
   private async run(
     body: Record<string, unknown>,
     o: ExecOptions,
     approved = this.approved(),
+    log?: NodeLogPlace & { what: string },
   ): Promise<ExecResult> {
     const r = (await this.t.nodes.request(
       this.t.ownerId,
@@ -116,6 +129,7 @@ export class NodeWorkspace implements Workspace {
       },
       {
         signal: o.signal,
+        ...(log && { log }),
         // The command's own time, and the way back.
         ...(Number.isFinite(o.timeoutMs) && { timeoutMs: o.timeoutMs + 30_000 }),
       },
