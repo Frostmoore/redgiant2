@@ -8,12 +8,12 @@ It assumes nothing about the machine: x86_64 or arm64, with or without a graphic
 without a screen, real hardware or any hypervisor. 2 GB of memory is the minimum, 4 GB or more is
 better; the disk needs 16 GB or more.
 
-| You have                                    | Download                                   |
-| ------------------------------------------- | ------------------------------------------ |
-| A PC to dedicate to RedGiant (x86_64)       | `redgiant-os-<version>-x86_64.iso`         |
-| Proxmox, KVM/libvirt, UTM, a cloud (x86_64) | `redgiant-os-<version>-x86_64.qcow2`       |
-| The same on arm64 (Ampere, Graviton, UTM)   | `redgiant-os-<version>-arm64.qcow2`        |
-| Something that wants a raw disk             | `redgiant-os-<version>-<arch>.raw.zst`     |
+| You have                                    | Download                                    |
+| ------------------------------------------- | ------------------------------------------- |
+| A PC to dedicate to RedGiant (x86_64)       | `redgiant-os-<version>-x86_64.iso`          |
+| Proxmox, KVM/libvirt, UTM, a cloud (x86_64) | `redgiant-os-<version>-x86_64.qcow2`        |
+| The same on arm64 (Ampere, Graviton, UTM)   | `redgiant-os-<version>-arm64.qcow2`         |
+| Something that wants a raw disk             | `redgiant-os-<version>-<arch>.raw.zst`      |
 | A server that already runs Docker           | not this page: see [INSTALL.md](INSTALL.md) |
 
 Every file is listed in `SHA256SUMS-os`, signed with RedGiant's update key
@@ -86,12 +86,12 @@ address on their login prompt. There is no password login: the machine is manage
 
 Everything RedGiant keeps is in **`/var/lib/redgiant`**, on the system disk:
 
-| Path                                | What                                                       |
-| ----------------------------------- | ---------------------------------------------------------- |
-| `/var/lib/redgiant/docker`          | Docker's data: RedGiant's images and volumes (projects, database, models) |
-| `/var/lib/redgiant/stack.env`       | the access token and database password (root only)        |
-| `/var/lib/redgiant/backups/<name>`  | external disks mounted for backups                         |
-| `/var/lib/redgiant/stack`           | the compose files in use                                   |
+| Path                               | What                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------- |
+| `/var/lib/redgiant/docker`         | Docker's data: RedGiant's images and volumes (projects, database, models) |
+| `/var/lib/redgiant/stack.env`      | the access token and database password (root only)                        |
+| `/var/lib/redgiant/backups/<name>` | external disks mounted for backups                                        |
+| `/var/lib/redgiant/stack`          | the compose files in use                                                  |
 
 To keep the data on a second disk, mount that disk at `/var/lib/redgiant` before the first start
 (choosing it from RedGiant's page comes later).
