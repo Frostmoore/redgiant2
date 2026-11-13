@@ -253,7 +253,7 @@ jobs:
         timeout-minutes: 10
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends incus
+          sudo apt-get install -y -q --no-install-recommends incus dnsmasq-base
           sudo incus admin init --minimal
           # Docker's firewall drops forwarded traffic; the container's bridge is let through.
           sudo iptables -I DOCKER-USER -i incusbr0 -j ACCEPT || true
