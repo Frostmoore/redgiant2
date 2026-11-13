@@ -682,7 +682,7 @@ export function Nodes() {
       </Box>
       <Sub title={t("ndAddTitle")} lead={t("ndAddLead")} />
       <AddNode s={s} reload={reload} />
-      {!s.parent && (
+      {!s.parent && !s.pending.some((p) => p.side === "node") && (
         <>
           <Sub title={t("ndJoinTitle")} lead={t("ndJoinLead")} />
           <Box>
