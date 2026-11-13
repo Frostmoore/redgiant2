@@ -353,6 +353,9 @@ jobs:
           ls -la "$RUNNER_TEMP/kernel"
       - name: Start the image's system on QEMU (arm64 virt, its kernel) and check
         timeout-minutes: 130
+        # Emulated: the first start loads RedGiant's images for many minutes before the self-test.
+        env:
+          START_LIMIT: 5400
         run: |
           packaging/os/test/boot-test.sh boot --arch arm64 --firmware direct --disk "$RUNNER_TEMP/raspi.img" \
             --kernel "$RUNNER_TEMP/kernel/vmlinuz" --initrd "$RUNNER_TEMP/kernel/initrd.img" \
@@ -385,7 +388,7 @@ jobs:
   # A preview by hand (input preview): what this run built, signed like a release, on the
   # pre-release os-preview (never "latest": RedGiant's updates read only the latest release).
   preview:
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.preview && needs.stack.result == 'success' && !contains(needs.*.result, 'failure') }}
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.preview && needs.stack.result == 'success' && needs.lxc.result == 'success' }}
     needs: [stack, build, lxc, raspi]
     runs-on: ubuntu-latest
     permissions:
@@ -399,11 +402,15 @@ jobs:
         with:
           pattern: redgiant-os-*
           path: dl
-      - name: SHA256SUMS-os and the stack, signed with the update key
+      - name: SHA256SUMS-os and the stack, signed with the update key (only the files of jobs that passed)
         env:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          BUILD: ${{ needs.build.result }}
+          RASPI: ${{ needs.raspi.result }}
         run: |
           mkdir -p rel
+          [ "$BUILD" = success ] || rm -rf dl/redgiant-os-amd64 dl/redgiant-os-arm64
+          [ "$RASPI" = success ] || rm -rf dl/redgiant-os-arm64-raspi
           find dl -type f \( -name 'redgiant-os-*.qcow2' -o -name 'redgiant-os-*.raw.zst' -o -name 'redgiant-os-*.iso' -o -name 'redgiant-os-*.vhdx.zip' -o -name 'redgiant-os-*.ova' -o -name 'redgiant-os-*-lxc.tar.zst' -o -name 'redgiant-os-*-raspi.img.xz' -o -name redgiant-os-stack.json \) -exec cp {} rel/ \;
           cp packaging/os/proxmox/redgiant-proxmox.sh rel/
           (cd rel && sha256sum redgiant-os-* redgiant-proxmox.sh > SHA256SUMS-os)
