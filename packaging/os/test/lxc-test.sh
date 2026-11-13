@@ -62,7 +62,8 @@ wait_until() { # what seconds command…: true once the command succeeds
   done
   return 1
 }
-running() { T=15 in_ct systemctl is-system-running 2>/dev/null | grep -qE '^(running|degraded)'; }
+# systemd answers (it stays "starting" while redgiant.service loads the images the first time).
+running() { T=15 in_ct systemctl is-system-running 2>/dev/null | grep -qE '^(starting|running|degraded)'; }
 healthy() { T=15 in_ct curl -fsS --max-time 5 http://127.0.0.1:7600/api/health; }
 wait_until "systemd up" 300 running || fail "systemd did not come up within 300 s"
 wait_until "RedGiant answering" "$TIMEOUT" healthy || fail "RedGiant did not answer within $TIMEOUT s"
