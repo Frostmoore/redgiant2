@@ -437,7 +437,20 @@ EOF
       rm -f "$old"
       ok ',"state":"saved"'
     fi
-    wait_known "$ssid" || true
+    # iwd did not read the file by itself (seen in QEMU after a refused password): a restart of
+    # iwd reads every saved network again (Wi-Fi drops for a moment, as joining does anyway).
+    if ! wait_known "$ssid"; then
+      systemctl restart iwd.service >/dev/null 2>&1 || true
+      i=0
+      while [ $i -lt 20 ]; do
+        sleep 0.5
+        objs=$(iwd_objects) && st=$(station_of "$objs") && [ -n "$st" ] && [ -n "$(known_of "$objs" "$ssid")" ] && break
+        i=$((i + 1))
+      done
+      objs=$(iwd_objects) || objs='{"data":[{}]}'
+      st=$(station_of "$objs")
+      [ -n "$st" ] || { undo; fail wifi_off; }
+    fi
     if [ "$3" = hidden ]; then
       err=$(busctl --timeout=40 call net.connman.iwd "$st" net.connman.iwd.Station ConnectHiddenNetwork s "$ssid" 2>&1 >/dev/null) && {
         rm -f "$old"
@@ -469,7 +482,7 @@ EOF
     fi
     undo
     # iwd's error name only (no secret can be in it), for the page's details.
-    detail=$(printf '%s' "$err" | grep -o 'net\.connman\.iwd\.[A-Za-z]*' | head -n1)
+    detail=$(printf '%s' "$err" | head -n1 | sed 's/^Call failed: //' | tr -cd 'A-Za-z .' | cut -c1-80)
     case "$err" in
       *InProgress* | *"in progress"*) fail busy ;;
       *NotFound* | *"not found"*) fail not_found ;;

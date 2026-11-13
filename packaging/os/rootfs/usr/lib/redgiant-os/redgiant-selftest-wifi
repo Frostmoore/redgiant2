@@ -63,7 +63,10 @@ if wifi_setup; then
   check "wifi-connect" bash -c "jq -e '.state == \"connected\"' <<<'$reply'"
   check "wifi-status connected" wifi_connected "$wifi_ssid"
   check "wifi password in no log" bash -c "! journalctl -b --no-pager -o cat | grep -qF '$wifi_pass'"
-  [ "$ok" = 1 ] || journalctl -b -u iwd.service --no-pager -n 40 -o cat 2>&1 | sed 's/^/REDGIANT-SELFTEST iwd: /' >/dev/console
+  if [ "$ok" != 1 ]; then
+    journalctl -b -u iwd.service --no-pager -n 25 -o cat 2>&1 | sed 's/^/REDGIANT-SELFTEST iwd: /' >/dev/console
+    ls -la /var/lib/iwd 2>&1 | sed 's/^/REDGIANT-SELFTEST iwd: /' >/dev/console
+  fi
 else
   say "FAIL wifi test network (mac80211_hwsim, hostapd)"
   ok=0
