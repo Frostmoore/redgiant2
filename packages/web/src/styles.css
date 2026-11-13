@@ -19482,3 +19482,118 @@ html[data-theme="dark"] {
     justify-content: space-between;
   }
 }
+
+/* Settings › Nodes (G39.4): the tree, the pairs to compare, who may command whom. */
+.nd-tree,
+.nd-parent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nd-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+}
+.nd-row.self {
+  border-color: var(--accent);
+}
+.nd-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nd-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.nd-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 0.85rem;
+}
+.nd-caps span {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.nd-who {
+  font-size: 0.85rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.nd-grants {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.nd-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.8rem;
+}
+.nd-acts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.nd-grant {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.nd-grant:last-child {
+  border-bottom: 0;
+}
+.nd-sas,
+.nd-codebig {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 2rem;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  text-align: center;
+  padding: 8px 0;
+}
+.nd-code-in {
+  font-family: var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.nd-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nd-place {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tmachine.tnode {
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .nd-row {
+    flex-wrap: wrap;
+  }
+  .nd-acts {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
