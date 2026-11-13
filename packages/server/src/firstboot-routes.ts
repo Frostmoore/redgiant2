@@ -7,6 +7,14 @@
 //   POST /api/setup/backups/run      a backup now, into the destination
 //   GET  /api/setup/net              what already reaches the machine (Tailscale, proxies, DNS)
 //   GET  /api/setup/ssh, PUT /api/setup/ssh {on, key?}   SSH, keys only (RedGiant OS's helper)
+// RedGiant OS (G39.1), through the OS helper:
+//   GET  /api/setup/wifi             the Wi-Fi networks and the one in use; POST …/wifi/scan looks again
+//   POST /api/setup/wifi/connect     {ssid, password, hidden?}  (the password is never logged or kept)
+//   POST /api/setup/wifi/forget      {ssid}
+//   GET  /api/setup/https, PUT /api/setup/https {local?, redirect?, trusted?}   HTTPS in the LAN
+//   GET  /api/setup/os-updates, POST /api/setup/os-updates/check   RedGiant's stack, Debian's security
+//   POST /api/setup/os/reboot        {confirm: true}   the person's yes in the page
+//   GET  /redgiant-ca.crt            the machine's CA certificate (public, no sign-in)
 import type { BackupSchedule } from "@redgiant/protocol";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
@@ -153,6 +161,64 @@ export function firstBootRoutes<E extends { Variables: any }>(
     }),
   );
   app.get("/api/setup/net", (c) => answer(c, async (s) => machine(s).net((n) => c.req.header(n))));
+  app.get("/api/setup/wifi", (c) => answer(c, async (s) => machine(s).wifi()));
+  app.post("/api/setup/wifi/scan", (c) => answer(c, async (s) => machine(s).wifi(true)));
+  app.post("/api/setup/wifi/connect", (c) =>
+    answer(c, async (s) => {
+      const b = await body(
+        c,
+        z.object({
+          ssid: z.string().min(1).max(64),
+          password: z.string().max(64),
+          hidden: z.boolean().optional(),
+        }),
+      );
+      return machine(s).wifiConnect(b.ssid, b.password, b.hidden === true);
+    }),
+  );
+  app.post("/api/setup/wifi/forget", (c) =>
+    answer(c, async (s) => {
+      const b = await body(c, z.object({ ssid: z.string().min(1).max(64) }));
+      return machine(s).wifiForget(b.ssid);
+    }),
+  );
+  app.get("/api/setup/https", (c) =>
+    answer(c, async (s) => machine(s).https((n) => c.req.header(n))),
+  );
+  app.put("/api/setup/https", (c) =>
+    answer(c, async (s) => {
+      const b = await body(
+        c,
+        z.object({
+          local: z.boolean().optional(),
+          redirect: z.boolean().optional(),
+          trusted: z.boolean().optional(),
+        }),
+      );
+      return machine(s).setHttps(b, (n) => c.req.header(n));
+    }),
+  );
+  app.get("/api/setup/os-updates", (c) => answer(c, async (s) => machine(s).osUpdates()));
+  app.post("/api/setup/os-updates/check", (c) =>
+    answer(c, async (s) => machine(s).osUpdates(true)),
+  );
+  app.post("/api/setup/os/reboot", (c) =>
+    answer(c, async (s) => {
+      const b = await body(c, z.object({ confirm: z.literal(true) }));
+      void b;
+      return machine(s).reboot();
+    }),
+  );
+  // Public: a certificate is meant to be shown; what is installed with it is the person's choice.
+  app.get("/redgiant-ca.crt", async (c) => {
+    const pem = await setup?.firstBoot?.caCertificate();
+    if (!pem) return c.json({ error: "No local certificate on this installation" }, 404);
+    return c.body(pem, 200, {
+      "content-type": "application/x-x509-ca-cert",
+      "content-disposition": 'attachment; filename="RedGiant-CA.crt"',
+      "cache-control": "no-store",
+    });
+  });
   app.get("/api/setup/ssh", (c) => answer(c, async (s) => machine(s).ssh()));
   app.put("/api/setup/ssh", (c) =>
     answer(c, async (s) => {

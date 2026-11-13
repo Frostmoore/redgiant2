@@ -69,8 +69,8 @@ export function assessRelease(
   return "normal";
 }
 
-/** How RedGiant is installed here: it decides how an update is done. */
-export const InstallKind = z.enum(["windows", "mac", "docker", "source"]);
+/** How RedGiant is installed here: it decides how an update is done ("os": RedGiant OS). */
+export const InstallKind = z.enum(["windows", "mac", "docker", "os", "source"]);
 export type InstallKind = z.infer<typeof InstallKind>;
 
 /** The last look for updates, as the page shows it (`GET /api/update/status`). */
@@ -91,7 +91,7 @@ export const UpdateStatus = z.object({
   command: z.string().nullable(),
   /** Where the safety backup of a breaking update goes, as the person sees it. */
   backupDir: z.string().nullable(),
-  /** Windows: RedGiant.exe can update itself, and run the uninstaller. */
+  /** Windows: RedGiant.exe can update itself, and run the uninstaller. RedGiant OS: its signed updater. */
   canUpdateHere: z.boolean(),
   canUninstall: z.boolean(),
 });

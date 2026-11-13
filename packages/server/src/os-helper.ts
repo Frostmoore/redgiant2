@@ -17,6 +17,17 @@
 //   ssh-on <base64 key line> → {}      (keys only, never passwords)
 //   ssh-off                  → {}
 //   tailscale                → {"status": <tailscale status --json>}
+// RedGiant OS (G39.1):
+//   wifi-status, wifi-scan   → {"objects": <iwd's D-Bus objects>, "ordered": …, "links": <ip -j addr>}
+//   wifi-connect <base64 ssid> <base64 password|-> <visible|hidden> → {"state": "connected"|"saved"}
+//   wifi-forget <base64 ssid> → {}
+//   https-status             → {"on", "enabled", "ca": <base64 PEM>|null, "fingerprint", "until", "names"}
+//   https-local on|off       → {}
+//   os-update-status, os-update-check → {"update": <os-update.json>|null, "running", "security": {…}}
+//   os-update-apply          → {}      (redgiant-os-update.service, in the background)
+//   reboot                   → {"in": 5}
+// A Wi-Fi password travels only base64 in the request line (the line is never logged, here or
+// by the helper) and ends in iwd's own file for that network.
 import { execFile } from "node:child_process";
 import { connect } from "node:net";
 
@@ -27,7 +38,17 @@ export type HelperOp =
   | { op: "ssh-status" }
   | { op: "ssh-on"; key: string }
   | { op: "ssh-off" }
-  | { op: "tailscale" };
+  | { op: "tailscale" }
+  | { op: "wifi-status" }
+  | { op: "wifi-scan" }
+  | { op: "wifi-connect"; ssid: string; password: string; hidden?: boolean }
+  | { op: "wifi-forget"; ssid: string }
+  | { op: "https-status" }
+  | { op: "https-local"; on: boolean }
+  | { op: "os-update-status" }
+  | { op: "os-update-check" }
+  | { op: "os-update-apply" }
+  | { op: "reboot" };
 
 export class HelperError extends Error {
   constructor(
@@ -53,9 +74,33 @@ export function sshPublicKey(text: string): string | null {
   return SSH_KEY.test(k) ? k : null;
 }
 
+/** A Wi-Fi network's name: 1 to 32 bytes, no control characters. */
+export function wifiSsidOk(ssid: string): boolean {
+  const n = Buffer.byteLength(ssid);
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is refused
+  return n >= 1 && n <= 32 && !/[\u0000-\u001f\u007f]/.test(ssid);
+}
+
+/** A WPA password: 8 to 63 printable ASCII characters, or the 64 hexadecimal digits of the key. */
+export function wifiPasswordOk(password: string): boolean {
+  if (/^[0-9a-fA-F]{64}$/.test(password)) return true;
+  return /^[\x20-\x7e]{8,63}$/.test(password);
+}
+
+const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
+
 /** The request line for an operation; anything that does not match the rules is refused here. */
 export function helperRequest(o: HelperOp): string {
   switch (o.op) {
+    case "wifi-connect":
+      if (!wifiSsidOk(o.ssid)) throw new HelperError("bad_ssid");
+      if (o.password !== "" && !wifiPasswordOk(o.password)) throw new HelperError("bad_password");
+      return `wifi-connect ${b64(o.ssid)} ${o.password === "" ? "-" : b64(o.password)} ${o.hidden ? "hidden" : "visible"}`;
+    case "wifi-forget":
+      if (!wifiSsidOk(o.ssid)) throw new HelperError("bad_ssid");
+      return `wifi-forget ${b64(o.ssid)}`;
+    case "https-local":
+      return `https-local ${o.on ? "on" : "off"}`;
     case "mount":
       if (!UUID.test(o.uuid) || !LABEL.test(o.label)) throw new HelperError("bad_request");
       return `mount ${o.uuid} ${o.label}`;
@@ -105,6 +150,9 @@ export function osHelperFrom(env: NodeJS.ProcessEnv = process.env): OsHelper | u
 }
 
 const TIMEOUT = 60_000;
+/** Joining a network (scan, then iwd's 40 s) and the update check (50 s) wait a little longer. */
+const LONG = new Set(["wifi-connect", "wifi-scan", "os-update-check"]);
+const timeoutFor = (line: string) => (LONG.has(line.split(" ")[0] ?? "") ? 100_000 : TIMEOUT);
 
 function viaSocket(path: string, line: string): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -113,7 +161,7 @@ function viaSocket(path: string, line: string): Promise<Record<string, unknown>>
     const timer = setTimeout(() => {
       s.destroy();
       reject(new HelperError("timeout"));
-    }, TIMEOUT);
+    }, timeoutFor(line));
     s.on("connect", () => s.end(`${line}\n`));
     s.on("data", (d) => {
       out += d.toString();
@@ -135,13 +183,22 @@ function viaSocket(path: string, line: string): Promise<Record<string, unknown>>
 
 function viaCommand(file: string, pre: string[], line: string): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
-    // The request's words as arguments: no shell, and the helper checks them again.
-    execFile(file, [...pre, ...line.split(" ")], { timeout: TIMEOUT }, (err, stdout) => {
-      try {
-        resolve(parseHelperReply(String(stdout)));
-      } catch (e) {
-        reject(err && !stdout ? new HelperError("unreachable", err.message) : e);
-      }
-    });
+    // The request's words as arguments: no shell, and the helper checks them again. A Wi-Fi
+    // password is never an argument (any process may read those): that request goes on stdin.
+    const secret = line.startsWith("wifi-connect ");
+    const child = execFile(
+      file,
+      secret ? [...pre, "--stdin"] : [...pre, ...line.split(" ")],
+      { timeout: timeoutFor(line) },
+      (err, stdout) => {
+        try {
+          resolve(parseHelperReply(String(stdout)));
+        } catch (e) {
+          reject(err && !stdout ? new HelperError("unreachable", err.message) : e);
+        }
+      },
+    );
+    if (secret) child.stdin?.end(`${line}\n`);
+    else child.stdin?.end();
   });
 }

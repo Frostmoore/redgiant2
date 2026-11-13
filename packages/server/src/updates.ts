@@ -53,6 +53,8 @@ export function installKind(env: NodeJS.ProcessEnv = process.env): InstallKind {
     return env.REDGIANT_INSTALL;
   if (env.REDGIANT_INSTALL === "docker" || env.REDGIANT_INSTALL === "source")
     return env.REDGIANT_INSTALL;
+  // RedGiant OS (G39.1): its compose.os.yaml says so; updates go through its signed updater.
+  if (env.REDGIANT_INSTALL === "os" || env.REDGIANT_OS === "1") return "os";
   if (process.platform === "win32" && env.REDGIANT_WIN_ENGINE_DIR) return "windows";
   if (process.platform === "darwin" && env.REDGIANT_STOP_ON_STDIN_END === "1") return "mac";
   if (existsSync("/.dockerenv") || existsSync("/opt/redgiant/.image-version")) return "docker";
@@ -100,6 +102,8 @@ export interface UpdateWatcherOptions {
   everyMs?: number;
   /** Windows: RedGiant.exe updates in place and can run the uninstaller. */
   launcher?: boolean;
+  /** RedGiant OS: the OS helper can run the signed updater (redgiant-os-update). */
+  osUpdater?: boolean;
   /** Docker: where the compose file is, for the command shown. */
   composeDir?: string;
   arch?: string;
@@ -151,7 +155,9 @@ export class UpdateWatcher {
           ? `cd ${o.composeDir ?? "~/redgiant"} && docker compose pull && docker compose up -d`
           : null,
       backupDir: o.backupBase,
-      canUpdateHere: o.install === "windows" && o.launcher === true,
+      canUpdateHere:
+        (o.install === "windows" && o.launcher === true) ||
+        (o.install === "os" && o.osUpdater === true),
       canUninstall: o.install === "windows" && o.launcher === true,
     };
   }

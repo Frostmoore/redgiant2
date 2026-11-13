@@ -359,13 +359,15 @@ const gitHosts = new GitHosts({
   ...(env.REDGIANT_EGRESS_ROUTES && { routesFile: env.REDGIANT_EGRESS_ROUTES }),
   ...(env.REDGIANT_EGRESS_URL && { egressUrl: env.REDGIANT_EGRESS_URL }),
 });
+// The OS helper (G39.3): root actions on the machine, when this installation has one.
+const osHelper = osHelperFrom(env);
 const setup = new SetupService({
   git: gitHosts,
   // The machine (G39.3): disks for backups, SSH, what reaches it; root actions through the OS helper.
   firstBoot: new FirstBoot({
     dataDir,
     hostDataDir: env.REDGIANT_HOST_DATA_DIR,
-    helper: osHelperFrom(env),
+    helper: osHelper,
   }),
   db,
   core,
@@ -513,9 +515,16 @@ if (sandbox.kind === "host")
     ...(env.REDGIANT_UPDATE_FEED && { feed: env.REDGIANT_UPDATE_FEED }),
     ...(env.REDGIANT_HOME && { composeDir: env.REDGIANT_HOME }),
     launcher: nativeWindows && !!winEngine,
+    osUpdater: install === "os" && !!osHelper,
     act: async (action) => {
       if (nativeWindows && winEngine) {
         await winEngine.updateAction(action);
+        return true;
+      }
+      // RedGiant OS (G39.1): its signed updater, in the background (it restarts this server);
+      // the page follows it through /api/setup/os-updates.
+      if (install === "os" && osHelper && action === "update") {
+        await osHelper.call({ op: "os-update-apply" });
         return true;
       }
       // The Mac app watches the data folder for this (RedGiant.swift).

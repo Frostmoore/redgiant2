@@ -9,13 +9,17 @@ import { join, posix, win32 } from "node:path";
 import type {
   BackupDestination,
   BlockDisk,
+  LocalHttps,
   MountMethod,
   NetDetected,
+  OsUpdates,
   SshAccess,
   StorageInfo,
+  WifiState,
 } from "@redgiant/protocol";
 import { backupCandidates, checkBackupDisk, parseUdisksMount } from "./backup-disks.js";
 import { LSBLK_ARGS, parseLsblk, run, withFree } from "./discovery.js";
+import { bareHost, LanHttpsStore } from "./lan-https.js";
 import {
   hostName,
   localDnsServer,
@@ -24,6 +28,7 @@ import {
   proxyInFront,
 } from "./net-detect.js";
 import { HelperError, type OsHelper } from "./os-helper.js";
+import { parseWifi, wifiUnavailable } from "./wifi.js";
 
 const GB = 1024 ** 3;
 const round = (n: number) => Math.round(n * 10) / 10;
@@ -100,7 +105,14 @@ export interface FirstBootOptions {
 }
 
 export class FirstBoot {
-  constructor(private readonly o: FirstBootOptions) {}
+  /** HTTPS in the local network: the person's choice, read by every request (lan-https.ts). */
+  readonly lan: LanHttpsStore;
+  private caCache: { at: number; pem: string | null } | undefined;
+
+  constructor(private readonly o: FirstBootOptions) {
+    this.lan = new LanHttpsStore(o.dataDir);
+    void this.lan.load();
+  }
 
   private get exec() {
     return this.o.run ?? run;
@@ -252,6 +264,113 @@ export class FirstBoot {
     return { available: true, on: r.on === true, keys: typeof r.keys === "number" ? r.keys : 0 };
   }
 
+  /** Wi-Fi: the networks in reach and the one in use (a scan first when asked). */
+  async wifi(scan = false): Promise<WifiState> {
+    if (!this.o.helper) return { available: false, why: "no_helper" };
+    try {
+      return parseWifi(await this.o.helper.call({ op: scan ? "wifi-scan" : "wifi-status" }));
+    } catch (err) {
+      return wifiUnavailable(err instanceof HelperError ? err.code : "failed");
+    }
+  }
+
+  /** Joins a network; the password goes to the helper only (never logged, never kept here). */
+  async wifiConnect(
+    ssid: string,
+    password: string,
+    hidden = false,
+  ): Promise<{ state: "connected" | "saved"; wifi: WifiState }> {
+    const r = await ask(
+      this.o.helper,
+      { op: "wifi-connect", ssid, password, ...(hidden && { hidden }) },
+      "cannot_wifi",
+    );
+    return { state: r.state === "saved" ? "saved" : "connected", wifi: await this.wifi() };
+  }
+
+  async wifiForget(ssid: string): Promise<WifiState> {
+    await ask(this.o.helper, { op: "wifi-forget", ssid }, "cannot_wifi");
+    return this.wifi();
+  }
+
+  /** HTTPS in the local network, as this request sees it. */
+  async https(header: (name: string) => string | undefined): Promise<LocalHttps> {
+    if (!this.o.helper) return { available: false };
+    const r = await this.o.helper.call({ op: "https-status" }).catch(() => null);
+    if (!r) return { available: false };
+    const pem = typeof r.ca === "string" ? Buffer.from(r.ca, "base64").toString("utf8") : null;
+    this.caCache = { at: Date.now(), pem };
+    const host = bareHost(header("host"));
+    const inFront = proxyInFront(header) ?? (host.endsWith(".ts.net") ? "tailscale" : null);
+    const s = (v: unknown) => (typeof v === "string" && v ? v : null);
+    return {
+      available: true,
+      on: r.on === true,
+      ca: pem,
+      fingerprint: s(r.fingerprint),
+      until: s(r.until),
+      names: Array.isArray(r.names)
+        ? r.names.filter((n): n is string => typeof n === "string")
+        : [],
+      redirect: this.lan.settings.redirect,
+      viaLocal: header("x-redgiant-local-tls") === "1",
+      inFront,
+    };
+  }
+
+  /**
+   * Local HTTPS on or off (Caddy), and the redirect to it. The redirect is turned on only when
+   * the page has just reached https with this machine's certificate trusted (`trusted`), and
+   * only while HTTPS is on: nobody is locked out of their own machine.
+   */
+  async setHttps(
+    b: {
+      local?: boolean | undefined;
+      redirect?: boolean | undefined;
+      trusted?: boolean | undefined;
+    },
+    header: (name: string) => string | undefined,
+  ): Promise<LocalHttps> {
+    if (b.local !== undefined) {
+      await ask(this.o.helper, { op: "https-local", on: b.local }, "cannot_https");
+      if (!b.local && this.lan.settings.redirect) await this.lan.save({ redirect: false });
+    }
+    if (b.redirect === true) {
+      const now = await this.https(header);
+      if (!now.available || !now.on) throw new FirstBootError("https_off");
+      if (b.trusted !== true) throw new FirstBootError("not_trusted");
+      await this.lan.save({ redirect: true, trustedAt: new Date().toISOString() });
+    } else if (b.redirect === false) await this.lan.save({ redirect: false });
+    return this.https(header);
+  }
+
+  /** The CA's certificate (public), for the download link; asked of the helper once a minute at most. */
+  async caCertificate(): Promise<string | null> {
+    if (this.caCache && Date.now() - this.caCache.at < 60_000) return this.caCache.pem;
+    if (!this.o.helper) return null;
+    const r = await this.o.helper.call({ op: "https-status" }).catch(() => null);
+    const pem = typeof r?.ca === "string" ? Buffer.from(r.ca, "base64").toString("utf8") : null;
+    this.caCache = { at: Date.now(), pem };
+    return pem;
+  }
+
+  /** RedGiant OS's updates: RedGiant's signed stack and Debian's security updates. */
+  async osUpdates(check = false): Promise<OsUpdates> {
+    if (!this.o.helper) return { available: false, update: null, running: false, security: null };
+    const r = await ask(
+      this.o.helper,
+      { op: check ? "os-update-check" : "os-update-status" },
+      "cannot_update",
+    );
+    return parseOsUpdates(r);
+  }
+
+  /** Restarts the machine (the person said yes in the page): in five seconds. */
+  async reboot(): Promise<{ in: number }> {
+    const r = await ask(this.o.helper, { op: "reboot" }, "cannot_reboot");
+    return { in: typeof r.in === "number" ? r.in : 5 };
+  }
+
   /** SSH on with one more public key (keys only), or off. */
   async setSsh(on: boolean, key?: string): Promise<SshAccess> {
     if (!this.o.helper)
@@ -266,6 +385,71 @@ export class FirstBoot {
       throw new FirstBootError(err instanceof HelperError ? err.code : "ssh_failed");
     }
     return this.ssh();
+  }
+}
+
+const UPDATE_STATES = new Set([
+  "latest",
+  "available",
+  "applying",
+  "error",
+  "breaking",
+  "unsigned",
+  "unreachable",
+]);
+const GATES = new Set(["none", "normal", "mandatory", "breaking"]);
+
+/** The helper's os-update-status reply, checked field by field. */
+export function parseOsUpdates(r: Record<string, unknown>): OsUpdates {
+  const s = (v: unknown) => (typeof v === "string" && v ? v : null);
+  const u = r.update && typeof r.update === "object" ? (r.update as Record<string, unknown>) : null;
+  const sec =
+    r.security && typeof r.security === "object" ? (r.security as Record<string, unknown>) : null;
+  return {
+    available: true,
+    update: u
+      ? {
+          state: (UPDATE_STATES.has(String(u.state)) ? u.state : "error") as NonNullable<
+            OsUpdates["update"]
+          >["state"],
+          installed: s(u.installed),
+          latest: s(u.latest),
+          gate: (GATES.has(String(u.gate)) ? u.gate : "none") as NonNullable<
+            OsUpdates["update"]
+          >["gate"],
+          note: s(u.note),
+          step: s(u.step),
+          checkedAt: s(u.checkedAt),
+        }
+      : null,
+    running: r.running === true,
+    security: sec
+      ? {
+          lastRun:
+            typeof sec.lastRun === "number" && sec.lastRun > 0
+              ? new Date(sec.lastRun * 1000).toISOString()
+              : null,
+          result: s(sec.result),
+          upgraded: typeof sec.upgraded === "number" ? sec.upgraded : null,
+          rebootRequired: sec.rebootRequired === true,
+          packages: Array.isArray(sec.packages)
+            ? sec.packages.filter((p): p is string => typeof p === "string").slice(0, 50)
+            : [],
+        }
+      : null,
+  };
+}
+
+async function ask(
+  helper: OsHelper | undefined,
+  op: Parameters<OsHelper["call"]>[0],
+  missing: string,
+): Promise<Record<string, unknown>> {
+  if (!helper) throw new FirstBootError(missing, "Not managed by this installation");
+  try {
+    return await helper.call(op);
+  } catch (err) {
+    throw new FirstBootError(err instanceof HelperError ? err.code : "failed");
   }
 }
 
