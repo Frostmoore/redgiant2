@@ -32,7 +32,8 @@ mkdir -p "$LOGS"
 SERIAL=$LOGS/serial-$MODE-$ARCH-$FIRMWARE$([ "$SECUREBOOT" = 1 ] && echo -sb).log
 : >"$SERIAL"
 
-if [ -w /dev/kvm ]; then ACCEL=kvm CPU=host; else ACCEL=tcg CPU=max; fi
+# KVM when the runner has it; otherwise emulation, with longer limits.
+if [ -w /dev/kvm ]; then ACCEL=kvm CPU=host BOOT_LIMIT=${BOOT_LIMIT:-600}; else ACCEL=tcg CPU=max BOOT_LIMIT=${BOOT_LIMIT:-3600}; fi
 echo "QEMU: $ARCH, $FIRMWARE$([ "$SECUREBOOT" = 1 ] && echo " (Secure Boot)"), $ACCEL"
 
 firmware() { # args for UEFI: a private copy of the variables
@@ -100,6 +101,15 @@ case "$MODE" in
       -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$PORT-:7600" -device virtio-net-pci,netdev=net0,romfile= \
       -smbios "type=11,value=io.systemd.credential:redgiant.selftest=1"
     ok=1
+    # First stage, its own limit: firmware, GRUB, kernel and systemd up to a login prompt.
+    if ! wait_for "login: " "$BOOT_LIMIT"; then
+      echo "::error::no login prompt within $BOOT_LIMIT s"
+      stop_qemu
+      echo "--- serial console (last 200 lines)"
+      tail -n 200 "$SERIAL"
+      exit 1
+    fi
+    echo "login prompt after $((SECONDS - start)) s"
     if wait_for "REDGIANT-SELFTEST (PASS|FAIL)$" "$TIMEOUT"; then
       echo "self-test finished after $((SECONDS - start)) s"
     else
@@ -118,7 +128,7 @@ case "$MODE" in
       ok=0
     fi
     stop_qemu
-    [ "$ok" = 1 ] || { echo "--- serial console (last 120 lines)"; tail -n 120 "$SERIAL"; exit 1; }
+    [ "$ok" = 1 ] || { echo "--- serial console (last 200 lines)"; tail -n 200 "$SERIAL"; exit 1; }
     echo "OK: $ARCH $FIRMWARE$([ "$SECUREBOOT" = 1 ] && echo " secure boot") in $((SECONDS - start)) s"
     ;;
   install)
