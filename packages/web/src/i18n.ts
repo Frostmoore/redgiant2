@@ -4275,6 +4275,9 @@ const en = {
     "Runs Blender without a window: changes 3D files with a script, saves them as .blend and glTF, renders a picture or a 360° video.",
   tool_repo: "GitHub and Gitea",
   toolDo_repo: "Opens pull requests and issues on the project's repository.",
+  tool_node: "Your nodes",
+  toolDo_node:
+    "Runs commands in a sandbox on the other RedGiant machines paired in Settings > Nodes, which check every command again.",
   tool_ssh: "Your machines (SSH)",
   toolDo_ssh:
     "Runs commands, copies files and reads folders on the machines you added in Settings > Machines, only those you let it use.",
@@ -10032,6 +10035,9 @@ const it: Record<Key, string> = {
     "Fa girare Blender senza finestra: cambia i file 3D con uno script, li salva in .blend e glTF, fa un'immagine o un video a giro di 360°.",
   tool_repo: "GitHub e Gitea",
   toolDo_repo: "Apre richieste di modifica e segnalazioni sul repository del progetto.",
+  tool_node: "I tuoi nodi",
+  toolDo_node:
+    "Fa girare comandi in una sandbox sulle altre macchine RedGiant abbinate in Impostazioni > Nodi, che ricontrollano ogni comando.",
   tool_ssh: "Le tue macchine (SSH)",
   toolDo_ssh:
     "Lancia comandi, copia file e legge cartelle sulle macchine aggiunte in Impostazioni > Macchine, solo quelle che gli lasci usare.",

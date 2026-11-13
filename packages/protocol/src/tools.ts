@@ -55,6 +55,8 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
   { id: "repo", group: "files", prefix: "repo_" },
   // The person's machines over SSH (G38.2): commands, copies, folders and files there.
   { id: "ssh", group: "files", prefix: "ssh_" },
+  // The person's nodes (G39.4): commands in a sandbox on another RedGiant, and how they are.
+  { id: "node", group: "files", prefix: "node_" },
   one("fetch", "web"),
   one("web_search", "web"),
   { id: "browser", group: "web", prefix: "browser_" },
