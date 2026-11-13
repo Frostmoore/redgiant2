@@ -66,7 +66,7 @@ PACKAGES=(
   systemd systemd-sysv systemd-resolved udev dbus kmod iproute2 iputils-ping netbase
   ca-certificates curl jq socat openssl qrencode less vim-tiny sudo tzdata
   avahi-daemon avahi-utils libnss-mdns
-  docker.io docker-compose
+  docker.io docker-cli docker-compose
   openssh-server unattended-upgrades
   cloud-guest-utils gdisk fdisk parted e2fsprogs dosfstools exfatprogs pciutils usbutils
   initramfs-tools zstd linux-image-"$ARCH" firmware-linux-free firmware-realtek
