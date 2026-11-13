@@ -1315,9 +1315,16 @@ const PROTECTION_TOOLS: Record<string, [string, CriticalAction]> = {
  * RedGiant's own files left out (they are on this computer). Sudo, switching it off and its
  * system programs are critical there too. Each hit says which machine.
  */
-function remoteRules(input: Record<string, unknown>, ctx: CriticalContext, add: Add) {
-  const machine = typeof input.machine === "string" ? input.machine : "";
-  const m = ctx.machines?.[machine];
+function remoteRules(
+  input: Record<string, unknown>,
+  ctx: CriticalContext,
+  add: Add,
+  /** A node (G39.4): its sandbox folder there stands for the project. */
+  node?: string,
+) {
+  const machine = node ?? (typeof input.machine === "string" ? input.machine : "");
+  const m =
+    node !== undefined ? { folder: NODE_SANDBOX, home: NODE_SANDBOX } : ctx.machines?.[machine];
   const home = m?.home ? posixKey(m.home) : "/__remote_home__";
   const folder = m?.folder ? posixKey(m.folder) : undefined;
   const base = folder ?? home;
@@ -1333,11 +1340,11 @@ function remoteRules(input: Record<string, unknown>, ctx: CriticalContext, add: 
     remote: true,
   };
   const there: Add = (id, why, say) =>
-    add(id, `on the machine "${machine}": ${why}`, {
+    add(id, `on the ${node !== undefined ? "node" : "machine"} "${machine}": ${why}`, {
       ...say,
       // Not "your" home there: the home of the user it logs in as.
       action: say.action === "delete-your-home" ? "delete-home" : say.action,
-      machine,
+      ...(node !== undefined ? { node: machine } : { machine }),
     });
   if (input.direction === undefined && typeof input.command === "string")
     shellRules(input.command, w, there);
@@ -1346,6 +1353,9 @@ function remoteRules(input: Record<string, unknown>, ctx: CriticalContext, add: 
   if (input.direction === "upload" && typeof input.remote === "string")
     writeTarget(locate(input.remote, w), w, there, "uploads into");
 }
+
+/** Where a command on a node starts: its sandbox for this machine (the node's real path is its own). */
+const NODE_SANDBOX = "/__node_sandbox__";
 
 /** Whether a tool call is truly dangerous, and why: one hit per kind, in the order found. */
 export function criticalOf(call: ToolCallInfo, ctx: CriticalContext = {}): CriticalHit[] {
@@ -1369,6 +1379,8 @@ export function criticalOf(call: ToolCallInfo, ctx: CriticalContext = {}): Criti
   if (protection) add("critical-protections", protection[0], { action: protection[1] });
   if (name === "bash" && typeof input.command === "string") shellRules(input.command, w, add);
   else if (name.startsWith("ssh_")) remoteRules(input, ctx, add);
+  else if (name === "node_run")
+    remoteRules(input, ctx, add, typeof input.node === "string" ? input.node : "");
   else if (name === "write_file" || name === "edit_file") fileRules(input, name, w, add);
   else if (name === "canvas_edit") editorRules(input, w, add);
   else if (name === ARTIFACT_READ_TOOL) artifactReadRules(input, w, add);

@@ -92,6 +92,7 @@ import { knowledgeRoutes } from "./knowledge/routes.js";
 import { localModelChoices } from "./local-models.js";
 import { LoginError } from "./login.js";
 import { MachineError, type MachinePatch } from "./machines.js";
+import { nodeRoutes } from "./nodes/routes.js";
 import { MagicNotFoundError, MagicStateError } from "./magic.js";
 import { MagicExtNotFoundError, MagicExtStateError } from "./magic-extensions.js";
 import { personRoutes } from "./person-routes.js";
@@ -3068,6 +3069,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     await core.email.remove(owner(c));
     return c.json({ ok: true }, 200);
   });
+  // Nodes (G39.4): other RedGiant machines paired with this one.
+  nodeRoutes(app, core, owner);
   // The person's machines over SSH (G38.2). Keys, passphrases and passwords go straight to the
   // keychain and are never sent back; the page gets the public key and the fingerprints.
   const machineError = (c: Context, err: unknown) => {
