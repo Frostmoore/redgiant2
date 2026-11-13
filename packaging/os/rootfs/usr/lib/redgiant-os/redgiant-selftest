@@ -55,7 +55,9 @@ say "ca $(base64 -w0 "$CA" 2>/dev/null)"
 say "health $(curl -fsS "http://localhost:$PORT/api/health" 2>&1)"
 if [ "$ok" != 1 ]; then
   # Why, on the console: RedGiant's start and its containers.
-  journalctl -b -u redgiant.service --no-pager -n 80 -o cat 2>&1 | sed 's/^/REDGIANT-SELFTEST journal: /' >/dev/console
+  journalctl -b -u redgiant.service --no-pager -n 40 -o cat 2>&1 | sed 's/^/REDGIANT-SELFTEST journal: /' >/dev/console
+  journalctl -b -u caddy.service -u redgiant-tls.service --no-pager -n 40 -o cat 2>&1 | sed 's/^/REDGIANT-SELFTEST https: /' >/dev/console
+  systemctl status caddy.service --no-pager -n 0 2>&1 | sed 's/^/REDGIANT-SELFTEST https: /' >/dev/console
   docker ps -a --format '{{.Names}} {{.Status}}' 2>&1 | sed 's/^/REDGIANT-SELFTEST docker: /' >/dev/console
   for c in $(docker ps -a --format '{{.Names}}' 2>/dev/null); do
     docker logs --tail 25 "$c" 2>&1 | sed "s/^/REDGIANT-SELFTEST $c: /" >/dev/console

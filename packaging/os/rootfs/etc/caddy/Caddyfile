@@ -5,7 +5,6 @@
 # then RedGiant itself redirects to https and sends HSTS (packages/server/src/lan-https.ts).
 {
 	admin off
-	persist_config off
 	auto_https off
 	default_sni redgiant.local
 	servers {
