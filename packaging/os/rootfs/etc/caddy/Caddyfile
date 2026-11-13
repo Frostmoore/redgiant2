@@ -1,0 +1,29 @@
+# RedGiant OS: https://redgiant.local (and the machine's private addresses) with the machine's
+# own certificate authority (/usr/lib/redgiant-os/redgiant-tls, keys in /var/lib/redgiant/tls,
+# root only: systemd hands the server's certificate to Caddy as credentials). Port 80 and 443
+# lead to RedGiant on 7600; http keeps working until the person says the certificate is trusted,
+# then RedGiant itself redirects to https and sends HSTS (packages/server/src/lan-https.ts).
+{
+	admin off
+	persist_config off
+	auto_https off
+	default_sni redgiant.local
+	servers {
+		protocols h1 h2
+	}
+}
+
+:443 {
+	tls {$CREDENTIALS_DIRECTORY}/server.crt {$CREDENTIALS_DIRECTORY}/server.key {
+		protocols tls1.2 tls1.3
+	}
+	reverse_proxy 127.0.0.1:7600 {
+		header_up X-RedGiant-Local-TLS 1
+	}
+}
+
+:80 {
+	reverse_proxy 127.0.0.1:7600 {
+		header_up X-RedGiant-Local-TLS 1
+	}
+}

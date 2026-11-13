@@ -16,6 +16,10 @@ on:
         description: "Also build and boot the arm64 images (emulated boot: slow)"
         type: boolean
         default: true
+      quick:
+        description: "amd64 only: build the qcow2 and boot it once (UEFI, with the Wi-Fi checks)"
+        type: boolean
+        default: false
   push:
     branches: ["p[0-9]*", "a[0-9]*", "b[0-9]*"]
     paths:
@@ -86,8 +90,11 @@ jobs:
       OUT: /mnt/os
     steps:
       - name: Skip arm64 when not wanted
-        if: ${{ matrix.arch == 'arm64' && github.event_name == 'workflow_dispatch' && !inputs.arm64 }}
+        if: ${{ matrix.arch == 'arm64' && github.event_name == 'workflow_dispatch' && (!inputs.arm64 || inputs.quick) }}
         run: echo "SKIP=1" >> "$GITHUB_ENV"
+      - name: Quick run (qcow2 only, one boot)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.quick }}
+        run: echo "QUICK=1" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         if: ${{ env.SKIP != '1' }}
       - uses: actions/download-artifact@v4
@@ -109,7 +116,7 @@ jobs:
           docker run --rm --privileged -e SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
             -v "$PWD:/src" -v "$OUT:/out" redgiant-os-builder \
             /src/packaging/os/build.sh --arch ${{ matrix.arch }} --stack /out/redgiant-os-stack.json \
-            --out /out --formats ${{ matrix.formats }}
+            --out /out --formats "$([ "${QUICK:-}" = 1 ] && echo qcow2 || echo ${{ matrix.formats }})"
           sudo rm -rf "$OUT"/work-*
           sudo chown -R "$(id -u):$(id -g)" "$OUT"
           ls -la "$OUT"
@@ -123,14 +130,21 @@ jobs:
             sudo apt-get install -y -q --no-install-recommends qemu-system-arm qemu-utils qemu-efi-aarch64
           fi
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; echo "KVM: yes"; else echo "KVM: no (emulated)"; fi
-      - name: Boot the qcow2 (UEFI, Secure Boot) and check
+      - name: Boot the qcow2 (UEFI) with the Wi-Fi checks
         if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' }}
+        timeout-minutes: 50
+        run: packaging/os/test/boot-test.sh boot --arch amd64 --firmware uefi --wifi --disk "$OUT"/redgiant-os-*-x86_64.qcow2 --logs logs --work "$RUNNER_TEMP/wifi" --timeout 2400
+      - name: Boot the qcow2 (UEFI, Secure Boot) and check
+        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' && env.QUICK != '1' }}
+        timeout-minutes: 50
         run: packaging/os/test/boot-test.sh boot --arch amd64 --firmware uefi --secureboot --disk "$OUT"/redgiant-os-*-x86_64.qcow2 --logs logs --timeout 2400
       - name: Boot the qcow2 (BIOS) and check
-        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' }}
+        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' && env.QUICK != '1' }}
+        timeout-minutes: 50
         run: packaging/os/test/boot-test.sh boot --arch amd64 --firmware bios --disk "$OUT"/redgiant-os-*-x86_64.qcow2 --logs logs --timeout 2400
       - name: Install from the ISO (BIOS), then boot the installed disk (UEFI) and check
-        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' }}
+        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' && env.QUICK != '1' }}
+        timeout-minutes: 80
         run: |
           packaging/os/test/boot-test.sh install --firmware bios --iso "$OUT"/redgiant-os-*-x86_64.iso --disk "$RUNNER_TEMP/installed.qcow2" --logs logs --timeout 1800
           packaging/os/test/boot-test.sh boot --arch amd64 --firmware uefi --disk "$RUNNER_TEMP/installed.qcow2" --logs logs --timeout 2400

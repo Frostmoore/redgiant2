@@ -69,6 +69,9 @@ mkfs.vfat -C -n RG_EFI "$EFIIMG" 8192 >/dev/null
 mmd -i "$EFIIMG" ::/EFI ::/EFI/BOOT ::/EFI/debian
 mcopy -i "$EFIIMG" "$ISO"/EFI/BOOT/* ::/EFI/BOOT/
 mcopy -i "$EFIIMG" "$ISO/EFI/debian/grub.cfg" ::/EFI/debian/
+# Wi-Fi without a screen: copied as redgiant-wifi.txt on the stick, carried by the installer.
+mcopy -i "$EFIIMG" "$HERE/../rootfs/usr/share/redgiant-os/redgiant-wifi-example.txt" ::/redgiant-wifi-example.txt
+cp "$HERE/../rootfs/usr/share/redgiant-os/redgiant-wifi-example.txt" "$ISO/redgiant-wifi-example.txt"
 
 echo "== BIOS: GRUB El Torito"
 install -d "$ISO/boot/grub/i386-pc"

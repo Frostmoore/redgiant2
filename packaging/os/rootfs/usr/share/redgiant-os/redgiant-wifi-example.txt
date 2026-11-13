@@ -1,0 +1,14 @@
+# RedGiant OS: Wi-Fi without a screen / Wi-Fi senza schermo
+#
+# EN: copy this file as redgiant-wifi.txt on this same disk, write your network's name and
+#     password below, save, put the disk back and start the machine. It is read once at the
+#     start, then erased. More networks: another ssid= line. The cable, when connected, wins.
+# IT: copia questo file come redgiant-wifi.txt su questo stesso disco, scrivi qui sotto il nome
+#     e la password della tua rete, salva, rimetti il disco e accendi. Viene letto una volta
+#     all'avvio, poi cancellato. Altre reti: un'altra riga ssid=. Il cavo, se c'è, ha la precedenza.
+#
+# hidden=yes only for a network that does not show its name / solo per una rete nascosta.
+# Values with spaces at the ends: in "double quotes" / tra "virgolette".
+
+ssid=
+password=

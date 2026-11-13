@@ -71,9 +71,21 @@ write_issue() {
   new=$(
     printf 'RedGiant: http://%s:%s\n' "$(mdns_name)" "$PORT"
     for a in $(addresses); do printf 'RedGiant: http://%s:%s\n' "$a" "$PORT"; done
+    https_on && printf 'RedGiant: https://%s\n' "$(mdns_name)"
     echo
   )
   [ "$new" = "$(cat "$f" 2>/dev/null)" ] && return 0
   printf '%s\n' "$new" >"$f.new" && mv "$f.new" "$f"
   agetty --reload 2>/dev/null || true
+  # New addresses: the local HTTPS certificate follows them (in the background).
+  [ -x /usr/lib/redgiant-os/redgiant-tls ] && { /usr/lib/redgiant-os/redgiant-tls ensure >/dev/null 2>&1 & } || true
 }
+
+# Local HTTPS (Caddy with the machine's own CA) is running.
+https_on() { systemctl is-active --quiet caddy.service 2>/dev/null; }
+
+# One request to the OS helper, through its stdin (nothing secret in any program's arguments).
+helper() { printf '%s\n' "$1" | /usr/lib/redgiant/redgiant-helper --stdin 2>/dev/null; }
+
+# A Wi-Fi card is there (iwd sees it).
+has_wifi() { ls /sys/class/net/*/wireless >/dev/null 2>&1 || ls -d /sys/class/net/*/phy80211 >/dev/null 2>&1; }

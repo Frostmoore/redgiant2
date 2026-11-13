@@ -6,14 +6,34 @@
 #
 #   list | mount <uuid> <label> | unmount <label> | ssh-status | ssh-on <base64 key> | ssh-off
 #   | tailscale
+#   | wifi-status | wifi-scan | wifi-connect <base64 ssid> <base64 password|-> <visible|hidden> [keep]
+#   | wifi-forget <base64 ssid>
+#   | https-status | https-local <on|off>
+#   | os-update-status | os-update-check | os-update-apply | reboot
 #
 # Rules: only filesystems on a disk that can be unplugged (RM, HOTPLUG or USB), never a disk
 # with a system mount point; mounted nosuid,nodev,noexec under /var/lib/redgiant/backups/<label>;
 # SSH with keys only (no passwords, no root login), keys in one file of RedGiant's own.
+# Wi-Fi through iwd (D-Bus, busctl): a password is written only into iwd's own file for that
+# network (/var/lib/iwd, 0600, root), never into an argument, a log or the reply; a network
+# that refuses it is not left saved (unless "keep": redgiant-wifi.txt at start, the network may
+# not be in reach yet). HTTPS: only the CA's certificate leaves (never a key). Updates run
+# RedGiant OS's own signed updater (redgiant-os-update); a restart is scheduled a few seconds
+# later, so this reply arrives first.
 set -eu
 set -f
+LC_ALL=C
+export LC_ALL
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
+# Tests only (packages/server/test/os-helper-commands.test.ts): fake programs and another root.
+# Never reached in use: sudo's env_reset drops both, and the socket unit's environment is fixed.
+[ -n "${REDGIANT_HELPER_TEST_BIN:-}" ] && PATH=$REDGIANT_HELPER_TEST_BIN:$PATH
+R=${REDGIANT_HELPER_TEST_ROOT:-}
 export PATH
+IWD_DIR=$R/var/lib/iwd
+OS_STATE=$R/var/lib/redgiant
+OS_LIB=$R/usr/lib/redgiant-os
+TLS_DIR=$OS_STATE/tls
 
 BASE=/var/lib/redgiant/backups
 OWNER_UID=${REDGIANT_HELPER_UID:-${SUDO_UID:-0}}
@@ -56,6 +76,132 @@ system_mount() {
     "$BASE"/* | /media/* | /run/media/* | /mnt/*) return 1 ;;
     *) return 0 ;;
   esac
+}
+
+# --- Wi-Fi (iwd over D-Bus) ---------------------------------------------------------------------
+
+need() {
+  for c in "$@"; do command -v "$c" >/dev/null 2>&1 || fail not_installed; done
+}
+
+# A base64 argument decoded; false when it is not base64. (A trailing newline would be lost by
+# $(…): such names and passwords are refused anyway.)
+b64d() { printf '%s' "$1" | base64 -d 2>/dev/null; }
+
+# A network name: 1 to 32 bytes, no control characters.
+valid_ssid() {
+  n=$(printf '%s' "$1" | wc -c)
+  [ "$n" -ge 1 ] && [ "$n" -le 32 ] || return 1
+  [ "$(printf '%s' "$1" | tr -d '[:cntrl:]')" = "$1" ]
+}
+
+# A WPA password: 8 to 63 printable ASCII characters, or 64 hexadecimal digits (the key itself).
+valid_password() {
+  case "$1" in *[!\ -~]*) return 1 ;; esac
+  n=${#1}
+  [ "$n" -ge 8 ] && [ "$n" -le 64 ] || return 1
+  [ "$n" -lt 64 ] || is_hex64 "$1"
+}
+is_hex64() {
+  [ "${#1}" -eq 64 ] || return 1
+  case "$1" in *[!0-9A-Fa-f]*) return 1 ;; esac
+}
+
+# The file name iwd gives a network (iwd.network(5)): the name itself when it has only letters,
+# digits, space, '-' and '_', otherwise '=' and the name in hexadecimal.
+iwd_name() {
+  case "$1" in
+    *[!A-Za-z0-9_\ -]*) printf '=%s' "$(printf '%s' "$1" | od -An -tx1 -v | tr -d ' \n')" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+iwd_objects() {
+  busctl --json=short --timeout=10 call net.connman.iwd / org.freedesktop.DBus.ObjectManager GetManagedObjects 2>/dev/null
+}
+# The first Wi-Fi card iwd uses as a station (client).
+station_of() {
+  printf '%s' "$1" | jq -r '.data[0] | to_entries[] | select(.value["net.connman.iwd.Station"]) | .key' 2>/dev/null | head -n1
+}
+# The network object of a name and kind (psk, open) on that card.
+network_of() {
+  printf '%s' "$1" | jq -r --arg n "$2" --arg t "$3" --arg s "$4" '.data[0] | to_entries[]
+    | select(.value["net.connman.iwd.Network"] as $x | $x and $x.Name.data == $n and $x.Type.data == $t
+      and ($x.Device.data == $s))
+    | .key' 2>/dev/null | head -n1
+}
+known_of() {
+  printf '%s' "$1" | jq -r --arg n "$2" '.data[0] | to_entries[]
+    | select(.value["net.connman.iwd.KnownNetwork"] as $x | $x and $x.Name.data == $n) | .key' 2>/dev/null
+}
+
+# Wi-Fi cards switched off (or blocked by rfkill) are switched on: asking for Wi-Fi means wanting it.
+power_on() {
+  rfkill unblock wifi >/dev/null 2>&1 || true
+  for d in $(printf '%s' "$1" | jq -r '.data[0] | to_entries[]
+    | select((.value["net.connman.iwd.Device"].Powered.data // true) == false
+      or (.value["net.connman.iwd.Adapter"].Powered.data // true) == false) | .key' 2>/dev/null); do
+    case "$d" in
+      */*/*/*/*) busctl set-property net.connman.iwd "$d" net.connman.iwd.Device Powered b true >/dev/null 2>&1 || true ;;
+      *) busctl set-property net.connman.iwd "$d" net.connman.iwd.Adapter Powered b true >/dev/null 2>&1 || true ;;
+    esac
+  done
+}
+
+# Looks for networks and waits (up to 12 s) for the card to finish.
+scan() {
+  busctl --timeout=10 call net.connman.iwd "$1" net.connman.iwd.Station Scan >/dev/null 2>&1 || true
+  i=0
+  while [ $i -lt 12 ]; do
+    sleep 1
+    s=$(busctl --json=short get-property net.connman.iwd "$1" net.connman.iwd.Station Scanning 2>/dev/null | jq -r .data 2>/dev/null) || s=false
+    [ "$s" = true ] || break
+    i=$((i + 1))
+  done
+}
+
+# The reply with everything the page shows: iwd's objects, the networks by signal, the links.
+wifi_reply() {
+  objs=$1
+  st=$(station_of "$objs")
+  ordered=null
+  if [ -n "$st" ]; then
+    ordered=$(busctl --json=short --timeout=10 call net.connman.iwd "$st" net.connman.iwd.Station GetOrderedNetworks 2>/dev/null) || ordered=null
+  fi
+  links=$(ip -j addr show 2>/dev/null) || links=null
+  jq -cn --argjson o "$objs" --argjson r "${ordered:-null}" --argjson l "${links:-null}" \
+    '{ok: true, objects: $o, ordered: $r, links: $l}' 2>/dev/null || fail bad_output
+  exit 0
+}
+
+# --- updates and restart -----------------------------------------------------------------------
+
+os_update_reply() {
+  u=$(jq -c . "$OS_STATE/os-update.json" 2>/dev/null) || u=null
+  [ -n "$u" ] || u=null
+  running=false
+  systemctl is-active --quiet redgiant-os-update.service 2>/dev/null && running=true
+  # Debian's security updates (unattended-upgrades, run by apt-daily-upgrade.service).
+  last=$(systemctl show -P ExecMainExitTimestamp --timestamp=unix apt-daily-upgrade.service 2>/dev/null | tr -cd '0-9') || last=""
+  result=$(systemctl show -P Result apt-daily-upgrade.service 2>/dev/null | tr -cd 'a-z-') || result=""
+  line=$(grep -hE "Packages that will be upgraded:|No packages found that can be upgraded" \
+    "$R/var/log/unattended-upgrades/unattended-upgrades.log" 2>/dev/null | tail -n1) || line=""
+  case "$line" in
+    *"Packages that will be upgraded:"*) upgraded=$(printf '%s' "${line#*upgraded:}" | wc -w | tr -d ' ') ;;
+    *"No packages found"*) upgraded=0 ;;
+    *) upgraded=null ;;
+  esac
+  reboot=false
+  [ -e "$R/run/reboot-required" ] && reboot=true
+  pkgs=$(sort -u "$R/run/reboot-required.pkgs" 2>/dev/null | tr -cd 'a-z0-9.+\n-' | head -n 50 | jq -R . | jq -cs .) || pkgs='[]'
+  [ -n "$pkgs" ] || pkgs='[]'
+  jq -cn --argjson u "$u" --argjson run "$running" --arg last "$last" --arg res "$result" \
+    --argjson up "$upgraded" --argjson rb "$reboot" --argjson p "$pkgs" \
+    '{ok: true, update: $u, running: $run,
+      security: {lastRun: (if $last == "" then null else ($last | tonumber) end),
+        result: (if $res == "" then null else $res end), upgraded: $up, rebootRequired: $rb, packages: $p}}' \
+    2>/dev/null || fail bad_output
+  exit 0
 }
 
 case "$op" in
@@ -180,6 +326,201 @@ EOF
     out=$(tailscale status --json 2>/dev/null) || fail stopped
     printf '{"ok":true,"status":%s}\n' "$(printf '%s' "$out" | tr -d '\n')"
     exit 0
+    ;;
+
+  wifi-status)
+    [ $# -eq 0 ] || fail bad_request
+    need busctl jq
+    objs=$(iwd_objects) || fail wifi_off
+    wifi_reply "$objs"
+    ;;
+
+  wifi-scan)
+    [ $# -eq 0 ] || fail bad_request
+    need busctl jq
+    objs=$(iwd_objects) || fail wifi_off
+    power_on "$objs"
+    st=$(station_of "$objs")
+    if [ -z "$st" ]; then
+      sleep 2
+      objs=$(iwd_objects) || fail wifi_off
+      st=$(station_of "$objs")
+    fi
+    [ -n "$st" ] || fail no_wifi
+    scan "$st"
+    objs=$(iwd_objects) || fail wifi_off
+    wifi_reply "$objs"
+    ;;
+
+  wifi-connect)
+    [ $# -ge 3 ] && [ $# -le 4 ] || fail bad_request
+    ssid=$(b64d "$1") || fail bad_request
+    valid_ssid "$ssid" || fail bad_ssid
+    if [ "$2" = - ]; then
+      pass="" kind=open
+    else
+      pass=$(b64d "$2") || fail bad_request
+      valid_password "$pass" || fail bad_password
+      kind=psk
+    fi
+    case "$3" in visible | hidden) ;; *) fail bad_request ;; esac
+    keep=0
+    if [ $# -eq 4 ]; then [ "$4" = keep ] || fail bad_request; keep=1; fi
+    need jq
+    # iwd's file for the network, written whole and then moved in place (root only).
+    umask 077
+    mkdir -p "$IWD_DIR"
+    chmod 0700 "$IWD_DIR"
+    file=$IWD_DIR/$(iwd_name "$ssid").$kind
+    tmp=$IWD_DIR/.redgiant-new.$$
+    old=$IWD_DIR/.redgiant-old.$$
+    had=0
+    if [ -e "$file" ]; then cp -p "$file" "$old" && had=1; fi
+    {
+      [ "$3" = hidden ] && printf '[Settings]\nHidden=true\n\n'
+      if [ "$kind" = psk ]; then
+        printf '[Security]\n'
+        if is_hex64 "$pass"; then
+          printf 'PreSharedKey=%s\n' "$pass"
+        else
+          printf 'Passphrase=%s\n' "$pass"
+        fi
+      fi
+    } >"$tmp"
+    chmod 0600 "$tmp"
+    mv -f "$tmp" "$file"
+    undo() {
+      if [ "$had" = 1 ]; then mv -f "$old" "$file"; else rm -f "$file"; fi
+    }
+    if ! command -v busctl >/dev/null 2>&1 || ! objs=$(iwd_objects); then
+      # iwd is not running yet (the first start): saved, it joins the network when it starts.
+      rm -f "$old"
+      ok ',"state":"saved"'
+    fi
+    power_on "$objs"
+    st=$(station_of "$objs")
+    if [ -z "$st" ]; then
+      rm -f "$old"
+      ok ',"state":"saved"'
+    fi
+    if [ "$3" = hidden ]; then
+      err=$(busctl --timeout=40 call net.connman.iwd "$st" net.connman.iwd.Station ConnectHiddenNetwork s "$ssid" 2>&1 >/dev/null) && {
+        rm -f "$old"
+        ok ',"state":"connected"'
+      }
+    else
+      net=$(network_of "$objs" "$ssid" "$kind" "$st")
+      if [ -z "$net" ]; then
+        scan "$st"
+        objs=$(iwd_objects) || objs='{"data":[{}]}'
+        net=$(network_of "$objs" "$ssid" "$kind" "$st")
+      fi
+      if [ -z "$net" ]; then
+        if [ "$keep" = 1 ]; then
+          rm -f "$old"
+          ok ',"state":"saved"'
+        fi
+        undo
+        fail not_found
+      fi
+      err=$(busctl --timeout=40 call net.connman.iwd "$net" net.connman.iwd.Network Connect 2>&1 >/dev/null) && {
+        rm -f "$old"
+        ok ',"state":"connected"'
+      }
+    fi
+    if [ "$keep" = 1 ]; then
+      rm -f "$old"
+      ok ',"state":"saved"'
+    fi
+    undo
+    case "$err" in
+      *InProgress* | *"in progress"*) fail busy ;;
+      *NotFound* | *"not found"*) fail not_found ;;
+      *) fail connect_failed ;;
+    esac
+    ;;
+
+  wifi-forget)
+    [ $# -eq 1 ] || fail bad_request
+    ssid=$(b64d "$1") || fail bad_request
+    valid_ssid "$ssid" || fail bad_ssid
+    found=0
+    if command -v busctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && objs=$(iwd_objects); then
+      for k in $(known_of "$objs" "$ssid"); do
+        busctl --timeout=10 call net.connman.iwd "$k" net.connman.iwd.KnownNetwork Forget >/dev/null 2>&1 && found=1
+      done
+    fi
+    base=$IWD_DIR/$(iwd_name "$ssid")
+    for f in "$base.psk" "$base.open" "$base.8021x"; do
+      [ -e "$f" ] || continue
+      found=1
+      shred -u "$f" 2>/dev/null || rm -f "$f"
+    done
+    [ "$found" = 1 ] || fail not_found
+    ok
+    ;;
+
+  https-status)
+    [ $# -eq 0 ] || fail bad_request
+    need jq openssl
+    on=false
+    systemctl is-active --quiet caddy.service 2>/dev/null && on=true
+    enabled=false
+    systemctl is-enabled --quiet caddy.service 2>/dev/null && enabled=true
+    [ -s "$TLS_DIR/ca.crt" ] || { jq -cn --argjson on "$on" --argjson en "$enabled" '{ok: true, on: $on, enabled: $en, ca: null}'; exit 0; }
+    ca=$(base64 -w0 <"$TLS_DIR/ca.crt")
+    fp=$(openssl x509 -in "$TLS_DIR/ca.crt" -noout -fingerprint -sha256 2>/dev/null | sed 's/^.*=//') || fp=""
+    caUntil=$(openssl x509 -in "$TLS_DIR/ca.crt" -noout -enddate 2>/dev/null | sed 's/^notAfter=//') || caUntil=""
+    until=$(openssl x509 -in "$TLS_DIR/server.crt" -noout -enddate 2>/dev/null | sed 's/^notAfter=//') || until=""
+    names=$(tr -cd 'A-Za-z0-9.:\n-' <"$TLS_DIR/names" 2>/dev/null | jq -R . | jq -cs .) || names='[]'
+    [ -n "$names" ] || names='[]'
+    jq -cn --argjson on "$on" --argjson en "$enabled" --arg ca "$ca" --arg fp "$fp" --arg cu "$caUntil" \
+      --arg u "$until" --argjson n "$names" \
+      '{ok: true, on: $on, enabled: $en, ca: $ca, fingerprint: $fp, caUntil: $cu, until: $u, names: $n}' ||
+      fail bad_output
+    exit 0
+    ;;
+
+  https-local)
+    [ $# -eq 1 ] || fail bad_request
+    case "$1" in
+      on)
+        "$OS_LIB/redgiant-tls" ensure >/dev/null 2>&1 || fail tls_failed
+        systemctl enable --now caddy.service >/dev/null 2>&1 || fail https_failed
+        ;;
+      off) systemctl disable --now caddy.service >/dev/null 2>&1 || true ;;
+      *) fail bad_request ;;
+    esac
+    ok
+    ;;
+
+  os-update-status)
+    [ $# -eq 0 ] || fail bad_request
+    need jq
+    os_update_reply
+    ;;
+
+  os-update-check)
+    [ $# -eq 0 ] || fail bad_request
+    need jq
+    [ -x "$OS_LIB/redgiant-os-update" ] || fail not_installed
+    timeout 50 "$OS_LIB/redgiant-os-update" check >/dev/null 2>&1 || true
+    os_update_reply
+    ;;
+
+  os-update-apply)
+    [ $# -eq 0 ] || fail bad_request
+    [ -x "$OS_LIB/redgiant-os-update" ] || fail not_installed
+    # In the background: the update restarts RedGiant itself, the one asking.
+    systemctl start --no-block redgiant-os-update.service >/dev/null 2>&1 || fail start_failed
+    ok
+    ;;
+
+  reboot)
+    [ $# -eq 0 ] || fail bad_request
+    systemd-run --on-active=5 --unit=redgiant-reboot --description="RedGiant OS: restart asked from RedGiant" \
+      /usr/bin/systemctl reboot >/dev/null 2>&1 || fail reboot_failed
+    ok ',"in":5'
     ;;
 
   *) fail unknown_op ;;

@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# RedGiant OS: HTTPS in the local network (https://redgiant.local and the machine's private
+# addresses) with a certificate authority of this machine alone.
+#   redgiant-tls ensure    the CA (made once, 10 years) and the server's certificate (397 days,
+#                          for the names and addresses below), Caddy restarted when it changed
+#   redgiant-tls names     the names and addresses the certificate is for
+#   redgiant-tls private <address>   true for an address the CA may sign (the rule, for tests)
+# The CA can sign only local names and private addresses (X.509 name constraints): a person who
+# trusts it on a phone trusts it for this machine's names, never for any website. Its key never
+# leaves /var/lib/redgiant/tls (0700, the key 0600, root); the page gets only the certificate.
+set -euo pipefail
+# shellcheck source=common.sh
+. "$(dirname "$(readlink -f "$0")")/common.sh"
+DIR=${REDGIANT_TLS_DIR:-$STATE/tls}
+
+# The private ranges the CA is limited to (and the only addresses put in the certificate).
+private() {
+  local a=${1#[}
+  a=${a%]}
+  case "$a" in
+    10.* | 192.168.* | 127.* | 169.254.*) return 0 ;;
+    172.*)
+      local b=${a#172.}
+      b=${b%%.*}
+      [ "$b" -ge 16 ] 2>/dev/null && [ "$b" -le 31 ]
+      return
+      ;;
+    100.*)
+      local b=${a#100.}
+      b=${b%%.*}
+      [ "$b" -ge 64 ] 2>/dev/null && [ "$b" -le 127 ]
+      return
+      ;;
+    ::1) return 0 ;;
+    [fF][cCdD]*:* | [fF][eE][89aAbB]*:*) return 0 ;;
+  esac
+  return 1
+}
+
+names() {
+  {
+    echo redgiant.local
+    echo "$(hostname).local"
+    mdns_name
+    echo localhost
+    echo 127.0.0.1
+    echo ::1
+    for a in $(addresses); do
+      a=${a#[}
+      a=${a%]}
+      private "$a" && echo "$a"
+    done
+  } | awk 'NF && !seen[$0]++'
+}
+
+san() { # the subjectAltName line
+  local n out=""
+  while read -r n; do
+    case "$n" in
+      *:* | [0-9]*.[0-9]*.[0-9]*.[0-9]*) out="$out,IP:$n" ;;
+      *) out="$out,DNS:$n" ;;
+    esac
+  done
+  echo "${out#,}"
+}
+
+make_ca() {
+  [ -s "$DIR/ca.key" ] && [ -s "$DIR/ca.crt" ] && return 1
+  log "making the local certificate authority"
+  (
+    umask 077
+    openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$DIR/ca.key.new" 2>/dev/null
+    openssl req -x509 -new -key "$DIR/ca.key.new" -sha256 -days 3650 -set_serial "0x$(openssl rand -hex 16)" \
+      -subj "/O=RedGiant OS/CN=RedGiant on $(hostname) ($(date -u +%Y-%m-%d))" \
+      -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
+      -addext "keyUsage=critical,keyCertSign,cRLSign" \
+      -addext "subjectKeyIdentifier=hash" \
+      -addext "nameConstraints=critical,permitted;DNS:local,permitted;DNS:localhost,permitted;IP:10.0.0.0/255.0.0.0,permitted;IP:172.16.0.0/255.240.0.0,permitted;IP:192.168.0.0/255.255.0.0,permitted;IP:127.0.0.0/255.0.0.0,permitted;IP:169.254.0.0/255.255.0.0,permitted;IP:100.64.0.0/255.192.0.0,permitted;IP:::1/ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff,permitted;IP:fc00::/fe00::,permitted;IP:fe80::/ffc0::" \
+      -out "$DIR/ca.crt.new"
+  )
+  chmod 0600 "$DIR/ca.key.new"
+  chmod 0644 "$DIR/ca.crt.new"
+  mv "$DIR/ca.key.new" "$DIR/ca.key"
+  mv "$DIR/ca.crt.new" "$DIR/ca.crt"
+  rm -f "$DIR/server.crt"
+}
+
+# The server's certificate: made again when the names changed, it expires within 30 days, or
+# the CA is new.
+make_server() {
+  local want ext
+  want=$(names)
+  if [ -s "$DIR/server.crt" ] && [ -s "$DIR/server.key" ] && [ "$want" = "$(cat "$DIR/names" 2>/dev/null)" ] &&
+    openssl x509 -in "$DIR/server.crt" -noout -checkend $((30 * 86400)) >/dev/null 2>&1; then
+    return 1
+  fi
+  log "certificate for: $(echo "$want" | tr '\n' ' ')"
+  ext=$(mktemp)
+  printf 'subjectAltName=%s\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid\n' \
+    "$(echo "$want" | san)" >"$ext"
+  (
+    umask 077
+    openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$DIR/server.key.new" 2>/dev/null
+    openssl req -new -key "$DIR/server.key.new" -subj "/O=RedGiant OS/CN=redgiant.local" |
+      openssl x509 -req -CA "$DIR/ca.crt" -CAkey "$DIR/ca.key" -set_serial "0x$(openssl rand -hex 16)" \
+        -days 397 -sha256 -extfile "$ext" -out "$DIR/server.crt.new" 2>/dev/null
+  )
+  rm -f "$ext"
+  openssl verify -CAfile "$DIR/ca.crt" "$DIR/server.crt.new" >/dev/null || { log "the new certificate does not verify"; return 2; }
+  chmod 0600 "$DIR/server.key.new" "$DIR/server.crt.new"
+  mv "$DIR/server.key.new" "$DIR/server.key"
+  mv "$DIR/server.crt.new" "$DIR/server.crt"
+  echo "$want" >"$DIR/names"
+}
+
+ensure() {
+  install -d -m 0700 "$DIR"
+  local changed=0
+  make_ca && changed=1
+  make_server && changed=1
+  if [ "$changed" = 1 ]; then
+    # Started when it is switched on (enabled), never switched on here: the person may have
+    # switched local HTTPS off (another proxy in front).
+    systemctl try-restart caddy.service 2>/dev/null || true
+    if systemctl is-enabled --quiet caddy.service 2>/dev/null; then systemctl start caddy.service 2>/dev/null || true; fi
+  fi
+}
+
+case "${1:-}" in
+  ensure) ensure ;;
+  names) names ;;
+  private) private "$2" ;;
+  *)
+    echo "usage: redgiant-tls ensure | names | private <address>" >&2
+    exit 2
+    ;;
+esac

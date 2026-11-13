@@ -121,3 +121,72 @@ describe("the OS's update gate is assessRelease's", () => {
     expect(out.trim()).toBe(assessRelease(release, installed));
   });
 });
+
+const osLib = (name: string) =>
+  fileURLToPath(new URL(`../rootfs/usr/lib/redgiant-os/${name}`, import.meta.url));
+const bash = process.platform !== "win32" && spawnSync("bash", ["--version"]).status === 0;
+
+describe("the local CA signs only private addresses (redgiant-tls private)", () => {
+  it.each([
+    ["10.0.2.15", true],
+    ["192.168.1.20", true],
+    ["172.16.0.1", true],
+    ["172.31.255.1", true],
+    ["172.32.0.1", false],
+    ["172.15.0.1", false],
+    ["100.64.0.1", true],
+    ["100.128.0.1", false],
+    ["169.254.10.1", true],
+    ["127.0.0.1", true],
+    ["8.8.8.8", false],
+    ["::1", true],
+    ["fd12:3456::1", true],
+    ["[fe80::1]", true],
+    ["2001:db8::1", false],
+  ])("%s", { skip: !bash }, (address, yes) => {
+    expect(spawnSync("bash", [osLib("redgiant-tls"), "private", address]).status === 0).toBe(yes);
+  });
+});
+
+describe("redgiant-wifi.txt as people write it (redgiant-wifi-file parse)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rg-wifi-file-"));
+  const b = (s: string) => Buffer.from(s).toString("base64");
+  it.each([
+    ["one network", "ssid=Casa\npassword=12345678\n", [`${b("Casa")} ${b("12345678")} visible`]],
+    [
+      "Notepad: BOM, CR LF, spaces around =",
+      "﻿# mine\r\nSSID = Casa Rossi\r\nPassword = la mia password\r\n",
+      [`${b("Casa Rossi")} ${b("la mia password")} visible`],
+    ],
+    [
+      "quotes keep the spaces",
+      'ssid="Bar "\npassword=" ab cd ef "\n',
+      [`${b("Bar ")} ${b(" ab cd ef ")} visible`],
+    ],
+    ["an open network", "ssid=Libera\n", [`${b("Libera")} - visible`]],
+    [
+      "a hidden one",
+      "ssid=Nascosta\npassword=12345678\nhidden=yes\n",
+      [`${b("Nascosta")} ${b("12345678")} hidden`],
+    ],
+    [
+      "two networks",
+      "ssid=A\npassword=11111111\n\nssid=B\npsk=22222222\n",
+      [`${b("A")} ${b("11111111")} visible`, `${b("B")} ${b("22222222")} visible`],
+    ],
+    ["the example left empty", "# comments\nssid=\npassword=\n", []],
+    ["no last newline", "ssid=Casa\npassword=12345678", [`${b("Casa")} ${b("12345678")} visible`]],
+    [
+      "a password with = inside",
+      "ssid=Casa\npassword=a=b=c=d=e\n",
+      [`${b("Casa")} ${b("a=b=c=d=e")} visible`],
+    ],
+  ])("%s", { skip: !bash }, (name, text, lines) => {
+    const file = join(dir, `${name.replace(/\W+/g, "-")}.txt`);
+    writeFileSync(file, text);
+    const out = execFileSync("bash", [osLib("redgiant-wifi-file"), "parse", file], {
+      encoding: "utf8",
+    });
+    expect(out.split("\n").filter(Boolean)).toEqual(lines);
+  });
+});

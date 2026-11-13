@@ -1,0 +1,66 @@
+# RedGiant OS self-test, Wi-Fi part (sourced by redgiant-selftest when the machine has the
+# credential redgiant.selftest.wifi=1): two simulated radios (mac80211_hwsim), hostapd on the
+# second one as a WPA2 access point, iwd on the first. Checks the three ways to join a network:
+# redgiant-wifi.txt at start (redgiant-wifi-file), and the OS helper's wifi-* commands the page
+# and the console use. hostapd comes from Debian's archive, on this test machine only.
+# shellcheck shell=bash
+wifi_ssid="RedGiant Test"
+wifi_pass="redgiant-test-pass"
+sock() { socat -t 90 - UNIX-CONNECT:/run/redgiant-helper/helper.sock; }
+b64() { printf '%s' "$1" | base64 -w0; }
+wifi_connected() { # name: true once iwd says it is connected to it (up to 60 s)
+  local i
+  for i in $(seq 1 30); do
+    echo wifi-status | sock | jq -e --arg n "$1" '.objects.data[0] | to_entries[] | .value["net.connman.iwd.Network"] | select(. and .Name.data == $n and .Connected.data == true)' >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  return 1
+}
+wifi_setup() {
+  systemctl stop iwd.service
+  modprobe mac80211_hwsim radios=2 || return 1
+  sleep 2
+  local ap_if ap_phy
+  ap_if=$(ls /sys/class/net | grep '^wlan' | sort | tail -1)
+  ap_phy=$(cat "/sys/class/net/$ap_if/phy80211/name")
+  say "wifi radios $(ls /sys/class/net | grep '^wlan' | tr '\n' ' ')(access point on $ap_if/$ap_phy)"
+  timeout 300 apt-get update -qq >/dev/null 2>&1 || return 1
+  DEBIAN_FRONTEND=noninteractive timeout 300 apt-get install -y -qq --no-install-recommends hostapd >/dev/null 2>&1 || return 1
+  cat >/run/rg-hostapd.conf <<CONF
+interface=$ap_if
+driver=nl80211
+ssid=$wifi_ssid
+hw_mode=g
+channel=6
+wpa=2
+wpa_passphrase=$wifi_pass
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+CONF
+  hostapd -B /run/rg-hostapd.conf >/dev/null || return 1
+  # iwd leaves the access point's radio alone.
+  mkdir -p /run/systemd/system/iwd.service.d
+  printf '[Service]\nExecStart=\nExecStart=/usr/libexec/iwd -P %s -I %s\n' "$ap_phy" "$ap_if" >/run/systemd/system/iwd.service.d/test.conf
+  systemctl daemon-reload
+  systemctl start iwd.service
+  sleep 3
+}
+if wifi_setup; then
+  say "ok   wifi test network up"
+  # 1. redgiant-wifi.txt on the EFI partition, as a person without a screen writes it (CR LF).
+  printf '# test\r\nssid = %s\r\npassword="%s"\r\n' "$wifi_ssid" "$wifi_pass" >/boot/efi/redgiant-wifi.txt
+  systemctl start redgiant-wifi-file.service
+  check "wifi file read and erased" bash -c '[ ! -e /boot/efi/redgiant-wifi.txt ]'
+  check "wifi saved root only" bash -c "[ \"\$(stat -c %a:%U '/var/lib/iwd/$wifi_ssid.psk')\" = 600:root ]"
+  check "wifi joined from the file" wifi_connected "$wifi_ssid"
+  # 2. The helper's commands (the page, the console).
+  check "wifi-scan lists the network" bash -c "echo wifi-scan | socat -t 90 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e --arg n '$wifi_ssid' '[.objects.data[0][] | .[\"net.connman.iwd.Network\"].Name.data] | index(\$n) != null'"
+  check "wifi-forget" bash -c "echo 'wifi-forget $(b64 "$wifi_ssid")' | socat -t 90 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e .ok && [ ! -e '/var/lib/iwd/$wifi_ssid.psk' ]"
+  check "wifi-connect refuses a wrong password, keeps nothing" bash -c "echo 'wifi-connect $(b64 "$wifi_ssid") $(b64 wrong-password-x) visible' | socat -t 90 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e '.ok == false' && [ ! -e '/var/lib/iwd/$wifi_ssid.psk' ]"
+  check "wifi-connect" bash -c "echo 'wifi-connect $(b64 "$wifi_ssid") $(b64 "$wifi_pass") visible' | socat -t 90 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e '.state == \"connected\"'"
+  check "wifi-status connected" wifi_connected "$wifi_ssid"
+  check "wifi password in no log" bash -c "! journalctl -b --no-pager -o cat | grep -qF '$wifi_pass'"
+else
+  say "FAIL wifi test network (mac80211_hwsim, hostapd)"
+  ok=0
+fi

@@ -1,25 +1,28 @@
 #!/usr/bin/env bash
 # RedGiant OS (G39.1): boots an image in QEMU, headless, and checks it (CI's job os.yml).
 #
-#   boot-test.sh boot    --arch amd64|arm64 --firmware uefi|bios [--secureboot] --disk <qcow2> --logs <dir>
+#   boot-test.sh boot    --arch amd64|arm64 --firmware uefi|bios [--secureboot] [--wifi] --disk <qcow2> --logs <dir>
 #   boot-test.sh install --iso <iso> --disk <new qcow2> --logs <dir> [--firmware bios|uefi]
 #
 # boot: the machine gets the credential redgiant.selftest, so redgiant-selftest prints its checks on
 # the serial console (unit active, /api/health, images pinned, redgiant.local over mDNS, the
 # console's issue, SSH off, the OS helper, unattended-upgrades); this script also asks
-# /api/health from outside through a forwarded port and looks for the login prompt's address.
+# /api/health from outside through a forwarded port, then over HTTPS with the machine's own CA
+# (printed by the self-test), and looks for the login prompt's address. --wifi adds the Wi-Fi
+# checks inside the machine (mac80211_hwsim, hostapd: redgiant-selftest-wifi).
 # install: boots the ISO with an empty disk and the credentials that answer the installer, and
 # waits for it to write the disk and power off.
 # Uses KVM when /dev/kvm is there, otherwise QEMU's emulation (slow: minutes become tens).
 set -uo pipefail
 MODE=${1:-}
 shift || true
-ARCH=amd64 FIRMWARE=uefi SECUREBOOT=0 DISK="" ISO="" LOGS=. WORK="" TIMEOUT=${TIMEOUT:-3600} PORT=17600
+ARCH=amd64 FIRMWARE=uefi SECUREBOOT=0 WIFI=0 DISK="" ISO="" LOGS=. WORK="" TIMEOUT=${TIMEOUT:-3600} PORT=17600 TLS_PORT=17643
 while [ $# -gt 0 ]; do
   case "$1" in
     --arch) ARCH=$2 && shift ;;
     --firmware) FIRMWARE=$2 && shift ;;
     --secureboot) SECUREBOOT=1 ;;
+    --wifi) WIFI=1 ;;
     --disk) DISK=$2 && shift ;;
     --iso) ISO=$2 && shift ;;
     --logs) LOGS=$2 && shift ;;
@@ -104,9 +107,11 @@ case "$MODE" in
     RUN=$WORK/run-$ARCH-$FIRMWARE.qcow2
     qemu-img create -q -f qcow2 -b "$(readlink -f "$DISK")" -F qcow2 "$RUN"
     start=$SECONDS
+    creds=(-smbios "type=11,value=io.systemd.credential:redgiant.selftest=1")
+    [ "$WIFI" = 1 ] && creds+=(-smbios "type=11,value=io.systemd.credential:redgiant.selftest.wifi=1")
     run_qemu -drive "file=$RUN,if=virtio,format=qcow2" \
-      -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$PORT-:7600" -device virtio-net-pci,netdev=net0,romfile= \
-      -smbios "type=11,value=io.systemd.credential:redgiant.selftest=1"
+      -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$PORT-:7600,hostfwd=tcp:127.0.0.1:$TLS_PORT-:443" -device virtio-net-pci,netdev=net0,romfile= \
+      "${creds[@]}"
     ok=1
     # First stage, its own limit: firmware, GRUB, kernel and systemd up to a login prompt.
     if ! wait_for "login: " "$BOOT_LIMIT"; then
@@ -127,6 +132,15 @@ case "$MODE" in
     grep -aq "REDGIANT-SELFTEST PASS" "$SERIAL" || ok=0
     # From outside the machine, through the forwarded port.
     if curl -fsS --max-time 10 "http://127.0.0.1:$PORT/api/health"; then echo; else echo "::error::/api/health not reachable from the host"; ok=0; fi
+    # HTTPS from outside, trusting only the machine's own CA (its certificate from the console).
+    grep -a "REDGIANT-SELFTEST ca " "$SERIAL" | tail -1 | sed 's/\r$//; s/^.*REDGIANT-SELFTEST ca //' | base64 -d >"$WORK/ca.crt" 2>/dev/null
+    if [ -s "$WORK/ca.crt" ] && curl -fsS --max-time 10 --cacert "$WORK/ca.crt" --resolve "redgiant.local:$TLS_PORT:127.0.0.1" "https://redgiant.local:$TLS_PORT/api/health"; then
+      echo
+      echo "https from the host with the local CA: ok"
+    else
+      echo "::error::https://redgiant.local not reachable from the host with the machine's CA"
+      ok=0
+    fi
     # The login prompt of the serial console carries the address (/etc/issue.d/50-redgiant.issue).
     if grep -aqE "RedGiant: http://10\.0\.2\.15:7600" "$SERIAL"; then
       echo "issue: $(grep -aE "RedGiant: http://" "$SERIAL" | head -1 | sed 's/\r$//')"

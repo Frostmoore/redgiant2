@@ -72,6 +72,33 @@ else
   [ "$answer" = "$name" ] || { echo "  Nothing was written."; read -r -p "  Press Enter to restart. " _; systemctl reboot; exit 0; }
 fi
 
+# redgiant-wifi.txt from the stick (its small FAT partition, or the stick itself when Rufus wrote
+# it in ISO mode) goes to the new system's EFI partition: read there at the first start, then
+# erased (redgiant-wifi-file). The stick's copy is erased too when the stick can be written.
+carry_wifi() {
+  local src="" dev esp
+  if [ -r "$MEDIUM/redgiant-wifi.txt" ]; then
+    src=$MEDIUM/redgiant-wifi.txt
+  else
+    dev=$(blkid -L RG_EFI 2>/dev/null | head -1)
+    if [ -n "$dev" ] && mkdir -p /run/rg-stick && mount -t vfat "$dev" /run/rg-stick 2>/dev/null; then
+      [ -r /run/rg-stick/redgiant-wifi.txt ] && src=/run/rg-stick/redgiant-wifi.txt
+    fi
+  fi
+  if [ -n "$src" ]; then
+    udevadm settle 2>/dev/null || true
+    esp=$(lsblk -lnpo NAME,PARTLABEL "$target" 2>/dev/null | awk '$2 == "esp" { print $1 }' | head -1)
+    if [ -n "$esp" ] && mkdir -p /run/rg-esp && mount -t vfat "$esp" /run/rg-esp 2>/dev/null; then
+      if cp "$src" /run/rg-esp/redgiant-wifi.txt && sync; then
+        say "Wi-Fi settings (redgiant-wifi.txt) carried to the new system"
+        shred -u "$src" 2>/dev/null || true
+      fi
+      umount /run/rg-esp 2>/dev/null || true
+    fi
+  fi
+  umount /run/rg-stick 2>/dev/null || true
+}
+
 say "writing to $target"
 for p in $(lsblk -lnpo NAME "$target" | tail -n +2); do umount "$p" 2>/dev/null || true; done
 wipefs -a -q "$target" 2>/dev/null || true
@@ -83,6 +110,7 @@ sync
 # The backup GPT at the disk's real end; the system grows into the rest at its first start.
 sgdisk -e "$target" >/dev/null 2>&1 || true
 partprobe "$target" 2>/dev/null || true
+carry_wifi
 say "DONE $target"
 if [ -n "$AUTO_DISK" ]; then
   systemctl poweroff

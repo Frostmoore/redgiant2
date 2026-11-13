@@ -2,11 +2,13 @@
 [Unit]
 Description=RedGiant OS self-test
 ConditionCredential=redgiant.selftest
-After=redgiant.service avahi-daemon.service redgiant-helper.socket
+After=redgiant.service avahi-daemon.service redgiant-helper.socket caddy.service iwd.service
 Wants=redgiant.service
 
 [Service]
 Type=oneshot
+# redgiant.selftest.wifi=1 adds the Wi-Fi checks (mac80211_hwsim and hostapd in the machine).
+ImportCredential=redgiant.selftest.*
 ExecStart=/usr/lib/redgiant-os/redgiant-selftest
 TimeoutStartSec=30min
 
