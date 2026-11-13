@@ -14,7 +14,7 @@
 set -uo pipefail
 MODE=${1:-}
 shift || true
-ARCH=amd64 FIRMWARE=uefi SECUREBOOT=0 DISK="" ISO="" LOGS=. TIMEOUT=${TIMEOUT:-3600} PORT=17600
+ARCH=amd64 FIRMWARE=uefi SECUREBOOT=0 DISK="" ISO="" LOGS=. WORK="" TIMEOUT=${TIMEOUT:-3600} PORT=17600
 while [ $# -gt 0 ]; do
   case "$1" in
     --arch) ARCH=$2 && shift ;;
@@ -23,12 +23,16 @@ while [ $# -gt 0 ]; do
     --disk) DISK=$2 && shift ;;
     --iso) ISO=$2 && shift ;;
     --logs) LOGS=$2 && shift ;;
+    # Where the copies QEMU writes go (default: the logs folder).
+    --work) WORK=$2 && shift ;;
     --timeout) TIMEOUT=$2 && shift ;;
     *) echo "unknown option $1" >&2 && exit 2 ;;
   esac
   shift
 done
 mkdir -p "$LOGS"
+WORK=${WORK:-$LOGS}
+mkdir -p "$WORK"
 SERIAL=$LOGS/serial-$MODE-$ARCH-$FIRMWARE$([ "$SECUREBOOT" = 1 ] && echo -sb).log
 : >"$SERIAL"
 
@@ -48,8 +52,8 @@ firmware() { # args for UEFI: a private copy of the variables
       ;;
     arm64) code=/usr/share/AAVMF/AAVMF_CODE.fd vars=/usr/share/AAVMF/AAVMF_VARS.fd ;;
   esac
-  cp "$vars" "$LOGS/vars-$ARCH.fd"
-  echo "-drive if=pflash,format=raw,unit=0,readonly=on,file=$code -drive if=pflash,format=raw,unit=1,file=$LOGS/vars-$ARCH.fd"
+  cp "$vars" "$WORK/vars-$ARCH.fd"
+  echo "-drive if=pflash,format=raw,unit=0,readonly=on,file=$code -drive if=pflash,format=raw,unit=1,file=$WORK/vars-$ARCH.fd"
 }
 
 machine() {
@@ -94,7 +98,7 @@ wait_for() { # regex seconds: true once the serial console shows it
 case "$MODE" in
   boot)
     [ -r "$DISK" ] || { echo "no disk" >&2; exit 2; }
-    RUN=$LOGS/run-$ARCH-$FIRMWARE.qcow2
+    RUN=$WORK/run-$ARCH-$FIRMWARE.qcow2
     qemu-img create -q -f qcow2 -b "$(readlink -f "$DISK")" -F qcow2 "$RUN"
     start=$SECONDS
     run_qemu -drive "file=$RUN,if=virtio,format=qcow2" \
