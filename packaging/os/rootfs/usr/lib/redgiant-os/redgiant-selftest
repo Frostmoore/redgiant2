@@ -8,6 +8,7 @@ set -uo pipefail
 out=/dev/console
 say() { echo "REDGIANT-SELFTEST $*" | tee -a "$out" /run/redgiant-selftest.log >/dev/null; }
 ok=1
+say "started"
 check() { # name command…
   local name=$1
   shift

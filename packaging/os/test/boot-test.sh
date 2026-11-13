@@ -122,6 +122,14 @@ case "$MODE" in
       exit 1
     fi
     echo "login prompt after $((SECONDS - start)) s"
+    # The self-test says it started: a unit that never starts (an ordering loop) fails here, early.
+    if ! wait_for "REDGIANT-SELFTEST started" "${START_LIMIT:-900}"; then
+      echo "::error::the self-test did not start within ${START_LIMIT:-900} s"
+      stop_qemu
+      echo "--- serial console (last 200 lines)"
+      tail -n 200 "$SERIAL"
+      exit 1
+    fi
     if wait_for "REDGIANT-SELFTEST (PASS|FAIL)[[:space:]]*$" "$TIMEOUT"; then
       echo "self-test finished after $((SECONDS - start)) s"
     else
