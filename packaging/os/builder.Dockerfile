@@ -8,7 +8,7 @@ FROM debian:trixie
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
     mmdebstrap debian-archive-keyring ca-certificates systemd-repart \
-    dosfstools mtools e2fsprogs fdisk gdisk util-linux \
+    dosfstools mtools e2fsprogs fdisk gdisk util-linux mount \
     qemu-utils zstd xz-utils xorriso squashfs-tools skopeo jq python3 \
     grub-common $(case "$(dpkg --print-architecture)" in amd64) echo grub-pc-bin grub-efi-amd64-bin ;; arm64) echo grub-efi-arm64-bin ;; esac) \
  && rm -rf /var/lib/apt/lists/*
