@@ -56,7 +56,10 @@ if wifi_setup; then
   # 2. The helper's commands (the page, the console).
   check "wifi-scan lists the network" bash -c "echo wifi-scan | socat -t 90 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e --arg n '$wifi_ssid' '[.objects.data[0][] | .[\"net.connman.iwd.Network\"].Name.data] | index(\$n) != null'"
   check "wifi-forget" bash -c "echo 'wifi-forget $(b64 "$wifi_ssid")' | socat -t 90 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e .ok && [ ! -e '/var/lib/iwd/$wifi_ssid.psk' ]"
-  check "wifi-connect refuses a wrong password, keeps nothing" bash -c "echo 'wifi-connect $(b64 "$wifi_ssid") $(b64 wrong-password-x) visible' | socat -t 90 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e '.ok == false' && [ ! -e '/var/lib/iwd/$wifi_ssid.psk' ]"
+  wrong=$(echo "wifi-connect $(b64 "$wifi_ssid") $(b64 wrong-password-x) visible" | sock)
+  say "wifi-connect (wrong password) reply $wrong; file $(ls "/var/lib/iwd/$wifi_ssid.psk" 2>&1 | head -c 120)"
+  check "wifi-connect refuses a wrong password" bash -c "jq -e '.ok == false' <<<'$wrong'"
+  check "a refused password is not kept" bash -c "[ ! -e '/var/lib/iwd/$wifi_ssid.psk' ]"
   sleep 5
   reply=$(echo "wifi-connect $(b64 "$wifi_ssid") $(b64 "$wifi_pass") visible" | sock)
   say "wifi-connect reply $reply"
