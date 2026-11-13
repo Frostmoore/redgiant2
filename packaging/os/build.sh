@@ -47,7 +47,10 @@ done
 case "$BOARD" in
   generic) FORMATS=${FORMATS:-qcow2,raw,iso} ;;
   lxc) FORMATS=${FORMATS:-lxc} ;;
-  raspi) FORMATS=${FORMATS:-raspi} && [ "$ARCH" = arm64 ] || { echo "raspi: arm64 only" >&2 && exit 2; } ;;
+  raspi)
+    FORMATS=${FORMATS:-raspi}
+    [ "$ARCH" = arm64 ] || { echo "raspi: arm64 only" >&2 && exit 2; }
+    ;;
   *) echo "board: generic, lxc or raspi" >&2 && exit 2 ;;
 esac
 VERSION=$(jq -r .version "$STACK")

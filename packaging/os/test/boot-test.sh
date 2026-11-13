@@ -150,7 +150,7 @@ case "$MODE" in
     echo "OK: $ARCH $FIRMWARE$([ "$SECUREBOOT" = 1 ] && echo " secure boot") in $((SECONDS - start)) s"
     ;;
   install)
-    [ -r "$ISO" ] && [ -n "$DISK" ] || { echo "--iso and --disk are needed" >&2; exit 2; }
+    if [ ! -r "$ISO" ] || [ -z "$DISK" ]; then echo "--iso and --disk are needed" >&2; exit 2; fi
     qemu-img create -q -f qcow2 "$DISK" 32G
     start=$SECONDS
     run_qemu -cdrom "$ISO" -boot d -no-reboot \

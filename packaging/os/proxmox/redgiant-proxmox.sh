@@ -55,7 +55,7 @@ usage() {
   sed -n '2,/^set -euo/p' "$0" 2>/dev/null | sed '$d; s/^# \{0,1\}//'
   exit "${1:-0}"
 }
-need() { [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value"; }
+need() { if [ $# -lt 2 ] || [ -z "$2" ]; then die "$1 needs a value"; fi; }
 
 while [ $# -gt 0 ]; do
   case "$1" in

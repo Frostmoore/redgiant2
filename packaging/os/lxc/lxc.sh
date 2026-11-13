@@ -12,7 +12,10 @@ ln -sf /dev/null "$ROOT/etc/systemd/system/redgiant-growroot.service"
 # Unprivileged containers share the host's user ids (Proxmox maps them all from 100000): avahi's
 # limit of 3 processes per user would stop the second container's avahi.
 sed -i 's/^rlimit-nproc=/#rlimit-nproc=/' "$ROOT/etc/avahi/avahi-daemon.conf"
-[ ! -e "$ROOT/vmlinuz" ] && [ -z "$(ls -A "$ROOT/lib/modules" 2>/dev/null)" ] || { echo "lxc: a kernel is in the container" >&2; exit 1; }
+if [ -e "$ROOT/vmlinuz" ] || [ -n "$(ls -A "$ROOT/lib/modules" 2>/dev/null)" ]; then
+  echo "lxc: a kernel is in the container" >&2
+  exit 1
+fi
 
 format_lxc() {
   step "lxc: the root filesystem, tar.zst"
