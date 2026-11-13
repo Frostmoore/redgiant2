@@ -42,6 +42,8 @@ export function proxiesRunning(comms: readonly string[]): string[] {
  */
 export function proxyInFront(h: (name: string) => string | undefined): string | null {
   if (h("cf-connecting-ip") || h("cf-ray")) return "cloudflare";
+  // RedGiant OS's own local HTTPS (Caddy on the machine, lan-https.ts) is not someone else's.
+  if (h("x-redgiant-local-tls") === "1") return null;
   const via = h("via");
   if (via) return via.toLowerCase().includes("caddy") ? "caddy" : "proxy";
   if (h("x-forwarded-for") || h("x-forwarded-proto") || h("x-real-ip")) return "proxy";

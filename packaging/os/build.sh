@@ -77,6 +77,11 @@ ESP_UUID=$(uuid esp)
 DISK_ID=$(uuid disk)
 
 # 1. The system ----------------------------------------------------------------------------------
+# Wi-Fi: iwd (with systemd-networkd for addresses) and the firmware of the usual cards, from
+# Debian's non-free-firmware section: Intel, Realtek, Qualcomm Atheros, Broadcom (Raspberry Pi
+# and many laptops) and the rest of firmware-misc-nonfree (MediaTek, Ralink…). Everything in that
+# section is redistributable (Debian ships it on its own installer images since Debian 12).
+# Caddy (Debian's) serves https://redgiant.local with the machine's local certificate authority.
 PACKAGES=(
   systemd systemd-sysv systemd-resolved udev dbus kmod iproute2 iputils-ping netbase
   ca-certificates curl jq socat openssl qrencode less vim-tiny sudo tzdata
@@ -85,6 +90,8 @@ PACKAGES=(
   openssh-server unattended-upgrades
   cloud-guest-utils gdisk fdisk parted e2fsprogs dosfstools exfatprogs pciutils usbutils
   initramfs-tools zstd linux-image-"$ARCH" firmware-linux-free firmware-realtek
+  iwd wireless-regdb rfkill firmware-iwlwifi firmware-atheros firmware-brcm80211 firmware-misc-nonfree
+  caddy
   grub2-common grub-efi-"$ARCH"-bin grub-efi-"$ARCH"-signed shim-signed
 )
 [ "$ARCH" = amd64 ] && PACKAGES+=(grub-pc-bin intel-microcode amd64-microcode)
@@ -212,6 +219,8 @@ for dir in BOOT debian; do
   # What it finds goes to the console too (a serial console shows why a machine does not start).
   printf 'echo "RedGiant OS: looking for the system (%s)"\n%s\necho "RedGiant OS: system on $root"\nset prefix=($root)/boot/grub\nconfigfile $prefix/grub.cfg\necho "RedGiant OS: no system disk found"\nls\n' "$DISK_ID" "$FIND" >"$ESP/EFI/$dir/grub.cfg"
 done
+# Wi-Fi without a screen: the example to copy as redgiant-wifi.txt (redgiant-wifi-file).
+cp "$HERE/rootfs/usr/share/redgiant-os/redgiant-wifi-example.txt" "$ESP/redgiant-wifi-example.txt"
 # The removable path: what any firmware starts without a boot entry of its own.
 mv "$ESP/EFI/BOOT/shim$EFI.efi" "$ESP/EFI/BOOT/BOOT$EFIUP.EFI"
 if [ "$ARCH" = amd64 ]; then

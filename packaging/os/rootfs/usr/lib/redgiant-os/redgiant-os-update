@@ -35,13 +35,14 @@ signed() { # file: true when file.sig is its signature by the update key
   openssl dgst -sha256 -verify "$KEY" -signature <(base64 -d "$1.sig") "$1" >/dev/null 2>&1
 }
 
-write_state() { # state latest gate note
+write_state() { # state latest gate note [step]: the page and the console read it
   local tmp
   tmp=$(mktemp "$STATE/.os-update.XXXXXX")
-  jq -n --arg s "$1" --arg l "$2" --arg g "$3" --arg n "$4" --arg i "$(installed_version)" \
+  jq -n --arg s "$1" --arg l "$2" --arg g "$3" --arg n "$4" --arg st "${5:-}" --arg i "$(installed_version)" \
     --arg at "$(date -u +%FT%TZ)" \
     '{state: $s, installed: $i, latest: (if $l == "" then null else $l end), gate: $g,
-      note: (if $n == "" then null else $n end), checkedAt: $at}' >"$tmp"
+      note: (if $n == "" then null else $n end), step: (if $st == "" then null else $st end),
+      checkedAt: $at}' >"$tmp"
   chmod 644 "$tmp"
   mv "$tmp" "$OUT"
 }
@@ -103,7 +104,7 @@ apply() {
   local stack=$WORK/redgiant-os-stack.json prev=""
   jq -e --arg a "$(arch)" '.format == 1 and (.images[$a] | length > 0)' "$stack" >/dev/null ||
     { write_state error "$LATEST" "$GATE" "the stack has no images for this processor"; exit 1; }
-  write_state applying "$LATEST" "$GATE" ""
+  write_state applying "$LATEST" "$GATE" "" download
   # The new images first, all of them, while the old version keeps running.
   [ -r "$STATE/stack.json" ] && prev=$STATE/stack.json.prev && cp "$STATE/stack.json" "$prev"
   install -m 0644 "$stack" "$STATE/stack.json.new"
@@ -113,12 +114,14 @@ apply() {
     exit 1
   fi
   mv "$STATE/stack.json.new" "$STATE/stack.json"
-  if /usr/lib/redgiant-os/redgiant-stack up && wait_healthy; then
+  write_state applying "$LATEST" "$GATE" "" restart
+  if /usr/lib/redgiant-os/redgiant-stack up && write_state applying "$LATEST" "$GATE" "" wait && wait_healthy; then
     write_state latest "$LATEST" none ""
     log "RedGiant $LATEST is running"
     return 0
   fi
   # Back to the version that ran: the previous applied stack, or the one built in.
+  write_state applying "$LATEST" "$GATE" "" rollback
   if [ -n "$prev" ]; then mv "$prev" "$STATE/stack.json"; else rm -f "$STATE/stack.json"; fi
   /usr/lib/redgiant-os/redgiant-stack up || true
   write_state error "$LATEST" "$GATE" "$LATEST did not come up; the previous version is running again"

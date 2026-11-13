@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# RedGiant OS: Wi-Fi for a machine without a screen (redgiant-wifi-file.service). The person
+# writes redgiant-wifi.txt on the EFI partition (the small FAT disk any computer shows, as for a
+# Raspberry Pi's SD card; the ISO's installer copies it from the USB stick), the machine reads it
+# at start, saves its networks for iwd through the OS helper, then erases the file.
+#   redgiant-wifi-file [file]      read, save, erase (default /boot/efi/redgiant-wifi.txt)
+#   redgiant-wifi-file parse file  the networks found, one per line: <base64 name> <base64 password|-> <visible|hidden>
+#
+# The file (redgiant-wifi-example.txt beside it shows the same):
+#   ssid=Home network
+#   password=the password
+#   hidden=yes            only for a network that does not show its name
+# One more network: another ssid= line. An open network: no password line (or password= empty).
+# Spaces around a value are dropped; put the value in double quotes to keep them.
+set -uo pipefail
+HELPER=${REDGIANT_HELPER:-/usr/lib/redgiant/redgiant-helper}
+
+value() { # the text after '=', trimmed, or what is inside double quotes
+  local v=$1
+  v=${v#"${v%%[![:space:]]*}"}
+  v=${v%"${v##*[![:space:]]}"}
+  if [ "${#v}" -ge 2 ] && [ "${v:0:1}" = '"' ] && [ "${v: -1}" = '"' ]; then v=${v:1:${#v}-2}; fi
+  printf '%s' "$v"
+}
+
+parse() {
+  local file=$1 line key val ssid="" pass="" hidden=visible have=0
+  emit() {
+    [ "$have" = 1 ] && [ -n "$ssid" ] || return 0
+    printf '%s %s %s\n' "$(printf '%s' "$ssid" | base64 -w0)" \
+      "$([ -n "$pass" ] && printf '%s' "$pass" | base64 -w0 || echo -)" "$hidden"
+  }
+  # Notepad's BOM and CR LF line ends are fine.
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    line=${line#$'\xef\xbb\xbf'}
+    case "$line" in '' | '#'* | ';'*) continue ;; esac
+    case "$line" in *=*) ;; *) continue ;; esac
+    key=$(value "${line%%=*}" | tr '[:upper:]' '[:lower:]')
+    val=$(value "${line#*=}")
+    case "$key" in
+      ssid | network | name)
+        emit
+        ssid=$val pass="" hidden=visible have=1
+        ;;
+      password | psk | passphrase | pass) pass=$val ;;
+      hidden) case "$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')" in yes | true | 1 | si | sì) hidden=hidden ;; esac ;;
+    esac
+  done <"$file"
+  emit
+}
+
+case "${1:-}" in
+  parse)
+    parse "$2"
+    exit 0
+    ;;
+esac
+
+FILE=${1:-/boot/efi/redgiant-wifi.txt}
+[ -r "$FILE" ] || exit 0
+say() { echo "redgiant-os: $*" >&2; echo "RedGiant OS: $*" >/dev/console 2>/dev/null || true; }
+n=0
+while read -r ssid pass hidden; do
+  name=$(printf '%s' "$ssid" | base64 -d | tr -cd '[:print:]')
+  # Through the helper's stdin: the password is never an argument of any program.
+  reply=$(printf 'wifi-connect %s %s %s keep\n' "$ssid" "$pass" "$hidden" | "$HELPER" --stdin 2>/dev/null)
+  case "$reply" in
+    *'"ok":true'*) say "Wi-Fi network \"$name\" saved ($(printf '%s' "$reply" | sed -n 's/.*"state":"\([a-z]*\)".*/\1/p'))" ;;
+    *) say "Wi-Fi network \"$name\" not saved: $(printf '%s' "$reply" | sed -n 's/.*"error":"\([a-z_]*\)".*/\1/p')" ;;
+  esac
+  n=$((n + 1))
+done < <(parse "$FILE")
+[ "$n" -gt 0 ] || say "redgiant-wifi.txt has no network (ssid=…)"
+# Read once: the password does not stay on a disk any computer can read.
+shred -u "$FILE" 2>/dev/null || rm -f "$FILE"
+sync

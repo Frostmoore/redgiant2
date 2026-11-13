@@ -9,6 +9,10 @@ cp -a "$HERE/lxc/rootfs/." "$ROOT/"
 echo "# RedGiant OS in a container: the host mounts the root." >"$ROOT/etc/fstab"
 rm -f "$ROOT/etc/default/grub"
 ln -sf /dev/null "$ROOT/etc/systemd/system/redgiant-growroot.service"
+# No radio in a container: the host has the Wi-Fi.
+for unit in iwd.service redgiant-wifi-file.service; do
+  [ ! -e "$ROOT/usr/lib/systemd/system/$unit" ] || ln -sf /dev/null "$ROOT/etc/systemd/system/$unit"
+done
 # Unprivileged containers share the host's user ids (Proxmox maps them all from 100000): avahi's
 # limit of 3 processes per user would stop the second container's avahi.
 sed -i 's/^rlimit-nproc=/#rlimit-nproc=/' "$ROOT/etc/avahi/avahi-daemon.conf"

@@ -1,0 +1,17 @@
+# RedGiant OS: a Wi-Fi card joined by iwd asks for an address like a cable does; the cable stays
+# preferred when both are connected (higher route metric).
+[Match]
+Type=wlan
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+MulticastDNS=no
+LLMNR=no
+IgnoreCarrierLoss=3s
+
+[DHCPv4]
+RouteMetric=600
+
+[IPv6AcceptRA]
+RouteMetric=600

@@ -125,3 +125,85 @@ export interface NetDetected {
 
 /** SSH into the machine (RedGiant OS): off by default, keys only, through the OS helper. */
 export type SshAccess = { available: false } | { available: true; on: boolean; keys: number };
+
+// --- RedGiant OS: Wi-Fi, HTTPS in the local network, updates (G39.1) -------------------------
+
+/** A Wi-Fi network in reach. */
+export interface WifiNetwork {
+  ssid: string;
+  /** iwd's kind: "open", "psk" (a password), "8021x" (a company network, not joined from here). */
+  security: "open" | "psk" | "8021x" | "wep" | "other";
+  /** 0–100, from the signal in dBm. */
+  signal: number;
+  connected: boolean;
+  /** Saved on this machine. */
+  known: boolean;
+}
+
+/** Wi-Fi on this machine (RedGiant OS, through the OS helper and iwd). */
+export type WifiState =
+  | { available: false; why: "no_helper" | "no_wifi" | "wifi_off" | "not_installed" | "failed" }
+  | {
+      available: true;
+      device: string;
+      /** iwd's station state: connected, connecting, disconnected… */
+      state: string;
+      connected: string | null;
+      networks: WifiNetwork[];
+      /** Saved networks (names), also those not in reach. */
+      known: string[];
+      /** A cable is connected with an address (it is used first). */
+      wired: boolean;
+      /** The Wi-Fi card's address, when it has one. */
+      address: string | null;
+    };
+
+/** HTTPS in the local network (RedGiant OS): the machine's own CA, Caddy in front. */
+export type LocalHttps =
+  | { available: false }
+  | {
+      available: true;
+      /** Caddy answers on 443 (and 80). */
+      on: boolean;
+      /** The CA's certificate (PEM): public, what the person installs. */
+      ca: string | null;
+      /** SHA-256 of the CA's certificate, to compare on the phone. */
+      fingerprint: string | null;
+      /** When the server's certificate expires (the CA lasts ten years). */
+      until: string | null;
+      names: string[];
+      /** http redirects to https and HSTS is sent (the person said the certificate is trusted). */
+      redirect: boolean;
+      /** This request came through the local HTTPS (or its port 80). */
+      viaLocal: boolean;
+      /** Something else already gives HTTPS (a proxy in front, Tailscale): not needed twice. */
+      inFront: string | null;
+    };
+
+/** RedGiant OS's own updates: RedGiant's signed stack, and Debian's security updates. */
+export interface OsUpdates {
+  available: boolean;
+  /** The last look of redgiant-os-update (os-update.json). */
+  update: {
+    state: "latest" | "available" | "applying" | "error" | "breaking" | "unsigned" | "unreachable";
+    installed: string | null;
+    latest: string | null;
+    gate: "none" | "normal" | "mandatory" | "breaking";
+    note: string | null;
+    /** While applying: download, restart, wait, rollback. */
+    step: string | null;
+    checkedAt: string | null;
+  } | null;
+  /** The updater is running now. */
+  running: boolean;
+  security: {
+    /** When unattended-upgrades last ran (ISO). */
+    lastRun: string | null;
+    result: string | null;
+    /** Packages it installed that time (null: unknown). */
+    upgraded: number | null;
+    rebootRequired: boolean;
+    /** What asks for the restart (a new kernel…). */
+    packages: string[];
+  } | null;
+}

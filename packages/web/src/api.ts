@@ -26,6 +26,7 @@ import {
   type KnowledgeSourceInput,
   type KnowledgeStatus,
   type LocalEmbeddingModel,
+  type LocalHttps,
   type LocalModel,
   type LocalOffer,
   type LocalRerankModel,
@@ -40,6 +41,7 @@ import {
   type ModelsCatalogStatus,
   type NetDetected,
   type OcrLanguage,
+  type OsUpdates,
   type PermissionRequestInfo,
   PROTOCOL_VERSION,
   type Recipe,
@@ -61,6 +63,7 @@ import {
   type VaultImportPreview,
   type VaultInput,
   type VaultView,
+  type WifiState,
 } from "@redgiant/protocol";
 
 /** What the «Knowledge» page can choose (`GET /api/knowledge/models`). */
@@ -1135,6 +1138,23 @@ export class Api {
   setupBackupRun = () => this.call<{ started: boolean }>("POST", "/api/setup/backups/run");
   setupNet = () => this.call<NetDetected>("GET", "/api/setup/net");
   setupSsh = () => this.call<SshAccess>("GET", "/api/setup/ssh");
+  // RedGiant OS (G39.1): Wi-Fi, HTTPS in the local network, its updates, a restart.
+  setupWifi = () => this.call<WifiState>("GET", "/api/setup/wifi");
+  setupWifiScan = () => this.call<WifiState>("POST", "/api/setup/wifi/scan");
+  setupWifiConnect = (ssid: string, password: string, hidden = false) =>
+    this.call<{ state: "connected" | "saved"; wifi: WifiState }>(
+      "POST",
+      "/api/setup/wifi/connect",
+      { ssid, password, ...(hidden && { hidden }) },
+    );
+  setupWifiForget = (ssid: string) =>
+    this.call<WifiState>("POST", "/api/setup/wifi/forget", { ssid });
+  setupHttps = () => this.call<LocalHttps>("GET", "/api/setup/https");
+  setSetupHttps = (b: { local?: boolean; redirect?: boolean; trusted?: boolean }) =>
+    this.call<LocalHttps>("PUT", "/api/setup/https", b);
+  setupOsUpdates = () => this.call<OsUpdates>("GET", "/api/setup/os-updates");
+  setupOsUpdatesCheck = () => this.call<OsUpdates>("POST", "/api/setup/os-updates/check");
+  setupReboot = () => this.call<{ in: number }>("POST", "/api/setup/os/reboot", { confirm: true });
   setSetupSsh = (on: boolean, key?: string) =>
     this.call<SshAccess>("PUT", "/api/setup/ssh", { on, ...(key && { key }) });
   hfSearch = (q: string) =>

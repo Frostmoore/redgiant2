@@ -27,7 +27,33 @@ check "issue shows the address" grep -qF "http://$(addresses | head -1):$PORT" /
 check "ssh disabled" bash -c '! systemctl is-active --quiet ssh.service'
 check "os helper" bash -c 'echo ssh-status | socat -t 30 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e ".ok and (.on == false)"'
 check "unattended-upgrades on" bash -c 'apt-config dump | grep -q "APT::Periodic::Unattended-Upgrade \"1\""'
+# HTTPS in the local network: the machine's own CA, its name and its address, TLS 1.2 at least.
+CA=$STATE/tls/ca.crt
+ip1=$(addresses | head -1)
+for i in $(seq 1 24); do curl -fsS --max-time 5 --cacert "$CA" --resolve "redgiant.local:443:127.0.0.1" https://redgiant.local/api/health >/dev/null 2>&1 && break; sleep 5; done
+check "https redgiant.local (local CA)" curl -fsS --max-time 10 --cacert "$CA" --resolve "redgiant.local:443:127.0.0.1" https://redgiant.local/api/health
+check "https $(hostname).local (local CA)" curl -fsS --max-time 10 --cacert "$CA" --resolve "$(hostname).local:443:127.0.0.1" "https://$(hostname).local/api/health"
+check "https by address $ip1" curl -fsS --max-time 10 --cacert "$CA" "https://$ip1/api/health"
+check "https TLS 1.2" curl -fsS --max-time 10 -k --tlsv1.2 --tls-max 1.2 https://127.0.0.1/api/health
+check "https refuses TLS 1.1" bash -c "! openssl s_client -connect 127.0.0.1:443 -tls1_1 -cipher 'DEFAULT:@SECLEVEL=0' </dev/null >/dev/null 2>&1"
+check "http on port 80" curl -fsS --max-time 10 http://127.0.0.1/api/health
+check "CA key root only" bash -c "[ \"\$(stat -c %a:%U $STATE/tls/ca.key)\" = 600:root ]"
+check "CA only for local names" bash -c "openssl x509 -in $CA -noout -ext nameConstraints | grep -q 'DNS:local'"
+check "os helper https-status" bash -c 'echo https-status | socat -t 30 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e ".ok and .on and (.fingerprint | length > 0) and (.ca | length > 0)"'
+check "os helper os-update-check" bash -c 'echo os-update-check | socat -t 60 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e ".ok and (.update.state | type == \"string\") and (.security | has(\"rebootRequired\"))"'
+check "os helper os-update-status" bash -c 'echo os-update-status | socat -t 30 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e ".ok and (.running == false)"'
+# Wi-Fi: not in a container (the LXC template masks iwd: the host owns the radio).
+if ! systemd-detect-virt --container --quiet; then
+  check "iwd running" systemctl is-active --quiet iwd.service
+  check "wifi firmware" bash -c 'ls /usr/lib/firmware/iwlwifi-* /usr/lib/firmware/brcm >/dev/null 2>&1'
+fi
+if [ "$(cat "${CREDENTIALS_DIRECTORY:-/nonexistent}/redgiant.selftest.wifi" 2>/dev/null)" = 1 ]; then
+  # shellcheck source=redgiant-selftest-wifi
+  . /usr/lib/redgiant-os/redgiant-selftest-wifi
+fi
 say "addresses $(addresses | tr '\n' ' ')"
+# The CA's certificate, for the checks from outside the machine (boot-test.sh).
+say "ca $(base64 -w0 "$CA" 2>/dev/null)"
 say "health $(curl -fsS "http://localhost:$PORT/api/health" 2>&1)"
 if [ "$ok" != 1 ]; then
   # Why, on the console: RedGiant's start and its containers.

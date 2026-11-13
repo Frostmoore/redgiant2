@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # RedGiant OS (G39.1): the screen of the machine (tty1). The address(es), a QR code to open the page
 # from a phone and the status; nothing else. Keys: [t] the access link with the token (a QR, for one
-# minute), [u] update RedGiant when a signed update is there, any other key refreshes.
+# minute), [u] update RedGiant when a signed update is there, [w] join a Wi-Fi network, any other
+# key refreshes.
 set -uo pipefail
 # shellcheck source=common.sh
 . "$(dirname "$(readlink -f "$0")")/common.sh"
@@ -22,11 +23,16 @@ screen() {
   printf '\n  \033[1;31mRedGiant\033[0m  %s   ·   RedGiant OS %s (Debian %s)\n\n' \
     "$(installed_version)" "$(cat "$SHARE/os-version" 2>/dev/null)" "$(cat /etc/debian_version)"
   if [ -z "$first" ]; then
-    printf '  No network yet: connect a cable (or check the network of the virtual machine).\n\n'
+    if has_wifi; then
+      printf '  No network yet: connect a cable, or press [w] to join a Wi-Fi network.\n\n'
+    else
+      printf '  No network yet: connect a cable (or check the network of the virtual machine).\n\n'
+    fi
   else
     printf '  Open from a computer or phone on the same network:\n\n'
     printf '     \033[1mhttp://%s:%s\033[0m\n' "$name" "$PORT"
     addresses | while read -r a; do printf '     http://%s:%s\n' "$a" "$PORT"; done
+    https_on && printf '     https://%s   (after trusting its certificate: Settings > System)\n' "$name"
     echo
     qrencode -t ANSIUTF8 -m 2 "http://$first:$PORT" 2>/dev/null | sed 's/^/  /'
   fi
@@ -39,7 +45,72 @@ screen() {
   reboot=""
   [ -e /run/reboot-required ] && reboot="  ·  system updated: restart when convenient"
   printf '%s%s\n' "$upd" "$reboot"
-  printf '\n  [t] show the access link with your token    [u] update RedGiant    any key: refresh\n'
+  printf '\n  [t] show the access link with your token    [u] update RedGiant'
+  has_wifi && printf '    [w] Wi-Fi'
+  printf '    any key: refresh\n'
+}
+
+# The networks in reach, strongest first: name, kind (psk, open…), signal in dBm, connected.
+wifi_list() {
+  jq -r '.objects.data[0] as $o | (.ordered.data[0] // [])[]
+    | . as [$p, $s] | $o[$p]["net.connman.iwd.Network"] as $n | select($n)
+    | [$n.Name.data, $n.Type.data, (($s / 100) | floor), ($n.Connected.data // false)] | @tsv' 2>/dev/null
+}
+
+# [w]: pick a network (or type a hidden one's name), type its password, join.
+wifi_screen() {
+  local out nets=() i n ssid kind dbm conn pass hidden=visible reply b64p
+  clear
+  printf '\n  Wi-Fi: looking for networks…\n'
+  out=$(helper wifi-scan)
+  case "$out" in
+    *'"ok":true'*) ;;
+    *)
+      printf '\n  Wi-Fi is not available here (%s).\n' "$(sed -n 's/.*"error":"\([a-z_]*\)".*/\1/p' <<<"$out")"
+      read -rsn1 -t 10 || true
+      return
+      ;;
+  esac
+  mapfile -t nets < <(wifi_list <<<"$out")
+  clear
+  printf '\n  Wi-Fi networks in reach (a cable, when connected, is used first):\n\n'
+  i=1
+  for n in "${nets[@]}"; do
+    IFS=$'\t' read -r ssid kind dbm conn <<<"$n"
+    printf '   %2d) %-32s %-5s %4s dBm %s\n' "$i" "$ssid" "$kind" "$dbm" "$([ "$conn" = true ] && echo "  connected")"
+    i=$((i + 1))
+  done
+  [ ${#nets[@]} -gt 0 ] || printf '   (none found)\n'
+  printf '\n   h) a hidden network (type its name)     Enter: back\n\n'
+  read -r -p "  Network: " n || return
+  if [ "$n" = h ] || [ "$n" = H ]; then
+    read -r -p "  Network name: " ssid || return
+    hidden=hidden kind=psk
+  elif [[ $n =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le ${#nets[@]} ]; then
+    IFS=$'\t' read -r ssid kind _ _ <<<"${nets[$((n - 1))]}"
+  else
+    return
+  fi
+  [ -n "$ssid" ] || return
+  b64p=-
+  if [ "$kind" != open ]; then
+    read -rs -p "  Password for \"$ssid\" (not shown; Enter for an open network): " pass || return
+    echo
+    [ -n "$pass" ] && b64p=$(printf '%s' "$pass" | base64 -w0)
+    pass=""
+  fi
+  printf '\n  Joining "%s"…\n' "$ssid"
+  reply=$(helper "wifi-connect $(printf '%s' "$ssid" | base64 -w0) $b64p $hidden")
+  b64p=""
+  case "$reply" in
+    *'"state":"connected"'*) printf '  Connected. The address shows on the main screen in a few seconds.\n' ;;
+    *'"state":"saved"'*) printf '  Saved: the machine joins it as soon as it is in reach.\n' ;;
+    *bad_password*) printf '  A Wi-Fi password has 8 to 63 characters.\n' ;;
+    *connect_failed*) printf '  The network refused to connect: check the password and try again.\n' ;;
+    *not_found*) printf '  That network is not in reach any more.\n' ;;
+    *) printf '  Not connected (%s).\n' "$(sed -n 's/.*"error":"\([a-z_]*\)".*/\1/p' <<<"$reply")" ;;
+  esac
+  read -rsn1 -t 10 || true
 }
 
 token_screen() {
@@ -62,6 +133,7 @@ while true; do
   read -rsn1 -t 15 key || true
   case "$key" in
     t | T) token_screen ;;
+    w | W) has_wifi && wifi_screen ;;
     u | U)
       clear
       echo "  Updating RedGiant…"

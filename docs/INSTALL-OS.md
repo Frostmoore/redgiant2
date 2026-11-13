@@ -39,7 +39,7 @@ Every file is listed in `SHA256SUMS-os`, signed with RedGiant's update key
 4. When it says so, remove the stick and press Enter. The PC restarts into RedGiant OS.
 
 Nothing else is asked: no user, no password, no network settings (the machine takes an address
-from your router, by cable).
+from your router, by cable; for Wi-Fi see [Wi-Fi](#wi-fi)).
 
 ## On Proxmox
 
@@ -170,7 +170,10 @@ disk of 16 GB or more (an SSD on USB 3 is much faster than a card).
    customisation settings?", answer **No**: those settings are for Raspberry Pi OS, RedGiant OS
    asks for nothing. Or [balenaEtcher](https://etcher.balena.io/), or on Linux and macOS
    `xzcat redgiant-os-<version>-arm64-raspi.img.xz | sudo dd of=/dev/<card> bs=4M status=progress conv=fsync`.
-2. Put it in the Pi, connect the network cable and switch it on. The first start fills the card
+2. For Wi-Fi instead of a cable: before taking the card out of the computer, copy
+   `redgiant-wifi-example.txt` on its boot partition (`RASPIFIRM`) to `redgiant-wifi.txt` and write
+   your network's name and password in it (see [Wi-Fi](#wi-fi)).
+3. Put it in the Pi, connect the network cable (or not, with the Wi-Fi file) and switch it on. The first start fills the card
    and loads RedGiant (a few minutes, more on a slow card), then the screen (HDMI 0) shows the
    address; or open `http://redgiant.local:7600`.
 
@@ -219,8 +222,70 @@ The first start takes a few minutes: the system fills its disk and loads RedGian
 - RedGiant's status and whether an update is waiting.
 
 Press **t** to show the access link with your token (as a QR code, for one minute), **u** to
-install a waiting RedGiant update. The other consoles (Alt+F2…) and the serial console show the
-address on their login prompt. There is no password login: the machine is managed from RedGiant.
+install a waiting RedGiant update, **w** to join a Wi-Fi network. The other consoles (Alt+F2…)
+and the serial console show the address on their login prompt. There is no password login: the
+machine is managed from RedGiant.
+
+## Wi-Fi
+
+A cable is the simplest and always wins when both are connected (Wi-Fi stays as a spare). The
+usual Wi-Fi cards work out of the box: RedGiant OS carries Debian's firmware for Intel, Realtek,
+Qualcomm Atheros, Broadcom (Raspberry Pi and many laptops), MediaTek and Ralink (Debian's
+`non-free-firmware`, redistributable). Networks with a password (WPA2/WPA3 personal) and open
+networks can be joined; company networks (802.1X) cannot yet. Three ways:
+
+1. **With a screen and a keyboard**: press **w** on the machine's screen, pick the network by its
+   number (or **h** for a hidden one), type the password (it is not shown).
+2. **From the page**, when the machine already has a cable or another network: the first start's
+   «Access from outside» step, or **Settings › System › Network** later: the networks in reach,
+   «Join», «Forget», which one is in use.
+3. **Without a screen**: write a file named `redgiant-wifi.txt` on the machine's EFI partition
+   (the small FAT disk any computer shows when the disk, SD card or USB stick is plugged in; on a
+   Raspberry Pi its boot partition, `RASPIFIRM`;
+   `redgiant-wifi-example.txt` is there to copy). For the ISO, put it on the USB stick (its small
+   FAT partition, or the stick itself when Rufus wrote it in ISO mode): the installer carries it
+   to the new system.
+
+   ```text
+   ssid=Home network
+   password=the password
+   ```
+
+   Another `ssid=` line adds one more network; `hidden=yes` for a network that hides its name;
+   values with spaces at the ends go in double quotes. The file is read once at the start, the
+   networks are saved, then the file is erased from the disk.
+
+Passwords are kept only in iwd's own file for each network (`/var/lib/iwd`, readable by root
+alone): never in RedGiant's data, its logs or its events, and never in a program's arguments.
+
+## HTTPS in your network
+
+RedGiant OS answers on `https://redgiant.local` (and on the machine's private addresses) with a
+certificate of its own: at the first start the machine makes a small certificate authority (CA)
+of its own, in `/var/lib/redgiant/tls` (its key readable by root alone), and Caddy (Debian's)
+serves RedGiant with it on port 443, and on port 80. The CA is limited to local names (`.local`)
+and private addresses: trusting it on a phone never makes it trust any website. The machine's
+certificate follows its addresses and renews itself; the CA lasts ten years.
+
+Browsers show a warning until the CA is trusted on the device. In **Settings › System ›
+Network › HTTPS in your network**:
+
+1. «Download the certificate» (on a phone, scan the QR code: it downloads `RedGiant-CA.crt` over
+   http), compare the fingerprint shown in the page if you like.
+2. Install it as the page says for your system (Windows: «Trusted Root Certification
+   Authorities»; macOS: Keychain Access, «Always Trust»; iPhone/iPad: install the profile, then
+   Settings › General › About › Certificate Trust Settings; Android: Settings › Security ›
+   Encryption & credentials › Install a certificate › CA certificate; Firefox has its own list:
+   Settings › Privacy & Security › Certificates › Import).
+3. «Check this device»: the page reaches `https://` with the certificate. Only when that works,
+   http is sent to https from then on (and HSTS, 30 days, goes with the https answers).
+
+Until step 3 http keeps working, so nobody is locked out of their own machine. `/api/health`
+and `/redgiant-ca.crt` always answer on http. When RedGiant is already reached over HTTPS another
+way (Tailscale, Cloudflare, a proxy of your own: the first start says what it found), the page
+says so and does not offer the redirect for that address; names other than the machine's local
+ones are never redirected. «HTTPS in the local network» switches Caddy off, for instance before
+choosing «Your own domain» in Access from outside (that way needs ports 80 and 443 itself).
 
 ## Where the data lives
 
@@ -232,6 +297,8 @@ Everything RedGiant keeps is in **`/var/lib/redgiant`**, on the system disk:
 | `/var/lib/redgiant/stack.env`      | the access token and database password (root only)                        |
 | `/var/lib/redgiant/backups/<name>` | external disks mounted for backups                                        |
 | `/var/lib/redgiant/stack`          | the compose files in use                                                  |
+| `/var/lib/redgiant/tls`            | the local CA and the machine's certificate (root only)                    |
+| `/var/lib/iwd`                     | the saved Wi-Fi networks and their passwords (root only)                  |
 
 To keep the data on a second disk, mount that disk at `/var/lib/redgiant` before the first start
 (choosing it from RedGiant's page comes later).
@@ -249,14 +316,20 @@ The SSH server is installed but **off**. Settings switch it on with a public key
 ## Updates
 
 - **RedGiant** updates its containers from the signed release: the machine looks once a day
-  (`redgiant-os-check.timer`) and the console says when an update is there. Applying it (console
-  key **u**, or `redgiant-os-update apply`) downloads the release's `redgiant-os-stack.json`,
-  checks its signature with the update key built into the OS, pulls the images it pins by digest,
-  restarts RedGiant and waits for it to answer; if it does not, the previous version starts again.
-  A release marked "breaking" is never applied in place: back up, then reinstall.
+  (`redgiant-os-check.timer`), and the page and the console say when an update is there. Apply
+  it from the page (**Settings › System › Updates**, or the update window of a mandatory
+  release: «Update now»), with the console key **u**, or `redgiant-os-update apply`: the machine
+  downloads the release's `redgiant-os-stack.json`, checks its signature with the update key
+  built into the OS, pulls the images it pins by digest while RedGiant keeps working, restarts
+  RedGiant and waits for it to answer; if it does not, the previous version starts again. The
+  page follows each step through RedGiant's own restart and comes back by itself. A release
+  marked "breaking" is never applied in place (the page and the updater both refuse): the page
+  guides a backup to a USB disk, a reinstall and a restore.
 - **The system** installs Debian's security updates by itself (`unattended-upgrades`: Debian 13
-  and its security archive, Docker Engine included). A new kernel is used after the next restart;
-  the console says when one is waiting.
+  and its security archive, Docker Engine included). **Settings › System › Updates** shows when
+  they last ran and how many packages came; when one needs a restart (a new kernel…) it says so,
+  and «Restart now» restarts the machine after a window that says what happens (RedGiant is away
+  for two or three minutes). The console says so too.
 - **A new Debian release** (Debian 14, around 2027) will come as a new RedGiant OS: the plan is a
   signed image of the new system written next to the current one (A/B), switched to at a restart
   and switched back if it does not come up, with the data in `/var/lib/redgiant` untouched. Until
@@ -288,3 +361,11 @@ packaging/os/test/boot-test.sh boot --arch amd64 --firmware uefi --disk out/redg
 ```
 
 The builder image `redgiant-os-builder` is built from `debian:trixie`.
+
+The boot test checks, inside the machine, HTTPS with the local CA (by name and by address, TLS
+1.2 at least, the CA's key root-only), the OS helper's update commands, and from outside the
+machine `https://redgiant.local` trusting only the machine's CA. With `--wifi` it also loads
+`mac80211_hwsim` (two simulated radios), installs hostapd on the test machine as a WPA2 access
+point and joins it three ways: `redgiant-wifi.txt`, the helper's `wifi-connect` (a wrong password
+leaves nothing saved) and `wifi-forget`. The workflow's `quick` input builds only the x86_64
+qcow2 and boots it once with those checks.

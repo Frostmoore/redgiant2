@@ -1,0 +1,14 @@
+# Wi-Fi from redgiant-wifi.txt on the EFI partition (a machine without a screen): read once, erased.
+[Unit]
+Description=RedGiant OS: Wi-Fi from redgiant-wifi.txt
+ConditionPathExists=/boot/efi/redgiant-wifi.txt
+RequiresMountsFor=/boot/efi
+After=iwd.service dbus.service redgiant-helper.socket
+Wants=iwd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/redgiant-os/redgiant-wifi-file /boot/efi/redgiant-wifi.txt
+
+[Install]
+WantedBy=multi-user.target

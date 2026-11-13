@@ -89,6 +89,7 @@ import { firstBootRoutes } from "./firstboot-routes.js";
 import { HuggingFace } from "./hf.js";
 import { importRoutes } from "./import-routes.js";
 import { knowledgeRoutes } from "./knowledge/routes.js";
+import { lanHsts, lanRedirect } from "./lan-https.js";
 import { localModelChoices } from "./local-models.js";
 import { LoginError } from "./login.js";
 import { MachineError, type MachinePatch } from "./machines.js";
@@ -861,6 +862,24 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
           400,
         );
     },
+  });
+
+  // HTTPS in the local network (RedGiant OS, lan-https.ts): once the person said the machine's
+  // certificate is trusted, plain http for its local names goes to https, with HSTS.
+  app.use("*", async (c, next) => {
+    const lan = options.setup?.firstBoot?.lan.settings;
+    if (!lan?.redirect) return next();
+    const url = new URL(c.req.url);
+    const r = {
+      redirect: true,
+      host: c.req.header("host"),
+      forwardedProto: c.req.header("x-forwarded-proto"),
+    };
+    const to = lanRedirect({ ...r, path: url.pathname, search: url.search });
+    if (to) return c.redirect(to, 308);
+    await next();
+    const hsts = lanHsts(r);
+    if (hsts) c.header("strict-transport-security", hsts);
   });
 
   app.get("/api/health", (c) => c.json({ ok: true, protocolVersion: PROTOCOL_VERSION }));

@@ -1,0 +1,11 @@
+# The certificate is checked every day (it is renewed a month before it expires).
+[Unit]
+Description=RedGiant OS: check the local HTTPS certificate every day
+
+[Timer]
+OnBootSec=1h
+OnUnitActiveSec=1d
+Persistent=true
+
+[Install]
+WantedBy=timers.target

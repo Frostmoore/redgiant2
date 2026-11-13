@@ -39,6 +39,7 @@ import {
 } from "../icons.js";
 import { attempt, getApi } from "../state.js";
 import { askConfirm } from "./dialogs.js";
+import { OsNetworkSection, OsUpdatesSection } from "./OsSystem.js";
 import { Acts, Box, Facts, Head, SCard, Seg, Sub, SwitchRow, Tile, Tiles } from "./SettingsKit.js";
 import { Field } from "./ui.js";
 
@@ -623,7 +624,8 @@ export function NetFound({ demo }: { demo?: NetDetected } = {}) {
 
 // --- Settings › System ----------------------------------------------------------------------
 
-/** Settings › System (G39.3): the machine, the role, storage and backups, SSH. */
+/** Settings › System (G39.3): the machine, the role, storage and backups, network (RedGiant OS:
+ * Wi-Fi, HTTPS), SSH, updates (RedGiant OS). */
 export function SystemSettings() {
   const [s, setS] = useState<SetupState | null>(null);
   const reload = () => void attempt(() => getApi().setup()).then((x) => x && setS(x));
@@ -640,7 +642,9 @@ export function SystemSettings() {
         <Sub title={t("fbRoleTitle")} lead={t("fbRoleSettingsLead")} />
         <RoleChoice s={s} reload={reload} settings />
         <StoragePanel />
+        <OsNetworkSection />
         <SshPanel />
+        <OsUpdatesSection />
       </section>
     </div>
   );

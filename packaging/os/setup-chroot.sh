@@ -7,6 +7,7 @@ set -eu
 systemctl enable systemd-networkd.service systemd-resolved.service avahi-daemon.service \
   docker.service redgiant-growroot.service redgiant.service redgiant-console.service \
   redgiant-helper.socket redgiant-ssh-keys.service redgiant-issue.service redgiant-os-check.timer redgiant-selftest.service \
+  iwd.service redgiant-wifi-file.service redgiant-tls.service redgiant-tls.timer caddy.service \
   apt-daily.timer apt-daily-upgrade.timer
 systemctl disable ssh.service ssh.socket 2>/dev/null || true
 # Docker starts its containers itself; nothing waits for a network that may never come.
@@ -31,7 +32,7 @@ rm -f /etc/ssh/ssh_host_* /var/lib/dbus/machine-id
 : >/etc/machine-id
 
 chmod 0755 /usr/lib/redgiant-os/redgiant-* /usr/lib/redgiant/redgiant-helper
-install -d -m 0700 /var/lib/redgiant
+install -d -m 0700 /var/lib/redgiant /var/lib/iwd
 install -d -m 0755 /var/lib/redgiant/backups
 apt-get clean
 rm -rf /var/lib/apt/lists/* /var/cache/apt/*.bin /var/log/*.log /tmp/* /var/tmp/*
