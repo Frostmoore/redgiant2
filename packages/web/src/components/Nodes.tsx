@@ -289,7 +289,7 @@ export function PendingCards({ s, reload }: { s: NodesState; reload: () => void 
   const [use, setUse] = useState(true);
   const [admin, setAdmin] = useState(true);
   if (!s.pending.length) return null;
-  const confirm = async (p: PendingPair) => {
+  const confirmPair = async (p: PendingPair) => {
     const rights: NodeRight[] =
       p.side === "node"
         ? [...(use ? ["use" as const] : []), ...(admin ? ["admin" as const] : [])]
@@ -358,7 +358,7 @@ export function PendingCards({ s, reload }: { s: NodesState; reload: () => void 
             <button type="button" class="wz-btn quiet" onClick={() => void reject(p)}>
               {t("ndReject")}
             </button>
-            <button type="button" class="wz-btn primary" onClick={() => void confirm(p)}>
+            <button type="button" class="wz-btn primary" onClick={() => void confirmPair(p)}>
               {t("ndConfirm")}
             </button>
           </Acts>
