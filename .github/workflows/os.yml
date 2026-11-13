@@ -17,7 +17,7 @@ on:
         type: boolean
         default: true
       quick:
-        description: "amd64 only: build the qcow2 and boot it once (UEFI, with the Wi-Fi checks)"
+        description: "amd64 only: build the qcow2, boot it (UEFI, HTTPS included), then the Wi-Fi checks"
         type: boolean
         default: false
   push:
@@ -130,10 +130,14 @@ jobs:
             sudo apt-get install -y -q --no-install-recommends qemu-system-arm qemu-utils qemu-efi-aarch64
           fi
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; echo "KVM: yes"; else echo "KVM: no (emulated)"; fi
-      - name: Boot the qcow2 (UEFI) with the Wi-Fi checks
+      - name: Boot the qcow2 (UEFI) and check, HTTPS included
         if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' }}
         timeout-minutes: 50
-        run: packaging/os/test/boot-test.sh boot --arch amd64 --firmware uefi --wifi --disk "$OUT"/redgiant-os-*-x86_64.qcow2 --logs logs --work "$RUNNER_TEMP/wifi" --timeout 2400
+        run: packaging/os/test/boot-test.sh boot --arch amd64 --firmware uefi --disk "$OUT"/redgiant-os-*-x86_64.qcow2 --logs logs --work "$RUNNER_TEMP/uefi" --timeout 2400
+      - name: Wi-Fi checks (mac80211_hwsim and hostapd in the machine)
+        if: ${{ always() && env.SKIP != '1' && matrix.arch == 'amd64' }}
+        timeout-minutes: 50
+        run: packaging/os/test/boot-test.sh boot --arch amd64 --firmware uefi --wifi --disk "$OUT"/redgiant-os-*-x86_64.qcow2 --logs logs/wifi --work "$RUNNER_TEMP/wifi" --timeout 2400
       - name: Boot the qcow2 (UEFI, Secure Boot) and check
         if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' && env.QUICK != '1' }}
         timeout-minutes: 50
@@ -172,7 +176,7 @@ jobs:
         if: ${{ always() && env.SKIP != '1' }}
         with:
           name: redgiant-os-${{ matrix.arch }}-logs
-          path: logs/serial-*.log
+          path: logs/**/serial-*.log
           retention-days: 7
 
   # Attached to the tag's release, only when release.yml asks (behind REDGIANT_OS_RELEASE).
