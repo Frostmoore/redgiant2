@@ -6,8 +6,9 @@ src=$(findmnt -no SOURCE /)
 disk=$(lsblk -no PKNAME "$src" | head -1)
 part=$(cat "/sys/class/block/$(basename "$src")/partition" 2>/dev/null)
 [ -n "$disk" ] && [ -n "$part" ] || exit 0
-# The backup GPT header at the real end of the disk, then the partition, then the filesystem.
-sgdisk -e "/dev/$disk" >/dev/null 2>&1 || true
+# The backup GPT header at the real end of the disk (a GPT disk only: sgdisk would turn the
+# Raspberry Pi's MBR into a GPT), then the partition, then the filesystem.
+[ "$(blkid -p -s PTTYPE -o value "/dev/$disk" 2>/dev/null)" = gpt ] && { sgdisk -e "/dev/$disk" >/dev/null 2>&1 || true; }
 partprobe "/dev/$disk" 2>/dev/null || true
 if growpart "/dev/$disk" "$part" | grep -q CHANGED; then
   echo "root partition grown"
