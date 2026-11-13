@@ -357,12 +357,13 @@ jobs:
       - name: Start the image's system on QEMU (arm64 virt, its kernel) and check
         timeout-minutes: 130
         # Emulated: the first start loads RedGiant's images for many minutes before the self-test.
+        # No firmware, so no SMBIOS: the self-test's credential comes on the kernel's command line.
         env:
           START_LIMIT: 5400
         run: |
           packaging/os/test/boot-test.sh boot --arch arm64 --firmware direct --disk "$RUNNER_TEMP/raspi.img" \
             --kernel "$RUNNER_TEMP/kernel/vmlinuz" --initrd "$RUNNER_TEMP/kernel/initrd.img" \
-            --append "root=LABEL=RASPIROOT rw console=ttyAMA0,115200 net.ifnames=0 rootwait" \
+            --append "root=LABEL=RASPIROOT rw console=ttyAMA0,115200 net.ifnames=0 rootwait systemd.set_credential=redgiant.selftest:1" \
             --logs logs/raspi --timeout 7200
           rm -f "$RUNNER_TEMP/raspi.img"
       - name: sha256
