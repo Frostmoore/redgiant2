@@ -187,8 +187,8 @@ How it is made: like Debian's own Raspberry Pi images (raspi.debian.net): Debian
 `raspi-firmware` and kernel, an MBR card with the FAT partition and the ext4 system, no GRUB. So
 the kernel and the firmware come with Debian's security updates like everything else.
 
-- **Raspberry Pi 5**: not yet. Debian 13's kernel does not drive the Pi 5's network and USB chip
-  (RP1); the image will start on it when Debian's kernel does. Until then, on a Pi 5 run RedGiant
+- **Raspberry Pi 5**: not yet. Debian 13's kernel knows the Pi 5 (its device tree is on the image) but
+  does not drive its network and USB chip (RP1); the image will start on it when Debian's kernel does. Until then, on a Pi 5 run RedGiant
   in Docker on Raspberry Pi OS (64-bit): see [INSTALL.md](INSTALL.md#linux).
 - **Raspberry Pi 3**: not supported (1 GB of memory is too little for RedGiant).
 - **Tested** on QEMU (the image's own kernel and system on an emulated arm64 machine, with every
