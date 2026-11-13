@@ -115,7 +115,7 @@ case "$MODE" in
       exit 1
     fi
     echo "login prompt after $((SECONDS - start)) s"
-    if wait_for "REDGIANT-SELFTEST (PASS|FAIL)$" "$TIMEOUT"; then
+    if wait_for "REDGIANT-SELFTEST (PASS|FAIL)\r?$" "$TIMEOUT"; then
       echo "self-test finished after $((SECONDS - start)) s"
     else
       echo "::error::no self-test result (after $((SECONDS - start)) s)"
