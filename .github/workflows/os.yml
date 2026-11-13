@@ -38,9 +38,10 @@ on:
 permissions:
   contents: read
 
-# A newer push to the same branch replaces a build still running (a tag's run is never cancelled).
+# A newer push to the same branch replaces a build still running (a tag's run is never cancelled);
+# runs by hand for other formats ('only') do not replace each other.
 concurrency:
-  group: os-${{ github.ref }}-${{ github.event_name }}
+  group: os-${{ github.ref }}-${{ github.event_name }}-${{ inputs.only }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
