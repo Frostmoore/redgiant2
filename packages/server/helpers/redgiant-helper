@@ -135,6 +135,18 @@ known_of() {
     | select(.value["net.connman.iwd.KnownNetwork"] as $x | $x and $x.Name.data == $n) | .key' 2>/dev/null
 }
 
+# iwd reads a network's new file by itself (it watches its folder): waits, up to 5 s, until it
+# lists the network as known, so joining uses the password just written.
+wait_known() {
+  i=0
+  while [ $i -lt 10 ]; do
+    o=$(iwd_objects) && [ -n "$(known_of "$o" "$1")" ] && return 0
+    sleep 0.5
+    i=$((i + 1))
+  done
+  return 1
+}
+
 # Wi-Fi cards switched off (or blocked by rfkill) are switched on: asking for Wi-Fi means wanting it.
 power_on() {
   rfkill unblock wifi >/dev/null 2>&1 || true
@@ -403,6 +415,7 @@ EOF
       rm -f "$old"
       ok ',"state":"saved"'
     fi
+    wait_known "$ssid" || true
     if [ "$3" = hidden ]; then
       err=$(busctl --timeout=40 call net.connman.iwd "$st" net.connman.iwd.Station ConnectHiddenNetwork s "$ssid" 2>&1 >/dev/null) && {
         rm -f "$old"
