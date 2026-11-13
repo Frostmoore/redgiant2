@@ -135,6 +135,39 @@ known_of() {
     | select(.value["net.connman.iwd.KnownNetwork"] as $x | $x and $x.Name.data == $n) | .key' 2>/dev/null
 }
 
+# iwd keeps a known network in memory: it is dropped through D-Bus (Forget, which also erases
+# its file), never by removing the file alone. Waits, up to 5 s, until iwd no longer lists it.
+forget_known() {
+  o=$(iwd_objects) || return 0
+  for k in $(known_of "$o" "$1"); do
+    busctl --timeout=10 call net.connman.iwd "$k" net.connman.iwd.KnownNetwork Forget >/dev/null 2>&1 || true
+  done
+  i=0
+  while [ $i -lt 10 ]; do
+    o=$(iwd_objects) && [ -z "$(known_of "$o" "$1")" ] && return 0
+    sleep 0.5
+    i=$((i + 1))
+  done
+}
+
+# iwd restarted: it reads every saved network from its folder. Waits (up to 10 s) for the Wi-Fi
+# card, and for the network named (when one is) to be known.
+iwd_reload() {
+  systemctl restart iwd.service >/dev/null 2>&1 || return 1
+  i=0 card=0
+  while [ $i -lt 20 ]; do
+    sleep 0.5
+    if o=$(iwd_objects) && [ -n "$(station_of "$o")" ]; then
+      card=1
+      [ -z "$1" ] && return 0
+      [ -n "$(known_of "$o" "$1")" ] && return 0
+    fi
+    i=$((i + 1))
+  done
+  # The card is back: joining says the rest.
+  [ "$card" = 1 ]
+}
+
 # Wi-Fi cards switched off (or blocked by rfkill) are switched on: asking for Wi-Fi means wanting it.
 power_on() {
   rfkill unblock wifi >/dev/null 2>&1 || true
@@ -376,6 +409,8 @@ EOF
     old=$IWD_DIR/.redgiant-old.$$
     had=0
     if [ -e "$file" ]; then cp -p "$file" "$old" && had=1; fi
+    # A new password for a saved network: iwd forgets the old one first (it would keep it).
+    if command -v busctl >/dev/null 2>&1 && iwd_objects >/dev/null; then forget_known "$ssid"; fi
     {
       [ "$3" = hidden ] && printf '[Settings]\nHidden=true\n\n'
       if [ "$kind" = psk ]; then
@@ -390,7 +425,9 @@ EOF
     chmod 0600 "$tmp"
     mv -f "$tmp" "$file"
     undo() {
-      if [ "$had" = 1 ]; then mv -f "$old" "$file"; else rm -f "$file"; fi
+      rm -f "$file"
+      [ "$had" = 1 ] && mv -f "$old" "$file"
+      iwd_reload "" || true
     }
     if ! command -v busctl >/dev/null 2>&1 || ! objs=$(iwd_objects); then
       # iwd is not running yet (the first start): saved, it joins the network when it starts.
@@ -403,6 +440,12 @@ EOF
       rm -f "$old"
       ok ',"state":"saved"'
     fi
+    # iwd reads its saved networks again from the files (watching its folder is not reliable:
+    # in QEMU it kept a refused password in memory and then failed to load the new file).
+    # Wi-Fi drops for a moment, as joining another network does anyway.
+    iwd_reload "$ssid" || { undo; fail wifi_off; }
+    objs=$(iwd_objects) || objs='{"data":[{}]}'
+    st=$(station_of "$objs")
     if [ "$3" = hidden ]; then
       err=$(busctl --timeout=40 call net.connman.iwd "$st" net.connman.iwd.Station ConnectHiddenNetwork s "$ssid" 2>&1 >/dev/null) && {
         rm -f "$old"
@@ -433,10 +476,12 @@ EOF
       ok ',"state":"saved"'
     fi
     undo
+    # iwd's error name only (no secret can be in it), for the page's details.
+    detail=$(printf '%s' "$err" | head -n1 | sed 's/^Call failed: //' | tr -cd 'A-Za-z .' | cut -c1-80)
     case "$err" in
       *InProgress* | *"in progress"*) fail busy ;;
       *NotFound* | *"not found"*) fail not_found ;;
-      *) fail connect_failed ;;
+      *) printf '{"ok":false,"error":"connect_failed","detail":"%s"}\n' "$detail"; exit 1 ;;
     esac
     ;;
 

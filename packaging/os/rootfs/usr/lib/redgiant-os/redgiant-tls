@@ -120,9 +120,8 @@ ensure() {
   make_server && changed=1
   if [ "$changed" = 1 ]; then
     # Started when it is switched on (enabled), never switched on here: the person may have
-    # switched local HTTPS off (another proxy in front).
-    # --no-block: at boot this runs before caddy.service (Before=), whose start job waits for it;
-    # waiting here for that job would wait forever.
+    # switched local HTTPS off (another proxy in front). --no-block: Caddy is ordered after
+    # redgiant-tls.service, so waiting for it from here would wait for ourselves.
     systemctl --no-block try-restart caddy.service 2>/dev/null || true
     if systemctl is-enabled --quiet caddy.service 2>/dev/null; then systemctl --no-block start caddy.service 2>/dev/null || true; fi
   fi

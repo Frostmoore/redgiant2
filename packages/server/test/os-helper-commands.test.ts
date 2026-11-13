@@ -22,8 +22,9 @@ const helper = fileURLToPath(new URL("../helpers/redgiant-helper", import.meta.u
 const tls = fileURLToPath(
   new URL("../../../packaging/os/rootfs/usr/lib/redgiant-os/redgiant-tls", import.meta.url),
 );
+// RedGiant OS's helper is Linux's (GNU base64, ip…): macOS's tools differ.
 const tools =
-  process.platform !== "win32" &&
+  process.platform === "linux" &&
   ["jq", "base64", "openssl"].every((c) => spawnSync("sh", ["-c", `command -v ${c}`]).status === 0);
 
 const b64 = (s: string) => Buffer.from(s).toString("base64");
@@ -153,9 +154,11 @@ describe("the helper's Wi-Fi commands", { skip: !tools }, () => {
   });
 
   it("leaves nothing saved when the network refuses the password", async () => {
+    writeFileSync(fake("objects.json"), objects([{ name: "Casa Rossi", known: true }]));
     writeFileSync(fake("refuse"), "");
     const r = await ask(`wifi-connect ${b64("Casa Rossi")} ${b64("sbagliata!")} visible`);
-    expect(r).toEqual({ ok: false, error: "connect_failed" });
+    expect(r).toMatchObject({ ok: false, error: "connect_failed" });
+    expect(calls()).toContain("KnownNetwork Forget");
     expect(existsSync(psk("Casa Rossi"))).toBe(false);
   });
 

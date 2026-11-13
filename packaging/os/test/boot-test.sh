@@ -133,14 +133,27 @@ case "$MODE" in
       exit 1
     fi
     echo "login prompt after $((SECONDS - start)) s"
+    # The self-test says it started: a unit that never starts (an ordering loop) fails here, early.
+    if ! wait_for "REDGIANT-SELFTEST started" "${START_LIMIT:-900}"; then
+      echo "::error::the self-test did not start within ${START_LIMIT:-900} s"
+      stop_qemu
+      echo "--- serial console (last 200 lines)"
+      tail -n 200 "$SERIAL"
+      exit 1
+    fi
     if wait_for "REDGIANT-SELFTEST (PASS|FAIL)[[:space:]]*$" "$TIMEOUT"; then
       echo "self-test finished after $((SECONDS - start)) s"
     else
       echo "::error::no self-test result (after $((SECONDS - start)) s)"
       ok=0
     fi
-    grep -a "REDGIANT-SELFTEST" "$SERIAL" | sed 's/\r$//'
-    grep -aq "REDGIANT-SELFTEST PASS" "$SERIAL" || ok=0
+    grep -a "REDGIANT-SELFTEST" "$SERIAL" | grep -av "REDGIANT-SELFTEST ca " | sed 's/\r$//'
+    if ! grep -aq "REDGIANT-SELFTEST PASS" "$SERIAL"; then
+      # Which checks failed, by name, in the error line itself.
+      failed=$(grep -a "REDGIANT-SELFTEST FAIL " "$SERIAL" | sed 's/\r$//; s/^.*REDGIANT-SELFTEST FAIL *//' | paste -sd ';' -)
+      echo "::error::self-test failed: ${failed:-no check named (see the serial console)}"
+      ok=0
+    fi
     # From outside the machine, through the forwarded port.
     if curl -fsS --max-time 10 "http://127.0.0.1:$PORT/api/health"; then echo; else echo "::error::/api/health not reachable from the host"; ok=0; fi
     # HTTPS from outside, trusting only the machine's own CA (its certificate from the console).

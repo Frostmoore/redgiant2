@@ -4,7 +4,6 @@
 # lead to RedGiant on 7600; http keeps working until the person says the certificate is trusted,
 # then RedGiant itself redirects to https and sends HSTS (packages/server/src/lan-https.ts).
 {
-	# Debian 13's Caddy (2.6) has no persist_config; with the admin API off nothing is saved.
 	admin off
 	auto_https off
 	default_sni redgiant.local

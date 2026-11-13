@@ -9,6 +9,7 @@ Before=caddy.service
 [Service]
 Type=oneshot
 ExecStart=/usr/lib/redgiant-os/redgiant-tls ensure
+TimeoutStartSec=5min
 
 [Install]
 WantedBy=multi-user.target
