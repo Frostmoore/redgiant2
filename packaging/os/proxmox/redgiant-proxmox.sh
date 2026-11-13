@@ -20,7 +20,10 @@
 #   --bridge <name>         default: vmbr0;  --vlan <tag>: a VLAN on it
 #   --disk <GB>             default: 32 (the virtual machine's image is 32 GB: at least that)
 #   --memory <MB>           default: 4096;  --cores <n>: default 2;  --cpu <type>: VM, default host
+#   --release <tag>         a release by its tag (for example os-preview, a pre-release)
 #   --from <dir>            the files already downloaded (SHA256SUMS-os, its .sig, the image): still checked
+#   --backups <host dir>    container: a folder of the host (a mounted USB disk) for RedGiant's backups,
+#                           bound at /var/lib/redgiant/backups/<name> (--backups-name; default: its name)
 #   --no-start              create it, do not start it
 #   --yes, -y               no questions (the defaults and the options given)
 #   --dry-run               show what it would do, change nothing (the checks still run)
@@ -29,7 +32,7 @@ set -euo pipefail
 
 REPO=Frostmoore/redgiant2
 KIND=vm VERSION="" ID="" NAME=redgiant STORAGE="" TSTORAGE="" BRIDGE=vmbr0 VLAN="" DISK=32
-MEMORY=4096 CORES=2 CPU=host FROM="" START=1 YES=0 DRY=0 KEY=""
+MEMORY=4096 CORES=2 CPU=host FROM="" START=1 YES=0 DRY=0 KEY="" RELEASE="" BACKUPS="" BACKUPS_NAME=""
 PORT=7600
 SETUP_CODE=/var/lib/redgiant/docker/volumes/redgiant-data/_data/setup-code.txt
 # The public half of RedGiant's update key (packages/server/src/release-key.ts): it signs every
@@ -73,6 +76,9 @@ while [ $# -gt 0 ]; do
     --cores) need "$@" && CORES=$2 && shift ;;
     --cpu) need "$@" && CPU=$2 && shift ;;
     --from) need "$@" && FROM=$2 && shift ;;
+    --release) need "$@" && RELEASE=$2 && shift ;;
+    --backups) need "$@" && BACKUPS=$2 && shift ;;
+    --backups-name) need "$@" && BACKUPS_NAME=$2 && shift ;;
     --no-start) START=0 ;;
     -y | --yes) YES=1 ;;
     --dry-run) DRY=1 ;;
@@ -99,6 +105,8 @@ for v in DISK MEMORY CORES; do number "--${v,,}" "${!v}"; done
 [[ $BRIDGE =~ ^[A-Za-z0-9._-]+$ ]] || die "--bridge: not a bridge name: $BRIDGE"
 [[ $CPU =~ ^[A-Za-z0-9._-]+$ ]] || die "--cpu: not a processor type: $CPU"
 [[ $REPO =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || die "--repo: owner/name"
+[ -z "$RELEASE" ] || [[ $RELEASE =~ ^[A-Za-z0-9._-]+$ ]] || die "--release: a release tag"
+[ -z "$VERSION" ] || [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "--version: x.y.z"
 [ "$KIND" = lxc ] || [ "$DISK" -ge 32 ] || die "--disk: the virtual machine's image is 32 GB, give 32 or more"
 [ "$KIND" = vm ] || [ "$DISK" -ge 16 ] || die "--disk: 16 GB or more"
 [ "$MEMORY" -ge 2048 ] || die "--memory: 2048 MB or more"
@@ -160,37 +168,17 @@ ask DISK "Disk size in GB"
 number --disk "$DISK"
 [ "$KIND" = lxc ] || [ "$DISK" -ge 32 ] || die "--disk: give 32 or more"
 
-# The release and its files.
-if [ -z "$VERSION" ] && [ -z "$FROM" ]; then
+# The release and its files: SHA256SUMS-os first, checked against its signature, then the image.
+if [ -n "$RELEASE" ]; then
+  TAG=$RELEASE
+elif [ -n "$VERSION" ]; then
+  TAG=v$VERSION
+elif [ -z "$FROM" ]; then
   latest=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest") ||
     die "cannot reach github.com"
-  VERSION=${latest##*/v}
+  TAG=${latest##*/}
 fi
-FILE_GLOB=$([ "$KIND" = vm ] && echo "redgiant-os-*-x86_64.qcow2" || echo "redgiant-os-*-x86_64-lxc.tar.zst")
-if [ -z "$VERSION" ] && [ -n "$FROM" ]; then
-  f=$(find "$FROM" -maxdepth 1 -name "$FILE_GLOB" -printf '%f\n' | sort -V | tail -1)
-  [ -n "$f" ] || die "$FROM has no $FILE_GLOB"
-  VERSION=${f#redgiant-os-}
-  VERSION=${VERSION%%-x86_64*}
-fi
-[[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "not a version: '$VERSION'"
-FILE=${FILE_GLOB/\*/$VERSION}
-URL=https://github.com/$REPO/releases/download/v$VERSION
-
-summary() {
-  say "RedGiant OS $VERSION on Proxmox"
-  echo "  $([ "$KIND" = vm ] && echo "virtual machine" || echo "container (unprivileged)") $ID, $NAME"
-  echo "  $CORES cores, $MEMORY MB of memory, a $DISK GB disk on $STORAGE, network $BRIDGE${VLAN:+ (VLAN $VLAN)}"
-  [ "$KIND" = vm ] || echo "  template $FILE on $TSTORAGE"
-  echo "  from ${FROM:-$URL}"
-}
-summary
-if [ "$YES" = 0 ]; then
-  reply=y
-  ask reply "Create it? (y/n)"
-  [[ $reply =~ ^[yYsS] ]] || die "nothing done"
-fi
-
+URL=https://github.com/$REPO/releases/download/${TAG:-}
 WORK=$(mktemp -d "${TMPDIR:-/var/tmp}/redgiant-proxmox.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 fetch() { # name: into $WORK, from --from or the release (with a progress meter: speed and time left)
@@ -208,9 +196,46 @@ if [ -n "$KEY" ]; then cp "$KEY" "$WORK/key.pem"; else printf '%s\n' "$RELEASE_K
 base64 -d "$WORK/SHA256SUMS-os.sig" >"$WORK/sums.sig" 2>/dev/null || die "SHA256SUMS-os.sig is not a signature"
 openssl dgst -sha256 -verify "$WORK/key.pem" -signature "$WORK/sums.sig" "$WORK/SHA256SUMS-os" >/dev/null 2>&1 ||
   die "SHA256SUMS-os is not signed by RedGiant's update key: nothing is changed"
+echo "SHA256SUMS-os: signed by the update key"
+SUFFIX=$([ "$KIND" = vm ] && echo "-x86_64.qcow2" || echo "-x86_64-lxc.tar.zst")
+if [ -z "$VERSION" ]; then
+  # The version the signed list carries (a pre-release's tag is not a version).
+  VERSION=$(awk -v s="$SUFFIX" '{ f = $2; sub(/^\*/, "", f) } f ~ "^redgiant-os-[0-9]+\\.[0-9]+\\.[0-9]+" s "$" {
+    sub(/^redgiant-os-/, "", f); sub(s "$", "", f); print f }' "$WORK/SHA256SUMS-os" | sort -V | tail -1)
+fi
+[[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "SHA256SUMS-os lists no redgiant-os-<version>$SUFFIX (a release without it?)"
+FILE=redgiant-os-$VERSION$SUFFIX
 want=$(awk -v f="$FILE" '$2 == f || $2 == "*" f { print $1 }' "$WORK/SHA256SUMS-os")
 [[ $want =~ ^[0-9a-f]{64}$ ]] || die "SHA256SUMS-os does not list $FILE (a release without RedGiant OS?)"
-echo "SHA256SUMS-os: signed by the update key"
+
+# Backups on a disk of the host (a container cannot mount the host's USB disks): the host's
+# folder bound into the container where RedGiant offers backup folders, owned by the container's
+# user 1000 (the server's node user), which an unprivileged container maps to 101000 on the host.
+BACKUPS_MP=""
+if [ -n "$BACKUPS" ]; then
+  [ "$KIND" = lxc ] || die "--backups: for a container (a VM gets the USB disk itself: qm set <id> -usb0 host=<vendor:product>)"
+  [ -d "$BACKUPS" ] || die "--backups: $BACKUPS is not a folder on this host (mount the disk first)"
+  BACKUPS=$(cd "$BACKUPS" && pwd)
+  case "$BACKUPS" in / | /etc* | /usr* | /var/lib/vz | /root | /boot*) die "--backups: not a system folder" ;; esac
+  BNAME=${BACKUPS_NAME:-$(basename "$BACKUPS")}
+  [[ $BNAME =~ ^[A-Za-z0-9._-]+$ ]] || die "--backups-name: letters, digits, '.', '_' and '-'"
+  BACKUPS_MP="$BACKUPS,mp=/var/lib/redgiant/backups/$BNAME,backup=0"
+fi
+
+summary() {
+  say "RedGiant OS $VERSION on Proxmox"
+  echo "  $([ "$KIND" = vm ] && echo "virtual machine" || echo "container (unprivileged)") $ID, $NAME"
+  echo "  $CORES cores, $MEMORY MB of memory, a $DISK GB disk on $STORAGE, network $BRIDGE${VLAN:+ (VLAN $VLAN)}"
+  [ "$KIND" = vm ] || echo "  template $FILE on $TSTORAGE"
+  [ -z "$BACKUPS_MP" ] || echo "  backups: $BACKUPS (owned by 101000, the container's user 1000) at /var/lib/redgiant/backups/$BNAME"
+  echo "  from ${FROM:-$URL}"
+}
+summary
+if [ "$YES" = 0 ]; then
+  reply=y
+  ask reply "Create it? (y/n)"
+  [[ $reply =~ ^[yYsS] ]] || die "nothing done"
+fi
 checked() { [ -r "$1" ] && [ "$(sha256sum "$1" | cut -d' ' -f1)" = "$want" ]; }
 
 if [ "$KIND" = lxc ]; then
@@ -251,6 +276,10 @@ else
     --ostype unmanaged --arch amd64 --unprivileged 1 --features nesting=1,keyctl=1 \
     --cores "$CORES" --memory "$MEMORY" --swap 512 --rootfs "$STORAGE:$DISK" \
     --net0 "name=eth0,$NET,ip=dhcp,ip6=auto" --cmode tty --tty 2 --onboot 1
+  if [ -n "$BACKUPS_MP" ]; then
+    [ "$(stat -c %u "$BACKUPS")" = 101000 ] || run chown 101000:101000 "$BACKUPS"
+    run pct set "$ID" -mp0 "$BACKUPS_MP"
+  fi
   [ "$START" = 0 ] || run pct start "$ID"
 fi
 if [ "$DRY" = 1 ] || [ "$START" = 0 ]; then
@@ -301,3 +330,4 @@ code=$(setup_code || true)
 say "RedGiant OS $VERSION: http://$ADDR:$PORT  (also http://$NAME.local:$PORT)"
 [ "$up" = 1 ] || echo "  RedGiant does not answer yet: give it a few more minutes, the console says when it does."
 [ -z "$code" ] || echo "  The first start asks for this code: $code"
+[ -z "$BACKUPS_MP" ] || echo "  Backups: in RedGiant, Settings, backups, choose the folder /var/lib/redgiant/backups/$BNAME"

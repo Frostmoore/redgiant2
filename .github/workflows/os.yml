@@ -20,6 +20,10 @@ on:
         description: "Only these formats, comma separated (qcow2,raw,iso,vhdx,ova,lxc,raspi); empty: all"
         type: string
         default: ""
+      preview:
+        description: "Put what this run builds on the pre-release os-preview (signed; never the latest release)"
+        type: boolean
+        default: false
       quick:
         description: "amd64 only: build the qcow2, boot it (UEFI, HTTPS included), then the Wi-Fi checks"
         type: boolean
@@ -377,6 +381,49 @@ jobs:
           name: redgiant-os-arm64-raspi-logs
           path: logs/raspi/serial-*.log
           retention-days: 7
+
+  # A preview by hand (input preview): what this run built, signed like a release, on the
+  # pre-release os-preview (never "latest": RedGiant's updates read only the latest release).
+  preview:
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.preview && needs.stack.result == 'success' && !contains(needs.*.result, 'failure') }}
+    needs: [stack, build, lxc, raspi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: redgiant-os-*
+          path: dl
+      - name: SHA256SUMS-os and the stack, signed with the update key
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          mkdir -p rel
+          find dl -type f \( -name 'redgiant-os-*.qcow2' -o -name 'redgiant-os-*.raw.zst' -o -name 'redgiant-os-*.iso' -o -name 'redgiant-os-*.vhdx.zip' -o -name 'redgiant-os-*.ova' -o -name 'redgiant-os-*-lxc.tar.zst' -o -name 'redgiant-os-*-raspi.img.xz' -o -name redgiant-os-stack.json \) -exec cp {} rel/ \;
+          cp packaging/os/proxmox/redgiant-proxmox.sh rel/
+          (cd rel && sha256sum redgiant-os-* redgiant-proxmox.sh > SHA256SUMS-os)
+          [ -n "$UPDATE_SIGNING_KEY" ] || { echo "UPDATE_SIGNING_KEY is missing: the OS's files must be signed"; exit 1; }
+          node packaging/update/sign.mjs rel/SHA256SUMS-os
+          [ ! -e rel/redgiant-os-stack.json ] || node packaging/update/sign.mjs rel/redgiant-os-stack.json
+          cat rel/SHA256SUMS-os
+      - name: The pre-release os-preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.stack.outputs.version }}
+        run: |
+          notes="RedGiant OS preview (not a release): RedGiant $VERSION, built from ${GITHUB_SHA::12} on ${GITHUB_REF_NAME}. Files listed in SHA256SUMS-os, signed with the update key. Proxmox: bash redgiant-proxmox.sh --lxc --release os-preview (docs/INSTALL-OS.md)."
+          if gh release view os-preview >/dev/null 2>&1; then
+            gh release edit os-preview --prerelease --latest=false --notes "$notes"
+          else
+            gh release create os-preview --prerelease --latest=false --target "$GITHUB_SHA" --title "RedGiant OS preview" --notes "$notes"
+          fi
+          gh release upload os-preview rel/* --clobber
+          gh release view os-preview --json assets --jq '.assets[].name'
 
   # Attached to the tag's release, only when release.yml asks (behind REDGIANT_OS_RELEASE).
   publish:

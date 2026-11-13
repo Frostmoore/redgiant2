@@ -38,7 +38,14 @@ esac`,
   pct: `case "$1" in
   exec) case "$*" in *setup-code*) echo "WXYZ-9876" ;; *) echo "2: eth0    inet 192.0.2.8/24 brd 192.0.2.255 scope global eth0" ;; esac ;;
 esac`,
-  curl: `case "$*" in *api/health*) echo '{"ok":true}' ;; *) echo "no network in tests" >&2; exit 7 ;; esac`,
+  // Downloads come from $STUB_DIR/release (a release's files); the rest of the network is not there.
+  curl: `case "$*" in
+  *api/health*) echo '{"ok":true}' ;;
+  *releases/download/*) out=""; prev=""; for a in "$@"; do [ "$prev" = -o ] && out=$a; prev=$a; url=$a; done
+    cp "$STUB_DIR/release/\${url##*/}" "$out" ;;
+  *) echo "no network in tests" >&2; exit 7 ;;
+esac`,
+  chown: "true",
 };
 
 describe.skipIf(!linux)("redgiant-proxmox.sh", () => {
@@ -61,11 +68,23 @@ describe.skipIf(!linux)("redgiant-proxmox.sh", () => {
     );
   };
   const proxmox = (...args: string[]) => {
-    const r = spawnSync("bash", [script, "--from", from, "--key", key, "--yes", ...args], {
-      encoding: "utf8",
-      env: { PATH: `${join(dir, "bin")}:/usr/bin:/bin`, STUB_DIR: dir, TMPDIR: dir },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const r = spawnSync(
+      "bash",
+      // --release downloads (from the curl stand-in); everything else takes the files from --from.
+      [
+        script,
+        ...(args.includes("--release") ? [] : ["--from", from]),
+        "--key",
+        key,
+        "--yes",
+        ...args,
+      ],
+      {
+        encoding: "utf8",
+        env: { PATH: `${join(dir, "bin")}:/usr/bin:/bin`, STUB_DIR: dir, TMPDIR: dir },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     let calls = "";
     try {
       calls = readFileSync(join(dir, "calls.log"), "utf8");
@@ -139,6 +158,36 @@ describe.skipIf(!linux)("redgiant-proxmox.sh", () => {
       expect(create).toContain(part);
     expect(r.out).toContain("http://192.0.2.8:7600");
     expect(r.out).toContain("WXYZ-9876");
+  });
+
+  it("takes a pre-release by its tag, the version from its signed list", () => {
+    mkdirSync(join(dir, "release"));
+    for (const f of ["SHA256SUMS-os", "SHA256SUMS-os.sig", LXC])
+      writeFileSync(join(dir, "release", f), readFileSync(join(from, f)));
+    const r = proxmox("--lxc", "--release", "os-preview");
+    expect(r.status, r.out).toBe(0);
+    expect(r.calls).toContain("releases/download/os-preview/SHA256SUMS-os");
+    expect(r.calls).toMatch(
+      new RegExp(`releases/download/os-preview/${LXC.replace(/\./g, "\\.")}`),
+    );
+    expect(r.calls).toMatch(
+      /^pct create 102 local:vztmpl\/redgiant-os-9\.9\.9-x86_64-lxc\.tar\.zst /m,
+    );
+  });
+
+  it("binds a host folder for backups into the container, owned by its user 1000", () => {
+    const disk = join(dir, "eternatus");
+    mkdirSync(disk);
+    const r = proxmox("--lxc", "--backups", disk);
+    expect(r.status, r.out).toBe(0);
+    expect(r.calls).toContain(`chown 101000:101000 ${disk}`);
+    expect(r.calls).toContain(
+      `pct set 102 -mp0 ${disk},mp=/var/lib/redgiant/backups/eternatus,backup=0`,
+    );
+    expect(r.out).toContain("/var/lib/redgiant/backups/eternatus");
+    const vm = proxmox("--vm", "--backups", disk);
+    expect(vm.status).not.toBe(0);
+    expect(vm.calls).not.toMatch(/^qm create/m);
   });
 
   it("only shows what it would do with --dry-run", () => {

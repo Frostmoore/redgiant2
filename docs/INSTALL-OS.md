@@ -65,7 +65,8 @@ bash redgiant-proxmox.sh --lxc --dry-run      # shows the commands, changes noth
 ```
 
 `--help` lists the rest (`--id`, `--name`, `--cores`, `--cpu`, `--version`, `--from <dir>` for files
-already downloaded, `--no-start`). The script is attached to every release too, listed in
+already downloaded, `--release <tag>` for a pre-release, `--backups <host folder>` for a
+container's backups on a host disk, `--no-start`). The script is attached to every release too, listed in
 `SHA256SUMS-os`.
 
 - **VM** (`--vm`, the default): q35, OVMF (UEFI) with Secure Boot (Microsoft's keys enrolled: Debian's
@@ -73,9 +74,69 @@ already downloaded, `--no-start`). The script is attached to every release too, 
   summary shows the address), a serial console beside the screen, started at boot.
 - **Container** (`--lxc`): unprivileged, with the features **`nesting=1,keyctl=1`** (Docker runs inside
   the container and needs both), `ostype unmanaged` (Proxmox leaves the system's own network,
-  DHCP, alone), started at boot. Lighter than a VM, but no backups to USB disks (a container
-  cannot mount them) and the host's kernel is the one that runs. On ZFS, Docker needs ZFS 2.2 or
+  DHCP, alone), started at boot. Lighter than a VM; USB disks for backups go through the host (below) and the
+  host's kernel is the one that runs. On ZFS, Docker needs ZFS 2.2 or
   newer (Proxmox VE 8.1+) for its overlay storage; on LVM-thin and directories it just works.
+
+### RedGiant on Proxmox in an LXC container, step by step
+
+What it takes on the Proxmox host (as root, the node's "Shell"), with the defaults: storage
+`local-lvm`, bridge `vmbr0`, a 32 GB disk, 2 cores, 4 GB of memory:
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/Frostmoore/redgiant2/main/packaging/os/proxmox/redgiant-proxmox.sh
+bash redgiant-proxmox.sh --lxc
+```
+
+Before 3.7.0 is released, take the preview instead (a pre-release of the repository, signed with
+the same key; the script is attached to it too):
+
+```sh
+curl -fsSLO https://github.com/Frostmoore/redgiant2/releases/download/os-preview/redgiant-proxmox.sh
+bash redgiant-proxmox.sh --lxc --release os-preview
+```
+
+Other storage, bridge or size: `--storage local-zfs --bridge vmbr1 --disk 64 --memory 8192 --cores 4`;
+`--dry-run` shows the commands first. The script asks for the id (the next free one; an id that
+is taken is refused, nothing is changed), checks `SHA256SUMS-os` against RedGiant's update key and
+the template against `SHA256SUMS-os`, puts the template in `local:vztmpl/`, creates and starts
+the container, then prints the address (`http://<address>:7600`) and the **code the first start
+asks for** (also on the container's Console tab, and with
+`pct exec <id> -- cat /var/lib/redgiant/docker/volumes/redgiant-data/_data/setup-code.txt`).
+
+The container is **unprivileged** with the features **`nesting=1,keyctl=1`**: Docker (RedGiant's
+server, its database and the sandboxes) runs inside it, and that is all Docker needs there; root
+in the container is not root on the host, so a privileged container brings no advantage and
+only risk. Its storage: LVM-thin and directories work as they are; on ZFS, Docker needs ZFS 2.2 or
+newer (Proxmox VE 8.1+) for its overlay storage.
+
+**Backups on a USB disk** (for example a disk called Eternatus): a container cannot mount the
+host's USB disks, so the host mounts it and lends the container a folder of it.
+
+1. On the host, find the disk and mount it for good (ext4 here; `blkid` shows its UUID):
+
+   ```sh
+   lsblk -o NAME,SIZE,FSTYPE,LABEL,UUID
+   mkdir -p /mnt/eternatus
+   echo 'UUID=<the disk UUID> /mnt/eternatus ext4 defaults,nofail 0 2' >> /etc/fstab
+   mount /mnt/eternatus
+   mkdir -p /mnt/eternatus/redgiant
+   ```
+
+   (exFAT or NTFS: they have no owners, mount them with `uid=101000,gid=101000` in the options.)
+2. Give the folder to the container: either `--backups /mnt/eternatus/redgiant` when creating it
+   with the script, or for a container that exists (id 105 here):
+
+   ```sh
+   chown 101000:101000 /mnt/eternatus/redgiant
+   pct set 105 -mp0 /mnt/eternatus/redgiant,mp=/var/lib/redgiant/backups/eternatus,backup=0
+   pct reboot 105
+   ```
+
+   101000 is the container's user 1000 (RedGiant's server runs as that user) as Proxmox maps an
+   unprivileged container's users; `backup=0` keeps the disk out of Proxmox's own backups of the
+   container.
+3. In RedGiant: Settings, backups, a folder: `/var/lib/redgiant/backups/eternatus`.
 
 ### By hand: a VM
 
