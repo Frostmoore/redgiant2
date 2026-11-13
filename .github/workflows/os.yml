@@ -16,6 +16,10 @@ on:
         description: "Also build and boot the arm64 images (emulated boot: slow)"
         type: boolean
         default: true
+      only:
+        description: "Only these formats, comma separated (qcow2,raw,iso,vhdx,ova,lxc,raspi); empty: all"
+        type: string
+        default: ""
   push:
     branches: ["p[0-9]*", "a[0-9]*", "b[0-9]*"]
     paths:
@@ -76,7 +80,7 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-24.04
-            formats: qcow2,raw,iso
+            formats: qcow2,raw,iso,vhdx,ova
           - arch: arm64
             runner: ubuntu-24.04-arm
             formats: qcow2,raw
@@ -85,9 +89,17 @@ jobs:
     env:
       OUT: /mnt/os
     steps:
-      - name: Skip arm64 when not wanted
-        if: ${{ matrix.arch == 'arm64' && github.event_name == 'workflow_dispatch' && !inputs.arm64 }}
-        run: echo "SKIP=1" >> "$GITHUB_ENV"
+      - name: What to build (arm64 only when wanted; only the formats asked for)
+        env:
+          ONLY: ${{ inputs.only }}
+          NO_ARM64: ${{ matrix.arch == 'arm64' && github.event_name == 'workflow_dispatch' && !inputs.arm64 }}
+        run: |
+          f="${{ matrix.formats }}"
+          if [ -n "$ONLY" ]; then f=$(comm -12 <(tr , '\n' <<<"$f" | sort) <(tr , '\n' <<<"$ONLY" | tr -d ' ' | sort) | paste -sd,); fi
+          [ "$NO_ARM64" = true ] && f=""
+          echo "FORMATS=$f" >> "$GITHUB_ENV"
+          [ -n "$f" ] || echo "SKIP=1" >> "$GITHUB_ENV"
+          echo "formats: ${f:-none}"
       - uses: actions/checkout@v4
         if: ${{ env.SKIP != '1' }}
       - uses: actions/download-artifact@v4
@@ -109,7 +121,7 @@ jobs:
           docker run --rm --privileged -e SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
             -v "$PWD:/src" -v "$OUT:/out" redgiant-os-builder \
             /src/packaging/os/build.sh --arch ${{ matrix.arch }} --stack /out/redgiant-os-stack.json \
-            --out /out --formats ${{ matrix.formats }}
+            --out /out --formats "$FORMATS"
           sudo rm -rf "$OUT"/work-*
           sudo chown -R "$(id -u):$(id -g)" "$OUT"
           ls -la "$OUT"
@@ -124,20 +136,42 @@ jobs:
           fi
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; echo "KVM: yes"; else echo "KVM: no (emulated)"; fi
       - name: Boot the qcow2 (UEFI, Secure Boot) and check
-        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' }}
+        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' && contains(env.FORMATS, 'qcow2') }}
         run: packaging/os/test/boot-test.sh boot --arch amd64 --firmware uefi --secureboot --disk "$OUT"/redgiant-os-*-x86_64.qcow2 --logs logs --timeout 2400
       - name: Boot the qcow2 (BIOS) and check
-        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' }}
+        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' && contains(env.FORMATS, 'qcow2') }}
         run: packaging/os/test/boot-test.sh boot --arch amd64 --firmware bios --disk "$OUT"/redgiant-os-*-x86_64.qcow2 --logs logs --timeout 2400
       - name: Install from the ISO (BIOS), then boot the installed disk (UEFI) and check
-        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' }}
+        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' && contains(env.FORMATS, 'iso') }}
         run: |
           packaging/os/test/boot-test.sh install --firmware bios --iso "$OUT"/redgiant-os-*-x86_64.iso --disk "$RUNNER_TEMP/installed.qcow2" --logs logs --timeout 1800
           packaging/os/test/boot-test.sh boot --arch amd64 --firmware uefi --disk "$RUNNER_TEMP/installed.qcow2" --logs logs --timeout 2400
       - name: Boot the qcow2 (arm64, UEFI) and check
-        if: ${{ env.SKIP != '1' && matrix.arch == 'arm64' }}
+        if: ${{ env.SKIP != '1' && matrix.arch == 'arm64' && contains(env.FORMATS, 'qcow2') }}
         run: packaging/os/test/boot-test.sh boot --arch arm64 --firmware uefi --disk "$OUT"/redgiant-os-*-arm64.qcow2 --logs logs --timeout 7200
         timeout-minutes: 130
+      # Hyper-V and VirtualBox/VMware (G39.2): the same disk through their files. The VHDX boots with
+      # UEFI, the OVA's VMDK with the BIOS VirtualBox uses and the E1000 card both offer.
+      - name: Boot the VHDX (UEFI) and check
+        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' && contains(env.FORMATS, 'vhdx') }}
+        timeout-minutes: 50
+        run: |
+          mkdir -p "$RUNNER_TEMP/vhdx"
+          unzip -q "$OUT"/redgiant-os-*-x86_64.vhdx.zip -d "$RUNNER_TEMP/vhdx"
+          qemu-img info "$RUNNER_TEMP"/vhdx/*.vhdx
+          packaging/os/test/boot-test.sh boot --arch amd64 --firmware uefi --disk "$RUNNER_TEMP"/vhdx/*.vhdx --logs logs/vhdx --timeout 2400
+          rm -rf "$RUNNER_TEMP/vhdx"
+      - name: Check the OVA, boot its disk (BIOS, E1000) and check
+        if: ${{ env.SKIP != '1' && matrix.arch == 'amd64' && contains(env.FORMATS, 'ova') }}
+        timeout-minutes: 50
+        run: |
+          python3 packaging/os/formats/vm.py check-ova "$OUT"/redgiant-os-*-x86_64.ova
+          mkdir -p "$RUNNER_TEMP/ova"
+          tar -xf "$OUT"/redgiant-os-*-x86_64.ova -C "$RUNNER_TEMP/ova"
+          python3 -c "import sys, xml.dom.minidom as m; m.parse(sys.argv[1])" "$RUNNER_TEMP"/ova/*.ovf
+          qemu-img info "$RUNNER_TEMP"/ova/*.vmdk
+          packaging/os/test/boot-test.sh boot --arch amd64 --firmware bios --nic e1000 --disk "$RUNNER_TEMP"/ova/*.vmdk --logs logs/ova --timeout 2400
+          rm -rf "$RUNNER_TEMP/ova"
       - name: Sizes and sha256
         if: ${{ always() && env.SKIP != '1' }}
         run: |
@@ -158,7 +192,7 @@ jobs:
         if: ${{ always() && env.SKIP != '1' }}
         with:
           name: redgiant-os-${{ matrix.arch }}-logs
-          path: logs/serial-*.log
+          path: logs/**/serial-*.log
           retention-days: 7
 
   # Attached to the tag's release, only when release.yml asks (behind REDGIANT_OS_RELEASE).
@@ -182,7 +216,7 @@ jobs:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: |
           mkdir -p rel
-          find dl -type f \( -name 'redgiant-os-*.qcow2' -o -name 'redgiant-os-*.raw.zst' -o -name 'redgiant-os-*.iso' -o -name redgiant-os-stack.json \) -exec cp {} rel/ \;
+          find dl -type f \( -name 'redgiant-os-*.qcow2' -o -name 'redgiant-os-*.raw.zst' -o -name 'redgiant-os-*.iso' -o -name 'redgiant-os-*.vhdx.zip' -o -name 'redgiant-os-*.ova' -o -name redgiant-os-stack.json \) -exec cp {} rel/ \;
           (cd rel && sha256sum redgiant-os-* > SHA256SUMS-os)
           [ -n "$UPDATE_SIGNING_KEY" ] || { echo "UPDATE_SIGNING_KEY is missing: the OS's files must be signed"; exit 1; }
           node packaging/update/sign.mjs rel/SHA256SUMS-os

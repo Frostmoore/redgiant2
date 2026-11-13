@@ -4,10 +4,15 @@
 #
 #   build.sh --arch amd64|arm64 --stack <redgiant-os-stack.json> --out <dir>
 #            [--formats qcow2,raw,iso] [--os-version x.y.z] [--no-preload] [--mirror <url>]
+#            [--board generic|lxc|raspi]
 #
 #   <dir>/redgiant-os-<ver>-<arch>.qcow2      Proxmox, KVM, UTM, clouds (fills its disk at start)
 #   <dir>/redgiant-os-<ver>-<arch>.raw.zst    the disk itself (what the installer writes)
 #   <dir>/redgiant-os-<ver>-x86_64.iso        installer for a USB stick (amd64 only)
+#   <dir>/redgiant-os-<ver>-x86_64.vhdx.zip   Hyper-V, generation 2 (format vhdx)
+#   <dir>/redgiant-os-<ver>-x86_64.ova        VirtualBox, VMware (format ova)
+#   --board lxc:   <dir>/redgiant-os-<ver>-<arch>-lxc.tar.zst   container template (Proxmox, LXC, Incus)
+#   --board raspi: <dir>/redgiant-os-<ver>-arm64-raspi.img.xz   Raspberry Pi 4 (SD card or USB disk)
 #
 # Tools (all Debian's): mmdebstrap for the system, mkfs.ext4 -d, mtools and systemd-repart --offline for the disk (no loop
 # devices), GRUB with Debian's signed shim for UEFI (Secure Boot included) and GRUB for BIOS on
@@ -18,7 +23,7 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$HERE/../.." && pwd)
-ARCH="" STACK="" OUT="" FORMATS=qcow2,raw,iso OS_VERSION="" PRELOAD=1
+ARCH="" STACK="" OUT="" FORMATS="" OS_VERSION="" PRELOAD=1 BOARD=generic
 MIRROR=${MIRROR:-http://deb.debian.org/debian}
 SECURITY_MIRROR=${SECURITY_MIRROR:-http://deb.debian.org/debian-security}
 while [ $# -gt 0 ]; do
@@ -30,6 +35,7 @@ while [ $# -gt 0 ]; do
     --os-version) OS_VERSION=$2 && shift ;;
     --no-preload) PRELOAD=0 ;;
     --mirror) MIRROR=$2 && shift ;;
+    --board) BOARD=$2 && shift ;;
     *) echo "unknown option $1" >&2 && exit 2 ;;
   esac
   shift
@@ -38,6 +44,12 @@ done
   echo "usage: build.sh --arch amd64|arm64 --stack <stack.json> --out <dir> [--formats qcow2,raw,iso]" >&2
   exit 2
 }
+case "$BOARD" in
+  generic) FORMATS=${FORMATS:-qcow2,raw,iso} ;;
+  lxc) FORMATS=${FORMATS:-lxc} ;;
+  raspi) FORMATS=${FORMATS:-raspi} && [ "$ARCH" = arm64 ] || { echo "raspi: arm64 only" >&2 && exit 2; } ;;
+  *) echo "board: generic, lxc or raspi" >&2 && exit 2 ;;
+esac
 VERSION=$(jq -r .version "$STACK")
 OS_VERSION=${OS_VERSION:-$VERSION}
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git -C "$REPO_ROOT" log -1 --format=%ct 2>/dev/null || date +%s)}
@@ -47,7 +59,7 @@ case "$ARCH" in
   *) echo "arch: amd64 or arm64" >&2 && exit 2 ;;
 esac
 NAME=redgiant-os-$OS_VERSION-$KARCH
-WORK=$OUT/work-$ARCH
+WORK=$OUT/work-$ARCH$([ "$BOARD" = generic ] || echo "-$BOARD")
 ROOT=$WORK/rootfs
 mkdir -p "$OUT"
 rm -rf "$WORK"
@@ -73,6 +85,23 @@ PACKAGES=(
   grub2-common grub-efi-"$ARCH"-bin grub-efi-"$ARCH"-signed shim-signed
 )
 [ "$ARCH" = amd64 ] && PACKAGES+=(grub-pc-bin intel-microcode amd64-microcode)
+# The boards (G39.2): a container has no kernel nor boot loader; a Raspberry Pi starts from its
+# own firmware (Debian's raspi-firmware), not GRUB. The guest agent tells Proxmox the address.
+case "$BOARD" in
+  generic) PACKAGES+=(qemu-guest-agent) ;;
+  lxc | raspi)
+    keep=()
+    for p in "${PACKAGES[@]}"; do
+      case "$p" in
+        grub* | shim-signed | *-microcode) ;;
+        linux-image-* | initramfs-tools | firmware-* | cloud-guest-utils) [ "$BOARD" = lxc ] || keep+=("$p") ;;
+        *) keep+=("$p") ;;
+      esac
+    done
+    PACKAGES=("${keep[@]}")
+    [ "$BOARD" = raspi ] && PACKAGES+=(raspi-firmware firmware-brcm80211 wireless-regdb)
+    ;;
+esac
 step "Debian 13 for $ARCH (mmdebstrap, $MIRROR)"
 # What goes over Debian: packaging/os/rootfs and the OS helper (G39.3, whose protocol is the
 # server's: packages/server/src/os-helper.ts).
@@ -131,6 +160,27 @@ if [ "$PRELOAD" = 1 ]; then
       [ "sha256:$config" = "$id" ] || { echo "$ref: config $config is not the pinned $id" >&2; exit 1; }
       echo "$ref $(du -h "$tar" | cut -f1)"
     done
+fi
+
+# Fails the build when the initramfs cannot reach a machine's disk and network.
+initrd_has() { # module… (a module built into the kernel counts; - and _ are the same)
+  local list m re
+  list=$(chroot "$ROOT" lsinitramfs /initrd.img; cat "$ROOT"/usr/lib/modules/*/modules.builtin)
+  for m in "$@"; do
+    re=${m//[-_]/[-_]}
+    grep -qE "/$re\.ko(\.[a-z]+)?$" <<<"$list" || { echo "the initramfs has no $m" >&2; exit 1; }
+  done
+  echo "initramfs: $*"
+}
+
+# The other boards make their own files from the system (packaging/os/<board>/<board>.sh).
+if [ "$BOARD" != generic ]; then
+  # shellcheck source=/dev/null
+  . "$HERE/$BOARD/$BOARD.sh"
+  for f in ${FORMATS//,/ }; do "format_$f"; done
+  step "Done"
+  ls -la "$OUT"
+  exit 0
 fi
 
 # 2. Boot ----------------------------------------------------------------------------------------
@@ -230,6 +280,30 @@ format_iso() {
   "$HERE/installer/build-iso.sh" --payload "$OUT/$NAME.raw.zst" --size "$(cat "$OUT/$NAME.raw.size")" \
     --version "$OS_VERSION" --efi-root "$ROOT" --mirror "$MIRROR" --security-mirror "$SECURITY_MIRROR" \
     --work "$WORK/iso" --out "$OUT/redgiant-os-$OS_VERSION-x86_64.iso"
+}
+# The raw disk seen as a thin 32 GB one, like the qcow2 (an overlay: nothing is copied).
+grown() {
+  [ -e "$WORK/grown.qcow2" ] || qemu-img create -q -f qcow2 -b "$RAW" -F raw "$WORK/grown.qcow2" 32G
+  echo "$WORK/grown.qcow2"
+}
+format_vhdx() { # Hyper-V, generation 2 (UEFI; Secure Boot with the Microsoft UEFI CA template)
+  [ "$ARCH" = amd64 ] || { echo "vhdx: x86_64 only"; return 0; }
+  step "vhdx (Hyper-V), zipped"
+  initrd_has hv_vmbus hv_storvsc hv_netvsc
+  qemu-img convert -O vhdx -o subformat=dynamic "$(grown)" "$WORK/$NAME.vhdx"
+  qemu-img info "$WORK/$NAME.vhdx" | sed -n '1,4p'
+  python3 "$HERE/formats/vm.py" zip "$WORK/$NAME.vhdx" "$OUT/$NAME.vhdx.zip"
+  rm -f "$WORK/$NAME.vhdx"
+}
+format_ova() { # VirtualBox and VMware: OVF, LSI Logic SCSI, E1000, a streamOptimized VMDK
+  [ "$ARCH" = amd64 ] || { echo "ova: x86_64 only"; return 0; }
+  step "ova (VirtualBox, VMware)"
+  initrd_has mptspi e1000 ahci
+  qemu-img convert -O vmdk -o subformat=streamOptimized,adapter_type=lsilogic "$(grown)" "$WORK/$NAME.vmdk"
+  python3 "$HERE/formats/vm.py" ova --vmdk "$WORK/$NAME.vmdk" --name "$NAME" \
+    --capacity "$(qemu-img info --output=json "$(grown)" | jq -r '."virtual-size"')" --out "$OUT/$NAME.ova"
+  rm -f "$WORK/$NAME.vmdk"
+  python3 "$HERE/formats/vm.py" check-ova "$OUT/$NAME.ova"
 }
 for f in ${FORMATS//,/ }; do "format_$f"; done
 step "Done"

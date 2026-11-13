@@ -2,6 +2,7 @@
 # RedGiant OS (G39.1): boots an image in QEMU, headless, and checks it (CI's job os.yml).
 #
 #   boot-test.sh boot    --arch amd64|arm64 --firmware uefi|bios [--secureboot] --disk <qcow2> --logs <dir>
+#                        [--nic e1000]   (--disk: any format qemu-img reads: qcow2, vhdx, vmdk, raw)
 #   boot-test.sh install --iso <iso> --disk <new qcow2> --logs <dir> [--firmware bios|uefi]
 #
 # boot: the machine gets the credential redgiant.selftest, so redgiant-selftest prints its checks on
@@ -14,7 +15,7 @@
 set -uo pipefail
 MODE=${1:-}
 shift || true
-ARCH=amd64 FIRMWARE=uefi SECUREBOOT=0 DISK="" ISO="" LOGS=. WORK="" TIMEOUT=${TIMEOUT:-3600} PORT=17600
+ARCH=amd64 FIRMWARE=uefi SECUREBOOT=0 DISK="" ISO="" LOGS=. WORK="" TIMEOUT=${TIMEOUT:-3600} PORT=17600 NIC=virtio-net-pci
 while [ $# -gt 0 ]; do
   case "$1" in
     --arch) ARCH=$2 && shift ;;
@@ -26,6 +27,8 @@ while [ $# -gt 0 ]; do
     # Where the copies QEMU writes go (default: the logs folder).
     --work) WORK=$2 && shift ;;
     --timeout) TIMEOUT=$2 && shift ;;
+    # The network card (VirtualBox and VMware: e1000).
+    --nic) NIC=$2 && shift ;;
     *) echo "unknown option $1" >&2 && exit 2 ;;
   esac
   shift
@@ -102,10 +105,10 @@ case "$MODE" in
   boot)
     [ -r "$DISK" ] || { echo "no disk" >&2; exit 2; }
     RUN=$WORK/run-$ARCH-$FIRMWARE.qcow2
-    qemu-img create -q -f qcow2 -b "$(readlink -f "$DISK")" -F qcow2 "$RUN"
+    qemu-img create -q -f qcow2 -b "$(readlink -f "$DISK")" -F "$(qemu-img info --output=json "$DISK" | jq -r .format)" "$RUN"
     start=$SECONDS
     run_qemu -drive "file=$RUN,if=virtio,format=qcow2" \
-      -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$PORT-:7600" -device virtio-net-pci,netdev=net0,romfile= \
+      -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$PORT-:7600" -device "$NIC,netdev=net0,romfile=" \
       -smbios "type=11,value=io.systemd.credential:redgiant.selftest=1"
     ok=1
     # First stage, its own limit: firmware, GRUB, kernel and systemd up to a login prompt.

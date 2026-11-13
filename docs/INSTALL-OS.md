@@ -12,6 +12,8 @@ better; the disk needs 16 GB or more.
 | ------------------------------------------- | ------------------------------------------- |
 | A PC to dedicate to RedGiant (x86_64)       | `redgiant-os-<version>-x86_64.iso`          |
 | Proxmox, KVM/libvirt, UTM, a cloud (x86_64) | `redgiant-os-<version>-x86_64.qcow2`        |
+| Hyper-V (Windows)                           | `redgiant-os-<version>-x86_64.vhdx.zip`     |
+| VirtualBox, VMware                          | `redgiant-os-<version>-x86_64.ova`          |
 | The same on arm64 (Ampere, Graviton, UTM)   | `redgiant-os-<version>-arm64.qcow2`         |
 | Something that wants a raw disk             | `redgiant-os-<version>-<arch>.raw.zst`      |
 | A server that already runs Docker           | not this page: see [INSTALL.md](INSTALL.md) |
@@ -51,6 +53,48 @@ qm start 9000
 Change the id (9000), the storage (`local-lvm`) and the bridge (`vmbr0`) to yours; the disk can
 be any size of 16 GB or more, the system grows into it at start. SeaBIOS works too: leave out
 `--bios`, `--machine` and `--efidisk0`. The console tab of the machine shows the address.
+
+## On Hyper-V
+
+Unzip `redgiant-os-<version>-x86_64.vhdx.zip` (right click, "Extract All") into the folder where
+your virtual disks live, then in an administrator PowerShell:
+
+```powershell
+$vhdx = "C:\Hyper-V\redgiant-os-<version>-x86_64.vhdx"
+Resize-VHD -Path $vhdx -SizeBytes 64GB          # optional: any size of 32 GB or more
+New-VM -Name RedGiant -Generation 2 -MemoryStartupBytes 4GB -VHDPath $vhdx -SwitchName "Default Switch"
+Set-VMFirmware RedGiant -SecureBootTemplate MicrosoftUEFICertificateAuthority
+Set-VMProcessor RedGiant -Count 2
+Set-VMMemory RedGiant -DynamicMemoryEnabled $false
+Start-VM RedGiant
+```
+
+Or in Hyper-V Manager: New, Virtual Machine, **Generation 2**, 4096 MB of memory (dynamic memory
+off), a network switch, "Use an existing virtual hard disk" with the VHDX; then, before starting it,
+Settings, Security: keep Secure Boot on and choose the template **Microsoft UEFI Certificate
+Authority** (the default "Microsoft Windows" template refuses Linux: RedGiant OS starts through
+Debian's shim, signed by that authority). Connect shows the address.
+
+"Default Switch" reaches the machine from this PC only. For the phones and computers of your
+network, use an external virtual switch (Virtual Switch Manager, External, your network card) and
+`-SwitchName` with its name.
+
+## On VirtualBox and VMware
+
+The OVA is one file with the machine inside: 2 processors, 4 GB of memory, a 32 GB disk (thin),
+an Intel E1000 network card, which both have.
+
+- **VirtualBox**: File, Import Appliance, choose the OVA, Finish. Before starting it: Settings,
+  Network, Adapter 1, "Attached to: **Bridged Adapter**" (with NAT, only this computer reaches it).
+  VirtualBox starts it through its BIOS, which works as it is; System, "Enable EFI" works too.
+- **VMware Workstation and Fusion**: File, Open, choose the OVA, Import. It starts with UEFI and
+  Secure Boot. The network is bridged; if the address does not open from other devices, Settings,
+  Network Adapter, "Bridged".
+- **VMware ESXi / vSphere**: Create / Register VM, "Deploy a virtual machine from an OVF or OVA
+  file", then a port group of your network. ESXi 6.7 or newer (hardware version 14).
+
+To make the disk bigger, enlarge it in the machine's settings before the first start (VirtualBox:
+Tools, Media; VMware: Hard Disk, Expand): the system grows into it.
 
 ## On KVM / libvirt, UTM and clouds
 
@@ -130,8 +174,9 @@ The images are built by `packaging/os/build.sh` in the builder container
 --offline` the disk (no loop devices), GRUB boots it (UEFI through Debian's signed shim, BIOS on
 x86_64), and `installer/build-iso.sh` makes the ISO (a `live-boot` system that writes the disk
 image). The workflow `.github/workflows/os.yml` builds both processors on GitHub's runners and
-boots every image in QEMU. More formats (VHDX, OVA, LXC, Raspberry Pi) are a `format_<name>`
-function in `build.sh`.
+boots every image in QEMU. Every format is a `format_<name>` function in `build.sh`: the VHDX and
+the OVA are converted from the same disk (`qemu-img`, the OVF descriptor by `formats/vm.py`) and
+boot in CI through those files (the VHDX with UEFI, the OVA's disk with BIOS and an E1000 card).
 
 ```sh
 node packaging/os/stack.mjs --version 3.7.0 --out out/redgiant-os-stack.json
