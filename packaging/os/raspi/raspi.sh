@@ -31,14 +31,34 @@ chroot "$ROOT" env DEB_MAINT_PARAMS=configure /etc/kernel/postinst.d/z50-raspi-f
   { umount "$ROOT/proc"; echo "raspi-firmware's hook failed" >&2; exit 1; }
 umount "$ROOT/proc"
 cp -r "$ROOT/usr/lib/raspi-firmware/." "$ROOT/boot/firmware/"
-# What the boot partition offers the person who flashed it (the Wi-Fi file comes with G39.2's
-# Wi-Fi support; until then: a cable).
+# Wi-Fi without a screen: redgiant-wifi.txt on the boot partition (what a computer shows of the
+# card), read at start by redgiant-wifi-file, here from /boot/firmware instead of the EFI
+# partition; the example beside it.
+if [ -e "$ROOT/usr/lib/systemd/system/redgiant-wifi-file.service" ]; then
+  install -d "$ROOT/etc/systemd/system/redgiant-wifi-file.service.d"
+  cat >"$ROOT/etc/systemd/system/redgiant-wifi-file.service.d/raspi.conf" <<'EOF'
+# RedGiant OS on a Raspberry Pi: the file is on the firmware's partition.
+[Unit]
+ConditionPathExists=
+ConditionPathExists=/boot/firmware/redgiant-wifi.txt
+RequiresMountsFor=/boot/firmware
+
+[Service]
+ExecStart=
+ExecStart=/usr/lib/redgiant-os/redgiant-wifi-file /boot/firmware/redgiant-wifi.txt
+EOF
+  cp "$ROOT/usr/share/redgiant-os/redgiant-wifi-example.txt" "$ROOT/boot/firmware/redgiant-wifi-example.txt"
+fi
+# What the boot partition offers the person who flashed it.
 cat >"$ROOT/boot/firmware/README-RedGiant.txt" <<'EOF'
 RedGiant OS for Raspberry Pi
 
 Put this card (or USB disk) in a Raspberry Pi 4, 400 or CM4, connect it to your router with a
 cable and switch it on. After a few minutes open http://redgiant.local:7600 from a computer or a
 phone on the same network (or the address the Pi's screen shows).
+
+Wi-Fi instead of a cable: copy redgiant-wifi-example.txt to redgiant-wifi.txt on this partition,
+write your network's name and password in it, then start the Pi. The file is read once and erased.
 
 The files on this partition are written by the system: config.txt and cmdline.txt are rewritten at
 every kernel update. https://github.com/Frostmoore/redgiant2/blob/main/docs/INSTALL-OS.md
@@ -50,14 +70,14 @@ initrd_has mmc_block sdhci-iproc xhci-pci uas usb-storage pcie-brcmstb genet
 format_raspi() {
   step "raspi: the SD card image (MBR: RASPIFIRM FAT32, RASPIROOT ext4), xz"
   local fw=$ROOT/boot/firmware img=$WORK/$NAME-raspi.img fat=$WORK/raspifirm.vfat rootimg=$WORK/raspiroot.ext4
-  for f in config.txt cmdline.txt start4.elf fixup4.dat bcm2711-rpi-4-b.dtb bcm2711-rpi-400.dtb bcm2711-rpi-cm4.dtb; do
+  for f in config.txt cmdline.txt start4.elf fixup4.dat bcm2711-rpi-4-b.dtb bcm2711-rpi-400.dtb bcm2711-rpi-cm4-io.dtb; do
     [ -s "$fw/$f" ] || { echo "raspi: no $f on the boot partition" >&2; exit 1; }
   done
   ls "$fw"/vmlinuz-* "$fw"/initrd.img-* >/dev/null || { echo "raspi: no kernel on the boot partition" >&2; exit 1; }
   grep -q "root=LABEL=RASPIROOT" "$fw/cmdline.txt" || { echo "raspi: cmdline.txt: $(cat "$fw/cmdline.txt")" >&2; exit 1; }
   echo "config.txt: $(grep -v '^#' "$fw/config.txt" | grep . | tr '\n' ' ')"
   echo "cmdline.txt: $(cat "$fw/cmdline.txt")"
-  echo "Raspberry Pi 5 device tree: $(ls "$fw"/bcm2712-rpi-5-b.dtb 2>/dev/null || echo "not in Debian's kernel")"
+  echo "device trees: $(cd "$fw" && echo bcm27*.dtb)"
   # The FAT partition from its folder, then the mount point left empty in the system.
   rm -f "$fat" "$rootimg" "$img"
   truncate -s 512M "$fat"

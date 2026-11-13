@@ -186,7 +186,9 @@ jobs:
         if: ${{ always() && env.SKIP != '1' }}
         with:
           name: redgiant-os-${{ matrix.arch }}
-          path: /mnt/os/*
+          path: |
+            /mnt/os/*
+            !/mnt/os/work-*
           compression-level: 0
           retention-days: 7
       - uses: actions/upload-artifact@v4
@@ -258,7 +260,9 @@ jobs:
         if: ${{ always() }}
         with:
           name: redgiant-os-amd64-lxc
-          path: /mnt/os/*
+          path: |
+            /mnt/os/*
+            !/mnt/os/work-*
           compression-level: 0
           retention-days: 7
       - uses: actions/upload-artifact@v4
@@ -344,7 +348,9 @@ jobs:
         if: ${{ always() }}
         with:
           name: redgiant-os-arm64-raspi
-          path: /mnt/os/*
+          path: |
+            /mnt/os/*
+            !/mnt/os/work-*
           compression-level: 0
           retention-days: 7
       - uses: actions/upload-artifact@v4

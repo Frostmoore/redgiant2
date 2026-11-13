@@ -126,7 +126,9 @@ describe.skipIf(!linux)("redgiant-proxmox.sh", () => {
     expect(r.status, r.out).toBe(0);
     expect(readFileSync(join(dir, "templates", LXC), "utf8")).toBe("a template");
     const create = r.calls.split("\n").find((l) => l.startsWith("pct create")) ?? "";
-    expect(create).toMatch(new RegExp(`^pct create 102 local:vztmpl/${LXC.replace(/\./g, "\\.")} `));
+    expect(create).toMatch(
+      new RegExp(`^pct create 102 local:vztmpl/${LXC.replace(/\./g, "\\.")} `),
+    );
     for (const part of [
       "--unprivileged 1",
       "--features nesting=1,keyctl=1",
@@ -163,7 +165,10 @@ describe.skipIf(!linux)("redgiant-proxmox.sh", () => {
 
   it("refuses a SHA256SUMS-os signed by another key", () => {
     const other = generateKeyPairSync("rsa", { modulusLength: 2048 });
-    release({ [QCOW2]: "a qcow2" }, other.privateKey.export({ type: "pkcs8", format: "pem" }).toString());
+    release(
+      { [QCOW2]: "a qcow2" },
+      other.privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+    );
     const r = proxmox("--vm");
     expect(r.status).not.toBe(0);
     expect(r.out).toContain("not signed by RedGiant's update key");
