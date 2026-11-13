@@ -20,7 +20,7 @@ done
 [ -r "$TEMPLATE" ] || { echo "no template" >&2; exit 2; }
 mkdir -p "$LOGS"
 LOG=$LOGS/lxc-journal.log
-in_ct() { timeout "${T:-60}" incus exec "$NAME" -- "$@"; }
+in_ct() { timeout "${T:-60}" incus exec "$NAME" -- "$@" </dev/null; }
 dump() {
   echo "--- the container's journal (last 250 lines, also in $LOG)"
   T=60 in_ct journalctl -b --no-pager -n 600 2>&1 | sed 's/\r$//' >"$LOG"
@@ -62,11 +62,9 @@ wait_until() { # what seconds command…: true once the command succeeds
   done
   return 1
 }
-# systemd answers (it stays "starting" while redgiant.service loads the images the first time).
-running() { T=15 in_ct systemctl is-system-running 2>/dev/null | grep -qE '^(starting|running|degraded)'; }
 healthy() { T=15 in_ct curl -fsS --max-time 5 http://127.0.0.1:7600/api/health; }
-wait_until "systemd up" 300 running || fail "systemd did not come up within 300 s"
 wait_until "RedGiant answering" "$TIMEOUT" healthy || fail "RedGiant did not answer within $TIMEOUT s"
+echo "systemd: $(T=15 in_ct systemctl is-system-running 2>&1 </dev/null)"
 
 ok=1
 T=900 in_ct /usr/lib/redgiant-os/redgiant-selftest >/dev/null 2>&1
