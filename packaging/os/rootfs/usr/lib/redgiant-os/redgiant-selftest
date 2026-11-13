@@ -13,7 +13,12 @@ check() { # name command…
   shift
   if "$@" >/dev/null 2>&1; then say "ok   $name"; else say "FAIL $name"; ok=0; fi
 }
-for _ in $(seq 1 180); do healthy && break; sleep 5; done
+# Up to 15 minutes for RedGiant to answer; a start that keeps failing is reported after 5.
+for i in $(seq 1 180); do
+  healthy && break
+  [ "$i" -gt 60 ] && [ "$(systemctl show -p NRestarts --value redgiant.service)" -ge 3 ] && break
+  sleep 5
+done
 check "redgiant.service active" systemctl is-active --quiet redgiant.service
 check "api/health" curl -fsS "http://localhost:$PORT/api/health"
 check "images pinned" /usr/lib/redgiant-os/redgiant-stack images
@@ -24,4 +29,12 @@ check "os helper" bash -c 'echo ssh-status | socat - UNIX-CONNECT:/run/redgiant-
 check "unattended-upgrades on" bash -c 'apt-config dump | grep -q "APT::Periodic::Unattended-Upgrade \"1\""'
 say "addresses $(addresses | tr '\n' ' ')"
 say "health $(curl -fsS "http://localhost:$PORT/api/health" 2>&1)"
+if [ "$ok" != 1 ]; then
+  # Why, on the console: RedGiant's start and its containers.
+  journalctl -b -u redgiant.service --no-pager -n 80 -o cat 2>&1 | sed 's/^/REDGIANT-SELFTEST journal: /' >/dev/console
+  docker ps -a --format '{{.Names}} {{.Status}}' 2>&1 | sed 's/^/REDGIANT-SELFTEST docker: /' >/dev/console
+  for c in $(docker ps -a --format '{{.Names}}' 2>/dev/null); do
+    docker logs --tail 25 "$c" 2>&1 | sed "s/^/REDGIANT-SELFTEST $c: /" >/dev/console
+  done
+fi
 if [ "$ok" = 1 ]; then say PASS; else say FAIL; fi

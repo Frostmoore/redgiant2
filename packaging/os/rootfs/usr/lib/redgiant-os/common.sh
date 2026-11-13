@@ -59,7 +59,9 @@ addresses() {
 mdns_name() {
   local n
   n=$(avahi-resolve -a "$(addresses | head -1)" 2>/dev/null | awk '{ print $2 }')
-  echo "${n:-$(hostname).local}"
+  n=${n:-$(hostname)}
+  case "$n" in *.local) ;; *) n=$n.local ;; esac
+  echo "$n"
 }
 
 # The login prompts' text (/etc/issue.d/50-redgiant.issue): the real addresses, never Docker's
