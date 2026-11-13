@@ -85,6 +85,7 @@ import { ImportFrom } from "./ImportFrom.js";
 import { AgentLanguagePicker } from "./LanguagePicker.js";
 import { hardwareText, LocalModels } from "./LocalModels.js";
 import { modelName } from "./ModelMenu.js";
+import { OsNetworkSection } from "./OsSystem.js";
 import { PromptRefiner } from "./PromptRefiner.js";
 import { RemoteAccess } from "./RemoteAccess.js";
 import { Safety } from "./Safety.js";
@@ -725,6 +726,7 @@ function RemoteStep() {
     <div class="wz-inner">
       <Head q={t("wzRemoteQ")} lead={t("fbRemoteLead")} />
       <NetFound />
+      <OsNetworkSection wizard />
       <div class="wz-card wz-left">
         <RemoteAccess s={s} onChange={reload} />
       </div>

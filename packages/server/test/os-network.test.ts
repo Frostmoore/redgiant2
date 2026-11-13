@@ -235,7 +235,7 @@ describe("http to https in the local network (lanRedirect)", () => {
 
   it("HSTS only on https of the local network, once the redirect is on", () => {
     expect(lanHsts({ redirect: true, host: "redgiant.local", forwardedProto: "https" })).toBe(
-      "max-age=31536000",
+      "max-age=2592000",
     );
     expect(
       lanHsts({ redirect: false, host: "redgiant.local", forwardedProto: "https" }),
@@ -495,7 +495,7 @@ describe("Settings › System › Network and Updates (routes)", () => {
       "x-forwarded-proto": "https",
       "x-redgiant-local-tls": "1",
     });
-    expect(tls.headers.get("strict-transport-security")).toBe("max-age=31536000");
+    expect(tls.headers.get("strict-transport-security")).toBe("max-age=2592000");
     // Local HTTPS switched off: the redirect goes with it (nobody is sent to a closed door).
     const off = await sv.api<{ redirect: boolean }>("PUT", "/api/setup/https", { local: false });
     expect(off.body.redirect).toBe(false);

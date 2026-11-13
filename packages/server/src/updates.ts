@@ -149,7 +149,9 @@ export class UpdateWatcher {
           ? `${DOWNLOADS}/RedGiant-Setup.exe`
           : o.install === "mac"
             ? `${DOWNLOADS}/RedGiant-mac-${(o.arch ?? process.arch) === "x64" ? "x86_64" : "arm64"}.dmg`
-            : null,
+            : o.install === "os"
+              ? "https://github.com/Frostmoore/redgiant2/releases/latest"
+              : null,
       command:
         o.install === "docker"
           ? `cd ${o.composeDir ?? "~/redgiant"} && docker compose pull && docker compose up -d`

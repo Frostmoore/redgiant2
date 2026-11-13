@@ -118,7 +118,16 @@ function Mandatory({ s }: { s: UpdateStatus }) {
     setBusy(true);
     const r = await attempt(() => getApi().updateAct(action));
     setBusy(false);
-    if (r) setSaid(t(action === "update" ? "updReqUpdating" : "updReqClosing"));
+    if (r)
+      setSaid(
+        t(
+          action === "update"
+            ? s.install === "os"
+              ? "updReqUpdatingOs"
+              : "updReqUpdating"
+            : "updReqClosing",
+        ),
+      );
   };
   const note = noteOf(s);
   const v = { version: s.latest ?? "", installed: s.installed ?? "" };
@@ -131,7 +140,16 @@ function Mandatory({ s }: { s: UpdateStatus }) {
       locked
       class="upd-modal wz-look"
       foot={
-        s.install === "windows" && s.canUpdateHere ? (
+        s.install === "os" && s.canUpdateHere ? (
+          <button
+            type="button"
+            class="wz-btn primary"
+            disabled={busy}
+            onClick={() => void act("update")}
+          >
+            <IconDownload size={18} /> {t("updReqNow")}
+          </button>
+        ) : s.install === "windows" && s.canUpdateHere ? (
           <>
             <button type="button" class="wz-btn" disabled={busy} onClick={() => void act("quit")}>
               {t("updReqClose")}
@@ -330,7 +348,9 @@ function Breaking({ s, onLater }: { s: UpdateStatus; onLater: () => void }) {
                       ? "updBrkStep1Mac"
                       : s.install === "docker"
                         ? "updBrkStep1Docker"
-                        : "updBrkStep1Source",
+                        : s.install === "os"
+                          ? "updBrkStep1Os"
+                          : "updBrkStep1Source",
                 )}
               </p>
               {s.install === "docker" && <Command text="docker compose down -v" />}
@@ -375,7 +395,15 @@ function Breaking({ s, onLater }: { s: UpdateStatus; onLater: () => void }) {
             </li>
             <li>
               <strong>{t("updBrkStep3")}</strong>
-              <p>{t(s.install === "docker" ? "updBrkStep3Docker" : "updBrkStep3Text")}</p>
+              <p>
+                {t(
+                  s.install === "docker"
+                    ? "updBrkStep3Docker"
+                    : s.install === "os"
+                      ? "updBrkStep3Os"
+                      : "updBrkStep3Text",
+                )}
+              </p>
             </li>
           </ol>
         )}

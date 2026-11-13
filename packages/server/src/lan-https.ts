@@ -49,10 +49,14 @@ export function lanRedirect(r: LanRequest): string | null {
   return `https://${host}${r.path}${r.search ?? ""}`;
 }
 
-/** HSTS on an https answer of the local network, only once the redirect is on. */
+/**
+ * HSTS on an https answer of the local network, only once the redirect is on. Thirty days, not
+ * a year: a browser that saw it keeps asking https for the local name until then, also if the
+ * person switches local HTTPS off later (the addresses are never concerned: HSTS ignores them).
+ */
 export function lanHsts(r: Omit<LanRequest, "path" | "search">): string | null {
   if (!r.redirect || (r.forwardedProto ?? "").toLowerCase() !== "https") return null;
-  return isLanHost(bareHost(r.host)) ? "max-age=31536000" : null;
+  return isLanHost(bareHost(r.host)) ? "max-age=2592000" : null;
 }
 
 export interface LanHttpsSettings {

@@ -19482,3 +19482,64 @@ html[data-theme="dark"] {
     justify-content: space-between;
   }
 }
+
+/* RedGiant OS (G39.1): Wi-Fi, HTTPS in the local network, updates (OsSystem.tsx). */
+.os-wifi-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.os-wifi-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.os-wifi-pick {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-start;
+  text-align: left;
+}
+.os-wifi-pick.on {
+  outline: 2px solid var(--accent);
+}
+.os-wifi-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.os-wifi-join {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+}
+.os-https-get {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 8px 0 12px;
+}
+.os-https-get .qr {
+  width: 132px;
+  flex: none;
+}
+.os-https-steps {
+  margin: 8px 0;
+  line-height: 1.5;
+}
+.os-fp {
+  word-break: break-all;
+  font-size: 0.85em;
+}
+.wz-note.warn {
+  color: var(--warn, var(--text));
+}
+.os-reboot {
+  display: grid;
+  gap: 8px;
+}

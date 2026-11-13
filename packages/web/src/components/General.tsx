@@ -32,6 +32,7 @@ import { explain } from "./Brain.js";
 import { askConfirm } from "./dialogs.js";
 import { AgentLanguagePicker } from "./LanguagePicker.js";
 import { ModelSelect, type Spec, useModels } from "./ModelSelect.js";
+import { OsUpdatesPanel } from "./OsSystem.js";
 import { PromptRefiner } from "./PromptRefiner.js";
 import { ServicePanel } from "./Services.js";
 import {
@@ -47,7 +48,7 @@ import {
   Tiles,
   WzPage,
 } from "./SettingsKit.js";
-import { refreshUpdateStatus } from "./UpdateGate.js";
+import { refreshUpdateStatus, updateStatus } from "./UpdateGate.js";
 import { Modal } from "./ui.js";
 
 type DebugState = { enabled: boolean; forced: boolean; bytes: number; files: number };
@@ -327,7 +328,8 @@ export function General() {
                 {(open === "search" || open === "voice" || open === "images") && (
                   <ServicePanel s={s} part={open} onSaved={load} />
                 )}
-                {open === "updates" && <Updates />}
+                {open === "updates" &&
+                  (updateStatus.value?.install === "os" ? <OsUpdatesPanel /> : <Updates />)}
                 {open === "debug" && dbg && <Diagnostics st={dbg} setSt={setDbg} />}
               </div>
               {(open === "backup" || open === "search") && <Done onClick={close} />}
