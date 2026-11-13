@@ -172,6 +172,9 @@ jobs:
         if: ${{ env.SKIP != '1' && matrix.arch == 'arm64' && contains(env.FORMATS, 'qcow2') }}
         run: packaging/os/test/boot-test.sh boot --arch arm64 --firmware uefi --disk "$OUT"/redgiant-os-*-arm64.qcow2 --logs logs --timeout 7200
         timeout-minutes: 130
+        # Emulated: the first start loads RedGiant's images for many minutes before the self-test.
+        env:
+          START_LIMIT: 5400
       # Hyper-V and VirtualBox/VMware (G39.2): the same disk through their files. The VHDX boots with
       # UEFI, the OVA's VMDK with the BIOS VirtualBox uses and the E1000 card both offer.
       - name: Boot the VHDX (UEFI) and check
