@@ -21,6 +21,9 @@ better; the disk needs 16 GB or more.
 | Something that wants a raw disk             | `redgiant-os-<version>-<arch>.raw.zst`      |
 | A server that already runs Docker           | not this page: see [INSTALL.md](INSTALL.md) |
 
+All the ways to install RedGiant, RedGiant OS and the others, are on one page:
+[INSTALL.md](INSTALL.md#every-way-to-install-redgiant).
+
 Every file is listed in `SHA256SUMS-os`, signed with RedGiant's update key
 (`SHA256SUMS-os.sig`). Check a download with `sha256sum -c SHA256SUMS-os --ignore-missing`.
 

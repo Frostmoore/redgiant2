@@ -10,6 +10,30 @@ folder.
 **You need (Docker):** Docker Engine 26 or newer with Compose v2, 4 GB of RAM, 10 GB of disk (more for
 local models). A subscription, an API key for a cloud model, or a GGUF model for the local engine.
 
+## Every way to install RedGiant
+
+Pick the line that matches what you have. Every download is on the
+[latest release](https://github.com/Frostmoore/redgiant2/releases/latest); the RedGiant OS files are
+listed in `SHA256SUMS-os`, signed with RedGiant's update key.
+
+| You have                                             | Use                                                                  | How                                                              |
+| ---------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| A Windows PC                                         | `RedGiant-Setup.exe` (or `winget install Frostmoore.RedGiant`)       | [Windows](#windows)                                              |
+| A Mac (Apple silicon)                                | `RedGiant-mac-arm64.dmg` (or Homebrew)                               | [macOS](#macos)                                                  |
+| A Linux machine or a server with Docker              | `install.sh` (Docker Compose)                                        | [Linux](#linux)                                                  |
+| A spare PC or mini PC to dedicate to RedGiant        | RedGiant OS on a USB stick: `redgiant-os-<version>-x86_64.iso`       | [From a USB stick](INSTALL-OS.md#on-a-pc-from-a-usb-stick)       |
+| Proxmox VE                                           | the helper script (a VM or a container), or the qcow2 / LXC template | [Proxmox](INSTALL-OS.md#on-proxmox)                              |
+| Hyper-V (Windows Pro, Server)                        | `redgiant-os-<version>-x86_64.vhdx.zip`                              | [Hyper-V](INSTALL-OS.md#on-hyper-v)                              |
+| VirtualBox, VMware Workstation, Fusion, ESXi         | `redgiant-os-<version>-x86_64.ova`                                   | [VirtualBox and VMware](INSTALL-OS.md#on-virtualbox-and-vmware)  |
+| KVM/libvirt, UTM, OpenStack and other clouds         | `redgiant-os-<version>-<x86_64 or arm64>.qcow2` (or `.raw.zst`)      | [KVM, UTM, clouds](INSTALL-OS.md#on-kvm--libvirt-utm-and-clouds) |
+| LXC or Incus                                         | `redgiant-os-<version>-x86_64-lxc.tar.zst`                           | [A container](INSTALL-OS.md#by-hand-a-container)                 |
+| A Raspberry Pi 4, 400 or CM4                         | `redgiant-os-<version>-arm64-raspi.img.xz`                           | [Raspberry Pi](INSTALL-OS.md#on-a-raspberry-pi)                  |
+| A Raspberry Pi 5 (or another arm64 board with Linux) | Docker on its own Linux (Raspberry Pi OS 64-bit)                     | [Linux](#linux)                                                  |
+
+**RedGiant OS** ([INSTALL-OS.md](INSTALL-OS.md)) is a small Debian 13 system that only runs
+RedGiant: nothing to set up, it updates itself, its screen shows the address. The **apps** (Windows,
+macOS) and **Docker** (Linux) put RedGiant on a computer you already use for other things.
+
 ## Linux
 
 ```sh
