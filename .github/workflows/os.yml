@@ -361,6 +361,8 @@ jobs:
         env:
           START_LIMIT: 5400
         run: |
+          # A 32 GB card: the system grows into it at start (growroot on an MBR disk).
+          truncate -s 32G "$RUNNER_TEMP/raspi.img"
           packaging/os/test/boot-test.sh boot --arch arm64 --firmware direct --disk "$RUNNER_TEMP/raspi.img" \
             --kernel "$RUNNER_TEMP/kernel/vmlinuz" --initrd "$RUNNER_TEMP/kernel/initrd.img" \
             --append "root=LABEL=RASPIROOT rw console=ttyAMA0,115200 net.ifnames=0 rootwait systemd.set_credential=redgiant.selftest:1" \
