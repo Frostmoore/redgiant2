@@ -25,7 +25,7 @@ check "images pinned" /usr/lib/redgiant-os/redgiant-stack images
 check "mdns redgiant.local" avahi-resolve -4 -n "$(hostname).local"
 check "issue shows the address" grep -qF "http://$(addresses | head -1):$PORT" /etc/issue.d/50-redgiant.issue
 check "ssh disabled" bash -c '! systemctl is-active --quiet ssh.service'
-check "os helper" bash -c 'echo ssh-status | socat - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e ".ok and (.on == false)"'
+check "os helper" bash -c 'echo ssh-status | socat -t 30 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e ".ok and (.on == false)"'
 check "unattended-upgrades on" bash -c 'apt-config dump | grep -q "APT::Periodic::Unattended-Upgrade \"1\""'
 say "addresses $(addresses | tr '\n' ' ')"
 say "health $(curl -fsS "http://localhost:$PORT/api/health" 2>&1)"
