@@ -335,7 +335,8 @@ jobs:
           for f in config.txt cmdline.txt start4.elf fixup4.dat bcm2711-rpi-4-b.dtb README-RedGiant.txt; do
             grep -qi "/$f\$" "$RUNNER_TEMP/boot-files" || { echo "::error::no $f on the boot partition"; exit 1; }
           done
-          mtype -i "$fat" ::/config.txt ::/cmdline.txt
+          mtype -i "$fat" ::/config.txt
+          mtype -i "$fat" ::/cmdline.txt
           mtype -i "$fat" ::/config.txt | grep -q "arm_64bit=1"
           mtype -i "$fat" ::/cmdline.txt | grep -q "root=LABEL=RASPIROOT"
           mkdir -p "$RUNNER_TEMP/kernel"
