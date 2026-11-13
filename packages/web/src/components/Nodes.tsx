@@ -321,9 +321,8 @@ export function PendingCards({ s, reload }: { s: NodesState; reload: () => void 
               </b>
             </div>
           </div>
-          <div class="nd-sas" aria-label={t("ndSas")}>
-            {p.sas}
-          </div>
+          <span class="wz-lb">{t("ndSas")}</span>
+          <div class="nd-sas">{p.sas}</div>
           <dl class="st-facts">
             <div>
               <dt>{t("ndTheirFp")}</dt>

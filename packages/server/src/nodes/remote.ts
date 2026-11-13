@@ -1,7 +1,7 @@
 // The asking side of a node's capabilities (G39.4): a sandbox there as a `SandboxProvider` and a
 // `Workspace` (every call travels over the node channel and is checked again there), and the
 // node's models as a provider «via <node>» (the node's keys never leave it: it answers with them).
-import type { Sandbox, SandboxProvider, SandboxSpec } from "@redgiant/sandbox";
+
 import {
   type Completion,
   type CompletionRequest,
@@ -10,6 +10,7 @@ import {
   ProviderError,
   type StreamEvent,
 } from "@redgiant/providers";
+import type { Sandbox, SandboxProvider, SandboxSpec } from "@redgiant/sandbox";
 import {
   type ExecOptions,
   type ExecResult,

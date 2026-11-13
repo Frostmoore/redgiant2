@@ -213,10 +213,6 @@ import type {
 import { knowledgeSection, searchKnowledgeTool } from "./knowledge/tool.js";
 import { LoginStore, migrateLogin } from "./login.js";
 import { type MachineOptions, Machines } from "./machines.js";
-import { nodeHandlers } from "./nodes/serve.js";
-import { NodeProvider, NodeSandboxProvider, nodeProviderId, type NodeWorkspace } from "./nodes/remote.js";
-import { Nodes, type NodesOptions } from "./nodes/service.js";
-import { nodeTools, type NodeToolsHost } from "./nodes/tools.js";
 import {
   MAGIC_PROMPT,
   MagicAutomations,
@@ -241,6 +237,15 @@ import { MailService, SendLimiter } from "./mail/service.js";
 import { MAIL_GUIDANCE, mailSendHook, mailTools } from "./mail/tools.js";
 import { type MediaRequest, type MediaResult, makeMedia } from "./media.js";
 import type { CatalogWatcher } from "./models-catalog.js";
+import {
+  NodeProvider,
+  NodeSandboxProvider,
+  type NodeWorkspace,
+  nodeProviderId,
+} from "./nodes/remote.js";
+import { nodeHandlers } from "./nodes/serve.js";
+import { Nodes, type NodesOptions } from "./nodes/service.js";
+import { type NodeToolsHost, nodeTools } from "./nodes/tools.js";
 import { memoryTool, type NoteOwner, Notes } from "./notes.js";
 import {
   completeTaskTool,

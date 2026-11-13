@@ -10,7 +10,7 @@
 //  - storage: files in a folder of this machine kept for the asker, nowhere else.
 import { createReadStream } from "node:fs";
 import { mkdir, open, readdir, rm, stat, statfs } from "node:fs/promises";
-import { arch, cpus, freemem, loadavg, release, totalmem, type as osType } from "node:os";
+import { arch, cpus, freemem, loadavg, type as osType, release, totalmem } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { bashOutsideWrites, criticalOf } from "@redgiant/hierarchy";
 import type { NodeCapabilities } from "@redgiant/protocol";

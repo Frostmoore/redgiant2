@@ -21,7 +21,6 @@
 // scrypt makes guessing the code from a recorded proof cost far more than its ten minutes. The
 // person then compares the fingerprints (and six digits from th) on both machines and confirms.
 import {
-  type KeyObject,
   createCipheriv,
   createDecipheriv,
   createHash,
@@ -31,6 +30,7 @@ import {
   diffieHellman,
   generateKeyPairSync,
   hkdfSync,
+  type KeyObject,
   randomBytes,
   scrypt,
   sign,
