@@ -421,7 +421,16 @@ jobs:
           node packaging/update/sign.mjs rel/SHA256SUMS-os
           [ ! -e rel/redgiant-os-stack.json ] || node packaging/update/sign.mjs rel/redgiant-os-stack.json
           cat rel/SHA256SUMS-os
+      # The signed files, also as an artifact: the pre-release can be made from them by hand when
+      # this repository's token may not create releases.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: redgiant-os-preview
+          path: rel/*
+          compression-level: 0
+          retention-days: 14
       - name: The pre-release os-preview
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.stack.outputs.version }}
