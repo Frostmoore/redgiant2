@@ -38,7 +38,9 @@ SERIAL=$LOGS/serial-$MODE-$ARCH-$FIRMWARE$([ "$SECUREBOOT" = 1 ] && echo -sb).lo
 
 # KVM when the runner has it; otherwise emulation, with longer limits.
 # FORCE_TCG=1: emulation even with KVM (nested KVM may not run the SMM that Secure Boot firmware needs).
-if [ -w /dev/kvm ] && [ -z "${FORCE_TCG:-}" ]; then ACCEL=kvm CPU=host BOOT_LIMIT=${BOOT_LIMIT:-600}; else ACCEL=tcg CPU=max BOOT_LIMIT=${BOOT_LIMIT:-3600}; fi
+# KVM only for a guest of the host's own processor.
+case "$(uname -m)" in x86_64) HOST=amd64 ;; aarch64) HOST=arm64 ;; *) HOST=other ;; esac
+if [ -w /dev/kvm ] && [ "$HOST" = "$ARCH" ] && [ -z "${FORCE_TCG:-}" ]; then ACCEL=kvm CPU=host BOOT_LIMIT=${BOOT_LIMIT:-600}; else ACCEL=tcg CPU=max BOOT_LIMIT=${BOOT_LIMIT:-3600}; fi
 echo "QEMU: $ARCH, $FIRMWARE$([ "$SECUREBOOT" = 1 ] && echo " (Secure Boot)"), $ACCEL"
 
 firmware() { # args for UEFI: a private copy of the variables
