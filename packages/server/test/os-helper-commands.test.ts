@@ -22,8 +22,9 @@ const helper = fileURLToPath(new URL("../helpers/redgiant-helper", import.meta.u
 const tls = fileURLToPath(
   new URL("../../../packaging/os/rootfs/usr/lib/redgiant-os/redgiant-tls", import.meta.url),
 );
+// RedGiant OS's helper is Linux's (GNU base64, ip…): macOS's tools differ.
 const tools =
-  process.platform !== "win32" &&
+  process.platform === "linux" &&
   ["jq", "base64", "openssl"].every((c) => spawnSync("sh", ["-c", `command -v ${c}`]).status === 0);
 
 const b64 = (s: string) => Buffer.from(s).toString("base64");
