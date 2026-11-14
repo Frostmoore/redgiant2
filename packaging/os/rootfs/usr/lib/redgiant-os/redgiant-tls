@@ -115,6 +115,10 @@ make_server() {
 
 ensure() {
   install -d -m 0700 "$DIR"
+  # One run at a time: new addresses start it in the background (write_issue) while the boot's
+  # own run may still be going.
+  exec 9>"$DIR/.lock"
+  flock 9
   local changed=0
   make_ca && changed=1
   make_server && changed=1
