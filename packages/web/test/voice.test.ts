@@ -2,6 +2,9 @@
 // Hands-free voice (G38.4): the state machine as a table, the VAD on synthetic audio, what the
 // voice reads of an answer, the wake-word phrases, and a whole conversation through fake ports.
 import { describe, expect, it } from "vitest";
+import { ApiError } from "../src/api.js";
+import { explain } from "../src/explain.js";
+import { dictionaries, lang } from "../src/i18n.js";
 import { VoiceController, type VoicePorts } from "../src/voice/controller.js";
 import {
   initialVoice,
@@ -21,7 +24,16 @@ import {
   withVoiceHint,
 } from "../src/voice/speakable.js";
 import { downsample, encodeWav, ratioFor, rms, Vad } from "../src/voice/vad.js";
-import { classifyHeard, minConfFor, wakeGrammar } from "../src/voice/wake.js";
+import {
+  classifyHeard,
+  customWake,
+  minConfFor,
+  spokenWake,
+  WAKE_EXAMPLES,
+  wakeGrammar,
+  wakeLabel,
+  wakeProblem,
+} from "../src/voice/wake.js";
 
 const at = (phase: VoicePhase, wake = true): VoiceState => ({ phase, wake });
 
@@ -296,10 +308,88 @@ describe("the wake word (Vosk's grammar)", () => {
   });
 });
 
+describe("a wake word of one's own", () => {
+  it("is spelled as the model spells it, «RedGiant» as two words", () => {
+    expect(spokenWake("  Ehi, RedGiant! ")).toBe("ehi red giant");
+    expect(spokenWake("Ciao   Computer")).toBe("ciao computer");
+    expect(customWake("it", "Ehi RedGiant")).toBeUndefined();
+    expect(customWake("it", undefined)).toBeUndefined();
+    expect(customWake("it", "Ciao computer")).toBe("ciao computer");
+    expect(wakeLabel("it", undefined)).toBe("Ehi RedGiant");
+    expect(wakeLabel("en", " Hey computer ")).toBe("Hey computer");
+  });
+
+  it("listens for that phrase only, with the stop words still there", () => {
+    const g = JSON.parse(wakeGrammar("it", "Ciao computer")) as string[];
+    expect(g).toEqual(["ciao computer", "stop", "basta", "basta così", "zitto", "[unk]"]);
+    const sure = [
+      { word: "ciao", conf: 0.9 },
+      { word: "computer", conf: 0.9 },
+    ];
+    expect(classifyHeard("it", "ciao computer", sure, 0.75, "Ciao computer")).toBe("wake");
+    // Every word must be sure, not only the name.
+    expect(
+      classifyHeard(
+        "it",
+        "ciao computer",
+        [sure[0] as never, { word: "computer", conf: 0.5 }],
+        0.75,
+        "Ciao computer",
+      ),
+    ).toBeUndefined();
+    // The default phrase no longer wakes it.
+    expect(classifyHeard("it", "ehi red giant", undefined, 0.75, "Ciao computer")).toBeUndefined();
+    expect(classifyHeard("it", "basta", [{ word: "basta", conf: 1 }], 0.7, "Ciao computer")).toBe(
+      "stop",
+    );
+  });
+
+  it("says what is wrong before asking the model", () => {
+    expect(wakeProblem("it", " ")).toBe("empty");
+    expect(wakeProblem("it", "uno due tre quattro cinque")).toBe("tooLong");
+    expect(wakeProblem("it", "Basta")).toBe("stopWord");
+    expect(wakeProblem("it", "Ehi")).toBe("short");
+    expect(wakeProblem("it", "Ciao computer")).toBeUndefined();
+    for (const l of ["it", "en"] as const)
+      for (const w of WAKE_EXAMPLES[l]) expect(wakeProblem(l, w), w).toBeUndefined();
+  });
+});
+
+describe("the voice's failures, in the person's language", () => {
+  it("turns the server's codes into Italian or English, the provider named", () => {
+    lang.value = "it";
+    const none = new ApiError(
+      400,
+      "No transcription service: set one in Settings, Voice",
+      "voice_no_service",
+    );
+    expect(explain(none)).toBe(dictionaries.it.err_voice_no_service);
+    expect(explain(none)).not.toMatch(/transcription service/);
+    const refused = new ApiError(502, "Groq refused the key", "voice_key_refused", {
+      name: "Groq",
+    });
+    expect(explain(refused)).toBe(
+      "Groq ha rifiutato la chiave: controllala in Impostazioni, Voce.",
+    );
+    lang.value = "en";
+    expect(explain(refused)).toBe("Groq refused the key: check it in Settings, Voice.");
+    const status = new ApiError(502, "x", "voice_service_error", { name: "OpenAI", status: "500" });
+    expect(explain(status)).toBe("OpenAI answered with an error (500).");
+    lang.value = "it";
+  });
+});
+
 describe("settings on this device", () => {
   it("start from the defaults and clamp what was saved", () => {
     localStorage.removeItem("rg.voice");
-    expect(loadVoiceSettings("it")).toMatchObject({ enabled: false, wake: true, lang: "it" });
+    expect(loadVoiceSettings("it")).toMatchObject({
+      enabled: false,
+      wake: true,
+      lang: "it",
+      wakeWords: {},
+      reader: { kind: "browser" },
+      volume: 150,
+    });
     localStorage.setItem(
       "rg.voice",
       JSON.stringify({
@@ -308,6 +398,9 @@ describe("settings on this device", () => {
         followupSec: 99,
         lang: "xx",
         target: { kind: "?" },
+        volume: 900,
+        wakeWords: { it: "Ciao computer", en: 3 },
+        reader: { kind: "cloud", provider: "openai", model: "gone-model" },
       }),
     );
     expect(loadVoiceSettings("en")).toMatchObject({
@@ -316,6 +409,22 @@ describe("settings on this device", () => {
       followupSec: 30,
       lang: "en",
       target: { kind: "open" },
+      volume: 200,
+      wakeWords: { it: "Ciao computer" },
+      // A model the provider closed: back to the browser's voice.
+      reader: { kind: "browser" },
+    });
+    localStorage.setItem(
+      "rg.voice",
+      JSON.stringify({
+        reader: { kind: "cloud", provider: "elevenlabs", model: "eleven_v4", voice: "v1" },
+      }),
+    );
+    expect(loadVoiceSettings("it").reader).toEqual({
+      kind: "cloud",
+      provider: "elevenlabs",
+      model: "eleven_v4",
+      voice: "v1",
     });
     localStorage.removeItem("rg.voice");
   });

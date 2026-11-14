@@ -6,18 +6,79 @@
 import { forWhisperCpp, sniffAudio } from "./local-voice.js";
 
 export interface TranscriptionConfig {
-  /** "local": whisper.cpp on this computer (RedGiant 3.0), started by RedGiant itself. */
-  api: "whisper-asr" | "openai" | "local";
+  /**
+   * "local": whisper.cpp on this computer (RedGiant 3.0), started by RedGiant itself;
+   * "elevenlabs": ElevenLabs Scribe (3.7.3). OpenAI and Groq in the cloud are "openai".
+   */
+  api: "whisper-asr" | "openai" | "local" | "elevenlabs";
   /** whisper-asr: its base URL; openai: the API base, e.g. https://api.openai.com/v1. */
   url: string;
-  /** For "openai": the model (whisper-1 by default). */
+  /** For "openai" and "elevenlabs": the model (whisper-1 by default). */
   model?: string;
   key?: string;
   /** "local" on a Mac: the whisper binding reads WAV only. */
   wavOnly?: boolean;
+  /** Who it is, named in the messages (a brand: "OpenAI", "Groq"…; "whisper" otherwise). */
+  name?: string;
+  /** A provider in the cloud chosen before its key was given. */
+  noKey?: boolean;
+  /** Ask for JSON (the cloud's transcription models answer only that). */
+  json?: boolean;
+  /** No language hint: the model keeps the language spoken (gpt-transcribe). */
+  noLanguage?: boolean;
 }
 
-export class TranscriptionError extends Error {}
+/**
+ * Why a recording did not become text. The page and the chats say it in the person's language
+ * from `code` (`err_<code>`, with `vars`); `message` is the English fallback for the log.
+ */
+export type TranscriptionCode =
+  | "voice_no_service"
+  | "voice_no_key"
+  | "voice_empty"
+  | "voice_too_long"
+  | "voice_convert"
+  | "voice_timeout"
+  | "voice_unreachable"
+  | "voice_key_refused"
+  | "voice_rate_limited"
+  | "voice_service_error";
+
+export class TranscriptionError extends Error {
+  constructor(
+    message: string,
+    readonly code: TranscriptionCode = "voice_service_error",
+    readonly vars: Record<string, string> = {},
+    /** The HTTP status the server answers with. */
+    readonly status: 400 | 413 | 502 = 502,
+  ) {
+    super(message);
+  }
+}
+
+/** The error for an HTTP answer that is not ok (shared with the voice that reads). */
+export function httpVoiceError(status: number, name: string, detail: string): TranscriptionError {
+  if (status === 401 || status === 403)
+    return new TranscriptionError(`${name} refused the key`, "voice_key_refused", { name });
+  if (status === 429)
+    return new TranscriptionError(`${name}: too many requests or no credit`, "voice_rate_limited", {
+      name,
+    });
+  return new TranscriptionError(
+    `${name} answered ${status}${detail ? `: ${detail}` : ""}`,
+    "voice_service_error",
+    { name, status: String(status) },
+  );
+}
+
+/** The error for a request that never got an answer. */
+export function fetchVoiceError(err: Error, name: string): TranscriptionError {
+  return err.name === "TimeoutError" || err.name === "AbortError"
+    ? new TranscriptionError(`${name} took too long`, "voice_timeout", { name })
+    : new TranscriptionError(`${name} is unreachable: ${err.message}`, "voice_unreachable", {
+        name,
+      });
+}
 
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
@@ -68,8 +129,13 @@ export async function transcribe(
     ffmpeg?: string | (() => Promise<string | undefined>);
   } = {},
 ): Promise<string> {
-  if (audio.length === 0) throw new TranscriptionError("The recording is empty");
-  if (audio.length > MAX_AUDIO_BYTES) throw new TranscriptionError("The recording is too long");
+  const name = cfg.name ?? (cfg.api === "local" ? "whisper.cpp" : "whisper");
+  if (cfg.noKey || (cfg.api === "elevenlabs" && !cfg.key))
+    throw new TranscriptionError(`${name} has no key yet`, "voice_no_key", { name }, 400);
+  if (audio.length === 0)
+    throw new TranscriptionError("The recording is empty", "voice_empty", {}, 400);
+  if (audio.length > MAX_AUDIO_BYTES)
+    throw new TranscriptionError("The recording is too long", "voice_too_long", {}, 413);
   let type = mime.split(";")[0]?.trim().toLowerCase() || "application/octet-stream";
   // whisper.cpp reads WAV, MP3, FLAC and Ogg/Vorbis only: the rest is converted here first.
   if (cfg.api === "local") {
@@ -77,13 +143,13 @@ export async function transcribe(
       ...(opts.ffmpeg && { ffmpeg: opts.ffmpeg }),
       ...(cfg.wavOnly && { wavOnly: true }),
     }).catch((err) => {
-      throw new TranscriptionError((err as Error).message);
+      throw new TranscriptionError((err as Error).message, "voice_convert");
     }));
   }
   const known = BY_CONTENT[sniffAudio(audio)];
   if (known) type = known[0];
   const file = new Blob([new Uint8Array(audio)], { type });
-  const name = `voice.${known?.[1] ?? EXTENSIONS[type] ?? "bin"}`;
+  const fileName = `voice.${known?.[1] ?? EXTENSIONS[type] ?? "bin"}`;
   const base = cfg.url.replace(/\/+$/, "");
   const body = new FormData();
   let url: string;
@@ -96,41 +162,50 @@ export async function transcribe(
       ...(opts.language && { language: opts.language }),
     });
     url = `${base}/asr?${q}`;
-    body.set("audio_file", file, name);
+    body.set("audio_file", file, fileName);
+  } else if (cfg.api === "elevenlabs") {
+    // ElevenLabs Scribe: POST /v1/speech-to-text, multipart, `xi-api-key`, JSON with `text`.
+    url = `${base}/speech-to-text`;
+    body.set("file", file, fileName);
+    body.set("model_id", cfg.model ?? "scribe_v3");
+    if (opts.language) body.set("language_code", opts.language);
   } else {
     url = `${base}/audio/transcriptions`;
-    body.set("file", file, name);
+    body.set("file", file, fileName);
     body.set("model", cfg.model ?? "whisper-1");
-    body.set("response_format", "text");
-    if (opts.language) body.set("language", opts.language);
+    body.set("response_format", cfg.json ? "json" : "text");
+    if (opts.language && !cfg.noLanguage) body.set("language", opts.language);
   }
+  const headers: Record<string, string> = {};
+  if (cfg.key && cfg.api === "elevenlabs") headers["xi-api-key"] = cfg.key;
+  else if (cfg.key) headers.authorization = `Bearer ${cfg.key}`;
   let r: Response;
   try {
     r = await (opts.fetch ?? fetch)(url, {
       method: "POST",
       body,
-      ...(cfg.key && { headers: { authorization: `Bearer ${cfg.key}` } }),
+      headers,
       signal: AbortSignal.timeout(opts.timeoutMs ?? 5 * 60_000),
     });
   } catch (err) {
-    throw new TranscriptionError(
-      (err as Error).name === "TimeoutError"
-        ? "The transcription service took too long"
-        : `The transcription service is unreachable: ${(err as Error).message}`,
-    );
+    throw fetchVoiceError(err as Error, name);
   }
   if (!r.ok) {
     const detail = (await r.text().catch(() => "")).slice(0, 200);
-    throw new TranscriptionError(
-      r.status === 401 || r.status === 403
-        ? "The transcription service refused the key"
-        : `The transcription service answered ${r.status}${detail ? `: ${detail}` : ""}`,
-    );
+    throw httpVoiceError(r.status, name, detail);
   }
   const text = await r.text();
-  // response_format=text is plain text; some servers send JSON anyway.
-  const plain = text.trimStart().startsWith("{")
-    ? ((JSON.parse(text) as { text?: string }).text ?? "")
-    : text;
+  // response_format=text is plain text; the cloud answers JSON.
+  let plain = text;
+  if (text.trimStart().startsWith("{")) {
+    try {
+      plain = (JSON.parse(text) as { text?: string }).text ?? "";
+    } catch {
+      throw new TranscriptionError(`${name} answered something unreadable`, "voice_service_error", {
+        name,
+        status: String(r.status),
+      });
+    }
+  }
   return plain.replace(/\s+/g, " ").trim();
 }

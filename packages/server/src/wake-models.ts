@@ -10,7 +10,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import type { Job } from "@redgiant/protocol";
 import { unzipSync } from "fflate";
 import type { JobHandle, Jobs } from "./jobs.js";
@@ -88,6 +88,70 @@ export function zipToTarGz(zip: Uint8Array): Uint8Array {
   return gzipSync(tar(entries), { level: 6 });
 }
 
+/** One file inside a tar archive (ustar), by the end of its name. */
+export function tarEntry(archive: Uint8Array, suffix: string): Uint8Array | undefined {
+  const dec = new TextDecoder();
+  const field = (h: Uint8Array, at: number, len: number) =>
+    dec.decode(h.subarray(at, at + len)).replace(/\0.*$/s, "");
+  for (let at = 0; at + 512 <= archive.length; ) {
+    const h = archive.subarray(at, at + 512);
+    if (h.every((b) => b === 0)) return undefined;
+    const prefix = field(h, 345, 155);
+    const name = prefix ? `${prefix}/${field(h, 0, 100)}` : field(h, 0, 100);
+    const size = Number.parseInt(field(h, 124, 12).trim() || "0", 8);
+    if (name.endsWith(suffix)) return archive.subarray(at + 512, at + 512 + size);
+    at += 512 + Math.ceil(size / 512) * 512;
+  }
+  return undefined;
+}
+
+/**
+ * The words a Vosk model knows (3.7.3, a wake word of one's own): small models have no words.txt,
+ * the grammar's FST (`graph/Gr.fst`, OpenFst binary) carries its symbol table in the header.
+ */
+export function fstWords(fst: Uint8Array): string[] {
+  const b = Buffer.from(fst.buffer, fst.byteOffset, fst.byteLength);
+  let at = 0;
+  const i32 = () => {
+    const v = b.readInt32LE(at);
+    at += 4;
+    return v;
+  };
+  const i64 = () => {
+    const v = Number(b.readBigInt64LE(at));
+    at += 8;
+    return v;
+  };
+  const str = () => {
+    const n = i32();
+    if (n < 0 || at + n > b.length) throw new Error("Not an FST");
+    const s = b.toString("utf8", at, at + n);
+    at += n;
+    return s;
+  };
+  if (i32() !== 2125659606) throw new Error("Not an FST");
+  str(); // fst type
+  str(); // arc type
+  i32(); // version
+  const flags = i32();
+  i64(); // properties
+  i64(); // start
+  i64(); // states
+  i64(); // arcs
+  // Input symbols first (bit 1), then output symbols (bit 2): the words are in either.
+  if (!(flags & 3)) throw new Error("The model has no word list");
+  if (i32() !== 2125658996) throw new Error("Not a symbol table");
+  str(); // name
+  i64(); // available key
+  const size = i64();
+  const words: string[] = [];
+  for (let k = 0; k < size; k++) {
+    words.push(str());
+    i64();
+  }
+  return words;
+}
+
 export class WakeModels {
   constructor(
     private readonly dataDir: string,
@@ -163,6 +227,41 @@ export class WakeModels {
   }
 
   remove(lang: WakeLang): Promise<void> {
-    return rm(this.path(lang), { force: true });
+    this.vocab.delete(lang);
+    return Promise.all([
+      rm(this.path(lang), { force: true }),
+      rm(`${this.path(lang)}.words`, { force: true }),
+    ]).then(() => {});
+  }
+
+  private vocab = new Map<WakeLang, Set<string>>();
+
+  /**
+   * The model's words (read once from the archive, then kept beside it as `.words`); undefined
+   * while the model is not here.
+   */
+  async vocabulary(lang: WakeLang): Promise<Set<string> | undefined> {
+    const known = this.vocab.get(lang);
+    if (known) return known;
+    if (!existsSync(this.path(lang))) return undefined;
+    const cache = `${this.path(lang)}.words`;
+    let words = await readFile(cache, "utf8")
+      .then((t) => t.split("\n").filter(Boolean))
+      .catch(() => undefined);
+    if (!words) {
+      const fst = tarEntry(gunzipSync(await this.read(lang)), "/graph/Gr.fst");
+      if (!fst) throw new Error("The model has no word list");
+      words = fstWords(fst).filter((w) => !w.startsWith("<") && !w.startsWith("!"));
+      await writeFile(cache, words.join("\n"));
+    }
+    const set = new Set(words);
+    this.vocab.set(lang, set);
+    return set;
+  }
+
+  /** Which of these words the model does not know; undefined while the model is not here. */
+  async missing(lang: WakeLang, words: string[]): Promise<string[] | undefined> {
+    const v = await this.vocabulary(lang);
+    return v && words.filter((w) => !v.has(w));
   }
 }

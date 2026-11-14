@@ -9,6 +9,7 @@ import { explain } from "./Brain.js";
 import { SearchSettings } from "./SearchSettings.js";
 import { Acts } from "./SettingsKit.js";
 import { Field, JobView, useJob } from "./ui.js";
+import { TranscriptionPicker } from "./VoiceServices.js";
 
 /**
  * RedGiant's own search engine (SearXNG in Docker, 2026-11-03): one button, the steps with
@@ -75,10 +76,6 @@ export function ServicePanel({
   part: "search" | "voice" | "images";
   onSaved: () => void;
 }) {
-  const [voiceApi, setVoiceApi] = useState(s.config.transcription?.api ?? "whisper-asr");
-  const [voiceUrl, setVoiceUrl] = useState(s.config.transcription?.url ?? "");
-  const [voiceModel, setVoiceModel] = useState(s.config.transcription?.model ?? "");
-  const [voiceKey, setVoiceKey] = useState("");
   const [imagesKey, setImagesKey] = useState("");
   const [imagesModel, setImagesModel] = useState(s.config.imagesModel ?? "");
   const [busy, setBusy] = useState(false);
@@ -97,20 +94,6 @@ export function ServicePanel({
               ...(imagesModel.trim() && { model: imagesModel.trim() }),
             },
           }),
-        ...(part === "voice" &&
-          !s.locked.voice && {
-            transcription:
-              voiceApi === "local"
-                ? { api: "local", url: "" }
-                : voiceUrl.trim()
-                  ? {
-                      api: voiceApi,
-                      url: voiceUrl.trim(),
-                      ...(voiceModel.trim() && { model: voiceModel.trim() }),
-                      ...(voiceKey && { key: voiceKey }),
-                    }
-                  : null,
-          }),
       });
       setResult({ ok: true, text: t("saved") });
       onSaved();
@@ -119,6 +102,14 @@ export function ServicePanel({
     }
     setBusy(false);
   };
+  // Voice messages: the same choice as Settings › Voice, its cards and «Try» (3.7.3).
+  if (part === "voice")
+    return (
+      <div class="services">
+        <p class="wz-lead2">{t("servicesVoiceHelp")}</p>
+        <TranscriptionPicker s={s} onSaved={onSaved} />
+      </div>
+    );
   if (part === "search")
     return (
       <div class="services">
@@ -127,91 +118,28 @@ export function ServicePanel({
         <SearchSettings s={s} onSaved={onSaved} />
       </div>
     );
-  const locked = part === "voice" ? s.locked.voice : s.locked.images;
+  const locked = s.locked.images;
   return (
     <form class="services" onSubmit={(e) => void save(e)}>
-      {part === "voice" ? (
-        <>
-          <p class="wz-lead2">{t("servicesVoiceHelp")}</p>
-          <Field label={t("servicesVoiceService")}>
-            <select
-              disabled={s.locked.voice}
-              value={voiceApi}
-              onChange={(e) =>
-                setVoiceApi(
-                  (e.target as HTMLSelectElement).value as "whisper-asr" | "openai" | "local",
-                )
-              }
-            >
-              <option value="local">{t("voiceLocal")}</option>
-              <option value="whisper-asr">whisper-asr-webservice</option>
-              <option value="openai">{t("wzVoiceOpenai")}</option>
-            </select>
-          </Field>
-          {voiceApi === "local" && <p class="ui-help">{t("voiceLocalHint")}</p>}
-          {voiceApi !== "local" && (
-            <Field label={t("servicesVoiceUrl")} help={s.locked.voice ? t("wzLocked") : undefined}>
-              <input
-                placeholder={
-                  voiceApi === "openai" ? "https://api.openai.com/v1" : "http://whisper-asr:9000"
-                }
-                disabled={s.locked.voice}
-                value={voiceUrl}
-                onInput={(e) => setVoiceUrl((e.target as HTMLInputElement).value)}
-              />
-            </Field>
-          )}
-          {voiceApi === "openai" && (
-            <>
-              <Field label={t("wzVoiceModel")}>
-                <input
-                  placeholder="whisper-1"
-                  disabled={s.locked.voice}
-                  value={voiceModel}
-                  onInput={(e) => setVoiceModel((e.target as HTMLInputElement).value)}
-                />
-              </Field>
-              <Field
-                label={t("wzVoiceKey")}
-                help={s.secretsSet.transcription ? t("wzAlreadySet") : undefined}
-              >
-                <input
-                  type="password"
-                  autocomplete="off"
-                  disabled={s.locked.voice}
-                  value={voiceKey}
-                  onInput={(e) => setVoiceKey((e.target as HTMLInputElement).value)}
-                />
-              </Field>
-            </>
-          )}
-        </>
-      ) : (
-        <>
-          <p class="wz-lead2">{t("servicesImagesHelp")}</p>
-          <Field
-            label={t("wzImagesKey")}
-            help={s.secretsSet.images ? t("wzAlreadySet") : undefined}
-          >
-            <input
-              type="password"
-              autocomplete="off"
-              placeholder="sk-…"
-              disabled={s.locked.images}
-              value={imagesKey}
-              onInput={(e) => setImagesKey((e.target as HTMLInputElement).value)}
-            />
-          </Field>
-          <Field label={t("wzImagesModel")}>
-            <input
-              placeholder="gpt-image-2.5-flare"
-              disabled={s.locked.images}
-              value={imagesModel}
-              onInput={(e) => setImagesModel((e.target as HTMLInputElement).value)}
-            />
-          </Field>
-        </>
-      )}
+      <p class="wz-lead2">{t("servicesImagesHelp")}</p>
+      <Field label={t("wzImagesKey")} help={s.secretsSet.images ? t("wzAlreadySet") : undefined}>
+        <input
+          type="password"
+          autocomplete="off"
+          placeholder="sk-…"
+          disabled={s.locked.images}
+          value={imagesKey}
+          onInput={(e) => setImagesKey((e.target as HTMLInputElement).value)}
+        />
+      </Field>
+      <Field label={t("wzImagesModel")}>
+        <input
+          placeholder="gpt-image-2.5-flare"
+          disabled={s.locked.images}
+          value={imagesModel}
+          onInput={(e) => setImagesModel((e.target as HTMLInputElement).value)}
+        />
+      </Field>
       {result && <p class={`notice ${result.ok ? "ok" : "error"}`}>{result.text}</p>}
       <Acts>
         <button type="submit" class="wz-btn primary" disabled={busy || locked}>

@@ -119,6 +119,8 @@ describe("Settings drawn as the wizard", () => {
     const r = render(<General />);
     await waitFor(() => expect(r.container.querySelector(".wz-tile")).not.toBeNull());
     fireEvent.click(r.getByText("Messaggi vocali"));
+    // The same drawn cards as Settings › Voice (3.7.3): a choice first, then Save.
+    fireEvent.click(r.getByText("Su questo computer"));
     fireEvent.click(r.getByText("Salva"));
     await waitFor(() => expect(calls).toContain("setupModels"));
   });

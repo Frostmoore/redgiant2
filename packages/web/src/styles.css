@@ -19304,6 +19304,47 @@ html[data-theme="dark"] {
 .vc-model > p {
   margin: 0;
 }
+/* 3.7.3: transcription and reading, a wake word of one's own: one column, one gap. */
+.vc-service,
+.vc-wakeword,
+.vc-key {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+.vc-service > p,
+.vc-wakeword > p,
+.vc-key > p {
+  margin: 0;
+}
+.vc-key > a.button {
+  align-self: flex-start;
+}
+.vc-key > .link {
+  align-self: flex-start;
+}
+.vc-label {
+  margin: 0;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--dim);
+}
+.vc-wake-form {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.vc-wake-form .ui-field {
+  flex: 1 1 220px;
+  margin: 0;
+  text-align: left;
+}
+/* The red line's link lands here: the sticky header does not cover the title. */
+.vc-anchor {
+  scroll-margin-top: 16px;
+}
 .vc-limits p {
   margin: 0 0 8px;
 }

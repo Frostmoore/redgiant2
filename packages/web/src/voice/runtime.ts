@@ -3,13 +3,14 @@
 // hands-free is on, the page is in front and something listens (the wake word, or a turn in
 // progress); the indicator in the top bar says so all the time it is.
 import { signal } from "@preact/signals";
-import type { Event, Job, JobProgress } from "@redgiant/protocol";
+import type { Event, Job, JobProgress, SpeechChoice } from "@redgiant/protocol";
+import { explain } from "../explain.js";
 import { t } from "../i18n.js";
 import { activeTab, getApi, getLive, sessionView, tabs } from "../state.js";
 import { VoiceController } from "./controller.js";
 import { voiceSettings } from "./settings.js";
 import { chunksForVoice, withVoiceHint } from "./speakable.js";
-import { downsample } from "./vad.js";
+import { downsample, encodeWav } from "./vad.js";
 import {
   modelLoadedBefore,
   startVosk,
@@ -40,6 +41,14 @@ export const voicePaused = signal(false);
  * heard then, and the indicator asks for the tap instead of saying it listens.
  */
 export const audioAsleep = signal(false);
+/**
+ * The voice in the cloud could not read (3.7.3): why, in the person's words. The answer was
+ * read with the browser's voice instead; the Voice page says it.
+ */
+export const speechProblem = signal<string | undefined>(undefined);
+
+/** A failure already in the person's words (the rest is said with a sentence of ours). */
+class SaidError extends Error {}
 
 /** The page's sound, created once; its state followed for the indicator. */
 function audioContext(): AudioContext {
@@ -64,8 +73,13 @@ export function voicesFor(lang: WakeLang): SpeechSynthesisVoice[] {
 
 let hushed: (() => void) | undefined;
 
+/** The browser's voice reaches 1 at most: louder needs Web Audio, which only the cloud's has. */
+const browserVolume = () => Math.min(1, voiceSettings.value.volume / 100);
+/** The cloud's audio may go up to twice as loud; the compressor after it keeps it clean. */
+const cloudGain = () => Math.min(2, Math.max(0.1, voiceSettings.value.volume / 100));
+
 /** Reads aloud with the browser's voice; resolves at the end or when hushed. */
-export function speak(text: string): Promise<void> {
+function speakBrowser(text: string): Promise<void> {
   if (typeof speechSynthesis === "undefined" || !text.trim()) return Promise.resolve();
   const { lang, voice } = voiceSettings.value;
   const chosen =
@@ -86,6 +100,7 @@ export function speak(text: string): Promise<void> {
     for (const piece of pieces) {
       const u = new SpeechSynthesisUtterance(piece);
       u.lang = lang === "it" ? "it-IT" : "en-US";
+      u.volume = browserVolume();
       if (chosen) u.voice = chosen;
       u.onend = u.onerror = () => {
         left--;
@@ -96,9 +111,112 @@ export function speak(text: string): Promise<void> {
   });
 }
 
+let cloudStop: AbortController | undefined;
+let cloudSource: AudioBufferSourceNode | undefined;
+
+/** Plays one piece through the volume and a compressor; resolves at its end or when hushed. */
+function playBuffer(ctx: AudioContext, buffer: AudioBuffer, stop: AbortSignal): Promise<void> {
+  return new Promise((done) => {
+    if (stop.aborted) return done();
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = cloudGain();
+    // A gentle limiter: loud enough without clipping when the gain goes above 1.
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -6;
+    limiter.knee.value = 6;
+    limiter.ratio.value = 12;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.15;
+    src.connect(gain).connect(limiter).connect(ctx.destination);
+    cloudSource = src;
+    const end = () => {
+      src.onended = null;
+      if (cloudSource === src) cloudSource = undefined;
+      done();
+    };
+    src.onended = end;
+    // Hushed («stop», speaking over it): the sound itself stops, not only the wait for it.
+    stop.addEventListener(
+      "abort",
+      () => {
+        try {
+          src.stop();
+        } catch {
+          // Not started or already over.
+        }
+        end();
+      },
+      { once: true },
+    );
+    src.start();
+  });
+}
+
+/**
+ * Reads aloud with a provider in the cloud (3.7.3): the server makes each piece, the page plays
+ * it with Web Audio while the next one is being made. Resolves at the end or when hushed; a
+ * failure reads what is left with the browser's voice and says why on the Voice page.
+ */
+async function speakCloud(choice: Extract<SpeechChoice, { kind: "cloud" }>, text: string) {
+  const ctx = audioContext();
+  if (ctx.state === "suspended") await ctx.resume().catch(() => {});
+  cloudStop?.abort();
+  const stop = new AbortController();
+  cloudStop = stop;
+  hushed = () => stop.abort();
+  const pieces = chunksForVoice(text, 600);
+  const { kind: _k, ...which } = choice;
+  const make = (piece: string) =>
+    getApi()
+      .speech(which, piece, stop.signal)
+      .then((bytes) => ctx.decodeAudioData(bytes));
+  let next: Promise<AudioBuffer> | undefined = pieces[0] ? make(pieces[0]) : undefined;
+  for (let i = 0; i < pieces.length && next; i++) {
+    let buffer: AudioBuffer;
+    try {
+      buffer = await next;
+    } catch (err) {
+      if (stop.signal.aborted) return;
+      speechProblem.value = explain(err);
+      hushed = undefined;
+      return speakBrowser(pieces.slice(i).join(" "));
+    }
+    if (stop.signal.aborted) return;
+    const ahead = pieces[i + 1];
+    next = ahead ? make(ahead) : undefined;
+    next?.catch(() => {});
+    await playBuffer(ctx, buffer, stop.signal);
+    if (stop.signal.aborted) return;
+  }
+  speechProblem.value = undefined;
+  if (cloudStop === stop) hushed = undefined;
+}
+
+/**
+ * Reads aloud with the voice chosen for this device (the browser's or one in the cloud), at the
+ * volume chosen; resolves at the end or when hushed.
+ */
+export function speak(text: string, reader?: SpeechChoice): Promise<void> {
+  if (!text.trim()) return Promise.resolve();
+  const r = reader ?? voiceSettings.value.reader;
+  hush();
+  return r.kind === "cloud" ? speakCloud(r, text) : speakBrowser(text);
+}
+
 function hush(): void {
   if (typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
+  const playing = cloudSource;
+  cloudSource = undefined;
+  try {
+    playing?.stop();
+  } catch {
+    // Already over.
+  }
+  cloudStop?.abort();
   hushed?.();
+  hushed = undefined;
 }
 
 let audio: AudioContext | undefined;
@@ -193,16 +311,23 @@ let controller: VoiceController | undefined;
 let stream: MediaStream | undefined;
 let processor: ScriptProcessorNode | undefined;
 let spotter: WakeSpotter | undefined;
-let spotterLang: WakeLang | undefined;
+/** The language and wake word the running listener was started with. */
+let spotterKey: string | undefined;
+const keyOf = (lang: WakeLang) => `${lang}:${voiceSettings.value.wakeWords[lang] ?? ""}`;
 
 export function voiceController(): VoiceController {
   controller ??= new VoiceController(
     {
+      // Every failure in the person's words (3.7.3: it was read aloud in English).
       transcribe: (wav) =>
-        getApi().transcribe(
-          new Blob([wav as Uint8Array<ArrayBuffer>], { type: "audio/wav" }),
-          voiceSettings.value.lang,
-        ),
+        getApi()
+          .transcribe(
+            new Blob([wav as Uint8Array<ArrayBuffer>], { type: "audio/wav" }),
+            voiceSettings.value.lang,
+          )
+          .catch((err: unknown) => {
+            throw new SaidError(explain(err));
+          }),
       ask: (text, stop) => {
         const target = voiceTarget();
         if (!target) return Promise.reject(new Error(t("voiceNoConversation")));
@@ -271,8 +396,8 @@ function closeMic(): void {
 
 /** Downloads with a real bar: bytes, speed and time left. */
 async function fetchWithProgress(url: string, onProgress: (p: JobProgress) => void): Promise<void> {
-  const r = await fetch(url);
-  if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
+  const r = await fetch(url).catch(() => undefined);
+  if (!r?.ok || !r.body) throw new SaidError(t("voiceModelFailed"));
   const total = Number(r.headers.get("content-length")) || null;
   const reader = r.body.getReader();
   const started = performance.now();
@@ -299,7 +424,7 @@ async function fetchWithProgress(url: string, onProgress: (p: JobProgress) => vo
 
 /** Gets the wake-word model to the page (server first, then the browser) and starts it. */
 export async function prepareWakeWord(lang: WakeLang): Promise<void> {
-  if (spotter && spotterLang === lang) return;
+  if (spotter && spotterKey === keyOf(lang)) return;
   spotter?.dispose();
   spotter = undefined;
   try {
@@ -314,9 +439,9 @@ export async function prepareWakeWord(lang: WakeLang): Promise<void> {
         job = await api.job(job.id);
       }
       if (job) wakeModel.value = { state: "server", job };
-      if (job && job.state !== "done") throw new Error(job.error?.message ?? t("voiceModelFailed"));
+      if (job && job.state !== "done") throw new SaidError(t("voiceModelFailed"));
       state = await api.wakeModel(lang);
-      if (!state.ready) throw new Error(t("voiceModelFailed"));
+      if (!state.ready) throw new SaidError(t("voiceModelFailed"));
     }
     const url = `/api/voice/wake-models/${WAKE_MODEL_FILES[lang]}`;
     // The first time this browser sees it: downloaded here with its bar; the worker then finds it
@@ -329,6 +454,7 @@ export async function prepareWakeWord(lang: WakeLang): Promise<void> {
       await fetchWithProgress(url, (progress) => (wakeModel.value = { state: "page", progress }));
     }
     wakeModel.value = { state: "loading" };
+    const own = voiceSettings.value.wakeWords[lang];
     spotter = await startVosk(
       new URL(url, location.href).toString(),
       lang,
@@ -337,11 +463,16 @@ export async function prepareWakeWord(lang: WakeLang): Promise<void> {
         spotter?.reset();
         voiceController().heard(what);
       },
+      own,
     );
-    spotterLang = lang;
+    spotterKey = keyOf(lang);
     wakeModel.value = { state: "ready" };
   } catch (err) {
-    wakeModel.value = { state: "error", message: (err as Error).message };
+    // Never the library's English: our words, or the server's code in the person's language.
+    wakeModel.value = {
+      state: "error",
+      message: err instanceof SaidError ? err.message : t("voiceModelBroken"),
+    };
   }
 }
 
@@ -354,7 +485,7 @@ export async function syncVoice(): Promise<void> {
     closeMic();
     spotter?.dispose();
     spotter = undefined;
-    spotterLang = undefined;
+    spotterKey = undefined;
     return;
   }
   c.dispatch({ type: "start", wake: s.wake });
@@ -382,6 +513,48 @@ export async function startHandsFree(): Promise<void> {
   if (typeof speechSynthesis !== "undefined")
     speechSynthesis.speak(new SpeechSynthesisUtterance(""));
   await syncVoice();
+}
+
+/**
+ * «Try» for the transcription (3.7.3): a few seconds from the microphone, as WAV, written down by
+ * the service chosen. The microphone is open only for these seconds.
+ */
+export async function tryTranscription(seconds: number): Promise<string> {
+  const ctx = audioContext();
+  await ctx.resume().catch(() => {});
+  let mic: MediaStream;
+  try {
+    mic = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+  } catch {
+    throw new SaidError(t("voiceMicDenied"));
+  }
+  const kept: Float32Array[] = [];
+  const node = ctx.createScriptProcessor(4096, 1, 1);
+  node.onaudioprocess = (e) =>
+    kept.push(downsample(new Float32Array(e.inputBuffer.getChannelData(0)), ctx.sampleRate, 16000));
+  const source = ctx.createMediaStreamSource(mic);
+  source.connect(node);
+  node.connect(ctx.destination);
+  await new Promise((r) => setTimeout(r, seconds * 1000));
+  node.disconnect();
+  source.disconnect();
+  for (const track of mic.getTracks()) track.stop();
+  const pcm = new Float32Array(kept.reduce((n, k) => n + k.length, 0));
+  let at = 0;
+  for (const k of kept) {
+    pcm.set(k, at);
+    at += k.length;
+  }
+  return getApi()
+    .transcribe(
+      new Blob([encodeWav(pcm, 16000) as Uint8Array<ArrayBuffer>], { type: "audio/wav" }),
+      voiceSettings.value.lang,
+    )
+    .catch((err: unknown) => {
+      throw new SaidError(explain(err));
+    });
 }
 
 /** «Speak»: a request without the wake word. */

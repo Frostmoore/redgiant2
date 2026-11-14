@@ -153,6 +153,21 @@ describe("chat bridge (G29.5)", () => {
     expect(splitText("a".repeat(120), 50)).toHaveLength(3);
   });
 
+  it("says why a voice note did not become text, in the person's language", async () => {
+    const { t, send, host } = await setup();
+    host.language = () => "it";
+    host.transcribe = async () => {
+      throw Object.assign(new Error("Groq refused the key"), {
+        code: "voice_key_refused",
+        vars: { name: "Groq" },
+      });
+    };
+    await send({ audio: { data: new Uint8Array([1]), mime: "audio/ogg" } });
+    expect(t.texts().join("")).toBe(
+      "Groq ha rifiutato la chiave: controllala in RedGiant, Impostazioni, Voce.",
+    );
+  });
+
   it("asks approvals with buttons, and closes them when answered", async () => {
     const { t, send, approvals, decided } = await setup();
     approvals.emit("request", "me", perm);

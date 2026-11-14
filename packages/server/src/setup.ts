@@ -13,7 +13,9 @@ import type {
   LocalOffer,
   RedGiantRole,
   SystemInfo,
+  TranscriptionChoice,
   VaultSystemEntry,
+  VoiceProviderId,
 } from "@redgiant/protocol";
 import {
   agentLanguage,
@@ -25,6 +27,8 @@ import {
   mediaProvider,
   OWN_SERVER_ID,
   type SearchProviderId,
+  VOICE_PROVIDERS,
+  voiceProvider,
 } from "@redgiant/protocol";
 import { complete, ProviderError } from "@redgiant/providers";
 import {
@@ -307,7 +311,7 @@ export interface SetupConfig {
   /** The person switched RedGiant's search engine off: it is not started by itself again. */
   searxngDeclined?: boolean;
   /** Speech to text for voice messages; its key, if any, is in the secrets. */
-  transcription?: { api: "whisper-asr" | "openai" | "local"; url: string; model?: string };
+  transcription?: TranscriptionChoice;
   /** Flat subscriptions switched on (their tokens are in the secrets). */
   subscriptions?: { claude?: boolean; chatgpt?: boolean };
   /** Image generation: the model, when not the default (the OpenAI key is in the secrets). */
@@ -355,6 +359,11 @@ interface Secrets {
   /** Discord, Slack, Signal, WhatsApp settings with their tokens (G29.5). */
   chats?: Partial<Record<Platform, Record<string, string>>>;
   transcriptionKey?: string;
+  /**
+   * Keys given for the voice in the cloud (3.7.3), by `VOICE_PROVIDERS` id, when the chat's or
+   * the generation's key of that provider is not there already.
+   */
+  voiceKeys?: Record<string, string>;
   openaiImagesKey?: string;
   claudeSubscriptionToken?: string;
   githubToken?: string;
@@ -549,6 +558,18 @@ export function setupKeyMeta(path: string, c: SetupConfig): SystemKeyMeta {
           brand: sub,
         },
       );
+    case "voiceKeys": {
+      const p = voiceProvider(sub);
+      return base(
+        `${sub}-voice-key`,
+        p?.name ?? named(sub),
+        "subscriptions",
+        "provider",
+        "API key",
+        p ? [...p.hosts] : hostsOf(sub),
+        { brand: sub },
+      );
+    }
     case "searchKeys":
       return base(
         `${sub}-search-key`,
@@ -666,6 +687,8 @@ export interface SetupState {
     /** Chat platforms set up besides Telegram (G29.5). */
     chats: Platform[];
     transcription: boolean;
+    /** Voice providers in the cloud with a key (their own, or the chat's or generation's). */
+    voice: string[];
     images: boolean;
     /** Media providers with a key (their own, or the chat key they share). */
     media: string[];
@@ -933,9 +956,12 @@ export class SetupService {
       this.applyTranscription();
     else if (head === "openaiImagesKey" && !this.locked.images) this.applyImages();
     else if (head === "mediaKeys") this.applyMedia();
+    else if (head === "voiceKeys") this.applyVoice();
     else if (head === "githubToken" || head === "giteaToken") await this.applyGit();
     else if (head === "claudeSubscriptionToken" && c.subscriptions?.claude && h.claudeSubscription)
       await h.claudeSubscription(s.claudeSubscriptionToken ?? "");
+    // The voice in the cloud uses the chat's and the generation's keys too.
+    if (head === "keys" || head === "mediaKeys") this.applyVoice();
   }
 
   /**
@@ -1062,6 +1088,7 @@ export class SetupService {
     if (!this.locked.voice && c.transcription) this.applyTranscription();
     if (!this.locked.images && s.openaiImagesKey) this.applyImages();
     this.applyMedia();
+    this.o.core.setVoiceKeys(this.voiceKeys());
     // Links sent to the phone (boards on Telegram) use the way in from outside.
     this.o.core.setPublicUrl(c.remote?.url ?? c.reachable?.url);
     if (c.subscriptions?.chatgpt && h.chatgptSubscription)
@@ -1145,6 +1172,7 @@ export class SetupService {
         telegram: Boolean(this.secrets.telegramToken),
         chats: Object.keys(this.secrets.chats ?? {}) as Platform[],
         transcription: Boolean(this.secrets.transcriptionKey),
+        voice: VOICE_PROVIDERS.filter((p) => this.voiceKey(p.id)).map((p) => p.id),
         images: Boolean(this.secrets.openaiImagesKey),
         media: MEDIA_PROVIDERS.filter((p) => this.mediaKey(p.id)).map((p) => p.id),
         claudeSubscription: Boolean(this.secrets.claudeSubscriptionToken),
@@ -1216,8 +1244,9 @@ export class SetupService {
     this.secrets.keys = keys;
     this.config.keyProviders = Object.keys(keys);
     await this.save();
-    // The same key may make pictures and sounds too (OpenAI, Gemini, xAI).
+    // The same key may make pictures and sounds too (OpenAI, Gemini, xAI), and the voice.
     this.applyMedia();
+    this.applyVoice();
     if (key) await this.autoDefault();
     return { models };
   }
@@ -1259,8 +1288,9 @@ export class SetupService {
     images?: { key?: string | undefined; model?: string | undefined } | null | undefined;
     transcription?:
       | {
-          api: "whisper-asr" | "openai" | "local";
+          api: "whisper-asr" | "openai" | "local" | "cloud";
           url: string;
+          provider?: VoiceProviderId | undefined;
           model?: string | undefined;
           key?: string | undefined;
         }
@@ -1299,9 +1329,23 @@ export class SetupService {
       this.applyImages();
     }
     if (m.transcription !== undefined && !this.locked.voice) {
-      if (m.transcription) {
-        const { key, model, ...rest } = m.transcription;
-        this.config.transcription = { ...rest, ...(model && { model }) };
+      if (m.transcription?.api === "cloud") {
+        // A provider in the cloud (3.7.3): its key is the voice's, or the chat's it shares.
+        const { provider, model, key } = m.transcription;
+        const p = provider && voiceProvider(provider);
+        if (!p?.stt) throw new SetupError(`${provider ?? "?"} cannot transcribe`, "voice_provider");
+        const chosen = p.stt.find((x) => x.id === model) ?? p.stt[0];
+        if (!chosen) throw new SetupError("Choose a model", "voice_provider");
+        if (key) this.secrets.voiceKeys = { ...this.secrets.voiceKeys, [p.id]: key.trim() };
+        this.config.transcription = { api: "cloud", url: "", provider: p.id, model: chosen.id };
+      } else if (m.transcription) {
+        const { key, model, api, url } = m.transcription;
+        this.config.transcription =
+          api === "local"
+            ? { api, url: "" }
+            : api === "whisper-asr"
+              ? { api, url }
+              : { api: "openai", url, ...(model && { model }) };
         // An empty key keeps the one saved before; null-ing the service removes it.
         if (key) this.secrets.transcriptionKey = key;
       } else {
@@ -1326,9 +1370,68 @@ export class SetupService {
       return;
     }
     this.localVoice?.stop();
+    if (t?.api === "cloud") {
+      const p = voiceProvider(t.provider);
+      const key = this.voiceKey(t.provider);
+      this.o.core.setTranscription({
+        api: t.provider === "elevenlabs" ? "elevenlabs" : "openai",
+        url:
+          t.provider === "groq"
+            ? "https://api.groq.com/openai/v1"
+            : t.provider === "elevenlabs"
+              ? "https://api.elevenlabs.io/v1"
+              : "https://api.openai.com/v1",
+        model: t.model,
+        name: p?.name ?? t.provider,
+        json: true,
+        ...(t.model === "gpt-transcribe" && { noLanguage: true }),
+        ...(key ? { key } : { noKey: true }),
+      });
+      return;
+    }
     this.o.core.setTranscription(
       t && { ...t, ...(this.secrets.transcriptionKey && { key: this.secrets.transcriptionKey }) },
     );
+  }
+
+  /**
+   * The key a voice provider in the cloud uses (3.7.3): the one given for the voice, or the
+   * generation's (Extensions, built-in), or the chat's, as the generation page does.
+   */
+  private voiceKey(provider: string): string | undefined {
+    const p = voiceProvider(provider);
+    if (!p) return undefined;
+    return (
+      this.secrets.voiceKeys?.[p.id] ??
+      (p.mediaKey ? this.mediaKey(p.mediaKey) : undefined) ??
+      (p.chatKey ? this.secrets.keys?.[p.chatKey] : undefined)
+    );
+  }
+
+  private voiceKeys(): Partial<Record<VoiceProviderId, string>> {
+    const keys: Partial<Record<VoiceProviderId, string>> = {};
+    for (const p of VOICE_PROVIDERS) {
+      const k = this.voiceKey(p.id);
+      if (k) keys[p.id] = k;
+    }
+    return keys;
+  }
+
+  /** A key changed: the voice in the cloud takes it at once (transcription and reading). */
+  private applyVoice(): void {
+    this.o.core.setVoiceKeys(this.voiceKeys());
+    if (!this.locked.voice && this.config.transcription?.api === "cloud") this.applyTranscription();
+  }
+
+  /** A key for the voice in the cloud, given in Settings › Voice; null removes it. */
+  async saveVoiceKey(provider: string, key: string | null): Promise<void> {
+    if (!voiceProvider(provider)) throw new SetupError(`Unknown provider "${provider}"`);
+    const keys = { ...this.secrets.voiceKeys };
+    if (key) keys[provider] = key.trim();
+    else delete keys[provider];
+    this.secrets.voiceKeys = keys;
+    await this.save();
+    this.applyVoice();
   }
 
   /** whisper.cpp on this computer (RedGiant 3.0): downloaded once, then started here. */
@@ -2570,6 +2673,7 @@ export class SetupService {
     this.secrets.mediaKeys = keys;
     await this.save();
     this.applyMedia();
+    this.applyVoice();
   }
 
   /** The voices for speech: ElevenLabs' from the account, the others' from the list. */
@@ -2577,7 +2681,7 @@ export class SetupService {
     const p = mediaProvider(provider);
     if (!p) throw new SetupError(`Unknown provider "${provider}"`);
     if (provider !== "elevenlabs") return [...(p.voices ?? [])];
-    const key = this.mediaKey(provider);
+    const key = this.mediaKey(provider) ?? this.voiceKey(provider);
     if (!key) throw new SetupError("Add the ElevenLabs key first", "no_key");
     try {
       return await elevenVoices(key);

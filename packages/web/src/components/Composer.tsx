@@ -1,6 +1,7 @@
 import { findSecrets, hideSecrets, type ImagePart, type SecretSpan } from "@redgiant/protocol";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { explain } from "../explain.js";
 import { t } from "../i18n.js";
 import {
   IconClose,
@@ -365,7 +366,7 @@ export function Composer({
           append(await getApi().transcribe(await toWav(blob).catch(() => blob), lang));
           area.current?.focus();
         } catch (err) {
-          setProblem(t("transcriptionFailed", { error: (err as Error).message }));
+          setProblem(t("transcriptionFailed", { error: explain(err) }));
         } finally {
           setTranscribing(false);
         }
