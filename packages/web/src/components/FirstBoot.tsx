@@ -39,6 +39,7 @@ import {
 } from "../icons.js";
 import { attempt, getApi } from "../state.js";
 import { askConfirm } from "./dialogs.js";
+import { PairForm, PendingCards, useNodes } from "./Nodes.js";
 import { OsNetworkSection, OsUpdatesSection } from "./OsSystem.js";
 import { Acts, Box, Facts, Head, SCard, Seg, Sub, SwitchRow, Tile, Tiles } from "./SettingsKit.js";
 import { Field } from "./ui.js";
@@ -105,19 +106,34 @@ export function RoleChoice({
           onClick={() => void choose("node")}
         />
       </div>
-      {role === "node" && (
-        <Box class="fb-pair">
-          <Field label={t("fbPairCode")} help={t("fbPairLater")}>
-            <input
-              type="text"
-              disabled
-              aria-label={t("fbPairCode")}
-              placeholder={t("fbPairPlaceholder")}
-            />
-          </Field>
-        </Box>
-      )}
+      {role === "node" && <NodePairing />}
     </>
+  );
+}
+
+/**
+ * The node's pairing (G39.4): the principal's address and its code, then the six digits and the
+ * fingerprints to compare, then whom it works for and how the link is.
+ */
+function NodePairing() {
+  const [s, reload] = useNodes();
+  if (!s) return null;
+  return (
+    <Box class="fb-pair">
+      {s.parent ? (
+        <p class="dim">
+          {t("ndParent")}: <b>{s.parent.name}</b> (
+          {s.parent.status === "online" ? t("ndOnline") : t("ndOffline")})
+        </p>
+      ) : s.pending.length ? (
+        <PendingCards s={s} reload={reload} />
+      ) : (
+        <>
+          <p class="dim">{t("fbPairLater")}</p>
+          <PairForm reload={reload} compact />
+        </>
+      )}
+    </Box>
   );
 }
 

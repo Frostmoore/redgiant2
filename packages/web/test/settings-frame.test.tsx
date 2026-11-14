@@ -69,14 +69,14 @@ describe("Settings drawn as the wizard", () => {
     // 17 with Import (G36.7), 19 with Commands and Requests to you (G36.16, G36.17), 20 with
     // Knowledge (G36.5), 21 with Projects (archiving one, 2026-11-09), 22 with Artifacts (3.5.9),
     // 23 with Machines (G38.2), 24 with External agents (ACP, G38.6), 25 with Voice (G38.4).
-    // 26 with System (the machine, the role, data and backups, G39.3).
-    expect(nav.querySelectorAll(".st-nav-item")).toHaveLength(26);
+    // 26 with System (the machine, the role, data and backups, G39.3), 27 with Nodes (G39.4).
+    expect(nav.querySelectorAll(".st-nav-item")).toHaveLength(27);
     expect(nav.querySelectorAll(".wz-grp")).toHaveLength(5);
     expect(nav.querySelector(".st-nav-item.cur")?.textContent).toBe("Telegram");
     expect(r.container.querySelector(".st-pick")?.textContent).toContain("Telegram");
     fireEvent.click(r.container.querySelector(".st-pick") as HTMLElement);
     const sheet = r.container.querySelector(".ui-modal") as HTMLElement;
-    expect(sheet.querySelectorAll(".st-nav-item")).toHaveLength(26);
+    expect(sheet.querySelectorAll(".st-nav-item")).toHaveLength(27);
   });
 
   it("General: theme and language in segments, and a window for each square", async () => {

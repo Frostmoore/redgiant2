@@ -1006,6 +1006,12 @@ const core = await RedGiantCore.create({
   platformDir: join(dir, "platform"),
   defaultModel: { provider: "fake", model: "demo-model" },
   askAgent: async () => "escalate",
+  // G39.4: DEMO_NODE_NAME names this machine for its nodes (several demos paired on 127.0.0.1).
+  nodes: {
+    ...(process.env.DEMO_NODE_NAME && { hostName: process.env.DEMO_NODE_NAME }),
+    reconnectMs: [500, 1000, 2000],
+    pollMs: 2000,
+  },
   // DEMO_SSH=1 (G38.2): every machine leads to a fake SSH server on 127.0.0.1, never a real one.
   ...(process.env.DEMO_SSH && {
     machines: { dial: () => ({ host: "127.0.0.1", port: sshDemo.port }), connectTimeoutMs: 5000 },

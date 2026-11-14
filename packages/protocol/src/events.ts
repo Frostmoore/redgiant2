@@ -303,6 +303,23 @@ export const EventBody = z.discriminatedUnion("type", [
       callId: z.string().optional(),
     }),
   }),
+  /**
+   * Something between this machine and one of its nodes (G39.4), on both sides: a pair, a grant
+   * given or taken away, a command, a model's answer, a file kept there. `side`: this machine
+   * asked, or did it for the other. Never a secret.
+   */
+  z.object({
+    type: z.literal("node.action"),
+    payload: z.object({
+      peer: z.string(),
+      peerName: z.string(),
+      side: z.enum(["asked", "served"]),
+      kind: z.string(),
+      what: z.string(),
+      status: z.enum(["done", "failed", "refused"]),
+      durationMs: z.number().int().nonnegative().optional(),
+    }),
+  }),
   /** Taken off the strip by the person: stays off on every device and after a restart. */
   z.object({
     type: z.literal("command.closed"),

@@ -72,6 +72,9 @@ export function attachWebSocket(
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const path = new URL(req.url ?? "/", "http://x").pathname;
     if (path === "/ws") return wss.handleUpgrade(req, socket, head, (ws) => connection(ws));
+    // Another RedGiant (G39.4): its own handshake authenticates it (pinned keys), no token.
+    if (path === "/nodes")
+      return wss.handleUpgrade(req, socket, head, (ws) => void core.nodes.accept(ws));
     if (path === "/term")
       return wss.handleUpgrade(req, socket, head, (ws) => handleTerminal(ws, core, auth));
     socket.destroy();

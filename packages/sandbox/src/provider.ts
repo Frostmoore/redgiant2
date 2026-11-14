@@ -32,6 +32,6 @@ export interface Sandbox {
 }
 
 export interface SandboxProvider {
-  readonly kind: "docker" | "host";
+  readonly kind: "docker" | "host" | "node";
   create(spec: SandboxSpec): Promise<Sandbox>;
 }

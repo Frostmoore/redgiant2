@@ -1083,6 +1083,8 @@ export type SettingsSection =
   | "acp"
   /** The person's machines over SSH (G38.2). */
   | "machines"
+  /** Other RedGiant machines paired with this one (G39.4). */
+  | "nodes"
   /** Hands-free voice on this device (G38.4). */
   | "voice";
 

@@ -237,6 +237,15 @@ import { MailService, SendLimiter } from "./mail/service.js";
 import { MAIL_GUIDANCE, mailSendHook, mailTools } from "./mail/tools.js";
 import { type MediaRequest, type MediaResult, makeMedia } from "./media.js";
 import type { CatalogWatcher } from "./models-catalog.js";
+import {
+  NodeProvider,
+  NodeSandboxProvider,
+  type NodeWorkspace,
+  nodeProviderId,
+} from "./nodes/remote.js";
+import { nodeHandlers } from "./nodes/serve.js";
+import { Nodes, type NodesOptions } from "./nodes/service.js";
+import { type NodeToolsHost, nodeTools } from "./nodes/tools.js";
 import { memoryTool, type NoteOwner, Notes } from "./notes.js";
 import {
   completeTaskTool,
@@ -344,6 +353,11 @@ export interface CoreOptions {
    * to wait for it. Never the person's network.
    */
   machines?: Pick<MachineOptions, "dial" | "connectTimeoutMs">;
+  /**
+   * Nodes (G39.4): this machine's name, and for tests how addresses are reached, the pauses
+   * between reconnections and how long an offline node is waited for.
+   */
+  nodes?: Pick<NodesOptions, "dial" | "reconnectMs" | "waitMs" | "pollMs" | "hostName">;
   /** Email for the agents (G38.1): how mailboxes are reached and mail leaves (tests: servers in the process). */
   mailClient?: MailClient;
   mailTransport?: MailTransport;
@@ -644,6 +658,8 @@ export class RedGiantCore implements OrchestrationHost {
   readonly email: EmailWatcher;
   /** The person's machines over SSH (G38.2): keys in the keychain, host keys fixed. */
   readonly machines: Machines;
+  /** Other RedGiant machines paired with this one (G39.4): the tree, the grants, the links. */
+  readonly nodes: Nodes;
   /** Email for the agents (G38.1): the same mailboxes, for the mail_* tools. */
   readonly mail: MailService;
   /** Routines on files that change in a project's folder (G33.3). */
@@ -1099,6 +1115,23 @@ export class RedGiantCore implements OrchestrationHost {
       vault: () => this.vault,
       ...o.machines,
     });
+    this.nodes = new Nodes({
+      db: o.db,
+      vault: () => this.vault,
+      store: this.store,
+      handlers: nodeHandlers({
+        dataDir: join(dirname(o.workspacesDir), "nodes"),
+        providers: o.providers,
+        sandboxKind: this.sandbox.kind,
+        sandbox: async (_ownerId, key, dir) =>
+          (
+            await this.sandboxFor({ id: key, localPath: dir, mount: { type: "bind", source: dir } })
+          ).workspace(),
+      }),
+      ...o.nodes,
+    });
+    // A node's models «via <node>» appear and go with it (G39.4).
+    this.nodes.onChange((ownerId) => void this.syncNodeProviders(ownerId).catch(() => {}));
     this.mail = new MailService({
       accounts: this.email,
       client: o.mailClient ?? imapMailClient(),
@@ -1324,6 +1357,8 @@ export class RedGiantCore implements OrchestrationHost {
     await core.acpWorkers.load();
     await core.tasks.rebuild();
     await core.reapCommands();
+    // The links to this machine's parent and the polls of its nodes (G39.4).
+    await core.nodes.start();
     return core;
   }
 
@@ -1811,6 +1846,8 @@ export class RedGiantCore implements OrchestrationHost {
         // The person's machines (G38.2): always offered; the list is asked (ssh_list), never in
         // the prompt, so adding a machine moves nothing in a running conversation.
         ...sshTools(ws, this.sshHost(agent, assignedTo)),
+        // Nodes (G39.4): always offered, like the machines; the list is asked (node_list).
+        ...nodeTools(this.nodeHost(agent, assignedTo)),
       );
       // What the permission rules read about the machines, fresh for this conversation.
       await this.machines.list(ownerId).catch(() => []);
@@ -2435,6 +2472,47 @@ export class RedGiantCore implements OrchestrationHost {
    * Pull requests and issues on the project's repository (G24.14c), through the server with the
    * person's token. Opening one asks the person first (danger `git-publish`).
    */
+  /** What the node tools of an agent reach (G39.4). */
+  private nodeHost(agent: AgentRecord, assignedTo?: string): NodeToolsHost {
+    const ownerId = agent.ownerId;
+    const projectId = assignedTo ?? agent.projectId;
+    return {
+      nodes: () => this.nodes.known(ownerId),
+      pinned: async () => (await this.nodes.placementFor(ownerId, agent.id, projectId)).commands,
+      workspace: (_ctx, node) => this.nodeWorkspace(ownerId, node, projectId ?? agent.id),
+      maxMs: (owner) => this.commandSettings.get(owner).bashMaxMs,
+    };
+  }
+
+  /** A project's sandbox on a node: created once through `sandboxFor`, like every sandbox. */
+  async nodeWorkspace(
+    ownerId: string,
+    node: { fingerprint: string; name: string },
+    scope: string,
+  ): Promise<NodeWorkspace> {
+    const id = `node-${node.fingerprint.replace(/[^A-Za-z0-9]/g, "").slice(6, 18)}-${slug(scope) || "default"}`;
+    const sb = await this.sandboxFor(
+      { id, localPath: "", mount: { type: "volume", name: "node" } },
+      new NodeSandboxProvider({ nodes: this.nodes, ownerId, ...node }),
+    );
+    return sb.workspace() as NodeWorkspace;
+  }
+
+  /** The providers «via <node>» of the nodes online now that lend models (G39.4). */
+  private async syncNodeProviders(ownerId: string): Promise<void> {
+    const want = new Map<string, { fingerprint: string; name: string }>();
+    for (const n of await this.nodes.known(ownerId))
+      if (n.online && n.view?.capabilities?.models.length) want.set(nodeProviderId(n.name), n);
+    for (const p of this.o.providers.list())
+      if (p.id.startsWith("node-") && !want.has(p.id)) this.o.providers.remove(p.id);
+    for (const [id, n] of want)
+      if (!this.o.providers.has(id)) {
+        const p = new NodeProvider({ nodes: this.nodes, ownerId, ...n });
+        await p.refresh().catch(() => {});
+        this.o.providers.register(p);
+      }
+  }
+
   /** What the SSH tools of an agent reach (G38.2). */
   private sshHost(agent: AgentRecord, assignedTo?: string): SshToolsHost {
     const ownerId = agent.ownerId;
@@ -6914,6 +6992,7 @@ export class RedGiantCore implements OrchestrationHost {
 
   /** Stops every running turn and denies every open approval (shutdown). */
   async close(): Promise<void> {
+    await this.nodes.stop();
     await this.automations.stop();
     // Edits accepted are in the log already; the files are written before closing.
     await this.editor.close().catch(() => {});

@@ -267,6 +267,8 @@ export const READ_ONLY_TOOLS = new Set([
   // Another machine's folders and text files (G38.2): looked at, never changed.
   "ssh_list",
   "ssh_read",
+  // The nodes one may use and how they are (G39.4): looked at, never changed.
+  "node_list",
   // Searching the person's mailboxes (G38.1) changes nothing; reading uses PEEK (nothing marked
   // as read) and only writes when it saves the attachments (below).
   "mail_search",
@@ -311,11 +313,12 @@ const toolWords = (name: string) =>
     .toLowerCase();
 
 /**
- * A command on another machine (G38.2, `ssh_run`) is classified with the same rules as one here:
+ * A command on another machine (G38.2, `ssh_run`) or a node (G39.4, `node_run`) is classified with
+ * the same rules as one here:
  * every rule for `bash` applies to it too.
  */
 const ruleApplies = (pattern: string, tool: string) =>
-  toolMatches(pattern, tool) || (pattern === "bash" && tool === "ssh_run");
+  toolMatches(pattern, tool) || (pattern === "bash" && (tool === "ssh_run" || tool === "node_run"));
 
 export function classify(call: ToolCallInfo, rules: DangerRule[]): DangerRule[] {
   return rules.filter(

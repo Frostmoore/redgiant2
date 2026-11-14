@@ -51,6 +51,7 @@ import { ImportFrom } from "./ImportFrom.js";
 import { Keychain } from "./Keychain.js";
 import { Knowledge } from "./Knowledge.js";
 import { Machines } from "./Machines.js";
+import { Nodes } from "./Nodes.js";
 import { Platform } from "./Platform.js";
 import { ProjectsPage } from "./ProjectArchive.js";
 import { RemoteSettings } from "./RemoteSettings.js";
@@ -114,6 +115,7 @@ const GROUPS: { title: () => string; sections: Section[] }[] = [
       { id: "remote", label: () => t("wzRemote"), icon: <IconShield size={20} /> },
       { id: "system", label: () => t("fbSystemSection"), icon: <IconCpu size={20} /> },
       { id: "machines", label: () => t("mcSection"), icon: <IconServer size={20} /> },
+      { id: "nodes", label: () => t("ndSection"), icon: <IconNodes size={20} /> },
       { id: "backup", label: () => t("backup"), icon: <IconArchive size={20} /> },
       { id: "platform", label: () => t("platformView"), icon: <IconLayers size={20} /> },
     ],
@@ -212,6 +214,7 @@ export function Settings({ section = "general" }: { section?: SettingsSection | 
         {section === "remote" && <RemoteSettings />}
         {section === "system" && <SystemSettings />}
         {section === "machines" && <Machines />}
+        {section === "nodes" && <Nodes />}
         {section === "budgets" && <Budgets />}
         {section === "backup" && <Backup />}
         {section === "platform" && <Platform />}

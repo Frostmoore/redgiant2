@@ -40,8 +40,14 @@ import {
   type Mailbox as MailboxInfo,
   type ModelsCatalogStatus,
   type NetDetected,
+  type NodeGrant,
+  type NodePlacement,
+  type NodeRight,
+  type NodesState,
   type OcrLanguage,
   type OsUpdates,
+  type PairCode,
+  type PendingPair,
   type PermissionRequestInfo,
   PROTOCOL_VERSION,
   type Recipe,
@@ -1362,6 +1368,30 @@ export class Api {
   ) => this.call<MailboxInfo>("PUT", `/api/settings/mailboxes/${encodeURIComponent(id)}`, b);
   removeMailbox = (id: string) =>
     this.call("DELETE", `/api/settings/mailboxes/${encodeURIComponent(id)}`);
+  /** Nodes (G39.4): the tree, pairs waiting for the yes, grants, placements; never a key. */
+  nodes = () => this.call<NodesState>("GET", "/api/nodes");
+  nodeCode = () => this.call<PairCode>("POST", "/api/nodes/code");
+  cancelNodeCode = () => this.call("DELETE", "/api/nodes/code");
+  pairNode = (b: { address: string; code: string; name?: string }) =>
+    this.call<PendingPair>("POST", "/api/nodes/pair", b);
+  confirmNode = (fingerprint: string, rights?: NodeRight[]) =>
+    this.call<NodesState>("POST", "/api/nodes/confirm", { fingerprint, ...(rights && { rights }) });
+  rejectNode = (fingerprint: string) => this.call("POST", "/api/nodes/reject", { fingerprint });
+  unpairNode = (fingerprint: string) => this.call("POST", "/api/nodes/unpair", { fingerprint });
+  grantNode = (b: { controller: string; target: string; rights: NodeRight[] }) =>
+    this.call<NodeGrant>("POST", "/api/nodes/grants", b);
+  revokeNodeGrant = (target: string, id: string) =>
+    this.call("POST", "/api/nodes/grants/revoke", { target, id });
+  setNodePlacement = (b: { scope: string; commands?: string | null; backups?: string | null }) =>
+    this.call<{ placements: NodePlacement[] }>("PUT", "/api/nodes/placements", b);
+  setNodeName = (name: string) => this.call("PUT", "/api/nodes/name", { name });
+  nodeBackup = (projectId: string) =>
+    this.call<{ name: string; bytes: number }>("POST", "/api/nodes/backup", { projectId });
+  nodeStorage = (fingerprint: string) =>
+    this.call<{ files: { name: string; size: number; at: string }[] }>(
+      "GET",
+      `/api/nodes/storage?node=${encodeURIComponent(fingerprint)}`,
+    );
   /** The person's machines over SSH (G38.2): public keys and fingerprints, never a secret. */
   machines = () => this.call<{ machines: MachineView[] }>("GET", "/api/settings/machines");
   addMachine = (b: {

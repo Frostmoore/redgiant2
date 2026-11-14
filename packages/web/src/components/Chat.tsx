@@ -24,6 +24,7 @@ import {
   IconInfo,
   IconLayers,
   IconMic,
+  IconNodes,
   IconPlay,
   IconServer,
   IconShield,
@@ -367,7 +368,7 @@ export function toolHead(tool: string, raw: unknown): { name: string; summary: s
   return { name: tool, summary };
 }
 
-function ToolLine({
+export function ToolLine({
   item,
   agentId,
 }: {
@@ -387,6 +388,13 @@ function ToolLine({
   // The machine a remote call works on, beside the tool's name.
   const machine =
     item.tool.startsWith("ssh_") && typeof input?.machine === "string" ? input.machine : undefined;
+  // The node a command runs on (G39.4): the one named, or the pinned one its answer names.
+  const node =
+    item.tool === "node_run"
+      ? typeof input?.node === "string"
+        ? input.node
+        : item.result?.output.match(/^Node: ([^\n,]+)/)?.[1]
+      : undefined;
   const summary = item.tool.startsWith("acp_")
     ? head.summary
     : (mailSummary(item.tool, input) ??
@@ -430,6 +438,12 @@ function ToolLine({
           <span class="tmachine" title={t("toolOnMachine", { name: machine })}>
             <IconServer size={12} />
             {machine}
+          </span>
+        )}
+        {node && (
+          <span class="tmachine tnode" title={t("toolOnNode", { name: node })}>
+            <IconNodes size={12} />
+            {t("toolOnNode", { name: node })}
           </span>
         )}
         {item.viaScript && <span class="tvia">{t("viaScript")}</span>}

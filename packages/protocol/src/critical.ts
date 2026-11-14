@@ -207,6 +207,8 @@ export const CriticalDetail = z.object({
   inside: z.boolean().optional(),
   /** The person's machine it happens on (G38.2, `ssh_run`, `ssh_copy`); none: this computer. */
   machine: z.string().optional(),
+  /** The node it happens on (G39.4, `node_run`). */
+  node: z.string().optional(),
 });
 export type CriticalDetail = z.infer<typeof CriticalDetail>;
 
@@ -379,9 +381,15 @@ export function criticalSentence(lang: string, d: CriticalDetail): string {
         ? "Deletes for good everything in"
         : "Deletes for good";
   const text = SENTENCES[l][d.action](d, { t: d.target ?? "", s: secretWords(l, d.secret), del });
-  if (!d.machine) return text;
-  // On another machine (G38.2): which one first.
-  const where = l === "it" ? `Sulla macchina «${d.machine}»` : `On the machine «${d.machine}»`;
+  if (!d.machine && !d.node) return text;
+  // On another machine (G38.2) or a node (G39.4): which one first.
+  const where = d.node
+    ? l === "it"
+      ? `Sul nodo «${d.node}»`
+      : `On the node «${d.node}»`
+    : l === "it"
+      ? `Sulla macchina «${d.machine}»`
+      : `On the machine «${d.machine}»`;
   return `${where}: ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
 }
 

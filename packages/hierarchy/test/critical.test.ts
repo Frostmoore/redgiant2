@@ -515,6 +515,23 @@ const TABLE: Case[] = [
 
   // Another machine (G38.2): the same rules as here, with the machine's working folder as the
   // project; any deletion outside it, sudo, switching it off and system packages are critical.
+  // A node (G39.4): its sandbox folder stands for the project; the rest of it is outside.
+  ["node build", "node_run", { node: "rig", command: "npm ci && npm run build" }, null],
+  ["node delete inside", "node_run", { node: "rig", command: "rm -rf dist build" }, null],
+  [
+    "node delete outside its sandbox",
+    "node_run",
+    { node: "rig", command: "rm -rf /srv/data" },
+    "critical-delete",
+  ],
+  [
+    "node sudo",
+    "node_run",
+    { node: "rig", command: "sudo systemctl stop nginx" },
+    "critical-system",
+  ],
+  ["node shutdown", "node_run", { node: "rig", command: "shutdown -h now" }, "critical-system"],
+  ["node list", "node_list", {}, null],
   ["remote ls", ...ssh("ls -la"), null, REMOTE],
   ["remote build", ...ssh("npm ci && npm run build"), null, REMOTE],
   ["remote rm -rf dist in the folder", ...ssh("rm -rf dist"), null, REMOTE],
@@ -882,6 +899,22 @@ describe("what the person reads (p3.5.4)", () => {
         { ...REMOTE, protectedPaths: ["/srv/app"] },
       ),
     ).toEqual([]);
+  });
+
+  it("says on which node (G39.4)", () => {
+    expect(said("node_run", { node: "rig", command: "rm -rf /srv/data" }, "it")).toEqual([
+      "Sul nodo «rig»: cancella per sempre fuori dalla cartella di lavoro della macchina: /srv/data",
+    ]);
+    expect(said("node_run", { node: "rig", command: "reboot" }, "en")).toEqual([
+      "On the node «rig»: switches the machine off or restarts it",
+    ]);
+    const [hit] = criticalOf({
+      callId: "c",
+      name: "node_run",
+      input: { node: "rig", command: "reboot" },
+    });
+    expect(hit?.node).toBe("rig");
+    expect(hit?.machine).toBeUndefined();
   });
 
   it("the policy gives the details with the kinds", () => {
