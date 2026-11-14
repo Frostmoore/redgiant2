@@ -8,7 +8,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join, posix } from "node:path";
+import { basename, join, posix } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { BackupEntry } from "@redgiant/protocol";
 import type { SFTPWrapper } from "ssh2";
@@ -215,6 +215,8 @@ export async function sftpTarget(o: SftpTargetOptions): Promise<BackupTarget> {
     throw sftpCode(err);
   }
   const home = await sftpCall<string>((cb) => sftp.realpath(".", cb)).catch(() => "/");
+  // Windows' OpenSSH gives its home as /C:/Users/…: no POSIX shell there for sha256sum.
+  if (/^\/[A-Za-z]:(\/|$)/.test(home)) windows = true;
   const base = sftpFolder(home, o.path);
   if (!base) {
     client.end();
@@ -428,7 +430,7 @@ export async function smbTarget(o: SmbTargetOptions): Promise<BackupTarget> {
         if (!(await s.ls()).some((e) => e.name === MADE_FILE)) return [];
         const local = await stagingFile(staging);
         try {
-          await s.get([], MADE_FILE, staging, posix.basename(local));
+          await s.get([], MADE_FILE, staging, basename(local));
           return parseMade(await readFile(local, "utf8"));
         } finally {
           await rm(local, { force: true });
@@ -439,7 +441,7 @@ export async function smbTarget(o: SmbTargetOptions): Promise<BackupTarget> {
         const local = await stagingFile(staging);
         try {
           await writeFile(local, madeText(list));
-          await s.put(staging, posix.basename(local), [], MADE_FILE);
+          await s.put(staging, basename(local), [], MADE_FILE);
         } finally {
           await rm(local, { force: true });
         }
@@ -455,7 +457,7 @@ export async function smbTarget(o: SmbTargetOptions): Promise<BackupTarget> {
         const tmp = `.${file}.part`;
         const size = (await stat(staged)).size;
         try {
-          await s.put(staging, posix.basename(staged), [folder], tmp);
+          await s.put(staging, basename(staged), [folder], tmp);
           const there = (await s.ls(folder)).find((e) => e.name === tmp);
           if (there?.size !== size)
             throw new TargetError(
@@ -490,7 +492,7 @@ export async function smbTarget(o: SmbTargetOptions): Promise<BackupTarget> {
         checkName(folder, file);
         const local = await stagingFile(staging);
         try {
-          await s.get([folder], file, staging, posix.basename(local));
+          await s.get([folder], file, staging, basename(local));
         } catch (err) {
           await rm(local, { force: true });
           throw err;

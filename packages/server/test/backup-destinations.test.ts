@@ -14,8 +14,9 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import { type AddressInfo, createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type {
   BackupEntry,
   BackupSettings,
@@ -61,6 +62,16 @@ afterEach(async () => {
   for (const f of fakes.splice(0)) await f.close();
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true });
 }, 30_000);
+
+/** A port nothing listens on: a machine that is off. */
+const freePort = () =>
+  new Promise<number>((ok) => {
+    const srv = createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address() as AddressInfo;
+      srv.close(() => ok(port));
+    });
+  });
 
 const temp = async (p: string) => {
   const d = await mkdtemp(join(tmpdir(), p));
@@ -480,13 +491,14 @@ describe("backups to an SMB share (a fake smbclient, p3.7.2)", () => {
     // Every call: the password never in the arguments, the login file private while it lived.
     for (const c of smb.calls) {
       expect(c.args.join(" ")).not.toContain(PASSWORD);
-      expect(c.authMode).toBe(0o600);
+      // Windows has no Unix modes: the file lives in the data's private tmp there.
+      if (process.platform !== "win32") expect(c.authMode).toBe(0o600);
     }
     expect(smb.calls[0]?.authText).toContain(`password = ${PASSWORD}`);
     // A put with a temporary name, renamed afterwards.
     const cmds = smb.calls.map((c) => c.args[c.args.indexOf("-c") + 1]);
     expect(cmds).toContain(
-      `put "${seen.at(-1)?.split("/").at(-1)}" ".redgiant-3.7.2-0301.rgbackup.part"`,
+      `put "${basename(seen.at(-1) ?? "")}" ".redgiant-3.7.2-0301.rgbackup.part"`,
     );
     expect(cmds).toContain(
       'rename ".redgiant-3.7.2-0301.rgbackup.part" "redgiant-3.7.2-0301.rgbackup"',
@@ -664,10 +676,10 @@ describe("backups to one of the person's machines over SFTP (p3.7.2)", () => {
 
   it("a machine that is off: the backup fails with a clear message, nothing written here", async () => {
     const { server, home, target, setup } = await withServer();
-    const { m, fake } = await trustedMachine(server, target, home);
+    const { m } = await trustedMachine(server, target, home);
     await server.api("PUT", "/api/setup/backups/sftp", { machineId: m.id, path: "~/RedGiant" });
-    await fake.close();
-    fakes.splice(fakes.indexOf(fake), 1);
+    // Off: nothing listens on its port any more (refused at once, on every system).
+    target.port = await freePort();
     expect(await setup.scheduler?.runNow()).toBe("failed");
     expect(setup.backups?.last).toMatchObject({ ok: false, code: "unreachable" });
     expect(setup.backups?.last?.error).toMatch(/cannot be reached|did not answer/);
@@ -715,173 +727,181 @@ describe("an SMB share chosen in the page (p3.7.2)", () => {
   }, 60_000);
 });
 
-describe("«Fallo tu»: the Proxmox host passes a disk to this container (p3.7.2)", () => {
-  /** A Proxmox host's programs that only write down what they were asked. */
-  async function fakeProxmox() {
-    const bin = await temp("rg-pve-bin-");
-    const log = join(bin, "calls.log");
-    const lsblk = JSON.stringify({
-      blockdevices: [
-        {
-          name: "nvme0n1",
-          path: "/dev/nvme0n1",
-          type: "disk",
-          size: 5e11,
-          tran: "nvme",
-          children: [
-            {
-              name: "nvme0n1p3",
-              path: "/dev/nvme0n1p3",
-              type: "part",
-              size: 5e11,
-              fstype: "LVM2_member",
-              mountpoint: null,
-            },
-          ],
-        },
-        {
-          name: "sdb",
-          path: "/dev/sdb",
-          type: "disk",
-          size: 1e12,
-          rm: false,
-          hotplug: true,
-          tran: "usb",
-          model: "Tech",
-          children: [
-            {
-              name: "sdb1",
-              path: "/dev/sdb1",
-              type: "part",
-              size: 1e12,
-              fstype: "ext4",
-              label: "Tech",
-              uuid: "0b1e-77aa",
-            },
-          ],
-        },
-      ],
-    });
-    const script = (name: string, body: string) =>
-      writeFile(join(bin, name), `#!/bin/sh\necho "${name} $*" >> '${log}'\n${body}\n`).then(() =>
-        chmod(join(bin, name), 0o755),
+// The fake Proxmox host runs its commands with a POSIX sh, as a real one (always Linux) does:
+// there is none on Windows. The plan, the checks and the parsers above run everywhere.
+describe.skipIf(process.platform === "win32")(
+  "«Fallo tu»: the Proxmox host passes a disk to this container (p3.7.2)",
+  () => {
+    /** A Proxmox host's programs that only write down what they were asked. */
+    async function fakeProxmox() {
+      const bin = await temp("rg-pve-bin-");
+      const log = join(bin, "calls.log");
+      const lsblk = JSON.stringify({
+        blockdevices: [
+          {
+            name: "nvme0n1",
+            path: "/dev/nvme0n1",
+            type: "disk",
+            size: 5e11,
+            tran: "nvme",
+            children: [
+              {
+                name: "nvme0n1p3",
+                path: "/dev/nvme0n1p3",
+                type: "part",
+                size: 5e11,
+                fstype: "LVM2_member",
+                mountpoint: null,
+              },
+            ],
+          },
+          {
+            name: "sdb",
+            path: "/dev/sdb",
+            type: "disk",
+            size: 1e12,
+            rm: false,
+            hotplug: true,
+            tran: "usb",
+            model: "Tech",
+            children: [
+              {
+                name: "sdb1",
+                path: "/dev/sdb1",
+                type: "part",
+                size: 1e12,
+                fstype: "ext4",
+                label: "Tech",
+                uuid: "0b1e-77aa",
+              },
+            ],
+          },
+        ],
+      });
+      const script = (name: string, body: string) =>
+        writeFile(join(bin, name), `#!/bin/sh\necho "${name} $*" >> '${log}'\n${body}\n`).then(() =>
+          chmod(join(bin, name), 0o755),
+        );
+      await script(
+        "pveversion",
+        'echo "pve-manager/8.2.4/faa83925 (running kernel: 6.8.12-1-pve)"',
       );
-    await script("pveversion", 'echo "pve-manager/8.2.4/faa83925 (running kernel: 6.8.12-1-pve)"');
-    await script(
-      "pct",
-      `if [ "$1" = list ]; then printf 'VMID       Status     Lock         Name\\n105        running                 coder\\n'; fi
+      await script(
+        "pct",
+        `if [ "$1" = list ]; then printf 'VMID       Status     Lock         Name\\n105        running                 coder\\n'; fi
 if [ "$1" = config ]; then [ "$2" = 105 ] || exit 2; printf 'hostname: coder\\nmp0: /mnt/data,mp=/data\\nunprivileged: 1\\n'; fi`,
-    );
-    await script("lsblk", `cat <<'EOF'\n${lsblk}\nEOF`);
-    for (const n of ["mount", "mkdir", "chown", "mkfs.ext4"]) await script(n, "");
-    await script("blkid", 'echo "0b1e-77aa"');
-    return {
-      bin,
-      calls: async () => (await readFile(log, "utf8").catch(() => "")).trim().split("\n"),
-    };
-  }
+      );
+      await script("lsblk", `cat <<'EOF'\n${lsblk}\nEOF`);
+      for (const n of ["mount", "mkdir", "chown", "mkfs.ext4"]) await script(n, "");
+      await script("blkid", 'echo "0b1e-77aa"');
+      return {
+        bin,
+        calls: async () => (await readFile(log, "utf8").catch(() => "")).trim().split("\n"),
+      };
+    }
 
-  async function godAgent(server: Server) {
-    await server.api("POST", "/api/agents", { kind: "god", parentId: null, name: "God" });
-  }
+    async function godAgent(server: Server) {
+      await server.api("POST", "/api/agents", { kind: "god", parentId: null, name: "God" });
+    }
 
-  it("finds the host among the machines, asks the person, then runs the checked commands there", async () => {
-    const pve = await fakeProxmox();
-    const fstab = join(pve.bin, "fstab");
-    await writeFile(fstab, "UUID=1111 / ext4 defaults 0 1\n");
-    const { server, home, target } = await withServer({ fstab });
-    await godAgent(server);
-    const { m } = await trustedMachine(server, target, home, pve.bin);
-    const found = await server.api<{
-      hosts: {
-        machineId: string;
-        proxmox: string;
-        guess: string;
-        disks: { path: string; usable: boolean }[];
-      }[];
-    }>("GET", "/api/setup/backups/proxmox");
-    expect(found.body.hosts).toEqual([
-      expect.objectContaining({ machineId: m.id, proxmox: "8.2.4", guess: "105" }),
-    ]);
-    expect(found.body.hosts[0]?.disks.map((d) => [d.path, d.usable])).toEqual([
-      ["/dev/sdb1", true],
-    ]);
-    const inject = await server.api<{ error: string }>("POST", "/api/setup/backups/proxmox", {
-      machineId: m.id,
-      ctid: "105; reboot",
-      device: "/dev/sdb1",
-      name: "Tech",
-    });
-    expect(inject.status).toBe(400);
-    const before = (await pve.calls()).length;
-    const started = await server.api<Job>("POST", "/api/setup/backups/proxmox", {
-      machineId: m.id,
-      ctid: "105",
-      device: "/dev/sdb1",
-      name: "Tech",
-    });
-    expect(started.status).toBe(200);
-    const asked = await until(() => server.core.approvals.list("me")[0]);
-    expect((asked as PermissionRequestInfo).tool).toBe("backup_host_mount");
-    const commands = (asked.input as { commands: string[] }).commands;
-    expect(commands.at(-1)).toBe(
-      "'pct' 'set' '105' '-mp1' '/mnt/redgiant-backups/Tech/RedGiant,mp=/var/lib/redgiant/backups/Tech'",
-    );
-    // Nothing ran on the host before the yes: only the look.
-    expect(
-      (await pve.calls()).slice(before).every((l) => /^(pveversion|pct config|lsblk)/.test(l)),
-    ).toBe(true);
-    server.core.approvals.decide("me", asked.requestId, "allow");
-    const done = await job(server, started.body.id);
-    expect(done.error?.message ?? "").toBe("");
-    expect(done).toMatchObject({ state: "done" });
-    const ran = (await pve.calls()).slice(before);
-    expect(ran).toEqual(
-      expect.arrayContaining([
-        "mkdir -p /mnt/redgiant-backups/Tech",
-        "mount /dev/sdb1 /mnt/redgiant-backups/Tech",
-        "blkid -s UUID -o value /dev/sdb1",
-        "mkdir -p /mnt/redgiant-backups/Tech/RedGiant",
-        "chown 100000:100000 /mnt/redgiant-backups/Tech/RedGiant",
-        "pct set 105 -mp1 /mnt/redgiant-backups/Tech/RedGiant,mp=/var/lib/redgiant/backups/Tech",
-      ]),
-    );
-    expect(ran.some((l) => l.startsWith("mkfs"))).toBe(false);
-    expect(await readFile(fstab, "utf8")).toBe(
-      "UUID=1111 / ext4 defaults 0 1\nUUID=0b1e-77aa /mnt/redgiant-backups/Tech auto defaults,nofail 0 2\n",
-    );
-  }, 90_000);
+    it("finds the host among the machines, asks the person, then runs the checked commands there", async () => {
+      const pve = await fakeProxmox();
+      const fstab = join(pve.bin, "fstab");
+      await writeFile(fstab, "UUID=1111 / ext4 defaults 0 1\n");
+      const { server, home, target } = await withServer({ fstab });
+      await godAgent(server);
+      const { m } = await trustedMachine(server, target, home, pve.bin);
+      const found = await server.api<{
+        hosts: {
+          machineId: string;
+          proxmox: string;
+          guess: string;
+          disks: { path: string; usable: boolean }[];
+        }[];
+      }>("GET", "/api/setup/backups/proxmox");
+      expect(found.body.hosts).toEqual([
+        expect.objectContaining({ machineId: m.id, proxmox: "8.2.4", guess: "105" }),
+      ]);
+      expect(found.body.hosts[0]?.disks.map((d) => [d.path, d.usable])).toEqual([
+        ["/dev/sdb1", true],
+      ]);
+      const inject = await server.api<{ error: string }>("POST", "/api/setup/backups/proxmox", {
+        machineId: m.id,
+        ctid: "105; reboot",
+        device: "/dev/sdb1",
+        name: "Tech",
+      });
+      expect(inject.status).toBe(400);
+      const before = (await pve.calls()).length;
+      const started = await server.api<Job>("POST", "/api/setup/backups/proxmox", {
+        machineId: m.id,
+        ctid: "105",
+        device: "/dev/sdb1",
+        name: "Tech",
+      });
+      expect(started.status).toBe(200);
+      const asked = await until(() => server.core.approvals.list("me")[0]);
+      expect((asked as PermissionRequestInfo).tool).toBe("backup_host_mount");
+      const commands = (asked.input as { commands: string[] }).commands;
+      expect(commands.at(-1)).toBe(
+        "'pct' 'set' '105' '-mp1' '/mnt/redgiant-backups/Tech/RedGiant,mp=/var/lib/redgiant/backups/Tech'",
+      );
+      // Nothing ran on the host before the yes: only the look.
+      expect(
+        (await pve.calls()).slice(before).every((l) => /^(pveversion|pct config|lsblk)/.test(l)),
+      ).toBe(true);
+      server.core.approvals.decide("me", asked.requestId, "allow");
+      const done = await job(server, started.body.id);
+      expect(done.error?.message ?? "").toBe("");
+      expect(done).toMatchObject({ state: "done" });
+      const ran = (await pve.calls()).slice(before);
+      expect(ran).toEqual(
+        expect.arrayContaining([
+          "mkdir -p /mnt/redgiant-backups/Tech",
+          "mount /dev/sdb1 /mnt/redgiant-backups/Tech",
+          "blkid -s UUID -o value /dev/sdb1",
+          "mkdir -p /mnt/redgiant-backups/Tech/RedGiant",
+          "chown 100000:100000 /mnt/redgiant-backups/Tech/RedGiant",
+          "pct set 105 -mp1 /mnt/redgiant-backups/Tech/RedGiant,mp=/var/lib/redgiant/backups/Tech",
+        ]),
+      );
+      expect(ran.some((l) => l.startsWith("mkfs"))).toBe(false);
+      expect(await readFile(fstab, "utf8")).toBe(
+        "UUID=1111 / ext4 defaults 0 1\nUUID=0b1e-77aa /mnt/redgiant-backups/Tech auto defaults,nofail 0 2\n",
+      );
+    }, 90_000);
 
-  it("a no, and formatting without the disk's exact name, run nothing on the host", async () => {
-    const pve = await fakeProxmox();
-    const { server, home, target } = await withServer({ fstab: join(pve.bin, "fstab") });
-    await godAgent(server);
-    const { m } = await trustedMachine(server, target, home, pve.bin);
-    const before = (await pve.calls()).length;
-    const started = await server.api<Job>("POST", "/api/setup/backups/proxmox", {
-      machineId: m.id,
-      ctid: "105",
-      device: "/dev/sdb1",
-      name: "Tech",
-    });
-    const asked = await until(() => server.core.approvals.list("me")[0]);
-    server.core.approvals.decide("me", asked.requestId, "deny");
-    expect(await job(server, started.body.id)).toMatchObject({ state: "failed" });
-    const fmt = await server.api<Job>("POST", "/api/setup/backups/proxmox", {
-      machineId: m.id,
-      ctid: "105",
-      device: "/dev/sdb1",
-      name: "Tech",
-      format: "tech",
-    });
-    const j = await job(server, fmt.body.id);
-    expect(j.state).toBe("failed");
-    expect(j.error?.message).toMatch(/type its name exactly: Tech/);
-    expect(server.core.approvals.list("me")).toEqual([]);
-    const ran = (await pve.calls()).slice(before);
-    expect(ran.every((l) => /^(pveversion|pct config|lsblk)/.test(l))).toBe(true);
-  }, 90_000);
-});
+    it("a no, and formatting without the disk's exact name, run nothing on the host", async () => {
+      const pve = await fakeProxmox();
+      const { server, home, target } = await withServer({ fstab: join(pve.bin, "fstab") });
+      await godAgent(server);
+      const { m } = await trustedMachine(server, target, home, pve.bin);
+      const before = (await pve.calls()).length;
+      const started = await server.api<Job>("POST", "/api/setup/backups/proxmox", {
+        machineId: m.id,
+        ctid: "105",
+        device: "/dev/sdb1",
+        name: "Tech",
+      });
+      const asked = await until(() => server.core.approvals.list("me")[0]);
+      server.core.approvals.decide("me", asked.requestId, "deny");
+      expect(await job(server, started.body.id)).toMatchObject({ state: "failed" });
+      const fmt = await server.api<Job>("POST", "/api/setup/backups/proxmox", {
+        machineId: m.id,
+        ctid: "105",
+        device: "/dev/sdb1",
+        name: "Tech",
+        format: "tech",
+      });
+      const j = await job(server, fmt.body.id);
+      expect(j.state).toBe("failed");
+      expect(j.error?.message).toMatch(/type its name exactly: Tech/);
+      expect(server.core.approvals.list("me")).toEqual([]);
+      const ran = (await pve.calls()).slice(before);
+      expect(ran.every((l) => /^(pveversion|pct config|lsblk)/.test(l))).toBe(true);
+    }, 90_000);
+  },
+);
 
 describe("a container's host disks (p3.7.2)", () => {
   it("in Docker without the OS helper: the host's disks named, its id, never offered to mount", async () => {

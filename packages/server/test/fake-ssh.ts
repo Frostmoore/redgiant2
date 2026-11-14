@@ -24,6 +24,10 @@ import ssh2 from "ssh2";
 import { newSshKeyPair } from "../src/machines.js";
 
 const { Server, utils } = ssh2;
+
+const WIN = process.platform === "win32";
+/** A path SFTP gave in Windows' form (/C:/x) as this computer's own (C:/x). */
+const nat = (p: string) => (WIN ? p.replace(/^\/([A-Za-z]:)/, "$1") : p);
 const { STATUS_CODE, flagsToString } = utils.sftp;
 
 export interface FakeSsh {
@@ -82,7 +86,10 @@ export async function fakeSsh(o: {
     close: async () => {},
   };
   const children = new Set<ChildProcess>();
+  const clients = new Set<{ end: () => unknown }>();
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
+    clients.add(client);
+    client.on("close", () => clients.delete(client));
     client.on("error", () => {});
     client.on("authentication", (ctx) => {
       const user = ctx.username;
@@ -161,7 +168,9 @@ export async function fakeSsh(o: {
                   : STATUS_CODE.FAILURE,
             );
           sftp.on("REALPATH", (id, p) => {
-            const abs = p === "." || p === "" ? o.home : p;
+            // As Windows' OpenSSH names it: /C:/Users/… (the handlers below take that form back).
+            const home = WIN ? `/${o.home.replace(/\\/g, "/")}` : o.home;
+            const abs = p === "." || p === "" ? home : p;
             sftp.name(id, [{ filename: abs, longname: abs, attrs: {} as never }]);
           });
           for (const [ev, fn] of [
@@ -170,7 +179,7 @@ export async function fakeSsh(o: {
           ] as const)
             sftp.on(ev, (id, p) => {
               try {
-                sftp.attrs(id, attrsOf(fn(p)));
+                sftp.attrs(id, attrsOf(fn(nat(p))));
               } catch (err) {
                 fail(id, err);
               }
@@ -184,7 +193,7 @@ export async function fakeSsh(o: {
           sftp.on("FSETSTAT", (id) => sftp.status(id, STATUS_CODE.OK));
           sftp.on("MKDIR", (id, p) => {
             try {
-              mkdirSync(p);
+              mkdirSync(nat(p));
               sftp.status(id, STATUS_CODE.OK);
             } catch (err) {
               fail(id, err);
@@ -192,8 +201,8 @@ export async function fakeSsh(o: {
           });
           sftp.on("OPENDIR", (id, p) => {
             try {
-              if (!statSync(p).isDirectory()) return sftp.status(id, STATUS_CODE.FAILURE);
-              sftp.handle(id, handle({ dir: realpathSync(p) }));
+              if (!statSync(nat(p)).isDirectory()) return sftp.status(id, STATUS_CODE.FAILURE);
+              sftp.handle(id, handle({ dir: realpathSync(nat(p)) }));
             } catch (err) {
               fail(id, err);
             }
@@ -216,7 +225,7 @@ export async function fakeSsh(o: {
           sftp.on("OPEN", (id, p, flags) => {
             try {
               const mode = flagsToString(flags) ?? "r";
-              sftp.handle(id, handle({ fd: openSync(p, mode) }));
+              sftp.handle(id, handle({ fd: openSync(nat(p), mode) }));
             } catch (err) {
               fail(id, err);
             }
@@ -241,7 +250,7 @@ export async function fakeSsh(o: {
           ] as const)
             sftp.on(ev, (id, p) => {
               try {
-                fn(p);
+                fn(nat(p));
                 sftp.status(id, STATUS_CODE.OK);
               } catch (err) {
                 fail(id, err);
@@ -249,7 +258,7 @@ export async function fakeSsh(o: {
             });
           sftp.on("RENAME", (id, from, to) => {
             try {
-              renameSync(from, to);
+              renameSync(nat(from), nat(to));
               sftp.status(id, STATUS_CODE.OK);
             } catch (err) {
               fail(id, err);
@@ -270,6 +279,8 @@ export async function fakeSsh(o: {
   state.port = (server.address() as AddressInfo).port;
   state.close = async () => {
     for (const c of children) c.kill("SIGKILL");
+    // Connections still open would keep close() waiting (Windows keeps them longer).
+    for (const c of clients) c.end();
     await new Promise<void>((ok) => server.close(() => ok()));
   };
   return state;

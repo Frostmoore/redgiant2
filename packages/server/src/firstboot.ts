@@ -5,7 +5,7 @@
 import { constants } from "node:fs";
 import { access, mkdir, readdir, readFile, rm, statfs, writeFile } from "node:fs/promises";
 import { hostname, networkInterfaces, platform } from "node:os";
-import { join, posix, win32 } from "node:path";
+import { basename, dirname, isAbsolute, join, posix, relative, win32 } from "node:path";
 import type {
   BackupDestination,
   BackupPlace,
@@ -160,9 +160,9 @@ export function mountPoints(mountinfo: string): string[] {
 export function backupPlaces(mounts: readonly string[], base: string, disks: readonly string[]) {
   const seen = new Set(disks);
   return [...new Set(mounts)]
-    .filter((m) => posix.dirname(m) === base && !seen.has(m))
+    .filter((m) => dirname(m) === base && !seen.has(m))
     .sort()
-    .map((path) => ({ path, name: posix.basename(path) }));
+    .map((path) => ({ path, name: basename(path) }));
 }
 
 export class FirstBoot {
@@ -323,7 +323,7 @@ export class FirstBoot {
       throw new FirstBootError(err instanceof HelperError ? err.code : "not_writable");
     });
     // The helper's folder, as this process sees it (the same path inside RedGiant's container).
-    const dir = posix.join(place.path, "RedGiant");
+    const dir = join(place.path, "RedGiant");
     await this.writable(dir);
     return { kind: "folder", path: dir };
   }
@@ -374,11 +374,9 @@ export class FirstBoot {
     const target = dest.kind === "disk" ? join(dir, "RedGiant") : dir;
     // A folder the host mounts (a Proxmox mount point): when it is not mounted now, writing there
     // would fill the system's disk instead.
-    if (dest.kind === "folder" && dest.path.startsWith(`${this.base}/`)) {
-      const place = posix.join(
-        this.base,
-        dest.path.slice(this.base.length + 1).split("/")[0] ?? "",
-      );
+    const rel = dest.kind === "folder" ? relative(this.base, dest.path) : "";
+    if (rel && !rel.startsWith("..") && !isAbsolute(rel)) {
+      const place = join(this.base, rel.split(/[\\/]/)[0] ?? "");
       const info = await (
         this.o.mountinfo ?? (() => readFile("/proc/self/mountinfo", "utf8"))
       )().catch(() => null);
