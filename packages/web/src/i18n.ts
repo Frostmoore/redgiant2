@@ -5685,8 +5685,6 @@ const en = {
   fbPlaceFree: "{free} GB free of {total}",
   fbContainerDisks:
     "RedGiant OS runs in a container ({name}): the disks it sees are those of the machine hosting it and cannot be used from here.",
-  fbContainerHow:
-    "For backups, mount a folder of the host (a disk, a network share) under /var/lib/redgiant/backups/<name>. On Proxmox: pct set <id> -mp0 /host/folder,mp=/var/lib/redgiant/backups/<name>, then open this page again.",
   fbSshWhy_no_helper:
     "This installation has no RedGiant OS system helper: SSH is managed by the system hosting it.",
   fbSshWhy_unreachable:
@@ -5722,6 +5720,121 @@ const en = {
   fbBackupNow: "Make a backup now",
   fbBackupStarted: "Backup started: it shows in Downloads and jobs.",
   fbBackupBusy: "A backup is already running.",
+  fbDestSftp: "Backups go to {machine}, in {path} (SFTP).",
+  fbDestSmb: "Backups go to the shared folder {path}, as {user}.",
+  fbDestNode: "Backups go to the node {name}, in the storage it lends.",
+  fbNetTitle: "Or a folder on the network",
+  fbNetLead:
+    "Nothing to mount: it works also in a container or in Docker. Each backup arrives under a temporary name and gets its real name only once complete and checked.",
+  fbNetSftp: "One of your machines",
+  fbNetSmb: "Shared folder (SMB)",
+  fbNetNode: "Another RedGiant",
+  fbNetNoMachines:
+    "No machine yet: add your NAS or another computer in Settings › Machines (SSH), test it once, then come back here.",
+  fbNetPick: "Use for backups",
+  fbNetNotTrusted: "Test it in Settings › Machines first",
+  fbNetFolder: "Folder there",
+  fbNetFolderHelp:
+    "A full path (/volume1/RedGiant, E:\\Backup) or one from the home (~/RedGiant-backups). It is made if missing.",
+  fbSmbMissing:
+    "Shared folders need smbclient, which this installation does not have (the Docker image and RedGiant OS have it). On Windows use the folder field above with \\\\host\\share.",
+  fbSmbAddress: "Shared folder",
+  fbSmbAddressHelp:
+    "As Windows writes it (\\\\nas\\backup\\RedGiant) or smb://nas/backup/RedGiant.",
+  fbSmbUser: "User",
+  fbSmbPassword: "Password",
+  fbSmbPasswordKept: "Kept in the keychain: leave it empty to keep it.",
+  fbSmbPasswordHelp: "It goes into the keychain only, never into a file or a log.",
+  fbSmbDomain: "Domain or workgroup",
+  fbSmbDomainHelp: "Only if your network needs one (often empty).",
+  fbUseShare: "Use this shared folder",
+  fbNetNoNodes: "No paired RedGiant yet: pair one in Settings › Nodes (it must lend its storage).",
+  fbNodeOnline: "Online",
+  fbNodeOffline: "Offline now",
+  fbHostTitle: "A disk of the host",
+  fbHostLead:
+    "From a container RedGiant sees the host's disks but cannot mount them: the host mounts the disk and passes a folder in. RedGiant notices it by itself.",
+  fbHostOne: "On this machine there is the disk {title}, {how}, {size}.",
+  fbHostMany: "On this machine there are {n} removable disks: pick the one for backups.",
+  fbHostNone:
+    "No removable disk of the host is in sight: plug it into the host, or use a folder on the network below.",
+  fbHostKind: "The host",
+  fbHostOther: "Other",
+  fbHostId: "Container id on Proxmox",
+  fbHostIdHelp: "The number in Proxmox's list (this container is called {hostname}).",
+  fbHostSteps: "To run on the host, as root",
+  fbHostBad_bad_name: "This disk's name cannot be used for a folder.",
+  fbHostBad_bad_device: "This disk's device cannot be used.",
+  fbHostBad_bad_id: "The container id is a number, like 105.",
+  fbHostBad_bad_mp: "No free mount point.",
+  fbHostWatching: "Looking every few seconds: when {target} arrives it shows above, ready to use.",
+  fbPveTitle: "Do it for me",
+  fbPveLead:
+    "If the Proxmox host is among your machines (Settings › Machines), RedGiant can run these steps there itself. It asks you first, with every command in the request.",
+  fbPveLook: "Look for the Proxmox host",
+  fbPveNone:
+    "None of your {n} machines is a Proxmox host. Add the host in Settings › Machines (as root, with RedGiant's key), test it, then look again.",
+  fbPveHost: "{name}: Proxmox {version}.",
+  fbPveGuess: "This container is {id}.",
+  fbPveNoDisks: "No removable disk on that host.",
+  fbPveDo: "Pass it to RedGiant",
+  fbPveFormat: "Not formatted: format and pass it",
+  fbPveNeedId: "Write the container id first.",
+  fbPveFormatQ: "Format the disk {title}?",
+  fbPveFormatLabel: "Everything on it is erased. To go on, type its name: {title}",
+  fbPveFormatYes: "Format and pass it",
+  fbPveQ: "Pass the disk {title} of {host} to container {id}?",
+  fbPveText:
+    "RedGiant asks you again in your requests, with the exact commands, before running anything on the host.",
+  fbPveYes: "Ask me with the commands",
+  fbPveDone: "Done: the folder {target} has arrived.",
+  fbPveRestart:
+    "Done on the host. If {target} does not appear in a minute, restart the container from Proxmox.",
+  fbListTitle: "The backups there",
+  fbListLead: "Each one can be brought back: what is new is added, nothing here is deleted.",
+  fbListShow: "Show the backups",
+  fbListAgain: "Look again",
+  fbListEmpty: "No backup yet in {where}.",
+  fbRestore: "Restore",
+  fbRestoreQ: "Restore the backup of {when}?",
+  fbRestoreText:
+    "It is read back first, then projects, agents and conversations that are not here are added. Nothing here is deleted.",
+  fbRestoreYes: "Restore",
+  fbErr_unreachable:
+    "The destination does not answer: is it on and on the network? Nothing was written elsewhere.",
+  fbErr_auth:
+    "The destination refused the sign-in: check the user and the password (or the machine's key).",
+  fbErr_not_found: "The folder or the destination is not there (any more).",
+  fbErr_denied: "The destination does not let this user write there.",
+  fbErr_mismatch: "The copy arrived different from the original: it was not kept. Try again.",
+  fbErr_smb_missing: "Shared folders need smbclient, which this installation does not have.",
+  fbErr_bad_path: "Write a full folder path (/volume1/RedGiant) or one from the home (~/backups).",
+  fbErr_disk_missing:
+    "The backup disk is not connected: plug it in. Nothing was written elsewhere.",
+  fbErr_place_missing:
+    "The folder from the host is not mounted now: nothing was written on the system disk.",
+  fbErr_no_destination: "Choose where backups go first.",
+  fbErr_smb_address:
+    "Write the shared folder as \\\\host\\share\\folder (letters, digits, spaces, dots and dashes).",
+  fbErr_smb_bad_user: "This user name cannot be used.",
+  fbErr_smb_bad_password: "This password cannot be used (no line breaks).",
+  fbErr_smb_bad_domain: "The domain is letters, digits, dots and dashes.",
+  fbErr_not_trusted: "Test this machine once in Settings › Machines and trust its key first.",
+  fbErr_keychain_closed: "Open the keychain first: the password is kept there.",
+  fbErr_not_proxmox: "That machine is not a Proxmox host.",
+  fbErr_no_container: "There is no container with that id on the host.",
+  fbErr_no_disk: "That disk is not a removable disk of the host (any more).",
+  fbErr_already: "The container already has a folder with that name.",
+  fbErr_has_filesystem: "That disk is formatted already: it is never formatted again from here.",
+  fbErr_needs_format: "That disk is not formatted.",
+  job_backup_scheduled: "Backup",
+  job_backup_restore: "Restoring the backup",
+  job_backup_host_mount: "Passing the disk {disk} to RedGiant",
+  job_step_fetch: "Bringing the backup here",
+  job_step_look: "Looking at the host",
+  job_step_ask: "Waiting for your yes",
+  job_step_run: "Running the steps on the host",
+  job_step_arrive: "Waiting for the folder",
   fbSshTitle: "SSH",
   osNetSub: "Network",
   osNetSubLead: "How the machine joins the network, and HTTPS for the pages of your home network.",
@@ -11758,8 +11871,6 @@ const it: Record<Key, string> = {
   fbPlaceFree: "{free} GB liberi su {total}",
   fbContainerDisks:
     "RedGiant OS gira in un container ({name}): i dischi che vede sono quelli della macchina che lo ospita e da qui non si possono usare.",
-  fbContainerHow:
-    "Per le copie, monta una cartella della macchina ospite (un disco, una cartella di rete) in /var/lib/redgiant/backups/<nome>. Su Proxmox: pct set <id> -mp0 /cartella/ospite,mp=/var/lib/redgiant/backups/<nome>, poi riapri questa pagina.",
   fbSshWhy_no_helper:
     "Questa installazione non ha l'aiutante di sistema di RedGiant OS: SSH lo gestisce il sistema che la ospita.",
   fbSshWhy_unreachable:
@@ -11796,6 +11907,127 @@ const it: Record<Key, string> = {
   fbBackupNow: "Fai una copia adesso",
   fbBackupStarted: "Copia avviata: la vedi tra i lavori in corso.",
   fbBackupBusy: "Una copia è già in corso.",
+  fbDestSftp: "Le copie vanno su {machine}, in {path} (SFTP).",
+  fbDestSmb: "Le copie vanno nella cartella condivisa {path}, come {user}.",
+  fbDestNode: "Le copie vanno sul nodo {name}, nello spazio che presta.",
+  fbNetTitle: "Oppure una cartella in rete",
+  fbNetLead:
+    "Niente da montare: funziona anche in un container o in Docker. Ogni copia arriva con un nome temporaneo e prende il suo nome vero solo quando è completa e controllata.",
+  fbNetSftp: "Una delle tue macchine",
+  fbNetSmb: "Cartella condivisa (SMB)",
+  fbNetNode: "Un altro RedGiant",
+  fbNetNoMachines:
+    "Nessuna macchina ancora: aggiungi il NAS o un altro computer in Impostazioni › Macchine (SSH), provalo una volta e torna qui.",
+  fbNetPick: "Usa per le copie",
+  fbNetNotTrusted: "Prima provala in Impostazioni › Macchine",
+  fbNetFolder: "Cartella lì",
+  fbNetFolderHelp:
+    "Un percorso completo (/volume1/RedGiant, E:\\Backup) o dalla home (~/RedGiant-backups). Se manca la crea.",
+  fbSmbMissing:
+    "Le cartelle condivise hanno bisogno di smbclient, che questa installazione non ha (l'immagine Docker e RedGiant OS ce l'hanno). Su Windows usa il campo cartella qui sopra con \\\\host\\condivisione.",
+  fbSmbAddress: "Cartella condivisa",
+  fbSmbAddressHelp:
+    "Come la scrive Windows (\\\\nas\\backup\\RedGiant) oppure smb://nas/backup/RedGiant.",
+  fbSmbUser: "Utente",
+  fbSmbPassword: "Password",
+  fbSmbPasswordKept: "È nel Portachiavi: lascia vuoto per tenerla.",
+  fbSmbPasswordHelp: "Va solo nel Portachiavi, mai in un file o in un log.",
+  fbSmbDomain: "Dominio o gruppo di lavoro",
+  fbSmbDomainHelp: "Solo se la tua rete lo chiede (spesso vuoto).",
+  fbUseShare: "Usa questa cartella condivisa",
+  fbNetNoNodes:
+    "Nessun RedGiant abbinato: abbinane uno in Impostazioni › Nodi (deve prestare il suo spazio).",
+  fbNodeOnline: "In linea",
+  fbNodeOffline: "Non in linea ora",
+  fbHostTitle: "Un disco della macchina ospite",
+  fbHostLead:
+    "Da un container RedGiant vede i dischi della macchina ospite ma non può montarli: li monta l'ospite e passa dentro una cartella. RedGiant se ne accorge da solo.",
+  fbHostOne: "Su questa macchina c'è il disco {title}, {how}, {size}.",
+  fbHostMany: "Su questa macchina ci sono {n} dischi rimovibili: scegli quello per le copie.",
+  fbHostNone:
+    "Non si vede nessun disco rimovibile dell'ospite: collegalo all'ospite, oppure usa una cartella in rete qui sotto.",
+  fbHostKind: "La macchina ospite",
+  fbHostOther: "Altro",
+  fbHostId: "Numero del container su Proxmox",
+  fbHostIdHelp: "Il numero nell'elenco di Proxmox (questo container si chiama {hostname}).",
+  fbHostSteps: "Da eseguire sulla macchina ospite, come root",
+  fbHostBad_bad_name: "Il nome di questo disco non si può usare per una cartella.",
+  fbHostBad_bad_device: "Il dispositivo di questo disco non si può usare.",
+  fbHostBad_bad_id: "Il numero del container è un numero, come 105.",
+  fbHostBad_bad_mp: "Nessun punto di montaggio libero.",
+  fbHostWatching:
+    "Controllo ogni pochi secondi: quando arriva {target} compare qui sopra, pronta da usare.",
+  fbPveTitle: "Fallo tu",
+  fbPveLead:
+    "Se l'host Proxmox è tra le tue macchine (Impostazioni › Macchine), RedGiant può eseguire lì questi passi da solo. Prima te lo chiede, con tutti i comandi nella richiesta.",
+  fbPveLook: "Cerca l'host Proxmox",
+  fbPveNone:
+    "Nessuna delle tue {n} macchine è un host Proxmox. Aggiungi l'host in Impostazioni › Macchine (come root, con la chiave di RedGiant), provalo, poi cerca di nuovo.",
+  fbPveHost: "{name}: Proxmox {version}.",
+  fbPveGuess: "Questo container è il {id}.",
+  fbPveNoDisks: "Nessun disco rimovibile su quell'host.",
+  fbPveDo: "Passalo a RedGiant",
+  fbPveFormat: "Non formattato: formattalo e passalo",
+  fbPveNeedId: "Scrivi prima il numero del container.",
+  fbPveFormatQ: "Formattare il disco {title}?",
+  fbPveFormatLabel:
+    "Tutto quello che c'è sopra viene cancellato. Per andare avanti scrivi il suo nome: {title}",
+  fbPveFormatYes: "Formatta e passalo",
+  fbPveQ: "Passare il disco {title} di {host} al container {id}?",
+  fbPveText:
+    "RedGiant te lo chiede di nuovo tra le richieste, con i comandi esatti, prima di eseguire qualcosa sull'host.",
+  fbPveYes: "Chiedimelo con i comandi",
+  fbPveDone: "Fatto: la cartella {target} è arrivata.",
+  fbPveRestart:
+    "Fatto sull'host. Se {target} non compare entro un minuto, riavvia il container da Proxmox.",
+  fbListTitle: "Le copie che ci sono",
+  fbListLead:
+    "Ognuna si può riportare qui: si aggiunge quello che manca, qui non si cancella niente.",
+  fbListShow: "Mostra le copie",
+  fbListAgain: "Guarda di nuovo",
+  fbListEmpty: "Ancora nessuna copia in {where}.",
+  fbRestore: "Ripristina",
+  fbRestoreQ: "Ripristinare la copia del {when}?",
+  fbRestoreText:
+    "Prima viene riletta, poi si aggiungono i progetti, gli agenti e le conversazioni che qui non ci sono. Qui non si cancella niente.",
+  fbRestoreYes: "Ripristina",
+  fbErr_unreachable:
+    "La destinazione non risponde: è accesa e in rete? Non è stato scritto niente altrove.",
+  fbErr_auth:
+    "La destinazione ha rifiutato l'accesso: controlla utente e password (o la chiave della macchina).",
+  fbErr_not_found: "La cartella o la destinazione non c'è (più).",
+  fbErr_denied: "La destinazione non lascia scrivere questo utente.",
+  fbErr_mismatch: "La copia è arrivata diversa dall'originale: non è stata tenuta. Riprova.",
+  fbErr_smb_missing:
+    "Le cartelle condivise hanno bisogno di smbclient, che questa installazione non ha.",
+  fbErr_bad_path: "Scrivi un percorso completo (/volume1/RedGiant) o dalla home (~/backup).",
+  fbErr_disk_missing:
+    "Il disco delle copie non è collegato: collegalo. Non è stato scritto niente altrove.",
+  fbErr_place_missing:
+    "La cartella della macchina ospite ora non è montata: non è stato scritto niente sul disco di sistema.",
+  fbErr_no_destination: "Scegli prima dove vanno le copie.",
+  fbErr_smb_address:
+    "Scrivi la cartella condivisa come \\\\host\\condivisione\\cartella (lettere, cifre, spazi, punti e trattini).",
+  fbErr_smb_bad_user: "Questo nome utente non si può usare.",
+  fbErr_smb_bad_password: "Questa password non si può usare (niente a capo).",
+  fbErr_smb_bad_domain: "Il dominio è fatto di lettere, cifre, punti e trattini.",
+  fbErr_not_trusted:
+    "Prova prima questa macchina in Impostazioni › Macchine e fidati della sua chiave.",
+  fbErr_keychain_closed: "Apri prima il Portachiavi: la password si tiene lì.",
+  fbErr_not_proxmox: "Quella macchina non è un host Proxmox.",
+  fbErr_no_container: "Sull'host non c'è un container con quel numero.",
+  fbErr_no_disk: "Quel disco non è (più) un disco rimovibile dell'host.",
+  fbErr_already: "Il container ha già una cartella con quel nome.",
+  fbErr_has_filesystem: "Quel disco è già formattato: da qui non si riformatta mai.",
+  fbErr_needs_format: "Quel disco non è formattato.",
+  job_backup_scheduled: "Copia di sicurezza",
+  job_backup_restore: "Ripristino della copia",
+  job_backup_host_mount: "Passo il disco {disk} a RedGiant",
+  job_step_fetch: "Porto qui la copia",
+  job_step_look: "Guardo l'host",
+  job_step_ask: "Aspetto il tuo sì",
+  job_step_run: "Eseguo i passi sull'host",
+  job_step_arrive: "Aspetto la cartella",
   fbSshTitle: "SSH",
   osNetSub: "Rete",
   osNetSubLead:

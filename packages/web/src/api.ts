@@ -2,9 +2,11 @@ import {
   type ArtifactGrant,
   type Automation,
   type AutomationRun,
+  type BackupEntry,
   type BackupPreview,
   type BackupSchedule,
   type BackupSettings,
+  type BlockDisk,
   type ClientMessage,
   type CloudEmbeddingModel,
   type Event,
@@ -586,6 +588,30 @@ export interface McpStatus {
   error?: string;
 }
 
+/** Where backups may go without mounting anything (p3.7.2). */
+export interface BackupTargets {
+  machines: {
+    id: string;
+    name: string;
+    host: string;
+    user: string;
+    trusted: boolean;
+    windows: boolean;
+  }[];
+  nodes: { fingerprint: string; name: string; online: boolean }[];
+  smb: { available: boolean; password: boolean };
+}
+
+/** One of the person's machines that is a Proxmox host, as RedGiant read it. */
+export interface ProxmoxHost {
+  machineId: string;
+  name: string;
+  proxmox: string;
+  containers: { id: string; status: string; name: string }[];
+  guess: string | null;
+  disks: (BlockDisk & { usable: boolean; why?: string; title: string })[];
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -1159,6 +1185,29 @@ export class Api {
   setupBackups = (b: { schedule?: Partial<BackupSchedule>; destination?: null }) =>
     this.call<BackupSettings>("PUT", "/api/setup/backups", b);
   setupBackupRun = () => this.call<{ started: boolean }>("POST", "/api/setup/backups/run");
+  // Backups anywhere (p3.7.2): network destinations, the backups there, the Proxmox host.
+  setupBackupTargets = () => this.call<BackupTargets>("GET", "/api/setup/backups/targets");
+  setupBackupSftp = (machineId: string, path: string) =>
+    this.call<BackupSettings>("PUT", "/api/setup/backups/sftp", { machineId, path });
+  setupBackupSmb = (b: { address: string; user: string; password?: string; domain?: string }) =>
+    this.call<BackupSettings>("PUT", "/api/setup/backups/smb", b);
+  setupBackupNode = (fingerprint: string) =>
+    this.call<BackupSettings>("PUT", "/api/setup/backups/node", { fingerprint });
+  setupBackupList = () =>
+    this.call<{ where: string; backups: BackupEntry[] }>("GET", "/api/setup/backups/list");
+  setupBackupRestore = (id: string) => this.call<Job>("POST", "/api/setup/backups/restore", { id });
+  setupProxmoxHosts = () =>
+    this.call<{ checked: number; hosts: ProxmoxHost[]; errors: { name: string; error: string }[] }>(
+      "GET",
+      "/api/setup/backups/proxmox",
+    );
+  setupProxmoxMount = (b: {
+    machineId: string;
+    ctid: string;
+    device: string;
+    name: string;
+    format?: string;
+  }) => this.call<Job>("POST", "/api/setup/backups/proxmox", b);
   setupNet = () => this.call<NetDetected>("GET", "/api/setup/net");
   setupSsh = () => this.call<SshAccess>("GET", "/api/setup/ssh");
   // RedGiant OS (G39.1): Wi-Fi, HTTPS in the local network, its updates, a restart.

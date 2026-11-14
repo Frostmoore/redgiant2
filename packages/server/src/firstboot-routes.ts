@@ -423,9 +423,9 @@ export function firstBootRoutes<E extends { Variables: any }>(
       return core.jobs.start(
         o,
         "backup_restore",
-        ["download", "verify", "data", "conversations", "files"],
+        ["fetch", "verify", "data", "conversations", "files"],
         async (h) => {
-          h.step("download");
+          h.step("fetch");
           const t = await openTarget(core, s, o, dest);
           try {
             const got = await t.fetch(folder, file);

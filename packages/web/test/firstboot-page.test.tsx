@@ -82,6 +82,58 @@ const fakeApi = new Proxy(
         if (name === "setupSsh") return Promise.resolve({ available: false });
         if (name === "setupBackupFolder")
           return Promise.resolve({ destination: { kind: "folder", path: args[0] } });
+        if (name === "setupBackupTargets")
+          return Promise.resolve({
+            machines: [
+              {
+                id: "m1",
+                name: "nas",
+                host: "nas.lan",
+                user: "admin",
+                trusted: true,
+                windows: false,
+              },
+              {
+                id: "m2",
+                name: "new",
+                host: "new.lan",
+                user: "root",
+                trusted: false,
+                windows: false,
+              },
+            ],
+            nodes: [{ fingerprint: "SHA256:abcdefghijkl", name: "rig", online: true }],
+            smb: { available: true, password: false },
+          });
+        if (name === "setupBackupList")
+          return Promise.resolve({
+            where: "nas: ~/RedGiant",
+            backups: [
+              {
+                id: "RedGiant-backup-2026-11-14/redgiant-3.7.2-0300.rgbackup",
+                folder: "RedGiant-backup-2026-11-14",
+                file: "redgiant-3.7.2-0300.rgbackup",
+                bytes: 300 * 1024 * 1024,
+                at: "2026-11-14T02:00:00.000Z",
+              },
+            ],
+          });
+        if (name === "job")
+          return Promise.resolve({
+            id: "job1",
+            kind: "backup_restore",
+            state: "done",
+            steps: [],
+            vars: {},
+          });
+        if (name === "setupBackupRestore" || name === "setupProxmoxMount")
+          return Promise.resolve({
+            id: "job1",
+            kind: "backup_restore",
+            state: "running",
+            steps: [],
+            vars: {},
+          });
         return Promise.resolve({});
       };
     },
@@ -223,6 +275,129 @@ describe("where backups go (G39.3)", () => {
       <StoragePanel demo={{ ...storage, candidates: [], container: "lxc", places: [] } as never} />,
     );
     expect(r.container.textContent).toContain("pct set <id> -mp0");
+  });
+
+  it("in a container: names the host's disk and fills in the host's steps (p3.7.2)", async () => {
+    const tech = {
+      name: "sdb1",
+      path: "/dev/sdb1",
+      title: "Tech",
+      sizeBytes: 1e12,
+      transport: "usb",
+      fstype: "",
+    };
+    const r = render(
+      <StoragePanel
+        demo={
+          {
+            ...storage,
+            candidates: [],
+            container: "lxc",
+            hostDisks: 1,
+            places: [],
+            hostDiskList: [tech],
+            containerHint: { hostname: "coder", id: null },
+            backupBase: "/var/lib/redgiant/backups",
+          } as never
+        }
+      />,
+    );
+    const text = () => r.container.textContent ?? "";
+    expect(text()).toContain("Su questa macchina c'è il disco Tech, USB, 931 GB.");
+    expect(text()).toContain("questo container si chiama coder");
+    expect(text()).toContain("mount /dev/sdb1 /mnt/redgiant-backups/Tech");
+    expect(text()).toContain(
+      "pct set <id> -mp0 /mnt/redgiant-backups/Tech/RedGiant,mp=/var/lib/redgiant/backups/Tech",
+    );
+    fireEvent.input(r.getByPlaceholderText("105"), { target: { value: "105" } });
+    await waitFor(() => expect(text()).toContain("pct set 105 -mp0"));
+    fireEvent.input(r.getByPlaceholderText("105"), { target: { value: "105; reboot" } });
+    await waitFor(() => expect(text()).toContain("Il numero del container è un numero"));
+    expect(text()).not.toContain("105; reboot -mp0");
+    fireEvent.click(r.getByText("Docker"));
+    await waitFor(() =>
+      expect(text()).toContain(
+        "- /mnt/redgiant-backups/Tech/RedGiant:/var/lib/redgiant/backups/Tech",
+      ),
+    );
+    expect(r.container.querySelectorAll(NATIVE)).toHaveLength(0);
+  });
+
+  it("a folder on the network: one of the machines over SFTP, a shared folder, a node (p3.7.2)", async () => {
+    const r = render(<StoragePanel demo={{ ...storage, candidates: [] } as never} />);
+    await waitFor(() => r.getByText("nas"));
+    expect(r.container.textContent).toContain("Prima provala in Impostazioni › Macchine");
+    fireEvent.click(r.getByText("nas"));
+    fireEvent.input(r.getByPlaceholderText("~/RedGiant-backups"), {
+      target: { value: "~/RedGiant" },
+    });
+    fireEvent.click(r.getAllByText("Usa questa cartella").at(-1) as HTMLElement);
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "setupBackupSftp")?.[1]).toEqual(["m1", "~/RedGiant"]),
+    );
+    fireEvent.click(r.getByText("Cartella condivisa (SMB)"));
+    fireEvent.input(r.getByPlaceholderText(String.raw`\\nas\backup\RedGiant`), {
+      target: { value: "\\\\nas\\backup" },
+    });
+    const inputs = r.container.querySelectorAll(".fb-net input");
+    fireEvent.input(inputs[1] as Element, { target: { value: "severino" } });
+    const pw = inputs[2] as HTMLInputElement;
+    expect(pw.type).toBe("password");
+    fireEvent.input(pw, { target: { value: "s3cret" } });
+    fireEvent.click(r.getByText("Usa questa cartella condivisa"));
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "setupBackupSmb")?.[1]).toEqual([
+        { address: "\\\\nas\\backup", user: "severino", password: "s3cret" },
+      ]),
+    );
+    fireEvent.click(r.getByText("Un altro RedGiant"));
+    fireEvent.click(r.getByText("rig"));
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "setupBackupNode")?.[1]).toEqual(["SHA256:abcdefghijkl"]),
+    );
+  });
+
+  it("says where backups go and why the last one failed, lists them and restores one (p3.7.2)", async () => {
+    const r = render(
+      <>
+        <StoragePanel
+          demo={
+            {
+              ...storage,
+              backups: {
+                destination: {
+                  kind: "sftp",
+                  machineId: "m1",
+                  machineName: "nas",
+                  path: "~/RedGiant",
+                },
+                schedule: { every: "daily", hour: 3, keep: 7 },
+                last: {
+                  at: "2026-11-14T02:00:00.000Z",
+                  ok: false,
+                  code: "unreachable",
+                  error: "The machine nas cannot be reached",
+                },
+              },
+            } as never
+          }
+        />
+        <Dialogs />
+      </>,
+    );
+    const text = () => r.container.textContent ?? "";
+    expect(text()).toContain("Le copie vanno su nas, in ~/RedGiant (SFTP).");
+    expect(text()).toContain("La destinazione non risponde: è accesa e in rete?");
+    fireEvent.click(r.getByText("Mostra le copie"));
+    await waitFor(() => r.getByText("redgiant-3.7.2-0300.rgbackup · 300 MB"));
+    fireEvent.click(r.getAllByText("Ripristina")[0] as HTMLElement);
+    await waitFor(() => r.getByText(/Ripristinare la copia del/));
+    fireEvent.click(r.getAllByText("Ripristina").at(-1) as HTMLElement);
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "setupBackupRestore")?.[1]).toEqual([
+        "RedGiant-backup-2026-11-14/redgiant-3.7.2-0300.rgbackup",
+      ]),
+    );
   });
 
   it("SSH: the switch with its real state, or why it cannot be read (p3.7.2)", () => {

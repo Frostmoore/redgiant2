@@ -38,6 +38,7 @@ import {
   IconZap,
 } from "../icons.js";
 import { attempt, getApi } from "../state.js";
+import { BackupList, destText, failText, HostDiskGuide, NetworkTargets } from "./BackupTargets.js";
 import { askConfirm } from "./dialogs.js";
 import { PairForm, PendingCards, useNodes } from "./Nodes.js";
 import { OsNetworkSection, OsUpdatesSection } from "./OsSystem.js";
@@ -395,11 +396,7 @@ export function StoragePanel({ demo }: { demo?: Storage } = {}) {
         {dest && (
           <div class="wz-note fb-dest">
             <IconArchive size={20} />
-            <span>
-              {dest.kind === "disk"
-                ? t("fbDestDisk", { label: dest.label, path: dest.path })
-                : t("fbDestFolder", { path: dest.path })}
-            </span>
+            <span>{destText(dest)}</span>
           </div>
         )}
         {places.length > 0 && (
@@ -435,14 +432,12 @@ export function StoragePanel({ demo }: { demo?: Storage } = {}) {
         {st.container ? (
           <div class="wz-note">
             <IconInfo size={20} />
-            <span>
-              {t("fbContainerDisks", { name: VIRT[st.container] ?? st.container })}
-              {places.length === 0 && <> {t("fbContainerHow")}</>}
-            </span>
+            <span>{t("fbContainerDisks", { name: VIRT[st.container] ?? st.container })}</span>
           </div>
         ) : (
           <Sub title={t("fbDisksTitle")} lead={t(`fbMethod_${st.method}` as Key)} />
         )}
+        {st.container && <HostDiskGuide st={st} reload={load} />}
         {st.container ? null : st.candidates.length ? (
           <Tiles>
             {st.candidates.map((d) => (
@@ -494,6 +489,7 @@ export function StoragePanel({ demo }: { demo?: Storage } = {}) {
             <span>{t("fbUseFolder")}</span>
           </button>
         </div>
+        <NetworkTargets st={st} reload={load} />
         {dest && (
           <>
             <Sub title={t("fbWhenTitle")} />
@@ -543,7 +539,7 @@ export function StoragePanel({ demo }: { demo?: Storage } = {}) {
                   ? t("fbLastOk", { when: new Date(b.last.at).toLocaleString() })
                   : t("fbLastFailed", {
                       when: new Date(b.last.at).toLocaleString(),
-                      why: b.last.error ?? "",
+                      why: failText(b.last),
                     })}
               </p>
             )}
@@ -559,6 +555,7 @@ export function StoragePanel({ demo }: { demo?: Storage } = {}) {
               </button>
             </Acts>
             {msg && <p class="dim">{msg}</p>}
+            <BackupList />
           </>
         )}
       </SCard>
