@@ -19,7 +19,8 @@ VIRTUAL='^(lo|docker[0-9]*|br-.*|veth.*|virbr.*|vnet.*|tailscale.*|tun.*|tap.*|w
 interfaces() {
   local sys=${1:-/sys} n
   for d in "$sys"/class/net/*; do
-    [ -e "$d" ] || continue
+    # Cards are folders; /sys/class/net/bonding_masters is a file.
+    [ -d "$d" ] || continue
     n=${d##*/}
     [[ $n =~ $VIRTUAL ]] && continue
     printf '%s\n' "$n"
@@ -55,23 +56,41 @@ configure() {
   ' "$conf" >"$conf.redgiant-new" && mv -f "$conf.redgiant-new" "$conf"
 }
 
-# The card of the default IPv4 route and its address.
-main_ipv4() {
-  local dev
-  dev=$(ip -4 route show default 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
-  [ -n "$dev" ] || return 1
-  ip -o -4 addr show dev "$dev" scope global 2>/dev/null | awk '{ split($4, a, "/"); print a[1]; exit }'
+# The card of the default IPv4 route.
+main_dev() {
+  ip -4 route show default 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }'
 }
 
+# The name avahi publishes, as avahi says it (redgiant.local, redgiant-2.local after a conflict);
+# the host name otherwise. Never a reverse lookup: that may answer with another machine's name
+# for this address (Incus: rg-lxc-test.incus.local).
+avahi_name() {
+  local n=""
+  n=$(busctl --system --timeout=5 call org.freedesktop.Avahi / org.freedesktop.Avahi.Server GetHostNameFqdn 2>/dev/null |
+    sed -n 's/^s "\(.*\)"$/\1/p') || n=""
+  [ -n "$n" ] || n=$(dbus-send --system --print-reply --dest=org.freedesktop.Avahi / \
+    org.freedesktop.Avahi.Server.GetHostNameFqdn 2>/dev/null | sed -n 's/^ *string "\(.*\)"$/\1/p') || n=""
+  [ -n "$n" ] || n=$(hostname).local
+  printf '%s\n' "$n"
+}
+
+# The name resolves (mDNS, through avahi) to an IPv4 of the main card. Avahi may be starting or
+# restarting: up to 20 tries, one a second. Says why on stderr when it does not.
 check() {
-  local want name got
-  # shellcheck source=common.sh
-  . "$(dirname "$(readlink -f "$0")")/common.sh"
-  want=$(main_ipv4) || { echo "no default IPv4 route" >&2; return 1; }
-  [ -n "$want" ] || { echo "the main card has no IPv4" >&2; return 1; }
-  name=$(mdns_name)
-  got=$(avahi-resolve -4 -n "$name" 2>/dev/null | awk '{ print $2; exit }')
-  [ "$got" = "$want" ] || { echo "$name resolves to '${got:-nothing}', not $want" >&2; return 1; }
+  local dev want name got i
+  for i in $(seq 1 20); do
+    dev=$(main_dev)
+    want=$([ -n "$dev" ] && ip -o -4 addr show dev "$dev" scope global 2>/dev/null | awk '{ split($4, a, "/"); print a[1] }')
+    name=$(avahi_name)
+    got=$(avahi-resolve -4 -n "$name" 2>/dev/null | awk '{ print $2; exit }')
+    if [ -n "$got" ] && [ -n "$want" ] && printf '%s\n' "$want" | grep -qxF "$got"; then
+      echo "$name is $got on $dev"
+      return 0
+    fi
+    [ "$i" -lt 20 ] && sleep 1
+  done
+  echo "$name resolves to '${got:-nothing}', not an IPv4 of ${dev:-the main card} (${want:-none}); default route: $(ip -4 route show default 2>/dev/null | head -1)" >&2
+  return 1
 }
 
 case "${1:-}" in

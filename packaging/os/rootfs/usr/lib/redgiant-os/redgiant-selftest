@@ -26,7 +26,13 @@ check "images pinned" /usr/lib/redgiant-os/redgiant-stack images
 check "mdns redgiant.local" avahi-resolve -4 -n "$(hostname).local"
 # redgiant.local is the main card's IPv4 (not a Docker bridge's, not only IPv6 link-local), and
 # avahi uses only the real cards (p3.7.2).
-check "mdns $(mdns_name) is the main IPv4" /usr/lib/redgiant-os/redgiant-mdns check
+# Its own line with the reason: the name avahi publishes, what it resolved to, the route.
+if why=$(/usr/lib/redgiant-os/redgiant-mdns check 2>&1); then
+  say "ok   mdns is the main IPv4 ($why)"
+else
+  say "FAIL mdns is the main IPv4: $why"
+  ok=0
+fi
 check "mdns only on real cards" bash -c '! grep -qE "^allow-interfaces=.*(docker|veth|br-)" /etc/avahi/avahi-daemon.conf && grep -q "^allow-interfaces=" /etc/avahi/avahi-daemon.conf'
 
 check "issue shows the address" grep -qF "http://$(addresses | head -1):$PORT" /etc/issue.d/50-redgiant.issue

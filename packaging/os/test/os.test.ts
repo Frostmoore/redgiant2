@@ -204,7 +204,46 @@ describe("redgiant.local only on the real network cards (redgiant-mdns, p3.7.2)"
     "tailscale0",
   ])
     mkdirSync(join(sys, "class/net", n), { recursive: true });
+  // The bonding driver's file sits among the cards: not one.
+  writeFileSync(join(sys, "class/net", "bonding_masters"), "");
   const mdns = osLib("redgiant-mdns");
+
+  // check with fake programs: the route, the card's addresses, avahi's name and its answer.
+  const fakes = (o: { name: string; resolves: string }) => {
+    const bin = mkdtempSync(join(tmpdir(), "rg-mdns-bin-"));
+    const put = (n: string, text: string) => writeFileSync(join(bin, n), text, { mode: 0o755 });
+    put(
+      "ip",
+      `#!/bin/sh\ncase "$*" in\n  *route*) echo "default via 10.0.2.2 dev enp0s2 proto dhcp src 10.0.2.15 metric 100" ;;\n  *addr*) echo "2: enp0s2    inet 10.0.2.15/24 brd 10.0.2.255 scope global dynamic enp0s2" ;;\nesac\n`,
+    );
+    put("busctl", `#!/bin/sh\necho 's "${o.name}"'\n`);
+    put(
+      "avahi-resolve",
+      `#!/bin/sh\n[ "$3" = "${o.name}" ] && printf '%s\\t%s\\n' "$3" "${o.resolves}"\n`,
+    );
+    put("hostname", "#!/bin/sh\necho wrong\n");
+    put("sleep", "#!/bin/sh\nexit 0\n");
+    return { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  };
+
+  it("checks the name avahi publishes against the main card's IPv4, and says why not", {
+    skip: !bash,
+  }, () => {
+    const ok = spawnSync("bash", [mdns, "check"], {
+      env: fakes({ name: "redgiant-2.local", resolves: "10.0.2.15" }),
+      encoding: "utf8",
+    });
+    expect(ok.status).toBe(0);
+    expect(ok.stdout).toContain("redgiant-2.local is 10.0.2.15 on enp0s2");
+    const bad = spawnSync("bash", [mdns, "check"], {
+      env: fakes({ name: "redgiant.local", resolves: "172.17.0.1" }),
+      encoding: "utf8",
+    });
+    expect(bad.status).toBe(1);
+    expect(bad.stderr).toContain(
+      "redgiant.local resolves to '172.17.0.1', not an IPv4 of enp0s2 (10.0.2.15)",
+    );
+  });
 
   it("lists the cards, never Docker's, loopback or a VPN", { skip: !bash }, () => {
     const out = execFileSync("bash", [mdns, "interfaces", sys], { encoding: "utf8" });
