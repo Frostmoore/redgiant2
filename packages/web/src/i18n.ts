@@ -794,7 +794,7 @@ const en = {
   vcTarget: "Where what you say goes",
   vcTargetOpen: "The conversation open in front",
   vcTargetFixed: "Always the same conversation",
-  vcLimitsTitle: "Good to know",
+  vcLimitsTitle: "How it works",
   vcLimitPrivacy:
     "The wake word is recognised inside the browser; only after it, what you say is sent to RedGiant to be transcribed.",
   vcLimitForeground:
@@ -2203,12 +2203,7 @@ const en = {
   extKindSkill: "Skill",
   extAskTitle: "What should your agents be able to do?",
   extAskHelp:
-    "Say it in your own words: God looks for a ready service in the catalog, or writes a new ability, tests it and asks you before installing anything.",
-  extAskPlaceholder: "For example: read my Google Calendar, or look up prices on Amazon",
-  extAsk: "Ask God",
-  extAskAgain: "Ask something else",
-  extAskGodMessage:
-    "I would like my agents to be able to: {text}\n\nLook for a ready service in the MCP catalog first (platform_mcp); if there is none, propose a skill or a tool. Explain in simple words what you choose and what I have to do.",
+    "Ask God with a magic integration or extension, in your own words: God looks for a ready service in the catalog, or writes a new ability, tests it and asks you before installing anything.",
   extWhere: "Where it works",
   extWhereHelp: "Everywhere, or only for the agents of one project.",
   extEverywhere: "Everywhere",
@@ -2233,7 +2228,8 @@ const en = {
   extCat_work: "Work",
   extCat_design: "Design",
   extCat_cloud: "Cloud",
-  extNothingFound: "Nothing found. Ask God above: it can write what is missing.",
+  extNothingFound:
+    "Nothing found. Ask God with the magic extension above: it can write what is missing.",
   extOfficial: "Official",
   extCommunity: "Community",
   extAuth_none: "Nothing to sign in to",
@@ -4651,25 +4647,41 @@ const en = {
   acpEnv_own: '"{name}" is RedGiant\'s own.',
   "acpEnv_secret-value": 'The value of "{name}" looks like a key: keys go in RedGiant\'s keychain.',
   acpSection: "External agents (ACP)",
-  acpPageQ: "Which other agents work for you?",
+  acpPageQ: "Let the agents you already use work here",
   acpPageLead:
-    "Claude Code, Codex, Gemini CLI and the other agents that speak the Agent Client Protocol can work in your projects next to RedGiant's own. Their orchestrator and God hand them tasks; you see their work like a sub-agent's, and every file, command and permission they ask for goes through RedGiant.",
-  acpWorkersTitle: "Workers in your projects",
+    "An external agent is a coding agent you may already use, such as Claude Code, Codex or Gemini CLI. Here it becomes an agent of one of your RedGiant projects: the project's orchestrator or God give it tasks, you follow its work in the conversation, and every file it touches, every command it runs and every permission it asks for goes through RedGiant.",
+  acpHowTitle: "How to add one",
+  acpStep1Title: "Install it on this computer",
+  acpStep1:
+    "For example Claude Code, Codex or Gemini CLI, and sign in once in a terminal (for Claude Code: claude login). Its sign-in stays its own: you never type a key here.",
+  acpStep2Title: "Add it to a project",
+  acpStep2:
+    "Press «Add an external agent», choose which one and the project it works in. «Try» checks that it answers.",
+  acpStep3Title: "Give it work",
+  acpStep3:
+    "Ask the project's orchestrator, or God, to hand it a task. You see it work like a sub-agent, and its permission requests reach you.",
+  acpWorkersTitle: "Your external agents",
   acpWorkersLead:
-    "Each one is an agent of a project: it works in a folder of its own (its copy of the project) and closes its tasks with a check, like the others.",
+    "Each one works in a folder of its own inside its project and closes its tasks with a check, like the other agents.",
   acpNone: "No external agent yet.",
   acpStopped: "stopped",
   acpInProject: "In {project}.",
   acpEdit: "Edit",
   acpAdd: "Add an external agent",
   acpNeedProject: "Make a project first: an external agent works in one.",
-  acpKeysNote:
-    "Their keys never go in their variables: an external agent uses its own sign-in (for Claude Code, the one of `claude login`), or a key of your keychain through an exit route, never as text.",
   acpRemoveQ: "Remove {name}?",
   acpRemoveText: "The agent stops; its conversations and what it did stay in the log.",
-  acpEditorTitle: "RedGiant inside your editor",
+  acpEditorTitle: "The other way round: RedGiant inside your editor",
   acpEditorLead:
-    "Editors that speak ACP can talk to your RedGiant: install RedGiant's command line, then add it to the editor's settings.",
+    "Useful if you write code in Zed or a JetBrains editor and want to talk to your RedGiant agents from there, without opening this page. The editor and RedGiant talk through ACP, the same language as the external agents.",
+  acpEdStep1Title: "Install RedGiant's command line",
+  acpEdStep1:
+    "It brings the redgiant-acp program, which the editor starts. It finds the RedGiant running on this computer by itself.",
+  acpEdStep2Title: "Copy the block into the editor",
+  acpEdStep2: "The block for your editor is below: paste it where it says.",
+  acpEdStep3Title: "Choose RedGiant in the editor",
+  acpEdStep3:
+    "Open the editor's agent panel and pick RedGiant: you talk to your agents from there.",
   acpZedHelp: "In Zed's settings.json; then open the agent panel and choose RedGiant.",
   acpJetbrainsHelp: "In ~/.jetbrains/acp.json (AI Assistant 2026.3 or later).",
   acpEditorWho:
@@ -6034,6 +6046,7 @@ const en = {
   oiCopy: "Copy",
   oiCopied: "Copied",
   oiOpen: "Show the guide",
+  oiClose: "Hide the guide",
   oiReachedAs: "You are reachable already as {host}.",
   oiReachedProxy:
     "This page came through a reverse proxy of your network: the guide below is filled with what RedGiant saw.",
@@ -6928,7 +6941,7 @@ const it: Record<Key, string> = {
   vcTarget: "Dove va quello che dici",
   vcTargetOpen: "La conversazione aperta davanti",
   vcTargetFixed: "Sempre la stessa conversazione",
-  vcLimitsTitle: "Buono a sapersi",
+  vcLimitsTitle: "Come funziona",
   vcLimitPrivacy:
     "La parola di attivazione è riconosciuta dentro il browser; solo dopo, quello che dici va a RedGiant per essere trascritto.",
   vcLimitForeground:
@@ -8355,12 +8368,7 @@ const it: Record<Key, string> = {
   extKindSkill: "Skill",
   extAskTitle: "Cosa vuoi che i tuoi agenti sappiano fare?",
   extAskHelp:
-    "Dillo con parole tue: God cerca un servizio pronto nel catalogo, oppure scrive una capacità nuova, la prova e ti chiede il permesso prima di installare qualsiasi cosa.",
-  extAskPlaceholder: "Per esempio: leggere il mio Google Calendar, o cercare i prezzi su Amazon",
-  extAsk: "Chiedi a God",
-  extAskAgain: "Chiedi altro",
-  extAskGodMessage:
-    "Vorrei che i miei agenti sapessero: {text}\n\nCerca prima un servizio pronto nel catalogo MCP (platform_mcp); se non c'è, proponi una skill o uno strumento. Spiegami con parole semplici cosa scegli e cosa devo fare io.",
+    "Chiedilo a God con un'integrazione o un'estensione magica, con parole tue: cerca un servizio pronto nel catalogo, oppure scrive una capacità nuova, la prova e ti chiede il permesso prima di installare qualsiasi cosa.",
   extWhere: "Dove funziona",
   extWhereHelp: "Ovunque, o solo per gli agenti di un progetto.",
   extEverywhere: "Ovunque",
@@ -8385,7 +8393,8 @@ const it: Record<Key, string> = {
   extCat_work: "Lavoro",
   extCat_design: "Grafica",
   extCat_cloud: "Cloud",
-  extNothingFound: "Non ho trovato niente. Chiedi a God qui sopra: può scrivere quello che manca.",
+  extNothingFound:
+    "Non ho trovato niente. Chiedi a God con l'estensione magica qui sopra: può scrivere quello che manca.",
   extOfficial: "Ufficiale",
   extCommunity: "Della comunità",
   extAuth_none: "Nessun accesso da fare",
@@ -10831,25 +10840,41 @@ const it: Record<Key, string> = {
   "acpEnv_secret-value":
     'Il valore di "{name}" sembra una chiave: le chiavi vanno nel portachiavi di RedGiant.',
   acpSection: "Agenti esterni (ACP)",
-  acpPageQ: "Quali altri agenti lavorano per te?",
+  acpPageQ: "Fai lavorare qui gli agenti che usi già",
   acpPageLead:
-    "Claude Code, Codex, Gemini CLI e gli altri agenti che parlano l'Agent Client Protocol possono lavorare nei tuoi progetti accanto a quelli di RedGiant. L'orchestratore e God affidano loro dei compiti; vedi il loro lavoro come quello di un sotto-agente, e ogni file, comando e permesso che chiedono passa da RedGiant.",
-  acpWorkersTitle: "Lavoratori nei tuoi progetti",
+    "Un agente esterno è un agente per programmare che forse usi già, come Claude Code, Codex o Gemini CLI. Qui diventa un agente di un tuo progetto di RedGiant: l'orchestratore del progetto o God gli danno dei compiti, tu segui il suo lavoro nella conversazione, e ogni file che tocca, ogni comando che lancia e ogni permesso che chiede passano da RedGiant.",
+  acpHowTitle: "Come se ne aggiunge uno",
+  acpStep1Title: "Installalo su questo computer",
+  acpStep1:
+    "Per esempio Claude Code, Codex o Gemini CLI, e fai l'accesso una volta da un terminale (per Claude Code: claude login). L'accesso resta suo: qui non scrivi mai una chiave.",
+  acpStep2Title: "Aggiungilo a un progetto",
+  acpStep2:
+    "Premi «Aggiungi un agente esterno», scegli quale e in che progetto lavora. «Prova» controlla che risponda.",
+  acpStep3Title: "Dagli del lavoro",
+  acpStep3:
+    "Chiedi all'orchestratore del progetto, o a God, di passargli un compito. Lo vedi lavorare come un sotto-agente, e le sue richieste di permesso arrivano a te.",
+  acpWorkersTitle: "I tuoi agenti esterni",
   acpWorkersLead:
-    "Ognuno è un agente di un progetto: lavora in una cartella tutta sua (la sua copia del progetto) e chiude i compiti con una verifica, come gli altri.",
+    "Ognuno lavora in una cartella tutta sua dentro il suo progetto e chiude i compiti con una verifica, come gli altri agenti.",
   acpNone: "Ancora nessun agente esterno.",
   acpStopped: "fermo",
   acpInProject: "In {project}.",
   acpEdit: "Modifica",
   acpAdd: "Aggiungi un agente esterno",
   acpNeedProject: "Prima crea un progetto: un agente esterno lavora in uno.",
-  acpKeysNote:
-    "Le loro chiavi non vanno mai nelle variabili: un agente esterno usa il suo accesso (per Claude Code quello di `claude login`), oppure una chiave del tuo portachiavi attraverso una rotta di uscita, mai come testo.",
   acpRemoveQ: "Togliere {name}?",
   acpRemoveText: "L'agente si ferma; le sue conversazioni e ciò che ha fatto restano nel registro.",
-  acpEditorTitle: "RedGiant dentro il tuo editor",
+  acpEditorTitle: "Il contrario: RedGiant dentro il tuo editor",
   acpEditorLead:
-    "Gli editor che parlano ACP possono parlare con il tuo RedGiant: installa la riga di comando di RedGiant, poi aggiungilo nelle impostazioni dell'editor.",
+    "Serve se scrivi codice in Zed o in un editor JetBrains e vuoi parlare con i tuoi agenti di RedGiant da lì, senza aprire questa pagina. L'editor e RedGiant si parlano con ACP, la stessa lingua degli agenti esterni.",
+  acpEdStep1Title: "Installa la riga di comando di RedGiant",
+  acpEdStep1:
+    "Porta il programma redgiant-acp, che l'editor avvia. Trova da solo il RedGiant acceso su questo computer.",
+  acpEdStep2Title: "Copia il blocco nell'editor",
+  acpEdStep2: "Il blocco per il tuo editor è qui sotto: incollalo dove è scritto.",
+  acpEdStep3Title: "Scegli RedGiant nell'editor",
+  acpEdStep3:
+    "Apri il pannello degli agenti dell'editor e scegli RedGiant: da lì parli con i tuoi agenti.",
   acpZedHelp: "Nel settings.json di Zed; poi apri il pannello degli agenti e scegli RedGiant.",
   acpJetbrainsHelp: "In ~/.jetbrains/acp.json (AI Assistant 2026.3 o successivo).",
   acpEditorWho:
@@ -12240,6 +12265,7 @@ const it: Record<Key, string> = {
   oiCopy: "Copia",
   oiCopied: "Copiato",
   oiOpen: "Mostra la guida",
+  oiClose: "Nascondi la guida",
   oiReachedAs: "Sei già raggiungibile come {host}.",
   oiReachedProxy:
     "Questa pagina è arrivata attraverso un reverse proxy della tua rete: la guida qui sotto è già compilata con quello che RedGiant ha visto.",

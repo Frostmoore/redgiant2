@@ -118,6 +118,25 @@ describe("the guide (G39.8)", () => {
     expect(calls).toContainEqual(["setReachable", [true, "https://rg.casa.example.org"]]);
   });
 
+  it("in Settings starts folded even when reachable, and opens and folds from its bar (3.7.2)", async () => {
+    const r = render(
+      <OwnInfra
+        s={state({ url: "https://redgiant.home.example.com", at: "2026-11-14T10:00:00Z" })}
+        onChange={() => {}}
+        net={net}
+        folded
+      />,
+    );
+    await waitFor(() => r.getByText(/già raggiungibile a https:\/\/redgiant.home.example.com/));
+    const bar = r.getByRole("button", { name: "Mostra la guida" });
+    expect(bar.getAttribute("aria-expanded")).toBe("false");
+    expect(r.container.textContent).not.toContain("reverse_proxy");
+    fireEvent.click(bar);
+    expect(r.container.textContent).toContain("reverse_proxy 192.168.1.40:7600");
+    fireEvent.click(r.getByRole("button", { name: "Nascondi la guida" }));
+    expect(r.container.textContent).not.toContain("reverse_proxy");
+  });
+
   it("once skipped, says so and can ask again", async () => {
     const r = render(
       <OwnInfra

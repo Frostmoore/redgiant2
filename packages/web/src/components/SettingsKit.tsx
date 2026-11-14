@@ -5,8 +5,25 @@
 // opens a window and the windows' buttons. What is chosen is lit by border and background, never
 // by a check mark. The wizard's context (`useWz`, `PHONE`) stays in SetupKit.
 import type { ComponentChildren, JSX } from "preact";
-import { useId } from "preact/hooks";
+import { useEffect, useId, useRef } from "preact/hooks";
 import { t } from "../i18n.js";
+
+/**
+ * A row of choices that never wraps scrolls sideways when a phone is narrower than it: the chosen
+ * one is brought into the row's view (only the row scrolls, never the page).
+ */
+function useChosenInView<E extends HTMLElement>(value: unknown) {
+  const row = useRef<E>(null);
+  useEffect(() => {
+    const el = row.current;
+    const on = el?.querySelector<HTMLElement>(":scope > .on");
+    if (!el || !on || el.scrollWidth <= el.clientWidth) return;
+    const left = on.getBoundingClientRect().left - el.getBoundingClientRect().left + el.scrollLeft;
+    if (left < el.scrollLeft || left + on.offsetWidth > el.scrollLeft + el.clientWidth)
+      el.scrollLeft = Math.max(0, left - (el.clientWidth - on.offsetWidth) / 2);
+  }, [value]);
+  return row;
+}
 
 /** A Settings page in the wizard's look: its content centred, its windows after it. */
 export function WzPage({
@@ -221,8 +238,9 @@ export function Seg<T extends string>({
   label?: string | undefined;
   vertical?: boolean | undefined;
 }) {
+  const row = useChosenInView<HTMLFieldSetElement>(value);
   return (
-    <fieldset class={`wz-seg${vertical ? " v" : ""}`} aria-label={label}>
+    <fieldset ref={row} class={`wz-seg${vertical ? " v" : ""}`} aria-label={label}>
       {options.map(([id, body]) => (
         <button
           type="button"
@@ -238,7 +256,11 @@ export function Seg<T extends string>({
   );
 }
 
-/** Chips to pick one (or several, with `multiple`), left-aligned: lit by border and background. */
+/**
+ * Chips to pick one (or several, with `multiple`), left-aligned: lit by border and background. A
+ * short scale of values (a few short words: 2/4/8, 10 min…7 days, «no limit») stays on one line,
+ * never wrapped (3.7.2, the person: «non devono mai andare a capo»); a long list wraps.
+ */
 export function Chips<T extends string | number>({
   options,
   value,
@@ -250,8 +272,10 @@ export function Chips<T extends string | number>({
   onChange: (value: T[]) => void;
   multiple?: boolean;
 }) {
+  const one = options.length <= 7 && options.every((o) => o.label.length <= 14);
+  const row = useChosenInView<HTMLDivElement>(value.join());
   return (
-    <div class="wz-chips st-chips">
+    <div ref={row} class={`wz-chips st-chips${one ? " one" : ""}`}>
       {options.map((o) => {
         const on = value.includes(o.id);
         return (
@@ -271,6 +295,34 @@ export function Chips<T extends string | number>({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * A short how-to in numbered steps (3.7.2, the person: «non si capisce cosa deve fare l'utente»):
+ * side by side on a computer, one under the other on a phone.
+ */
+export function Steps({
+  steps,
+  label,
+}: {
+  steps: { title: string; text: ComponentChildren }[];
+  label?: string;
+}) {
+  return (
+    <ol class="st-steps" aria-label={label}>
+      {steps.map((s, i) => (
+        <li key={s.title}>
+          <span class="st-step-n" aria-hidden="true">
+            {i + 1}
+          </span>
+          <div>
+            <b>{s.title}</b>
+            <span>{s.text}</span>
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }
 

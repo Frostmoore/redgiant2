@@ -245,7 +245,7 @@ export function KeychainBrowsers() {
       ) : (
         list && <p class="kc-note">{t("kcBrNone")}</p>
       )}
-      <div class="kc-row-acts kc-move">
+      <div class="st-acts kc-move">
         <button type="button" class="wz-btn" onClick={() => setLinking(true)}>
           <IconGlobe size={18} /> {t("kcBrLink")}
         </button>

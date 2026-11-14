@@ -802,14 +802,6 @@ button.bar-settings {
   vertical-align: middle;
 }
 /* Settings › Artifacts (3.5.9): the collection, its empty state, export and import windows. */
-.ar-top {
-  display: flex;
-  justify-content: flex-end;
-  margin: 4px 0 14px;
-}
-.ar-group + .ar-group {
-  margin-top: 6px;
-}
 .ar-title {
   display: inline-flex;
   align-items: center;
@@ -888,7 +880,7 @@ button.bar-settings {
   gap: 8px;
   justify-content: flex-end;
 }
-.ar-empty {
+.st-box.ar-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -6773,18 +6765,6 @@ a.button.primary {
 }
 
 /* --- extensions (G24.9) --- */
-.ext-chat {
-  display: flex;
-  height: 420px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
-  margin-bottom: 8px;
-}
-.ext-chat .chat {
-  flex: 1;
-  min-width: 0;
-}
 
 /* --- budgets and history (G24.10) --- */
 .history {
@@ -9741,33 +9721,6 @@ button.pick-tile.on {
 .xw-page .ext-guide {
   font-size: 14.5px;
 }
-.xw-ask {
-  max-width: 820px;
-  margin: 0 auto;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.xw-ask-form {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-:is(.wz, .wz-look) .xw-ask-form .wz-btn {
-  flex: none;
-  min-width: 0;
-}
-.xw-ask .ext-chat {
-  height: 460px;
-  border-radius: 16px;
-  margin: 0;
-  font-size: 14px;
-}
-.xw-ask-again {
-  display: flex;
-  justify-content: flex-end;
-}
 .xw-wait .wz-tile {
   border-color: var(--warn);
   background: var(--warn-soft);
@@ -10279,16 +10232,6 @@ button.pick-tile.on {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
-  }
-  .xw-ask-form {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .xw-ask .ext-chat {
-    height: 60vh;
-  }
-  .wz-card.xw-ask {
-    padding: 16px;
   }
   /* budgets */
   .sb-chart {
@@ -11668,13 +11611,7 @@ button.kc-item:hover {
   flex-wrap: wrap;
   gap: 8px;
 }
-.kc-move {
-  margin-bottom: 10px;
-}
 /* G36.21: the browsers linked to the keychain, and the window that links one. */
-.kcb-list {
-  margin-bottom: 12px;
-}
 .kcb-item .kc-item-text {
   flex-basis: 200px;
 }
@@ -11726,10 +11663,18 @@ button.kc-item:hover {
   margin: 16px 0 0;
   font-size: 19px;
 }
-.kc-form .wz-subl,
-.kc-page .wz-subl {
+.kc-form .wz-subl {
   margin: 0 0 12px;
   max-width: none;
+}
+/* the parts under the list are headed and centred like every other page (3.7.2) */
+.kc-page .wz-inner > :is(h2.wz-sub, .wz-subl, .kc-note) {
+  text-align: center;
+}
+@media (max-width: 640px) {
+  .kc-page .wz-inner > :is(h2.wz-sub, .wz-subl, .kc-note) {
+    text-align: left;
+  }
 }
 .kc-form .wz-chips,
 .kc-filters .wz-chips {
@@ -14696,9 +14641,6 @@ button.sub-tab {
 .wz-scard .cl-warn {
   margin: 12px 0 0;
 }
-.cmd-limits .st-row-ctl .st-chips {
-  justify-content: flex-end;
-}
 .cl-acts {
   display: flex;
   flex-wrap: wrap;
@@ -14710,8 +14652,10 @@ button.sub-tab {
   color: var(--dim);
   font-size: 14.5px;
 }
-.rq-cards {
-  margin-top: 8px;
+/* one card under the other: the choices (pills) of each keep one line */
+.wz-safe.rq-cards {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 860px;
 }
 /* 3.5.3: the truly dangerous requests always reach the person, said beside the choice. */
 .rq-always {
@@ -15418,11 +15362,8 @@ button.sub-tab {
 }
 
 /* Settings › Knowledge (G36.5-G36.6): status, collections, try a search, models, OCR, disk. */
-.kb-page .wz-inner {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
+/* the page flows like every other (3.7.2): the shared room between blocks, boxes as wide as the
+   others (a column of flex items shrank each centred box to its own content) */
 .kb-p {
   margin: 0;
   font-size: 15.5px;
@@ -15646,7 +15587,12 @@ button.sub-tab {
 .kb-cols {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
-  gap: 14px;
+  gap: var(--st-gap-in, 14px);
+}
+/* every collection as wide and tall as its cell, like the squares of the other pages */
+.kb-drop-card > .sb-box {
+  width: 100%;
+  height: 100%;
 }
 .kb-cols .sb-pill {
   white-space: normal;
@@ -18972,11 +18918,8 @@ html[data-theme="dark"] {
 .acp-none {
   margin: 8px 0;
 }
-.acp-keys {
-  margin-top: 4px;
-}
 .acp-snippet {
-  margin: 4px 0 12px;
+  margin: 0;
   padding: 10px 12px;
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -19355,8 +19298,11 @@ html[data-theme="dark"] {
 .vc-model {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  align-items: flex-start;
+  gap: 12px;
+  align-items: stretch;
+}
+.vc-model > p {
+  margin: 0;
 }
 .vc-limits p {
   margin: 0 0 8px;
@@ -19533,19 +19479,41 @@ html[data-theme="dark"] {
   gap: 8px;
   margin: 8px 0;
 }
+/* the certificate to fetch: the QR in a square of its own size, the button and its line beside it */
 .os-https-get {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin: 8px 0 12px;
+  gap: 20px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel-2);
 }
 .os-https-get .qr {
-  width: 132px;
+  width: 152px;
+  height: 152px;
   flex: none;
+  padding: 6px;
+  border-radius: 12px;
+}
+.os-https-get > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.os-https-get > div > p {
+  margin: 0;
 }
 .os-https-steps {
-  margin: 8px 0;
   line-height: 1.5;
+}
+@media (max-width: 640px) {
+  .os-https-get {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 .os-fp {
   word-break: break-all;
@@ -19779,4 +19747,301 @@ html[data-theme="dark"] {
 }
 .oi .wz-note.info .icon {
   color: var(--dim);
+}
+
+/* Settings: one scale of room (3.7.2, the person: «serve che tutti gli spazi siano sempre
+   coerenti»). A page is a column of blocks with the same room between siblings; a part (`Sub`)
+   opens with more; the pieces inside a card or a box share a smaller step; buttons stand in a
+   row of actions, centred like the page (at the start on a phone, where the page is left-aligned);
+   the words of a switch row fill its left side, never a narrow block pushed somewhere. */
+.wz-look {
+  /* Telegram's blue, as in the wizard: the phone drawn on Settings › Telegram needs it too */
+  --tg: #2a9bd8;
+  --st-gap: 24px;
+  --st-gap-in: 16px;
+  --st-gap-part: 64px;
+}
+/* between sibling blocks of a page (margins collapse: a bigger one of the block itself stays) */
+.st-page > .wz-inner > * + *:not(h1, h2, .wz-lead, .wz-subl, .wz-eyebrow),
+.models-wz > .wz-inner > * + *:not(h1, h2, .wz-lead, .wz-subl, .wz-eyebrow) {
+  margin-top: var(--st-gap);
+}
+/* Models and subscriptions: centred in the page like every other (it was held at the left by the
+   old page's width), and the line before «A model on this computer» away from the squares. */
+.settings-section.brain-settings.wz-look {
+  max-width: none;
+}
+.models-wz > .wz-inner.mp-local {
+  margin-top: var(--st-gap-part);
+  padding-top: var(--st-gap-part);
+}
+.st-page h2.wz-sub {
+  margin-top: var(--st-gap-part);
+}
+.st-page > .wz-inner > h2.wz-sub:first-child {
+  margin-top: 0;
+}
+/* a part's heading without its line keeps the same room before what follows */
+.st-page h2.wz-sub:not(:has(+ .wz-subl)) {
+  margin-bottom: var(--st-gap);
+}
+.st-page .wz-subl {
+  margin-bottom: var(--st-gap);
+}
+/* inside a box: the same smaller step between its pieces; rows keep their own lines */
+.st-box > * + * {
+  margin-top: var(--st-gap-in);
+}
+.st-box > .st-row + .st-row,
+.st-box > .st-row + .cl-warn {
+  margin-top: 0;
+}
+/* a card (`SCard`): its words on the left, its pieces one step apart */
+.wz-look .wz-scard {
+  text-align: left;
+  gap: var(--st-gap-in);
+}
+.wz-look .wz-scard > .wz-scard-hd {
+  margin-bottom: 0;
+}
+.wz-look .wz-scard > *:not(.wz-scard-hd) {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.wz-look .wz-safe {
+  gap: var(--st-gap);
+}
+/* a switch row: what it is on the left, filling the row, its switch on the right */
+.st-switch-row > div {
+  flex: 1 1 auto;
+  text-align: left;
+}
+.st-switch-row > .wz-switch {
+  flex: none;
+}
+/* a row of actions: centred like the page, one step from what is above */
+.st-acts,
+.cl-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px 14px;
+  margin: 0;
+}
+.st-box > .st-acts,
+.wz-scard > .st-acts {
+  justify-content: flex-start;
+}
+/* a setting whose choices are pills: the words above at full width, the pills under them in one
+   line that never wraps (it scrolls sideways if a phone is narrower than the pills) */
+.st-row:has(> .st-row-ctl > .st-chips.one) {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+.st-row-ctl:has(> .st-chips.one) {
+  max-width: none;
+  min-width: 0;
+}
+.st-chips.one {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 2px 4px;
+}
+:is(.wz, .wz-look) .st-chips.one .wz-chip {
+  flex: none;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .wz-look {
+    --st-gap: 20px;
+    --st-gap-in: 14px;
+    --st-gap-part: 44px;
+  }
+  .st-acts,
+  .cl-acts {
+    justify-content: flex-start;
+  }
+}
+/* a short how-to in numbered steps (`Steps`) */
+.st-steps {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0;
+  max-width: 980px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--st-gap-in);
+  text-align: left;
+}
+.st-steps > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  min-width: 0;
+}
+.st-step-n {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.st-steps > li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.st-steps b {
+  font-size: 16.5px;
+  line-height: 1.3;
+}
+.st-steps > li span:not(.st-step-n) {
+  color: var(--dim);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+/* a note under a block: smaller, dim, centred like the page */
+.st-note {
+  color: var(--dim);
+  font-size: 14.5px;
+  line-height: 1.5;
+  max-width: 680px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 0;
+}
+@media (max-width: 640px) {
+  .st-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .st-steps > li {
+    padding: 14px 16px;
+  }
+  .st-note {
+    margin-left: 0;
+  }
+}
+/* the guide folded in Settings: one bar across its box that opens it */
+.wz-look .oi-fold {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.wz-look .oi-fold:hover {
+  border-color: var(--dim);
+}
+.wz-look .oi-fold > span {
+  flex: 1;
+}
+.wz-look .oi-fold > .icon {
+  color: var(--dim);
+}
+/* buttons follow the words around them: centred in the page, at the start in a box or a card;
+   a window's own buttons (at its foot) keep their place */
+.st-page .wz-inner > .wz-acts {
+  justify-content: center;
+}
+.st-page :is(.st-box, .wz-scard) .wz-acts {
+  justify-content: flex-start;
+}
+/* a part inside a card: its heading one step further, its line right under it */
+.wz-look .wz-scard > h2.wz-sub {
+  margin-top: var(--st-gap-in);
+  margin-bottom: 0;
+  font-size: 19px;
+}
+.wz-look .wz-scard > h2.wz-sub + .wz-subl {
+  margin-top: -10px;
+  max-width: none;
+}
+.wz-look .wz-scard > .wz-note {
+  align-self: stretch;
+  justify-content: flex-start;
+  border-radius: 14px;
+  font-size: 15px;
+}
+@media (max-width: 640px) {
+  .st-page .wz-inner > .wz-acts {
+    justify-content: flex-start;
+  }
+}
+/* folded, the guide is only its bar: the bar is the box (no frame inside a frame) */
+.st-box.st-own-infra:has(> .oi > .oi-fold[aria-expanded="false"]) {
+  padding: 0;
+  border: none;
+  background: none;
+}
+.st-box.st-own-infra:has(> .oi > .oi-fold[aria-expanded="false"]) .oi-fold {
+  min-height: 64px;
+  padding: 14px 22px;
+  border-radius: 22px;
+  background: var(--panel);
+}
+/* squares inside a card start where its words start */
+.wz-look .wz-scard .wz-brain {
+  justify-content: flex-start;
+}
+/* a box's first piece starts at its top, its last ends at its bottom: the box's own padding only */
+.st-box > :first-child {
+  margin-top: 0;
+}
+.st-box > :last-child {
+  margin-bottom: 0;
+}
+.st-page .models-wz .mp-one .wz-tile {
+  flex-basis: 440px;
+}
+.st-pihole .brain-panel > :is(p, div):first-of-type {
+  margin-top: 0;
+}
+/* choices in segments never break a word in two (3.7.2: «Windo / ws» on a phone): a segment is
+   at least as wide as its longest word, and the row scrolls sideways if a phone is narrower */
+:is(.wz, .wz-look) .wz-seg {
+  grid-auto-columns: minmax(min-content, 1fr);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+:is(.wz, .wz-look) .wz-seg button {
+  overflow-wrap: normal;
+}
+@media (max-width: 640px) {
+  :is(.wz, .wz-look) .wz-seg button {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  /* pills on a phone: a little smaller, so a scale fits more often without scrolling */
+  :is(.wz, .wz-look) .st-chips.one .wz-chip {
+    padding: 0 12px;
+    min-height: 38px;
+    font-size: 14.5px;
+  }
+  .st-chips.one {
+    gap: 6px;
+  }
 }
