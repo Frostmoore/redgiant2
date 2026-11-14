@@ -9,7 +9,7 @@ import { getApi } from "../state.js";
 import { Modal } from "./ui.js";
 
 /** Bump with every big update, and write its items below with that version. */
-export const NEWS_VERSION = "3.6.0";
+export const NEWS_VERSION = "3.7.0";
 const SEEN = "rg.newsSeen";
 
 export interface NewsItem {
@@ -20,6 +20,10 @@ export interface NewsItem {
 }
 
 export const ITEMS: NewsItem[] = [
+  { version: "3.7.0", title: "news370Os", text: "news370OsText" },
+  { version: "3.7.0", title: "news370Access", text: "news370AccessText" },
+  { version: "3.7.0", title: "news370Nodes", text: "news370NodesText" },
+  { version: "3.7.0", title: "news370Reach", text: "news370ReachText" },
   { version: "3.6.0", title: "news360Mail", text: "news360MailText" },
   { version: "3.6.0", title: "news360Ssh", text: "news360SshText" },
   { version: "3.6.0", title: "news360Acp", text: "news360AcpText" },

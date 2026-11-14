@@ -278,14 +278,18 @@ RedGiant is in pre-alpha. What comes next, in order:
 - **3.6 — Long arms** (released): SSH to other machines, integrations and extensions created on request, email
   for the agents, hands-free voice, ACP both ways (RedGiant inside editors, other
   agents as workers), and artifacts that can ask the agent, keep their data and read project files.
-- **3.7 — RedGiant on a mini PC**: a ready-made system to install with Proxmox, connected to your
-  other RedGiant.
-- **3.8 and 3.9 — Video and 3D generation**: a video editor shared by you and the agent, and 3D
+- **3.7 — RedGiant everywhere** (released): RedGiant OS, a ready-made system for any machine — a USB stick
+  installer, Proxmox (a container or a virtual machine, with a one-line script), Hyper-V, VirtualBox and VMware,
+  Raspberry Pi — headless, with Wi-Fi, HTTPS at home and updates from the page; your RedGiants joined as nodes;
+  the first sign-in is just «create your access»; and a guide for those who already have a proxy, a VPN and a
+  home DNS.
+- **3.8 — Native apps**: a companion app for Android and iOS (Flutter) and native apps for Windows, macOS
+  and Linux.
+- **3.9 and 3.10 — Video and 3D generation**: a video editor shared by you and the agent, and 3D
   generation with local or cloud engines, finished in Blender.
-- **3.10 — Emulators in the Canvas**: an Android emulator or the iOS simulator found on the computer
+- **3.11 — Emulators in the Canvas**: an Android emulator or the iOS simulator found on the computer
   opens in the Canvas, for you and for the agents trying the apps they build.
-- **4.0 — Alpha**: native apps for Windows, Linux and macOS, companion apps for Android and iOS, and the
-  Linux distribution for every mini-PC and virtual machine.
+- **4.0 — Alpha**: documentation, security and privacy pages, and a stability round on everything.
 - **Then** the beta (community, documentation site) and the production release.
 
 ## Documentation

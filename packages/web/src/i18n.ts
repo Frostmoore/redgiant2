@@ -2253,6 +2253,18 @@ const en = {
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
   newsVersion: "Version {version}",
+  news370Os: "RedGiant OS: install it anywhere",
+  news370OsText:
+    "A ready-made system for any machine: a USB stick installer, Proxmox (container or virtual machine, one script), Hyper-V, VirtualBox and VMware, Raspberry Pi. No screen needed; Wi-Fi, HTTPS at home with its own certificate, and updates from the page, signed and with a way back.",
+  news370Access: "Create your access, that's all",
+  news370AccessText:
+    "On a new installation you open its address and choose a password: no token to copy, no console. Apps and the command line still have their token, out of the way.",
+  news370Nodes: "Your RedGiants together",
+  news370NodesText:
+    "Pair another RedGiant as a node with a one-time code: its commands, local models and space work for this one. Who may command whom is your choice, never implied by the tree.",
+  news370Reach: "Already reachable? RedGiant sees it",
+  news370ReachText:
+    "If you already have a proxy, Tailscale or a home DNS, RedGiant notices it, says how you reach it and shows ready-to-copy steps instead of asking you to set up its own ways.",
   news360Mail: "Email for the agents",
   news360MailText:
     "Agents can search, read, draft, reply and forward from the mailboxes you open to them (each mailbox has «Agents can use it», off at first). Sending always asks you, with the real recipients and text, and an email's words are data, never orders.",
@@ -8237,6 +8249,18 @@ const it: Record<Key, string> = {
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
   newsVersion: "Versione {version}",
+  news370Os: "RedGiant OS: installalo ovunque",
+  news370OsText:
+    "Un sistema pronto per qualsiasi macchina: chiavetta USB, Proxmox (container o macchina virtuale, con uno script), Hyper-V, VirtualBox e VMware, Raspberry Pi. Senza schermo; Wi-Fi, HTTPS in casa con il suo certificato e aggiornamenti dalla pagina, firmati e con il ritorno indietro.",
+  news370Access: "Crea il tuo accesso, e basta",
+  news370AccessText:
+    "Su un'installazione nuova apri il suo indirizzo e scegli una password: niente token da copiare, niente console. App e riga di comando hanno ancora il loro token, ma fuori dai piedi.",
+  news370Nodes: "I tuoi RedGiant insieme",
+  news370NodesText:
+    "Abbina un altro RedGiant come nodo con un codice monouso: i suoi comandi, i suoi modelli locali e il suo spazio lavorano per questo. Chi può comandare chi lo decidi tu, mai l'albero da solo.",
+  news370Reach: "Già raggiungibile? RedGiant se ne accorge",
+  news370ReachText:
+    "Se hai già un proxy, Tailscale o un DNS di casa, RedGiant lo vede, ti dice come lo raggiungi e ti mostra i passi pronti da copiare invece di chiederti di configurare le sue strade.",
   news360Mail: "La posta per gli agenti",
   news360MailText:
     "Gli agenti cercano, leggono, preparano bozze, rispondono e inoltrano dalle caselle che apri a loro (ogni casella ha «Gli agenti possono usarla», spento all'inizio). L'invio chiede sempre a te, con i destinatari e il testo veri, e le parole di un'email sono dati, mai ordini.",
