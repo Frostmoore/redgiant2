@@ -21,6 +21,7 @@ import {
   type MachineTest,
   type MachineTestCode,
   type MachineView,
+  WINDOWS_FOLDER,
 } from "@redgiant/protocol";
 import ssh2 from "ssh2";
 import type { SystemKeyMeta, Vault } from "./vault.js";
@@ -66,14 +67,23 @@ export function hostKeyOf(blob: Buffer): { type: string; fingerprint: string } {
   return { type, fingerprint: `SHA256:${hash}` };
 }
 
+/** A Windows drive path (`E:\…`, `E:/…`): the machine is a Windows one (p3.7.2). */
+export const isWindowsPath = (p: string | undefined): boolean =>
+  p !== undefined && /^[A-Za-z]:[\\/]/.test(p);
+
 /** The home of the user a machine logs in as (for `~` and the rules), as most systems put it. */
-export function homeOf(user: string): string {
+export function homeOf(user: string, windows = false): string {
+  if (windows) return `C:\\Users\\${user}`;
   return user === "root" ? "/root" : `/home/${user}`;
 }
 
-/** A machine's working folder with `~` spelled out. */
+/** A machine's working folder with `~` spelled out; a Windows one with backslashes. */
 export function folderOf(m: Pick<MachineView, "folder" | "user">): string | undefined {
   if (!m.folder) return undefined;
+  if (isWindowsPath(m.folder)) {
+    const w = m.folder.replace(/\//g, "\\").replace(/\\+$/, "");
+    return w.length === 2 ? `${w}\\` : w;
+  }
   return m.folder.replace(/^~(?=\/|$)/, homeOf(m.user)).replace(/\/+$/, "") || "/";
 }
 
@@ -180,7 +190,7 @@ export class Machines {
     const out: Record<string, { folder?: string; home: string }> = {};
     for (const m of this.cached(ownerId)) {
       const folder = folderOf(m);
-      out[m.name] = { home: homeOf(m.user), ...(folder && { folder }) };
+      out[m.name] = { home: homeOf(m.user, isWindowsPath(m.folder)), ...(folder && { folder }) };
     }
     return out;
   }
@@ -616,6 +626,23 @@ export interface RemoteResult {
   stopped: boolean;
 }
 
+/**
+ * The command line sent: the command, started in `cwd` when there is one. A Windows folder is
+ * entered with `pushd "E:\…" &&`, which PowerShell 7 (OpenSSH's usual shell there) and cmd both
+ * take; one with a character either shell would expand inside the quotes is refused. Anything
+ * else goes through a POSIX shell's `cd`.
+ */
+export function remoteLine(command: string, cwd: string | undefined): string {
+  if (!cwd) return command;
+  if (isWindowsPath(cwd)) {
+    if (!WINDOWS_FOLDER.test(cwd))
+      throw new MachineError("invalid", `The folder ${cwd} cannot be used in a command there`);
+    const w = cwd.replace(/\//g, "\\");
+    return `pushd "${w}" && ${command}`;
+  }
+  return `cd ${shellQuote(cwd)} && ${command}`;
+}
+
 /** A path for a POSIX shell, in single quotes; `~` and `~/…` keep meaning the home. */
 export function shellQuote(p: string): string {
   if (p === "~") return '"$HOME"';
@@ -639,7 +666,12 @@ export function execRemote(
     onOutput?: ((text: string, stream: "out" | "err") => void) | undefined;
   },
 ): Promise<RemoteResult> {
-  const line = o.cwd ? `cd ${shellQuote(o.cwd)} && ${command}` : command;
+  let line: string;
+  try {
+    line = remoteLine(command, o.cwd);
+  } catch (err) {
+    return Promise.reject(err);
+  }
   return new Promise((resolve, reject) => {
     client.exec(line, { pty: false }, (err, ch) => {
       if (err) return reject(err);

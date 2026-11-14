@@ -169,6 +169,8 @@ describe("Settings > Machines (G38.2)", () => {
       lang.value = l;
       for (const k of ["mcTitle", "mcTofuTitle", "mcChangedTitle", "tool_ssh", "toolDo_ssh"])
         expect(t(k as never)).not.toBe(k);
+      // A Windows machine's folder is a drive path (p3.7.2): the help says so.
+      expect(t("mcFolderHelp")).toContain("E:\\coding");
     }
   });
 });

@@ -4331,7 +4331,7 @@ const en = {
   mcPort: "Port",
   mcFolder: "Working folder",
   mcFolderHelp:
-    "Where commands start; deleting outside it always asks you. Leave empty for the home.",
+    "Where commands start; deleting outside it always asks you. A full path (/srv/app, ~/app, or on Windows E:\\coding\\site). Leave empty for the home.",
   mcFolderNone: "the home (every deletion asks you)",
   mcLogin: "Login",
   mcLoginPassword: "password in the keychain",
@@ -10384,7 +10384,7 @@ const it: Record<Key, string> = {
   mcPort: "Porta",
   mcFolder: "Cartella di lavoro",
   mcFolderHelp:
-    "Dove partono i comandi; cancellare fuori da qui ti chiede sempre. Vuota per la cartella personale.",
+    "Dove partono i comandi; cancellare fuori da qui ti chiede sempre. Un percorso completo (/srv/app, ~/app, o su Windows E:\\coding\\sito). Vuota per la cartella personale.",
   mcFolderNone: "la cartella personale (ogni cancellazione ti chiede)",
   mcLogin: "Accesso",
   mcLoginPassword: "password nel portachiavi",

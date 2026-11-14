@@ -21,6 +21,12 @@ export type MachineAccess = z.infer<typeof MachineAccess>;
 /** A machine's name, as agents write it in `ssh_run`: short, no spaces. */
 export const MACHINE_NAME = /^[a-z0-9][a-z0-9_.-]{0,39}$/i;
 
+/**
+ * A Windows drive path (`E:\…` or `E:/…`, p3.7.2), without the characters PowerShell or cmd would
+ * expand inside double quotes (`"`, `%`, `$`, backtick) or a line break.
+ */
+export const WINDOWS_FOLDER = /^[A-Za-z]:[\\/][^"%$`\r\n]*$/;
+
 /** What the person writes for a machine (the secrets go straight to the keychain). */
 export const MachineBody = z.object({
   name: z.string().regex(MACHINE_NAME),
@@ -45,12 +51,17 @@ export const MachineBody = z.object({
   privateKey: z.string().max(20_000).optional(),
   passphrase: z.string().max(500).optional(),
   password: z.string().max(500).optional(),
-  /** Where commands start there and what counts as its project (an absolute path). */
+  /**
+   * Where commands start there and what counts as its project: an absolute path, `~/…`, or on
+   * Windows a drive path (`E:\coding\site`, `E:/coding/site`, p3.7.2).
+   */
   folder: z
     .string()
     .trim()
     .max(1000)
-    .regex(/^(\/|~)/)
+    .refine((v) => /^(\/|~)/.test(v) || WINDOWS_FOLDER.test(v), {
+      message: "An absolute path: /…, ~/… or, on Windows, a drive like E:\\folder",
+    })
     .optional()
     .or(z.literal("")),
   access: MachineAccess.default({ everyone: false, agents: [], projects: [] }),
