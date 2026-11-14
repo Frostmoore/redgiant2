@@ -31,10 +31,14 @@ RUN apt-get update \
     libfreetype6 libglib2.0-0t64 libgssapi-krb5-2 libnss3 fonts-dejavu-core \
     xvfb xauth xz-utils libxfixes3 libxi6 libxkbcommon0 \
     libgomp1 \
+    smbclient \
  && rm -rf /var/lib/apt/lists/* \
  && corepack enable \
  && git config --system init.defaultBranch live \
  && git config --system safe.directory '*'
+# Backups to a shared folder over SMB (p3.7.2, Windows or a NAS, without mounting anything): Samba's
+# smbclient (GPL-3.0, Debian's own package, a separate program run with execFile); there is no
+# well-kept SMB2/3 client in pure JavaScript.
 # The knowledge (G36.2): llama.cpp's CPU build for local embeddings and reranking comes down into
 # the data volume when chosen; it links OpenMP (libgomp1, 0.3 MB).
 # Conversions into open formats (G34.3): Ghostscript (AGPL-3.0, Debian's own package, a separate
