@@ -91,8 +91,10 @@ if [ -n "$FILES" ]; then
   want() { jq -r --arg p "$1" '.files[] | select(.path == $p) | .sha256' "$FILES/redgiant-os-files.json"; }
   T=60 in_ct mkdir -p /root/files /root/files-bad
   for f in "$FILES"/*; do
-    timeout 60 incus file push "$f" "$NAME/root/files/" && timeout 60 incus file push "$f" "$NAME/root/files-bad/" ||
-      { echo "::error::could not copy the files package into the container"; ok=0; }
+    if ! timeout 60 incus file push "$f" "$NAME/root/files/" || ! timeout 60 incus file push "$f" "$NAME/root/files-bad/"; then
+      echo "::error::could not copy the files package into the container"
+      ok=0
+    fi
   done
   # The same timer with one more comment, and the example file gone: what an old system has.
   T=30 in_ct sh -c "echo '# older' >>$timer && rm -f $example"
