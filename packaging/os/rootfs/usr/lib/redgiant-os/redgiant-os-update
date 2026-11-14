@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# RedGiant OS (G39.1): updates RedGiant (its containers) from the latest release.
+# RedGiant OS (G39.1): updates RedGiant (its containers and, from 3.7.3, the system's own files)
+# from the latest release.
 #   redgiant-os-update check     looks, writes /var/lib/redgiant/os-update.json
-#   redgiant-os-update apply     check, then pull the new stack, start it, roll back if unhealthy
+#   redgiant-os-update apply     check, then pull the new stack, install the system's new files,
+#                                start it, and put everything back if it does not come up
 #   redgiant-os-update gate <installed> <release.json>   the rule alone (tested against assessRelease)
-# Only files signed with the update key count (release.json and redgiant-os-stack.json, RSA
-# SHA-256, the key in /usr/share/redgiant-os/release-key.pem): unsigned, nothing is applied. A
-# breaking release is never applied in place. The OS itself updates through apt (security).
+#   redgiant-os-update files <dir> <root> <key>          the system's files alone (tested)
+# Only files signed with the update key count (release.json, redgiant-os-stack.json and
+# redgiant-os-files.json, RSA SHA-256, the key in /usr/share/redgiant-os/release-key.pem):
+# unsigned, nothing is applied. A breaking release is never applied in place. A release without
+# the system's files (before 3.7.3) updates the containers only. Debian's own packages update
+# through apt (security).
 set -euo pipefail
 # shellcheck source=common.sh
 . "$(dirname "$(readlink -f "$0")")/common.sh"
@@ -30,9 +35,10 @@ gate() {
   echo normal
 }
 
-signed() { # file: true when file.sig is its signature by the update key
-  [ -s "$KEY" ] && [ -s "$1.sig" ] || return 1
-  openssl dgst -sha256 -verify "$KEY" -signature <(base64 -d "$1.sig") "$1" >/dev/null 2>&1
+signed() { # file [key]: true when file.sig is its signature by the update key
+  local key=${2:-$KEY}
+  [ -s "$key" ] && [ -s "$1.sig" ] || return 1
+  openssl dgst -sha256 -verify "$key" -signature <(base64 -d "$1.sig") "$1" >/dev/null 2>&1
 }
 
 write_state() { # state latest gate note [step]: the page and the console read it
@@ -51,18 +57,26 @@ download() { # url file
   curl -fsSL --retry 3 --max-time 120 -o "$2" "$1"
 }
 
-# Fetches the latest release's release.json and stack, checked; sets LATEST and GATE.
+asset_url() { # name: its download address in the release check() looked at
+  jq -r --arg n "$1" '.assets[] | select(.name == $n) | .browser_download_url' "$WORK/release-api.json" | head -1
+}
+
+# Fetches the latest release's release.json, stack and system files manifest, checked; sets
+# LATEST and GATE.
 check() {
   local rel installed url name
   install -d -m 0700 "$WORK"
-  rm -f "$WORK"/*
+  # The previous run's files, the copies of the system's files included.
+  find "$WORK" -mindepth 1 -delete
   rel=$(curl -fsSL --max-time 30 -H "Accept: application/vnd.github+json" \
     "https://api.github.com/repos/$REPO/releases/latest") || { write_state unreachable "" none ""; return 1; }
+  printf '%s\n' "$rel" >"$WORK/release-api.json"
   LATEST=$(jq -r '.tag_name // empty' <<<"$rel")
   LATEST=${LATEST#v}
   installed=$(installed_version)
-  for name in release.json release.json.sig redgiant-os-stack.json redgiant-os-stack.json.sig; do
-    url=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$rel" | head -1)
+  for name in release.json release.json.sig redgiant-os-stack.json redgiant-os-stack.json.sig \
+    redgiant-os-files.json redgiant-os-files.json.sig; do
+    url=$(asset_url "$name")
     [ -n "$url" ] && download "$url" "$WORK/$name" || true
   done
   if [ "$(vercmp "$installed" "${LATEST:-0.0.0}")" -ge 0 ]; then
@@ -78,8 +92,160 @@ check() {
     write_state unsigned "$LATEST" none "the release carries no signed stack for RedGiant OS"
     return 1
   fi
+  # The system's files: none (a release before 3.7.3), or signed and of this version.
+  if [ -e "$WORK/redgiant-os-files.json" ] && { ! signed "$WORK/redgiant-os-files.json" ||
+    [ "$(jq -r .version "$WORK/redgiant-os-files.json")" != "$LATEST" ]; }; then
+    GATE=none
+    write_state unsigned "$LATEST" none "the release's system files for RedGiant OS are not signed"
+    return 1
+  fi
   GATE=$(gate "$installed" "$WORK/release.json")
   write_state available "$LATEST" "$GATE" "$(jq -r '.note.en // empty' "$WORK/release.json")"
+}
+
+# The system's own files (p3.7.3) ------------------------------------------------------------------
+# redgiant-os-files.json (packaging/os/files.mjs) lists them: path, sha256, mode, board, and what
+# to do after a change; redgiant-os-files-<version>.tar.zst carries them as blobs/<sha256>. A copy
+# of every file replaced goes to <dir>/files-backup, and <dir>/files.undo says how to put it back.
+# Files written on the machine (the login text, avahi's settings, keys, certificates) and the
+# administrator's os.conf are never in the manifest, and refused if they were.
+
+# The folders an update may write into: files.mjs's ALLOWED and KEEP, change them together.
+FILES_ALLOWED='^/(usr/lib/redgiant-os|usr/lib/redgiant|usr/lib/systemd/system|usr/share/redgiant-os|etc/systemd/system|etc/systemd/network|etc/systemd/resolved\.conf\.d|etc/avahi/services|etc/caddy|etc/ssh/sshd_config\.d|etc/sudoers\.d|etc/apt/apt\.conf\.d|etc/docker|etc/iwd)/'
+FILES_KEEP='^/etc/(issue\.d/50-redgiant\.issue|redgiant-os/os\.conf)$'
+FILES_ACTION='^(daemon-reload|network-reload|(reload|restart|enable) [A-Za-z0-9@._-]+\.(service|socket|timer))$'
+
+board_of() { # root: lxc, raspi or generic
+  local b
+  b=$(cat "$1/usr/share/redgiant-os/board" 2>/dev/null) || b=""
+  case "$b" in lxc | raspi | generic) echo "$b" && return ;; esac
+  # Images before 3.7.3 do not say: the container template is the one with its own network file.
+  if [ -e "$1/etc/systemd/network/70-redgiant-container.network" ]; then echo lxc; else echo generic; fi
+}
+
+files_fail() { log "system files: $*"; return 1; }
+
+# The actions of the files that changed: systemd first, then the new units, then the reloads.
+files_actions() { # actions-file
+  local a
+  if grep -qx daemon-reload "$1"; then systemctl daemon-reload || return 1; fi
+  while read -r a; do
+    case "$a" in enable\ *)
+      # Masked on this machine (a container has no disk to grow nor radio): left as it is.
+      [ "$(systemctl is-enabled "${a#enable }" 2>/dev/null)" = masked ] && continue
+      systemctl enable "${a#enable }" || return 1
+      ;;
+    esac
+  done <"$1"
+  if grep -qx network-reload "$1"; then networkctl reload || return 1; fi
+  while read -r a; do
+    case "$a" in
+      reload\ *) systemctl try-reload-or-restart "${a#reload }" || return 1 ;;
+      restart\ *) systemctl try-restart "${a#restart }" || return 1 ;;
+    esac
+  done <"$1"
+  return 0
+}
+
+# Checks and installs the files under root; on a failure it returns nonzero and files_undo puts
+# back what it had changed.
+files_apply() { # dir root key
+  local dir=$1 root=${2%/} key=$3 m=$1/redgiant-os-files.json archive board path sha mode after a
+  local target blob n=0 actions=$1/files.actions
+  local -a list
+  rm -rf "$dir/files-backup" "$dir/files-x"
+  : >"$dir/files.undo"
+  : >"$actions"
+  signed "$m" "$key" || { files_fail "redgiant-os-files.json is not signed by the update key"; return 1; }
+  jq -e '.format == 1 and (.files | type == "array" and length > 0)' "$m" >/dev/null ||
+    { files_fail "unknown manifest"; return 1; }
+  archive=$(jq -r '.archive.name // empty' "$m")
+  [[ "$archive" =~ ^redgiant-os-files-[0-9]+\.[0-9]+\.[0-9]+\.tar\.zst$ ]] && [ -s "$dir/$archive" ] ||
+    { files_fail "the archive is missing"; return 1; }
+  [ "$(sha256sum "$dir/$archive" | cut -d' ' -f1)" = "$(jq -r .archive.sha256 "$m")" ] ||
+    { files_fail "the archive is not the one signed"; return 1; }
+  # Only blobs/<sha256>, nothing else, no links; unpacked into a folder of its own.
+  zstd -dc "$dir/$archive" | tar -t >"$dir/files.list" || { files_fail "the archive cannot be read"; return 1; }
+  if grep -qvxE 'blobs/|blobs/[0-9a-f]{64}' "$dir/files.list"; then
+    files_fail "unexpected entries in the archive"
+    return 1
+  fi
+  mkdir -m 0700 "$dir/files-x" "$dir/files-backup"
+  zstd -dc "$dir/$archive" | tar -x --no-same-owner --no-same-permissions -C "$dir/files-x" ||
+    { files_fail "the archive cannot be unpacked"; return 1; }
+  board=$(board_of "$root")
+  while IFS=$'\t' read -r path sha mode after; do
+    [[ "$path" =~ ^/([A-Za-z0-9@._+-]+/)*[A-Za-z0-9@._+-]+$ ]] && ! [[ "$path" =~ /\.\.?(/|$) ]] &&
+      [[ "$path" =~ $FILES_ALLOWED ]] && ! [[ "$path" =~ $FILES_KEEP ]] ||
+      { files_fail "refused path $path"; return 1; }
+    [[ "$sha" =~ ^[0-9a-f]{64}$ ]] && [[ "$mode" =~ ^0(644|755|440)$ ]] || { files_fail "bad entry $path"; return 1; }
+    blob=$dir/files-x/blobs/$sha
+    [ -f "$blob" ] && [ ! -L "$blob" ] && [ "$(sha256sum "$blob" | cut -d' ' -f1)" = "$sha" ] ||
+      { files_fail "$path is not the file signed"; return 1; }
+    target=$root$path
+    # The same file with the same mode: nothing to do.
+    if [ -f "$target" ] && [ ! -L "$target" ] && [ "$(sha256sum "$target" | cut -d' ' -f1)" = "$sha" ] &&
+      [ "$(stat -c %a "$target")" = "${mode#0}" ]; then
+      continue
+    fi
+    if [[ "$path" == /etc/sudoers.d/* ]] && command -v visudo >/dev/null; then
+      visudo -cqf "$blob" >/dev/null || { files_fail "$path is not a valid sudoers file"; return 1; }
+    fi
+    IFS=, read -r -a list <<<"$after"
+    for a in "${list[@]}"; do
+      [[ "$a" =~ $FILES_ACTION ]] || { files_fail "bad action for $path: $a"; return 1; }
+    done
+    n=$((n + 1))
+    if [ -e "$target" ] || [ -L "$target" ]; then
+      cp -a "$target" "$dir/files-backup/$n" || { files_fail "cannot keep a copy of $path"; return 1; }
+      printf 'restore\t%s\t%s\n' "$n" "$path" >>"$dir/files.undo"
+    else
+      printf 'remove\t%s\t%s\n' "$n" "$path" >>"$dir/files.undo"
+    fi
+    for a in "${list[@]}"; do
+      # A unit is enabled only when it is new here: the person may have switched one off.
+      if [[ "$a" == enable\ * ]]; then
+        [ -e "$target" ] && continue
+        printf 'disable\t%s\t%s\n' "$n" "${a#enable }" >>"$dir/files.undo"
+      fi
+      grep -qxF "$a" "$actions" || echo "$a" >>"$actions"
+    done
+    # A new file next to the old one, then renamed over it: a script running now keeps its own.
+    if ! { install -d -m 0755 "$(dirname "$target")" &&
+      install -m "$mode" "$blob" "$target.rg-new" &&
+      { [ "$(id -u)" != 0 ] || chown 0:0 "$target.rg-new"; } &&
+      mv -f "$target.rg-new" "$target"; }; then
+      rm -f "$target.rg-new"
+      files_fail "cannot install $path"
+      return 1
+    fi
+    log "system file $path"
+  done < <(jq -r --arg b "$board" '.files[] | select(.board == null or .board == $b) |
+    [.path, .sha256, .mode, ((.after // []) | join(","))] | @tsv' "$m")
+  if [ "$n" = 0 ]; then
+    log "the system's files are up to date"
+    return 0
+  fi
+  files_actions "$actions" || { files_fail "the system did not take the new files"; return 1; }
+}
+
+files_undo() { # dir root: puts back what files_apply changed, the last change first
+  local dir=$1 root=${2%/} what n path
+  [ -s "$dir/files.undo" ] || return 0
+  while IFS=$'\t' read -r what n path; do
+    case "$what" in
+      disable) systemctl disable "$path" >/dev/null 2>&1 || true ;;
+      restore) mv -f "$dir/files-backup/$n" "$root$path" || log "system files: cannot put back $path" ;;
+      remove) rm -f "$root$path" ;;
+    esac
+  done < <(tac "$dir/files.undo")
+  : >"$dir/files.undo"
+  # systemd and the units read the old files again.
+  if [ -s "$dir/files.actions" ]; then
+    grep -v '^enable ' "$dir/files.actions" >"$dir/files.actions.undo" || true
+    files_actions "$dir/files.actions.undo" || true
+  fi
+  log "the previous system files are back"
 }
 
 wait_healthy() {
@@ -101,7 +267,7 @@ apply() {
       exit 1
       ;;
   esac
-  local stack=$WORK/redgiant-os-stack.json prev=""
+  local stack=$WORK/redgiant-os-stack.json files=$WORK/redgiant-os-files.json prev="" name url
   jq -e --arg a "$(arch)" '.format == 1 and (.images[$a] | length > 0)' "$stack" >/dev/null ||
     { write_state error "$LATEST" "$GATE" "the stack has no images for this processor"; exit 1; }
   write_state applying "$LATEST" "$GATE" "" download
@@ -113,15 +279,32 @@ apply() {
     write_state error "$LATEST" "$GATE" "the new images could not be downloaded"
     exit 1
   fi
+  # Then the system's files of the release, before the new server starts (it may ask the new OS
+  # helper). A release without them updates the containers only.
+  if [ -s "$files" ]; then
+    write_state applying "$LATEST" "$GATE" "" files
+    name=$(jq -r '.archive.name // empty' "$files")
+    url=""
+    [[ "$name" =~ ^redgiant-os-files-[0-9]+\.[0-9]+\.[0-9]+\.tar\.zst$ ]] && url=$(asset_url "$name")
+    if [ -z "$url" ] || ! download "$url" "$WORK/$name" || ! files_apply "$WORK" / "$KEY"; then
+      files_undo "$WORK" /
+      rm -f "$STATE/stack.json.new"
+      write_state error "$LATEST" "$GATE" "the system's new files could not be installed; nothing changed"
+      exit 1
+    fi
+  fi
   mv "$STATE/stack.json.new" "$STATE/stack.json"
   write_state applying "$LATEST" "$GATE" "" restart
   if /usr/lib/redgiant-os/redgiant-stack up && write_state applying "$LATEST" "$GATE" "" wait && wait_healthy; then
+    if [ -s "$files" ]; then install -m 0644 "$files" "$STATE/os-files.json"; fi
     write_state latest "$LATEST" none ""
     log "RedGiant $LATEST is running"
     return 0
   fi
-  # Back to the version that ran: the previous applied stack, or the one built in.
+  # Back to the version that ran: its system files, then the previous applied stack (or the one
+  # built in).
   write_state applying "$LATEST" "$GATE" "" rollback
+  files_undo "$WORK" /
   if [ -n "$prev" ]; then mv "$prev" "$STATE/stack.json"; else rm -f "$STATE/stack.json"; fi
   /usr/lib/redgiant-os/redgiant-stack up || true
   write_state error "$LATEST" "$GATE" "$LATEST did not come up; the previous version is running again"
@@ -132,8 +315,9 @@ case "${1:-}" in
   check) check ;;
   apply) apply ;;
   gate) gate "$2" "$3" ;;
+  files) files_apply "$2" "$3" "$4" || { files_undo "$2" "$3"; exit 1; } ;;
   *)
-    echo "usage: redgiant-os-update check | apply | gate <installed> <release.json>" >&2
+    echo "usage: redgiant-os-update check | apply | gate <installed> <release.json> | files <dir> <root> <key>" >&2
     exit 2
     ;;
 esac

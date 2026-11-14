@@ -2,17 +2,28 @@
 // (redgiant-os-update, bash) checked against assessRelease, the rule it mirrors.
 import { execFileSync, spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { assessRelease, type ReleaseInfo } from "../../../packages/protocol/src/release.js";
 // @ts-expect-error plain JavaScript, no types
 import { checkSignature, signManifest } from "../../update/sign.mjs";
+import {
+  ALLOWED,
+  actionsOf,
+  buildFiles,
+  checkFiles,
+  collectFiles,
+  enabledUnits,
+  KEEP,
+  // @ts-expect-error plain JavaScript, no types
+} from "../files.mjs";
 // @ts-expect-error plain JavaScript, no types
 import { checkStack, platformDigests, STACK_FILES, stackImages } from "../stack.mjs";
 
+type FileEntry = { path: string; sha256: string; mode: string; board?: string; after?: string[] };
 const digest = (c: string) => `sha256:${c.repeat(64)}`;
 const image = (o: Record<string, unknown> = {}) => ({
   name: "redgiant",
@@ -286,5 +297,277 @@ describe("redgiant.local only on the real network cards (redgiant-mdns, p3.7.2)"
     expect(text.indexOf("allow-interfaces")).toBeLessThan(text.indexOf("[publish]"));
     expect(text.indexOf("publish-aaaa-on-ipv4=no")).toBeGreaterThan(text.indexOf("[publish]"));
     expect(text).not.toContain("#publish-aaaa-on-ipv4=yes");
+  });
+});
+
+describe("the system's files of a release (files.mjs, p3.7.3)", () => {
+  const all = collectFiles();
+  const entry = (path: string) =>
+    all.map((f: { entry: FileEntry }) => f.entry).find((e: FileEntry) => e.path === path);
+
+  it("lists every file of the system from the repository, never the machine's own", () => {
+    const paths = all.map((f: { entry: FileEntry }) => f.entry.path);
+    expect(paths).toContain("/usr/lib/redgiant-os/redgiant-os-update");
+    expect(paths).toContain("/etc/systemd/system/caddy.service.d/redgiant.conf");
+    expect(paths).toContain("/usr/lib/systemd/system/redgiant-helper.socket");
+    expect(paths).not.toContain("/etc/issue.d/50-redgiant.issue");
+    expect(paths).not.toContain("/etc/redgiant-os/os.conf");
+    expect(entry("/usr/lib/redgiant/redgiant-helper")?.mode).toBe("0755");
+    expect(entry("/usr/lib/redgiant-os/redgiant-selftest-wifi")?.mode).toBe("0755");
+    expect(entry("/usr/lib/redgiant-os/common.sh")?.mode).toBe("0644");
+    expect(entry("/etc/sudoers.d/redgiant")?.mode).toBe("0440");
+    expect(entry("/etc/systemd/network/70-redgiant-container.network")?.board).toBe("lxc");
+    expect(entry("/etc/caddy/Caddyfile")?.board).toBeUndefined();
+  });
+
+  it.each([
+    [
+      "/etc/systemd/system/caddy.service.d/redgiant.conf",
+      ["daemon-reload", "reload caddy.service"],
+    ],
+    ["/etc/systemd/system/getty@.service.d/after-network.conf", ["daemon-reload"]],
+    [
+      "/usr/lib/systemd/system/redgiant-tls.timer",
+      ["daemon-reload", "enable redgiant-tls.timer", "reload redgiant-tls.timer"],
+    ],
+    ["/usr/lib/systemd/system/redgiant.service", ["daemon-reload", "enable redgiant.service"]],
+    ["/usr/lib/systemd/system/redgiant-os-update.service", ["daemon-reload"]],
+    ["/usr/lib/systemd/system/redgiant-helper@.service", ["daemon-reload"]],
+    ["/etc/systemd/network/80-redgiant-wired.network", ["network-reload"]],
+    ["/etc/systemd/resolved.conf.d/redgiant.conf", ["restart systemd-resolved.service"]],
+    ["/etc/avahi/services/redgiant.service", ["reload avahi-daemon.service"]],
+    ["/etc/ssh/sshd_config.d/10-redgiant.conf", ["reload ssh.service"]],
+    ["/etc/docker/daemon.json", []],
+    ["/usr/lib/redgiant-os/redgiant-stack", []],
+  ])("after %s", (path, after) => {
+    expect(actionsOf(path, enabledUnits())).toEqual(after);
+  });
+
+  it("enables what the image enables", () => {
+    const units = enabledUnits();
+    expect(units.has("redgiant.service")).toBe(true);
+    expect(units.has("redgiant-helper.socket")).toBe(true);
+    expect(units.has("apt-daily-upgrade.timer")).toBe(true);
+    expect(units.has("ssh.service")).toBe(false);
+  });
+
+  it("allows the same folders as the updater", () => {
+    const text = readFileSync(updater, "utf8");
+    const re = new RegExp(/^FILES_ALLOWED='([^']*)'/m.exec(text)?.[1] ?? "$^");
+    const keep = new RegExp(/^FILES_KEEP='([^']*)'/m.exec(text)?.[1] ?? "$^");
+    for (const a of ALLOWED) expect(re.test(`${a}x`), a).toBe(true);
+    for (const k of KEEP) expect(keep.test(k), k).toBe(true);
+    for (const p of [
+      "/etc/passwd",
+      "/usr/bin/sh",
+      "/etc/systemd-evil/x",
+      "/root/.ssh/authorized_keys",
+    ])
+      expect(re.test(p), p).toBe(false);
+  });
+
+  const manifest = (o: Record<string, unknown> = {}, file: Record<string, unknown> = {}) => ({
+    format: 1,
+    version: "3.7.3",
+    archive: { name: "redgiant-os-files-3.7.3.tar.zst", sha256: "a".repeat(64) },
+    files: [{ path: "/usr/lib/redgiant-os/x", sha256: "b".repeat(64), mode: "0755", ...file }],
+    ...o,
+  });
+  it.each([
+    ["a good manifest", manifest(), null],
+    ["another format", manifest({ format: 2 }), "format"],
+    [
+      "another archive",
+      manifest({ archive: { name: "x.tar", sha256: "a".repeat(64) } }),
+      "archive",
+    ],
+    ["a climb out", manifest({}, { path: "/usr/lib/redgiant-os/../../../etc/shadow" }), "path"],
+    ["outside the system's folders", manifest({}, { path: "/etc/passwd" }), "outside"],
+    ["the login text", manifest({}, { path: "/etc/issue.d/50-redgiant.issue" }), "outside"],
+    ["the administrator's settings", manifest({}, { path: "/etc/redgiant-os/os.conf" }), "outside"],
+    ["a setuid mode", manifest({}, { mode: "4755" }), "mode"],
+    ["a strange action", manifest({}, { after: ["reboot"] }), "action"],
+    ["a command in a unit", manifest({}, { after: ["reload x.service; rm -rf /"] }), "action"],
+    [
+      "the same file twice",
+      manifest({
+        files: [
+          { path: "/etc/caddy/Caddyfile", sha256: "b".repeat(64), mode: "0644" },
+          { path: "/etc/caddy/Caddyfile", sha256: "c".repeat(64), mode: "0644" },
+        ],
+      }),
+      "twice",
+    ],
+  ])("%s", (_name, m, error) => {
+    if (error) expect(() => checkFiles(m)).toThrow(error as string);
+    else expect(checkFiles(m)).toBe(m);
+  });
+});
+
+// The updater's own install of the files, on a fake root with fake systemctl, networkctl and zstd
+// (GNU tar, sha256sum, stat and tac: Linux only, as the OS).
+const linuxTools = process.platform === "linux" && tools;
+describe("redgiant-os-update files: signed, checked, put back on a failure", () => {
+  type Machine = { root: string; dir: string; key: string; log: string; env: NodeJS.ProcessEnv };
+  const repo = mkdtempSync(join(tmpdir(), "rg-os-files-repo-"));
+  const put = (base: string, path: string, text: string, mode = 0o644) => {
+    mkdirSync(dirname(join(base, path)), { recursive: true });
+    writeFileSync(join(base, path), text, { mode });
+  };
+  put(repo, "packaging/os/setup-chroot.sh", "systemctl enable a.service \\\n  b.timer\n");
+  put(repo, "packaging/os/rootfs/usr/lib/redgiant-os/redgiant-tool", "#!/bin/sh\necho new\n");
+  put(
+    repo,
+    "packaging/os/rootfs/usr/lib/systemd/system/a.service",
+    "[Service]\nExecStart=/bin/true\n",
+  );
+  put(repo, "packaging/os/rootfs/usr/lib/systemd/system/b.timer", "[Timer]\nOnCalendar=daily\n");
+  put(repo, "packaging/os/rootfs/etc/caddy/Caddyfile", ":443 {}\n");
+  put(repo, "packaging/os/rootfs/etc/issue.d/50-redgiant.issue", "from the repository\n");
+  put(
+    repo,
+    "packaging/os/lxc/rootfs/etc/systemd/network/70-redgiant-container.network",
+    "[Match]\n",
+  );
+  put(repo, "packages/server/helpers/redgiant-helper", "#!/bin/sh\necho helper\n", 0o755);
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  const pub = publicKey.export({ type: "spki", format: "pem" }).toString();
+
+  const machine = (o: { failReload?: boolean; masked?: string } = {}): Machine => {
+    const root = mkdtempSync(join(tmpdir(), "rg-os-files-root-"));
+    const dir = mkdtempSync(join(tmpdir(), "rg-os-files-work-"));
+    buildFiles("3.7.3", dir, repo);
+    writeFileSync(
+      join(dir, "redgiant-os-files.json.sig"),
+      signManifest(readFileSync(join(dir, "redgiant-os-files.json")), pem),
+    );
+    const key = join(dir, "key.pem");
+    writeFileSync(key, pub);
+    // What the machine has: an old tool, the same Caddyfile, its own login text.
+    put(root, "usr/lib/redgiant-os/redgiant-tool", "#!/bin/sh\necho old\n", 0o755);
+    put(root, "etc/caddy/Caddyfile", ":443 {}\n");
+    put(root, "etc/issue.d/50-redgiant.issue", "RedGiant: http://10.0.0.5:7600\n");
+    const bin = mkdtempSync(join(tmpdir(), "rg-os-files-bin-"));
+    const log = join(bin, "calls.log");
+    const fake = (n: string, text: string) => writeFileSync(join(bin, n), text, { mode: 0o755 });
+    fake(
+      "systemctl",
+      `#!/bin/sh\necho "systemctl $*" >>"${log}"\ncase "$1" in\n  is-enabled) [ "$2" = "${o.masked ?? "-"}" ] && echo masked || echo disabled ;;\n  try-reload-or-restart) ${o.failReload ? "exit 1" : "exit 0"} ;;\nesac\nexit 0\n`,
+    );
+    fake("networkctl", `#!/bin/sh\necho "networkctl $*" >>"${log}"\n`);
+    writeFileSync(
+      join(bin, "unzstd.cjs"),
+      "process.stdout.write(require('node:zlib').zstdDecompressSync(require('node:fs').readFileSync(process.argv[2])));\n",
+    );
+    fake(
+      "zstd",
+      `#!/bin/sh\n[ "$1" = -dc ] || exit 2\nexec "${process.execPath}" "${bin}/unzstd.cjs" "$2"\n`,
+    );
+    return { root, dir, key, log, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } };
+  };
+  const run = (m: Machine) =>
+    spawnSync("bash", [updater, "files", m.dir, m.root, m.key], { env: m.env, encoding: "utf8" });
+  const read = (m: Machine, p: string) => readFileSync(join(m.root, p), "utf8");
+  const calls = (m: Machine) =>
+    existsSync(m.log) ? readFileSync(m.log, "utf8").trim().split("\n") : [];
+  const modeOfFile = (m: Machine, p: string) =>
+    (statSync(join(m.root, p)).mode & 0o777).toString(8);
+
+  it("installs what changed with its mode, runs the actions once, leaves the rest", {
+    skip: !linuxTools,
+  }, () => {
+    const m = machine();
+    const r = run(m);
+    expect(r.status, r.stderr).toBe(0);
+    expect(read(m, "usr/lib/redgiant-os/redgiant-tool")).toContain("echo new");
+    expect(modeOfFile(m, "usr/lib/redgiant-os/redgiant-tool")).toBe("755");
+    expect(read(m, "usr/lib/redgiant/redgiant-helper")).toContain("helper");
+    expect(modeOfFile(m, "usr/lib/redgiant/redgiant-helper")).toBe("755");
+    expect(modeOfFile(m, "usr/lib/systemd/system/a.service")).toBe("644");
+    expect(read(m, "etc/issue.d/50-redgiant.issue")).toBe("RedGiant: http://10.0.0.5:7600\n");
+    // Not a container: the container's own file stays out.
+    expect(existsSync(join(m.root, "etc/systemd/network/70-redgiant-container.network"))).toBe(
+      false,
+    );
+    expect(r.stderr).not.toContain("Caddyfile");
+    expect(calls(m)).toEqual([
+      "systemctl daemon-reload",
+      "systemctl is-enabled a.service",
+      "systemctl enable a.service",
+      "systemctl is-enabled b.timer",
+      "systemctl enable b.timer",
+      "systemctl try-reload-or-restart b.timer",
+    ]);
+    const again = run(m);
+    expect(again.status).toBe(0);
+    expect(again.stderr).toContain("up to date");
+  });
+
+  it("brings a container its own files, and leaves a masked unit masked", {
+    skip: !linuxTools,
+  }, () => {
+    const m = machine({ masked: "a.service" });
+    put(m.root, "usr/share/redgiant-os/board", "lxc\n");
+    expect(run(m).status).toBe(0);
+    expect(read(m, "etc/systemd/network/70-redgiant-container.network")).toBe("[Match]\n");
+    expect(calls(m)).toContain("networkctl reload");
+    expect(calls(m)).not.toContain("systemctl enable a.service");
+  });
+
+  it("applies nothing without the right signature", { skip: !linuxTools }, () => {
+    const m = machine();
+    writeFileSync(
+      join(m.dir, "redgiant-os-files.json.sig"),
+      signManifest(Buffer.from("other"), pem),
+    );
+    const r = run(m);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("not signed");
+    expect(read(m, "usr/lib/redgiant-os/redgiant-tool")).toContain("echo old");
+    expect(calls(m)).toEqual([]);
+  });
+
+  it("applies nothing from an archive that is not the one signed", { skip: !linuxTools }, () => {
+    const m = machine();
+    const archive = join(m.dir, "redgiant-os-files-3.7.3.tar.zst");
+    writeFileSync(archive, Buffer.concat([readFileSync(archive), Buffer.from("x")]));
+    const r = run(m);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("not the one signed");
+    expect(read(m, "usr/lib/redgiant-os/redgiant-tool")).toContain("echo old");
+  });
+
+  it("refuses a signed manifest that writes outside the system's folders", {
+    skip: !linuxTools,
+  }, () => {
+    const m = machine();
+    const file = join(m.dir, "redgiant-os-files.json");
+    const bad = JSON.parse(readFileSync(file, "utf8"));
+    bad.files[0].path = "/etc/passwd";
+    writeFileSync(file, JSON.stringify(bad));
+    writeFileSync(`${file}.sig`, signManifest(readFileSync(file), pem));
+    const r = run(m);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("refused path /etc/passwd");
+    expect(existsSync(join(m.root, "etc/passwd"))).toBe(false);
+  });
+
+  it("puts the old files back when the system does not take the new ones", {
+    skip: !linuxTools,
+  }, () => {
+    const m = machine({ failReload: true });
+    const r = run(m);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("previous system files are back");
+    expect(read(m, "usr/lib/redgiant-os/redgiant-tool")).toBe("#!/bin/sh\necho old\n");
+    expect(modeOfFile(m, "usr/lib/redgiant-os/redgiant-tool")).toBe("755");
+    expect(existsSync(join(m.root, "usr/lib/redgiant/redgiant-helper"))).toBe(false);
+    expect(existsSync(join(m.root, "usr/lib/systemd/system/a.service"))).toBe(false);
+    const c = calls(m);
+    expect(c).toContain("systemctl disable a.service");
+    expect(c).toContain("systemctl disable b.timer");
+    // systemd reads the old files again.
+    expect(c.filter((l) => l === "systemctl daemon-reload")).toHaveLength(2);
   });
 });

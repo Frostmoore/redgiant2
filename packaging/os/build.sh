@@ -135,6 +135,8 @@ install -d "$SHARE"
 install -m 0644 "$STACK" "$SHARE/stack.json"
 install -m 0644 "$HERE/compose.os.yaml" "$SHARE/compose.os.yaml"
 echo "$OS_VERSION" >"$SHARE/os-version"
+# The board, for the updates of the system's files (redgiant-os-update: the container's own).
+echo "$BOARD" >"$SHARE/board"
 # The public half of the update key (the same as the server's): checks what an update brings.
 sed -n '/BEGIN PUBLIC KEY/,/END PUBLIC KEY/p' "$REPO_ROOT/packages/server/src/release-key.ts" |
   sed 's/^.*\(-----BEGIN\)/\1/; s/\(KEY-----\).*$/\1/' >"$SHARE/release-key.pem"

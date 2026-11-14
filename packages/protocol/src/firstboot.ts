@@ -304,7 +304,7 @@ export interface OsUpdates {
     latest: string | null;
     gate: "none" | "normal" | "mandatory" | "breaking";
     note: string | null;
-    /** While applying: download, restart, wait, rollback. */
+    /** While applying: download, files, restart, wait, rollback. */
     step: string | null;
     checkedAt: string | null;
   } | null;

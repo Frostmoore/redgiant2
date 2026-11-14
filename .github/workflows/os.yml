@@ -75,10 +75,16 @@ jobs:
         run: |
           mkdir -p dist
           node packaging/os/stack.mjs --version "${{ steps.v.outputs.version }}" --out dist/redgiant-os-stack.json
+      # The system's own files (p3.7.3): an update installs them before the new containers.
+      - name: The system's files
+        run: node packaging/os/files.mjs --version "${{ steps.v.outputs.version }}" --out dist
       - uses: actions/upload-artifact@v4
         with:
           name: redgiant-os-stack
-          path: dist/redgiant-os-stack.json
+          path: |
+            dist/redgiant-os-stack.json
+            dist/redgiant-os-files.json
+            dist/redgiant-os-files-*.tar.zst
           retention-days: 7
 
   build:
@@ -270,9 +276,23 @@ jobs:
           sudo iptables -I DOCKER-USER -i incusbr0 -j ACCEPT || true
           sudo iptables -I DOCKER-USER -o incusbr0 -j ACCEPT || true
           sudo incus version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # The update of the system's files on a real system: this commit's files, signed with a
+      # key made here for the test (the release's key never leaves its secret).
+      - name: The system's files, signed with a throwaway key
+        run: |
+          f="$RUNNER_TEMP/files"
+          node packaging/os/files.mjs --version "${{ needs.stack.outputs.version }}" --out "$f"
+          openssl genrsa -out "$RUNNER_TEMP/throwaway.pem" 2048 2>/dev/null
+          openssl rsa -in "$RUNNER_TEMP/throwaway.pem" -pubout -out "$f/key.pem" 2>/dev/null
+          openssl dgst -sha256 -sign "$RUNNER_TEMP/throwaway.pem" "$f/redgiant-os-files.json" | base64 -w0 >"$f/redgiant-os-files.json.sig"
+          rm -f "$RUNNER_TEMP/throwaway.pem"
+          ls -la "$f"
       - name: Start the template in Incus and check
         timeout-minutes: 50
-        run: sudo packaging/os/test/lxc-test.sh --template "$OUT"/redgiant-os-*-x86_64-lxc.tar.zst --logs logs/lxc --timeout 1500
+        run: sudo packaging/os/test/lxc-test.sh --template "$OUT"/redgiant-os-*-x86_64-lxc.tar.zst --files "$RUNNER_TEMP/files" --logs logs/lxc --timeout 1500
       - name: sha256
         if: ${{ always() }}
         run: |
@@ -417,12 +437,13 @@ jobs:
           mkdir -p rel
           [ "$BUILD" = success ] || rm -rf dl/redgiant-os-amd64 dl/redgiant-os-arm64
           [ "$RASPI" = success ] || rm -rf dl/redgiant-os-arm64-raspi
-          find dl -type f \( -name 'redgiant-os-*.qcow2' -o -name 'redgiant-os-*.raw.zst' -o -name 'redgiant-os-*.iso' -o -name 'redgiant-os-*.vhdx.zip' -o -name 'redgiant-os-*.ova' -o -name 'redgiant-os-*-lxc.tar.zst' -o -name 'redgiant-os-*-raspi.img.xz' -o -name redgiant-os-stack.json \) -exec cp {} rel/ \;
+          find dl -type f \( -name 'redgiant-os-*.qcow2' -o -name 'redgiant-os-*.raw.zst' -o -name 'redgiant-os-*.iso' -o -name 'redgiant-os-*.vhdx.zip' -o -name 'redgiant-os-*.ova' -o -name 'redgiant-os-*-lxc.tar.zst' -o -name 'redgiant-os-*-raspi.img.xz' -o -name redgiant-os-stack.json -o -name redgiant-os-files.json -o -name 'redgiant-os-files-*.tar.zst' \) -exec cp {} rel/ \;
           cp packaging/os/proxmox/redgiant-proxmox.sh rel/
           (cd rel && sha256sum redgiant-os-* redgiant-proxmox.sh > SHA256SUMS-os)
           [ -n "$UPDATE_SIGNING_KEY" ] || { echo "UPDATE_SIGNING_KEY is missing: the OS's files must be signed"; exit 1; }
           node packaging/update/sign.mjs rel/SHA256SUMS-os
           [ ! -e rel/redgiant-os-stack.json ] || node packaging/update/sign.mjs rel/redgiant-os-stack.json
+          [ ! -e rel/redgiant-os-files.json ] || node packaging/update/sign.mjs rel/redgiant-os-files.json
           cat rel/SHA256SUMS-os
       # The signed files, also as an artifact: the pre-release can be made from them by hand when
       # this repository's token may not create releases.
@@ -463,18 +484,19 @@ jobs:
         with:
           pattern: redgiant-os-*
           path: dl
-      - name: SHA256SUMS and the stack, signed with the update key
+      - name: SHA256SUMS, the stack and the system's files, signed with the update key
         env:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: |
           mkdir -p rel
-          find dl -type f \( -name 'redgiant-os-*.qcow2' -o -name 'redgiant-os-*.raw.zst' -o -name 'redgiant-os-*.iso' -o -name 'redgiant-os-*.vhdx.zip' -o -name 'redgiant-os-*.ova' -o -name 'redgiant-os-*-lxc.tar.zst' -o -name 'redgiant-os-*-raspi.img.xz' -o -name redgiant-os-stack.json \) -exec cp {} rel/ \;
+          find dl -type f \( -name 'redgiant-os-*.qcow2' -o -name 'redgiant-os-*.raw.zst' -o -name 'redgiant-os-*.iso' -o -name 'redgiant-os-*.vhdx.zip' -o -name 'redgiant-os-*.ova' -o -name 'redgiant-os-*-lxc.tar.zst' -o -name 'redgiant-os-*-raspi.img.xz' -o -name redgiant-os-stack.json -o -name redgiant-os-files.json -o -name 'redgiant-os-files-*.tar.zst' \) -exec cp {} rel/ \;
           # The Proxmox host's helper script, listed and signed with the images.
           cp packaging/os/proxmox/redgiant-proxmox.sh rel/
           (cd rel && sha256sum redgiant-os-* redgiant-proxmox.sh > SHA256SUMS-os)
           [ -n "$UPDATE_SIGNING_KEY" ] || { echo "UPDATE_SIGNING_KEY is missing: the OS's files must be signed"; exit 1; }
           node packaging/update/sign.mjs rel/SHA256SUMS-os
           node packaging/update/sign.mjs rel/redgiant-os-stack.json
+          node packaging/update/sign.mjs rel/redgiant-os-files.json
           ls -la rel
       - name: Attach to the release
         env:

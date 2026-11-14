@@ -3,16 +3,22 @@
 # it: unprivileged, nesting for Docker) and checks it: systemd up, RedGiant answering, the self-test
 # (redgiant-selftest) inside the container, /api/health from the host on the container's address.
 #
-#   sudo lxc-test.sh --template <redgiant-os-…-lxc.tar.zst> --logs <dir> [--timeout <s>]
+#   sudo lxc-test.sh --template <redgiant-os-…-lxc.tar.zst> --logs <dir> [--timeout <s>] [--files <dir>]
+#
+# --files: a folder with redgiant-os-files.json, its .sig, its archive and key.pem (the public half
+# of the key that signed it, made for the test): the update of the system's files on the real
+# container (redgiant-os-update files): a bad signature changes nothing, a changed and a missing
+# file come back with systemd reloaded, RedGiant keeps answering, a second run has nothing to do.
 #
 # Every wait has its limit; on a failure the container's journal and log are printed.
 set -uo pipefail
-TEMPLATE="" LOGS=. TIMEOUT=1800 NAME=rg-lxc-test
+TEMPLATE="" LOGS=. TIMEOUT=1800 NAME=rg-lxc-test FILES=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --template) TEMPLATE=$2 && shift ;;
     --logs) LOGS=$2 && shift ;;
     --timeout) TIMEOUT=$2 && shift ;;
+    --files) FILES=$2 && shift ;;
     *) echo "unknown option $1" >&2 && exit 2 ;;
   esac
   shift
@@ -76,6 +82,40 @@ if [ -n "$addr" ] && curl -fsS --max-time 10 "http://$addr:7600/api/health"; the
 # The container's own touches: no disk to grow, its network file, no kernel.
 [ "$(T=15 in_ct systemctl is-enabled redgiant-growroot.service 2>/dev/null)" = masked ] || { echo "::error::growroot is not masked"; ok=0; }
 T=15 in_ct test ! -e /vmlinuz || { echo "::error::a kernel in the container"; ok=0; }
+# The update of the system's files (p3.7.3), on this container's own systemd.
+if [ -n "$FILES" ]; then
+  up=/usr/lib/redgiant-os/redgiant-os-update
+  timer=/usr/lib/systemd/system/redgiant-tls.timer
+  example=/usr/share/redgiant-os/redgiant-wifi-example.txt
+  sum() { T=15 in_ct sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
+  want() { jq -r --arg p "$1" '.files[] | select(.path == $p) | .sha256' "$FILES/redgiant-os-files.json"; }
+  T=60 in_ct mkdir -p /root/files /root/files-bad
+  for f in "$FILES"/*; do
+    timeout 60 incus file push "$f" "$NAME/root/files/" && timeout 60 incus file push "$f" "$NAME/root/files-bad/" ||
+      { echo "::error::could not copy the files package into the container"; ok=0; }
+  done
+  # The same timer with one more comment, and the example file gone: what an old system has.
+  T=30 in_ct sh -c "echo '# older' >>$timer && rm -f $example"
+  T=30 in_ct sh -c "echo AAAA >/root/files-bad/redgiant-os-files.json.sig"
+  if T=120 in_ct "$up" files /root/files-bad / /root/files/key.pem; then
+    echo "::error::files with a bad signature were applied"; ok=0
+  fi
+  [ "$(sum $timer)" != "$(want $timer)" ] || { echo "::error::a bad signature changed a file"; ok=0; }
+  if T=300 in_ct "$up" files /root/files / /root/files/key.pem; then
+    for f in $timer $example /usr/lib/redgiant/redgiant-helper /etc/systemd/network/70-redgiant-container.network; do
+      [ "$(sum "$f")" = "$(want "$f")" ] || { echo "::error::$f is not the release's"; ok=0; }
+    done
+    [ "$(T=15 in_ct stat -c %a /usr/lib/redgiant/redgiant-helper)" = 755 ] || { echo "::error::the helper lost its mode"; ok=0; }
+    [ "$(T=15 in_ct systemctl show -P NeedDaemonReload redgiant-tls.timer)" = no ] || { echo "::error::systemd was not reloaded"; ok=0; }
+    [ "$(T=15 in_ct systemctl is-enabled redgiant-growroot.service 2>/dev/null)" = masked ] || { echo "::error::an update unmasked growroot"; ok=0; }
+    healthy >/dev/null || { echo "::error::RedGiant stopped answering after the files"; ok=0; }
+    T=120 in_ct "$up" files /root/files / /root/files/key.pem 2>&1 | grep -q "up to date" ||
+      { echo "::error::a second run changed files again"; ok=0; }
+    echo "the system's files: updated, then up to date"
+  else
+    echo "::error::the system's files could not be applied"; ok=0
+  fi
+fi
 [ "$ok" = 1 ] || fail "the container's checks failed"
 T=60 in_ct journalctl -b --no-pager -n 600 2>&1 | sed 's/\r$//' >"$LOG"
 timeout 120 incus delete --force "$NAME" >/dev/null 2>&1 || true

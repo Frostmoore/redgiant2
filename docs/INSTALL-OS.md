@@ -409,6 +409,14 @@ The SSH server is installed but **off**. Settings switch it on with a public key
   page follows each step through RedGiant's own restart and comes back by itself. A release
   marked "breaking" is never applied in place (the page and the updater both refuse): the page
   guides a backup to a USB disk, a reinstall and a restore.
+- **RedGiant OS's own files** (its scripts, systemd units and drop-ins, the avahi and Caddy
+  settings, the OS helper) come with the same update from 3.7.3: the release's signed
+  `redgiant-os-files.json` lists each one with its sha256 and mode, and once the new images are
+  downloaded the updater installs the files that changed (keeping a copy of the old ones), reloads
+  systemd and the units concerned, then starts the new RedGiant; if anything fails, the old files
+  come back with the previous version. Files the machine writes itself (the login text, avahi's
+  `avahi-daemon.conf`, keys, certificates) and `/etc/redgiant-os/os.conf` are never replaced; an
+  older release without the files updates the containers only.
 - **The system** installs Debian's security updates by itself (`unattended-upgrades`: Debian 13
   and its security archive, Docker Engine included). **Settings › System › Updates** shows when
   they last ran and how many packages came; when one needs a restart (a new kernel…) it says so,
