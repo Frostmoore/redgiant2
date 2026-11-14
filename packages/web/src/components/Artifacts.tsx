@@ -410,7 +410,7 @@ export function Artifacts() {
       }
     >
       <Head q={t("arSection")} lead={t("arLead")} />
-      <div class="ar-top">
+      <div class="st-acts">
         <button type="button" class="wz-btn primary" onClick={pick}>
           <IconUpload size={16} /> {t("arImport")}
         </button>

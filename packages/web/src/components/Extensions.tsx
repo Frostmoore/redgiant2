@@ -1,5 +1,6 @@
-// Extensions in plain words (G24.9), drawn as the wizard (2026-11-06): ask God for a new ability
-// right under the question; what waits for the person (the agents' proposals, tested in a
+// Extensions in plain words (G24.9), drawn as the wizard (2026-11-06): the magic integration and
+// extension right under the question (God writes them; 3.7.2 dropped the old free «Ask God» field
+// they replaced); what waits for the person (the agents' proposals, tested in a
 // throwaway sandbox), the services connected, the generation of pictures, video and sound, the
 // catalog, the skills and tools installed and the hand-made ones, all as the wizard's squares
 // that open a window (a sheet from below on phones).
@@ -45,7 +46,6 @@ import {
   IconPlay,
   IconPlus,
   IconSearch,
-  IconSend,
   IconServer,
   IconShield,
   IconSpark,
@@ -54,17 +54,8 @@ import {
   IconUpload,
 } from "../icons.js";
 import { renderMarkdown } from "../markdown.js";
-import {
-  agents,
-  attempt,
-  automationsVersion,
-  getApi,
-  getLive,
-  openCanvas,
-  projects,
-} from "../state.js";
+import { agents, attempt, automationsVersion, getApi, openCanvas, projects } from "../state.js";
 import { explain } from "./Brain.js";
-import { Chat } from "./Chat.js";
 import { askConfirm } from "./dialogs.js";
 import { MagicExtChat, MagicExtStart } from "./MagicExtension.js";
 import { KindRow } from "./Media.js";
@@ -192,61 +183,6 @@ function ProposalView({
         )}
       </Acts>
     </Modal>
-  );
-}
-
-/** "What should your agents be able to do?": a conversation with God, right under the question. */
-function AskGod() {
-  const god = agents.value.find((a) => a.kind === "god");
-  const [text, setText] = useState("");
-  const [session, setSession] = useState<string>();
-  const [error, setError] = useState<string>();
-  if (!god) return null;
-  const ask = async (e: Event) => {
-    e.preventDefault();
-    setError(undefined);
-    try {
-      const { sessionId } = await getApi().startSession(god.id);
-      getLive().send({
-        type: "session.send",
-        sessionId,
-        text: t("extAskGodMessage", { text: text.trim() }),
-      });
-      setSession(sessionId);
-      setText("");
-    } catch (err) {
-      setError(explain(err));
-    }
-  };
-  return (
-    <div class="wz-card xw-ask">
-      {session ? (
-        <>
-          <div class="ext-chat">
-            <Chat sessionId={session} agentId={god.id} />
-          </div>
-          <div class="xw-ask-again">
-            <button type="button" class="wz-btn small" onClick={() => setSession(undefined)}>
-              {t("extAskAgain")}
-            </button>
-          </div>
-        </>
-      ) : (
-        <form class="xw-ask-form" onSubmit={(e) => void ask(e)}>
-          <input
-            class="wz-field"
-            aria-label={t("extAskTitle")}
-            placeholder={t("extAskPlaceholder")}
-            value={text}
-            onInput={(e) => setText(value(e))}
-          />
-          <button type="submit" class="wz-btn primary small" disabled={!text.trim()}>
-            <IconSend size={18} /> {t("extAsk")}
-          </button>
-        </form>
-      )}
-      {error && <p class="notice error">{error}</p>}
-    </div>
   );
 }
 
@@ -1246,7 +1182,6 @@ export function Extensions() {
           </div>
         </>
       )}
-      <AskGod />
 
       {pending.length > 0 && (
         <>

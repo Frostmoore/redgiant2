@@ -353,6 +353,7 @@ export function HttpsPanel({ initial }: { initial?: LocalHttps | undefined } = {
           </div>
           <Seg
             label={t("osHttpsDevice")}
+            vertical
             value={device}
             options={[
               ["windows", "Windows"],

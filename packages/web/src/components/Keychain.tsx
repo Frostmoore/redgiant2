@@ -1226,7 +1226,7 @@ export function Keychain() {
             )}
             <KeychainBrowsers />
             <Sub title={t("kcMoveTitle")} lead={t("kcMoveLead")} />
-            <div class="kc-row-acts kc-move">
+            <div class="st-acts kc-move">
               <button type="button" class="wz-btn" onClick={() => setImporting(true)}>
                 <IconUpload size={18} /> {t("kcImport")}
               </button>

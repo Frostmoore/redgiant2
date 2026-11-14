@@ -43,9 +43,11 @@ function WakeModelView() {
         <p class="notice error">{t("voiceModelError", { error: m.message })}</p>
       )}
       <p class="ui-help">{t("voiceModelAbout")}</p>
-      <button type="button" class="wz-btn" onClick={() => void prepareWakeWord(lang)}>
-        {t("voiceModelGet")}
-      </button>
+      <div class="st-acts">
+        <button type="button" class="wz-btn" onClick={() => void prepareWakeWord(lang)}>
+          {t("voiceModelGet")}
+        </button>
+      </div>
     </div>
   );
 }
@@ -125,9 +127,11 @@ export function VoiceSettingsPage() {
       ) : (
         <p class="ui-help">{t("vcNoVoices")}</p>
       )}
-      <button type="button" class="wz-btn" onClick={() => void speak(t("vcSample"))}>
-        <IconSpeaker size={16} /> {t("vcTry")}
-      </button>
+      <div class="st-acts">
+        <button type="button" class="wz-btn" onClick={() => void speak(t("vcSample"))}>
+          <IconSpeaker size={16} /> {t("vcTry")}
+        </button>
+      </div>
 
       <Sub title={t("vcTalkTitle")} />
       <Slider

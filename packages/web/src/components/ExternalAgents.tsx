@@ -13,7 +13,7 @@ import { IconCopy, IconMinus, IconNodes, IconPlay, IconPlus } from "../icons.js"
 import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
 import { askConfirm } from "./dialogs.js";
-import { Acts, Box, Chips, Head, Row, Sub, WzPage } from "./SettingsKit.js";
+import { Box, Chips, Head, Row, Steps, Sub, WzPage } from "./SettingsKit.js";
 import { Field, Modal } from "./ui.js";
 
 type Preset = { id: string; name: string; command: string; args: string[] };
@@ -164,7 +164,17 @@ export function ExternalAgents() {
         )
       }
     >
-      <Head q={t("acpPageQ")} lead={t("acpPageLead")} />
+      <Head eyebrow={t("acpSection")} q={t("acpPageQ")} lead={t("acpPageLead")} />
+      <Sub title={t("acpHowTitle")} />
+      <Steps
+        label={t("acpHowTitle")}
+        steps={[
+          { title: t("acpStep1Title"), text: t("acpStep1") },
+          { title: t("acpStep2Title"), text: t("acpStep2") },
+          { title: t("acpStep3Title"), text: t("acpStep3") },
+        ]}
+      />
+
       <Sub title={t("acpWorkersTitle")} lead={t("acpWorkersLead")} />
       <Box>
         {!workers && !error && <p class="dim">{t("loading")}</p>}
@@ -197,7 +207,7 @@ export function ExternalAgents() {
         ))}
       </Box>
       {error && <p class="notice error">{error}</p>}
-      <Acts>
+      <div class="st-acts">
         <button
           type="button"
           class="wz-btn primary"
@@ -206,11 +216,18 @@ export function ExternalAgents() {
         >
           <IconPlus size={16} /> {t("acpAdd")}
         </button>
-        {projects.length === 0 && <span class="dim">{t("acpNeedProject")}</span>}
-      </Acts>
-      <p class="wz-subl acp-keys">{t("acpKeysNote")}</p>
+      </div>
+      {projects.length === 0 && <p class="st-note">{t("acpNeedProject")}</p>}
 
       <Sub title={t("acpEditorTitle")} lead={t("acpEditorLead")} />
+      <Steps
+        label={t("acpEditorTitle")}
+        steps={[
+          { title: t("acpEdStep1Title"), text: t("acpEdStep1") },
+          { title: t("acpEdStep2Title"), text: t("acpEdStep2") },
+          { title: t("acpEdStep3Title"), text: t("acpEdStep3") },
+        ]}
+      />
       <Box class="acp-editor">
         <Row title="Zed" help={t("acpZedHelp")}>
           <button type="button" class="wz-btn quiet" onClick={() => copy("zed", zedSnippet())}>
@@ -224,8 +241,8 @@ export function ExternalAgents() {
           </button>
         </Row>
         <pre class="acp-snippet">{jetbrainsSnippet()}</pre>
-        <p class="wz-subl">{t("acpEditorWho")}</p>
       </Box>
+      <p class="st-note">{t("acpEditorWho")}</p>
     </WzPage>
   );
 }

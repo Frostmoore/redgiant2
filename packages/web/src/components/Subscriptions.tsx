@@ -16,7 +16,7 @@ export function Subscriptions() {
   useEffect(load, []);
   if (!s) return null;
   return (
-    <div class="settings-section brain-settings wz-look">
+    <div class="settings-section brain-settings wz-look st-page">
       <ModelsPage s={s} reload={load} />
     </div>
   );

@@ -9,7 +9,15 @@ import type { NetDetected } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
 import { t } from "../i18n.js";
-import { IconCheck, IconCopy, IconGlobe, IconInfo, IconServer, IconShield } from "../icons.js";
+import {
+  IconCheck,
+  IconChevron,
+  IconCopy,
+  IconGlobe,
+  IconInfo,
+  IconServer,
+  IconShield,
+} from "../icons.js";
 import {
   caddyBlock,
   caddyForwardAuthBypass,
@@ -79,11 +87,17 @@ export function OwnInfra({
   s,
   onChange,
   net: given,
+  folded = false,
 }: {
   s: SetupState;
   onChange: () => void;
   /** What was found already (the first start's step has it); otherwise asked here. */
   net?: NetDetected | null | undefined;
+  /**
+   * Settings (3.7.2, the person: «se sono già raggiungibile la guida non serve aperta»): the guide
+   * starts folded whatever was found, and opens (or folds again) from its own bar.
+   */
+  folded?: boolean;
 }) {
   const [net, setNet] = useState<NetDetected | null>(given ?? null);
   useEffect(() => {
@@ -108,7 +122,7 @@ export function OwnInfra({
   const d = infraData(name, address, net?.lan?.port);
   const https = reached ? reached.https : true;
   const url = said?.url ?? reachUrl(d.name, https);
-  const shown = open || Boolean(reached) || Boolean(said);
+  const shown = open || (!folded && (Boolean(reached) || Boolean(said)));
   const skip = async (on: boolean) => {
     setError(undefined);
     try {
@@ -139,13 +153,22 @@ export function OwnInfra({
           </button>
         </div>
       )}
+      {folded ? (
+        <button type="button" class="oi-fold" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <IconServer size={18} />
+          <span>{t(open ? "oiClose" : "oiOpen")}</span>
+          <IconChevron open={open} size={18} />
+        </button>
+      ) : null}
       {!shown ? (
-        <Acts>
-          <button type="button" class="wz-btn quiet" onClick={() => setOpen(true)}>
-            <IconServer size={18} />
-            <span>{t("oiOpen")}</span>
-          </button>
-        </Acts>
+        !folded && (
+          <Acts>
+            <button type="button" class="wz-btn quiet" onClick={() => setOpen(true)}>
+              <IconServer size={18} />
+              <span>{t("oiOpen")}</span>
+            </button>
+          </Acts>
+        )
       ) : (
         <>
           <div class="oi-fields">
