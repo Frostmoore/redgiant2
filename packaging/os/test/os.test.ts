@@ -20,6 +20,12 @@ import {
   KEEP,
   // @ts-expect-error plain JavaScript, no types
 } from "../files.mjs";
+import {
+  archiveDifferences,
+  filesDifferences,
+  stackDifferences,
+  // @ts-expect-error plain JavaScript, no types
+} from "../reuse.mjs";
 // @ts-expect-error plain JavaScript, no types
 import { checkStack, platformDigests, STACK_FILES, stackImages } from "../stack.mjs";
 
@@ -61,6 +67,19 @@ describe("the stack of a release", () => {
     expect(STACK_FILES).toContain("compose.yaml");
   });
 
+  it("reads a branch's images under their own tag, keeping the release's references (3.7.4)", () => {
+    const images = stackImages("3.7.4", "ci-3.7.4-abc");
+    expect(images.map((i: { source: string }) => i.source)).toEqual([
+      "ci-3.7.4-abc",
+      "ci-3.7.4-abc",
+    ]);
+    expect(images.map((i: { tag: string }) => i.tag)).toEqual(["3.7.4", "17-pgvector0.8.7"]);
+    expect(stackImages("3.7.4").map((i: { source: string }) => i.source)).toEqual([
+      "3.7.4",
+      "17-pgvector0.8.7",
+    ]);
+  });
+
   it.each([
     ["a good stack", stack(), null],
     ["another format", stack({ format: 2 }), "format"],
@@ -94,6 +113,111 @@ describe("the stack of a release", () => {
     const data = Buffer.from(JSON.stringify(stack()));
     expect(checkSignature(data, signManifest(data, pem), pub)).toBe(true);
   });
+});
+
+// The release reuses an os.yml run's images only when they carry the release's own stack and files.
+describe("reusing a branch's OS images (reuse.mjs, 3.7.4)", () => {
+  it.each([
+    ["the same stack", stack(), []],
+    ["another version", stack({ version: "3.7.1" }), ["version 3.7.1 is not 3.7.0"]],
+    [
+      "another image",
+      stack({
+        images: {
+          amd64: [image({ digest: digest("d") })],
+          arm64: [image({ digest: digest("c") })],
+        },
+      }),
+      [`amd64 redgiant: digest ${digest("d")} is not ${digest("a")}`],
+    ],
+    [
+      "another image id",
+      stack({
+        images: { amd64: [image()], arm64: [image({ digest: digest("c"), id: digest("e") })] },
+      }),
+      [`arm64 redgiant: id ${digest("e")} is not ${digest("b")}`],
+    ],
+    [
+      "a reference to another tag",
+      stack({
+        images: {
+          amd64: [image({ ref: "ghcr.io/frostmoore/redgiant2:ci-3.7.0-abc" })],
+          arm64: [image({ digest: digest("c") })],
+        },
+      }),
+      [
+        "amd64 redgiant: ref ghcr.io/frostmoore/redgiant2:ci-3.7.0-abc is not ghcr.io/frostmoore/redgiant2:3.7.0",
+      ],
+    ],
+    [
+      "no arm64 image",
+      stack({ images: { amd64: [image()], arm64: [] } }),
+      ["arm64: 0 images, not 1", "arm64: no redgiant"],
+    ],
+    [
+      "another compose file",
+      stack({ files: { "compose.yaml": "services: {x: {}}\n" } }),
+      ["file compose.yaml differs"],
+    ],
+  ])("%s", (_name, got, problems) => {
+    expect(stackDifferences(stack(), got)).toEqual(problems);
+  });
+
+  const files = (o: Record<string, unknown> = {}) => ({
+    format: 1,
+    version: "3.7.4",
+    archive: { name: "redgiant-os-files-3.7.4.tar.zst", sha256: "a".repeat(64) },
+    files: [
+      { path: "/etc/caddy/Caddyfile", sha256: "1".repeat(64), mode: "0644" },
+      {
+        path: "/etc/systemd/network/70-c.network",
+        sha256: "2".repeat(64),
+        mode: "0644",
+        board: "lxc",
+      },
+    ],
+    ...o,
+  });
+  it("compares the system's files entry by entry, the archive's own sha256 left out", () => {
+    expect(
+      filesDifferences(
+        files(),
+        files({ archive: { name: "redgiant-os-files-3.7.4.tar.zst", sha256: "b".repeat(64) } }),
+      ),
+    ).toEqual([]);
+    expect(filesDifferences(files(), files({ version: "3.7.3" }))).toContain(
+      "files version 3.7.3 is not 3.7.4",
+    );
+    const changed = files();
+    changed.files[0] = { ...changed.files[0], sha256: "3".repeat(64) };
+    expect(filesDifferences(files(), changed)).toEqual([":/etc/caddy/Caddyfile differs"]);
+    const more = files();
+    more.files.push({ path: "/etc/iwd/main.conf", sha256: "4".repeat(64), mode: "0644" });
+    expect(filesDifferences(files(), more)).toEqual([":/etc/iwd/main.conf is not the release's"]);
+    expect(filesDifferences(files(), files({ files: [files().files[1]] }))).toEqual([
+      "no :/etc/caddy/Caddyfile",
+    ]);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "checks the archive against its manifest, blob by blob",
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), "rg-os-reuse-test-"));
+      const m = buildFiles("3.7.4", dir);
+      expect(archiveDifferences(m, dir)).toEqual([]);
+      expect(
+        archiveDifferences({ ...m, archive: { ...m.archive, sha256: "0".repeat(64) } }, dir),
+      ).toEqual(["the archive is not its manifest's"]);
+      const extra = {
+        ...m,
+        files: [...m.files, { path: "/etc/iwd/x", sha256: "5".repeat(64), mode: "0644" }],
+      };
+      expect(archiveDifferences(extra, dir)).toEqual([`no blob ${"5".repeat(64)}`]);
+      expect(
+        archiveDifferences({ ...m, archive: { ...m.archive, name: "nothing.tar.zst" } }, dir),
+      ).toEqual(["no nothing.tar.zst"]);
+    },
+  );
 });
 
 const updater = fileURLToPath(

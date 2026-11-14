@@ -444,6 +444,15 @@ checks its partitions and files and starts its system on QEMU's arm64 machine). 
 script is `proxmox/redgiant-proxmox.sh` (tests: `test/proxmox.test.ts`, with stand-ins for `qm`,
 `pct`, `pvesh` and `pvesm`).
 
+Releases build nothing twice (3.7.4). Every push to a version branch runs `os.yml` in full: it
+first builds the Docker images of that commit (`images.yml`, each processor on its own runner,
+tagged `ci-<version>-<sha>`), then the OS with their stack (`stack.mjs --source-tag`, the
+references keeping the release's tags) and boots it. On the tag, `release.yml` copies those
+images to the version's tags (same digests, checked) and attaches that run's OS images once
+`reuse.mjs` has confirmed they carry the release's stack and system's files; only when no such
+run is left (expired, failed, other OS files) does it build and boot them again. A dry run
+(`Run workflow` with `dry_run`) checks and signs what it would reuse and publishes nothing.
+
 ```sh
 node packaging/os/stack.mjs --version 3.7.0 --out out/redgiant-os-stack.json
 docker build -f packaging/os/builder.Dockerfile -t redgiant-os-builder packaging/os

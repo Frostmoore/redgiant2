@@ -51,7 +51,8 @@ jobs:
           RELEASE_BUILD: ${{ inputs.release_build }}
         run: |
           set -euo pipefail
-          version_branch='^[pab][0-9]+\.[0-9]+\.[0-9]+$'
+          # [.], not \.: the same pattern goes into a jq string below, where \. is not a valid escape.
+          version_branch='^[pab][0-9]+[.][0-9]+[.][0-9]+$'
           run=true
           if [ "$EVENT" = push ] && [ "$GITHUB_REF_NAME" = main ]; then
             passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=success&per_page=50" \

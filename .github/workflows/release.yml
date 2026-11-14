@@ -4,6 +4,12 @@
 # the notarized Mac app with the release's version; when the tag's commit has such a CI run (green)
 # the release attaches those (job ci-packages) and builds them only when it has none (windows-installer,
 # mac-app, as before).
+# Build once, images too (3.7.4): os.yml on a version branch built the Docker images of the tag's
+# commit (ci-<version>-<sha>, images.yml) and RedGiant OS with them, booted and checked. The
+# release copies those images to the version's tags (job images: same digests, no build) and
+# attaches that run's OS images (os-plan finds the run, reuse.mjs checks they carry the release's
+# stack and files, os.yml's publish signs them); it builds either only when nothing reusable is
+# left, as before. A tag is refused without a green CI run of its commit (ci-build).
 # The patched engines (llama-cuda, engine-prefetch) are built only when their fingerprint is new
 # (engine/fingerprint.sh, job engine-plan): otherwise the release reuses the zip kept in the
 # pre-release `engine-cache` and the image tagged `cuda-prefetch-<fingerprint>`.
@@ -28,7 +34,7 @@ on:
         type: boolean
         default: false
       dry_run:
-        description: "Only say whether the patched engines and CI's packages (for `sha`) would be reused or built; CI's packages are downloaded and checked, nothing is published"
+        description: "Only say what would be reused or built for `sha` (engines, CI's packages, Docker and OS images); the reusable ones are downloaded, checked and signed, nothing is published"
         type: boolean
         default: false
       sha:
@@ -54,89 +60,24 @@ env:
   ZIP: llama-redgiant-win-cuda12.8-x64.zip
 
 jobs:
+  # The Docker images (images.yml): the version branch's build of this commit copied to the
+  # release's tags when every image is there (digests checked), otherwise built here. By hand
+  # nothing is pushed (a dry run builds nothing, a copy goes to throwaway ci-…-dryrun tags).
+  # The image is what Docker installations update to: the release's kind is published first.
   images:
-    if: ${{ !inputs.only && !inputs.dry_run }}
-    # The image is what Docker installations update to: the release's kind is published first.
-    needs: release-info
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: redgiant2
-            file: docker/redgiant.Dockerfile
-            context: .
-            platforms: linux/amd64,linux/arm64
-            suffix: ""
-          - name: redgiant2-sandbox
-            file: docker/sandbox.Dockerfile
-            context: docker
-            platforms: linux/amd64,linux/arm64
-            suffix: ""
-          - name: redgiant2-engine
-            file: docker/engine.Dockerfile
-            context: docker
-            platforms: linux/amd64,linux/arm64
-            suffix: cpu
-            variant: server
-          - name: redgiant2-engine
-            file: docker/engine.Dockerfile
-            context: docker
-            platforms: linux/amd64
-            suffix: cuda
-            variant: server-cuda
-          # AMD, Intel and built-in GPUs (G24.3).
-          - name: redgiant2-engine
-            file: docker/engine.Dockerfile
-            context: docker
-            platforms: linux/amd64,linux/arm64
-            suffix: vulkan
-            variant: server-vulkan
-          # compose.yaml's database (G36.1): postgres:17-alpine with pgvector, tagged by what it
-          # holds (an existing volume opens as it is), not by RedGiant's version.
-          - name: redgiant2-postgres
-            file: docker/postgres.Dockerfile
-            context: docker
-            platforms: linux/amd64,linux/arm64
-            suffix: ""
-            fixed: "17-pgvector0.8.7 latest"
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: tags
-        shell: bash
-        run: |
-          version=${GITHUB_REF_NAME#v}
-          image=$REGISTRY/${{ matrix.name }}
-          if [ -n "${{ matrix.fixed }}" ]; then
-            tags=""
-            for t in ${{ matrix.fixed }}; do tags="${tags:+$tags,}$image:$t"; done
-            echo "tags=$tags" >> "$GITHUB_OUTPUT"
-          elif [ -n "${{ matrix.suffix }}" ]; then
-            echo "tags=$image:${{ matrix.suffix }},$image:$version-${{ matrix.suffix }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tags=$image:latest,$image:$version" >> "$GITHUB_OUTPUT"
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.file }}
-          platforms: ${{ matrix.platforms }}
-          # Only a version tag publishes: a run by hand never overwrites the released images.
-          push: ${{ startsWith(github.ref, 'refs/tags/') }}
-          tags: ${{ steps.tags.outputs.tags }}
-          build-args: |
-            REDGIANT_VERSION=${{ steps.tags.outputs.version }}
-            ${{ matrix.variant && format('VARIANT={0}', matrix.variant) || '' }}
-          cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.suffix }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.suffix }}
+    needs: [ci-build, release-info]
+    if: ${{ !cancelled() && !inputs.only && needs.ci-build.result == 'success' && (needs.release-info.result == 'success' || (inputs.dry_run && needs.release-info.result == 'skipped')) }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/images.yml
+    with:
+      version: ${{ needs.ci-build.outputs.version }}
+      sha: ${{ needs.ci-build.outputs.sha }}
+      tags: release
+      reuse: true
+      push: ${{ startsWith(github.ref, 'refs/tags/') }}
+      build: ${{ !inputs.dry_run }}
 
   # CI's packages for this commit (3.5.9): the successful CI run of the same commit that kept
   # release-windows-<version> and release-mac-<version> (a version branch's, CI's plan job). The
@@ -186,6 +127,16 @@ jobs:
             if [ "$reuse" = true ]; then why="CI run $run_id (green) kept release-windows-$version and release-mac-$version"
             else why="no green CI run of $sha kept release-windows-$version and release-mac-$version"; fi
           fi
+          # Never a release without green CI (3.7.4): a run of this commit whose checks ran and passed
+          # (a run on main that only saw the commit had passed already counts through that one).
+          green=""
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&status=success&per_page=50" --jq '.workflow_runs[].id'); do
+            checks=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" --jq '.jobs[] | select(.name | startswith("check")) | .conclusion')
+            if grep -qx success <<<"$checks" && ! grep -qvx success <<<"$checks"; then green=$id; break; fi
+          done
+          if [ -n "$green" ]; then echo "::notice title=CI::green CI run $green for $sha"
+          elif [ "$TAGGED" = true ]; then echo "::error title=CI::no green CI run of $sha: a version is never released without it"; exit 1
+          else echo "::warning title=CI::no green CI run of $sha (a tag would stop here)"; fi
           # pgvector's job: needed by the installers built here, and to publish a new pgvector's zips.
           source engine/pgvector/versions.env
           have=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pgvector-cache" --jq '.assets[].name' 2>/dev/null || true)
@@ -236,6 +187,7 @@ jobs:
   # before any installer or app is attached, so no launcher or server ever meets this release's
   # files without its kind (a breaking release must never be taken for a normal one).
   release-info:
+    needs: ci-build
     if: ${{ !inputs.only && !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
@@ -283,16 +235,91 @@ jobs:
   # the signed stack the OS updates RedGiant from, built and booted in QEMU by os.yml, attached
   # with SHA256SUMS-os signed like release.json. Off until we ship it: set the repository
   # variable REDGIANT_OS_RELEASE to "true".
-  os-images:
-    if: ${{ !inputs.only && !inputs.dry_run && startsWith(github.ref, 'refs/tags/') && vars.REDGIANT_OS_RELEASE == 'true' }}
-    # The images it pins must be published first.
-    needs: [images, release-info]
+  # 3.7.4: the os.yml run that already built and booted them is looked for first: a green push run
+  # of this commit, else the latest green one on a version branch whose packaging/os, helper and
+  # os.yml are the same as this commit's (git diff). Its stack and system's files must be this
+  # release's (reuse.mjs: version, every image digest and id against the branch's images that the
+  # job images copies, compose files, every file and blob) and its artifacts all still there.
+  os-plan:
+    needs: ci-build
+    if: ${{ !cancelled() && !inputs.only && needs.ci-build.result == 'success' && (startsWith(github.ref, 'refs/tags/') || inputs.dry_run) && vars.REDGIANT_OS_RELEASE == 'true' }}
+    runs-on: ubuntu-latest
     permissions:
+      actions: read
+      contents: read
+    outputs:
+      run_id: ${{ steps.find.outputs.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.ci-build.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: find
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.ci-build.outputs.sha }}
+          VERSION: ${{ needs.ci-build.outputs.version }}
+        run: |
+          set -euo pipefail
+          api="repos/$GITHUB_REPOSITORY/actions"
+          paths=(packaging/os packages/server/helpers .github/workflows/os.yml)
+          wanted=(redgiant-os-stack redgiant-os-amd64 redgiant-os-arm64 redgiant-os-amd64-lxc redgiant-os-arm64-raspi)
+          version_branch='^[pab][0-9]+[.][0-9]+[.][0-9]+$'
+          {
+            gh api "$api/workflows/os.yml/runs?head_sha=$SHA&status=success&event=push&per_page=20" --jq '.workflow_runs[] | "\(.id) \(.head_sha) \(.head_branch)"'
+            gh api "$api/workflows/os.yml/runs?status=success&event=push&per_page=40" \
+              --jq ".workflow_runs[] | select(.head_sha != \"$SHA\") | select(.head_branch | test(\"$version_branch\")) | \"\\(.id) \\(.head_sha) \\(.head_branch)\""
+          } > candidates
+          cat candidates
+          run_id="" why="no green os.yml run of $SHA or with the same OS files"
+          while read -r id rsha branch; do
+            if [ "$rsha" != "$SHA" ]; then
+              git cat-file -e "$rsha^{commit}" 2>/dev/null || { echo "run $id: $rsha is not in the history"; continue; }
+              git diff --quiet "$rsha" "$SHA" -- "${paths[@]}" || { echo "run $id: ${rsha:0:7} has other OS files"; continue; }
+            fi
+            names=$(gh api "$api/runs/$id/artifacts?per_page=100" --jq '.artifacts[] | select(.expired | not) | .name')
+            missing=""
+            for a in "${wanted[@]}"; do grep -qxF "$a" <<<"$names" || missing="$missing $a"; done
+            [ -z "$missing" ] || { echo "run $id: no$missing (expired?)"; continue; }
+            d=$(mktemp -d)
+            gh run download "$id" -R "$GITHUB_REPOSITORY" -n redgiant-os-stack -D "$d"
+            if node packaging/os/reuse.mjs --dir "$d" --version "$VERSION" --source-tag "ci-$VERSION-$SHA"; then
+              run_id=$id; why="run $id on $branch (${rsha:0:7}) built and booted them with this release's stack and files"
+              break
+            fi
+            echo "run $id: not this release's"
+          done < candidates
+          decision=$([ -n "$run_id" ] && echo reuse || echo build)
+          echo "::notice title=RedGiant OS images::$decision ($why)"
+          {
+            echo "| RedGiant OS images | Version | Commit | Decision | Why |"
+            echo "| --- | --- | --- | --- | --- |"
+            echo "| ISO, qcow2, raw, VHDX, OVA, LXC, Raspberry Pi | $VERSION | \`${SHA:0:7}\` | $decision | $why |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+  # Attached by os.yml's publish: the reusable run's images (only when the job images copied the
+  # same branch's Docker images), otherwise built and booted there as before. A dry run checks and
+  # signs the reusable ones and stops; with nothing reusable it builds nothing.
+  os-images:
+    needs: [ci-build, release-info, images, os-plan]
+    if: ${{ !cancelled() && !inputs.only && vars.REDGIANT_OS_RELEASE == 'true' && needs.images.result == 'success' && needs.os-plan.result == 'success' && ((startsWith(github.ref, 'refs/tags/') && !inputs.dry_run && needs.release-info.result == 'success') || (inputs.dry_run && needs.images.outputs.action == 'copy' && needs.os-plan.outputs.run_id != '')) }}
+    permissions:
+      actions: read
       contents: write
+      packages: write
     uses: ./.github/workflows/os.yml
     with:
-      version: ${{ github.ref_name }}
-      publish: true
+      version: ${{ needs.ci-build.outputs.version }}
+      publish: ${{ startsWith(github.ref, 'refs/tags/') && !inputs.dry_run }}
+      reuse_run: ${{ needs.images.outputs.action == 'copy' && needs.os-plan.outputs.run_id || '' }}
+      dry_run: ${{ inputs.dry_run == true }}
+      sha: ${{ needs.ci-build.outputs.sha }}
+      expect_tag: ci-${{ needs.ci-build.outputs.version }}-${{ needs.ci-build.outputs.sha }}
     secrets: inherit
 
   # The keychain's browser extension (G36.21): the zips for Chromium (Chrome, Edge, Brave, Opera)
@@ -677,6 +704,9 @@ jobs:
   # in seconds) or "skip" (not asked; or a run by hand with nothing to publish, or dry_run: the
   # decision is written and the run stops there). In the log and in the run's summary.
   engine-plan:
+    # A tag without green CI publishes nothing, engines included (ci-build stops it).
+    needs: ci-build
+    if: ${{ !cancelled() && (inputs.only != '' || needs.ci-build.result == 'success') }}
     runs-on: ubuntu-latest
     outputs:
       win: ${{ steps.plan.outputs.win }}

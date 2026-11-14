@@ -4,8 +4,11 @@
 // digest Docker reports), and carries the compose files of the release, so the OS updates RedGiant
 // from one signed file (sign.mjs, the same key as release.json). Only Node's own modules.
 //
-//   node packaging/os/stack.mjs --version 3.7.0 --out <file> [--tag 3.7.0]
+//   node packaging/os/stack.mjs --version 3.7.0 --out <file> [--tag 3.7.0] [--source-tag <tag>]
 //     --tag: the redgiant2 image tag to resolve (default: the version)
+//     --source-tag: resolve every image at this tag instead (3.7.4: a version branch's images,
+//       ci-<version>-<sha>, images.yml), the references keeping the release's tags: the release
+//       copies those images to its tags with the same digests, so the stack stays true.
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -14,8 +17,8 @@ export const ARCHES = ["amd64", "arm64"];
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 /** The images the OS keeps ready; the others (sandbox, engines) come down when chosen. */
-export function stackImages(tag) {
-  return [
+export function stackImages(tag, sourceTag) {
+  const images = [
     { name: "redgiant", env: "REDGIANT_IMAGE", repo: "ghcr.io/frostmoore/redgiant2", tag },
     {
       name: "postgres",
@@ -24,6 +27,8 @@ export function stackImages(tag) {
       tag: "17-pgvector0.8.7",
     },
   ];
+  // Where each image is read from: its own tag, or the branch's build of it.
+  return images.map((i) => ({ ...i, source: sourceTag || i.tag }));
 }
 
 /** The release's files the compose stack reads, relative to the repository. */
@@ -82,14 +87,14 @@ async function registry(repo, path, accept = ACCEPT) {
 }
 
 /** Resolves the images of `tag` on the registry: per processor, manifest digest and image id. */
-export async function resolveStack(version, tag = version) {
+export async function resolveStack(version, tag = version, sourceTag = "") {
   const images = { amd64: [], arm64: [] };
-  for (const img of stackImages(tag)) {
-    const index = await (await registry(img.repo, `manifests/${img.tag}`)).json();
+  for (const img of stackImages(tag, sourceTag)) {
+    const index = await (await registry(img.repo, `manifests/${img.source}`)).json();
     const per = platformDigests(index);
     for (const arch of ARCHES) {
       const digest = per[arch];
-      if (!digest) throw new Error(`${img.repo}:${img.tag} has no linux/${arch} image`);
+      if (!digest) throw new Error(`${img.repo}:${img.source} has no linux/${arch} image`);
       const manifest = await (await registry(img.repo, `manifests/${digest}`)).json();
       images[arch].push({
         name: img.name,
@@ -114,10 +119,12 @@ if (process.argv[1]?.endsWith("stack.mjs")) {
   const version = arg("--version")?.replace(/^v/, "");
   const out = arg("--out");
   if (!version || !out) {
-    console.error("usage: stack.mjs --version x.y.z --out <file> [--tag <redgiant2 tag>]");
+    console.error(
+      "usage: stack.mjs --version x.y.z --out <file> [--tag <redgiant2 tag>] [--source-tag <tag>]",
+    );
     process.exit(2);
   }
-  const stack = await resolveStack(version, arg("--tag", version));
+  const stack = await resolveStack(version, arg("--tag", version), arg("--source-tag", ""));
   writeFileSync(out, `${JSON.stringify(stack, null, 2)}\n`);
   for (const arch of ARCHES)
     for (const i of stack.images[arch])

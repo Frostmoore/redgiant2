@@ -1,8 +1,14 @@
 # RedGiant OS (G39.1, G39.2): builds the images on GitHub's runners (x86_64 and arm64, each on its
 # own processor), boots every one in QEMU headless and checks it (packaging/os/test/boot-test.sh).
-# Runs by hand, on a version branch when the OS's files change, and from release.yml for a tag
-# (publish: the images are attached to the release with SHA256SUMS signed like release.json).
-# The release does that only while the repository variable REDGIANT_OS_RELEASE is "true".
+# Runs by hand, on every push to a version branch, on a work branch when the OS's files change,
+# and from release.yml for a tag (publish: the images are attached to the release with SHA256SUMS
+# signed like release.json). The release does that only while the repository variable
+# REDGIANT_OS_RELEASE is "true".
+# A version branch's run is the release's own (3.7.4): it first builds the Docker images of its
+# commit (images.yml, tags ci-<version>-<sha>), then the OS with their stack and the version of
+# packaging/release-kind.json. release.yml on the tag copies those images to the version's tags
+# and attaches this run's images (reuse_run, after reuse.mjs checks they carry the release's stack
+# and files) instead of building them again; it builds them here only when no such run is left.
 name: RedGiant OS
 
 on:
@@ -28,12 +34,9 @@ on:
         description: "amd64 only: build the qcow2, boot it (UEFI, HTTPS included), then the Wi-Fi checks"
         type: boolean
         default: false
+  # Every version branch's push; a work branch's only when it touches the OS (job plan).
   push:
     branches: ["p[0-9]*", "a[0-9]*", "b[0-9]*"]
-    paths:
-      - "packaging/os/**"
-      - "packages/server/helpers/**"
-      - ".github/workflows/os.yml"
   workflow_call:
     inputs:
       version:
@@ -42,6 +45,22 @@ on:
       publish:
         type: boolean
         default: false
+      # 3.7.4: attach this earlier run's images (release.yml found them reusable) instead of building.
+      reuse_run:
+        type: string
+        default: ""
+      # Check and sign what would be attached, attach nothing.
+      dry_run:
+        type: boolean
+        default: false
+      # The commit the release is made from (empty: this run's).
+      sha:
+        type: string
+        default: ""
+      # With dry_run: the images the stack is checked against (ci-<version>-<sha>), not yet copied.
+      expect_tag:
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -53,7 +72,92 @@ concurrency:
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
+  # What this run does (3.7.4):
+  # - build: false when release.yml reuses an earlier run (reuse_run), or a work branch does not
+  #   touch the OS (packaging/os, the helper, this file).
+  # - release: a version branch's push with a version in release-kind.json: the Docker images of
+  #   this commit first (ci tags), the OS with them and that version.
+  # - otherwise (by hand, work branches, a tag's build): the images of `version`, else the latest
+  #   release's, as before.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      release: ${{ steps.plan.outputs.release }}
+      version: ${{ steps.plan.outputs.version }}
+      source_tag: ${{ steps.plan.outputs.source_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging/release-kind.json
+          sparse-checkout-cone-mode: false
+      - id: plan
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REUSE_RUN: ${{ inputs.reuse_run }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          WANTED: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version_branch='^[pab][0-9]+[.][0-9]+[.][0-9]+$'
+          build=true release=false version="" source_tag="" why=""
+          if [ -n "$REUSE_RUN" ]; then
+            build=false; why="release.yml reuses run $REUSE_RUN"
+          elif [ "$DRY_RUN" = true ]; then
+            build=false; why="dry run: nothing reusable, the images would be built"
+          elif [ "$EVENT" = push ] && [ "$GITHUB_REF_TYPE" = branch ] && [[ "$GITHUB_REF_NAME" =~ $version_branch ]]; then
+            version=$(node -p "require('./packaging/release-kind.json').version")
+            if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              release=true; source_tag="ci-$version-$GITHUB_SHA"
+              why="version branch: the Docker images of this commit ($source_tag), the OS of $version"
+            else
+              version=""; why="version branch without a version in release-kind.json: the latest release's images"
+            fi
+          elif [ "$EVENT" = push ] && [ "$GITHUB_REF_TYPE" = branch ]; then
+            # A work branch: only when it touches the OS. The whole branch against the default one, not
+            # this push alone: a later push that does not touch it still replaces (cancels) a build
+            # of the earlier one, so it must build too.
+            base=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
+            changed=$(gh api "repos/$GITHUB_REPOSITORY/compare/$base...$GITHUB_SHA" --jq '.files[].filename' 2>/dev/null || echo "?")
+            # The API lists 300 files at most: past that, build rather than guess.
+            if grep -qE '^(packaging/os/|packages/server/helpers/|\.github/workflows/os\.yml$|\?$)' <<<"$changed" || [ "$(wc -l <<<"$changed")" -ge 300 ]; then
+              why="a work branch that touches the OS"
+            else
+              build=false; why="a work branch that does not touch the OS"
+            fi
+          fi
+          if [ "$build" = true ] && [ -z "$version" ]; then
+            version="${WANTED#v}"
+            [ -n "$version" ] || version=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name | sed 's/^v//')
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a version: $version"; exit 1; }
+          fi
+          echo "::notice title=RedGiant OS::build=$build release=$release version=${version:-none} ($why)"
+          {
+            echo "build=$build"
+            echo "release=$release"
+            echo "version=$version"
+            echo "source_tag=$source_tag"
+          } >> "$GITHUB_OUTPUT"
+
+  # The Docker images of this commit (version branches): RedGiant OS is built with these.
+  images:
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/images.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      sha: ${{ github.sha }}
+      tags: ci
+      push: true
+
   stack:
+    needs: [plan, images]
+    if: ${{ !cancelled() && needs.plan.outputs.build == 'true' && (needs.images.result == 'success' || needs.images.result == 'skipped') }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
@@ -64,17 +168,16 @@ jobs:
           node-version: 24
       - id: v
         env:
-          GH_TOKEN: ${{ github.token }}
-          WANTED: ${{ inputs.version }}
-        run: |
-          v="${WANTED#v}"
-          [ -n "$v" ] || v=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name | sed 's/^v//')
-          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a version: $v"; exit 1; }
-          echo "version=$v" >> "$GITHUB_OUTPUT"
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      # On a version branch from this commit's images (ci tags), the references naming the
+      # release's tags: the release copies them there with the same digests.
       - name: The stack, pinned by digest
+        env:
+          SOURCE_TAG: ${{ needs.plan.outputs.source_tag }}
         run: |
           mkdir -p dist
-          node packaging/os/stack.mjs --version "${{ steps.v.outputs.version }}" --out dist/redgiant-os-stack.json
+          node packaging/os/stack.mjs --version "${{ steps.v.outputs.version }}" --source-tag "$SOURCE_TAG" --out dist/redgiant-os-stack.json
       # The system's own files (p3.7.3): an update installs them before the new containers.
       - name: The system's files
         run: node packaging/os/files.mjs --version "${{ steps.v.outputs.version }}" --out dist
@@ -468,15 +571,22 @@ jobs:
           gh release upload os-preview rel/* --clobber
           gh release view os-preview --json assets --jq '.assets[].name'
 
-  # Attached to the tag's release, only when release.yml asks (behind REDGIANT_OS_RELEASE).
+  # Attached to the tag's release, only when release.yml asks (behind REDGIANT_OS_RELEASE): the
+  # images this run built, or (reuse_run, 3.7.4) those of the earlier run release.yml chose. Either
+  # way they are checked first: every file the release lists, its sha256 as built, and the stack and
+  # the system's files they carry are the release's (reuse.mjs: against the tags just published).
+  # With dry_run: checked and signed, nothing attached.
   publish:
-    if: ${{ inputs.publish && startsWith(github.ref, 'refs/tags/') }}
-    needs: [stack, build, lxc, raspi]
+    if: ${{ !cancelled() && (inputs.publish || inputs.dry_run) && (startsWith(github.ref, 'refs/tags/') || inputs.dry_run) && needs.plan.result == 'success' && (inputs.reuse_run != '' || (needs.stack.result == 'success' && needs.build.result == 'success' && needs.lxc.result == 'success' && needs.raspi.result == 'success')) }}
+    needs: [plan, stack, build, lxc, raspi]
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -484,6 +594,27 @@ jobs:
         with:
           pattern: redgiant-os-*
           path: dl
+          run-id: ${{ inputs.reuse_run || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Every image, as built and booted, carrying this release's stack and files
+        env:
+          WANTED: ${{ inputs.version }}
+          EXPECT_TAG: ${{ inputs.dry_run && inputs.expect_tag || '' }}
+        run: |
+          set -euo pipefail
+          version="${WANTED#v}"
+          ls -la dl/*
+          for d in redgiant-os-amd64 redgiant-os-arm64 redgiant-os-amd64-lxc redgiant-os-arm64-raspi; do
+            sums=$(find "dl/$d" -maxdepth 1 -name 'SHA256SUMS-*' | head -1)
+            [ -n "$sums" ] || { echo "$d: no SHA256SUMS"; exit 1; }
+            (cd "dl/$d" && sha256sum -c --strict "$(basename "$sums")")
+          done
+          for f in "redgiant-os-$version-x86_64.qcow2" "redgiant-os-$version-x86_64.raw.zst" "redgiant-os-$version-x86_64.iso" \
+                   "redgiant-os-$version-x86_64.vhdx.zip" "redgiant-os-$version-x86_64.ova" "redgiant-os-$version-arm64.qcow2" \
+                   "redgiant-os-$version-arm64.raw.zst" "redgiant-os-$version-x86_64-lxc.tar.zst" "redgiant-os-$version-arm64-raspi.img.xz"; do
+            [ -n "$(find dl -type f -name "$f")" ] || { echo "::error::no $f"; exit 1; }
+          done
+          node packaging/os/reuse.mjs --dir dl/redgiant-os-stack --version "$version" --source-tag "$EXPECT_TAG"
       - name: SHA256SUMS, the stack and the system's files, signed with the update key
         env:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
@@ -498,7 +629,14 @@ jobs:
           node packaging/update/sign.mjs rel/redgiant-os-stack.json
           node packaging/update/sign.mjs rel/redgiant-os-files.json
           ls -la rel
+          cat rel/SHA256SUMS-os
+      - name: Dry run, stopping here
+        if: inputs.dry_run
+        env:
+          REUSE_RUN: ${{ inputs.reuse_run }}
+        run: echo "::notice title=Dry run::RedGiant OS images of run ${REUSE_RUN:-$GITHUB_RUN_ID} checked and signed; nothing attached"
       - name: Attach to the release
+        if: ${{ !inputs.dry_run && startsWith(github.ref, 'refs/tags/') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" rel/* --clobber

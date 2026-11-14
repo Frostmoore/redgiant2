@@ -1,0 +1,244 @@
+# The Docker images (3.7.4): ghcr.io/frostmoore/redgiant2, -sandbox, -engine (cpu, cuda, vulkan) and
+# -postgres. Every processor is built on its own runner (arm64 on GitHub's arm64 machines, no
+# emulation), pushed by digest, then one index per image gets its tags.
+# - tags "ci" (os.yml on a version branch): only ci-<version>-<sha>[-<suffix>], never a released
+#   tag. RedGiant OS is built and booted with exactly these images.
+# - tags "release" (release.yml): with `reuse` and every ci-<version>-<sha> image there, those
+#   indexes are copied to the release's tags (no build: the same digests, checked, so the stack
+#   RedGiant OS pinned on the branch is what is published); otherwise everything is built here
+#   with the release's tags, as before. `push` false (a run by hand): nothing is pushed; a copy is
+#   then only tried on throwaway ci-…-dryrun tags, to prove the digests survive it.
+name: Docker images
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "RedGiant's version inside the images (REDGIANT_VERSION)"
+        type: string
+        required: true
+      sha:
+        description: "The commit the images are built from (for the ci tags)"
+        type: string
+        required: true
+      tags:
+        description: "ci or release"
+        type: string
+        required: true
+      reuse:
+        description: "release: copy the branch's ci images when all of them are there"
+        type: boolean
+        default: false
+      push:
+        type: boolean
+        default: false
+      build:
+        description: "Build when there is nothing to copy (false: a dry run only says so)"
+        type: boolean
+        default: true
+    outputs:
+      action:
+        description: "build (built here) or copy (the branch's images, copied)"
+        value: ${{ jobs.plan.outputs.action }}
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io/frostmoore
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      action: ${{ steps.plan.outputs.action }}
+      ci_tag: ${{ steps.plan.outputs.ci_tag }}
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: plan
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ inputs.sha }}
+          TAGS: ${{ inputs.tags }}
+          REUSE: ${{ inputs.reuse }}
+          PUSH: ${{ inputs.push }}
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "not a commit: $SHA"; exit 1; }
+          ci_tag="ci-$VERSION-$SHA"
+          case "$TAGS" in
+            ci)
+              [ "$PUSH" = true ] || { echo "ci tags are pushed or not made"; exit 1; }
+              action=build; why="the branch's images, tagged $ci_tag" ;;
+            release)
+              action=build; why="reuse not asked"
+              if [ "$REUSE" = true ]; then
+                missing=""
+                for ref in redgiant2:$ci_tag redgiant2-sandbox:$ci_tag redgiant2-engine:$ci_tag-cpu \
+                           redgiant2-engine:$ci_tag-cuda redgiant2-engine:$ci_tag-vulkan redgiant2-postgres:$ci_tag; do
+                  docker buildx imagetools inspect "$REGISTRY/$ref" >/dev/null 2>&1 || missing="$missing $ref"
+                done
+                if [ -z "$missing" ]; then action=copy; why="the branch built every image of $SHA for $VERSION ($ci_tag)"
+                else why="missing:$missing"; fi
+              fi ;;
+            *) echo "tags: ci or release"; exit 1 ;;
+          esac
+          echo "::notice title=Docker images::$action ($why)"
+          {
+            echo "| Docker images | Version | Commit | Decision | Why |"
+            echo "| --- | --- | --- | --- | --- |"
+            echo "| redgiant2, -sandbox, -engine, -postgres | $VERSION | \`${SHA:0:7}\` | $action | $why |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+          echo "ci_tag=$ci_tag" >> "$GITHUB_OUTPUT"
+
+  # One processor of one image, on a runner of that processor, pushed by digest (untagged).
+  build:
+    needs: plan
+    if: needs.plan.outputs.action == 'build' && inputs.build
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { key: redgiant2, name: redgiant2, file: docker/redgiant.Dockerfile, context: ., arch: amd64 }
+          - { key: redgiant2, name: redgiant2, file: docker/redgiant.Dockerfile, context: ., arch: arm64 }
+          - { key: sandbox, name: redgiant2-sandbox, file: docker/sandbox.Dockerfile, context: docker, arch: amd64 }
+          - { key: sandbox, name: redgiant2-sandbox, file: docker/sandbox.Dockerfile, context: docker, arch: arm64 }
+          - { key: engine-cpu, name: redgiant2-engine, file: docker/engine.Dockerfile, context: docker, arch: amd64, variant: server }
+          - { key: engine-cpu, name: redgiant2-engine, file: docker/engine.Dockerfile, context: docker, arch: arm64, variant: server }
+          - { key: engine-cuda, name: redgiant2-engine, file: docker/engine.Dockerfile, context: docker, arch: amd64, variant: server-cuda }
+          # AMD, Intel and built-in GPUs (G24.3).
+          - { key: engine-vulkan, name: redgiant2-engine, file: docker/engine.Dockerfile, context: docker, arch: amd64, variant: server-vulkan }
+          - { key: engine-vulkan, name: redgiant2-engine, file: docker/engine.Dockerfile, context: docker, arch: arm64, variant: server-vulkan }
+          # compose.yaml's database (G36.1): postgres:17-alpine with pgvector.
+          - { key: postgres, name: redgiant2-postgres, file: docker/postgres.Dockerfile, context: docker, arch: amd64 }
+          - { key: postgres, name: redgiant2-postgres, file: docker/postgres.Dockerfile, context: docker, arch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: inputs.push
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ matrix.name }},push-by-digest=true,name-canonical=true,push=${{ inputs.push }}
+          build-args: |
+            REDGIANT_VERSION=${{ inputs.version }}
+            ${{ matrix.variant && format('VARIANT={0}', matrix.variant) || '' }}
+          cache-from: type=gha,scope=${{ matrix.key }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.key }}-${{ matrix.arch }}
+      - name: The digest, for the index
+        if: inputs.push
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p digests
+          touch "digests/${DIGEST#sha256:}"
+          echo "${{ matrix.name }} linux/${{ matrix.arch }}: $DIGEST"
+      - uses: actions/upload-artifact@v4
+        if: inputs.push
+        with:
+          name: digest-${{ matrix.key }}-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # One index per image with its tags: from the digests built above, or copied from the branch's.
+  tag:
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.plan.outputs.action == 'copy' || (needs.build.result == 'success' && inputs.push)) }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { key: redgiant2, name: redgiant2, suffix: "" }
+          - { key: sandbox, name: redgiant2-sandbox, suffix: "" }
+          - { key: engine-cpu, name: redgiant2-engine, suffix: cpu }
+          - { key: engine-cuda, name: redgiant2-engine, suffix: cuda }
+          - { key: engine-vulkan, name: redgiant2-engine, suffix: vulkan }
+          # Tagged by what it holds (an existing volume opens as it is), not by RedGiant's version.
+          - { key: postgres, name: redgiant2-postgres, suffix: "", fixed: "17-pgvector0.8.7 latest" }
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        if: needs.plan.outputs.action == 'build'
+        with:
+          pattern: digest-${{ matrix.key }}-*
+          path: digests
+          merge-multiple: true
+      - name: Tags
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          KIND: ${{ inputs.tags }}
+          CI_TAG: ${{ needs.plan.outputs.ci_tag }}
+          SUFFIX: ${{ matrix.suffix }}
+          FIXED: ${{ matrix.fixed }}
+          ACTION: ${{ needs.plan.outputs.action }}
+          PUSH: ${{ inputs.push }}
+        run: |
+          set -euo pipefail
+          image=$REGISTRY/${{ matrix.name }}
+          src="$image:$CI_TAG${SUFFIX:+-$SUFFIX}"
+          if [ "$KIND" = ci ]; then tags="$src"
+          elif [ -n "$FIXED" ]; then tags=""; for t in $FIXED; do tags="$tags $image:$t"; done
+          elif [ -n "$SUFFIX" ]; then tags="$image:$SUFFIX $image:$VERSION-$SUFFIX"
+          else tags="$image:latest $image:$VERSION"; fi
+          # A copy by hand never touches a released tag: it goes to a throwaway tag next to the ci one.
+          if [ "$ACTION" = copy ] && [ "$PUSH" != true ]; then
+            echo "would tag $src as:$tags"
+            tags="$src-dryrun"
+          fi
+          {
+            echo "IMAGE=$image"
+            echo "SRC=$src"
+            echo "TAG_LIST=${tags# }"
+          } >> "$GITHUB_ENV"
+      - name: The index, tagged
+        shell: bash
+        env:
+          ACTION: ${{ needs.plan.outputs.action }}
+        run: |
+          set -euo pipefail
+          args=()
+          for t in $TAG_LIST; do args+=(-t "$t"); done
+          if [ "$ACTION" = copy ]; then
+            want=$(docker buildx imagetools inspect "$SRC" --format '{{json .Manifest}}' | jq -r .digest)
+            docker buildx imagetools create "${args[@]}" "$SRC"
+          else
+            want=""
+            srcs=()
+            for d in digests/*; do srcs+=("$IMAGE@sha256:$(basename "$d")"); done
+            docker buildx imagetools create "${args[@]}" "${srcs[@]}"
+          fi
+          # Every tag names the same index; a copy keeps the branch's digest (what RedGiant OS pinned).
+          for t in $TAG_LIST; do
+            got=$(docker buildx imagetools inspect "$t" --format '{{json .Manifest}}' | jq -r .digest)
+            echo "$t $got"
+            [ -n "$want" ] || want=$got
+            [ "$got" = "$want" ] || { echo "::error::$t is $got, not $want"; exit 1; }
+          done
+          docker buildx imagetools inspect "${TAG_LIST%% *}"
