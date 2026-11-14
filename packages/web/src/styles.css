@@ -20045,3 +20045,43 @@ html[data-theme="dark"] {
     gap: 6px;
   }
 }
+/* p3.7.2, backups anywhere (BackupTargets.tsx) on the room's scale: inside a card nothing is
+   centred by its own margins (the squares and the notes start where the words start), a folder's
+   field and its button one under the other, the «looking again» line with its icon in the text */
+.wz-look .wz-scard > *:not(.wz-scard-hd) {
+  margin-left: 0;
+  margin-right: 0;
+}
+.wz-look .wz-scard > .wz-brain {
+  align-self: stretch;
+}
+.fb-storage {
+  gap: var(--st-gap);
+}
+.fb-storage > .wz-scard {
+  margin-bottom: 0;
+}
+.fb-storage .fb-folder {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.fb-storage .fb-folder .ui-field {
+  flex: none;
+  width: 100%;
+}
+.fb-storage p > .icon:first-child {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+@media (max-width: 640px) {
+  /* on a page (not in a window) a row of buttons is part of the page: never a sticky foot */
+  .st-page .wz-inner .wz-acts {
+    position: static;
+    margin: 0;
+    padding: 0;
+    border-top: none;
+    background: none;
+  }
+}

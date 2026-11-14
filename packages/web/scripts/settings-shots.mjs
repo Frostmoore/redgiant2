@@ -1,6 +1,6 @@
 // Every Settings section, whole (the scrolling body measured and the window grown to it), dark and
 // light, on a computer and on a phone. Usage: node settings-shots.mjs <url> <token> <outdir>
-// [section-filter]   (needs a Chromium: the Playwright image has one)
+// [section-filter, several with commas]   (needs a Chromium: the Playwright image has one)
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright-core";
 
@@ -60,13 +60,21 @@ for (const [device, width, height] of devices) {
       .evaluateAll((els) => els.map((e) => e.textContent ?? ""));
     for (const [i, name] of names.entries()) {
       const file = `${out}/${device}-${scheme}-${String(i + 1).padStart(2, "0")}-${slug(name)}.png`;
-      if (only && !slug(name).includes(only)) continue;
+      if (only && !only.split(",").some((o) => slug(name).includes(o))) continue;
       await closeWindows(page);
       if (device === "phone") {
         await page.locator(".st-pick").click();
         await page.locator(".st-sheet-list .st-nav-item").nth(i).click();
       } else await page.locator(".settings-nav .st-nav-item").nth(i).click();
       await page.waitForTimeout(900);
+      // SHOTS_CLICK: buttons to press first, by their words (comma-separated): «Mostra le copie»…
+      for (const words of (process.env.SHOTS_CLICK ?? "").split(",").filter(Boolean)) {
+        const button = page.locator(".settings-body button", { hasText: words });
+        if (await button.count()) {
+          await button.first().click();
+          await page.waitForTimeout(900);
+        }
+      }
       const full = await page.evaluate(() => {
         const b = document.querySelector(".settings-body");
         return b ? b.scrollHeight - b.clientHeight : 0;

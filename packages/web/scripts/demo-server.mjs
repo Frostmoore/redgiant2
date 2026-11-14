@@ -1613,6 +1613,8 @@ const setup = new SetupService({
         if (o.op === "list")
           return {
             ok: true,
+            // DEMO_BACKUPS=1 (p3.7.2): RedGiant in a Proxmox container, the disks the host's.
+            ...(process.env.DEMO_BACKUPS && { container: "lxc" }),
             lsblk: {
               blockdevices: [
                 {
@@ -2854,6 +2856,64 @@ if (process.env.DEMO_SSH) {
     sshSession,
     `Esegui ${JSON.stringify([{ name: "ssh_run", input: { machine: "web", command: "sudo systemctl restart app" } }])}`,
   );
+}
+// DEMO_BACKUPS=1 (p3.7.2): backups to a folder on the person's NAS over SFTP, two backups there
+// already. The NAS is acted out: its SFTP is a folder of the demo's, never a real machine.
+if (process.env.DEMO_BACKUPS) {
+  const fs = await import("node:fs/promises");
+  const root = join(dir, "nas");
+  const nas = await core.machines.add("local", {
+    name: "nas",
+    host: "nas.example.test",
+    user: "backup",
+    folder: "/volume1",
+    access: { everyone: false, agents: [], projects: [] },
+  });
+  const there = (p) => join(root, p);
+  const cb =
+    (f) =>
+    (...a) => {
+      const done = a.pop();
+      f(...a).then(
+        (v) => done(null, v),
+        (e) => done(e),
+      );
+    };
+  const sftp = {
+    realpath: cb(async () => "/volume1"),
+    stat: cb(async (p) => ({ size: (await fs.stat(there(p))).size })),
+    mkdir: cb(async (p) => void (await fs.mkdir(there(p), { recursive: true }))),
+    readdir: cb(async (p) =>
+      Promise.all(
+        (await fs.readdir(there(p))).map(async (filename) => {
+          const st = await fs.stat(join(there(p), filename));
+          return { filename, attrs: { size: st.size, mtime: Math.floor(st.mtimeMs / 1000) } };
+        }),
+      ),
+    ),
+    readFile: cb(async (p) => fs.readFile(there(p))),
+    writeFile: cb(async (p, data) => void (await fs.writeFile(there(p), data))),
+    unlink: cb(async (p) => void (await fs.rm(there(p), { force: true }))),
+    rename: cb(async (a, b2) => void (await fs.rename(there(a), there(b2)))),
+  };
+  const connect = core.machines.connect.bind(core.machines);
+  core.machines.connect = async (owner, m) =>
+    m.id === nas.id ? { sftp: (done) => done(null, sftp), end: () => {} } : connect(owner, m);
+  for (const [day, size] of [
+    ["2026-11-13", 412],
+    ["2026-11-14", 418],
+  ]) {
+    const folder = join(root, "volume1", "redgiant", `RedGiant-backup-${day}`);
+    await fs.mkdir(folder, { recursive: true });
+    const file = join(folder, `redgiant-${day}.rgbackup`);
+    await fs.writeFile(file, "");
+    await fs.truncate(file, size * 1024 ** 2); // sparse: the size shows, nothing is written
+    const at = new Date(`${day}T03:00:00Z`);
+    await fs.utimes(file, at, at);
+  }
+  await setup.saveBackups({
+    destination: { kind: "sftp", machineId: nas.id, machineName: "nas", path: "/volume1/redgiant" },
+  });
 }
 // DEMO_MAGIC=1 (G38.3): three magic packages. Notion waits for its key, the CSV totals wait for
 // the person's yes, the VAT check is installed.
