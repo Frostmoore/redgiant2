@@ -266,13 +266,16 @@ export function Chips<T extends string | number>({
   value,
   onChange,
   multiple,
+  wrap,
 }: {
   options: { id: T; label: string }[];
   value: T[];
   onChange: (value: T[]) => void;
   multiple?: boolean;
+  /** Not a scale but a list of examples: it wraps even when short. */
+  wrap?: boolean;
 }) {
-  const one = options.length <= 7 && options.every((o) => o.label.length <= 14);
+  const one = !wrap && options.length <= 7 && options.every((o) => o.label.length <= 14);
   const row = useChosenInView<HTMLDivElement>(value.join());
   return (
     <div ref={row} class={`wz-chips st-chips${one ? " one" : ""}`}>

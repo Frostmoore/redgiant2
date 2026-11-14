@@ -18,7 +18,7 @@ import {
 } from "@redgiant/protocol";
 import { Bot, type Context, InlineKeyboard, InputFile } from "grammy";
 import type { Update } from "grammy/types";
-import { type Language, say, type TextKey } from "./texts.js";
+import { type Language, say, type TextKey, VOICE_FAILURES, type VoiceFailure } from "./texts.js";
 
 /** What the gateway needs from the RedGiant core. */
 export interface TelegramHost {
@@ -256,7 +256,11 @@ export class TelegramGateway {
 
   /** An error in words: what to do when there is no model, otherwise the error itself. */
   private failure(ownerId: string | undefined, err: unknown) {
-    if ((err as { code?: unknown }).code === "no_model") return this.say(ownerId, "noModel");
+    const { code, vars } = err as { code?: unknown; vars?: Record<string, string> };
+    if (code === "no_model") return this.say(ownerId, "noModel");
+    // A voice note that did not become text (3.7.3): why, in the person's language.
+    if (typeof code === "string" && code.startsWith("voice_") && code in VOICE_FAILURES)
+      return this.say(ownerId, code as VoiceFailure, vars ?? {});
     return this.say(ownerId, "error", { error: (err as Error).message });
   }
 

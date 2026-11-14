@@ -42,9 +42,19 @@ const en = {
   saved: "Saved",
   seeAttached: "(see the attachment)",
   noTranscription:
-    "Voice messages need a transcription service: set one in RedGiant's configuration.",
+    "Voice messages need a transcription service: choose one in RedGiant, Settings, Voice.",
   heard: "I heard: {text}",
   heardNothing: "I could not make out any words.",
+  voice_no_key: "{name} has no key yet: add it in RedGiant, Settings, Voice.",
+  voice_empty: "The voice message is empty.",
+  voice_too_long: "The voice message is too long.",
+  voice_convert: "The voice message could not be converted for whisper.",
+  voice_timeout: "{name} took too long to write down the voice message.",
+  voice_unreachable:
+    "{name} cannot be reached: check that it is on and its address in RedGiant, Settings, Voice.",
+  voice_key_refused: "{name} refused the key: check it in RedGiant, Settings, Voice.",
+  voice_rate_limited: "{name} says too many requests or no credit left.",
+  voice_service_error: "{name} answered with an error ({status}).",
   newConversation: "New conversation: God and I start fresh.",
   stopped: "Stopped.",
   nothingToStop: "Nothing was running.",
@@ -59,6 +69,20 @@ const en = {
 } as const;
 
 export type TextKey = keyof typeof en;
+
+/** The voice's failure codes the chats explain (the server's `TranscriptionCode`s). */
+export const VOICE_FAILURES = {
+  voice_no_key: true,
+  voice_empty: true,
+  voice_too_long: true,
+  voice_convert: true,
+  voice_timeout: true,
+  voice_unreachable: true,
+  voice_key_refused: true,
+  voice_rate_limited: true,
+  voice_service_error: true,
+} as const satisfies Partial<Record<TextKey, true>>;
+export type VoiceFailure = keyof typeof VOICE_FAILURES;
 
 const it: Record<TextKey, string> = {
   linkHow:
@@ -101,9 +125,19 @@ const it: Record<TextKey, string> = {
   saved: "Salvato",
   seeAttached: "(vedi l'allegato)",
   noTranscription:
-    "Per i vocali serve un servizio di trascrizione: impostalo nella configurazione di RedGiant.",
+    "Per i vocali serve un servizio di trascrizione: sceglilo in RedGiant, Impostazioni, Voce.",
   heard: "Ho capito: {text}",
   heardNothing: "Non sono riuscito a capire nessuna parola.",
+  voice_no_key: "{name} non ha ancora una chiave: aggiungila in RedGiant, Impostazioni, Voce.",
+  voice_empty: "Il vocale è vuoto.",
+  voice_too_long: "Il vocale è troppo lungo.",
+  voice_convert: "Non sono riuscito a convertire il vocale per whisper.",
+  voice_timeout: "{name} ci ha messo troppo a trascrivere il vocale.",
+  voice_unreachable:
+    "{name} non si raggiunge: controlla che sia acceso e il suo indirizzo in RedGiant, Impostazioni, Voce.",
+  voice_key_refused: "{name} ha rifiutato la chiave: controllala in RedGiant, Impostazioni, Voce.",
+  voice_rate_limited: "{name} dice troppe richieste o credito finito.",
+  voice_service_error: "{name} ha risposto con un errore ({status}).",
   newConversation: "Nuova conversazione: io e God ripartiamo da capo.",
   stopped: "Fermato.",
   nothingToStop: "Non c'era niente in corso.",

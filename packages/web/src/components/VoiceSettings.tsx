@@ -1,28 +1,29 @@
 // Settings › Voice (G38.4): hands-free voice on this device. Every choice is the device's own
-// (kept in the browser): the wake word and how sensitive it is, the language and the voice, the
-// follow-up window, speaking over the answer, and where what is said goes. The limits of phones
-// are said plainly.
+// (kept in the browser): the wake word (the person's own since 3.7.3) and how sensitive it is,
+// the language, who reads the answers and how loud, the follow-up window, speaking over the
+// answer, and where what is said goes. Who writes down what is said is the server's choice, made
+// here too (3.7.3: the red line's link opened a generic page). The limits of phones are said
+// plainly.
 import { useEffect, useState } from "preact/hooks";
+import type { SetupState } from "../api.js";
+import { explain } from "../explain.js";
 import { t } from "../i18n.js";
-import { IconSpeaker } from "../icons.js";
-import { openTab, platformInfo, sessionRows } from "../state.js";
-import { prepareWakeWord, speak, startHandsFree, voicesFor, wakeModel } from "../voice/runtime.js";
-import { setVoiceSettings, voiceSettings } from "../voice/settings.js";
+import { getApi, platformInfo, sessionRows } from "../state.js";
+import { prepareWakeWord, startHandsFree, wakeModel } from "../voice/runtime.js";
+import {
+  currentWake,
+  MAX_VOLUME,
+  MIN_VOLUME,
+  setVoiceSettings,
+  voiceSettings,
+} from "../voice/settings.js";
+import { customWake, spokenWake, WAKE_EXAMPLES, wakeLabel, wakeProblem } from "../voice/wake.js";
 import { Box, Chips, Head, Seg, Slider, Sub, SwitchRow, WzPage } from "./SettingsKit.js";
 import { JobView, Progress } from "./ui.js";
+import { ReaderPicker, TranscriptionPicker } from "./VoiceServices.js";
 
-/** The voices load late in some browsers: the list follows them. */
-function useVoices(lang: "it" | "en") {
-  const [voices, setVoices] = useState(() => voicesFor(lang));
-  useEffect(() => {
-    setVoices(voicesFor(lang));
-    if (typeof speechSynthesis === "undefined") return;
-    const again = () => setVoices(voicesFor(lang));
-    speechSynthesis.addEventListener?.("voiceschanged", again);
-    return () => speechSynthesis.removeEventListener?.("voiceschanged", again);
-  }, [lang]);
-  return voices;
-}
+/** Where the transcription's part starts: the red line's link scrolls there. */
+export const VOICE_STT_ID = "vc-stt";
 
 function WakeModelView() {
   const m = wakeModel.value;
@@ -36,7 +37,8 @@ function WakeModelView() {
       </div>
     );
   if (m.state === "loading") return <p class="ui-help">{t("voiceModelLoading")}</p>;
-  if (m.state === "ready") return <p class="notice ok">{t("voiceModelReady")}</p>;
+  if (m.state === "ready")
+    return <p class="notice ok">{t("voiceModelReady", { wake: currentWake() })}</p>;
   return (
     <div class="vc-model">
       {m.state === "error" && (
@@ -52,18 +54,122 @@ function WakeModelView() {
   );
 }
 
+/**
+ * The wake word of one's own (3.7.3): written, checked against the words the language's model
+ * knows (on the server, which has the model), then used; «Ehi RedGiant» stays the default.
+ */
+function WakeWordField() {
+  const s = voiceSettings.value;
+  const lang = s.lang;
+  const own = s.wakeWords[lang];
+  const [text, setText] = useState(wakeLabel(lang, own));
+  const [result, setResult] = useState<{ ok: boolean; text: string }>();
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setText(wakeLabel(lang, voiceSettings.value.wakeWords[lang]));
+    setResult(undefined);
+  }, [lang]);
+  const use = async (value: string) => {
+    setResult(undefined);
+    const problem = wakeProblem(lang, value);
+    if (problem) {
+      setResult({ ok: false, text: t(`vcWakeProblem_${problem}` as "vcWakeProblem_empty") });
+      return;
+    }
+    if (!customWake(lang, value)) {
+      const { [lang]: _gone, ...rest } = voiceSettings.value.wakeWords;
+      setVoiceSettings({ wakeWords: rest });
+      setText(wakeLabel(lang, undefined));
+      setResult({ ok: true, text: t("vcWakeSaved", { wake: wakeLabel(lang, undefined) }) });
+      return;
+    }
+    setBusy(true);
+    try {
+      const check = await getApi().wakeWords(lang, spokenWake(value).split(" "));
+      if (!check.ready) {
+        setResult({ ok: false, text: t("vcWakeNeedsModel") });
+        return;
+      }
+      if (check.missing.length > 0) {
+        setResult({
+          ok: false,
+          text: t("vcWakeUnknown", {
+            words: check.missing.map((w) => `«${w}»`).join(", "),
+            lang: t(lang === "it" ? "vcLangIt" : "vcLangEn"),
+          }),
+        });
+        return;
+      }
+      setVoiceSettings({ wakeWords: { ...voiceSettings.value.wakeWords, [lang]: value.trim() } });
+      setResult({ ok: true, text: t("vcWakeSaved", { wake: value.trim() }) });
+    } catch (err) {
+      setResult({ ok: false, text: explain(err) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div class="vc-wakeword">
+      <form
+        class="vc-wake-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void use(text);
+        }}
+      >
+        <label class="ui-field">
+          <span class="ui-label">{t("vcWakeWord")}</span>
+          <input
+            value={text}
+            maxLength={40}
+            onInput={(e) => setText((e.target as HTMLInputElement).value)}
+          />
+        </label>
+        <button type="submit" class="primary" disabled={busy}>
+          {t("vcWakeUse")}
+        </button>
+      </form>
+      <p class="vc-label">{t("vcWakeExamples")}</p>
+      <Chips
+        wrap
+        options={WAKE_EXAMPLES[lang].map((w) => ({ id: w, label: w }))}
+        value={[wakeLabel(lang, own)]}
+        onChange={([w]) => {
+          if (!w) return;
+          setText(w);
+          void use(w);
+        }}
+      />
+      {result && <p class={`notice ${result.ok ? "ok" : "error"}`}>{result.text}</p>}
+      <p class="ui-help">{t("vcWakeWordHelp")}</p>
+    </div>
+  );
+}
+
 export function VoiceSettingsPage() {
   const s = voiceSettings.value;
-  const voices = useVoices(s.lang);
   const transcription = platformInfo.value?.voice === true;
+  const [setup, setSetup] = useState<SetupState | null>(null);
+  const load = () => {
+    // Signed out (a test, a lost session): the page still shows this device's settings.
+    try {
+      void getApi()
+        .setup()
+        .then(setSetup, () => {});
+    } catch {
+      setSetup(null);
+    }
+  };
+  useEffect(load, []);
   const recent = [...sessionRows.value]
     .filter((r) => !r.archived)
     .sort((a, b) => (b.lastAt ?? b.createdAt).localeCompare(a.lastAt ?? a.createdAt))
     .slice(0, 8);
   const pct = Math.round(s.sensitivity * 4) + 1;
+  const wake = currentWake();
   return (
     <WzPage>
-      <Head eyebrow={t("voiceTitle")} q={t("vcQ")} lead={t("vcLead")} />
+      <Head eyebrow={t("voiceTitle")} q={t("vcQ")} lead={t("vcLead", { wake })} />
       {!transcription && (
         <p class="notice error">
           {t("vcNoTranscription")}{" "}
@@ -71,10 +177,12 @@ export function VoiceSettingsPage() {
             type="button"
             class="link"
             onClick={() =>
-              openTab({ id: "settings", type: "settings", title: t("settings"), section: "setup" })
+              document
+                .getElementById(VOICE_STT_ID)
+                ?.scrollIntoView({ behavior: "smooth", block: "start" })
             }
           >
-            {t("openSetup")}
+            {t("vcChooseTranscription")}
           </button>
         </p>
       )}
@@ -89,14 +197,15 @@ export function VoiceSettingsPage() {
         }}
       />
 
-      <Sub title={t("vcWakeTitle")} lead={t("vcWakeLead")} />
+      <Sub title={t("vcWakeTitle")} lead={t("vcWakeLead", { wake })} />
       <SwitchRow
-        title={t("vcWake")}
+        title={t("vcWake", { wake })}
         help={t("vcWakeHelp")}
         on={s.wake}
         onChange={(on) => setVoiceSettings({ wake: on })}
       />
       {s.wake && <WakeModelView />}
+      <WakeWordField />
       <Slider
         label={t("vcSensitivity")}
         value={pct}
@@ -108,7 +217,7 @@ export function VoiceSettingsPage() {
         help={t("vcSensitivityHelp")}
       />
 
-      <Sub title={t("vcVoiceTitle")} />
+      <Sub title={t("vcLangTitle")} />
       <Seg
         label={t("vcLang")}
         value={s.lang}
@@ -118,20 +227,28 @@ export function VoiceSettingsPage() {
         ]}
         onChange={(lang) => setVoiceSettings({ lang, voice: null })}
       />
-      {voices.length > 0 ? (
-        <Chips
-          options={voices.map((v) => ({ id: v.voiceURI, label: v.name }))}
-          value={[s.voice ?? voices[0]?.voiceURI ?? ""]}
-          onChange={([v]) => setVoiceSettings({ voice: v ?? null })}
-        />
-      ) : (
-        <p class="ui-help">{t("vcNoVoices")}</p>
-      )}
-      <div class="st-acts">
-        <button type="button" class="wz-btn" onClick={() => void speak(t("vcSample"))}>
-          <IconSpeaker size={16} /> {t("vcTry")}
-        </button>
+
+      <div id={VOICE_STT_ID} class="vc-anchor">
+        <Sub title={t("vcSttTitle")} lead={t("vcSttLead")} />
       </div>
+      {setup ? (
+        <TranscriptionPicker s={setup} onSaved={load} />
+      ) : (
+        <p class="ui-help">{t("vcLoading")}</p>
+      )}
+
+      <Sub title={t("vcReaderTitle")} lead={t("vcReaderLead")} />
+      <ReaderPicker s={setup} onSaved={load} />
+      <Slider
+        label={t("vcVolume")}
+        value={s.volume}
+        min={MIN_VOLUME}
+        max={MAX_VOLUME}
+        step={25}
+        format={(v) => `${v}%`}
+        onChange={(v) => setVoiceSettings({ volume: v })}
+        help={t(s.reader.kind === "browser" ? "vcVolumeHelpBrowser" : "vcVolumeHelpCloud")}
+      />
 
       <Sub title={t("vcTalkTitle")} />
       <Slider

@@ -47,5 +47,6 @@ export * from "./search.js";
 export * from "./secrets.js";
 export * from "./tools.js";
 export * from "./vault.js";
+export * from "./voice.js";
 export * from "./widget.js";
 export * from "./wire.js";

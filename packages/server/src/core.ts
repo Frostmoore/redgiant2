@@ -105,6 +105,9 @@ import {
   type UpdateStatus,
   type VaultEntry,
   type VaultSystemEntry,
+  type VoiceProviderId,
+  voiceProvider,
+  voicesForModel,
   widgetOf,
 } from "@redgiant/protocol";
 import {
@@ -236,7 +239,7 @@ import {
 } from "./mail/client.js";
 import { MailService, SendLimiter } from "./mail/service.js";
 import { MAIL_GUIDANCE, mailSendHook, mailTools } from "./mail/tools.js";
-import { type MediaRequest, type MediaResult, makeMedia } from "./media.js";
+import { MediaError, type MediaRequest, type MediaResult, makeMedia } from "./media.js";
 import type { CatalogWatcher } from "./models-catalog.js";
 import {
   NodeProvider,
@@ -304,7 +307,13 @@ import {
   type VaultEgress,
   vaultTool,
 } from "./vault.js";
-import { type TranscriptionConfig, transcribe } from "./voice.js";
+import {
+  fetchVoiceError,
+  httpVoiceError,
+  type TranscriptionConfig,
+  TranscriptionError,
+  transcribe,
+} from "./voice.js";
 import { WakeModels } from "./wake-models.js";
 
 /** What started an automation's run, in the words the agent reads with its data (G33.3). */
@@ -4881,12 +4890,79 @@ export class RedGiantCore implements OrchestrationHost {
 
   async transcribe(audio: Uint8Array, mime: string, language?: string): Promise<string> {
     if (!this.o.transcription)
-      throw new BadRequestError("No transcription service: set one in the configuration");
+      throw new TranscriptionError(
+        "No transcription service: set one in Settings, Voice",
+        "voice_no_service",
+        {},
+        400,
+      );
     const spoken = this.agentLang?.split("-")[0] ?? language;
     return transcribe(audio, mime, this.o.transcription, {
       ...(spoken && { language: spoken }),
       ...(this.ffmpeg && { ffmpeg: this.ffmpeg }),
     });
+  }
+
+  /** The keys of the voice in the cloud (3.7.3), set by the setup; never sent to the page. */
+  private voiceKeys: Partial<Record<VoiceProviderId, string>> = {};
+  setVoiceKeys(keys: Partial<Record<VoiceProviderId, string>>): void {
+    for (const [p, key] of Object.entries(keys))
+      if (key) this.o.redactor?.addSecret(`voice-${p}`, key);
+    this.voiceKeys = keys;
+  }
+
+  /**
+   * An answer read aloud by a provider in the cloud (3.7.3): the audio for the page, which plays
+   * it as it plays the browser's voices. Errors are `TranscriptionError`s with a code, so the
+   * page says them in the person's language.
+   */
+  async speech(
+    choice: { provider: VoiceProviderId; model: string; voice?: string | undefined },
+    text: string,
+    o: { fetch?: typeof fetch; timeoutMs?: number } = {},
+  ): Promise<{ data: Buffer; mime: string }> {
+    const p = voiceProvider(choice.provider);
+    const model = p?.tts?.find((m) => m.id === choice.model);
+    if (!p || !model)
+      throw new TranscriptionError(
+        `${choice.provider} cannot read ${choice.model}`,
+        "voice_service_error",
+        { name: p?.name ?? choice.provider, status: "400" },
+        400,
+      );
+    const key = this.voiceKeys[p.id];
+    if (!key)
+      throw new TranscriptionError(
+        `${p.name} has no key yet`,
+        "voice_no_key",
+        { name: p.name },
+        400,
+      );
+    const voices = voicesForModel(p, model.id);
+    const voice =
+      choice.voice && (p.id === "elevenlabs" || voices.some((v) => v.id === choice.voice))
+        ? choice.voice
+        : voices[0]?.id;
+    try {
+      const made = await makeMedia(
+        { provider: p.id, model: model.id, ...(voice && { voice }) },
+        { kind: "speech", prompt: text.slice(0, 4000) },
+        {
+          key,
+          signal: AbortSignal.timeout(o.timeoutMs ?? 60_000),
+          ...(o.fetch && { fetch: o.fetch }),
+        },
+      );
+      return { data: made.data, mime: made.mime };
+    } catch (err) {
+      if (err instanceof MediaError && err.status) throw httpVoiceError(err.status, p.name, "");
+      if (err instanceof MediaError)
+        throw new TranscriptionError(err.message, "voice_service_error", {
+          name: p.name,
+          status: "-",
+        });
+      throw fetchVoiceError(err as Error, p.name);
+    }
   }
 
   setSearch(search: WebSearchProvider | undefined): void {

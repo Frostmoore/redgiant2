@@ -3,11 +3,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { gunzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { zipSync } from "fflate";
 import { afterEach, describe, expect, it } from "vitest";
 import { Jobs } from "../src/jobs.js";
-import { tar, WakeModels, wakeFile, zipToTarGz } from "../src/wake-models.js";
+import { fstWords, tar, tarEntry, WakeModels, wakeFile, zipToTarGz } from "../src/wake-models.js";
 import { startServer, TOKEN } from "./helpers.js";
 
 const run = promisify(execFile);
@@ -20,6 +20,46 @@ function fakeModel(top: string): Uint8Array {
     [`${top}/am/final.mdl`]: new Uint8Array(3000).fill(7),
     [`${top}/conf/model.conf`]: new TextEncoder().encode("--min-active=200\n"),
   });
+}
+
+/** The head of an OpenFst binary file with its symbol tables, as Vosk's small models have. */
+function fakeFst(words: string[]): Uint8Array {
+  const parts: Buffer[] = [];
+  const i32 = (n: number) => {
+    const b = Buffer.alloc(4);
+    b.writeInt32LE(n);
+    parts.push(b);
+  };
+  const i64 = (n: number) => {
+    const b = Buffer.alloc(8);
+    b.writeBigInt64LE(BigInt(n));
+    parts.push(b);
+  };
+  const str = (s: string) => {
+    const b = Buffer.from(s, "utf8");
+    i32(b.length);
+    parts.push(b);
+  };
+  i32(2125659606);
+  str("ngram");
+  str("standard");
+  i32(4);
+  i32(3);
+  i64(0);
+  i64(1);
+  i64(10);
+  i64(0);
+  const table = ["<eps>", "!SIL", "[unk]", ...words];
+  i32(2125658996);
+  str("words.txt");
+  i64(table.length);
+  i64(table.length);
+  table.forEach((w, k) => {
+    str(w);
+    i64(k);
+  });
+  parts.push(Buffer.alloc(64, 9));
+  return new Uint8Array(Buffer.concat(parts));
 }
 
 const dirs: string[] = [];
@@ -121,6 +161,53 @@ describe("wake-word models (G38.4)", () => {
       expect(posted.body).toMatchObject({ ready: true });
       expect((posted.body as { job?: unknown }).job).toBeUndefined();
       expect(TOKEN).toBeTruthy();
+    } finally {
+      await s.close();
+    }
+  });
+
+  it("knows the model's words, read from the grammar's FST (a wake word of one's own)", async () => {
+    const top = "vosk-model-small-it-0.22";
+    const fst = fakeFst(["ciao", "computer", "ehi", "giant", "red"]);
+    expect(fstWords(fst)).toEqual([
+      "<eps>",
+      "!SIL",
+      "[unk]",
+      "ciao",
+      "computer",
+      "ehi",
+      "giant",
+      "red",
+    ]);
+    const archive = tar([
+      [`${top}/`, null],
+      [`${top}/am/final.mdl`, new Uint8Array(700).fill(1)],
+      [`${top}/graph/Gr.fst`, fst],
+    ]);
+    expect(tarEntry(archive, "/graph/Gr.fst")).toEqual(fst);
+    expect(tarEntry(archive, "/graph/words.txt")).toBeUndefined();
+    const dir = await temp();
+    const models = new WakeModels(dir);
+    expect(await models.missing("it", ["ciao"])).toBeUndefined();
+    await mkdir(join(dir, "tools", "vosk"), { recursive: true });
+    await writeFile(models.path("it"), gzipSync(archive));
+    expect(await models.missing("it", ["ciao", "computer", "zzxq"])).toEqual(["zzxq"]);
+    // Read once, then kept beside the model.
+    expect(await readFile(`${models.path("it")}.words`, "utf8")).toContain("computer");
+    expect(await new WakeModels(dir).missing("it", ["red", "giant", "!sil"])).toEqual(["!sil"]);
+    expect(() => fstWords(new Uint8Array(40))).toThrow();
+
+    const s = await startServer([]);
+    try {
+      expect((await s.api("GET", "/api/voice/wake-words?lang=it&words=ciao")).body).toEqual({
+        ready: false,
+        missing: [],
+      });
+      await mkdir(join(s.dir, "tools", "vosk"), { recursive: true });
+      await writeFile(join(s.dir, "tools", "vosk", wakeFile("it")), gzipSync(archive));
+      const r = await s.api("GET", "/api/voice/wake-words?lang=it&words=Ciao,zzxq");
+      expect(r.body).toEqual({ ready: true, missing: ["zzxq"] });
+      expect((await s.api("GET", "/api/voice/wake-words?lang=xx&words=a")).status).toBe(400);
     } finally {
       await s.close();
     }

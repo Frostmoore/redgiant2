@@ -148,7 +148,7 @@ export interface SetupState {
     searxngUrl?: string;
     searxngManaged?: boolean;
     searchProvider?: SearchProviderId;
-    transcription?: { api: "whisper-asr" | "openai" | "local"; url: string; model?: string };
+    transcription?: import("@redgiant/protocol").TranscriptionChoice;
     imagesModel?: string;
     media?: Partial<
       Record<
@@ -195,6 +195,8 @@ export interface SetupState {
     /** Chat platforms set up besides Telegram (G29.5). */
     chats?: ChatPlatform[];
     transcription?: boolean;
+    /** Voice providers in the cloud with a key, their own or a shared one (3.7.3). */
+    voice?: string[];
     images?: boolean;
     /** Media providers with a key (G25.3). */
     media?: string[];
@@ -619,6 +621,8 @@ export class ApiError extends Error {
     message: string,
     /** Why, in a code the UI explains in plain words (`key_rejected`…), when the server says. */
     readonly code?: string,
+    /** The words that go in the code's sentence (a provider's name, a status). */
+    readonly vars?: Record<string, string>,
   ) {
     super(message);
   }
@@ -687,8 +691,12 @@ export class Api {
       },
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
-    const data = (await r.json().catch(() => ({}))) as { error?: string; code?: string };
-    if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`, data.code);
+    const data = (await r.json().catch(() => ({}))) as {
+      error?: string;
+      code?: string;
+      vars?: Record<string, string>;
+    };
+    if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`, data.code, data.vars);
     return data as T;
   }
 
@@ -702,10 +710,48 @@ export class Api {
       },
       body: audio,
     });
-    const data = (await r.json().catch(() => ({}))) as { text?: string; error?: string };
-    if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`);
+    const data = (await r.json().catch(() => ({}))) as {
+      text?: string;
+      error?: string;
+      code?: string;
+      vars?: Record<string, string>;
+    };
+    if (!r.ok) throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`, data.code, data.vars);
     return data.text ?? "";
   }
+
+  /** An answer read by a provider in the cloud (3.7.3): its audio, made on the server. */
+  async speech(
+    choice: { provider: string; model: string; voice?: string },
+    text: string,
+    signal?: AbortSignal,
+  ): Promise<ArrayBuffer> {
+    const r = await fetch("/api/voice/speech", {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ ...choice, text }),
+      ...(signal && { signal }),
+    });
+    if (!r.ok) {
+      const data = (await r.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        vars?: Record<string, string>;
+      };
+      throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`, data.code, data.vars);
+    }
+    return r.arrayBuffer();
+  }
+
+  /** Which words of a wake word the language's model does not know (3.7.3). */
+  wakeWords = (lang: string, words: string[]) =>
+    this.call<{ ready: boolean; missing: string[] }>(
+      "GET",
+      `/api/voice/wake-words?lang=${encodeURIComponent(lang)}&words=${encodeURIComponent(words.join(","))}`,
+    );
+  /** A key for the voice in the cloud (3.7.3), kept in the keychain; null removes it. */
+  setupVoiceKey = (provider: string, key: string | null) =>
+    this.call("PUT", `/api/setup/voice-keys/${encodeURIComponent(provider)}`, { key });
 
   /** The wake word's model on the server (G38.4): there already, and its size. */
   wakeModel = (lang: string) =>

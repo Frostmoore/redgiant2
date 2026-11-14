@@ -1942,7 +1942,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   // A voice message: the raw audio in, its text out (the client shows it before sending).
   app.post("/api/transcribe", async (c) => {
     const audio = new Uint8Array(await c.req.arrayBuffer());
-    if (audio.length > MAX_AUDIO_BYTES) return c.json({ error: "The recording is too long" }, 413);
+    if (audio.length > MAX_AUDIO_BYTES)
+      return c.json({ error: "The recording is too long", code: "voice_too_long" }, 413);
     try {
       const text = await core.transcribe(
         audio,
@@ -1951,9 +1952,46 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       );
       return c.json({ text }, 200);
     } catch (err) {
-      if (err instanceof TranscriptionError) return c.json({ error: err.message }, 502);
+      // The code and its words: the page says it in the person's language (3.7.3).
+      if (err instanceof TranscriptionError)
+        return c.json({ error: err.message, code: err.code, vars: err.vars }, err.status);
       throw err;
     }
+  });
+  // An answer read aloud by a provider in the cloud (3.7.3): the key stays here, the audio goes.
+  app.post("/api/voice/speech", async (c) => {
+    const b = z
+      .object({
+        provider: z.enum(["openai", "groq", "elevenlabs", "google"]),
+        model: z.string().min(1).max(120),
+        voice: z.string().max(120).optional(),
+        text: z.string().trim().min(1).max(4000),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "Nothing to read", code: "voice_empty" }, 400);
+    try {
+      const out = await core.speech(b.data, b.data.text);
+      return c.body(new Uint8Array(out.data), 200, {
+        "content-type": out.mime,
+        "cache-control": "no-store",
+      });
+    } catch (err) {
+      if (err instanceof TranscriptionError)
+        return c.json({ error: err.message, code: err.code, vars: err.vars }, err.status);
+      throw err;
+    }
+  });
+  // A wake word of one's own (3.7.3): which of its words the language's model does not know.
+  app.get("/api/voice/wake-words", async (c) => {
+    const lang = c.req.query("lang");
+    if (!isWakeLang(lang)) return c.json({ error: "Unknown language" }, 400);
+    const words = (c.req.query("words") ?? "")
+      .split(",")
+      .map((w) => w.trim().toLowerCase())
+      .filter(Boolean)
+      .slice(0, 8);
+    const missing = await core.wakeModels.missing(lang, words);
+    return c.json(missing ? { ready: true, missing } : { ready: false, missing: [] }, 200);
   });
   // Hands-free voice (G38.4): the wake word's model, downloaded here once with its bar, then
   // read by the page, which listens for the wake word on its own.
@@ -2269,9 +2307,11 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
               .optional(),
             transcription: z
               .object({
-                // "local": whisper.cpp on this computer, no address (RedGiant 3.0).
-                api: z.enum(["whisper-asr", "openai", "local"]),
+                // "local": whisper.cpp on this computer, no address (RedGiant 3.0);
+                // "cloud": a provider of VOICE_PROVIDERS with its key (3.7.3).
+                api: z.enum(["whisper-asr", "openai", "local", "cloud"]),
                 url: z.union([z.url(), z.literal("")]),
+                provider: z.enum(["openai", "groq", "elevenlabs", "google"]).optional(),
                 model: z.string().min(1).optional(),
                 key: z.string().optional(),
               })
@@ -2379,6 +2419,13 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     wizard(c, async () => {
       const b = await parsed(c, z.object({ key: z.string().min(8).max(500).nullable() }));
       await (setup as SetupService).saveMediaKey(c.req.param("provider"), b.key);
+    }),
+  );
+  // A key for the voice in the cloud (3.7.3), kept in the keychain.
+  app.put("/api/setup/voice-keys/:provider", (c) =>
+    wizard(c, async () => {
+      const b = await parsed(c, z.object({ key: z.string().trim().min(8).max(500).nullable() }));
+      await (setup as SetupService).saveVoiceKey(c.req.param("provider"), b.key);
     }),
   );
   app.get("/api/setup/media/voices", (c) =>

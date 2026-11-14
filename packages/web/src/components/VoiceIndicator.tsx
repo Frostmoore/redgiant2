@@ -26,7 +26,7 @@ import {
   voicePaused,
   wakeModel,
 } from "../voice/runtime.js";
-import { setVoiceSettings, voiceSettings } from "../voice/settings.js";
+import { currentWake, setVoiceSettings, voiceSettings } from "../voice/settings.js";
 import { JobView, Progress } from "./ui.js";
 
 /** The indicator's look for a moment: its icon, its words, whether the microphone is live. */
@@ -75,7 +75,12 @@ export function voiceLook(
       };
     default:
       if (o.wake && o.model === "ready")
-        return { icon: <IconWave size={16} />, label: t("voiceWaiting"), live: true, tone: "on" };
+        return {
+          icon: <IconWave size={16} />,
+          label: t("voiceWaiting", { wake: currentWake() }),
+          live: true,
+          tone: "on",
+        };
       if (o.wake)
         return {
           icon: <IconSpinner size={16} />,

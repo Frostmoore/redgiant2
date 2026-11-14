@@ -1,6 +1,6 @@
 // Hands-free voice (G38.4): the wake word, heard in the page. Vosk (Apache-2.0, WASM in a worker)
 // with a small speech model (Apache-2.0) listens with a grammar of a few phrases only: «Ehi
-// RedGiant» and the stop words, everything else is "[unk]". No audio leaves the page for it.
+// RedGiant» (or the person's own wake word, 3.7.3) and the stop words, everything else is "[unk]". No audio leaves the page for it.
 // The model comes from RedGiant's server, which downloads it once (its bar in the page); the page
 // then keeps its own copy (IndexedDB), so the second time nothing is downloaded.
 
@@ -18,9 +18,61 @@ export const STOP_PHRASES: Record<WakeLang, string[]> = {
   en: ["stop", "enough", "stop it", "be quiet"],
 };
 
+/** The default wake word as people write it. */
+export const DEFAULT_WAKE: Record<WakeLang, string> = { it: "Ehi RedGiant", en: "Hey RedGiant" };
+
+/** A few wake words of one's own, every word known to the language's small model (2026-11-14). */
+export const WAKE_EXAMPLES: Record<WakeLang, string[]> = {
+  it: ["Ehi RedGiant", "Ciao computer", "Ehi Giove", "Ok Aurora", "Senti amico"],
+  en: ["Hey RedGiant", "Hey computer", "Okay Jupiter", "Hi Aurora", "Listen friend"],
+};
+
+/**
+ * A wake word as the model spells it: small letters, no punctuation, «RedGiant» as its two words
+ * (the model knows «red» and «giant», not the name).
+ */
+export function spokenWake(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/redgiant/g, "red giant")
+    .replace(/[^\p{L}\p{N}' ]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** The person's own wake word, when it is one; undefined: the default. */
+export function customWake(lang: WakeLang, own: string | undefined): string | undefined {
+  const spoken = own ? spokenWake(own) : "";
+  return spoken && spoken !== spokenWake(DEFAULT_WAKE[lang]) ? spoken : undefined;
+}
+
+/** The wake word as the page names it. */
+export const wakeLabel = (lang: WakeLang, own: string | undefined): string =>
+  customWake(lang, own) ? (own as string).trim() : DEFAULT_WAKE[lang];
+
+/** What is wrong with a wake word before the model is asked (its words are checked there). */
+export function wakeProblem(
+  lang: WakeLang,
+  text: string,
+): "empty" | "tooLong" | "stopWord" | "short" | undefined {
+  const spoken = spokenWake(text);
+  if (!spoken) return "empty";
+  const words = spoken.split(" ");
+  if (words.length > 4 || spoken.length > 40) return "tooLong";
+  if (STOP_PHRASES[lang].includes(spoken)) return "stopWord";
+  if (words.length < 2 && spoken.length < 8) return "short";
+  return undefined;
+}
+
+/** The phrases that wake RedGiant: the default ones, or the person's own. */
+export const wakePhrases = (lang: WakeLang, own?: string): string[] => {
+  const custom = customWake(lang, own);
+  return custom ? [custom] : WAKE_PHRASES[lang];
+};
+
 /** What the recogniser may hear: the phrases, and anything else as "[unk]". */
-export function wakeGrammar(lang: WakeLang): string {
-  return JSON.stringify([...WAKE_PHRASES[lang], ...STOP_PHRASES[lang], "[unk]"]);
+export function wakeGrammar(lang: WakeLang, own?: string): string {
+  return JSON.stringify([...wakePhrases(lang, own), ...STOP_PHRASES[lang], "[unk]"]);
 }
 
 export interface HeardWord {
@@ -37,6 +89,7 @@ export function classifyHeard(
   text: string,
   words: HeardWord[] | undefined,
   minConf: number,
+  own?: string,
 ): "wake" | "stop" | undefined {
   const said = text.toLowerCase().replace(/\s+/g, " ").trim();
   if (!said) return undefined;
@@ -46,8 +99,13 @@ export function classifyHeard(
     const mine = words.filter((w) => need.has(w.word));
     return mine.length > 0 && mine.every((w) => w.conf >= minConf);
   };
-  const wake = WAKE_PHRASES[lang].find((p) => said.includes(p));
-  if (wake) return sure("red giant") ? "wake" : undefined;
+  const custom = customWake(lang, own);
+  if (custom) {
+    if (said.includes(custom)) return sure(custom) ? "wake" : undefined;
+  } else {
+    const wake = WAKE_PHRASES[lang].find((p) => said.includes(p));
+    if (wake) return sure("red giant") ? "wake" : undefined;
+  }
   const stop = STOP_PHRASES[lang].find((p) => said === p || said.endsWith(` ${p}`));
   if (stop) return sure(stop) ? "stop" : undefined;
   return undefined;
@@ -98,16 +156,23 @@ export async function startVosk(
   lang: WakeLang,
   sensitivity: () => number,
   onHeard: (what: "wake" | "stop") => void,
+  own?: string,
 ): Promise<WakeSpotter> {
   const { createModel } = await import("vosk-browser");
   const model = await createModel(url, -1);
   markModelLoaded(lang);
   const make = () => {
-    const r = new model.KaldiRecognizer(16000, wakeGrammar(lang));
+    const r = new model.KaldiRecognizer(16000, wakeGrammar(lang, own));
     r.setWords(true);
     r.on("result", (m) => {
       if (m.event !== "result") return;
-      const what = classifyHeard(lang, m.result.text, m.result.result, minConfFor(sensitivity()));
+      const what = classifyHeard(
+        lang,
+        m.result.text,
+        m.result.result,
+        minConfFor(sensitivity()),
+        own,
+      );
       if (what) onHeard(what);
     });
     return r;

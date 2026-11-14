@@ -218,6 +218,7 @@ describe("the setup wizard", () => {
       chats: [],
       telegram: true,
       transcription: false,
+      voice: [],
       images: false,
       media: [],
       claudeSubscription: false,

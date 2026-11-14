@@ -42,7 +42,10 @@ export interface MediaContext {
   baseUrl?: string;
 }
 
-export class MediaError extends Error {}
+export class MediaError extends Error {
+  /** The provider's HTTP status, when it answered with one. */
+  status?: number;
+}
 
 const EXT: Record<string, string> = {
   "image/png": "png",
@@ -71,7 +74,9 @@ async function failed(r: Response, who: string): Promise<never> {
   } catch {
     // Not JSON: the text as it is.
   }
-  throw new MediaError(`${who} refused (HTTP ${r.status}): ${message}`);
+  const err = new MediaError(`${who} refused (HTTP ${r.status}): ${message}`);
+  err.status = r.status;
+  throw err;
 }
 
 /** Polls until `done` gives a value; gives up after the timeout. */
