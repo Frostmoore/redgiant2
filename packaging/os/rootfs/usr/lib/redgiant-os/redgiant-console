@@ -40,12 +40,13 @@ screen() {
   if [ -s "$SETUP_CODE" ]; then
     printf '\n  First start: the page asks for this code:  \033[1m%s\033[0m\n' "$(head -c 64 "$SETUP_CODE" | tr -cd 'A-Za-z0-9 -')"
   fi
+  printf '\n  Open the address above from any device at home and create your access (a password).\n'
   printf '\n  RedGiant: %s' "$s"
   upd=$(jq -r 'select(.state == "available") | " · update to \(.latest) ready: press [u]"' "$STATE/os-update.json" 2>/dev/null)
   reboot=""
   [ -e /run/reboot-required ] && reboot="  ·  system updated: restart when convenient"
   printf '%s%s\n' "$upd" "$reboot"
-  printf '\n  [t] show the access link with your token    [u] update RedGiant'
+  printf '\n  [u] update RedGiant    [t] link for apps and the command line (token)'
   has_wifi && printf '    [w] Wi-Fi'
   printf '    any key: refresh\n'
 }

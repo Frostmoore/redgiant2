@@ -265,7 +265,7 @@ curl -fsS "$url/api/health" >/dev/null 2>&1 ||
   die "RedGiant did not come up. See: cd $HOME_DIR && docker compose logs redgiant"
 
 say "RedGiant is running: $url"
-echo "   Your token (also in $HOME_DIR/.env): $token"
+echo "   Open it and create your access (a password). For apps and the command line: the token in $HOME_DIR/.env"
 echo "   Stop: cd $HOME_DIR && docker compose down    Update: run this installer again"
 if [ "${REDGIANT_NO_BROWSER:-}" != 1 ]; then
   # The token travels after '#': it never reaches any server, only the page.

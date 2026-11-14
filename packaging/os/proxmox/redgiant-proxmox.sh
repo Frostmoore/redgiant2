@@ -328,6 +328,7 @@ for _ in $(seq 1 240); do
 done
 code=$(setup_code || true)
 say "RedGiant OS $VERSION: http://$ADDR:$PORT  (also http://$NAME.local:$PORT)"
+echo "  Open it from any device at home and create your access (a password): nothing else is needed."
 [ "$up" = 1 ] || echo "  RedGiant does not answer yet: give it a few more minutes, the console says when it does."
 [ -z "$code" ] || echo "  The first start asks for this code: $code"
 [ -z "$BACKUPS_MP" ] || echo "  Backups: in RedGiant, Settings, backups, choose the folder /var/lib/redgiant/backups/$BNAME"
