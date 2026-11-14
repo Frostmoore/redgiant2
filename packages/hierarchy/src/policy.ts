@@ -188,6 +188,8 @@ export interface PolicySettings {
     protectedPaths?: readonly string[];
     /** The person's machines (G38.2): their working folders and homes, read when a call is checked. */
     machines?: () => Readonly<Record<string, RemoteMachineInfo>>;
+    /** The name of the node pinned for this agent (G39.4), for a `node_run` naming none. */
+    pinnedNode?: () => string | undefined;
   };
   /**
    * Archived projects' folders (p3.5.3): no agent writes there or runs a command there, whatever
@@ -379,6 +381,7 @@ export function evaluate(mode: PermissionMode, call: ToolCallInfo, s: PolicySett
     ...(s.critical?.knownSecrets && { knownSecrets: s.critical.knownSecrets() }),
     ...(s.critical?.protectedPaths && { protectedPaths: s.critical.protectedPaths }),
     ...(s.critical?.machines && { machines: s.critical.machines() }),
+    ...(s.critical?.pinnedNode && { pinnedNode: s.critical.pinnedNode() }),
   });
   if (hits.length === 0) return e;
   const critical = hits.map((h) => h.id);

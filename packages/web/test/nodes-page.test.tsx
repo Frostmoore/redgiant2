@@ -113,7 +113,7 @@ vi.mock("../src/state.js", async (orig) => ({
 
 const { Nodes } = await import("../src/components/Nodes.js");
 const { ToolLine } = await import("../src/components/Chat.js");
-const { Dialogs } = await import("../src/components/dialogs.js");
+const { Dialogs, asking } = await import("../src/components/dialogs.js");
 const { t } = await import("../src/i18n.js");
 
 const NATIVE = 'input[type="checkbox"], input[type="radio"]';
@@ -122,6 +122,8 @@ beforeEach(() => {
   lang.value = "it";
   calls.length = 0;
   state = base();
+  // A window an earlier case left open is not this case's.
+  asking.value = [];
 });
 afterEach(cleanup);
 
@@ -250,5 +252,71 @@ describe("Settings › Nodes (G39.4)", () => {
     );
     expect(r.container.textContent).toContain(t("toolOnNode", { name: "rig" }));
     expect(t("toolOnNode", { name: "rig" })).toBe("sul nodo rig");
+  });
+});
+
+describe("Settings › Nodes: names and permissions (p3.7.2)", () => {
+  it("the person names a node asking to pair, and renames it later in our window", async () => {
+    state = {
+      ...base(),
+      pending: [
+        {
+          fingerprint: MON,
+          name: "DESKTOP-8CCPHGB",
+          sas: "654 321",
+          side: "principal",
+          at: "2026-11-14T08:00:00Z",
+        },
+      ],
+    };
+    const r = render(
+      <>
+        <Nodes />
+        <Dialogs />
+      </>,
+    );
+    await waitFor(() => expect(r.getByText("654 321")).toBeTruthy());
+    const field = r.getByDisplayValue("DESKTOP-8CCPHGB") as HTMLInputElement;
+    fireEvent.input(field, { target: { value: "Rig" } });
+    fireEvent.click(r.getByText(t("ndConfirm")));
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "confirmNode")?.[1]).toEqual([MON, undefined, "Rig"]),
+    );
+    // Later: «Rinomina» on a node of the tree, with our window.
+    // The page reads the state again after the yes; then the tree.
+    await waitFor(() => expect(calls.filter(([n]) => n === "nodes").length).toBeGreaterThan(1));
+    fireEvent.click(r.getAllByText(t("ndRename"))[0] as HTMLElement);
+    await waitFor(() => expect(r.getByText(t("ndRenameQ", { name: "rig" }))).toBeTruthy());
+    const box = r.getByDisplayValue("rig") as HTMLInputElement;
+    fireEvent.input(box, { target: { value: "Rig" } });
+    fireEvent.click(r.getAllByText(t("ndRename")).at(-1) as HTMLElement);
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "setNodeLabel")?.[1]).toEqual([RIG, "Rig"]),
+    );
+    expect(r.container.querySelectorAll(NATIVE).length).toBe(0);
+  });
+
+  it("a node that gives this machine nothing stays, marked «Senza permessi»; one without a container says so", async () => {
+    const b = base();
+    const [rig, mon] = b.tree.children as [NodesState["tree"], NodesState["tree"]];
+    state = {
+      ...b,
+      tree: {
+        ...b.tree,
+        children: [
+          {
+            ...rig,
+            grants: [],
+            capabilities: { ...caps, sandbox: { ...caps.sandbox, container: false } },
+          },
+          mon,
+        ],
+      },
+    };
+    const r = render(<Nodes />);
+    await waitFor(() => expect(r.getAllByText("rig").length).toBeGreaterThan(0));
+    // Only the online one: an offline node has not said what it gives.
+    expect(r.getAllByText(t("ndNoRights")).length).toBe(1);
+    expect(r.container.textContent).toContain(t("ndNoContainer"));
   });
 });

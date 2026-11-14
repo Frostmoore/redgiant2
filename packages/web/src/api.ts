@@ -1379,8 +1379,15 @@ export class Api {
   cancelNodeCode = () => this.call("DELETE", "/api/nodes/code");
   pairNode = (b: { address: string; code: string; name?: string }) =>
     this.call<PendingPair>("POST", "/api/nodes/pair", b);
-  confirmNode = (fingerprint: string, rights?: NodeRight[]) =>
-    this.call<NodesState>("POST", "/api/nodes/confirm", { fingerprint, ...(rights && { rights }) });
+  confirmNode = (fingerprint: string, rights?: NodeRight[], name?: string) =>
+    this.call<NodesState>("POST", "/api/nodes/confirm", {
+      fingerprint,
+      ...(rights && { rights }),
+      ...(name && { name }),
+    });
+  /** The person's name for a paired machine, here only (empty: the name it reports). */
+  setNodeLabel = (fingerprint: string, name: string) =>
+    this.call("PUT", "/api/nodes/label", { fingerprint, name });
   rejectNode = (fingerprint: string) => this.call("POST", "/api/nodes/reject", { fingerprint });
   unpairNode = (fingerprint: string) => this.call("POST", "/api/nodes/unpair", { fingerprint });
   grantNode = (b: { controller: string; target: string; rights: NodeRight[] }) =>

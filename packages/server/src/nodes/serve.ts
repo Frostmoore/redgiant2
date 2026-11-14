@@ -3,16 +3,21 @@
 // read again by this machine's own guardian and `criticalOf`, as if one of its agents ran it:
 //  - commands run in a sandbox of this machine kept for the asker (one folder per asker and
 //    sandbox, through the server's `sandboxFor`), never with the server's environment;
-//  - a write outside that folder is refused unless the asker manages this machine (`admin`);
+//  - a sandbox is a real container or nothing (`nodeCommands`, p3.7.2): without a container
+//    (Windows or macOS without Docker, metal) only a machine that manages this one runs commands,
+//    on this machine itself; with «use» alone they are refused, since reading a command's text
+//    cannot keep it in a folder. Files and storage stay in the asker's folder (real paths);
+//  - in a container, a write outside that folder is refused unless the asker manages this
+//    machine (`admin`);
 //  - a truly dangerous command runs only if the asking side says its person said yes to exactly
 //    that (its own critical check asked them), else it is refused here;
 //  - models: this machine's providers answer with their own keys, which never leave;
 //  - storage: files in a folder of this machine kept for the asker, nowhere else.
 import { createReadStream } from "node:fs";
 import { mkdir, open, readdir, rm, stat, statfs } from "node:fs/promises";
-import { arch, cpus, freemem, loadavg, type as osType, release, totalmem } from "node:os";
+import { arch, cpus, freemem, homedir, loadavg, type as osType, release, totalmem } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { bashOutsideWrites, criticalOf } from "@redgiant/hierarchy";
+import { bashOutsideWrites, criticalOf, nodeCommands } from "@redgiant/hierarchy";
 import type { NodeCapabilities } from "@redgiant/protocol";
 import type { CompletionRequest, ProviderRegistry } from "@redgiant/providers";
 import type { Workspace } from "@redgiant/tools";
@@ -27,6 +32,10 @@ export interface NodeServeOptions {
   providers: ProviderRegistry;
   /** Which sandbox runs commands here (docker, host). */
   sandboxKind: string;
+  /** Whether that sandbox is a real container (default: docker). */
+  container?: boolean;
+  /** The home of the user this server runs as (`~` for commands on the machine itself). */
+  home?: string;
   /** The person switched off lending (commands, models, storage) on this machine. */
   offers?: (ownerId: string) => { sandbox: boolean; models: boolean; storage: boolean };
   /** The models a node offers: its own providers, never another node's (no loops). */
@@ -57,6 +66,7 @@ export function nodeHandlers(o: NodeServeOptions): NodeHandlers {
     return o.sandbox(c.ownerId, `node-${safe(c.from).slice(0, 10)}-${id}`, dir);
   };
   const offered = (id: string) => !id.startsWith("node-") && (o.offersProvider?.(id) ?? true);
+  const container = o.container ?? o.sandboxKind === "docker";
 
   return {
     async capabilities(ownerId) {
@@ -81,6 +91,7 @@ export function nodeHandlers(o: NodeServeOptions): NodeHandlers {
         sandbox: {
           ok: offers(ownerId).sandbox,
           kind: o.sandboxKind,
+          container,
           cpus: cores,
           memoryMb: Math.round(totalmem() / 2 ** 20),
         },
@@ -104,6 +115,15 @@ export function nodeHandlers(o: NodeServeOptions): NodeHandlers {
         timeoutMs?: number;
         approvedCritical?: string[];
       };
+      // A sandbox is a container or nothing: without one, «use» alone runs no command here.
+      const may = nodeCommands(c.rights, container);
+      if (!may.ok)
+        throw new NodeError(
+          "refused",
+          may.reason === "no-container"
+            ? "This machine has no container to keep commands in a sandbox (no Docker here), so it runs them only for a machine that manages it. Its person can give «manage» in Settings > Nodes there, or install Docker. Files and models still work."
+            : "This machine does not let you run commands here",
+        );
       const ws = await workspace(c, b.sandbox);
       const command =
         typeof b.command === "string"
@@ -121,7 +141,7 @@ export function nodeHandlers(o: NodeServeOptions): NodeHandlers {
         { roots: [ws.root, "/tmp"], home: ws.root },
         start,
       );
-      if (outside.length && !c.rights.has("admin"))
+      if (outside.length && may.guardian)
         throw new NodeError(
           "refused",
           `The guardian of this machine refused: the command writes outside its sandbox (${outside.slice(0, 3).join(", ")}). Only a machine that manages this one may.`,
@@ -129,11 +149,12 @@ export function nodeHandlers(o: NodeServeOptions): NodeHandlers {
       // Truly dangerous: only what the asker's person said yes to.
       // Read as a command of this machine (its real folders) and as one on a node (its
       // administrator, switching it off, its system programs), as the asking side read it.
+      // On the machine itself `~` is the real home of the user it runs as.
       const local = criticalOf(
         { callId: "", name: "bash", input: { command } },
         {
           roots: [ws.root],
-          home: ws.root,
+          home: may.where === "machine" ? (o.home ?? homedir()) : ws.root,
         },
       );
       const asNode = criticalOf({ callId: "", name: "node_run", input: { node: "here", command } });

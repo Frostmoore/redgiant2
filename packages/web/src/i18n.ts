@@ -5577,6 +5577,15 @@ const en = {
   ndNoSandbox: "no commands",
   ndWho: "Who may command it",
   ndWhoNobody: "Nobody but itself",
+  ndNoRights: "No permissions",
+  ndNoContainer: "commands only for who manages it",
+  ndNoContainerHelp:
+    "There is no container there (no Docker): it runs commands only for a machine that manages it, on the machine itself. With «use» alone, files, storage and models only.",
+  ndRename: "Rename",
+  ndRenameQ: "A name for {name}",
+  ndNodeName: "Name of the node",
+  ndNodeNameHelp:
+    "How you, the agents and the requests call it here. Empty: the name it gives itself.",
   ndUse: "uses",
   ndAdmin: "uses and manages",
   ndControl: "Control",
@@ -11616,6 +11625,15 @@ const it: Record<Key, string> = {
   ndNoSandbox: "niente comandi",
   ndWho: "Chi può comandarla",
   ndWhoNobody: "Nessuno oltre a lei",
+  ndNoRights: "Senza permessi",
+  ndNoContainer: "comandi solo per chi la gestisce",
+  ndNoContainerHelp:
+    "Lì non c'è un contenitore (niente Docker): esegue comandi solo per una macchina che la gestisce, sulla macchina stessa. Con il solo «usare», solo file, spazio e modelli.",
+  ndRename: "Rinomina",
+  ndRenameQ: "Un nome per {name}",
+  ndNodeName: "Nome del nodo",
+  ndNodeNameHelp:
+    "Come la chiamate qui tu, gli agenti e le richieste. Vuoto: il nome che si dà da sola.",
   ndUse: "la usa",
   ndAdmin: "la usa e la gestisce",
   ndControl: "Controllo",

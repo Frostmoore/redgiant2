@@ -6,7 +6,7 @@
 // grants, its guardian and its own critical rules. What comes back is data, never instructions.
 import type { Tool, ToolContext } from "@redgiant/agent";
 import { criticalOf } from "@redgiant/hierarchy";
-import type { NodeView } from "@redgiant/protocol";
+import type { NodeRight, NodeView } from "@redgiant/protocol";
 import { truncateMiddle } from "@redgiant/tools";
 import { z } from "zod";
 import type { NodeWorkspace } from "./remote.js";
@@ -14,9 +14,16 @@ import { NodeError } from "./service.js";
 
 export interface NodeToolsHost {
   /** The nodes of the tree with how they are now. */
-  nodes(
-    ctx: ToolContext,
-  ): Promise<{ fingerprint: string; name: string; online: boolean; view?: NodeView }[]>;
+  nodes(ctx: ToolContext): Promise<
+    {
+      fingerprint: string;
+      name: string;
+      online: boolean;
+      view?: NodeView;
+      /** What this machine may do there (unknown: undefined). */
+      rights?: NodeRight[];
+    }[]
+  >;
   /** The node the person pinned for this agent or its project. */
   pinned(ctx: ToolContext): Promise<string | undefined>;
   /** This project's sandbox on the node (made once, reused). */
@@ -33,14 +40,31 @@ const fail = (err: unknown) => ({ content: (err as Error).message, isError: true
 
 const size = (b?: number) => (b === undefined ? "?" : `${Math.round(b / 1024 ** 3)} GB`);
 
-function line(n: { name: string; online: boolean; view?: NodeView }, pinned: boolean): string {
+function line(
+  n: { name: string; online: boolean; view?: NodeView; rights?: NodeRight[] },
+  pinned: boolean,
+): string {
   const c = n.view?.capabilities;
   const parts = [
     `${n.name}${pinned ? " (pinned for you)" : ""}: ${n.online ? "online" : "offline"}`,
   ];
+  // Paired, but its person took away what this machine could do there: still shown, as such.
+  if (n.rights && !n.rights.length) {
+    parts.push(
+      "no permissions: its person has not let this machine use it (Settings > Nodes there)",
+    );
+    return `- ${parts.join("; ")}`;
+  }
+  const manages = n.rights?.includes("admin") ?? false;
   if (c) {
-    if (c.sandbox.ok)
-      parts.push(`commands (${c.sandbox.cpus ?? "?"} CPU, ${c.sandbox.memoryMb ?? "?"} MB RAM)`);
+    if (c.sandbox.ok && c.sandbox.container === false && !manages)
+      parts.push(
+        "no commands for you: it has no container, so it runs commands only for a machine that manages it",
+      );
+    else if (c.sandbox.ok)
+      parts.push(
+        `commands (${c.sandbox.cpus ?? "?"} CPU, ${c.sandbox.memoryMb ?? "?"} MB RAM${c.sandbox.container === false ? ", on the machine itself: no container" : ""})`,
+      );
     if (c.models.length)
       parts.push(`models: ${c.models.map((m) => `${m.provider} (${m.models.length})`).join(", ")}`);
     if (c.storage.ok) parts.push(`storage ${size(c.storage.freeBytes)} free`);

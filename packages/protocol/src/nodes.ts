@@ -54,6 +54,14 @@ export const PairConfirmBody = z.object({
   fingerprint: z.string().min(10).max(100),
   /** On the node: what the principal may do here (default: use and manage). */
   rights: z.array(NodeRight).max(2).optional(),
+  /** The name the person gives the other machine here (default: the one it reports). */
+  name: z.string().trim().max(40).optional(),
+});
+
+/** The person names a paired machine, here only (empty: the name it reports). */
+export const NodeLabelBody = z.object({
+  fingerprint: z.string().min(10).max(100),
+  name: z.string().trim().max(40),
 });
 
 export const GrantBody = z.object({
@@ -66,7 +74,11 @@ export const NODE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/;
 
 /** What a node offers, measured there (G39.3 discovery), never guessed. */
 export interface NodeCapabilities {
-  sandbox: { ok: boolean; kind?: string; cpus?: number; memoryMb?: number };
+  /**
+   * `container`: commands run in a real container there; without one only a machine that manages
+   * it runs commands, on the machine itself (p3.7.2).
+   */
+  sandbox: { ok: boolean; kind?: string; container?: boolean; cpus?: number; memoryMb?: number };
   /** Its model providers (their keys stay there): id and the models one can pick. */
   models: { provider: string; models: string[] }[];
   storage: { ok: boolean; freeBytes?: number; totalBytes?: number };

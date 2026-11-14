@@ -2,6 +2,8 @@
 // command whom) are separate. Control is only ever a grant the person gave; being a parent or an
 // ancestor gives none by itself. The user's home is the example: Severino with Rig, Monnezza and
 // Coder as nodes, Rig controlling Severino and all the others.
+
+import type { NodeRight } from "@redgiant/protocol";
 import { describe, expect, it } from "vitest";
 import {
   canAttach,
@@ -9,6 +11,7 @@ import {
   type NodeGrantRule,
   type NodeGraph,
   nodeCan,
+  nodeCommands,
   nodeRoute,
   subtreeOf,
 } from "../src/index.js";
@@ -99,6 +102,37 @@ describe("nodeCan (G39.4)", () => {
     const g: NodeGrantRule = { controller: "R", target: "C", rights: ["use"] };
     expect(nodeCan(graph, [g], "R", "C", "revoke", g)).toBe(true);
     expect(nodeCan(graph, [g], "M", "C", "revoke", g)).toBe(false);
+  });
+});
+
+// Where a node runs another machine's commands (p3.7.2, the 3.7.1 test on Rig: Windows without a
+// container ran `ls /c/Users/Pixel` for a machine that could only «use» it). A sandbox is a real
+// container or nothing: a node without one runs commands only for whoever manages it, on the
+// machine itself; with «use» alone they are refused, never "confined" by reading their text.
+type CommandRow = [string, NodeRight[], boolean, ReturnType<typeof nodeCommands>];
+const commands: CommandRow[] = [
+  ["use, in a container", ["use"], true, { ok: true, where: "container", guardian: true }],
+  [
+    "manage, in a container",
+    ["use", "admin"],
+    true,
+    { ok: true, where: "container", guardian: false },
+  ],
+  ["use, no container (Windows, metal)", ["use"], false, { ok: false, reason: "no-container" }],
+  [
+    "manage, no container",
+    ["use", "admin"],
+    false,
+    { ok: true, where: "machine", guardian: false },
+  ],
+  ["manage alone, no container", ["admin"], false, { ok: true, where: "machine", guardian: false }],
+  ["nothing, in a container", [], true, { ok: false, reason: "no-right" }],
+  ["nothing, no container", [], false, { ok: false, reason: "no-right" }],
+];
+
+describe("nodeCommands (p3.7.2)", () => {
+  it.each(commands)("%s", (_name, rights, container, expected) => {
+    expect(nodeCommands(new Set(rights), container)).toEqual(expected);
   });
 });
 
