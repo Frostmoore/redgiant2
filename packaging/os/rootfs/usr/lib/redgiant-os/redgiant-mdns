@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# RedGiant OS (p3.7.2): redgiant.local on the machine's real network cards only.
+#
+#   redgiant-mdns interfaces [<sys dir>]          the cards avahi may use, one per line
+#   redgiant-mdns configure [<conf>] [<sys dir>]  writes them into avahi-daemon.conf (before avahi starts)
+#   redgiant-mdns check                           the name resolves to the IPv4 of the main card
+#
+# Why: avahi announces on every interface it sees, Docker's bridges and veths included (only
+# link-local IPv6 there). In the 3.7.1 test on Proxmox redgiant.local answered with nine fe80::
+# addresses and no IPv4 at all, and phones could not open it: a network namespace joins IPv4
+# multicast groups on at most net.ipv4.igmp_max_memberships (20) interfaces, and RedGiant's
+# containers fill them, so the card that matters may be left out. avahi takes only exact names
+# (no veth*): the list is computed from the cards there at its start.
+set -uo pipefail
+
+# Docker, bridges, VPNs and other virtual cards: never the home network.
+VIRTUAL='^(lo|docker[0-9]*|br-.*|veth.*|virbr.*|vnet.*|tailscale.*|tun.*|tap.*|wg.*|zt.*|cni.*|flannel.*|cali.*|vxlan.*|lxc.*|lxd.*|incus.*|dummy.*|bond[0-9]+\..*|sit[0-9]*|ip6tnl.*|gre.*)$'
+
+interfaces() {
+  local sys=${1:-/sys} n
+  for d in "$sys"/class/net/*; do
+    [ -e "$d" ] || continue
+    n=${d##*/}
+    [[ $n =~ $VIRTUAL ]] && continue
+    printf '%s\n' "$n"
+  done | sort -u
+}
+
+# Sets the keys RedGiant decides in avahi's [server] and [publish] sections; every other line
+# stays as it was.
+configure() {
+  local conf=${1:-/etc/avahi/avahi-daemon.conf} sys=${2:-/sys} list
+  [ -f "$conf" ] || return 0
+  list=$(interfaces "$sys" | paste -sd, -)
+  awk -v list="$list" '
+    function server() {
+      if (list != "") print "allow-interfaces=" list
+      print "use-ipv4=yes"
+      print "use-ipv6=yes"
+      s = 1
+    }
+    function publish() {
+      print "publish-a-on-ipv6=no"
+      print "publish-aaaa-on-ipv4=no"
+      p = 1
+    }
+    /^\[/ { sec = $0; print; if (sec == "[server]") server(); if (sec == "[publish]") publish(); next }
+    sec == "[server]" && /^[#;]?[ \t]*(allow-interfaces|deny-interfaces|use-ipv4|use-ipv6)[ \t]*=/ { next }
+    sec == "[publish]" && /^[#;]?[ \t]*(publish-a-on-ipv6|publish-aaaa-on-ipv4)[ \t]*=/ { next }
+    { print }
+    END {
+      if (!s) { print "[server]"; server() }
+      if (!p) { print "[publish]"; publish() }
+    }
+  ' "$conf" >"$conf.redgiant-new" && mv -f "$conf.redgiant-new" "$conf"
+}
+
+# The card of the default IPv4 route and its address.
+main_ipv4() {
+  local dev
+  dev=$(ip -4 route show default 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+  [ -n "$dev" ] || return 1
+  ip -o -4 addr show dev "$dev" scope global 2>/dev/null | awk '{ split($4, a, "/"); print a[1]; exit }'
+}
+
+check() {
+  local want name got
+  # shellcheck source=common.sh
+  . "$(dirname "$(readlink -f "$0")")/common.sh"
+  want=$(main_ipv4) || { echo "no default IPv4 route" >&2; return 1; }
+  [ -n "$want" ] || { echo "the main card has no IPv4" >&2; return 1; }
+  name=$(mdns_name)
+  got=$(avahi-resolve -4 -n "$name" 2>/dev/null | awk '{ print $2; exit }')
+  [ "$got" = "$want" ] || { echo "$name resolves to '${got:-nothing}', not $want" >&2; return 1; }
+}
+
+case "${1:-}" in
+  interfaces) interfaces "${2:-}" ;;
+  configure) configure "${2:-}" "${3:-}" ;;
+  check) check ;;
+  *) echo "usage: redgiant-mdns interfaces|configure|check" >&2; exit 2 ;;
+esac

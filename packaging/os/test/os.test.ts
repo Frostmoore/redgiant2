@@ -2,7 +2,7 @@
 // (redgiant-os-update, bash) checked against assessRelease, the rule it mirrors.
 import { execFileSync, spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -188,5 +188,64 @@ describe("redgiant-wifi.txt as people write it (redgiant-wifi-file parse)", () =
       encoding: "utf8",
     });
     expect(out.split("\n").filter(Boolean)).toEqual(lines);
+  });
+});
+
+describe("redgiant.local only on the real network cards (redgiant-mdns, p3.7.2)", () => {
+  const sys = mkdtempSync(join(tmpdir(), "rg-mdns-sys-"));
+  for (const n of [
+    "lo",
+    "eth0",
+    "enp3s0",
+    "wlan0",
+    "docker0",
+    "br-1a2b3c",
+    "veth12ab",
+    "tailscale0",
+  ])
+    mkdirSync(join(sys, "class/net", n), { recursive: true });
+  const mdns = osLib("redgiant-mdns");
+
+  it("lists the cards, never Docker's, loopback or a VPN", { skip: !bash }, () => {
+    const out = execFileSync("bash", [mdns, "interfaces", sys], { encoding: "utf8" });
+    expect(out.split("\n").filter(Boolean)).toEqual(["enp3s0", "eth0", "wlan0"]);
+  });
+
+  it("writes them and the IPv4 settings into avahi's [server], keeping the rest", {
+    skip: !bash,
+  }, () => {
+    const conf = join(mkdtempSync(join(tmpdir(), "rg-mdns-conf-")), "avahi-daemon.conf");
+    writeFileSync(
+      conf,
+      [
+        "[server]",
+        "#host-name=foo",
+        "use-ipv4=yes",
+        "use-ipv6=yes",
+        "#allow-interfaces=eth0",
+        "deny-interfaces=docker0",
+        "ratelimit-interval-usec=1000000",
+        "",
+        "[publish]",
+        "#publish-aaaa-on-ipv4=yes",
+        "publish-hinfo=no",
+        "",
+      ].join("\n"),
+    );
+    execFileSync("bash", [mdns, "configure", conf, sys]);
+    execFileSync("bash", [mdns, "configure", conf, sys]);
+    const text = readFileSync(conf, "utf8");
+    expect(text.split("\n").filter((l) => l.startsWith("allow-interfaces="))).toEqual([
+      "allow-interfaces=enp3s0,eth0,wlan0",
+    ]);
+    expect(text).not.toMatch(/deny-interfaces/);
+    expect(text).toContain("publish-a-on-ipv6=no");
+    expect(text).toContain("#host-name=foo");
+    expect(text).toContain("ratelimit-interval-usec=1000000");
+    expect(text).toContain("publish-hinfo=no");
+    expect(text.match(/^use-ipv4=yes$/gm)).toHaveLength(1);
+    expect(text.indexOf("allow-interfaces")).toBeLessThan(text.indexOf("[publish]"));
+    expect(text.indexOf("publish-aaaa-on-ipv4=no")).toBeGreaterThan(text.indexOf("[publish]"));
+    expect(text).not.toContain("#publish-aaaa-on-ipv4=yes");
   });
 });
