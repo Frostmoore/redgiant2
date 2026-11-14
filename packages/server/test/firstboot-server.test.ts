@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BackupSettings } from "@redgiant/protocol";
@@ -315,10 +315,105 @@ describe("where backups go (G39.3)", () => {
     const ok = await s?.api<BackupSettings>("PUT", "/api/setup/backups/folder", { path: out });
     expect(ok?.body.destination).toEqual({ kind: "folder", path: out });
     const ssh = await s?.api<{ available: boolean }>("GET", "/api/setup/ssh");
-    expect(ssh?.body).toEqual({ available: false });
+    expect(ssh?.body).toEqual({ available: false, why: "no_helper" });
     expect(
       (await s?.api<{ code: string }>("PUT", "/api/setup/ssh", { on: true, key: "x" }))?.body.code,
     ).toBe("cannot_ssh");
+  });
+
+  it("in a container (RedGiant OS on Proxmox): no host disk, the host's mounted folders instead (p3.7.2)", async () => {
+    const calls: string[] = [];
+    const base = await mkdtemp(join(tmpdir(), "rg-backups-"));
+    const place = join(base, "redgiant");
+    await mkdir(place);
+    // Proxmox's mount point, and a folder under the base that is not mounted (never offered).
+    await mkdir(join(base, "leftover"));
+    const mountinfo = [
+      "24 1 0:22 / / rw - ext4 /dev/root rw",
+      `90 24 0:50 / ${place} rw - nfs4 nas:/redgiant rw`,
+      "91 24 0:51 / /data rw - ext4 /dev/sdz rw",
+    ].join("\n");
+    // The host's USB disk «Tech», seen by lsblk without its filesystem (no udev in a container).
+    const host = {
+      blockdevices: [
+        {
+          name: "sdb",
+          type: "disk",
+          size: 1e12,
+          rm: false,
+          hotplug: true,
+          tran: "usb",
+          model: "Tech",
+        },
+      ],
+    };
+    await withSetup(
+      (dir) =>
+        new FirstBoot({
+          dataDir: join(dir, "data"),
+          backupBase: base,
+          mountinfo: async () => mountinfo,
+          helper: {
+            how: "socket",
+            call: async (o) => {
+              calls.push(o.op);
+              if (o.op === "list") return { ok: true, container: "lxc", lsblk: host };
+              if (o.op === "ssh-status")
+                return { ok: true, on: false, keys: 0, installed: true, container: "lxc" };
+              return { ok: true };
+            },
+          },
+        }),
+    );
+    const storage = await s?.api<{
+      method: string;
+      candidates: unknown[];
+      container: string;
+      hostDisks: number;
+      places: { name: string; path: string; usable: boolean }[];
+    }>("GET", "/api/setup/storage");
+    expect(storage?.body).toMatchObject({
+      method: "none",
+      candidates: [],
+      container: "lxc",
+      hostDisks: 1,
+    });
+    expect(storage?.body.places.map((p) => [p.name, p.path, p.usable])).toEqual([
+      ["redgiant", place, true],
+    ]);
+    const missing = await s?.api<{ code: string }>("POST", "/api/setup/backups/place", {
+      path: join(base, "leftover"),
+    });
+    expect(missing?.body.code).toBe("not_found");
+    const ok = await s?.api<BackupSettings>("POST", "/api/setup/backups/place", { path: place });
+    expect(ok?.body.destination).toEqual({ kind: "folder", path: place });
+    // SSH is the container's own: its real state.
+    const ssh = await s?.api("GET", "/api/setup/ssh");
+    expect(ssh?.body).toEqual({ available: true, on: false, keys: 0, container: "lxc" });
+    expect(calls).not.toContain("mount");
+  });
+
+  it("says why SSH cannot be read: the helper not answering, SSH not installed (p3.7.2)", async () => {
+    let reply: () => Record<string, unknown> = () => {
+      throw new HelperError("unreachable");
+    };
+    await withSetup(
+      (dir) =>
+        new FirstBoot({
+          dataDir: join(dir, "data"),
+          helper: { how: "socket", call: async () => reply() },
+        }),
+    );
+    expect((await s?.api("GET", "/api/setup/ssh"))?.body).toEqual({
+      available: false,
+      why: "unreachable",
+    });
+    reply = () => ({ ok: true, on: false, keys: 0, installed: false, container: "none" });
+    expect((await s?.api("GET", "/api/setup/ssh"))?.body).toEqual({
+      available: false,
+      why: "not_installed",
+      container: null,
+    });
   });
 
   it("what reaches the machine: a proxy in front is seen in the request", async () => {

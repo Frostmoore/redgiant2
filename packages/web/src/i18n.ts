@@ -5665,6 +5665,26 @@ const en = {
   fbWhyFs: "Format not supported",
   fbWhyNoUuid: "Without an id",
   fbWhyNotDisk: "Not a disk",
+  fbPlacesTitle: "Folders mounted for backups",
+  fbPlacesLead:
+    "Folders the machine hosting RedGiant mounted under /var/lib/redgiant/backups (a Proxmox mount point, a network share).",
+  fbUsePlace: "Use for backups",
+  fbPlaceNotWritable: "RedGiant cannot write here",
+  fbPlaceFree: "{free} GB free of {total}",
+  fbContainerDisks:
+    "RedGiant OS runs in a container ({name}): the disks it sees are those of the machine hosting it and cannot be used from here.",
+  fbContainerHow:
+    "For backups, mount a folder of the host (a disk, a network share) under /var/lib/redgiant/backups/<name>. On Proxmox: pct set <id> -mp0 /host/folder,mp=/var/lib/redgiant/backups/<name>, then open this page again.",
+  fbSshWhy_no_helper:
+    "This installation has no RedGiant OS system helper: SSH is managed by the system hosting it.",
+  fbSshWhy_unreachable:
+    "RedGiant OS's system helper does not answer (redgiant-helper.socket): SSH cannot be read or changed now. Restarting the machine usually brings it back.",
+  fbSshWhy_timeout: "RedGiant OS's system helper took too long to answer: try again in a moment.",
+  fbSshWhy_not_installed: "SSH (openssh-server) is not installed on this system.",
+  fbSshWhy_other: "SSH cannot be read here: the system helper answered «{why}».",
+  fbSshContainer:
+    "In a container ({name}) SSH reaches the container itself, at its own address, as the user redgiant.",
+  fbSshNeedKey: "Paste a public key first, then switch it on.",
   fbFolderTitle: "Or a folder",
   fbFolderLead:
     "A folder this machine can write to: a network share, a disk mounted by you. Not inside the data folder.",
@@ -5849,7 +5869,6 @@ const en = {
     "Wi-Fi if the machine has no cable, and the padlock for the pages of your home network. Both can be done later in Settings › System.",
   fbSshQ:
     "To work on the machine itself from a terminal. Off unless you switch it on; keys only, never passwords.",
-  fbSshUnavailable: "Not managed by this installation (RedGiant OS manages it).",
   fbSshOn: "SSH on",
   fbSshOffHelp: "Paste a public key below, then switch it on.",
   fbSshKeys: "{n} key(s) allowed",
@@ -11707,6 +11726,27 @@ const it: Record<Key, string> = {
   fbWhyFs: "Formato non supportato",
   fbWhyNoUuid: "Senza un identificativo",
   fbWhyNotDisk: "Non è un disco",
+  fbPlacesTitle: "Cartelle montate per le copie",
+  fbPlacesLead:
+    "Cartelle che la macchina che ospita RedGiant ha montato in /var/lib/redgiant/backups (un punto di montaggio di Proxmox, una cartella di rete).",
+  fbUsePlace: "Usa per le copie",
+  fbPlaceNotWritable: "RedGiant non può scriverci",
+  fbPlaceFree: "{free} GB liberi su {total}",
+  fbContainerDisks:
+    "RedGiant OS gira in un container ({name}): i dischi che vede sono quelli della macchina che lo ospita e da qui non si possono usare.",
+  fbContainerHow:
+    "Per le copie, monta una cartella della macchina ospite (un disco, una cartella di rete) in /var/lib/redgiant/backups/<nome>. Su Proxmox: pct set <id> -mp0 /cartella/ospite,mp=/var/lib/redgiant/backups/<nome>, poi riapri questa pagina.",
+  fbSshWhy_no_helper:
+    "Questa installazione non ha l'aiutante di sistema di RedGiant OS: SSH lo gestisce il sistema che la ospita.",
+  fbSshWhy_unreachable:
+    "L'aiutante di sistema di RedGiant OS non risponde (redgiant-helper.socket): ora SSH non si può leggere né cambiare. Di solito riavviare la macchina lo rimette a posto.",
+  fbSshWhy_timeout:
+    "L'aiutante di sistema di RedGiant OS ci ha messo troppo a rispondere: riprova tra poco.",
+  fbSshWhy_not_installed: "SSH (openssh-server) non è installato in questo sistema.",
+  fbSshWhy_other: "Qui SSH non si può leggere: l'aiutante di sistema ha risposto «{why}».",
+  fbSshContainer:
+    "In un container ({name}) SSH entra nel container stesso, al suo indirizzo, con l'utente redgiant.",
+  fbSshNeedKey: "Incolla prima una chiave pubblica, poi accendilo.",
   fbFolderTitle: "Oppure una cartella",
   fbFolderLead:
     "Una cartella in cui questa macchina può scrivere: una condivisione di rete, un disco montato da te. Non dentro la cartella dei dati.",
@@ -11894,7 +11934,6 @@ const it: Record<Key, string> = {
     "Il Wi-Fi se la macchina non ha un cavo, e il lucchetto per le pagine della rete di casa. Si può fare anche dopo, da Impostazioni › Sistema.",
   fbSshQ:
     "Per lavorare sulla macchina stessa da un terminale. Spento finché non lo accendi; solo chiavi, mai password.",
-  fbSshUnavailable: "Non gestito da questa installazione (lo gestisce RedGiant OS).",
   fbSshOn: "SSH acceso",
   fbSshOffHelp: "Incolla qui sotto una chiave pubblica, poi accendilo.",
   fbSshKeys: "{n} chiavi ammesse",

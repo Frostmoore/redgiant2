@@ -93,7 +93,7 @@ vi.mock("../src/state.js", async (orig) => ({
   refresh: () => Promise.resolve(),
 }));
 
-const { SystemSettings, StoragePanel, passwordProblem } = await import(
+const { SystemSettings, StoragePanel, SshPanel, passwordProblem } = await import(
   "../src/components/FirstBoot.js"
 );
 const { Login } = await import("../src/components/Login.js");
@@ -179,6 +179,64 @@ describe("where backups go (G39.3)", () => {
     await waitFor(() =>
       expect(calls.find(([n]) => n === "setupBackupFolder")?.[1]).toEqual(["/mnt/nas/redgiant"]),
     );
+  });
+
+  it("in a container: no host disk, the host's mounted folder to pick, never a made-up path (p3.7.2)", async () => {
+    const r = render(
+      <StoragePanel
+        demo={
+          {
+            ...storage,
+            candidates: [],
+            container: "lxc",
+            hostDisks: 1,
+            places: [
+              {
+                name: "redgiant",
+                path: "/var/lib/redgiant/backups/redgiant",
+                freeGb: 900,
+                totalGb: 1000,
+                usable: true,
+              },
+            ],
+          } as never
+        }
+      />,
+    );
+    const text = r.container.textContent ?? "";
+    expect(text).toContain("RedGiant OS gira in un container (LXC)");
+    expect(text).toContain("Cartelle montate per le copie");
+    expect(text).not.toContain("Eternatus");
+    expect(text).not.toContain("Non formattato");
+    const input = r.container.querySelector(".fb-folder input") as HTMLInputElement;
+    expect(input.placeholder).toBe("/var/lib/redgiant/backups/redgiant");
+    fireEvent.click(r.getByText("redgiant"));
+    await waitFor(() =>
+      expect(calls.find(([n]) => n === "setupBackupPlace")?.[1]).toEqual([
+        "/var/lib/redgiant/backups/redgiant",
+      ]),
+    );
+  });
+
+  it("in a container with nothing mounted: says how to mount a folder from Proxmox", () => {
+    const r = render(
+      <StoragePanel demo={{ ...storage, candidates: [], container: "lxc", places: [] } as never} />,
+    );
+    expect(r.container.textContent).toContain("pct set <id> -mp0");
+  });
+
+  it("SSH: the switch with its real state, or why it cannot be read (p3.7.2)", () => {
+    const on = render(
+      <SshPanel demo={{ available: true, on: false, keys: 0, container: "lxc" }} />,
+    );
+    expect(on.getByText("SSH acceso")).toBeTruthy();
+    expect(on.container.textContent).toContain("In un container (LXC) SSH entra nel container");
+    cleanup();
+    const off = render(<SshPanel demo={{ available: false, why: "unreachable" }} />);
+    expect(off.container.textContent).toContain("non risponde (redgiant-helper.socket)");
+    cleanup();
+    const odd = render(<SshPanel demo={{ available: false, why: "bad_reply" }} />);
+    expect(odd.container.textContent).toContain("«bad_reply»");
   });
 
   it("checks the password pair before sending it", () => {

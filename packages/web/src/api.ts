@@ -1142,6 +1142,8 @@ export class Api {
     );
   setupBackupDisk = (uuid: string) =>
     this.call<BackupSettings>("POST", "/api/setup/backups/disk", { uuid });
+  setupBackupPlace = (path: string) =>
+    this.call<BackupSettings>("POST", "/api/setup/backups/place", { path });
   setupBackupFolder = (path: string) =>
     this.call<BackupSettings>("PUT", "/api/setup/backups/folder", { path });
   setupBackups = (b: { schedule?: Partial<BackupSchedule>; destination?: null }) =>

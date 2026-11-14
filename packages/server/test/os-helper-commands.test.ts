@@ -416,3 +416,69 @@ describe("the helper's HTTPS, update and restart commands", { skip: !tools }, ()
     expect(calls()).toContain("timeout 50");
   });
 });
+
+// No jq needed here: only the shell and coreutils.
+describe("the helper's folders mounted by the host (p3.7.2)", {
+  skip: process.platform !== "linux",
+}, () => {
+  const run = (line: string, env: Record<string, string>) =>
+    new Promise<Record<string, unknown>>((resolve, reject) => {
+      const p = execFile(
+        "sh",
+        [helper, "--stdin"],
+        {
+          env: {
+            ...process.env,
+            REDGIANT_HELPER_TEST_BIN: bin,
+            REDGIANT_HELPER_TEST_ROOT: root,
+            REDGIANT_HELPER_UID: String(process.getuid?.() ?? 0),
+            REDGIANT_HELPER_GID: String(process.getgid?.() ?? 0),
+            ...env,
+          },
+          timeout: 30_000,
+        },
+        (_err, out) => {
+          try {
+            resolve(JSON.parse(String(out).trim().split("\n").at(-1) ?? ""));
+          } catch {
+            reject(new Error(`not JSON: ${out}`));
+          }
+        },
+      );
+      p.stdin?.end(`${line}\n`);
+    });
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "rg-helper-"));
+    bin = join(root, "bin");
+    mkdirSync(bin);
+    mkdirSync(join(root, "fake"));
+    const put = (name: string, text: string) => {
+      writeFileSync(join(bin, name), text);
+      chmodSync(join(bin, name), 0o755);
+    };
+    // Only the folder listed in fake/mounts is a mount point; the container is lxc.
+    put(
+      "mountpoint",
+      `#!/bin/sh\nfor a; do p=$a; done\ngrep -qxF "$p" "$REDGIANT_HELPER_TEST_ROOT/fake/mounts"\n`,
+    );
+    put("systemd-detect-virt", "#!/bin/sh\necho lxc\n");
+    put("lsblk", "#!/bin/sh\necho '{\"blockdevices\":[]}'\n");
+    mkdirSync(join(root, "var/lib/redgiant/backups/redgiant"), { recursive: true });
+    mkdirSync(join(root, "var/lib/redgiant/backups/leftover"), { recursive: true });
+    writeFileSync(fake("mounts"), `${join(root, "var/lib/redgiant/backups/redgiant")}\n`);
+  });
+
+  it("makes RedGiant's folder in a mounted folder only, and says it runs in a container", async () => {
+    expect(await run("place-prepare redgiant", {})).toEqual({
+      ok: true,
+      path: "/var/lib/redgiant/backups/redgiant/RedGiant",
+    });
+    expect(statSync(join(root, "var/lib/redgiant/backups/redgiant/RedGiant")).isDirectory()).toBe(
+      true,
+    );
+    expect(await run("place-prepare leftover", {})).toEqual({ ok: false, error: "not_mounted" });
+    expect(await run("place-prepare ../etc", {})).toEqual({ ok: false, error: "bad_request" });
+    expect(await run("list", {})).toMatchObject({ ok: true, container: "lxc" });
+    expect(await run("mount 5E3A-91F0 Tech", {})).toEqual({ ok: false, error: "in_container" });
+  });
+});

@@ -2,6 +2,7 @@
 //   PUT  /api/setup/role             {role, confirm?}  a completed RedGiant needs `confirm`
 //   GET  /api/setup/storage          the data folder, the removable disks, the backups' settings
 //   POST /api/setup/backups/disk     {uuid}            mounts that disk for backups (checked twice)
+//   POST /api/setup/backups/place    {path}            a folder the host mounted under …/backups
 //   PUT  /api/setup/backups/folder   {path}            a folder instead (no disk can be mounted)
 //   PUT  /api/setup/backups          {schedule?, destination?: null}
 //   POST /api/setup/backups/run      a backup now, into the destination
@@ -114,6 +115,14 @@ export function firstBootRoutes<E extends { Variables: any }>(
     answer(c, async (s) => {
       const b = await body(c, z.object({ uuid: z.string().regex(/^[A-Fa-f0-9-]{4,36}$/) }));
       const destination = await machine(s).mountDisk(b.uuid);
+      return s.saveBackups({ destination });
+    }),
+  );
+  // A folder the host mounted under /var/lib/redgiant/backups (RedGiant OS in a container).
+  app.post("/api/setup/backups/place", (c) =>
+    answer(c, async (s) => {
+      const b = await body(c, z.object({ path: z.string().min(1).max(500) }));
+      const destination = await machine(s).usePlace(b.path);
       return s.saveBackups({ destination });
     }),
   );

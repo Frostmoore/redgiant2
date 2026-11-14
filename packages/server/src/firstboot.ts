@@ -8,6 +8,7 @@ import { networkInterfaces, platform } from "node:os";
 import { join, posix, win32 } from "node:path";
 import type {
   BackupDestination,
+  BackupPlace,
   BlockDisk,
   LocalHttps,
   MountMethod,
@@ -17,7 +18,12 @@ import type {
   StorageInfo,
   WifiState,
 } from "@redgiant/protocol";
-import { backupCandidates, checkBackupDisk, parseUdisksMount } from "./backup-disks.js";
+import {
+  BACKUP_MOUNT_BASE,
+  backupCandidates,
+  checkBackupDisk,
+  parseUdisksMount,
+} from "./backup-disks.js";
 import { LSBLK_ARGS, parseLsblk, run, withFree } from "./discovery.js";
 import { bareHost, LanHttpsStore } from "./lan-https.js";
 import {
@@ -105,6 +111,30 @@ export interface FirstBootOptions {
   platform?: NodeJS.Platform;
   run?: typeof run;
   exists?: (path: string) => Promise<boolean>;
+  /** Tests: this process's mount table (/proc/self/mountinfo) and where backups are mounted. */
+  mountinfo?: () => Promise<string>;
+  backupBase?: string;
+}
+
+/** The mount points in /proc/self/mountinfo (field 5, with its octal escapes undone). */
+export function mountPoints(mountinfo: string): string[] {
+  return mountinfo
+    .split("\n")
+    .map((l) => l.split(" ")[4] ?? "")
+    .filter(Boolean)
+    .map((m) => m.replace(/\\([0-7]{3})/g, (_x, o: string) => String.fromCharCode(parseInt(o, 8))));
+}
+
+/**
+ * The folders mounted right under the backups' base (Proxmox's mount points in a container, a
+ * share the person mounted there), not those of the disks RedGiant mounts itself (`disks`).
+ */
+export function backupPlaces(mounts: readonly string[], base: string, disks: readonly string[]) {
+  const seen = new Set(disks);
+  return [...new Set(mounts)]
+    .filter((m) => posix.dirname(m) === base && !seen.has(m))
+    .sort()
+    .map((path) => ({ path, name: posix.basename(path) }));
 }
 
 export class FirstBoot {
@@ -140,10 +170,19 @@ export class FirstBoot {
     return (await this.exec("udisksctl", ["help"], true)) !== null ? "udisks" : "none";
   }
 
+  /** The container RedGiant OS runs in, as the helper said at its last list (null: none). */
+  private container: string | null = null;
+
+  private get base(): string {
+    return this.o.backupBase ?? BACKUP_MOUNT_BASE;
+  }
+
   /** The disks: the helper's (the host's), else lsblk here. null when nothing can be read. */
   async disks(): Promise<BlockDisk[] | null> {
     if (this.o.helper) {
       const r = await this.o.helper.call({ op: "list" }).catch(() => null);
+      this.container =
+        typeof r?.container === "string" && r.container !== "none" ? r.container : null;
       if (r && r.lsblk) return parseLsblk(JSON.stringify(r.lsblk));
     }
     if ((this.o.platform ?? platform()) !== "linux") return null;
@@ -154,13 +193,68 @@ export class FirstBoot {
   async storage(): Promise<StorageInfo> {
     const s = await statfs(this.o.dataDir).catch(() => null);
     const all = (await this.disks()) ?? [];
+    const candidates = backupCandidates(all, this.dataDirs);
+    // In a container the disks are the host's: lsblk sees them, but they have no filesystem it
+    // can read and no device to mount (the «Tech, not formatted» of the 3.7.1 test). Never offered.
+    const container = this.container;
     return {
       dataDir: this.o.hostDataDir ?? this.o.dataDir,
       dataFreeGb: s ? round((s.bavail * s.bsize) / GB) : null,
       dataTotalGb: s ? round((s.blocks * s.bsize) / GB) : null,
-      method: await this.method(),
-      candidates: backupCandidates(all, this.dataDirs),
+      method: container ? "none" : await this.method(),
+      candidates: container ? [] : candidates,
+      container,
+      hostDisks: container ? candidates.length : 0,
+      places: await this.places(all),
     };
+  }
+
+  /** The folders mounted under the backups' base, each with its room and whether it can be used. */
+  async places(all?: readonly BlockDisk[]): Promise<BackupPlace[]> {
+    const info = await (
+      this.o.mountinfo ?? (() => readFile("/proc/self/mountinfo", "utf8"))
+    )().catch(() => "");
+    const disks = (all ?? []).map((d) => d.mountpoint).filter(Boolean);
+    return Promise.all(
+      backupPlaces(mountPoints(info), this.base, disks).map(async ({ path, name }) => {
+        const s = await statfs(path).catch(() => null);
+        const writable = await access(path, constants.W_OK).then(
+          () => true,
+          () => false,
+        );
+        const usable = writable || this.o.helper !== undefined;
+        return {
+          name,
+          path,
+          freeGb: s ? round((s.bavail * s.bsize) / GB) : null,
+          totalGb: s ? round((s.blocks * s.bsize) / GB) : null,
+          usable,
+          ...(!usable && { why: "not_writable" as const }),
+        };
+      }),
+    );
+  }
+
+  /**
+   * A folder the host mounted under the backups' base, picked by the person: used as it is when
+   * RedGiant writes there, else the OS helper makes RedGiant's own folder in it.
+   */
+  async usePlace(path: string): Promise<BackupDestination & { kind: "folder" }> {
+    const place = (await this.places()).find((p) => p.path === path);
+    if (!place) throw new FirstBootError("not_found", "That folder is not mounted");
+    try {
+      await this.writable(place.path);
+      return { kind: "folder", path: place.path };
+    } catch (err) {
+      if (!this.o.helper) throw err;
+    }
+    await this.o.helper.call({ op: "place-prepare", name: place.name }).catch((err: unknown) => {
+      throw new FirstBootError(err instanceof HelperError ? err.code : "not_writable");
+    });
+    // The helper's folder, as this process sees it (the same path inside RedGiant's container).
+    const dir = posix.join(place.path, "RedGiant");
+    await this.writable(dir);
+    return { kind: "folder", path: dir };
   }
 
   /**
@@ -207,6 +301,19 @@ export class FirstBoot {
       else if (d?.mountpoint) dir = d.mountpoint;
     }
     const target = dest.kind === "disk" ? join(dir, "RedGiant") : dir;
+    // A folder the host mounts (a Proxmox mount point): when it is not mounted now, writing there
+    // would fill the system's disk instead.
+    if (dest.kind === "folder" && dest.path.startsWith(`${this.base}/`)) {
+      const place = posix.join(
+        this.base,
+        dest.path.slice(this.base.length + 1).split("/")[0] ?? "",
+      );
+      const info = await (
+        this.o.mountinfo ?? (() => readFile("/proc/self/mountinfo", "utf8"))
+      )().catch(() => null);
+      if (info !== null && !mountPoints(info).includes(place))
+        throw new FirstBootError("place_missing", `${place} is not mounted`);
+    }
     await this.writable(target);
     return target;
   }
@@ -268,11 +375,27 @@ export class FirstBoot {
     };
   }
 
+  /**
+   * SSH: its real state, or why it cannot be read here (p3.7.2: the page said nothing useful
+   * when the helper failed). A container (LXC) runs its own sshd, so SSH works there too.
+   */
   async ssh(): Promise<SshAccess> {
-    if (!this.o.helper) return { available: false };
-    const r = await this.o.helper.call({ op: "ssh-status" }).catch(() => null);
-    if (!r) return { available: false };
-    return { available: true, on: r.on === true, keys: typeof r.keys === "number" ? r.keys : 0 };
+    if (!this.o.helper) return { available: false, why: "no_helper" };
+    let r: Record<string, unknown>;
+    try {
+      r = await this.o.helper.call({ op: "ssh-status" });
+    } catch (err) {
+      return { available: false, why: err instanceof HelperError ? err.code : "failed" };
+    }
+    const container =
+      typeof r.container === "string" && r.container !== "none" ? r.container : null;
+    if (r.installed === false) return { available: false, why: "not_installed", container };
+    return {
+      available: true,
+      on: r.on === true,
+      keys: typeof r.keys === "number" ? r.keys : 0,
+      container,
+    };
   }
 
   /** Wi-Fi: the networks in reach and the one in use (a scan first when asked). */

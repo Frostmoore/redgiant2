@@ -10,10 +10,12 @@
 //
 // The protocol: one request line, one JSON reply line, `{"ok":true,...}` or
 // `{"ok":false,"error":"<code>"}`:
-//   list                     → {"lsblk": <lsblk -J -b -o … output>}
+//   list                     → {"container": "lxc"|"none"|…, "lsblk": <lsblk -J -b -o … output>}
 //   mount <uuid> <label>     → {"path": "/var/lib/redgiant/backups/<label>"}
 //   unmount <label>          → {}
-//   ssh-status               → {"on": bool, "keys": n}
+//   place-prepare <name>     → {"path": "/var/lib/redgiant/backups/<name>/RedGiant"} (a folder
+//                              the host mounted there: RedGiant's own folder in it)
+//   ssh-status               → {"on": bool, "keys": n, "installed": bool, "container": "…"}
 //   ssh-on <base64 key line> → {}      (keys only, never passwords)
 //   ssh-off                  → {}
 //   tailscale                → {"status": <tailscale status --json>}
@@ -35,6 +37,7 @@ export type HelperOp =
   | { op: "list" }
   | { op: "mount"; uuid: string; label: string }
   | { op: "unmount"; label: string }
+  | { op: "place-prepare"; name: string }
   | { op: "ssh-status" }
   | { op: "ssh-on"; key: string }
   | { op: "ssh-off" }
@@ -107,6 +110,9 @@ export function helperRequest(o: HelperOp): string {
     case "unmount":
       if (!LABEL.test(o.label)) throw new HelperError("bad_request");
       return `unmount ${o.label}`;
+    case "place-prepare":
+      if (!LABEL.test(o.name)) throw new HelperError("bad_request");
+      return `place-prepare ${o.name}`;
     case "ssh-on": {
       const k = sshPublicKey(o.key);
       if (!k) throw new HelperError("bad_key");

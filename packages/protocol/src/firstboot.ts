@@ -106,6 +106,25 @@ export interface StorageInfo {
   method: MountMethod;
   /** Removable disks with a filesystem, each with what keeps it from being used, if anything. */
   candidates: (BlockDisk & { usable: boolean; why?: string; target?: string })[];
+  /**
+   * RedGiant OS in a container (p3.7.2: "lxc", "docker"…): the disks it sees are the host's, so
+   * none is offered (`hostDisks` says how many were left out); the host mounts folders instead.
+   */
+  container?: string | null;
+  hostDisks?: number;
+  /** Folders mounted under /var/lib/redgiant/backups (Proxmox's mount points, a network share). */
+  places?: BackupPlace[];
+}
+
+/** A folder the host mounted for backups under /var/lib/redgiant/backups/<name>. */
+export interface BackupPlace {
+  name: string;
+  path: string;
+  freeGb: number | null;
+  totalGb: number | null;
+  /** RedGiant writes there, or the OS helper can make its own folder in it. */
+  usable: boolean;
+  why?: "not_writable";
 }
 
 /** What already reaches this machine, found before offering a way in from outside. */
@@ -140,7 +159,18 @@ export interface ReachedAs {
 }
 
 /** SSH into the machine (RedGiant OS): off by default, keys only, through the OS helper. */
-export type SshAccess = { available: false } | { available: true; on: boolean; keys: number };
+export type SshAccess =
+  | {
+      available: false;
+      /**
+       * Why (p3.7.2): no OS helper here (not RedGiant OS), the helper did not answer, SSH is not
+       * installed, or the helper's own error code.
+       */
+      why?: string;
+      /** The container RedGiant OS runs in, when it is one ("lxc"…). */
+      container?: string | null;
+    }
+  | { available: true; on: boolean; keys: number; container?: string | null };
 
 // --- RedGiant OS: Wi-Fi, HTTPS in the local network, updates (G39.1) -------------------------
 

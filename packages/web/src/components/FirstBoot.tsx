@@ -362,6 +362,10 @@ export function StoragePanel({ demo }: { demo?: Storage } = {}) {
   const useDisk = async (uuid: string) => {
     if ((await attempt(() => getApi().setupBackupDisk(uuid))) !== undefined) load();
   };
+  const usePlace = async (path: string) => {
+    if ((await attempt(() => getApi().setupBackupPlace(path))) !== undefined) load();
+  };
+  const places = st.places ?? [];
   const useFolder = async () => {
     if ((await attempt(() => getApi().setupBackupFolder(folder.trim()))) !== undefined) {
       setFolder("");
@@ -398,8 +402,48 @@ export function StoragePanel({ demo }: { demo?: Storage } = {}) {
             </span>
           </div>
         )}
-        <Sub title={t("fbDisksTitle")} lead={t(`fbMethod_${st.method}` as Key)} />
-        {st.candidates.length ? (
+        {places.length > 0 && (
+          <>
+            <Sub title={t("fbPlacesTitle")} lead={t("fbPlacesLead")} />
+            <Tiles>
+              {places.map((p) => (
+                <Tile
+                  key={p.path}
+                  on={
+                    dest?.kind === "folder" &&
+                    (dest.path === p.path || dest.path.startsWith(`${p.path}/`))
+                  }
+                  icon={<IconFolder />}
+                  title={p.name}
+                  text={[
+                    p.path,
+                    p.freeGb !== null
+                      ? t("fbPlaceFree", { free: num(p.freeGb), total: num(p.totalGb ?? 0) })
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  state={p.usable ? t("fbUsePlace") : t("fbPlaceNotWritable")}
+                  onClick={() => {
+                    if (p.usable) void usePlace(p.path);
+                  }}
+                />
+              ))}
+            </Tiles>
+          </>
+        )}
+        {st.container ? (
+          <div class="wz-note">
+            <IconInfo size={20} />
+            <span>
+              {t("fbContainerDisks", { name: VIRT[st.container] ?? st.container })}
+              {places.length === 0 && <> {t("fbContainerHow")}</>}
+            </span>
+          </div>
+        ) : (
+          <Sub title={t("fbDisksTitle")} lead={t(`fbMethod_${st.method}` as Key)} />
+        )}
+        {st.container ? null : st.candidates.length ? (
           <Tiles>
             {st.candidates.map((d) => (
               <Tile
@@ -435,7 +479,7 @@ export function StoragePanel({ demo }: { demo?: Storage } = {}) {
           <Field label={t("fbFolderPath")}>
             <input
               type="text"
-              placeholder="/mnt/nas/redgiant"
+              placeholder={places[0]?.path ?? ""}
               value={folder}
               onInput={(e) => setFolder((e.target as HTMLInputElement).value)}
             />
@@ -524,18 +568,29 @@ export function StoragePanel({ demo }: { demo?: Storage } = {}) {
 
 // --- SSH and what reaches the machine -------------------------------------------------------
 
+const SSH_WHY = ["no_helper", "unreachable", "timeout", "not_installed"];
+
 /** SSH into the machine (RedGiant OS): off by default, keys only. */
 export function SshPanel({ demo }: { demo?: SshAccess } = {}) {
   const [ssh, setSsh] = useState<SshAccess | null>(demo ?? null);
   const [key, setKey] = useState("");
+  const [needKey, setNeedKey] = useState(false);
   useEffect(() => {
-    if (!demo) void attempt(() => getApi().setupSsh()).then((x) => x && setSsh(x));
+    // A request that fails still shows the card, with why (p3.7.2: it vanished before).
+    if (!demo)
+      void getApi()
+        .setupSsh()
+        .then(setSsh, () => setSsh({ available: false, why: "unreachable" }));
   }, []);
   if (!ssh) return null;
+  const why = !ssh.available ? (ssh.why ?? "no_helper") : "";
+  const container = ssh.container ? (VIRT[ssh.container] ?? ssh.container) : null;
   return (
     <SCard icon={<IconTerminal size={22} />} title={t("fbSshTitle")} q={t("fbSshQ")}>
       {!ssh.available ? (
-        <p class="dim">{t("fbSshUnavailable")}</p>
+        <p class="dim">
+          {SSH_WHY.includes(why) ? t(`fbSshWhy_${why}` as Key) : t("fbSshWhy_other", { why })}
+        </p>
       ) : (
         <>
           <SwitchRow
@@ -543,12 +598,15 @@ export function SshPanel({ demo }: { demo?: SshAccess } = {}) {
             help={ssh.on ? t("fbSshKeys", { n: String(ssh.keys) }) : t("fbSshOffHelp")}
             on={ssh.on}
             onChange={(on) => {
+              setNeedKey(on && !key.trim());
               if (on && !key.trim()) return;
               void attempt(() => getApi().setSetupSsh(on, on ? key : undefined)).then(
                 (x) => x && (setSsh(x), setKey("")),
               );
             }}
           />
+          {needKey && <p class="notice error">{t("fbSshNeedKey")}</p>}
+          {container && <p class="dim">{t("fbSshContainer", { name: container })}</p>}
           <Field label={t("fbSshKey")} help={t("fbSshKeyHelp")}>
             <textarea
               rows={3}
@@ -652,6 +710,7 @@ export function SystemSettings() {
         </SCard>
         <Sub title={t("fbRoleTitle")} lead={t("fbRoleSettingsLead")} />
         <RoleChoice s={s} reload={reload} settings />
+        <Sub title={t("wzStorage")} />
         <StoragePanel />
         <OsNetworkSection />
         <SshPanel />
