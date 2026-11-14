@@ -121,19 +121,48 @@ Options, updates, backups, uninstalling and every environment variable are in
 - [The browser extension](docs/INSTALL.md#the-keychain-in-your-browser) for Chrome, Edge, Brave, Opera
   and Firefox fills a sign-in form only on its own site, when you click, and saves new passwords.
 
-### Magic automations
+### Magic: say it, and RedGiant builds it
 
 <p align="center">
   <img src="docs/screenshots/magic-automation.png" alt="A magic automation: say what should happen, God builds it with you" width="440" />
 </p>
 
-- Say what you want in your words. God asks what it needs, proposes the tools and skills that are
-  missing (tried in a throwaway sandbox first), and shows you the finished automation. Nothing exists
-  until you approve it, and the approval waits until every chat, mailbox, key or tool it needs is there.
-- Automations start at a time, on a webhook, an email, a chat message, files changing, another
-  automation or a task ending, with conditions, your approval before they act, a budget, retries, and
-  the result delivered on any chat or by email ([recipes](recipes/README.md)). Plain reminders cost
-  nothing.
+You describe what you want in your own words. God, the agent that runs RedGiant, asks what it needs,
+writes what is missing with its tests, tries it in a closed sandbox and shows you the result. Nothing
+starts and nothing installs until you say yes, and keys never go in the chat: they go into your
+Keychain and reach only the sites the new piece declared.
+
+**Magic automations**: things that happen on their own.
+
+- «Every morning at 8, read the invoices that arrived in my work mailbox, put them in a spreadsheet
+  with supplier, date and amount, and tell me the total on Telegram.»
+- «When I drop photos in the Holidays folder, rename them with the date they were taken and sort them
+  by month.»
+- «Every Monday check every link on my website and send me the broken ones.»
+- «When I write "shopping:" on Telegram, add it to the list and send me the list on Saturday.»
+
+Automations start at a time, on a webhook, an email, a chat message, files changing, another
+automation or a task ending, with conditions, your approval before they act, a budget, retries, and
+the result delivered on any chat or by email ([recipes](recipes/README.md)). Approval waits until
+every chat, mailbox, key or tool it needs is there. Plain reminders cost nothing.
+
+**Magic integrations**: connect the agents to a service you use.
+
+- «Connect me to Notion: search my pages and create new ones.»
+- «Connect to my invoicing software's API: invoices and customers.»
+- «Read my Todoist tasks and mark them done.»
+
+God writes the connector with its tests and tries it against the service in the sandbox; you add the
+key from a window of its own, and from then on every agent can use it (unless you switch it off).
+
+**Magic extensions**: a new tool or skill for the agents.
+
+- «Turn an invoice PDF into a CSV row.»
+- «Check an Italian VAT number and give me the company's name and address.»
+- «Add up the columns of a CSV and draw a chart.»
+
+You see the package before it installs: what it adds, which sites it may reach (or none), its code
+and its tests, with *Approve and install* off until every test passes.
 
 ### The Canvas: any file, in open formats
 
