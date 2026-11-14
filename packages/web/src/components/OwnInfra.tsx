@@ -4,17 +4,22 @@
 // machine or as a subnet router, WireGuard, ZeroTier) and a home DNS (Pi-hole, AdGuard, the
 // router). The blocks to copy are filled with RedGiant's data; when RedGiant sees the page come
 // through a proxy or with a name it says «You are reachable as <host>»; «Skip: I am reachable
-// already» stops the invitations to set up RedGiant's own ways.
-import type { NetDetected } from "@redgiant/protocol";
+// already» stops the invitations to set up RedGiant's own ways. «Your home services» (p3.7.3):
+// how RedGiant itself reaches the person's Gitea, NAS…, with «Try a name».
+import { signal } from "@preact/signals";
+import type { NameProbe, NetDetected } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
 import { t } from "../i18n.js";
 import {
+  IconArrowRight,
   IconCheck,
   IconChevron,
   IconCopy,
   IconGlobe,
+  IconHome,
   IconInfo,
+  IconSearch,
   IconServer,
   IconShield,
 } from "../icons.js";
@@ -24,20 +29,37 @@ import {
   caddyWildcardBlock,
   dnsmasqWildcard,
   healthCheck,
+  homeDnsmasq,
+  homeHostsLine,
+  homeLookup,
+  homeService,
   infraData,
+  PLACEHOLDER_PROXY,
+  PLACEHOLDER_SERVICE,
   parentDomain,
+  probeVerdict,
   reachUrl,
   subnetOf,
   tailscaleServe,
   tailscaleSubnet,
   traefikBlock,
+  WHICH_DNS,
 } from "../own-infra.js";
-import { attempt, getApi } from "../state.js";
+import { attempt, getApi, openTab } from "../state.js";
 import { explain } from "./Brain.js";
 import { Acts, Box, Seg } from "./SettingsKit.js";
 import { Field } from "./ui.js";
 
-type Part = "proxy" | "vpn" | "dns";
+type Part = "proxy" | "vpn" | "dns" | "home";
+
+/** A part of the guide to open unfolded (from «A Gitea you already have», p3.7.3). */
+export const ownInfraFocus = signal<Part | null>(null);
+
+/** Settings › Access from outside home, the guide open on «Your home services». */
+export function openHomeServices() {
+  ownInfraFocus.value = "home";
+  openTab({ id: "settings", type: "settings", title: t("settings"), section: "remote" });
+}
 type Proxy = "caddy" | "traefik" | "npm";
 
 /** A block to copy, with its button. */
@@ -108,6 +130,16 @@ export function OwnInfra({
   const said = s.config.reachable;
   const [open, setOpen] = useState(false);
   const [part, setPart] = useState<Part>("proxy");
+  const focus = ownInfraFocus.value;
+  useEffect(() => {
+    if (!focus) return;
+    setOpen(true);
+    setPart(focus);
+    ownInfraFocus.value = null;
+    requestAnimationFrame(() =>
+      document.querySelector(".oi-home")?.scrollIntoView({ block: "start", behavior: "smooth" }),
+    );
+  }, [focus]);
   const [proxy, setProxy] = useState<Proxy>("caddy");
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -201,6 +233,7 @@ export function OwnInfra({
               ["proxy", t("oiPartProxy")],
               ["vpn", t("oiPartVpn")],
               ["dns", t("oiPartDns")],
+              ["home", t("oiPartHome")],
             ]}
           />
           {part === "proxy" && (
@@ -284,6 +317,7 @@ export function OwnInfra({
               <p class="dim">{t("oiDnsTs")}</p>
             </Box>
           )}
+          {part === "home" && <HomeServices net={net} />}
           <h3 class="oi-h">{t("oiCheck")}</h3>
           <p class="dim">{t("oiCheckLead")}</p>
           <CopyBlock text={healthCheck(url)} />
@@ -325,5 +359,103 @@ export function OwnInfra({
         </>
       )}
     </div>
+  );
+}
+
+/** «Your home services (Gitea, NAS…) seen by RedGiant» (p3.7.3), with «Try a name». */
+function HomeServices({ net }: { net: NetDetected | null }) {
+  const [name, setName] = useState("");
+  const [proxy, setProxy] = useState("");
+  const [probe, setProbe] = useState<NameProbe | "busy">();
+  const [error, setError] = useState<string>();
+  const h = homeService(name, proxy);
+  const typed = name.trim();
+  const tryName = async () => {
+    setError(undefined);
+    setProbe("busy");
+    try {
+      setProbe(await getApi().probeName(typed));
+    } catch (err) {
+      setProbe(undefined);
+      setError(explain(err));
+    }
+  };
+  const verdict = probe && probe !== "busy" ? probeVerdict(probe) : null;
+  return (
+    <Box class="oi-part oi-home">
+      <h3 class="oi-h">
+        <IconHome size={18} />
+        <span>{t("oiHomeTitle")}</span>
+      </h3>
+      <p>{t("oiHomeWhy")}</p>
+      <p class="dim">{t("oiHomeWhich")}</p>
+      {net?.localDns && <p class="dim">{t("oiHomeSeen", { dns: net.localDns })}</p>}
+      <CopyBlock label={t("oiHomeWhichCmd")} text={WHICH_DNS} />
+      <div class="oi-fields">
+        <Field label={t("oiService")} help={t("oiServiceHelp")}>
+          <input
+            type="text"
+            spellcheck={false}
+            autocapitalize="off"
+            placeholder={PLACEHOLDER_SERVICE}
+            value={name}
+            onInput={(e) => setName((e.target as HTMLInputElement).value)}
+          />
+        </Field>
+        <Field label={t("oiProxyAddr")} help={t("oiProxyAddrHelp")}>
+          <input
+            type="text"
+            spellcheck={false}
+            inputMode="decimal"
+            placeholder={PLACEHOLDER_PROXY}
+            value={proxy}
+            onInput={(e) => setProxy((e.target as HTMLInputElement).value)}
+          />
+        </Field>
+      </div>
+      <p>{t("oiHomeWhat")}</p>
+      <ul class="oi-steps">
+        <li>{t("oiHomeRouter", { name: h.name, address: h.proxy })}</li>
+        <li>{t("oiHomePihole", { name: h.name, address: h.proxy })}</li>
+        <li>{t("oiHomeAdguard", { name: h.name, address: h.proxy })}</li>
+      </ul>
+      <CopyBlock label={t("oiHomeHosts")} text={homeHostsLine(h)} />
+      <CopyBlock label={t("oiHomeDnsmasq")} text={homeDnsmasq(h)} />
+      <div class="wz-note info">
+        <IconInfo size={20} />
+        <span>{t("oiHomeTs")}</span>
+      </div>
+      <p class="dim">{t("oiHomeV6")}</p>
+      <CopyBlock label={t("oiHomeLookup")} text={homeLookup(h)} />
+      <h3 class="oi-h">{t("oiProbe")}</h3>
+      <p class="dim">{t("oiProbeLead", { name: h.name })}</p>
+      <Acts>
+        <button
+          type="button"
+          class="wz-btn quiet"
+          disabled={!typed || probe === "busy"}
+          onClick={() => void tryName()}
+        >
+          <IconSearch size={18} />
+          <span>{t("oiProbeGo", { name: typed || h.name })}</span>
+        </button>
+      </Acts>
+      {verdict && (
+        <p class={`notice ${verdict.ok ? "ok" : "warn"} oi-probe`} role="status">
+          {t(verdict.key, verdict.params)}
+        </p>
+      )}
+      {error && <p class="notice error">{error}</p>}
+    </Box>
+  );
+}
+
+/** The way from an error of «A Gitea you already have» to the guide (p3.7.3). */
+export function HomeServicesLink() {
+  return (
+    <button type="button" class="wz-btn small quiet" onClick={openHomeServices}>
+      <IconArrowRight size={14} />
+      <span>{t("gitGiteaGuide")}</span>
+    </button>
   );
 }

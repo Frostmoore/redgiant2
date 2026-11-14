@@ -134,3 +134,37 @@ describe("reached already (G39.8)", () => {
     ).toBeUndefined();
   });
 });
+
+describe("«Try a name» over HTTP (p3.7.3)", () => {
+  it("takes only a host name, and answers address, reachable, status", async () => {
+    s = await startServer([], {}, {}, undefined, undefined, async (core, dir) => {
+      const setup = new SetupService({
+        db: core.db,
+        core,
+        dataDir: join(dir, "data"),
+        ownerId: "me",
+        hooks,
+        firstBoot: new FirstBoot({ dataDir: join(dir, "data"), platform: "win32" }),
+      });
+      await setup.applyAtStartup();
+      return { setup };
+    });
+    for (const name of ["192.168.1.12", "localhost", "https://git.example.com", "a b", ""]) {
+      const r = await s.api<{ code?: string }>("POST", "/api/setup/net/probe", { name });
+      expect(r.status, name).toBe(400);
+      expect(r.body.code).toBe("bad_name");
+    }
+    // .invalid never resolves (RFC 6761): the DNS here says so, or does not answer offline.
+    const r = await s.api<Record<string, unknown>>("POST", "/api/setup/net/probe", {
+      name: "no-such-service.invalid",
+    });
+    expect(r.status).toBe(200);
+    expect(Object.keys(r.body).sort()).toEqual(["address", "name", "reachable", "status", "why"]);
+    expect(r.body).toMatchObject({
+      name: "no-such-service.invalid",
+      address: null,
+      reachable: false,
+    });
+    expect(["not_found", "dns_failed"]).toContain(r.body.why);
+  });
+});

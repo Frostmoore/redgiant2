@@ -329,6 +329,33 @@ curl -s https://redgiant.example.com/api/health
 RedGiant answers `{"ok":true,…}`. No answer: check the name in the DNS, the proxy's block and, from
 outside, the VPN. The page's «Check from here» button does the same from the browser.
 
+### Your home services (Gitea, NAS…) seen by RedGiant
+
+RedGiant also reaches _your_ services by name: «A Gitea you already have» in Settings › Where the
+code lives, for instance. It asks the DNS of the machine it runs on (often the router), not the one
+your phone uses: a name that opens fine on your phone may be unknown there (`ENOTFOUND`), or point
+to an address RedGiant cannot reach. The guide's part **«Your home services»** says the same, fills
+the lines below and has **«Try a name»**: the server looks the name up and opens `https://<name>`
+(HEAD only, a few seconds at most) and says what it found, the address, whether something answered
+and the HTTP code, nothing else of the answer.
+
+- **Which DNS RedGiant uses**: on RedGiant OS, `resolvectl status` in the console or over SSH
+  («Current DNS Server»); elsewhere, the DNS of that computer (its network settings,
+  `/etc/resolv.conf` on Linux). `resolvectl query git.home.example.com` shows what it answers.
+- **What to add there**: the service's name pointing to the address **in your network** of the
+  proxy in front of it (or of the service itself), e.g. `git.home.example.com` → `192.168.1.12`:
+  the router's «static DNS» or «local names» page, Pi-hole's Local DNS › DNS Records
+  (`192.168.1.12 git.home.example.com`) or `address=/git.home.example.com/192.168.1.12` in
+  `/etc/dnsmasq.d/`, AdGuard Home's DNS rewrites.
+- **A Pi-hole that answers with Tailscale addresses (100.x)**: those work only for devices in
+  Tailscale. If RedGiant's machine is not in the tailnet, add a local record with the LAN address,
+  or let that machine use the router as DNS with the name there.
+- **A router that answers «does not exist» to the IPv6 (AAAA) question** for names added by hand
+  (TIM's routers do): systemd-resolved then remembers it and hides the IPv4 answer too for a while.
+  RedGiant OS sets `Cache=no-negative` already (`/etc/systemd/resolved.conf.d/redgiant.conf`); on
+  another Linux with systemd-resolved, put the same `[Resolve]` setting in a file of
+  `/etc/systemd/resolved.conf.d/` and restart `systemd-resolved`.
+
 ## Programs downloaded when needed
 
 Some file conversions need a free program. RedGiant never bundles them: each one is downloaded the

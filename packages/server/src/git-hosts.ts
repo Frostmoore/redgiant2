@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { CredentialRoute } from "@redgiant/sandbox";
 import { RoutesFile } from "./egress-routes.js";
+import { netFailure } from "./net-probe.js";
 
 const run = promisify(execFile);
 
@@ -47,9 +48,25 @@ export interface GitHostsSecrets {
 }
 
 /** Why GitHub or Gitea refused, in a code the UI explains. */
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+};
+
 export class GitHostError extends Error {
   constructor(
-    readonly code: "token_rejected" | "missing_permission" | "unreachable" | "failed",
+    readonly code:
+      | "token_rejected"
+      | "missing_permission"
+      | "unreachable"
+      | "failed"
+      /** The DNS RedGiant uses does not know the server's name (p3.7.3). */
+      | "name_not_found"
+      /** The name is known but its address does not answer from here (p3.7.3). */
+      | "host_unreachable",
     message: string,
   ) {
     super(message);
@@ -114,6 +131,20 @@ export class GitHosts {
     try {
       return await this.f(url, { ...init, signal: AbortSignal.timeout(20_000) });
     } catch (err) {
+      // «fetch failed» says nothing: the name unknown here, or its address out of reach, point
+      // to the guide «Your home services seen by RedGiant» (p3.7.3).
+      const host = hostOf(url);
+      const why = netFailure(err);
+      if (why === "not_found" || why === "dns_failed")
+        throw new GitHostError(
+          "name_not_found",
+          `${what} did not answer: the DNS RedGiant uses does not know ${host}`,
+        );
+      if (why === "unreachable" || why === "timeout")
+        throw new GitHostError(
+          "host_unreachable",
+          `${what} did not answer: ${host} is known, but its address does not answer from RedGiant`,
+        );
       throw new GitHostError("unreachable", `${what} did not answer: ${(err as Error).message}`);
     }
   }

@@ -6118,6 +6118,58 @@ const en = {
   oiDnsWildcard: "Pi-hole or dnsmasq, every name of *.{domain} at once (a file in /etc/dnsmasq.d/)",
   oiDnsTs:
     "Away from home with Tailscale: add the home DNS in Tailscale's DNS › Nameservers, restricted to your domain, so the same names work outside too.",
+  oiPartHome: "Your home services",
+  oiHomeTitle: "Your home services (Gitea, NAS…) seen by RedGiant",
+  oiHomeWhy:
+    "RedGiant reaches your Gitea, NAS or other services by name, through the DNS of the machine it runs on (often the router). A name your phone opens may be unknown there, or point to an address RedGiant cannot reach: then «A Gitea you already have» fails even though the service works.",
+  oiHomeWhich:
+    "Which DNS RedGiant uses: on RedGiant OS the console (or SSH) shows it with the command below, under «Current DNS Server»; on another computer it is that computer's DNS (its network settings, /etc/resolv.conf on Linux). «Try a name» asks the very DNS RedGiant uses.",
+  oiHomeSeen: "RedGiant asks the name server {dns}.",
+  oiService: "The service's name",
+  oiServiceHelp: "As you open it, e.g. git.home.example.com.",
+  oiProxyAddr: "The proxy's local address",
+  oiProxyAddrHelp:
+    "The address in your network (192.168.…) of the proxy in front of the service, or of the service itself. Not a Tailscale address (100.…): RedGiant reaches it only if it is in Tailscale too.",
+  oiHomeWhat: "In the DNS RedGiant uses, give the name that local address:",
+  oiHomeRouter: "The router: its «static DNS» or «local names» page: {name} → {address}.",
+  oiHomePihole: "Pi-hole: Settings › Local DNS › DNS Records: {name} → {address}.",
+  oiHomeAdguard: "AdGuard Home: Filters › DNS rewrites: {name} → {address}.",
+  oiHomeHosts: "Pi-hole's records or /etc/hosts, by hand",
+  oiHomeDnsmasq: "dnsmasq (or a file in Pi-hole's /etc/dnsmasq.d/)",
+  oiHomeTs:
+    "If your Pi-hole answers with Tailscale addresses (100.…), those work only for devices in Tailscale: add a local record with the address in your network as above, or let RedGiant's machine use the router as DNS with the name there.",
+  oiHomeV6:
+    "A router that answers «does not exist» to the IPv6 (AAAA) question for names added by hand: RedGiant OS handles it already; on other systems with systemd-resolved, put Cache=no-negative in a file of /etc/systemd/resolved.conf.d/, or the name seems missing for a while.",
+  oiHomeLookup: "On RedGiant OS, what its DNS answers for the name",
+  oiHomeWhichCmd: "On RedGiant OS, which DNS it uses",
+  oiProbe: "Try a name",
+  oiProbeLead:
+    "RedGiant looks the name up and opens https://{name} from where it runs, as it does for your Gitea. Nothing of the answer is kept or shown but its code.",
+  oiProbeGo: "Try {name}",
+  oiProbeBad: "That is not a name (for instance git.home.example.com).",
+  oiProbeOk: "Fine: here {name} is {address}, and https://{name} answered (HTTP {status}).",
+  oiProbeNotFound:
+    "The DNS RedGiant uses does not know {name}. Add the name there (router, Pi-hole or AdGuard) with the proxy's local address, then try again.",
+  oiProbeDnsFailed:
+    "The DNS RedGiant uses did not answer for {name}. Check that it works, then try again.",
+  oiProbeTailscale:
+    "Here {name} is {address}: a Tailscale address, which RedGiant cannot reach. In the DNS RedGiant uses, give the name the proxy's local address.",
+  oiProbeUnreachable:
+    "Here {name} is {address}, but nothing answers on https from RedGiant. Check that it is the proxy's local address and that the proxy is running.",
+  oiProbeTimeout:
+    "Here {name} is {address}, but it did not answer in time: probably an address RedGiant cannot reach (another network, a VPN).",
+  oiProbeTls:
+    "Here {name} is {address} and answers, but with a certificate RedGiant does not trust (made by hand?). Give the proxy a certificate from a public authority (Let's Encrypt).",
+  gitGiteaNameNotFound:
+    "RedGiant cannot find {host}: the DNS it uses does not know that name. The guide «Your home services» in Settings › Access from outside home says what to add, and lets you try the name.",
+  gitGiteaHostUnreachable:
+    "RedGiant finds {host}, but its address does not answer from here (a Tailscale address, another network?). The guide «Your home services» in Settings › Access from outside home says how to fix it.",
+  gitGiteaGuide: "Open «Your home services»",
+  err_name_not_found:
+    "RedGiant cannot find the server's name in the DNS it uses. See Settings › Access from outside home › Your home services.",
+  err_host_unreachable:
+    "The server's name is known, but its address does not answer from RedGiant. See Settings › Access from outside home › Your home services.",
+  err_bad_name: "That is not a name (for instance git.home.example.com).",
   oiCheck: "Check that it answers",
   oiCheckLead: 'From any computer: RedGiant answers {"ok":true,…}.',
   oiCheckGo: "Check {url} from here",
@@ -12348,6 +12400,58 @@ const it: Record<Key, string> = {
     "Pi-hole o dnsmasq, tutti i nomi di *.{domain} insieme (un file in /etc/dnsmasq.d/)",
   oiDnsTs:
     "Fuori casa con Tailscale: aggiungi il DNS di casa in DNS › Nameservers di Tailscale, limitato al tuo dominio, e gli stessi nomi funzionano anche fuori.",
+  oiPartHome: "I tuoi servizi di casa",
+  oiHomeTitle: "I tuoi servizi di casa (Gitea, NAS…) visti da RedGiant",
+  oiHomeWhy:
+    "RedGiant raggiunge il tuo Gitea, il NAS o gli altri servizi per nome, con il DNS della macchina su cui gira (spesso il router). Un nome che il telefono apre può lì essere sconosciuto, o portare a un indirizzo che RedGiant non raggiunge: allora «Un Gitea che hai già» non riesce anche se il servizio funziona.",
+  oiHomeWhich:
+    "Quale DNS usa RedGiant: su RedGiant OS lo mostra la console (o SSH) con il comando qui sotto, alla voce «Current DNS Server»; su un altro computer è il DNS di quel computer (impostazioni di rete, /etc/resolv.conf su Linux). «Prova un nome» chiede proprio al DNS che usa RedGiant.",
+  oiHomeSeen: "RedGiant chiede i nomi a {dns}.",
+  oiService: "Il nome del servizio",
+  oiServiceHelp: "Come lo apri, per esempio git.home.example.com.",
+  oiProxyAddr: "L'indirizzo locale del proxy",
+  oiProxyAddrHelp:
+    "L'indirizzo nella tua rete (192.168.…) del proxy davanti al servizio, o del servizio stesso. Non un indirizzo Tailscale (100.…): RedGiant lo raggiunge solo se è anche lui in Tailscale.",
+  oiHomeWhat: "Nel DNS che usa RedGiant, dai al nome quell'indirizzo locale:",
+  oiHomeRouter: "Il router: la pagina «DNS statico» o «nomi locali»: {name} → {address}.",
+  oiHomePihole: "Pi-hole: Settings › Local DNS › DNS Records: {name} → {address}.",
+  oiHomeAdguard: "AdGuard Home: Filtri › Riscritture DNS: {name} → {address}.",
+  oiHomeHosts: "I record di Pi-hole o /etc/hosts, a mano",
+  oiHomeDnsmasq: "dnsmasq (o un file in /etc/dnsmasq.d/ di Pi-hole)",
+  oiHomeTs:
+    "Se il tuo Pi-hole risponde con indirizzi Tailscale (100.…), quelli funzionano solo per i dispositivi in Tailscale: aggiungi un record locale con l'indirizzo della tua rete come sopra, oppure fai usare alla macchina di RedGiant il router come DNS, con il nome lì.",
+  oiHomeV6:
+    "Un router che risponde «non esiste» alla domanda IPv6 (AAAA) per i nomi aggiunti a mano: RedGiant OS lo gestisce già; su altri sistemi con systemd-resolved serve Cache=no-negative in un file di /etc/systemd/resolved.conf.d/, altrimenti per un po' il nome sembra non esistere.",
+  oiHomeLookup: "Su RedGiant OS, cosa risponde il suo DNS per il nome",
+  oiHomeWhichCmd: "Su RedGiant OS, quale DNS usa",
+  oiProbe: "Prova un nome",
+  oiProbeLead:
+    "RedGiant cerca il nome e apre https://{name} da dove gira, come fa per il tuo Gitea. Della risposta non tiene e non mostra nulla, tranne il codice.",
+  oiProbeGo: "Prova {name}",
+  oiProbeBad: "Questo non è un nome (per esempio git.home.example.com).",
+  oiProbeOk: "Tutto a posto: qui {name} è {address}, e https://{name} ha risposto (HTTP {status}).",
+  oiProbeNotFound:
+    "Il DNS che usa RedGiant non conosce {name}. Aggiungi lì il nome (router, Pi-hole o AdGuard) con l'indirizzo locale del proxy, poi riprova.",
+  oiProbeDnsFailed:
+    "Il DNS che usa RedGiant non ha risposto per {name}. Controlla che funzioni, poi riprova.",
+  oiProbeTailscale:
+    "Qui {name} è {address}: un indirizzo Tailscale, che RedGiant non raggiunge. Nel DNS che usa RedGiant, dai al nome l'indirizzo locale del proxy.",
+  oiProbeUnreachable:
+    "Qui {name} è {address}, ma da RedGiant nessuno risponde in https. Controlla che sia l'indirizzo locale del proxy e che il proxy sia acceso.",
+  oiProbeTimeout:
+    "Qui {name} è {address}, ma non ha risposto in tempo: probabilmente un indirizzo che RedGiant non raggiunge (un'altra rete, una VPN).",
+  oiProbeTls:
+    "Qui {name} è {address} e risponde, ma con un certificato di cui RedGiant non si fida (fatto a mano?). Dai al proxy un certificato di un'autorità pubblica (Let's Encrypt).",
+  gitGiteaNameNotFound:
+    "RedGiant non trova {host}: il DNS che usa non conosce quel nome. La guida «I tuoi servizi di casa» in Impostazioni › Accesso da fuori casa dice cosa aggiungere e ti fa provare il nome.",
+  gitGiteaHostUnreachable:
+    "RedGiant trova {host}, ma da qui il suo indirizzo non risponde (un indirizzo Tailscale, un'altra rete?). La guida «I tuoi servizi di casa» in Impostazioni › Accesso da fuori casa dice come sistemare.",
+  gitGiteaGuide: "Apri «I tuoi servizi di casa»",
+  err_name_not_found:
+    "RedGiant non trova il nome del server nel DNS che usa. Vedi Impostazioni › Accesso da fuori casa › I tuoi servizi di casa.",
+  err_host_unreachable:
+    "Il nome del server è noto, ma da RedGiant il suo indirizzo non risponde. Vedi Impostazioni › Accesso da fuori casa › I tuoi servizi di casa.",
+  err_bad_name: "Questo non è un nome (per esempio git.home.example.com).",
   oiCheck: "Controlla che risponda",
   oiCheckLead: 'Da qualsiasi computer: RedGiant risponde {"ok":true,…}.',
   oiCheckGo: "Controlla {url} da qui",

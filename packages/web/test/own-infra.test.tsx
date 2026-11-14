@@ -11,14 +11,20 @@ import {
   caddyWildcardBlock,
   dnsmasqWildcard,
   healthCheck,
+  homeDnsmasq,
+  homeHostsLine,
+  homeService,
   infraData,
+  isTailscaleAddress,
   parentDomain,
+  probeVerdict,
   subnetOf,
   tailscaleSubnet,
   traefikBlock,
 } from "../src/own-infra.js";
 
 const calls: [string, unknown[]][] = [];
+const answers: Record<string, unknown> = {};
 const fakeApi = new Proxy(
   {},
   {
@@ -26,7 +32,7 @@ const fakeApi = new Proxy(
       if (name === "then") return undefined;
       return (...args: unknown[]) => {
         calls.push([name, args]);
-        return Promise.resolve({});
+        return Promise.resolve(answers[name] ?? {});
       };
     },
   },
@@ -35,7 +41,7 @@ vi.mock("../src/state.js", async (orig) => ({
   ...(await orig<typeof import("../src/state.js")>()),
   getApi: () => fakeApi,
 }));
-const { OwnInfra } = await import("../src/components/OwnInfra.js");
+const { OwnInfra, ownInfraFocus } = await import("../src/components/OwnInfra.js");
 
 const NATIVE = 'input[type="checkbox"], input[type="radio"]';
 const net = {
@@ -149,5 +155,81 @@ describe("the guide (G39.8)", () => {
     expect(r.queryByText("Salta: sono già raggiungibile")).toBeNull();
     fireEvent.click(r.getByText("Chiedimelo di nuovo"));
     await waitFor(() => expect(calls).toContainEqual(["setReachable", [false, undefined]]));
+  });
+});
+
+describe("your home services seen by RedGiant (p3.7.3)", () => {
+  it("fills the DNS lines with the service's name and the proxy's local address", () => {
+    const h = homeService(" Git.Home.Varitest.ovh ", "192.168.1.12");
+    expect(homeDnsmasq(h)).toBe("address=/git.home.varitest.ovh/192.168.1.12");
+    expect(homeHostsLine(h)).toBe("192.168.1.12 git.home.varitest.ovh");
+    expect(homeService("", null)).toEqual({ name: "git.home.example.com", proxy: "192.168.1.12" });
+  });
+
+  it.each([
+    ["100.64.0.1", true],
+    ["100.101.10.4", true],
+    ["100.127.255.254", true],
+    ["100.128.0.1", false],
+    ["100.63.0.1", false],
+    ["192.168.1.12", false],
+    ["fd7a:115c:a1e0::1", true],
+  ])("%s is Tailscale's: %s", (a, yes) => expect(isTailscaleAddress(a)).toBe(yes));
+
+  const p = (o: object) =>
+    ({
+      name: "git.home.example.com",
+      address: null,
+      reachable: false,
+      status: null,
+      why: "ok",
+      ...o,
+    }) as never;
+  it.each([
+    [p({ why: "not_found" }), "oiProbeNotFound", false],
+    [p({ why: "dns_failed" }), "oiProbeDnsFailed", false],
+    [p({ address: "192.168.1.12", reachable: true, status: 200 }), "oiProbeOk", true],
+    [p({ address: "100.101.1.2", why: "timeout" }), "oiProbeTailscale", false],
+    [p({ address: "192.168.1.12", why: "unreachable" }), "oiProbeUnreachable", false],
+    [p({ address: "10.9.0.4", why: "timeout" }), "oiProbeTimeout", false],
+    [p({ address: "192.168.1.12", reachable: true, why: "tls" }), "oiProbeTls", false],
+  ])("%j says %s", (probe, key, ok) => {
+    expect(probeVerdict(probe)).toMatchObject({ key, ok });
+  });
+
+  it("explains, fills the blocks and tries a name through the server", async () => {
+    answers.probeName = {
+      name: "git.home.varitest.ovh",
+      address: null,
+      reachable: false,
+      status: null,
+      why: "not_found",
+    };
+    const r = render(<OwnInfra s={state()} onChange={() => {}} net={net} />);
+    await waitFor(() => r.getByText("I tuoi servizi di casa"));
+    fireEvent.click(r.getByText("I tuoi servizi di casa"));
+    const text = () => r.container.textContent ?? "";
+    expect(text()).toContain("visti da RedGiant");
+    expect(text()).toContain("resolvectl status");
+    expect(text()).toContain("RedGiant chiede i nomi a 192.168.1.2.");
+    expect(text()).toContain("Tailscale (100.…)");
+    expect(text()).toContain("Cache=no-negative");
+    const [name, proxy] = [...r.container.querySelectorAll(".oi-home input")];
+    fireEvent.input(name as Element, { target: { value: "git.home.varitest.ovh" } });
+    fireEvent.input(proxy as Element, { target: { value: "192.168.1.12" } });
+    expect(text()).toContain("address=/git.home.varitest.ovh/192.168.1.12");
+    expect(text()).toContain("192.168.1.12 git.home.varitest.ovh");
+    fireEvent.click(r.getByText("Prova git.home.varitest.ovh"));
+    await waitFor(() => r.getByText(/Il DNS che usa RedGiant non conosce git.home.varitest.ovh/));
+    expect(calls.find(([n]) => n === "probeName")?.[1]).toEqual(["git.home.varitest.ovh"]);
+    expect(r.container.querySelector(NATIVE)).toBeNull();
+    delete answers.probeName;
+  });
+
+  it("opens unfolded on this part when asked from elsewhere (Gitea's error)", async () => {
+    ownInfraFocus.value = "home";
+    const r = render(<OwnInfra s={state()} onChange={() => {}} net={null} folded />);
+    await waitFor(() => r.getByText("I tuoi servizi di casa (Gitea, NAS…) visti da RedGiant"));
+    expect(ownInfraFocus.value).toBeNull();
   });
 });

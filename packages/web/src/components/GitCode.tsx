@@ -5,13 +5,25 @@
 // started here or one the person already has (p3.7.2: its address, user and token).
 import type { Job } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
-import type { SetupState } from "../api.js";
+import { ApiError, type SetupState } from "../api.js";
 import { t } from "../i18n.js";
 import { IconCloud, IconServer } from "../icons.js";
 import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
+import { HomeServicesLink } from "./OwnInfra.js";
 import { Acts, Seg, Tile } from "./SettingsKit.js";
 import { Field, JobView, Modal, useJob } from "./ui.js";
+
+/** The name in what the person typed as Gitea's address (with or without https://). */
+const hostOf = (text: string) => {
+  try {
+    return new URL(
+      /^[a-z][a-z0-9+.-]*:\/\//i.test(text.trim()) ? text.trim() : `https://${text.trim()}`,
+    ).hostname;
+  } catch {
+    return text.trim();
+  }
+};
 
 const GITHUB_NEW_TOKEN = "https://github.com/settings/personal-access-tokens/new";
 
@@ -208,16 +220,28 @@ function ExistingGitea({ onChange }: { onChange: () => void }) {
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  // The name unknown to RedGiant's DNS, or its address out of reach (p3.7.3): words and the guide.
+  const [home, setHome] = useState<"name" | "address">();
   const connect = async (e: Event) => {
     e.preventDefault();
     setBusy(true);
     setError(undefined);
+    setHome(undefined);
     try {
       await getApi().connectGitea(url.trim(), user.trim(), token.trim());
       setToken("");
       onChange();
     } catch (err) {
-      setError(explain(err));
+      const code = err instanceof ApiError ? err.code : undefined;
+      const host = hostOf(url);
+      if (code === "name_not_found" || code === "host_unreachable") {
+        setHome(code === "name_not_found" ? "name" : "address");
+        setError(
+          t(code === "name_not_found" ? "gitGiteaNameNotFound" : "gitGiteaHostUnreachable", {
+            host,
+          }),
+        );
+      } else setError(explain(err));
     }
     setBusy(false);
   };
@@ -257,6 +281,11 @@ function ExistingGitea({ onChange }: { onChange: () => void }) {
         </button>
       </div>
       {error && <p class="notice error wide">{error}</p>}
+      {home && (
+        <div class="wide">
+          <HomeServicesLink />
+        </div>
+      )}
     </form>
   );
 }

@@ -41,6 +41,7 @@ import {
   type MagicExtKind,
   type Mailbox as MailboxInfo,
   type ModelsCatalogStatus,
+  type NameProbe,
   type NetDetected,
   type NodeGrant,
   type NodePlacement,
@@ -1209,6 +1210,8 @@ export class Api {
     format?: string;
   }) => this.call<Job>("POST", "/api/setup/backups/proxmox", b);
   setupNet = () => this.call<NetDetected>("GET", "/api/setup/net");
+  /** «Try a name» (p3.7.3): a home service's name as RedGiant sees it. */
+  probeName = (name: string) => this.call<NameProbe>("POST", "/api/setup/net/probe", { name });
   setupSsh = () => this.call<SshAccess>("GET", "/api/setup/ssh");
   // RedGiant OS (G39.1): Wi-Fi, HTTPS in the local network, its updates, a restart.
   setupWifi = () => this.call<WifiState>("GET", "/api/setup/wifi");

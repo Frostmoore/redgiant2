@@ -19678,6 +19678,13 @@ html[data-theme="dark"] {
   font-size: 0.98rem;
   margin: 6px 0 0;
 }
+/* «Your home services» (p3.7.3): its title with the house drawn. */
+.oi-home > .oi-h:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0;
+}
 .oi-block {
   display: flex;
   flex-direction: column;

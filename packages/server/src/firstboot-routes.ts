@@ -17,6 +17,7 @@
 //   POST /api/setup/backups/proxmox  {machineId, ctid, device, name, format?}  «Fallo tu»: a Job
 //                                    that asks the person (always, never a classifier) first
 //   GET  /api/setup/net              what already reaches the machine (Tailscale, proxies, DNS)
+//   POST /api/setup/net/probe        {name}  a home service's name: address here, https answers?
 //   GET  /api/setup/ssh, PUT /api/setup/ssh {on, key?}   SSH, keys only (RedGiant OS's helper)
 // RedGiant OS (G39.1), through the OS helper:
 //   GET  /api/setup/wifi             the Wi-Fi networks and the one in use; POST …/wifi/scan looks again
@@ -50,6 +51,7 @@ import {
 } from "./backup-targets.js";
 import type { RedGiantCore } from "./core.js";
 import { isWindowsPath } from "./machines.js";
+import { probeName, probeService } from "./net-probe.js";
 import { lineOf, planOnHost, probeHost, runPlan } from "./proxmox-mount.js";
 import type { SetupService } from "./setup.js";
 import { parseSmbAddress, runSmbclient, smbLoginRefusal } from "./smb.js";
@@ -544,6 +546,16 @@ export function firstBootRoutes<E extends { Variables: any }>(
         remote: socket?.remoteAddress,
         localPort: socket?.localPort,
       });
+    }),
+  );
+  // «Try a name» (p3.7.3): whether a home service's name resolves here and answers on https.
+  // Only a valid host name; nothing of its answer comes back but address, reachable, status.
+  app.post("/api/setup/net/probe", (c) =>
+    answer(c, async () => {
+      const b = await body(c, z.object({ name: z.string().max(260) }));
+      const name = probeName(b.name);
+      if (!name) throw fail("bad_name", "That is not a host name (git.home.example.com)");
+      return probeService(name);
     }),
   );
   // «Skip: I am reachable already» (G39.8): the person's own way in; RedGiant's own ways stop

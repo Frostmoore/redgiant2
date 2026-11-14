@@ -217,6 +217,25 @@ export interface NetDetected {
   lan?: { address: string | null; port: number };
 }
 
+/** Why a home service's name could not be used from RedGiant (p3.7.3). */
+export type NetFailure = "not_found" | "dns_failed" | "unreachable" | "timeout" | "tls";
+
+/**
+ * «Try a name» (p3.7.3, POST /api/setup/net/probe): a home service's name as RedGiant sees it.
+ * Nothing of the service's answer but its status.
+ */
+export interface NameProbe {
+  name: string;
+  /** The address the name resolved to where RedGiant runs, or null. */
+  address: string | null;
+  /** Something answered on https://<name> (TLS included, even with a certificate refused). */
+  reachable: boolean;
+  /** The HTTP status of the answer, when one came. */
+  status: number | null;
+  /** What went wrong, or "ok". */
+  why: NetFailure | "ok";
+}
+
 /** How the page reached RedGiant when it is reached already (G39.8). */
 export interface ReachedAs {
   /** The name, as the person typed it (no port). */
