@@ -8,10 +8,12 @@
 //    that (its own critical check asked them), else it is refused here;
 //  - models: this machine's providers answer with their own keys, which never leave;
 //  - storage: files in a folder of this machine kept for the asker, nowhere else.
+import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, open, readdir, rm, stat, statfs } from "node:fs/promises";
 import { arch, cpus, freemem, loadavg, type as osType, release, totalmem } from "node:os";
 import { join, resolve, sep } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { bashOutsideWrites, criticalOf } from "@redgiant/hierarchy";
 import type { NodeCapabilities } from "@redgiant/protocol";
 import type { CompletionRequest, ProviderRegistry } from "@redgiant/providers";
@@ -314,6 +316,12 @@ export function nodeHandlers(o: NodeServeOptions): NodeHandlers {
         case "remove":
           await rm(at(b.name), { force: true });
           return { ok: true };
+        // A file's SHA-256 (p3.7.2): the asker checks a backup arrived whole before keeping it.
+        case "hash": {
+          const h = createHash("sha256");
+          await pipeline(createReadStream(at(b.name)), h);
+          return { sha256: h.digest("hex"), size: (await stat(at(b.name))).size };
+        }
         default:
           throw new NodeError("invalid", "Unknown storage action");
       }

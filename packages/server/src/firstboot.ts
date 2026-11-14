@@ -4,12 +4,13 @@
 // through the OS helper (os-helper.ts) or udisks2; without either the page says so.
 import { constants } from "node:fs";
 import { access, mkdir, readdir, readFile, rm, statfs, writeFile } from "node:fs/promises";
-import { networkInterfaces, platform } from "node:os";
+import { hostname, networkInterfaces, platform } from "node:os";
 import { join, posix, win32 } from "node:path";
 import type {
   BackupDestination,
   BackupPlace,
   BlockDisk,
+  HostDisk,
   LocalHttps,
   MountMethod,
   NetDetected,
@@ -24,7 +25,7 @@ import {
   checkBackupDisk,
   parseUdisksMount,
 } from "./backup-disks.js";
-import { LSBLK_ARGS, parseLsblk, run, withFree } from "./discovery.js";
+import { containerHint, LSBLK_ARGS, parseLsblk, run, withFree } from "./discovery.js";
 import { bareHost, LanHttpsStore } from "./lan-https.js";
 import {
   hostName,
@@ -37,6 +38,7 @@ import {
 } from "./net-detect.js";
 import { HelperError, type OsHelper } from "./os-helper.js";
 import { lanAddresses } from "./setup-code.js";
+import type { SmbRun } from "./smb.js";
 import { parseWifi, wifiUnavailable } from "./wifi.js";
 
 const GB = 1024 ** 3;
@@ -114,7 +116,33 @@ export interface FirstBootOptions {
   /** Tests: this process's mount table (/proc/self/mountinfo) and where backups are mounted. */
   mountinfo?: () => Promise<string>;
   backupBase?: string;
+  /**
+   * Tests: the container this process runs in without an OS helper (Docker: "docker"), null for
+   * none; by default read from the files container engines leave.
+   */
+  container?: () => Promise<string | null>;
+  hostname?: string;
+  /** Tests: smbclient (shared folders for backups, smb.ts). */
+  smb?: SmbRun;
+  /** Tests: the Proxmox host's fstab «Fallo tu» adds the disk to (default /etc/fstab). */
+  hostFstab?: string;
 }
+
+/** The host's disks as a container sees them: what to name, never something to mount here. */
+export function hostDisks(candidates: StorageInfo["candidates"]): HostDisk[] {
+  return candidates.map((d) => ({
+    name: d.name,
+    path: d.path || `/dev/${d.name}`,
+    title: d.label || d.model || d.name,
+    sizeBytes: d.sizeBytes,
+    transport: d.transport,
+    fstype: d.fstype,
+  }));
+}
+
+/** Docker names a container's hostname after its short id. */
+export const dockerId = (host: string): string | null =>
+  /^[0-9a-f]{12}$/.test(host) ? host : null;
 
 /** The mount points in /proc/self/mountinfo (field 5, with its octal escapes undone). */
 export function mountPoints(mountinfo: string): string[] {
@@ -177,6 +205,24 @@ export class FirstBoot {
     return this.o.backupBase ?? BACKUP_MOUNT_BASE;
   }
 
+  /** Where the host's folders for backups arrive here. */
+  get backupBaseDir(): string {
+    return this.base;
+  }
+
+  /** This machine's name (an LXC's is its container's name on the Proxmox host). */
+  get hostName(): string {
+    return this.o.hostname ?? hostname();
+  }
+
+  get smbRun(): SmbRun | undefined {
+    return this.o.smb;
+  }
+
+  get hostFstab(): string | undefined {
+    return this.o.hostFstab;
+  }
+
   /** The disks: the helper's (the host's), else lsblk here. null when nothing can be read. */
   async disks(): Promise<BlockDisk[] | null> {
     if (this.o.helper) {
@@ -190,13 +236,33 @@ export class FirstBoot {
     return out === null ? null : withFree(parseLsblk(out));
   }
 
+  /** The container this process runs in when there is no OS helper to say it (Docker). */
+  private async ownContainer(): Promise<string | null> {
+    if (this.o.container) return this.o.container();
+    // A machine the tests simulate (its programs given) is no container unless they say so.
+    if (this.o.run || (this.o.platform ?? platform()) !== "linux") return null;
+    const has = (p: string) =>
+      access(p, constants.F_OK).then(
+        () => true,
+        () => false,
+      );
+    const hint = containerHint({
+      dockerenv: await has("/.dockerenv"),
+      containerenv: await has("/run/.containerenv"),
+      cgroup: await readFile("/proc/1/cgroup", "utf8").catch(() => ""),
+    });
+    return hint?.name ?? null;
+  }
+
   async storage(): Promise<StorageInfo> {
     const s = await statfs(this.o.dataDir).catch(() => null);
     const all = (await this.disks()) ?? [];
     const candidates = backupCandidates(all, this.dataDirs);
     // In a container the disks are the host's: lsblk sees them, but they have no filesystem it
-    // can read and no device to mount (the «Tech, not formatted» of the 3.7.1 test). Never offered.
-    const container = this.container;
+    // can read and no device to mount (the «Tech, not formatted» of the 3.7.1 test). Never offered:
+    // named instead, with the steps to pass one in (p3.7.2).
+    const container = this.o.helper ? this.container : await this.ownContainer();
+    const host = this.hostName;
     return {
       dataDir: this.o.hostDataDir ?? this.o.dataDir,
       dataFreeGb: s ? round((s.bavail * s.bsize) / GB) : null,
@@ -206,6 +272,11 @@ export class FirstBoot {
       container,
       hostDisks: container ? candidates.length : 0,
       places: await this.places(all),
+      ...(container && {
+        hostDiskList: hostDisks(candidates),
+        containerHint: { hostname: host, id: container === "docker" ? dockerId(host) : null },
+      }),
+      backupBase: this.base,
     };
   }
 
@@ -290,7 +361,7 @@ export class FirstBoot {
    * The destination's folder for a backup now: a disk is mounted again when it is connected but
    * not mounted (after a restart); a disk that is not there is an error, never another place.
    */
-  async prepare(dest: BackupDestination): Promise<string> {
+  async prepare(dest: Extract<BackupDestination, { kind: "disk" | "folder" }>): Promise<string> {
     let dir = dest.path;
     if (dest.kind === "disk") {
       const all = await this.disks();

@@ -3,11 +3,15 @@
 // replayed frames), pairing with the person's yes on both sides, control grants checked on the
 // machine that executes, commands in a sandbox there through the guardian and the critical rules,
 // a model «via» the node, a node that goes away and comes back, unpairing, and the log on both sides.
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Event, NodesState, PairCode, PendingPair } from "@redgiant/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
+import { nodeTarget } from "../src/backup-targets.js";
 import {
   acceptNode,
   dialNode,
@@ -497,6 +501,56 @@ describe("using a node (G39.4)", () => {
     expect(list.body.files.map((f) => f.name)).toEqual([b.body.name]);
     expect(list.body.files[0]?.size).toBe(b.body.bytes);
   }, 90_000);
+
+  it("scheduled backups of the whole RedGiant go to the node's storage, checked, and come back (p3.7.2)", async () => {
+    const severino = await machine("severino");
+    const rig = await machine("rig");
+    const { n } = await pairUp(severino, rig, ["use"]);
+    const staging = await mkdtemp(join(tmpdir(), "rg-node-stage-"));
+    const t = await nodeTarget({
+      nodes: severino.core.nodes,
+      ownerId: "me",
+      fingerprint: n,
+      name: "rig",
+      stagingDir: staging,
+    });
+    const folder = "RedGiant-backup-2026-11-14";
+    const file = "redgiant-3.7.2-0300.rgbackup";
+    // Bigger than one piece: it travels in parts and appears only whole.
+    const data = Buffer.alloc(5 * 1024 * 1024 + 123, 7);
+    const staged = await t.stage(folder, file);
+    await writeFile(staged, data);
+    await t.writeMade([folder]);
+    await t.put(staged, folder, file);
+    expect(await t.readMade()).toEqual([folder]);
+    expect(await t.folders()).toEqual([folder]);
+    expect((await t.list()).map((e) => [e.id, e.bytes])).toEqual([
+      [`${folder}/${file}`, data.length],
+    ]);
+    const got = await t.fetch(folder, file);
+    expect((await readFile(got.path)).equals(data)).toBe(true);
+    await got.done();
+    await t.removeFolder(folder);
+    expect(await t.list()).toEqual([]);
+    // The node keeps them in this machine's own storage, beside the projects' copies.
+    const list = await severino.api<{ files: { name: string }[] }>(
+      "GET",
+      `/api/nodes/storage?node=${encodeURIComponent(n)}`,
+    );
+    expect(list.body.files.map((f) => f.name)).toEqual([`system/redgiant-scheduled.json`]);
+    // A node that is gone: a clear failure, not a backup somewhere else.
+    await rig.close();
+    open.splice(open.indexOf(rig), 1);
+    await expect(
+      nodeTarget({
+        nodes: severino.core.nodes,
+        ownerId: "me",
+        fingerprint: n,
+        name: "rig",
+        stagingDir: staging,
+      }),
+    ).rejects.toMatchObject({ code: "unreachable" });
+  }, 120_000);
 
   it("unpairing from the node removes the pair on both sides", async () => {
     const severino = await machine("severino");

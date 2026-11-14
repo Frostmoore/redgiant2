@@ -19,6 +19,7 @@ import {
   verifyBackup,
 } from "./backup.js";
 import type { RedGiantCore } from "./core.js";
+import type { JobHandle } from "./jobs.js";
 import type { SetupService } from "./setup.js";
 
 /** What a page sees when this server does not look for updates (tests, the source). */
@@ -168,49 +169,59 @@ export function updateRoutes<E extends { Variables: any }>(
     if (!file || !(await stat(file).catch(() => undefined)))
       return c.json({ error: "No such backup" }, 404);
     const o = owner(c);
-    const job = core.jobs.start(
-      o,
-      "backup_import",
-      ["data", "conversations", "files"],
-      async (h) => {
-        try {
-          const r = await importBackup(
-            core.backupDeps,
-            o,
-            file,
-            {
-              ...(b.godName && { godName: b.godName }),
-              ...(b.demigodName && { demigodName: b.demigodName }),
-            },
-            h,
-          );
-          h.info({
-            projects: String(r.projects.length),
-            agents: String(r.agents),
-            conversations: String(r.conversations),
-            files: String(r.files),
-          });
-          if (r.keychain && b.keychainPassphrase)
-            h.info({
-              keychain: await core.vault
-                .importSealed(o, r.keychain, b.keychainPassphrase)
-                .then(String)
-                .catch(() => "wrong"),
-            });
-          // The person's own choices of the wizard (instructions, languages…), never this computer's.
-          if (r.setup) await setup?.restorePortable(r.setup);
-        } catch (err) {
-          if (err instanceof BackupError) throw new Error(err.message);
-          throw err;
-        } finally {
-          // The agents and the settings in memory follow what was added; the file stays where it is.
-          await core.registry.load();
-          await core.policies.load();
-          await core.commandSettings.load();
-          await core.requestSettings.load();
-        }
-      },
+    const job = core.jobs.start(o, "backup_import", ["data", "conversations", "files"], (h) =>
+      importInto(core, setup, o, file, b, h),
     );
     return c.json(job, 200);
   });
+}
+
+/**
+ * Imports a backup file into this RedGiant (the found backups, and the scheduled ones of
+ * Settings › System, p3.7.2): what is new is added, the person's portable choices come back.
+ */
+export async function importInto(
+  core: RedGiantCore,
+  setup: SetupService | undefined,
+  o: string,
+  file: string,
+  b: { godName?: string; demigodName?: string; keychainPassphrase?: string },
+  h: JobHandle,
+): Promise<void> {
+  try {
+    const r = await importBackup(
+      core.backupDeps,
+      o,
+      file,
+      {
+        ...(b.godName && { godName: b.godName }),
+        ...(b.demigodName && { demigodName: b.demigodName }),
+      },
+      h,
+    );
+    h.info({
+      projects: String(r.projects.length),
+      agents: String(r.agents),
+      conversations: String(r.conversations),
+      files: String(r.files),
+    });
+    if (r.keychain && b.keychainPassphrase)
+      h.info({
+        keychain: await core.vault
+          .importSealed(o, r.keychain, b.keychainPassphrase)
+          .then(String)
+          .catch(() => "wrong"),
+      });
+    // The person's own choices of the wizard (instructions, languages…), never this computer's.
+    if (r.setup) await setup?.restorePortable(r.setup);
+  } catch (err) {
+    if (err instanceof BackupError) throw new Error(err.message);
+    throw err;
+  } finally {
+    // The agents and the settings in memory follow what was added; the file stays where it is.
+    await core.registry.load();
+    await core.policies.load();
+    await core.commandSettings.load();
+    await core.requestSettings.load();
+  }
 }

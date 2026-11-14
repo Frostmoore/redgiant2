@@ -5,11 +5,13 @@
 // the oldest first, keeping the number chosen. A run never overlaps the previous one, and a
 // destination that is missing (the disk unplugged) is a failed run the page shows, never a
 // backup written somewhere else. Times come from the service's clock (`now`, `tick`).
-import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { BackupSchedule, BackupSettings } from "@redgiant/protocol";
 import { SAFETY_FOLDER } from "./backup.js";
+import { type BackupTarget, localTarget, MADE_FILE } from "./backup-targets.js";
+
+export { MADE_FILE };
 
 /** The latest moment the schedule asked for, at or before `now` (local time); null when off. */
 export function lastSlot(s: BackupSchedule, now: Date): Date | null {
@@ -69,15 +71,15 @@ export function folderFor(now: Date, taken: (name: string) => boolean): string {
   return `${base}-999`;
 }
 
-/** The list of folders this schedule made, kept beside them. */
-export const MADE_FILE = "redgiant-scheduled.json";
-
 export interface SchedulerOptions {
   settings: () => (BackupSettings & { setAt?: string }) | undefined;
   /** Saves how the last run went. */
   record: (last: NonNullable<BackupSettings["last"]>) => Promise<void>;
-  /** The destination's folder now (mounting the disk if needed); throws when it cannot. */
-  prepare: (s: BackupSettings) => Promise<string>;
+  /**
+   * The destination now: a folder here (mounting the disk if needed), or a target elsewhere
+   * (backup-targets.ts: SFTP, SMB, a node). Throws when it is not there.
+   */
+  prepare: (s: BackupSettings) => Promise<string | BackupTarget>;
   /** Writes the backup into this file and reads it back; resolves when done. */
   backup: (file: string) => Promise<void>;
   version: () => string | null;
@@ -126,31 +128,47 @@ export class BackupScheduler {
     if (this.running) return "busy";
     this.running = true;
     const at = this.now().toISOString();
+    let file = "";
     try {
       if (!s?.destination) throw new Error("No destination chosen");
-      const dir = await this.o.prepare(s);
-      const made = await readFile(join(dir, MADE_FILE), "utf8")
-        .then((t) => (JSON.parse(t) as { folders?: string[] }).folders ?? [])
-        .catch(() => [] as string[]);
-      const now = this.now();
-      const folder = folderFor(now, (n) => existsSync(join(dir, n)));
-      await mkdir(join(dir, folder), { recursive: true });
-      const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString();
-      const file = `redgiant-${this.o.version() ?? "dev"}-${local.slice(11, 16).replace(":", "")}.rgbackup`;
-      // Listed before writing: a run cut short leaves a folder this schedule may remove later.
-      const list = [...made, folder];
-      await writeFile(join(dir, MADE_FILE), `${JSON.stringify({ folders: list })}\n`);
-      await this.o.backup(join(dir, folder, file));
-      const gone = toPrune(list, s.schedule.keep);
-      for (const f of gone) await rm(join(dir, f), { recursive: true, force: true });
-      await writeFile(
-        join(dir, MADE_FILE),
-        `${JSON.stringify({ folders: list.filter((f) => !gone.includes(f)) })}\n`,
-      );
-      await this.o.record({ at, ok: true, file: join(folder, file) });
+      const got = await this.o.prepare(s);
+      const target = typeof got === "string" ? localTarget(got) : got;
+      let staged: string | undefined;
+      try {
+        const made = await target.readMade();
+        const there = new Set(await target.folders());
+        const now = this.now();
+        const folder = folderFor(now, (n) => there.has(n));
+        const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString();
+        file = `redgiant-${this.o.version() ?? "dev"}-${local.slice(11, 16).replace(":", "")}.rgbackup`;
+        // Listed before writing: a run cut short leaves a folder this schedule may remove later.
+        const list = [...made, folder];
+        await target.writeMade(list);
+        staged = await target.stage(folder, file);
+        await this.o.backup(staged);
+        // Whole and checked, or not at all: a temporary name until then.
+        await target.put(staged, folder, file);
+        const gone = toPrune(list, s.schedule.keep);
+        for (const f of gone) await target.removeFolder(f);
+        await target.writeMade(list.filter((f) => !gone.includes(f)));
+        file = join(folder, file);
+      } finally {
+        // A staging file of a backup that travelled (a folder here's was renamed already).
+        if (staged) await rm(staged, { force: true }).catch(() => {});
+        await target.close().catch(() => {});
+      }
+      await this.o.record({ at, ok: true, file });
       return "ran";
     } catch (err) {
-      await this.o.record({ at, ok: false, error: (err as Error).message }).catch(() => {});
+      const code = (err as { code?: unknown }).code;
+      await this.o
+        .record({
+          at,
+          ok: false,
+          error: (err as Error).message,
+          ...(typeof code === "string" && { code }),
+        })
+        .catch(() => {});
       return "failed";
     } finally {
       this.running = false;

@@ -1517,7 +1517,7 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   // Mandatory and breaking updates (G36.19): the status, the safety backup, found backups.
   updateRoutes(app, core, owner, options.setup);
   // The first boot anywhere (G39.3): role, storage, backups' destination, what reaches the machine.
-  firstBootRoutes(app, options.setup, () => options.setup?.scheduler);
+  firstBootRoutes(app, options.setup, () => options.setup?.scheduler, core, owner);
   // The knowledge (G36, the RAG): collections, sources, models, search, citations.
   knowledgeRoutes(app, () => core.knowledge, owner);
 

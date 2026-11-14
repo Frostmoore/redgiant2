@@ -805,6 +805,11 @@ export class SetupService {
     return this.o.firstBoot;
   }
 
+  /** RedGiant's data folder (backups stage their files in its tmp, p3.7.2). */
+  get dataDir(): string {
+    return this.o.dataDir;
+  }
+
   private get secretsFile() {
     return join(this.o.dataDir, "secrets.json");
   }

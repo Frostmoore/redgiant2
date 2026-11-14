@@ -76,7 +76,12 @@ export interface BackupSchedule {
   keep: number;
 }
 
-/** Where scheduled backups go: a removable disk the person picked, or a folder. */
+/**
+ * Where scheduled backups go (p3.7.2: the same three kinds wherever RedGiant runs): a disk
+ * connected here, a folder already mounted, or a folder on the network reached without mounting
+ * anything (one of the person's SSH machines over SFTP, an SMB share, another RedGiant paired
+ * as a node). No password or key is ever in it: an SMB password lives in the keychain.
+ */
 export type BackupDestination =
   | {
       kind: "disk";
@@ -86,13 +91,54 @@ export type BackupDestination =
       /** Where it is mounted for RedGiant (`/var/lib/redgiant/backups/<label>`, or udisks' place). */
       path: string;
     }
-  | { kind: "folder"; path: string };
+  | { kind: "folder"; path: string }
+  | {
+      kind: "sftp";
+      /** One of the person's machines (Settings › Machines, G38.2), with its fixed host key. */
+      machineId: string;
+      machineName: string;
+      /** The folder there: absolute, or `~/…` from the login's home. */
+      path: string;
+    }
+  | {
+      kind: "smb";
+      host: string;
+      share: string;
+      /** The folder inside the share, "/"-separated ("" for the share's top). */
+      folder: string;
+      user: string;
+      domain?: string;
+    }
+  | {
+      kind: "node";
+      /** The paired RedGiant's key fingerprint (G39.4); its storage keeps the backups. */
+      fingerprint: string;
+      name: string;
+    };
+
+/** A backup in the destination, for the list and the restore. */
+export interface BackupEntry {
+  /** "<folder>/<file>". */
+  id: string;
+  folder: string;
+  file: string;
+  bytes: number;
+  /** When it was written, when the destination says. */
+  at: string | null;
+}
 
 export interface BackupSettings {
   destination?: BackupDestination;
   schedule: BackupSchedule;
   /** The last scheduled run: when, and how it went. */
-  last?: { at: string; ok: boolean; error?: string; file?: string };
+  last?: {
+    at: string;
+    ok: boolean;
+    error?: string;
+    /** Why it failed, for the page's words: "unreachable", "auth", "disk_missing"… */
+    code?: string;
+    file?: string;
+  };
 }
 
 /** How this installation can mount a disk for backups. */
@@ -114,6 +160,28 @@ export interface StorageInfo {
   hostDisks?: number;
   /** Folders mounted under /var/lib/redgiant/backups (Proxmox's mount points, a network share). */
   places?: BackupPlace[];
+  /**
+   * In a container (p3.7.2): the host's disks it sees (lsblk lists them even without their
+   * filesystems), to say which one to pass in and how.
+   */
+  hostDiskList?: HostDisk[];
+  /** What may name this container on its host: its hostname (Docker's short id, an LXC's name). */
+  containerHint?: { hostname: string; id: string | null };
+  /** Where the host's folders must arrive inside RedGiant (`/var/lib/redgiant/backups`). */
+  backupBase?: string;
+}
+
+/** A disk of the host seen from inside a container. */
+export interface HostDisk {
+  name: string;
+  /** The kernel's device ("/dev/sdb1"): the same name on the host, it is the same kernel. */
+  path: string;
+  /** Label, model or name: what the person recognises ("Tech"). */
+  title: string;
+  sizeBytes: number;
+  transport: string;
+  /** "" when the container cannot read it (no udev), not necessarily «not formatted». */
+  fstype: string;
 }
 
 /** A folder the host mounted for backups under /var/lib/redgiant/backups/<name>. */

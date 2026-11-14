@@ -1,6 +1,6 @@
 // A fake SSH server for the machines' tests (G38.2): ssh2's own server on 127.0.0.1, a test key,
 // commands run by the local sh in a temporary folder that stands for the machine, SFTP on the same
-// folders. Never the person's machines.
+// folders (rename and remove too). Never the person's machines.
 import { type ChildProcess, spawn } from "node:child_process";
 import { timingSafeEqual } from "node:crypto";
 import {
@@ -12,8 +12,11 @@ import {
   readdirSync,
   readSync,
   realpathSync,
+  renameSync,
+  rmdirSync,
   type Stats,
   statSync,
+  unlinkSync,
   writeSync,
 } from "node:fs";
 import type { AddressInfo } from "node:net";
@@ -61,6 +64,8 @@ export async function fakeSsh(o: {
   hostKey?: string;
   keys?: string[];
   password?: string;
+  /** Programs found before the system's (fake `pct`, `mount`…: nothing real is touched). */
+  binDir?: string;
 }): Promise<FakeSsh> {
   const hostKey = o.hostKey ?? newSshKeyPair().private;
   const state: FakeSsh = {
@@ -115,7 +120,10 @@ export async function fakeSsh(o: {
           state.commands.push(info.command);
           child = spawn("sh", ["-c", info.command], {
             cwd: o.home,
-            env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: o.home },
+            env: {
+              PATH: [o.binDir, process.env.PATH ?? "/usr/bin:/bin"].filter(Boolean).join(":"),
+              HOME: o.home,
+            },
             stdio: ["ignore", "pipe", "pipe"],
           });
           children.add(child);
@@ -226,6 +234,26 @@ export async function fakeSsh(o: {
             if (x?.fd === undefined) return sftp.status(id, STATUS_CODE.FAILURE);
             writeSync(x.fd, data, 0, data.length, offset);
             sftp.status(id, STATUS_CODE.OK);
+          });
+          for (const [ev, fn] of [
+            ["REMOVE", unlinkSync],
+            ["RMDIR", rmdirSync],
+          ] as const)
+            sftp.on(ev, (id, p) => {
+              try {
+                fn(p);
+                sftp.status(id, STATUS_CODE.OK);
+              } catch (err) {
+                fail(id, err);
+              }
+            });
+          sftp.on("RENAME", (id, from, to) => {
+            try {
+              renameSync(from, to);
+              sftp.status(id, STATUS_CODE.OK);
+            } catch (err) {
+              fail(id, err);
+            }
           });
           sftp.on("CLOSE", (id, h) => {
             const k = h.toString("hex");
