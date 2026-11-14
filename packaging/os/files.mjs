@@ -212,7 +212,7 @@ export function buildFiles(version, out, root = ROOT) {
       "--owner=0",
       "--group=0",
       "--numeric-owner",
-      "--mode=a=r,u+w",
+      "--mode=a=rX,u+w",
       "-C",
       stage,
       "-cf",

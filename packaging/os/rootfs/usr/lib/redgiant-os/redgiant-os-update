@@ -173,6 +173,7 @@ files_apply() { # dir root key
   mkdir -m 0700 "$dir/files-x" "$dir/files-backup"
   zstd -dc "$dir/$archive" | tar -x --no-same-owner --no-same-permissions -C "$dir/files-x" ||
     { files_fail "the archive cannot be unpacked"; return 1; }
+  chmod -R u+rwX "$dir/files-x"
   board=$(board_of "$root")
   while IFS=$'\t' read -r path sha mode after; do
     [[ "$path" =~ ^/([A-Za-z0-9@._+-]+/)*[A-Za-z0-9@._+-]+$ ]] && ! [[ "$path" =~ /\.\.?(/|$) ]] &&
