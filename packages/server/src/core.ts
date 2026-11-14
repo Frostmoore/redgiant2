@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, sep } from "node:path";
 import { promisify } from "node:util";
 import { AcpEngine } from "@redgiant/acp";
 import {
@@ -4384,11 +4384,14 @@ export class RedGiantCore implements OrchestrationHost {
       def: {
         name: "send_file",
         description:
-          "Send the person a file from your workspace (a picture, a video, a sound, a document, anything): it appears in the chat, and on Telegram when they talk to you from there. Use it whenever they should get the file itself, instead of telling them its path.",
+          "Send the person a file from your workspace, or a file of a project you may read by its full path (a picture, a video, a sound, a document, anything): it appears in the chat, and on Telegram when they talk to you from there. Use it whenever they should get the file itself, instead of telling them its path.",
         inputSchema: {
           type: "object",
           properties: {
-            path: { type: "string", description: "The file in your workspace" },
+            path: {
+              type: "string",
+              description: "The file in your workspace, or a project's file by its full path",
+            },
             caption: { type: "string", description: "A line that goes with it" },
           },
           required: ["path"],
@@ -4396,9 +4399,16 @@ export class RedGiantCore implements OrchestrationHost {
       },
       schema: Input,
       run: async (i: z.infer<typeof Input>, ctx) => {
-        if (!(await ws.isFile(i.path).catch(() => false)))
-          return { content: `There is no file "${i.path}" in your workspace.`, isError: true };
-        const abs = await new LocalWorkspace(ws.root).resolve(i.path);
+        // Its workspace first; then a file of a place it may read (God: every project), by its
+        // full path: the knowledge table's "source", as canvas_look's pictures (p3.7.2).
+        const abs = (await ws.isFile(i.path).catch(() => false))
+          ? await new LocalWorkspace(ws.root).resolve(i.path)
+          : await this.readableElsewhere(agent, i.path);
+        if (!abs)
+          return {
+            content: `There is no file "${i.path}" in your workspace${isAbsolute(i.path) ? " or in a project you may read" : ""}.`,
+            isError: true,
+          };
         const st = await stat(abs);
         if (st.size > MAX)
           return {
@@ -4430,6 +4440,33 @@ export class RedGiantCore implements OrchestrationHost {
         return `Sent ${name} to the person, in the chat${telegram ? " and on Telegram" : ""}.`;
       },
     } as Tool;
+  }
+
+  /**
+   * A file outside the agent's workspace it may read, by its full path (symbolic links followed
+   * first): inside a project, God's folder or the assistants' desk whose files the knowledge
+   * table lets it read ("source": God every one, an agent its projects). Undefined otherwise.
+   */
+  private async readableElsewhere(agent: AgentRecord, path: string): Promise<string | undefined> {
+    if (!isAbsolute(path)) return undefined;
+    const abs = await realpath(path).catch(() => undefined);
+    if (
+      !abs ||
+      !(await stat(abs).then(
+        (x) => x.isFile(),
+        () => false,
+      ))
+    )
+      return undefined;
+    const where = await this.scopeOf(agent.ownerId, abs).catch(() => undefined);
+    if (!where) return undefined;
+    const target: KnowledgeTarget | undefined =
+      where.scope === "platform" || where.scope === "assistants"
+        ? { kind: where.scope }
+        : where.scope.startsWith("project:")
+          ? { kind: "project", projectId: where.scope.slice(8) }
+          : undefined;
+    return target && canKnowledge({ type: "agent", agent }, "source", target) ? abs : undefined;
   }
 
   private showTool(agent: AgentRecord, ws: Workspace): Tool {
