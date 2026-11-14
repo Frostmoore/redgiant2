@@ -2262,6 +2262,15 @@ const en = {
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
   newsVersion: "Version {version}",
+  news372Backups: "Backups anywhere",
+  news372BackupsText:
+    "Settings › System › Data and backups: a disk, one of your machines over SFTP (most NAS have it), a Windows or NAS shared folder, or another RedGiant paired as a node. In a container RedGiant names the host's disks and writes the steps to pass one in, or does it with your yes.",
+  news372Git: "The Gitea you already have",
+  news372GitText:
+    "Where the code lives: besides GitHub and a Gitea RedGiant starts, now your own Gitea, with its address, user and token kept in the Keychain.",
+  news372Tidy: "Tidier Settings, safer nodes",
+  news372TidyText:
+    "Even spacing everywhere, clearer External agents, and What's new always at hand in General. A node without a container runs commands only for whoever may manage it, and every node can have the name you choose.",
   news370Os: "RedGiant OS: install it anywhere",
   news370OsText:
     "A ready-made system for any machine: a USB stick installer, Proxmox (container or virtual machine, one script), Hyper-V, VirtualBox and VMware, Raspberry Pi. No screen needed; Wi-Fi, HTTPS at home with its own certificate, and updates from the page, signed and with a way back.",
@@ -8427,6 +8436,15 @@ const it: Record<Key, string> = {
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
   newsVersion: "Versione {version}",
+  news372Backups: "Copie di sicurezza ovunque",
+  news372BackupsText:
+    "Impostazioni › Sistema › Dati e copie: un disco, una delle tue macchine via SFTP (quasi tutti i NAS ce l'hanno), una cartella condivisa di Windows o di un NAS, o un altro RedGiant abbinato come nodo. In un container RedGiant ti dice quali dischi ha la macchina ospite e scrive i passi per passargliene uno, oppure lo fa lui con il tuo sì.",
+  news372Git: "Il Gitea che hai già",
+  news372GitText:
+    "Dove sta il codice: oltre a GitHub e al Gitea che avvia RedGiant, ora anche il tuo Gitea, con indirizzo, utente e token tenuto nel Portachiavi.",
+  news372Tidy: "Impostazioni più ordinate, nodi più sicuri",
+  news372TidyText:
+    "Spazi uguali ovunque, Agenti esterni spiegati meglio e Le novità sempre a portata in Generale. Un nodo senza contenitore esegue comandi solo per chi lo può gestire, e ogni nodo può avere il nome che scegli tu.",
   news370Os: "RedGiant OS: installalo ovunque",
   news370OsText:
     "Un sistema pronto per qualsiasi macchina: chiavetta USB, Proxmox (container o macchina virtuale, con uno script), Hyper-V, VirtualBox e VMware, Raspberry Pi. Senza schermo; Wi-Fi, HTTPS in casa con il suo certificato e aggiornamenti dalla pagina, firmati e con il ritorno indietro.",
