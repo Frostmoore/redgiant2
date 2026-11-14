@@ -1,6 +1,7 @@
 import { MCP_CATALOG, type PermissionRequestInfo } from "@redgiant/protocol";
 import type { CompletionRequest } from "@redgiant/providers";
 import { afterEach, describe, expect, it } from "vitest";
+import { versionLine } from "../src/core.js";
 import { startServer } from "./helpers.js";
 
 type Server = Awaited<ReturnType<typeof startServer>>;
@@ -88,7 +89,9 @@ describe("God on the platform's configuration", () => {
     expect((s as Server).provider.requests.some((q) => q.system === "Health check.")).toBe(true);
 
     // Reading the platform needs no approval.
-    expect((await say("status"))?.output).toMatch(/\tgod\tGod\t-\tactive\tfake\/bigger \(high\)\t/);
+    const status = (await say("status"))?.output;
+    expect(status).toMatch(/\tgod\tGod\t-\tactive\tfake\/bigger \(high\)\t/);
+    expect(status).toMatch(/^RedGiant: version /);
     expect(requests).toHaveLength(1);
 
     const [change] = await (s as Server).core.changes.list("me");
@@ -225,4 +228,49 @@ describe("God on the platform's configuration", () => {
       "edit_file:ask",
     ]);
   });
+});
+
+describe("platform_status says the version installed (UpdateStatus.installed)", () => {
+  const base = {
+    install: "os" as const,
+    installed: "3.7.1",
+    latest: null,
+    checkedAt: null,
+    state: "unknown" as const,
+    gate: "none" as const,
+    signed: false,
+    note: null,
+    downloadUrl: null,
+    command: null,
+    backupDir: null,
+    canUpdateHere: true,
+    canUninstall: false,
+  };
+  it.each([
+    ["not checked yet", base, "RedGiant: version 3.7.1, installed as RedGiant OS"],
+    [
+      "up to date",
+      { ...base, latest: "3.7.1", state: "latest" as const },
+      "RedGiant: version 3.7.1, installed as RedGiant OS; up to date",
+    ],
+    [
+      "an update",
+      {
+        ...base,
+        install: "docker" as const,
+        latest: "3.8.0",
+        state: "available" as const,
+        gate: "mandatory" as const,
+      },
+      "RedGiant: version 3.7.1, installed as Docker; latest release 3.8.0 (available, mandatory)",
+    ],
+    [
+      "from the source",
+      { ...base, install: "source" as const, installed: null },
+      "RedGiant: version unknown (running from the source), installed as from the source code",
+    ],
+  ])("%s", (_name, u, line) => {
+    expect(versionLine(u)).toBe(line);
+  });
+  it("without a watcher", () => expect(versionLine(undefined)).toMatch(/version unknown/));
 });

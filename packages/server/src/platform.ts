@@ -791,7 +791,7 @@ export function platformConfigTools(
       def: {
         name: "platform_status",
         description:
-          "The state of the platform: version, sandbox, agents with their effective models and modes, budgets, automations, permission policy, code changes in progress.",
+          "The state of the platform: the RedGiant version installed (the one updates compare) and how it is installed, sandbox, agents with their effective models and modes, budgets, automations, permission policy, code changes in progress.",
         inputSchema: { type: "object", properties: {} },
       },
       schema: z.object({}),

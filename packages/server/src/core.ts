@@ -102,6 +102,7 @@ import {
   toolsSwitchedOff,
   type UiLanguage,
   UNATTENDED_MAX_TURNS,
+  type UpdateStatus,
   type VaultEntry,
   type VaultSystemEntry,
   widgetOf,
@@ -315,6 +316,30 @@ const STARTED_BY: Partial<Record<RunContext["trigger"], string>> = {
   after: "the end of another automation",
   task: "the end of a task",
 };
+
+const INSTALLS: Record<string, string> = {
+  os: "RedGiant OS",
+  docker: "Docker",
+  windows: "Windows (RedGiant.exe)",
+  mac: "the Mac app",
+  source: "from the source code",
+};
+
+/**
+ * The version installed, as Settings › Updates and GET /api/update/status say it (not the
+ * packages' own numbers), with how it is installed and what the last check found (platform_status).
+ */
+export function versionLine(u: UpdateStatus | undefined): string {
+  if (!u) return "RedGiant: version unknown (no update watcher)";
+  const how = INSTALLS[u.install] ?? u.install;
+  const latest =
+    u.latest && u.latest !== u.installed
+      ? `; latest release ${u.latest} (${u.state}${u.gate !== "none" ? `, ${u.gate}` : ""})`
+      : u.latest
+        ? "; up to date"
+        : "";
+  return `RedGiant: version ${u.installed ?? "unknown (running from the source)"}, installed as ${how}${latest}`;
+}
 
 /** What starts a recipe, in a few words (platform_status). */
 function startsOn(r: Recipe): string {
@@ -4851,6 +4876,7 @@ export class RedGiantCore implements OrchestrationHost {
     const autos = await this.automations.list(ownerId);
     const projects = await this.projects.list(ownerId);
     return [
+      versionLine(this.updates?.status()),
       `Sandbox: ${this.sandbox.kind}${this.o.metal ? "; God works on the real system (metal)" : ""}`,
       "",
       "Projects (id, name, state):",
