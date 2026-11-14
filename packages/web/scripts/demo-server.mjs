@@ -2869,8 +2869,9 @@ await setup.applyAtStartup();
 core.vaultSystem = async () => setup.keysForVault();
 // DEMO_FRESH=1: a fresh install, the setup wizard takes the whole page (2026-11-06).
 if (!process.env.DEMO_FRESH) await setup.complete();
-// DEMO_SETUP_CODE=1 (G39.3): a first start from another device, its one-time code in the log.
-else if (process.env.DEMO_SETUP_CODE) await setup.startSetupCode(port, false);
+// A first start (G39.7): only the address in the log, the page creates the access; with
+// DEMO_SETUP_CODE=1 (G39.3) the one-time code is required too.
+else await setup.startSetupCode(port, false, Boolean(process.env.DEMO_SETUP_CODE));
 const running = await serve(core, new TokenAuth({ [token]: "local" }), {
   port,
   host: process.env.DEMO_HOST ?? "0.0.0.0",

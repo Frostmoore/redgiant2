@@ -19680,6 +19680,16 @@ html[data-theme="dark"] {
   flex-direction: column;
   gap: 12px;
   text-align: left;
+  min-width: 0;
+}
+/* Long lines of code scroll inside their block, never widen the page (phones). */
+.oi > *,
+.oi-part > *,
+.oi-block,
+.st-own-infra,
+.fb-own-infra {
+  min-width: 0;
+  max-width: 100%;
 }
 .oi-fields {
   display: grid;
@@ -19712,6 +19722,9 @@ html[data-theme="dark"] {
 }
 .oi-code {
   margin: 0;
+  color: var(--text);
+  max-height: none;
+  max-width: 100%;
   width: 100%;
   box-sizing: border-box;
   padding: 10px 12px;
