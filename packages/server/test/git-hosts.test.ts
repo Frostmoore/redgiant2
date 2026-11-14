@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { giteaBase } from "../src/git-hosts.js";
 import { GitHosts, type SetupHooks, SetupService, type SetupState } from "../src/index.js";
 import { startServer } from "./helpers.js";
 
@@ -17,7 +18,8 @@ function hosts(o: { badToken?: boolean; noAdmin?: boolean } = {}) {
     const method = init?.method ?? "GET";
     const path = url
       .replace("https://api.github.com", "github:")
-      .replace("http://redgiant-gitea:3000", "gitea:");
+      .replace("http://redgiant-gitea:3000", "gitea:")
+      .replace("https://git.example.org", "ext:");
     calls.push(`${method} ${path}`);
     const auth = new Headers(init?.headers).get("authorization") ?? "";
     if (path === "github:/user")
@@ -28,6 +30,14 @@ function hosts(o: { badToken?: boolean; noAdmin?: boolean } = {}) {
             { headers: { "github-authorization-token-expiration": "2027-11-03 10:00:00 UTC" } },
           );
     if (path === "github:/user/repos") return new Response("{}", { status: o.noAdmin ? 403 : 201 });
+    // The person's own Gitea (p3.7.2): user marta, token «gitea-good-token».
+    if (path === "ext:/api/v1/user")
+      return auth === `Basic ${Buffer.from("marta:gitea-good-token").toString("base64")}`
+        ? Response.json({ login: "marta" })
+        : new Response("{}", { status: 401 });
+    if (path === "ext:/api/v1/user/repos") return new Response("{}", { status: 201 });
+    if (path.startsWith("ext:/api/v1/repos/") && path.endsWith("/push_mirrors"))
+      return new Response("{}", { status: 201 });
     if (path === "gitea:/api/v1/user/repos") return new Response("{}", { status: 201 });
     if (path.startsWith("gitea:/api/v1/repos/") && path.endsWith("/push_mirrors"))
       return new Response("{}", { status: 201 });
@@ -253,6 +263,112 @@ describe("where the code lives", () => {
       s1Stop(setup);
       await s.close();
     }
+  });
+});
+
+describe("a Gitea the person already has (p3.7.2)", () => {
+  it.each([
+    ["git.example.org", "https://git.example.org"],
+    ["https://git.example.org/", "https://git.example.org"],
+    ["https://git.example.org/api/v1", "https://git.example.org"],
+    ["http://192.168.1.20:3000", "http://192.168.1.20:3000"],
+    ["https://example.org/gitea/", "https://example.org/gitea"],
+    ["https://me:pw@git.example.org", null],
+    ["ftp://git.example.org", null],
+    ["not a url at all", null],
+  ])("its address: %s", (text, want) => {
+    expect(giteaBase(text)).toBe(want);
+  });
+
+  it("checks the token, then keeps the code there (and copies every push to GitHub)", async () => {
+    const h = hosts();
+    let routesFile = "";
+    const hooks: SetupHooks = {
+      key: async () => [],
+      server: async () => [],
+      telegram: async () => null,
+      search: async () => {},
+      engine: async () => {},
+      gitea: async () => {
+        throw new Error("RedGiant's own Gitea must not be touched");
+      },
+    };
+    let setup: SetupService | undefined;
+    const s = await startServer([], {}, {}, undefined, undefined, async (core, dir) => {
+      routesFile = join(dir, "egress", "routes.json");
+      setup = new SetupService({
+        db: core.db,
+        core,
+        dataDir: join(dir, "data"),
+        ownerId: "me",
+        hooks,
+        git: new GitHosts({ fetch: h.f, routesFile }),
+      });
+      await setup.applyAtStartup();
+      return { setup };
+    });
+    try {
+      const bad = await s.api<{ code: string }>("PUT", "/api/setup/gitea/external", {
+        url: "https://git.example.org/",
+        user: "marta",
+        token: "gitea-wrong-token",
+      });
+      expect(bad.body.code).toBe("token_rejected");
+      const ok = await s.api("PUT", "/api/setup/gitea/external", {
+        url: "https://git.example.org/",
+        user: "marta",
+        token: "gitea-good-token",
+      });
+      expect(ok.body).toEqual({ user: "marta", url: "https://git.example.org" });
+      await s.api("PUT", "/api/setup/github", { token: "ghp_good_token_123456" });
+      const state = (await s.api<SetupState>("GET", "/api/setup")).body;
+      expect(state.config.git?.gitea).toEqual({
+        user: "marta",
+        publicUrl: "https://git.example.org",
+        external: true,
+      });
+      expect(state.secretsSet.gitea).toBe(true);
+      expect(JSON.stringify(state)).not.toContain("gitea-good-token");
+      const routes = JSON.parse(await readFile(routesFile, "utf8"));
+      expect(routes.gitea.upstream).toBe("https://git.example.org");
+      h.calls.length = 0;
+      const p = (await s.api<{ path: string }>("POST", "/api/projects", { name: "Sito" })).body;
+      expect(h.calls).toEqual([
+        "POST ext:/api/v1/user/repos",
+        "POST github:/user/repos",
+        "POST ext:/api/v1/repos/marta/sito/push_mirrors",
+      ]);
+      expect(await remote(p.path)).toBe("http://egress:3128/route/gitea/marta/sito.git");
+      // Disconnected: forgotten here, nothing stopped (it is the person's).
+      expect((await s.api("DELETE", "/api/setup/gitea")).status).toBe(200);
+      expect((await s.api<SetupState>("GET", "/api/setup")).body.config.git?.gitea).toBeUndefined();
+      expect(Object.keys(JSON.parse(await readFile(routesFile, "utf8")))).not.toContain("gitea");
+    } finally {
+      s1Stop(setup);
+      await s.close();
+    }
+  });
+
+  it("an external Gitea's webhook calls RedGiant's public address, never the inside one", async () => {
+    const h = hosts();
+    const g = new GitHosts({ fetch: h.f });
+    const cfg = {
+      gitea: { user: "marta", publicUrl: "https://git.example.org", external: true },
+    };
+    await expect(
+      g.hookFor(cfg, { giteaToken: "t" }, "sito", { internal: "http://redgiant:7600/h" }, ["push"]),
+    ).rejects.toMatchObject({ code: "unreachable" });
+    await g.hookFor(
+      cfg,
+      { giteaToken: "t" },
+      "sito",
+      { internal: "http://redgiant:7600/h", public: "https://rg.example.org/h" },
+      ["push"],
+    );
+    expect(h.hooks.at(-1)).toMatchObject({
+      path: "ext:/api/v1/repos/marta/sito/hooks",
+      body: { config: { url: "https://rg.example.org/h" } },
+    });
   });
 });
 

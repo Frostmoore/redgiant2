@@ -2334,6 +2334,23 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       return (setup as SetupService).startGitea(b.user, b.password);
     }),
   );
+  // A Gitea the person already has (p3.7.2): its address, a user and a token of theirs.
+  app.put("/api/setup/gitea/external", (c) =>
+    wizard(c, async () => {
+      const b = await parsed(
+        c,
+        z.object({
+          url: z.string().trim().min(3).max(300),
+          user: z
+            .string()
+            .trim()
+            .regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,39}$/),
+          token: z.string().trim().min(8).max(400),
+        }),
+      );
+      return (setup as SetupService).connectGitea(b.url, b.user, b.token);
+    }),
+  );
   app.delete("/api/setup/gitea", (c) => wizard(c, () => (setup as SetupService).stopGitea()));
   // Who makes pictures, videos and sounds (G25.3), their keys and the voices for speech.
   app.put("/api/setup/media/:kind", (c) =>

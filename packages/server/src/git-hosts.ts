@@ -1,5 +1,5 @@
 // Where the code lives (G24.5): GitHub with the user's fine-grained token, and/or a Gitea server
-// RedGiant starts by itself. Every project gets a private repository and its remote; with both,
+// RedGiant starts by itself, or one the person already has (p3.7.2: its address, user and token). Every project gets a private repository and its remote; with both,
 // Gitea keeps the code and copies every push to GitHub. Tokens never reach the sandboxes: the
 // egress proxy holds them as credential routes, and the remotes point at those routes.
 
@@ -15,7 +15,30 @@ const run = promisify(execFile);
 export interface GitHostsConfig {
   /** `expires`: when the token stops working (ISO date), as GitHub says. */
   github?: { login: string; expires?: string };
-  gitea?: { user: string; publicUrl: string };
+  /**
+   * `external`: a Gitea the person already has (p3.7.2), reached at `publicUrl` by RedGiant and
+   * the egress proxy alike; otherwise the one RedGiant runs (reached inside Docker).
+   */
+  gitea?: { user: string; publicUrl: string; external?: boolean };
+}
+
+/**
+ * A Gitea's address as people paste it («git.example.org», «https://git.example.org/»,
+ * «…/api/v1»): its base URL, http(s) only, without credentials, query or trailing slash. null
+ * when it is not one.
+ */
+export function giteaBase(text: string): string | null {
+  const t = text.trim();
+  let u: URL;
+  try {
+    u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t}`);
+  } catch {
+    return null;
+  }
+  if ((u.protocol !== "https:" && u.protocol !== "http:") || u.username || u.password) return null;
+  if (!u.hostname) return null;
+  const path = u.pathname.replace(/\/+$/, "").replace(/\/api\/v1$/, "");
+  return `${u.origin}${path}`;
 }
 
 export interface GitHostsSecrets {
@@ -56,6 +79,35 @@ export class GitHosts {
 
   get giteaUrl(): string {
     return this.o.giteaUrl ?? "http://redgiant-gitea:3000";
+  }
+
+  /** Where a configured Gitea is reached: the person's own at its address, else RedGiant's. */
+  private giteaAt(cfg: GitHostsConfig["gitea"]): string {
+    return cfg?.external ? cfg.publicUrl : this.giteaUrl;
+  }
+
+  /**
+   * A Gitea the person already has (p3.7.2): its token checked on /api/v1/user. The user name is
+   * the one Gitea gives for the token (written as Gitea writes it).
+   */
+  async checkGitea(url: string, user: string, token: string): Promise<{ user: string }> {
+    const r = await this.call(
+      `${url}/api/v1/user`,
+      { headers: { authorization: basic(user, token), accept: "application/json" } },
+      "Gitea",
+    );
+    if (r.status === 401 || r.status === 403)
+      throw new GitHostError("token_rejected", "Gitea refused the user name or the token");
+    if (!r.ok) throw new GitHostError("failed", `Gitea answered ${r.status}`);
+    const body = (await r.json().catch(() => null)) as { login?: unknown } | null;
+    if (typeof body?.login !== "string" || !body.login)
+      throw new GitHostError("failed", "That address does not answer like a Gitea");
+    if (body.login.toLowerCase() !== user.toLowerCase())
+      throw new GitHostError(
+        "token_rejected",
+        `The token belongs to ${body.login}, not to ${user}`,
+      );
+    return { user: body.login };
   }
 
   private async call(url: string, init: RequestInit, what: string): Promise<Response> {
@@ -115,7 +167,7 @@ export class GitHosts {
     }
     if (cfg.gitea && s.giteaToken)
       routes.gitea = {
-        upstream: this.giteaUrl,
+        upstream: this.giteaAt(cfg.gitea),
         headers: { authorization: basic(cfg.gitea.user, s.giteaToken) },
       };
     // Shared with the keychain's credentials (G33.4): one writer per file.
@@ -138,13 +190,18 @@ export class GitHosts {
     throw new GitHostError("failed", `GitHub answered ${r.status} creating ${name}`);
   }
 
-  private gitea(user: string, token: string, path: string, init: RequestInit = {}) {
+  private gitea(
+    g: NonNullable<GitHostsConfig["gitea"]>,
+    token: string,
+    path: string,
+    init: RequestInit = {},
+  ) {
     return this.call(
-      `${this.giteaUrl}/api/v1${path}`,
+      `${this.giteaAt(g)}/api/v1${path}`,
       {
         ...init,
         headers: {
-          authorization: basic(user, token),
+          authorization: basic(g.user, token),
           ...(init.body ? { "content-type": "application/json" } : {}),
         },
       },
@@ -152,8 +209,12 @@ export class GitHosts {
     );
   }
 
-  private async giteaRepo(user: string, token: string, name: string): Promise<void> {
-    const r = await this.gitea(user, token, "/user/repos", {
+  private async giteaRepo(
+    g: NonNullable<GitHostsConfig["gitea"]>,
+    token: string,
+    name: string,
+  ): Promise<void> {
+    const r = await this.gitea(g, token, "/user/repos", {
       method: "POST",
       body: JSON.stringify({ name, private: true }),
     });
@@ -181,7 +242,7 @@ export class GitHosts {
     const call = (path: string, init: RequestInit = {}) =>
       gitea
         ? this.gitea(
-            gitea.user,
+            gitea,
             s.giteaToken as string,
             `/repos/${gitea.user}/${projectId}${path}`,
             init,
@@ -242,8 +303,15 @@ export class GitHosts {
     events: string[],
   ): Promise<{ home: "gitea" | "github" }> {
     if (cfg.gitea && s.giteaToken) {
+      // The person's own Gitea is outside RedGiant's Docker network: it calls the public address.
+      const url = cfg.gitea.external ? urls.public : urls.internal;
+      if (!url)
+        throw new GitHostError(
+          "unreachable",
+          "Your Gitea must reach RedGiant from outside: set up access from outside home first",
+        );
       const r = await this.gitea(
-        cfg.gitea.user,
+        cfg.gitea,
         s.giteaToken,
         `/repos/${cfg.gitea.user}/${projectId}/hooks`,
         {
@@ -252,7 +320,7 @@ export class GitHosts {
             type: "gitea",
             active: true,
             events,
-            config: { url: urls.internal, content_type: "json" },
+            config: { url, content_type: "json" },
           }),
         },
       );
@@ -301,11 +369,11 @@ export class GitHosts {
     let home: "gitea" | "github";
     let remote: string;
     if (cfg.gitea && s.giteaToken) {
-      await this.giteaRepo(cfg.gitea.user, s.giteaToken, name);
+      await this.giteaRepo(cfg.gitea, s.giteaToken, name);
       if (cfg.github && s.githubToken) {
         await this.githubRepo(cfg.github.login, s.githubToken, name);
         const r = await this.gitea(
-          cfg.gitea.user,
+          cfg.gitea,
           s.giteaToken,
           `/repos/${cfg.gitea.user}/${name}/push_mirrors`,
           {

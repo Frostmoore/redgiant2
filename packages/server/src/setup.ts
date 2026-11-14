@@ -45,7 +45,7 @@ import { freePort } from "./embedded-db.js";
 import { ensureFfmpeg } from "./ffmpeg.js";
 import { firstAccessBanner } from "./first-access.js";
 import type { FirstBoot } from "./firstboot.js";
-import { GitHostError, type GitHosts, type GitHostsConfig } from "./git-hosts.js";
+import { GitHostError, type GitHosts, type GitHostsConfig, giteaBase } from "./git-hosts.js";
 import { detectHardware, type EngineVariant, type Hardware } from "./hardware.js";
 import { IMAGE_MODEL } from "./images.js";
 import { JobFailure, type JobHandle } from "./jobs.js";
@@ -1933,6 +1933,38 @@ export class SetupService {
     );
   }
 
+  /**
+   * A Gitea the person already has (p3.7.2): address, user and token, checked first; then it
+   * keeps the projects' code as RedGiant's own would (private repositories, the egress route,
+   * and with GitHub a copy of every push). The token goes to the keychain like every other key.
+   */
+  async connectGitea(
+    url: string,
+    user: string,
+    token: string,
+  ): Promise<{ user: string; url: string }> {
+    const git = this.o.git;
+    if (!git) throw new SetupError("This installation cannot use Gitea");
+    const base = giteaBase(url);
+    if (!base) throw new SetupError("That is not a Gitea address (https://…)", "bad_url");
+    if (this.config.git?.gitea && !this.config.git.gitea.external)
+      throw new SetupError("Switch off RedGiant's own Gitea first", "gitea_running");
+    let checked: { user: string };
+    try {
+      checked = await git.checkGitea(base, user, token);
+    } catch (err) {
+      throw err instanceof GitHostError ? new SetupError(err.message, err.code) : err;
+    }
+    this.secrets.giteaToken = token;
+    this.config.git = {
+      ...this.config.git,
+      gitea: { user: checked.user, publicUrl: base, external: true },
+    };
+    await this.save();
+    await this.applyGit();
+    return { user: checked.user, url: base };
+  }
+
   /** The search service in use, with what it needs; none when it lacks its address or key. */
   searchChoice(): SearchChoice | undefined {
     const c = this.config;
@@ -2123,9 +2155,12 @@ export class SetupService {
     return this.config.pihole ? (this.secrets.piholePassword ?? null) : null;
   }
 
-  /** Stops Gitea; its repositories stay, ready for the next start. */
+  /**
+   * Stops Gitea; its repositories stay, ready for the next start. The person's own Gitea is only
+   * disconnected (RedGiant forgets its token; nothing changes on it).
+   */
   async stopGitea(): Promise<void> {
-    await this.o.hooks.gitea?.(null);
+    if (!this.config.git?.gitea?.external) await this.o.hooks.gitea?.(null);
     delete this.secrets.giteaToken;
     const { gitea: _gone, ...rest } = this.config.git ?? {};
     this.config.git = rest;

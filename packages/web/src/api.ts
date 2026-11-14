@@ -133,7 +133,10 @@ export interface SetupState {
     defaultModel?: { provider: string; model: string; effort?: string };
     keyProviders?: string[];
     mode?: "standard" | "advanced";
-    git?: { github?: { login: string }; gitea?: { user: string; publicUrl: string } };
+    git?: {
+      github?: { login: string };
+      gitea?: { user: string; publicUrl: string; external?: boolean };
+    };
     remote?: { way: "tailscale" | "cloudflare" | "caddy"; url: string };
     /** «Skip: I am reachable already» (G39.8): the person's own way in. */
     reachable?: { url?: string; at: string };
@@ -1109,6 +1112,13 @@ export class Api {
   startGitea = (user: string, password: string) =>
     this.call<Job>("POST", "/api/setup/gitea", { user, password });
   stopGitea = () => this.call("DELETE", "/api/setup/gitea");
+  /** A Gitea the person already has (p3.7.2): checked, then it keeps the code. */
+  connectGitea = (url: string, user: string, token: string) =>
+    this.call<{ user: string; url: string }>("PUT", "/api/setup/gitea/external", {
+      url,
+      user,
+      token,
+    });
   /** Starts Pi-hole, the home's own DNS: a job to follow. */
   startPihole = (lanIp: string, domain?: string) =>
     this.call<Job>("POST", "/api/setup/pihole", { lanIp, ...(domain && { domain }) });

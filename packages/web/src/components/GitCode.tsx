@@ -1,7 +1,8 @@
 // Where the code lives (G24.5): GitHub with a fine-grained token made by the user (a guide says
 // which boxes to tick), and/or a Gitea server RedGiant starts on this computer. Every project
 // then gets a private repository. Used by the advanced wizard and by Settings: both show the
-// two squares (`GitTiles`); Settings adds the projects' repositories (`GitSync`).
+// two squares (`GitTiles`); Settings adds the projects' repositories (`GitSync`). Gitea is either
+// started here or one the person already has (p3.7.2: its address, user and token).
 import type { Job } from "@redgiant/protocol";
 import { useEffect, useState } from "preact/hooks";
 import type { SetupState } from "../api.js";
@@ -9,7 +10,7 @@ import { t } from "../i18n.js";
 import { IconCloud, IconServer } from "../icons.js";
 import { getApi } from "../state.js";
 import { explain } from "./Brain.js";
-import { Acts, Tile } from "./SettingsKit.js";
+import { Acts, Seg, Tile } from "./SettingsKit.js";
 import { Field, JobView, Modal, useJob } from "./ui.js";
 
 const GITHUB_NEW_TOKEN = "https://github.com/settings/personal-access-tokens/new";
@@ -109,11 +110,28 @@ export function Gitea({ s, onChange }: { s: SetupState; onChange: () => void }) 
     }
   };
   const valid = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{1,38}$/.test(user.trim()) && password.length >= 10;
+  const [kind, setKind] = useState<"own" | "existing">("own");
   return (
     <div class="brain-panel">
       <h3>Gitea</h3>
       <p class="ui-help">{t("gitGiteaHint")}</p>
-      {running ? (
+      {running?.external ? (
+        <div class="row brain-linked">
+          <span class="notice ok">
+            {t("gitGiteaLinked", { url: running.publicUrl, user: running.user })}
+          </span>
+          <a class="button" href={running.publicUrl} target="_blank" rel="noreferrer">
+            {t("gitGiteaOpen")}
+          </a>
+          <button
+            type="button"
+            class="link"
+            onClick={() => void getApi().stopGitea().then(onChange)}
+          >
+            {t("brainDisconnect")}
+          </button>
+        </div>
+      ) : running ? (
         <div class="row brain-linked">
           <span class="notice ok">{t("gitGiteaReady", { user: running.user })}</span>
           <a class="button" href={running.publicUrl} target="_blank" rel="noreferrer">
@@ -128,43 +146,118 @@ export function Gitea({ s, onChange }: { s: SetupState; onChange: () => void }) 
           </button>
         </div>
       ) : job?.state === "running" ? null : (
-        <form class="form" onSubmit={(e) => void start(e)}>
-          <Field label={t("gitGiteaUser")} help={t("gitGiteaUserHelp")}>
-            <input
-              autocomplete="username"
-              value={user}
-              onInput={(e) => setUser((e.target as HTMLInputElement).value)}
-            />
-          </Field>
-          <Field label={t("gitGiteaPassword")} help={t("gitGiteaPasswordHelp")}>
-            <input
-              type="password"
-              autocomplete="new-password"
-              value={password}
-              onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
-            />
-          </Field>
-          <Field
-            label={t("gitGiteaAgain")}
-            error={again && again !== password ? t("gitGiteaMismatch") : undefined}
-          >
-            <input
-              type="password"
-              autocomplete="new-password"
-              value={again}
-              onInput={(e) => setAgain((e.target as HTMLInputElement).value)}
-            />
-          </Field>
-          <div class="wide">
-            <button type="submit" class="primary" disabled={!valid || again !== password}>
-              {t("gitGiteaCreate")}
-            </button>
-          </div>
-        </form>
+        <>
+          <Seg
+            label={t("gitGiteaKind")}
+            value={kind}
+            options={[
+              ["own", t("gitGiteaKindOwn")],
+              ["existing", t("gitGiteaKindExisting")],
+            ]}
+            onChange={setKind}
+          />
+          {kind === "existing" ? (
+            <ExistingGitea onChange={onChange} />
+          ) : (
+            <form class="form" onSubmit={(e) => void start(e)}>
+              <Field label={t("gitGiteaUser")} help={t("gitGiteaUserHelp")}>
+                <input
+                  autocomplete="username"
+                  value={user}
+                  onInput={(e) => setUser((e.target as HTMLInputElement).value)}
+                />
+              </Field>
+              <Field label={t("gitGiteaPassword")} help={t("gitGiteaPasswordHelp")}>
+                <input
+                  type="password"
+                  autocomplete="new-password"
+                  value={password}
+                  onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
+                />
+              </Field>
+              <Field
+                label={t("gitGiteaAgain")}
+                error={again && again !== password ? t("gitGiteaMismatch") : undefined}
+              >
+                <input
+                  type="password"
+                  autocomplete="new-password"
+                  value={again}
+                  onInput={(e) => setAgain((e.target as HTMLInputElement).value)}
+                />
+              </Field>
+              <div class="wide">
+                <button type="submit" class="primary" disabled={!valid || again !== password}>
+                  {t("gitGiteaCreate")}
+                </button>
+              </div>
+            </form>
+          )}
+        </>
       )}
       {job && <JobView job={job} />}
       {error && <p class="notice error">{error}</p>}
     </div>
+  );
+}
+
+/** A Gitea the person already has: address, user, token; checked by the server, then kept. */
+function ExistingGitea({ onChange }: { onChange: () => void }) {
+  const [url, setUrl] = useState("");
+  const [user, setUser] = useState("");
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const connect = async (e: Event) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(undefined);
+    try {
+      await getApi().connectGitea(url.trim(), user.trim(), token.trim());
+      setToken("");
+      onChange();
+    } catch (err) {
+      setError(explain(err));
+    }
+    setBusy(false);
+  };
+  const valid =
+    url.trim().length >= 3 &&
+    /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,39}$/.test(user.trim()) &&
+    token.trim().length >= 8;
+  return (
+    <form class="form" onSubmit={(e) => void connect(e)}>
+      <Field label={t("gitGiteaUrl")} help={t("gitGiteaUrlHelp")}>
+        <input
+          type="url"
+          autocomplete="url"
+          placeholder="https://git.example.org"
+          value={url}
+          onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
+        />
+      </Field>
+      <Field label={t("gitGiteaExtUser")}>
+        <input
+          autocomplete="username"
+          value={user}
+          onInput={(e) => setUser((e.target as HTMLInputElement).value)}
+        />
+      </Field>
+      <Field label={t("gitGiteaToken")} help={t("gitGiteaTokenHelp")}>
+        <input
+          type="password"
+          autocomplete="off"
+          value={token}
+          onInput={(e) => setToken((e.target as HTMLInputElement).value)}
+        />
+      </Field>
+      <div class="wide">
+        <button type="submit" class="primary" disabled={busy || !valid}>
+          {busy ? t("wzTrying") : t("gitGiteaConnect")}
+        </button>
+      </div>
+      {error && <p class="notice error wide">{error}</p>}
+    </form>
   );
 }
 

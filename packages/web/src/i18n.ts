@@ -1632,7 +1632,18 @@ const en = {
   gitGithubTokenHelp: "It starts with github_pat_. GitHub shows it only once.",
   gitGithubLinked: "Connected as @{login}",
   gitGiteaHint:
-    "A Git server of your own, on this computer: the repositories stay here, and you look at them in the browser like on GitHub. RedGiant starts it and keeps it updated.",
+    "A Git server of your own, on this computer: the repositories stay here, and you look at them in the browser like on GitHub. RedGiant starts it and keeps it updated. Or connect a Gitea you already have.",
+  gitGiteaKind: "Which Gitea",
+  gitGiteaKindOwn: "Start one here",
+  gitGiteaKindExisting: "A Gitea you already have",
+  gitGiteaUrl: "Your Gitea's address",
+  gitGiteaUrlHelp: "As you open it in the browser, for example https://git.example.org.",
+  gitGiteaExtUser: "Your user name on it",
+  gitGiteaToken: "An access token",
+  gitGiteaTokenHelp:
+    "On Gitea: Settings › Applications › Generate token, with read and write on repository and user. It stays in the keychain, never in a file.",
+  gitGiteaConnect: "Try and connect",
+  gitGiteaLinked: "Connected to {url}, user {user}",
   gitGiteaUser: "Your Gitea user name",
   gitGiteaUserHelp: "Letters, digits, dots, dashes; for example mario.",
   gitGiteaPassword: "A password for Gitea",
@@ -3266,7 +3277,8 @@ const en = {
   wzCodeGithub:
     "The repositories stay on your GitHub account. It needs a token allowed to make them.",
   wzCodeGiteaTitle: "A Gitea of your own",
-  wzCodeGitea: "A small private GitHub on this computer: RedGiant installs and starts it.",
+  wzCodeGitea:
+    "A small private GitHub on this computer, installed and started by RedGiant, or the Gitea you already have.",
   wzRemoteQ: "Access from outside",
   wzRemoteLead:
     "Open RedGiant from your phone or another computer, at a safe address. You can also leave it for later: from outside you still reach it with Telegram.",
@@ -7640,7 +7652,18 @@ const it: Record<Key, string> = {
   gitGithubTokenHelp: "Comincia con github_pat_. GitHub lo mostra una volta sola.",
   gitGithubLinked: "Collegato come @{login}",
   gitGiteaHint:
-    "Un server Git tutto tuo, su questo computer: le repository restano qui e le guardi nel browser come su GitHub. RedGiant lo avvia e lo tiene aggiornato.",
+    "Un server Git tutto tuo, su questo computer: le repository restano qui e le guardi nel browser come su GitHub. RedGiant lo avvia e lo tiene aggiornato. Oppure collega un Gitea che hai già.",
+  gitGiteaKind: "Quale Gitea",
+  gitGiteaKindOwn: "Avvialo qui",
+  gitGiteaKindExisting: "Un Gitea che hai già",
+  gitGiteaUrl: "L'indirizzo del tuo Gitea",
+  gitGiteaUrlHelp: "Come lo apri nel browser, per esempio https://git.example.org.",
+  gitGiteaExtUser: "Il tuo nome utente lì",
+  gitGiteaToken: "Un token di accesso",
+  gitGiteaTokenHelp:
+    "Su Gitea: Impostazioni › Applicazioni › Genera token, con lettura e scrittura su repository e utente. Resta nel Portachiavi, mai in un file.",
+  gitGiteaConnect: "Prova e collega",
+  gitGiteaLinked: "Collegato a {url}, utente {user}",
   gitGiteaUser: "Il tuo nome utente su Gitea",
   gitGiteaUserHelp: "Lettere, numeri, punti, trattini; per esempio mario.",
   gitGiteaPassword: "Una password per Gitea",
@@ -9290,7 +9313,8 @@ const it: Record<Key, string> = {
   wzCodeGithub:
     "Le repository stanno sul tuo account GitHub. Serve un token con il permesso di crearle.",
   wzCodeGiteaTitle: "Un Gitea tutto tuo",
-  wzCodeGitea: "Un piccolo GitHub privato su questo computer: RedGiant lo installa e lo avvia.",
+  wzCodeGitea:
+    "Un piccolo GitHub privato su questo computer, installato e avviato da RedGiant, oppure il Gitea che hai già.",
   wzRemoteQ: "Accesso da fuori casa",
   wzRemoteLead:
     "Apri RedGiant dal telefono o da un altro computer, a un indirizzo sicuro. Puoi anche lasciarlo per dopo: da fuori arrivi comunque con Telegram.",
