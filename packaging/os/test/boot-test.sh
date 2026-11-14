@@ -22,6 +22,17 @@ MODE=${1:-}
 shift || true
 ARCH=amd64 FIRMWARE=uefi SECUREBOOT=0 WIFI=0 DISK="" ISO="" LOGS=. WORK="" TIMEOUT=${TIMEOUT:-3600} PORT=17600 TLS_PORT=17643
 NIC=virtio-net-pci KERNEL="" INITRD="" APPEND=""
+# The machine's CA certificate as the self-test printed it on the console (the last one), base64.
+ca_from_console() {
+  sed 's/\r$//' "$1" | awk '
+    /\033/ { next }
+    /REDGIANT-SELFTEST ca / { c = 1; buf = ""; sub(/^.*REDGIANT-SELFTEST ca /, "") }
+    c && /REDGIANT-SELFTEST/ && !/REDGIANT-SELFTEST ca / { c = 0; last = buf; next }
+    c { sub(/\[ *[0-9]+\.[0-9]+\].*$/, ""); buf = buf $0 }
+    END { print (c ? buf : last) }
+  ' | tr -cd 'A-Za-z0-9+/='
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --arch) ARCH=$2 && shift ;;
@@ -168,7 +179,10 @@ case "$MODE" in
     # From outside the machine, through the forwarded port.
     if curl -fsS --max-time 10 "http://127.0.0.1:$PORT/api/health"; then echo; else echo "::error::/api/health not reachable from the host"; ok=0; fi
     # HTTPS from outside, trusting only the machine's own CA (its certificate from the console).
-    grep -a "REDGIANT-SELFTEST ca " "$SERIAL" | tail -1 | sed 's/\r$//; s/^.*REDGIANT-SELFTEST ca //' | base64 -d >"$WORK/ca.crt" 2>/dev/null
+    # The kernel may write in the middle of that long line (seen: «[  156.785042] wlan0:
+    # deauthenticated …» and a line break inside the base64): its messages are cut out and the
+    # base64 is joined again up to the next self-test line.
+    ca_from_console "$SERIAL" | base64 -d >"$WORK/ca.crt" 2>/dev/null
     if [ -s "$WORK/ca.crt" ] && curl -fsS --max-time 10 --cacert "$WORK/ca.crt" --resolve "redgiant.local:$TLS_PORT:127.0.0.1" "https://redgiant.local:$TLS_PORT/api/health"; then
       echo
       echo "https from the host with the local CA: ok"
