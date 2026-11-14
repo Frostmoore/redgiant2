@@ -529,8 +529,12 @@ export class Machines {
       try {
         const c = await this.connect(ownerId, m);
         try {
-          const out = await execText(c, 'uname -a 2>/dev/null || ver; printf "%s" "$HOME"');
-          const [system = "", home = ""] = splitLast(out.stdout);
+          let out = await execText(c, 'uname -a && printf "%s" "$HOME"');
+          // Windows (PowerShell or cmd as the login shell): no uname; cmd reads the same line
+          // from both, and %…% means nothing to PowerShell.
+          if (out.exitCode !== 0 || !out.stdout.trim())
+            out = await execText(c, 'cmd /d /c "ver & <nul set /p=%USERPROFILE%"');
+          const [system = "", home = ""] = splitLast(out.stdout.replace(/\r/g, "").trimStart());
           r = {
             ok: true,
             code: "ok",
