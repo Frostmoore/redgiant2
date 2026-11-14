@@ -162,7 +162,7 @@ key from a window of its own, and from then on every agent can use it (unless yo
 - «Add up the columns of a CSV and draw a chart.»
 
 You see the package before it installs: what it adds, which sites it may reach (or none), its code
-and its tests, with *Approve and install* off until every test passes.
+and its tests, with _Approve and install_ off until every test passes.
 
 ### The Canvas: any file, in open formats
 
