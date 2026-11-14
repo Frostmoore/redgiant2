@@ -2337,6 +2337,15 @@ const en = {
   newsTitle: "What is new in RedGiant {version}",
   newsOk: "Got it",
   newsVersion: "Version {version}",
+  news373Voice: "Your voice, your way",
+  news373VoiceText:
+    "Settings › Voice: choose your own wake word, a transcription in the cloud (OpenAI, Groq, ElevenLabs) or on your computers, a voice that reads the answers (OpenAI, ElevenLabs, Gemini or the browser's), and the volume. Every voice message speaks your language.",
+  news373Home: "Your home services, seen by RedGiant",
+  news373HomeText:
+    "Access from outside › your own infrastructure: why RedGiant may not find your Gitea or NAS by name, what to write in the router or the home DNS, and «Try a name» to check it.",
+  news373Os: "RedGiant OS updates itself whole",
+  news373OsText:
+    "Updates now bring RedGiant OS's own files too (helpers, network, HTTPS), signed and with a way back, not only RedGiant.",
   news372Backups: "Backups anywhere",
   news372BackupsText:
     "Settings › System › Data and backups: a disk, one of your machines over SFTP (most NAS have it), a Windows or NAS shared folder, or another RedGiant paired as a node. In a container RedGiant names the host's disks and writes the steps to pass one in, or does it with your yes.",
@@ -8641,6 +8650,15 @@ const it: Record<Key, string> = {
   newsTitle: "Le novità di RedGiant {version}",
   newsOk: "Ho capito",
   newsVersion: "Versione {version}",
+  news373Voice: "La tua voce, a modo tuo",
+  news373VoiceText:
+    "Impostazioni › Voce: scegli la tua parola di attivazione, una trascrizione in cloud (OpenAI, Groq, ElevenLabs) o sui tuoi computer, una voce che legge le risposte (OpenAI, ElevenLabs, Gemini o quella del browser) e il volume. Ogni messaggio della voce parla la tua lingua.",
+  news373Home: "I tuoi servizi di casa, visti da RedGiant",
+  news373HomeText:
+    "Accesso da fuori casa › la tua infrastruttura: perché RedGiant può non trovare per nome il tuo Gitea o il NAS, cosa scrivere nel router o nel DNS di casa, e «Prova un nome» per controllarlo.",
+  news373Os: "RedGiant OS si aggiorna tutto",
+  news373OsText:
+    "Gli aggiornamenti portano anche i file di RedGiant OS (aiutanti, rete, HTTPS), firmati e con il ritorno indietro, non solo RedGiant.",
   news372Backups: "Copie di sicurezza ovunque",
   news372BackupsText:
     "Impostazioni › Sistema › Dati e copie: un disco, una delle tue macchine via SFTP (quasi tutti i NAS ce l'hanno), una cartella condivisa di Windows o di un NAS, o un altro RedGiant abbinato come nodo. In un container RedGiant ti dice quali dischi ha la macchina ospite e scrive i passi per passargliene uno, oppure lo fa lui con il tuo sì.",
