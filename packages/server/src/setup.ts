@@ -324,6 +324,11 @@ export interface SetupConfig {
   git?: GitHostsConfig;
   /** How RedGiant is reached from outside home, and at which address (G24.6). */
   remote?: { way: RemoteRequest["way"]; url: string };
+  /**
+   * «Skip: I am reachable already» (G39.8): the person reaches RedGiant through their own
+   * infrastructure (a proxy, a VPN, a home DNS), at `url` when they said it; set at `at`.
+   */
+  reachable?: { url?: string; at: string };
   /** Pi-hole, when chosen (its admin password is in the secrets). */
   pihole?: { lanIp: string; domain?: string; adminUrl: string };
   /**
@@ -1053,7 +1058,7 @@ export class SetupService {
     if (!this.locked.images && s.openaiImagesKey) this.applyImages();
     this.applyMedia();
     // Links sent to the phone (boards on Telegram) use the way in from outside.
-    this.o.core.setPublicUrl(c.remote?.url);
+    this.o.core.setPublicUrl(c.remote?.url ?? c.reachable?.url);
     if (c.subscriptions?.chatgpt && h.chatgptSubscription)
       await run("ChatGPT subscription", h.chatgptSubscription(true));
     if (c.subscriptions?.claude && h.claudeSubscription)
@@ -2160,7 +2165,22 @@ export class SetupService {
     delete this.config.remote;
     delete this.secrets.cloudflareToken;
     await this.save();
-    this.o.core.setPublicUrl(undefined);
+    this.o.core.setPublicUrl(this.config.reachable?.url);
+  }
+
+  /**
+   * «Skip: I am reachable already» (G39.8): RedGiant stops inviting to set up its own ways out,
+   * and its links use the person's address. Off again: the invitations come back.
+   */
+  async setReachable(on: boolean, url?: string): Promise<void> {
+    if (on)
+      this.config.reachable = {
+        ...(url && { url: url.replace(/\/$/, "") }),
+        at: new Date().toISOString(),
+      };
+    else delete this.config.reachable;
+    await this.save();
+    if (!this.config.remote) this.o.core.setPublicUrl(this.config.reachable?.url);
   }
 
   /**

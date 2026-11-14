@@ -121,6 +121,22 @@ export interface NetDetected {
   localDns: string | null;
   /** The name the page used to reach RedGiant, when it is a name. */
   hostName: string | null;
+  /**
+   * RedGiant is reached already (G39.8): the page came through a proxy at home (X-Forwarded-*
+   * headers on a connection from a private address) or with a name instead of an address.
+   */
+  reachedAs?: ReachedAs | null;
+  /** RedGiant on the local network, for the blocks to copy (address null when unknown). */
+  lan?: { address: string | null; port: number };
+}
+
+/** How the page reached RedGiant when it is reached already (G39.8). */
+export interface ReachedAs {
+  /** The name, as the person typed it (no port). */
+  host: string;
+  https: boolean;
+  /** "proxy": a reverse proxy in front; "name": a name of the home's DNS, straight to RedGiant. */
+  through: "proxy" | "name";
 }
 
 /** SSH into the machine (RedGiant OS): off by default, keys only, through the OS helper. */

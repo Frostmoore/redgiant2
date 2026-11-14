@@ -86,6 +86,7 @@ import { AgentLanguagePicker } from "./LanguagePicker.js";
 import { hardwareText, LocalModels } from "./LocalModels.js";
 import { modelName } from "./ModelMenu.js";
 import { OsNetworkSection } from "./OsSystem.js";
+import { OwnInfra } from "./OwnInfra.js";
 import { PromptRefiner } from "./PromptRefiner.js";
 import { RemoteAccess } from "./RemoteAccess.js";
 import { Safety } from "./Safety.js";
@@ -727,6 +728,12 @@ function RemoteStep() {
       <Head q={t("wzRemoteQ")} lead={t("fbRemoteLead")} />
       <NetFound />
       <OsNetworkSection wizard />
+      {/* Already have your own infrastructure (G39.8): the guide, filled with what was seen. */}
+      <div class="wz-card wz-left fb-own-infra">
+        <h2 class="wz-sub">{t("oiTitle")}</h2>
+        <p class="wz-subl">{t("oiLead")}</p>
+        <OwnInfra s={s} onChange={reload} />
+      </div>
       <div class="wz-card wz-left">
         <RemoteAccess s={s} onChange={reload} />
       </div>

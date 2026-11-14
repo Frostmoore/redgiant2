@@ -513,7 +513,8 @@ function RemoteNotice() {
     void getApi()
       .setup()
       .then(
-        (s) => setMissing(!s.config.remote),
+        // Reached already through the person's own infrastructure (G39.8): nothing to ask.
+        (s) => setMissing(!s.config.remote && !s.config.reachable),
         () => {},
       );
   }, [hidden]);

@@ -361,6 +361,16 @@ says so and does not offer the redirect for that address; names other than the m
 ones are never redirected. «HTTPS in the local network» switches Caddy off, for instance before
 choosing «Your own domain» in Access from outside (that way needs ports 80 and 443 itself).
 
+## Already have a proxy, a VPN or a home DNS
+
+Put RedGiant OS behind them like any other service: a Caddy on another machine with
+`reverse_proxy <RedGiant's address>:7600`, Tailscale on the machine or as a subnet router, a name in
+Pi-hole, AdGuard or the router. The blocks to copy and how to check it answers are in
+[Already have your own infrastructure](INSTALL.md#already-have-your-own-infrastructure), and in the
+page (Settings › Access from outside home, and the first start), filled with the machine's data.
+When the page comes through your proxy RedGiant says «You are reachable already as <name>»;
+«Skip: I am reachable already» stops it asking to set up its own ways.
+
 ## Where the data lives
 
 Everything RedGiant keeps is in **`/var/lib/redgiant`**, on the system disk:

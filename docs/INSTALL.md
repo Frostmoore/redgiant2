@@ -206,6 +206,129 @@ there. The main settings:
   password first: see [Already have your own infrastructure](#already-have-your-own-infrastructure).
 - **What sandboxes may reach**: `docker/egress.json` (package registries, GitHub, Hugging Face…).
 
+## Already have your own infrastructure
+
+If you already reach your machines through a reverse proxy, a VPN or a home DNS, RedGiant goes
+behind them like any other service: you do not need any of its own ways out (Tailscale, Cloudflare,
+its own domain). The same guide is in Settings › Access from outside home and in the first start,
+filled with RedGiant's name, address and port. When RedGiant sees the page arrive through a proxy of
+your network (`X-Forwarded-*` headers on a connection from a private address) or with a name
+instead of an address, it says **«You are reachable already as <host>»** and opens the guide.
+**«Skip: I am reachable already»** stops the invitations to set up RedGiant's own ways and makes
+its links (Telegram…) use your address.
+
+Set RedGiant's password first: from outside home it is the lock (the first page opened from your
+network asks for it anyway, «Create your access»). Below, `192.168.1.50:7600` is RedGiant's
+address and port in your network and `redgiant.example.com` the name you will open.
+
+### A reverse proxy
+
+The proxy can run on another machine; it only needs to reach RedGiant's address. It gets the
+certificate and passes everything on, including the WebSocket at `/ws` that keeps the page live.
+
+**Caddy**, a site of its own:
+
+```caddyfile
+redgiant.example.com {
+	reverse_proxy 192.168.1.50:7600
+}
+```
+
+Inside a wildcard site you already have (`*.home.example.com`, its certificate through a DNS
+challenge):
+
+```caddyfile
+*.home.example.com {
+	@redgiant host redgiant.home.example.com
+	handle @redgiant {
+		reverse_proxy 192.168.1.50:7600
+	}
+	# … the other names of the wildcard
+}
+```
+
+Then `caddy reload` (or restart its container).
+
+**Traefik**, file provider (dynamic configuration); with Docker labels use the same rule and
+`loadbalancer.server.url`, and your own entry point and certificate resolver names:
+
+```yaml
+http:
+  routers:
+    redgiant:
+      rule: Host(`redgiant.example.com`)
+      entryPoints: [websecure]
+      service: redgiant
+      tls:
+        certResolver: letsencrypt
+  services:
+    redgiant:
+      loadBalancer:
+        servers:
+          - url: http://192.168.1.50:7600
+```
+
+**Nginx Proxy Manager**: Hosts › Proxy Hosts › Add Proxy Host; Domain Names `redgiant.example.com`;
+Scheme `http`, Forward Hostname / IP `192.168.1.50`, Forward Port `7600`; switch on **Websockets
+Support** and Block Common Exploits; SSL: request a new certificate, Force SSL, HTTP/2. With plain
+Nginx, pass the `Upgrade` and `Connection` headers for `/ws`.
+
+**Forward auth (Authelia, Authentik…) in front?** Better not. RedGiant has its own password, with
+limited tries and an optional code from an authenticator app, and a sign-in in front of it blocks
+everything that comes in with its own token: the apps, the command line, ACP agents, the browser
+extension and the webhooks (Telegram, WhatsApp, automations). If you want it anyway, leave `/api/`
+and `/ws` out of it, so forward auth guards the page and RedGiant's password the rest:
+
+```caddyfile
+redgiant.example.com {
+	@app path /api/* /ws
+	handle @app {
+		reverse_proxy 192.168.1.50:7600
+	}
+	handle {
+		forward_auth authelia:9091 {
+			uri /api/authz/forward-auth
+			copy_headers Remote-User Remote-Groups
+		}
+		reverse_proxy 192.168.1.50:7600
+	}
+}
+```
+
+### Tailscale, WireGuard, ZeroTier
+
+- **Tailscale on RedGiant's machine**: install it and sign in (`tailscale up`); from your devices in
+  the tailnet RedGiant opens at `http://<machine>:7600`. For HTTPS with a real certificate:
+  `tailscale serve --bg 7600`, then `https://<machine>.<tailnet>.ts.net`.
+- **Tailscale as a subnet router**, on another device of the house (the router, a Pi, the proxy's
+  machine): `tailscale up --advertise-routes=192.168.1.0/24`, then approve the route in the admin
+  console (Machines › Edit route settings). Your phone reaches `http://192.168.1.50:7600` from
+  anywhere, and the proxy's names too once your home DNS is in Tailscale's DNS › Nameservers
+  (restricted to your domain).
+- **WireGuard, ZeroTier and the others**: the same idea, with the home network in the peer's
+  `AllowedIPs` (WireGuard) or as a managed route (ZeroTier).
+
+### A home DNS
+
+A name instead of an address: point it to the proxy when there is one, otherwise to RedGiant.
+
+- **Pi-hole**: Settings › Local DNS › DNS Records: `redgiant.example.com` → the address. Every name
+  of a wildcard at once, in a file in `/etc/dnsmasq.d/` (Pi-hole 6: enable
+  `misc.etc_dnsmasq_d`): `address=/home.example.com/192.168.1.2`.
+- **AdGuard Home**: Filters › DNS rewrites: `*.home.example.com` (or the single name) → the address.
+- **The router**: its «static DNS», «local names» or DHCP reservation page.
+
+### Check that it answers
+
+From any computer:
+
+```sh
+curl -s https://redgiant.example.com/api/health
+```
+
+RedGiant answers `{"ok":true,…}`. No answer: check the name in the DNS, the proxy's block and, from
+outside, the VPN. The page's «Check from here» button does the same from the browser.
+
 ## Programs downloaded when needed
 
 Some file conversions need a free program. RedGiant never bundles them: each one is downloaded the

@@ -135,6 +135,8 @@ export interface SetupState {
     mode?: "standard" | "advanced";
     git?: { github?: { login: string }; gitea?: { user: string; publicUrl: string } };
     remote?: { way: "tailscale" | "cloudflare" | "caddy"; url: string };
+    /** «Skip: I am reachable already» (G39.8): the person's own way in. */
+    reachable?: { url?: string; at: string };
     pihole?: { lanIp: string; domain?: string; adminUrl: string };
     server?: { baseUrl: string };
     searxngUrl?: string;
@@ -1081,6 +1083,9 @@ export class Api {
       | { way: "caddy"; domain: string },
   ) => this.call<Job>("POST", "/api/setup/remote", req);
   stopRemote = () => this.call("DELETE", "/api/setup/remote");
+  /** «Skip: I am reachable already» (G39.8), or the invitations back (`on: false`). */
+  setReachable = (on: boolean, url?: string) =>
+    this.call("PUT", "/api/setup/reachable", { on, ...(url && { url }) });
   setPassword = (password: string) => this.call("PUT", "/api/auth/password", { password });
   newCodeSecret = () => this.call<{ secret: string; url: string }>("POST", "/api/auth/code/new");
   enableCode = (secret: string, code: string) =>

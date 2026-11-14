@@ -4,7 +4,7 @@
 // through the OS helper (os-helper.ts) or udisks2; without either the page says so.
 import { constants } from "node:fs";
 import { access, mkdir, readdir, readFile, rm, statfs, writeFile } from "node:fs/promises";
-import { platform } from "node:os";
+import { networkInterfaces, platform } from "node:os";
 import { join, posix, win32 } from "node:path";
 import type {
   BackupDestination,
@@ -22,12 +22,15 @@ import { LSBLK_ARGS, parseLsblk, run, withFree } from "./discovery.js";
 import { bareHost, LanHttpsStore } from "./lan-https.js";
 import {
   hostName,
+  lanEndpoint,
   localDnsServer,
   parseTailscaleStatus,
   proxiesRunning,
   proxyInFront,
+  reachedAs,
 } from "./net-detect.js";
 import { HelperError, type OsHelper } from "./os-helper.js";
+import { lanAddresses } from "./setup-code.js";
 import { parseWifi, wifiUnavailable } from "./wifi.js";
 
 const GB = 1024 ** 3;
@@ -230,8 +233,14 @@ export class FirstBoot {
     }
   }
 
-  /** What already reaches the machine (the page's request says if a proxy is in front). */
-  async net(header: (name: string) => string | undefined): Promise<NetDetected> {
+  /**
+   * What already reaches the machine (the page's request says if a proxy is in front, and with
+   * its connection whether RedGiant is reached already, G39.8).
+   */
+  async net(
+    header: (name: string) => string | undefined,
+    conn: { remote?: string | undefined; localPort?: number | undefined } = {},
+  ): Promise<NetDetected> {
     let tailscale: NetDetected["tailscale"] = { state: "absent" };
     if (this.o.helper) {
       const r = await this.o.helper
@@ -254,6 +263,8 @@ export class FirstBoot {
       proxiesRunning: proxiesRunning(comms),
       localDns: localDnsServer(resolv),
       hostName: hostName(header("host")),
+      reachedAs: reachedAs(header, conn.remote),
+      lan: lanEndpoint(header("host"), lanAddresses(networkInterfaces()), conn.localPort),
     };
   }
 

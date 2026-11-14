@@ -5861,6 +5861,85 @@ const en = {
   fbCodeWrong: "Wrong code: check it on the machine's screen.",
   fbCodeTooMany: "Too many wrong tries: wait 15 minutes.",
   fbCodeNone: "This code was used already: restart the machine for a new one.",
+  oiTitle: "Already have your own infrastructure",
+  oiLead:
+    "A reverse proxy, a VPN, a home DNS: if you already reach your machines that way, RedGiant goes behind them like any other service. Here are the blocks to copy.",
+  oiCopy: "Copy",
+  oiCopied: "Copied",
+  oiOpen: "Show the guide",
+  oiReachedAs: "You are reachable already as {host}.",
+  oiReachedProxy:
+    "This page came through a reverse proxy of your network: the guide below is filled with what RedGiant saw.",
+  oiReachedName:
+    "This page came with a name of your network: at home it works already; from outside one of the ways below is needed (Tailscale, for instance).",
+  oiSaid:
+    "You said RedGiant is reachable already your own way: it does not ask again to set up its ways.",
+  oiSaidUrl:
+    "You said RedGiant is reachable already at {url}: it does not ask again to set up its ways, and its links (Telegram…) use that address.",
+  oiSaidUndo: "Ask again",
+  oiName: "RedGiant's name",
+  oiNameHelp: "The name you will open, e.g. redgiant.home.example.com.",
+  oiAddress: "RedGiant's address in the network",
+  oiAddressHelp: "Where the proxy or the VPN finds RedGiant; its port is {port}.",
+  oiPart: "What you have",
+  oiPartProxy: "Reverse proxy",
+  oiPartVpn: "Tailscale or another VPN",
+  oiPartDns: "Home DNS",
+  oiProxyLead:
+    "The proxy can be on another machine: it only needs to reach RedGiant's address. It gets the certificate (HTTPS) and sends everything on, the WebSocket included.",
+  oiCaddy: "Caddyfile: a site of its own",
+  oiCaddyWildcard: "Caddyfile: inside a wildcard site you already have (*.{domain})",
+  oiCaddyReload: "Then reload Caddy (caddy reload, or restart its container).",
+  oiTraefik: "Traefik: file provider (dynamic configuration)",
+  oiTraefikNote:
+    "With Docker labels instead: the same rule and the URL as a service with loadbalancer.server.url. Use your entry point and certificate resolver names.",
+  oiNpm1: "Hosts › Proxy Hosts › Add Proxy Host; Domain Names: {name}.",
+  oiNpm2: "Scheme http, Forward Hostname / IP {address}, Forward Port {port}.",
+  oiNpm3:
+    "Switch on «Websockets Support» (RedGiant's page lives on a WebSocket) and «Block Common Exploits».",
+  oiNpm4: "SSL: «Request a new SSL Certificate», «Force SSL», «HTTP/2 Support». Save.",
+  oiWs: "RedGiant keeps the page live through a WebSocket at /ws: Caddy and Traefik pass it on by themselves; Nginx needs the Upgrade headers (Websockets Support in Nginx Proxy Manager).",
+  oiAuthTitle: "Authelia, Authentik or another forward auth in front?",
+  oiAuthWhy:
+    "Better not: RedGiant has its own password, with limited tries and the optional code from an authenticator app, and a sign-in in front of it blocks the app, the command line, ACP agents, the browser extension and the webhooks (Telegram, WhatsApp, automations), which come in with their own tokens.",
+  oiAuthIf:
+    "If you want it anyway, leave /api/ and /ws out of it: forward auth then guards the page, and RedGiant's password everything else.",
+  oiAuthCaddy: "Caddyfile with forward auth (Authelia), leaving out the app's paths",
+  oiTsHere: "Tailscale on RedGiant's machine",
+  oiTsHereLead:
+    "Install Tailscale on the machine and sign in (tailscale up): from your devices in the tailnet RedGiant opens at http://<machine>:7600. For HTTPS with a real certificate:",
+  oiTsRunning:
+    "Tailscale runs here already as {name}: from your devices in the tailnet RedGiant opens with that name. For HTTPS with a real certificate:",
+  oiTsServe: "On the machine",
+  oiTsSubnet: "Tailscale as a subnet router",
+  oiTsSubnetLead:
+    "Tailscale on another device of the house (the router, a Pi, the proxy's machine) that shares the network {subnet}:",
+  oiTsSubnetThen:
+    "Approve the route in Tailscale's admin console (Machines › Edit route settings). Your phone then opens http://{address}:{port} from anywhere, and the names of your home DNS too if you add it in DNS › Nameservers (restricted to your domain).",
+  oiOtherVpn: "WireGuard, ZeroTier and the others",
+  oiOtherVpnLead:
+    "The same idea: with the home network {subnet} in the peer's AllowedIPs (WireGuard) or as a managed route (ZeroTier), RedGiant opens at its home address.",
+  oiDnsLead:
+    "A name instead of an address: point it to the proxy when there is one, otherwise to RedGiant's address.",
+  oiDnsPihole: "Pi-hole: Settings › Local DNS › DNS Records: {name} → {address}.",
+  oiDnsAdguard: "AdGuard Home: Filters › DNS rewrites: *.{domain} or the single name → {address}.",
+  oiDnsRouter:
+    "The router: its «static DNS», «local names» or DHCP reservation page (the name varies by router).",
+  oiDnsWildcard: "Pi-hole or dnsmasq, every name of *.{domain} at once (a file in /etc/dnsmasq.d/)",
+  oiDnsTs:
+    "Away from home with Tailscale: add the home DNS in Tailscale's DNS › Nameservers, restricted to your domain, so the same names work outside too.",
+  oiCheck: "Check that it answers",
+  oiCheckLead: 'From any computer: RedGiant answers {"ok":true,…}.',
+  oiCheckGo: "Check {url} from here",
+  oiCheckRedgiant: "RedGiant answers at this address.",
+  oiCheckAnswers:
+    "Something answers at this address (the browser does not let the page read who): open it to see RedGiant.",
+  oiCheckNo:
+    "No answer from this browser: check the name in the DNS, the proxy's block and, from outside, the VPN.",
+  oiSkip: "Skip: I am reachable already",
+  oiSkipNote:
+    "RedGiant stops asking to set up its own ways out (Tailscale, Cloudflare, its own domain); they stay here if you want one later.",
+  remoteWaysFolded: "RedGiant's own ways out",
   faTitle: "Create your access",
   faLead:
     "Welcome to RedGiant. Choose the password you will sign in with from this and your other devices: then you are in.",
@@ -11813,6 +11892,86 @@ const it: Record<Key, string> = {
   fbCodeWrong: "Codice sbagliato: controllalo sullo schermo della macchina.",
   fbCodeTooMany: "Troppi tentativi sbagliati: aspetta 15 minuti.",
   fbCodeNone: "Questo codice è già stato usato: riavvia la macchina per averne uno nuovo.",
+  oiTitle: "Hai già un'infrastruttura",
+  oiLead:
+    "Un reverse proxy, una VPN, un DNS di casa: se raggiungi già le tue macchine così, RedGiant ci va dietro come qualsiasi altro servizio. Qui ci sono i blocchi da copiare.",
+  oiCopy: "Copia",
+  oiCopied: "Copiato",
+  oiOpen: "Mostra la guida",
+  oiReachedAs: "Sei già raggiungibile come {host}.",
+  oiReachedProxy:
+    "Questa pagina è arrivata attraverso un reverse proxy della tua rete: la guida qui sotto è già compilata con quello che RedGiant ha visto.",
+  oiReachedName:
+    "Questa pagina è arrivata con un nome della tua rete: in casa funziona già; da fuori serve una delle strade qui sotto (per esempio Tailscale).",
+  oiSaid:
+    "Hai detto che RedGiant è già raggiungibile a modo tuo: non chiede più di configurare le sue strade.",
+  oiSaidUrl:
+    "Hai detto che RedGiant è già raggiungibile a {url}: non chiede più di configurare le sue strade e i suoi link (Telegram…) usano quell'indirizzo.",
+  oiSaidUndo: "Chiedimelo di nuovo",
+  oiName: "Il nome di RedGiant",
+  oiNameHelp: "Il nome che aprirai, per esempio redgiant.casa.example.com.",
+  oiAddress: "L'indirizzo di RedGiant nella rete",
+  oiAddressHelp: "Dove il proxy o la VPN trovano RedGiant; la sua porta è {port}.",
+  oiPart: "Cosa hai",
+  oiPartProxy: "Reverse proxy",
+  oiPartVpn: "Tailscale o un'altra VPN",
+  oiPartDns: "DNS di casa",
+  oiProxyLead:
+    "Il proxy può stare su un'altra macchina: gli basta raggiungere l'indirizzo di RedGiant. Prende il certificato (HTTPS) e passa tutto, WebSocket compreso.",
+  oiCaddy: "Caddyfile: un sito tutto suo",
+  oiCaddyWildcard: "Caddyfile: dentro un sito jolly che hai già (*.{domain})",
+  oiCaddyReload: "Poi ricarica Caddy (caddy reload, o riavvia il suo container).",
+  oiTraefik: "Traefik: file provider (configurazione dinamica)",
+  oiTraefikNote:
+    "Con le etichette di Docker invece: la stessa regola e l'indirizzo come servizio con loadbalancer.server.url. Usa i nomi del tuo entry point e del tuo certificate resolver.",
+  oiNpm1: "Hosts › Proxy Hosts › Add Proxy Host; Domain Names: {name}.",
+  oiNpm2: "Scheme http, Forward Hostname / IP {address}, Forward Port {port}.",
+  oiNpm3:
+    "Accendi «Websockets Support» (la pagina di RedGiant vive su un WebSocket) e «Block Common Exploits».",
+  oiNpm4: "SSL: «Request a new SSL Certificate», «Force SSL», «HTTP/2 Support». Salva.",
+  oiWs: "RedGiant tiene viva la pagina con un WebSocket su /ws: Caddy e Traefik lo passano da soli; Nginx vuole gli header Upgrade (Websockets Support in Nginx Proxy Manager).",
+  oiAuthTitle: "Authelia, Authentik o un altro forward auth davanti?",
+  oiAuthWhy:
+    "Meglio di no: RedGiant ha già la sua password, con tentativi limitati e il codice facoltativo dell'app di autenticazione, e un accesso davanti blocca l'app, la riga di comando, gli agenti ACP, l'estensione del browser e i webhook (Telegram, WhatsApp, automazioni), che entrano con i loro token.",
+  oiAuthIf:
+    "Se lo vuoi comunque, lascia fuori /api/ e /ws: il forward auth protegge la pagina, la password di RedGiant tutto il resto.",
+  oiAuthCaddy: "Caddyfile con forward auth (Authelia), lasciando fuori i percorsi dell'app",
+  oiTsHere: "Tailscale sulla macchina di RedGiant",
+  oiTsHereLead:
+    "Installa Tailscale sulla macchina ed entra (tailscale up): dai tuoi dispositivi della tailnet RedGiant si apre a http://<macchina>:7600. Per l'HTTPS con un certificato vero:",
+  oiTsRunning:
+    "Tailscale gira già qui come {name}: dai tuoi dispositivi della tailnet RedGiant si apre con quel nome. Per l'HTTPS con un certificato vero:",
+  oiTsServe: "Sulla macchina",
+  oiTsSubnet: "Tailscale come subnet router",
+  oiTsSubnetLead:
+    "Tailscale su un altro dispositivo di casa (il router, un Raspberry, la macchina del proxy) che condivide la rete {subnet}:",
+  oiTsSubnetThen:
+    "Approva la rotta nella console di Tailscale (Machines › Edit route settings). Il telefono apre poi http://{address}:{port} da ovunque, e anche i nomi del tuo DNS di casa se lo aggiungi in DNS › Nameservers (limitato al tuo dominio).",
+  oiOtherVpn: "WireGuard, ZeroTier e le altre",
+  oiOtherVpnLead:
+    "La stessa idea: con la rete di casa {subnet} negli AllowedIPs del peer (WireGuard) o come rotta gestita (ZeroTier), RedGiant si apre al suo indirizzo di casa.",
+  oiDnsLead:
+    "Un nome al posto di un indirizzo: puntalo al proxy quando c'è, altrimenti all'indirizzo di RedGiant.",
+  oiDnsPihole: "Pi-hole: Settings › Local DNS › DNS Records: {name} → {address}.",
+  oiDnsAdguard: "AdGuard Home: Filtri › Riscritture DNS: *.{domain} o il nome singolo → {address}.",
+  oiDnsRouter:
+    "Il router: la sua pagina «DNS statico», «nomi locali» o prenotazione DHCP (il nome cambia da router a router).",
+  oiDnsWildcard:
+    "Pi-hole o dnsmasq, tutti i nomi di *.{domain} insieme (un file in /etc/dnsmasq.d/)",
+  oiDnsTs:
+    "Fuori casa con Tailscale: aggiungi il DNS di casa in DNS › Nameservers di Tailscale, limitato al tuo dominio, e gli stessi nomi funzionano anche fuori.",
+  oiCheck: "Controlla che risponda",
+  oiCheckLead: 'Da qualsiasi computer: RedGiant risponde {"ok":true,…}.',
+  oiCheckGo: "Controlla {url} da qui",
+  oiCheckRedgiant: "RedGiant risponde a questo indirizzo.",
+  oiCheckAnswers:
+    "Qualcosa risponde a questo indirizzo (il browser non lascia leggere chi): aprilo per vedere RedGiant.",
+  oiCheckNo:
+    "Nessuna risposta da questo browser: controlla il nome nel DNS, il blocco del proxy e, da fuori, la VPN.",
+  oiSkip: "Salta: sono già raggiungibile",
+  oiSkipNote:
+    "RedGiant smette di chiederti di configurare le sue strade (Tailscale, Cloudflare, il tuo dominio); restano qui se un giorno ne vuoi una.",
+  remoteWaysFolded: "Le strade di RedGiant",
   faTitle: "Crea il tuo accesso",
   faLead:
     "Benvenuto in RedGiant. Scegli la password con cui entrerai da questo e dagli altri dispositivi: poi sei dentro.",

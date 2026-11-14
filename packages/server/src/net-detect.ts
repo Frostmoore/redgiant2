@@ -2,7 +2,8 @@
 // looks for what the person may have set up already, so it offers to use it instead of adding a
 // second one: Tailscale running here, a reverse proxy in front of RedGiant (or running on this
 // machine), and a DNS name or a local DNS server on the network. Pure parsers, tested as tables.
-import type { NetDetected } from "@redgiant/protocol";
+import type { NetDetected, ReachedAs } from "@redgiant/protocol";
+import { isLocalNetwork } from "./first-access.js";
 
 /** `tailscale status --json`: running, with this machine's name in the tailnet. */
 export function parseTailscaleStatus(json: string): NetDetected["tailscale"] {
@@ -72,4 +73,54 @@ export function hostName(host: string | undefined): string | null {
     .toLowerCase();
   if (!h || h === "localhost" || /^[\d.]+$/.test(h) || h.includes(":")) return null;
   return /^[a-z0-9.-]+$/.test(h) ? h : null;
+}
+
+/**
+ * RedGiant is reached already (G39.8): a reverse proxy at home in front of it (the connection
+ * comes from a private address and carries the headers proxies add), or a name of the home's DNS
+ * straight to it. RedGiant's own HTTPS (Caddy on RedGiant OS) and its mDNS name are not someone
+ * else's infrastructure. Only what the request carries, never a guess.
+ */
+export function reachedAs(
+  h: (name: string) => string | undefined,
+  socketAddress: string | undefined,
+): ReachedAs | null {
+  if (h("x-redgiant-local-tls") === "1") return null;
+  const first = (v: string | undefined) => v?.split(",")[0]?.trim() || undefined;
+  const forwarded =
+    h("x-forwarded-for") ||
+    h("x-forwarded-host") ||
+    h("x-forwarded-proto") ||
+    h("x-real-ip") ||
+    h("forwarded") ||
+    h("via") ||
+    h("cf-connecting-ip");
+  if (forwarded && isLocalNetwork(socketAddress)) {
+    const host =
+      hostName(first(h("x-forwarded-host"))) ??
+      hostName(/host="?([^";,]+)/i.exec(h("forwarded") ?? "")?.[1]) ??
+      hostName(h("host"));
+    if (!host) return null;
+    const proto = first(h("x-forwarded-proto")) ?? /proto="?(\w+)/i.exec(h("forwarded") ?? "")?.[1];
+    return { host, https: proto?.toLowerCase() === "https", through: "proxy" };
+  }
+  if (forwarded) return null;
+  const host = hostName(h("host"));
+  if (!host || host.endsWith(".local")) return null;
+  return { host, https: false, through: "name" };
+}
+
+/**
+ * RedGiant on the local network, for the blocks to copy: the address the page used when it is
+ * one, else the first of the machine's own; the port likewise.
+ */
+export function lanEndpoint(
+  host: string | undefined,
+  own: readonly string[],
+  localPort: number | undefined,
+): { address: string | null; port: number } {
+  const m = /^\[?([\d.]+|[0-9a-f:]+)\]?(?::(\d+))?$/i.exec(host ?? "");
+  const direct = m?.[1] && isLocalNetwork(m[1]) && !m[1].startsWith("127.") ? m[1] : null;
+  const port = Number(m?.[2] ?? "") || localPort || 7600;
+  return { address: direct ?? own[0] ?? null, port };
 }

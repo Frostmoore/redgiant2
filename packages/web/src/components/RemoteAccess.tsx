@@ -324,6 +324,29 @@ export function RemoteAccess({ s, onChange }: { s: SetupState; onChange: () => v
     }
   };
   const active = s.config.remote;
+  const ways = (
+    <>
+      <Choice<Way>
+        value={[way]}
+        onChange={([w]) => w && setWay(w)}
+        options={[
+          {
+            id: "tailscale",
+            title: "Tailscale",
+            description: t("remoteTailscale"),
+            badge: t("lmRecommended"),
+          },
+          {
+            id: "cloudflare",
+            title: "Cloudflare Tunnel",
+            description: t("remoteCloudflare"),
+          },
+          { id: "caddy", title: t("remoteOwnDomain"), description: t("remoteCaddy") },
+        ]}
+      />
+      {job?.state !== "running" && <WayGuide way={way} onStart={(r) => void start(r)} />}
+    </>
+  );
   return (
     <div class="brain">
       <PasswordPanel
@@ -358,29 +381,13 @@ export function RemoteAccess({ s, onChange }: { s: SetupState; onChange: () => v
             </div>
           </div>
         ) : (
-          hasPassword && (
-            <>
-              <Choice<Way>
-                value={[way]}
-                onChange={([w]) => w && setWay(w)}
-                options={[
-                  {
-                    id: "tailscale",
-                    title: "Tailscale",
-                    description: t("remoteTailscale"),
-                    badge: t("lmRecommended"),
-                  },
-                  {
-                    id: "cloudflare",
-                    title: "Cloudflare Tunnel",
-                    description: t("remoteCloudflare"),
-                  },
-                  { id: "caddy", title: t("remoteOwnDomain"), description: t("remoteCaddy") },
-                ]}
-              />
-              {job?.state !== "running" && <WayGuide way={way} onStart={(r) => void start(r)} />}
-            </>
-          )
+          hasPassword &&
+          (s.config.reachable ? (
+            // Reached already the person's own way (G39.8): RedGiant's ways stay, folded.
+            <Advanced label={t("remoteWaysFolded")}>{ways}</Advanced>
+          ) : (
+            ways
+          ))
         )}
         {job?.state === "running" && job.vars.url && (
           <p class="notice warn">

@@ -160,7 +160,36 @@ export function firstBootRoutes<E extends { Variables: any }>(
       return { started: true };
     }),
   );
-  app.get("/api/setup/net", (c) => answer(c, async (s) => machine(s).net((n) => c.req.header(n))));
+  app.get("/api/setup/net", (c) =>
+    answer(c, async (s) => {
+      const socket = (
+        c.env as { incoming?: { socket?: { remoteAddress?: string; localPort?: number } } }
+      )?.incoming?.socket;
+      return machine(s).net((n) => c.req.header(n), {
+        remote: socket?.remoteAddress,
+        localPort: socket?.localPort,
+      });
+    }),
+  );
+  // «Skip: I am reachable already» (G39.8): the person's own way in; RedGiant's own ways stop
+  // inviting, and links (Telegram…) use the address given.
+  app.put("/api/setup/reachable", (c) =>
+    answer(c, async (s) => {
+      const b = z
+        .object({
+          on: z.boolean(),
+          url: z
+            .string()
+            .trim()
+            .max(300)
+            .regex(/^https?:\/\/[a-z0-9.-]+(:\d+)?\/?$/i)
+            .optional(),
+        })
+        .parse(await c.req.json().catch(() => ({})));
+      await s.setReachable(b.on, b.url);
+      return { ok: true };
+    }),
+  );
   app.get("/api/setup/wifi", (c) => answer(c, async (s) => machine(s).wifi()));
   app.post("/api/setup/wifi/scan", (c) => answer(c, async (s) => machine(s).wifi(true)));
   app.post("/api/setup/wifi/connect", (c) =>

@@ -19673,3 +19673,97 @@ html[data-theme="dark"] {
     justify-content: flex-start;
   }
 }
+
+/* «Already have your own infrastructure» (G39.8): the blocks to copy, filled with RedGiant's data. */
+.oi {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+}
+.oi-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.oi-part {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+.oi-part p {
+  margin: 0;
+  line-height: 1.45;
+}
+.oi-h {
+  font-size: 0.98rem;
+  margin: 6px 0 0;
+}
+.oi-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.oi-block-label {
+  font-size: 0.85rem;
+  color: var(--dim);
+}
+.oi-code {
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  tab-size: 4;
+  overflow-x: auto;
+  white-space: pre;
+}
+.oi-steps {
+  margin: 0;
+  padding-left: 1.3em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.45;
+}
+.oi-said {
+  align-items: center;
+}
+.oi-said .link {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.oi-skip-note {
+  margin: 0;
+  font-size: 0.85rem;
+}
+@media (max-width: 720px) {
+  .oi-fields {
+    grid-template-columns: 1fr;
+  }
+  .oi-said {
+    flex-wrap: wrap;
+  }
+}
+.oi .wz-note {
+  margin: 0;
+  display: flex;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  padding: 10px 14px;
+  line-height: 1.45;
+}
+.oi .wz-note.info {
+  background: var(--panel-2);
+  border-color: var(--line);
+}
+.oi .wz-note.info .icon {
+  color: var(--dim);
+}
