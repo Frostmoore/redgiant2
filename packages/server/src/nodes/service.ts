@@ -72,7 +72,15 @@ interface Peer {
   sas: string;
   /** The person said yes on this side. */
   confirmed: boolean;
+  /**
+   * The name the person gave it here (p3.7.2: Rig showed up as DESKTOP-8CCPHGB): shown in the
+   * page, the tools, the cards and the requests instead of the one it reports.
+   */
+  label?: string;
 }
+
+/** The name a machine shows here: the person's, else its own. */
+const shown = (p: Peer) => p.label ?? p.name;
 
 interface Stored {
   name?: string;
@@ -337,6 +345,27 @@ export class Nodes {
     await this.save(ownerId, clean ? { ...rest, name: clean } : rest);
   }
 
+  /**
+   * The person names a machine paired with this one (its parent or a child), here only: the
+   * page, the tools, the cards and the requests show it. Empty: back to the name it reports.
+   */
+  async setLabel(ownerId: string, fingerprint: string, name: string): Promise<void> {
+    const s = await this.load(ownerId);
+    const clean = name.trim().slice(0, 40);
+    const named = (p: Peer): Peer => {
+      const { label: _old, ...rest } = p;
+      return clean ? { ...rest, label: clean } : rest;
+    };
+    if (s.parent?.fingerprint === fingerprint)
+      return this.save(ownerId, { ...s, parent: { ...s.parent, ...named(s.parent) } });
+    if (!s.children.some((c) => c.fingerprint === fingerprint))
+      throw new NodeError("not-found", "This machine is not paired with that one");
+    await this.save(ownerId, {
+      ...s,
+      children: s.children.map((c) => (c.fingerprint === fingerprint ? named(c) : c)),
+    });
+  }
+
   // ------------------------------------------------------------------ the tree and the rules
 
   /** The tree as this machine knows it: its parent, its children and what they reported. */
@@ -426,7 +455,7 @@ export class Nodes {
     if (s.parent?.confirmed)
       throw new NodeError(
         "invalid",
-        `This machine is already a node of "${s.parent.name}": unpair it first`,
+        `This machine is already a node of "${shown(s.parent)}": unpair it first`,
       );
     if (name) s.name = name;
     const url = this.o.dial?.(address) ?? channelUrl(address);
@@ -496,7 +525,10 @@ export class Nodes {
     ownerId: string,
     fingerprint: string,
     rights: NodeRight[] = ["use", "admin"],
+    /** The name the person gives the other machine here (default: the one it reports). */
+    name?: string,
   ): Promise<void> {
+    if (name?.trim()) await this.setLabel(ownerId, fingerprint, name);
     const s = await this.load(ownerId);
     const self = (await this.identity(ownerId)).fingerprint;
     const at = this.now().toISOString();
@@ -506,7 +538,7 @@ export class Nodes {
         grants.push({
           id: `grant_${randomUUID().slice(0, 8)}`,
           controller: fingerprint,
-          controllerName: s.parent.name,
+          controllerName: shown(s.parent),
           target: self,
           targetName: await this.name(ownerId),
           rights: [...new Set(rights)],
@@ -516,10 +548,10 @@ export class Nodes {
       await this.save(ownerId, { ...s, parent: { ...s.parent, confirmed: true }, grants });
       await this.log(ownerId, {
         peer: fingerprint,
-        peerName: s.parent.name,
+        peerName: shown(s.parent),
         side: "asked",
         kind: "pair",
-        what: `the person confirmed ${s.parent.name}; it may: ${rights.join(", ") || "nothing"}`,
+        what: `the person confirmed ${shown(s.parent)}; it may: ${rights.join(", ") || "nothing"}`,
         status: "done",
       });
       this.startDialer(ownerId);
@@ -533,10 +565,10 @@ export class Nodes {
     });
     await this.log(ownerId, {
       peer: fingerprint,
-      peerName: child.name,
+      peerName: shown(child),
       side: "served",
       kind: "pair",
-      what: `the person confirmed the node ${child.name}`,
+      what: `the person confirmed the node ${shown(child)}`,
       status: "done",
     });
   }
@@ -724,7 +756,7 @@ export class Nodes {
         if (refused)
           await this.log(ownerId, {
             peer: e.seen ?? s.parent.fingerprint,
-            peerName: s.parent.name,
+            peerName: shown(s.parent),
             side: "asked",
             kind: "link",
             what: e.message,
@@ -931,9 +963,9 @@ export class Nodes {
   }
 
   private nameOf(s: Stored, fp: string): string {
-    if (s.parent?.fingerprint === fp) return s.parent.name;
+    if (s.parent?.fingerprint === fp) return shown(s.parent);
     const c = s.children.find((x) => x.fingerprint === fp);
-    if (c) return c.name;
+    if (c) return shown(c);
     for (const st of this.status.values()) {
       const found = findIn(st.children ?? [], fp);
       if (found) return found.name;
@@ -1013,7 +1045,7 @@ export class Nodes {
     const online = this.isOnline(c.fingerprint);
     return {
       fingerprint: c.fingerprint,
-      name: c.name,
+      name: shown(c),
       relation: "child",
       status: online ? "online" : "offline",
       ...(st?.lastSeen && { lastSeen: st.lastSeen }),
@@ -1097,7 +1129,7 @@ export class Nodes {
     if (!(await this.reachable(ownerId, to, waitMs, o.signal))) {
       const e = new NodeError(
         "offline",
-        `The node "${peerName}" is offline: nothing was sent to it. It is retried as soon as it is back; try again then.`,
+        `The node "${peerName}" is offline: nothing was sent to it. Try again when it is back.`,
       );
       await logIt("failed", `${o.log?.what ?? op}: offline, not sent`);
       throw e;
@@ -1401,7 +1433,7 @@ export class Nodes {
     s: Stored,
   ): { fingerprint: string; name: string; view?: NodeView }[] {
     const out: { fingerprint: string; name: string; view?: NodeView }[] = [];
-    if (s.parent?.confirmed) out.push({ fingerprint: s.parent.fingerprint, name: s.parent.name });
+    if (s.parent?.confirmed) out.push({ fingerprint: s.parent.fingerprint, name: shown(s.parent) });
     const walk = (v: NodeView) => {
       out.push({ fingerprint: v.fingerprint, name: v.name, view: v });
       for (const c of v.children) walk(c);
@@ -1412,14 +1444,49 @@ export class Nodes {
   }
 
   /** The machines one can name (tools, menus): the parent, the children and their subtrees. */
-  async known(
-    ownerId: string,
-  ): Promise<{ fingerprint: string; name: string; online: boolean; view?: NodeView }[]> {
+  async known(ownerId: string): Promise<
+    {
+      fingerprint: string;
+      name: string;
+      online: boolean;
+      view?: NodeView;
+      /** What this machine may do there, as that machine last reported (unknown: undefined). */
+      rights?: NodeRight[];
+    }[]
+  > {
     const s = await this.load(ownerId);
-    return this.allNodes(ownerId, s).map((n) => ({
-      ...n,
-      online: n.view ? n.view.status === "online" : this.isOnline(n.fingerprint),
-    }));
+    const self = this.identities.get(ownerId)?.fingerprint;
+    return this.allNodes(ownerId, s).map((n) => {
+      // A child's grants are known once it answered a poll; deeper machines came in a report.
+      const reported =
+        self !== undefined &&
+        n.view !== undefined &&
+        (n.view.relation === "tree" || this.status.get(n.fingerprint)?.grants !== undefined);
+      const rights = reported
+        ? [
+            ...new Set(
+              (n.view?.grants ?? [])
+                .filter((g) => g.controller === self && g.target === n.fingerprint)
+                .flatMap((g) => g.rights),
+            ),
+          ]
+        : undefined;
+      return {
+        ...n,
+        online: n.view ? n.view.status === "online" : this.isOnline(n.fingerprint),
+        ...(rights && { rights }),
+      };
+    });
+  }
+
+  /** The name of the node pinned for an agent, from what is loaded (for the requests' text). */
+  pinnedNow(ownerId: string, agentId: string, projectId?: string | null): string | undefined {
+    const s = this.cache.get(ownerId);
+    if (!s) return undefined;
+    const a = s.placements.find((p) => p.scope === `agent:${agentId}`);
+    const p = projectId ? s.placements.find((x) => x.scope === `project:${projectId}`) : undefined;
+    const fp = a?.commands ?? p?.commands;
+    return fp ? this.allNodes(ownerId, s).find((n) => n.fingerprint === fp)?.name : undefined;
   }
 
   /** A node by name or fingerprint. */
@@ -1448,7 +1515,7 @@ export class Nodes {
     if (s.parent && !s.parent.confirmed)
       pending.push({
         fingerprint: s.parent.fingerprint,
-        name: s.parent.name,
+        name: shown(s.parent),
         sas: s.parent.sas,
         side: "node",
         at: s.parent.pairedAt,
@@ -1456,7 +1523,7 @@ export class Nodes {
     for (const c of s.children.filter((x) => !x.confirmed))
       pending.push({
         fingerprint: c.fingerprint,
-        name: c.name,
+        name: shown(c),
         sas: c.sas,
         side: "principal",
         at: c.pairedAt,
@@ -1476,7 +1543,7 @@ export class Nodes {
     const parent: NodeView | undefined = s.parent?.confirmed
       ? {
           fingerprint: s.parent.fingerprint,
-          name: s.parent.name,
+          name: shown(s.parent),
           relation: "parent",
           status: this.isOnline(s.parent.fingerprint) ? "online" : (ps?.status ?? "offline"),
           ...(ps?.reason && !this.isOnline(s.parent.fingerprint) && { reason: ps.reason }),

@@ -1263,6 +1263,13 @@ export class RedGiantCore implements OrchestrationHost {
             protectedPaths: this.protectedPaths,
             // The person's machines (G38.2): their working folders, for the commands run there.
             machines: () => this.machines.rulesInfo(agent.ownerId),
+            // The node pinned for it (G39.4): a node_run naming none is said to be there.
+            pinnedNode: () =>
+              this.nodes.pinnedNow(
+                agent.ownerId,
+                agent.id,
+                this.agentNodeScope.get(agent.id) ?? agent.projectId,
+              ),
           },
         };
         // The system's scratch folder is free too (on Windows it is not /tmp).
@@ -1511,6 +1518,8 @@ export class RedGiantCore implements OrchestrationHost {
 
   /** The folders each agent may write in without the guardian asking (its workspace, its project). */
   private readonly agentRoots = new Map<string, string[]>();
+  /** The project each agent's node tools work for now (its own or the one it is assigned to). */
+  private readonly agentNodeScope = new Map<string, string | null>();
 
   private async workspaceFor(agent: AgentRecord): Promise<Workspace | undefined> {
     const ws = await this.workspaceOf(agent);
@@ -1874,6 +1883,9 @@ export class RedGiantCore implements OrchestrationHost {
         // Nodes (G39.4): always offered, like the machines; the list is asked (node_list).
         ...nodeTools(this.nodeHost(agent, assignedTo)),
       );
+      this.agentNodeScope.set(agent.id, assignedTo ?? agent.projectId ?? null);
+      // What the permission rules read about the nodes (the pinned one's name), loaded now.
+      await this.nodes.known(ownerId).catch(() => []);
       // What the permission rules read about the machines, fresh for this conversation.
       await this.machines.list(ownerId).catch(() => []);
       // Email (G38.1): always offered; without a mailbox open to the agents they say so.

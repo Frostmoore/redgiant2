@@ -24,7 +24,7 @@ import {
 } from "../icons.js";
 import { attempt, getApi, projects } from "../state.js";
 import { explain } from "./Brain.js";
-import { askConfirm } from "./dialogs.js";
+import { askConfirm, askText } from "./dialogs.js";
 import { Acts, Box, Head, Seg, Sub, SwitchRow, WzPage } from "./SettingsKit.js";
 import { Field, Modal } from "./ui.js";
 
@@ -105,6 +105,11 @@ function Caps({ v }: { v: NodeView }) {
       {c.load?.cpu !== undefined && (
         <span class="dim">{t("ndLoad", { n: String(c.load.cpu) })}</span>
       )}
+      {c.sandbox.ok && c.sandbox.container === false && (
+        <span class="dim" title={t("ndNoContainerHelp")}>
+          {t("ndNoContainer")}
+        </span>
+      )}
     </div>
   );
 }
@@ -126,14 +131,25 @@ function GrantChips({ grants }: { grants: NodeGrant[] }) {
 function NodeRow({
   v,
   depth,
+  self,
   onControl,
   onUnpair,
+  onRename,
 }: {
   v: NodeView;
   depth: number;
+  /** This machine's fingerprint: a node that gives it nothing says so. */
+  self?: string | undefined;
   onControl: (v: NodeView) => void;
   onUnpair?: ((v: NodeView) => void) | undefined;
+  onRename?: ((v: NodeView) => void) | undefined;
 }) {
+  // Paired and online, but it lets this machine do nothing there: still shown, as such.
+  const noRights =
+    v.relation === "child" &&
+    v.status === "online" &&
+    self !== undefined &&
+    !v.grants.some((g) => g.controller === self && g.rights.length > 0);
   return (
     <>
       <div
@@ -147,6 +163,7 @@ function NodeRow({
           <div class="nd-line">
             <b>{v.name}</b>
             {v.relation !== "self" && <StatusPill v={v} />}
+            {noRights && <span class="mc-state bad">{t("ndNoRights")}</span>}
             {v.status !== "online" && v.lastSeen && (
               <span class="dim">{t("ndLastSeen", { when: when(v.lastSeen) })}</span>
             )}
@@ -160,6 +177,11 @@ function NodeRow({
           <button type="button" class="wz-btn small quiet" onClick={() => onControl(v)}>
             <IconShield size={14} /> {t("ndControl")}
           </button>
+          {onRename && v.relation === "child" && (
+            <button type="button" class="wz-btn small quiet" onClick={() => onRename(v)}>
+              {t("ndRename")}
+            </button>
+          )}
           {onUnpair && v.relation === "child" && (
             <button type="button" class="wz-btn small quiet" onClick={() => onUnpair(v)}>
               {t("ndUnpair")}
@@ -172,8 +194,10 @@ function NodeRow({
           key={c.fingerprint}
           v={c}
           depth={depth + 1}
+          self={self}
           onControl={onControl}
           onUnpair={onUnpair}
+          onRename={onRename}
         />
       ))}
     </>
@@ -288,15 +312,24 @@ function ControlModal({
 export function PendingCards({ s, reload }: { s: NodesState; reload: () => void }) {
   const [use, setUse] = useState(true);
   const [admin, setAdmin] = useState(true);
+  /** The names the person gives the nodes asking, by fingerprint (default: theirs). */
+  const [names, setNames] = useState<Record<string, string>>({});
   if (!s.pending.length) return null;
   const confirmPair = async (p: PendingPair) => {
     const rights: NodeRight[] =
       p.side === "node"
         ? [...(use ? ["use" as const] : []), ...(admin ? ["admin" as const] : [])]
         : [];
+    const name = names[p.fingerprint]?.trim();
     if (
       (await attempt(() =>
-        getApi().confirmNode(p.fingerprint, p.side === "node" ? rights : undefined),
+        p.side === "node"
+          ? getApi().confirmNode(p.fingerprint, rights)
+          : getApi().confirmNode(
+              p.fingerprint,
+              undefined,
+              name && name !== p.name ? name : undefined,
+            ),
       )) !== undefined
     )
       reload();
@@ -337,6 +370,18 @@ export function PendingCards({ s, reload }: { s: NodesState; reload: () => void 
               </dd>
             </div>
           </dl>
+          {p.side === "principal" && (
+            <Field label={t("ndNodeName")} help={t("ndNodeNameHelp")}>
+              <input
+                type="text"
+                value={names[p.fingerprint] ?? p.name}
+                maxLength={40}
+                onInput={(e) =>
+                  setNames({ ...names, [p.fingerprint]: (e.target as HTMLInputElement).value })
+                }
+              />
+            </Field>
+          )}
           {p.side === "node" && (
             <>
               <span class="wz-lb">{t("ndRightsTitle", { name: p.name })}</span>
@@ -564,6 +609,15 @@ export function Nodes() {
       return;
     if ((await attempt(() => getApi().unpairNode(v.fingerprint))) !== undefined) reload();
   };
+  const rename = async (v: NodeView) => {
+    const next = await askText(t("ndRenameQ", { name: v.name }), v.name, {
+      label: t("ndNodeName"),
+      yes: t("ndRename"),
+    });
+    if (next === null || next.trim() === v.name) return;
+    if ((await attempt(() => getApi().setNodeLabel(v.fingerprint, next.trim()))) !== undefined)
+      reload();
+  };
   const revoke = async (g: NodeGrant) => {
     if (
       !(await askConfirm(t("ndRevokeQ", { name: g.controllerName }), {
@@ -660,7 +714,14 @@ export function Nodes() {
         </Box>
       )}
       <Box class="nd-tree">
-        <NodeRow v={s.tree} depth={0} onControl={setControl} onUnpair={unpair} />
+        <NodeRow
+          v={s.tree}
+          depth={0}
+          self={s.self.fingerprint}
+          onControl={setControl}
+          onUnpair={unpair}
+          onRename={rename}
+        />
         {!s.tree.children.length && <p class="dim">{t("ndNoNodes")}</p>}
       </Box>
       <Sub title={t("ndGrantsHere")} lead={t("ndGrantsLead")} />

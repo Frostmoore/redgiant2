@@ -8,7 +8,15 @@ import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Event, NodesState, PairCode, PendingPair } from "@redgiant/protocol";
+import {
+  criticalSentences,
+  type Event,
+  type NodesState,
+  type PairCode,
+  type PendingPair,
+  type PermissionRequestInfo,
+} from "@redgiant/protocol";
+import { HostSandboxProvider, type SandboxProvider } from "@redgiant/sandbox";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
 import { nodeTarget } from "../src/backup-targets.js";
@@ -20,6 +28,7 @@ import {
   sasOf,
 } from "../src/nodes/channel.js";
 import { NodeProvider } from "../src/nodes/remote.js";
+import { nodeTools } from "../src/nodes/tools.js";
 import { startServer } from "./helpers.js";
 
 type Server = Awaited<ReturnType<typeof startServer>>;
@@ -184,13 +193,24 @@ describe("the node channel (G39.4)", () => {
 
 // ---------------------------------------------------------------- two servers
 
+/**
+ * A sandbox that counts as a real container (p3.7.2): the test servers run without Docker, like a
+ * Windows desktop without it, so a machine with a container is this stand-in.
+ */
+const container: SandboxProvider = {
+  kind: "docker",
+  create: (spec) => new HostSandboxProvider().create(spec),
+};
+
 async function machine(
   name: string,
   script: Parameters<typeof startServer>[0] = [{ text: "OK" }],
   models?: string[],
+  sandbox?: SandboxProvider,
 ) {
   const s = await startServer(script, models ? { models } : {}, {
     nodes: { hostName: name, reconnectMs: [60], waitMs: 3000, pollMs: 0 },
+    ...(sandbox && { sandbox }),
   });
   open.push(s);
   return s;
@@ -203,6 +223,8 @@ async function pairUp(
   principal: Server,
   node: Server,
   rights: ("use" | "admin")[] = ["use", "admin"],
+  /** The name the person gives the node on the principal. */
+  name?: string,
 ) {
   const code = (await principal.api<PairCode>("POST", "/api/nodes/code")).body;
   expect(code.code).toMatch(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
@@ -220,8 +242,12 @@ async function pairUp(
   expect(onNode.fingerprint).toBe(p.self.fingerprint);
   expect(onPrincipal.sas).toBe(onNode.sas);
   expect(
-    (await principal.api("POST", "/api/nodes/confirm", { fingerprint: onPrincipal.fingerprint }))
-      .status,
+    (
+      await principal.api("POST", "/api/nodes/confirm", {
+        fingerprint: onPrincipal.fingerprint,
+        ...(name && { name }),
+      })
+    ).status,
   ).toBe(200);
   expect(
     (await node.api("POST", "/api/nodes/confirm", { fingerprint: onNode.fingerprint, rights }))
@@ -353,8 +379,8 @@ describe("using a node (G39.4)", () => {
 
   it("the node's guardian and its critical rules refuse, whatever the asking side did", async () => {
     const severino = await machine("severino");
-    const rig = await machine("rig");
-    // Only «use»: rig does not let severino write outside its sandbox there.
+    const rig = await machine("rig", undefined, undefined, container);
+    // Only «use», in a container: rig does not let severino write outside its sandbox there.
     const { n } = await pairUp(severino, rig, ["use"]);
     const ws = await severino.core.nodeWorkspace("me", { fingerprint: n, name: "rig" }, "p1");
     const ok = await ws.exec("echo inside > a.txt && cat a.txt", { timeoutMs: 10_000 });
@@ -377,7 +403,7 @@ describe("using a node (G39.4)", () => {
   }, 90_000);
 
   it("control is a separate grant: the child commands its parent only once the person allows it", async () => {
-    const severino = await machine("severino");
+    const severino = await machine("severino", undefined, undefined, container);
     const rig = await machine("rig");
     const { p, n } = await pairUp(severino, rig);
     // By default the parent uses the child; the child cannot command the parent.
@@ -563,5 +589,154 @@ describe("using a node (G39.4)", () => {
     expect(severino.core.nodes.isOnline(n)).toBe(false);
     expect((await nodeEvents(severino)).some((e) => e.payload.kind === "unpair")).toBe(true);
     expect((await nodeEvents(rig)).some((e) => e.payload.kind === "unpair")).toBe(true);
+  }, 90_000);
+});
+
+/** Answers the requests the person gets on `s`: records them, then says `answer`. */
+function person(s: Server, answer: "allow" | "deny") {
+  const asked: PermissionRequestInfo[] = [];
+  s.core.approvals.on("request", (owner, info) => {
+    asked.push(info);
+    setTimeout(() => s.core.approvals.decide(owner, info.requestId, answer), 20);
+  });
+  return asked;
+}
+
+describe("a node without a container (p3.7.2: Windows without Docker, the 3.7.1 test on Rig)", () => {
+  it("with «use» alone it runs no command at all; files stay in the asker's folder; the node stays listed", async () => {
+    const severino = await machine("severino");
+    // The test servers have no Docker: like Rig, commands there would run on the machine itself.
+    const rig = await machine("DESKTOP-8CCPHGB");
+    const { n } = await pairUp(severino, rig, ["use"], "Rig");
+    const ws = await severino.core.nodeWorkspace("me", { fingerprint: n, name: "Rig" }, "p1");
+    for (const command of ["ls /", "ls ~", "cat /etc/hostname", "rm -f prova-collaudo.txt"]) {
+      const r = await ws.exec(command, { timeoutMs: 10_000 }).catch((e) => e);
+      expect(r.code, command).toBe("refused");
+      expect(r.message).toMatch(/no container/);
+    }
+    // Even what the person said yes to: there is nothing to keep it in.
+    const approved = await ws
+      .execApproved("ls /", { timeoutMs: 10_000 }, ["critical-delete", "critical-system"])
+      .catch((e) => e);
+    expect(approved.code).toBe("refused");
+    // Files and storage: the asker's folder only, by real paths.
+    await ws.writeText("a.txt", "inside");
+    expect(await ws.readText("a.txt")).toBe("inside");
+    const out = await ws.readText("../../../../../../etc/hostname").catch((e) => e);
+    expect(out).toBeInstanceOf(Error);
+    // What it offers says so, and the agents read it in node_list.
+    const [known] = await severino.core.nodes.known("me");
+    expect(known?.name).toBe("Rig");
+    expect(known?.rights).toEqual(["use"]);
+    expect(known?.view?.capabilities?.sandbox.container).toBe(false);
+    const ctx = { ownerId: "me", projectId: null, agentId: null, sessionId: "s" };
+    const [list] = nodeTools({
+      nodes: () => severino.core.nodes.known("me"),
+      pinned: async () => undefined,
+      workspace: async () => ws,
+      maxMs: () => 0,
+    });
+    expect(await list?.run({}, ctx)).toMatch(
+      /^- Rig: online; no commands for you: it has no container/,
+    );
+    // The person on Rig takes «use» away: still listed on severino, as without permissions.
+    const mine = (await state(rig)).grants[0];
+    expect(
+      (await rig.api("POST", "/api/nodes/grants/revoke", { target: n, id: mine?.id })).status,
+    ).toBe(200);
+    await severino.core.nodes.poll("me", n);
+    const s = await state(severino);
+    expect(s.tree.children.map((c) => [c.name, c.grants.length])).toEqual([["Rig", 0]]);
+    expect((await severino.core.nodes.known("me"))[0]?.rights).toEqual([]);
+    expect(await list?.run({}, ctx)).toMatch(/^- Rig: online; no permissions/);
+    const denied = await ws.readText("a.txt").catch((e) => e);
+    expect(denied.code).toBe("forbidden");
+  }, 90_000);
+
+  it("who manages it runs on the machine itself; the truly dangerous asks the person here first, «Sul nodo «Rig»», and a no sends nothing", async () => {
+    const answers: string[] = [];
+    const never = `~/rg-node-never-${Date.now()}.txt`;
+    const steps = [
+      { name: "node_run", input: { node: "Rig", command: "ls /" } },
+      { name: "node_run", input: { node: "Rig", command: `rm -f ${never}` } },
+      // Pinned for the agent, naming no node: the request still says which one.
+      { name: "node_run", input: { command: "rm -f /c/Users/Pixel/Desktop/prova-collaudo.txt" } },
+    ];
+    const severino = await machine("severino", (req, i) => {
+      const last = req.messages.at(-1)?.parts.find((p) => p.type === "tool_result") as
+        | { content: string }
+        | undefined;
+      if (last) answers.push(last.content);
+      const step = steps[i];
+      return step ? { toolCalls: [step] } : { text: "Done." };
+    });
+    const rig = await machine("DESKTOP-8CCPHGB");
+    const { n } = await pairUp(severino, rig, ["use", "admin"]);
+    // Named after pairing, in Settings > Nodes.
+    expect(
+      (await severino.api("PUT", "/api/nodes/label", { fingerprint: n, name: "Rig" })).status,
+    ).toBe(200);
+    const g = await severino.api<{ id: string }>("POST", "/api/agents", {
+      kind: "god",
+      parentId: null,
+      name: "God",
+    });
+    await severino.api("PUT", "/api/nodes/placements", {
+      scope: `agent:${g.body.id}`,
+      commands: n,
+    });
+    const asked = person(severino, "deny");
+    const { body } = await severino.api<{ sessionId: string }>("POST", "/api/sessions", {
+      agentId: g.body.id,
+    });
+    await (await severino.core.send("me", body.sessionId, "Clean up on Rig")).done;
+    // Managed: on the machine itself, outside the sandbox too.
+    expect(answers[0]).toMatch(/^Node: Rig\nExit code: 0/);
+    // Both deletions were asked of the person, in red, naming the node; the no sent nothing.
+    expect(asked.map((a) => a.critical?.map((c) => c.id))).toEqual([
+      ["critical-delete"],
+      ["critical-delete"],
+    ]);
+    expect(criticalSentences("it", asked[0] as PermissionRequestInfo)[0]).toMatch(
+      /^Sul nodo «Rig»: /,
+    );
+    expect(criticalSentences("it", asked[1] as PermissionRequestInfo)[0]).toMatch(
+      /^Sul nodo «Rig»: /,
+    );
+    expect(answers[1]).not.toMatch(/Exit code/);
+    expect(answers[2]).not.toMatch(/Exit code/);
+    const served = (await nodeEvents(rig)).filter(
+      (e) => e.payload.side === "served" && e.payload.kind === "exec",
+    );
+    expect(served.map((e) => e.payload.what)).toEqual(["exec ls /"]);
+    expect(served[0]?.payload.peerName).toBe("severino");
+    // The node reads it again: without the person's yes it refuses, `~` being its real home.
+    const ws = await severino.core.nodeWorkspace("me", { fingerprint: n, name: "Rig" }, "p1");
+    const refused = await ws
+      .execApproved(`rm -f ${never}`, { timeoutMs: 10_000 }, [])
+      .catch((e) => e);
+    expect(refused.message).toMatch(/Truly dangerous here/);
+    // With the yes for exactly that, it runs (the file never existed: nothing is lost).
+    const ok = await ws.execApproved(`rm -f ${never}`, { timeoutMs: 10_000 }, ["critical-delete"]);
+    expect(ok.exitCode).toBe(0);
+  }, 90_000);
+
+  it("the person's name for the node holds when it reports its own, and goes back when cleared", async () => {
+    const severino = await machine("severino");
+    const rig = await machine("DESKTOP-8CCPHGB");
+    const { n } = await pairUp(severino, rig, ["use", "admin"], "Rig");
+    await severino.core.nodes.poll("me", n);
+    expect((await state(severino)).tree.children[0]?.name).toBe("Rig");
+    const pairLog = (await nodeEvents(severino)).find(
+      (e) => e.payload.kind === "pair" && /confirmed/.test(e.payload.what),
+    );
+    expect(pairLog?.payload.peerName).toBe("Rig");
+    await severino.api("PUT", "/api/nodes/label", { fingerprint: n, name: "" });
+    expect((await state(severino)).tree.children[0]?.name).toBe("DESKTOP-8CCPHGB");
+    const bad = await severino.api("PUT", "/api/nodes/label", {
+      fingerprint: "SHA256:nobodyknowsthis",
+      name: "X",
+    });
+    expect(bad.status).toBe(404);
   }, 90_000);
 });

@@ -2,18 +2,25 @@
 //   GET  /api/nodes                       the tree, the pairs waiting, the grants, the placements
 //   POST /api/nodes/code                  a one-time code for a new node (DELETE: stop showing it)
 //   POST /api/nodes/pair      {address, code, name?}   on the node: pair with the principal
-//   POST /api/nodes/confirm   {fingerprint, rights?}   the person's yes after comparing
+//   POST /api/nodes/confirm   {fingerprint, rights?, name?}   the person's yes after comparing
 //   POST /api/nodes/reject    {fingerprint}            the person's no
 //   POST /api/nodes/unpair    {fingerprint}
 //   POST /api/nodes/grants    {controller, target, rights}   who may command whom (never implicit)
 //   POST /api/nodes/grants/revoke {target, id}
 //   PUT  /api/nodes/placements {scope, commands?, backups?}  where things run (default: here)
 //   PUT  /api/nodes/name      {name}
+//   PUT  /api/nodes/label     {fingerprint, name}  the person's name for a paired machine, here
 //   POST /api/nodes/backup    {projectId, node?}   a copy of the project's files kept on the node
 //   GET  /api/nodes/storage?node=<fingerprint>     what this machine keeps on a node
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { GrantBody, PairBody, PairConfirmBody, PlacementBody } from "@redgiant/protocol";
+import {
+  GrantBody,
+  NodeLabelBody,
+  PairBody,
+  PairConfirmBody,
+  PlacementBody,
+} from "@redgiant/protocol";
 import { zipSync } from "fflate";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
@@ -94,7 +101,7 @@ export function nodeRoutes<E extends { Variables: any }>(
   app.post("/api/nodes/confirm", (c) =>
     run(c, async () => {
       const b = await body(c, PairConfirmBody);
-      await n.confirm(owner(c), b.fingerprint, b.rights ?? ["use", "admin"]);
+      await n.confirm(owner(c), b.fingerprint, b.rights ?? ["use", "admin"], b.name);
       return n.state(owner(c));
     }),
   );
@@ -130,6 +137,12 @@ export function nodeRoutes<E extends { Variables: any }>(
     run(c, async () => {
       const b = await body(c, z.object({ name: z.string().trim().min(1).max(40) }));
       await n.setName(owner(c), b.name);
+    }),
+  );
+  app.put("/api/nodes/label", (c) =>
+    run(c, async () => {
+      const b = await body(c, NodeLabelBody);
+      await n.setLabel(owner(c), b.fingerprint, b.name);
     }),
   );
   app.post("/api/nodes/backup", (c) =>

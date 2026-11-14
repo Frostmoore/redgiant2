@@ -50,6 +50,11 @@ export interface CriticalContext {
    * project (the working folder). A machine not here has none: every deletion there is outside.
    */
   machines?: Readonly<Record<string, RemoteMachineInfo>>;
+  /**
+   * The node the person pinned for this agent (G39.4): a `node_run` naming none runs there, and
+   * the person is told so by name (p3.7.2).
+   */
+  pinnedNode?: string | undefined;
 }
 
 /** What the rules need of a machine: its working folder and the home of the user it logs in as. */
@@ -1323,9 +1328,10 @@ function remoteRules(
   node?: string,
 ) {
   const machine = node ?? (typeof input.machine === "string" ? input.machine : "");
-  const m =
-    node !== undefined ? { folder: NODE_SANDBOX, home: NODE_SANDBOX } : ctx.machines?.[machine];
-  const home = m?.home ? posixKey(m.home) : "/__remote_home__";
+  // On a node, `~` is the home of the user its RedGiant runs as (on Windows without a container,
+  // the person's own home), never its sandbox: unknown here, so outside (p3.7.2).
+  const m = node !== undefined ? { folder: NODE_SANDBOX } : ctx.machines?.[machine];
+  const home = m && "home" in m && m.home ? posixKey(m.home) : "/__remote_home__";
   const folder = m?.folder ? posixKey(m.folder) : undefined;
   const base = folder ?? home;
   const cwd =
@@ -1380,7 +1386,12 @@ export function criticalOf(call: ToolCallInfo, ctx: CriticalContext = {}): Criti
   if (name === "bash" && typeof input.command === "string") shellRules(input.command, w, add);
   else if (name.startsWith("ssh_")) remoteRules(input, ctx, add);
   else if (name === "node_run")
-    remoteRules(input, ctx, add, typeof input.node === "string" ? input.node : "");
+    remoteRules(
+      input,
+      ctx,
+      add,
+      typeof input.node === "string" && input.node.trim() ? input.node : ctx.pinnedNode || "?",
+    );
   else if (name === "write_file" || name === "edit_file") fileRules(input, name, w, add);
   else if (name === "canvas_edit") editorRules(input, w, add);
   else if (name === ARTIFACT_READ_TOOL) artifactReadRules(input, w, add);

@@ -119,3 +119,30 @@ export function canAttach(g: NodeGraph, parent: string, child: string): AttachCh
   if (g.parentOf[child]) return { ok: false, reason: "has-parent" };
   return { ok: true };
 }
+
+/** Where a node runs another machine's commands, and whether its guardian reads them first. */
+export type NodeCommandsCheck =
+  | { ok: true; where: "container" | "machine"; guardian: boolean }
+  | { ok: false; reason: "no-right" | "no-container" };
+
+/**
+ * Whether a node runs the commands of a machine with these `rights` on it (p3.7.2). A sandbox is
+ * a real container or nothing: reading a command's text cannot confine it (any program reads and
+ * writes where it likes). So:
+ *  - in a container, «use» runs there with the guardian (writes outside its folder refused), and
+ *    who manages the machine runs there without it;
+ *  - without one (Windows or macOS without Docker, metal), only who manages the machine runs
+ *    commands, on the machine itself; «use» alone is refused (files and storage stay confined to
+ *    the asker's folder by real path checks, and models are lent as usual).
+ */
+export function nodeCommands(
+  rights: ReadonlySet<NodeRight>,
+  container: boolean,
+): NodeCommandsCheck {
+  const admin = rights.has("admin");
+  if (!admin && !rights.has("use")) return { ok: false, reason: "no-right" };
+  if (container) return { ok: true, where: "container", guardian: !admin };
+  return admin
+    ? { ok: true, where: "machine", guardian: false }
+    : { ok: false, reason: "no-container" };
+}

@@ -531,6 +531,29 @@ const TABLE: Case[] = [
     "critical-system",
   ],
   ["node shutdown", "node_run", { node: "rig", command: "shutdown -h now" }, "critical-system"],
+  // p3.7.2 (the 3.7.1 test on Rig, Windows with Git's bash): `~` there is the home of the user the
+  // node runs as, not its sandbox; its disks are /c/…; reading is never critical (the node itself
+  // refuses commands it cannot confine).
+  [
+    "node rm in its home",
+    "node_run",
+    { node: "rig", command: "rm -f ~/prova.txt" },
+    "critical-delete",
+  ],
+  [
+    "node rm on a Windows disk",
+    "node_run",
+    { node: "rig", command: "rm -f /c/Users/Pixel/Desktop/prova-collaudo.txt" },
+    "critical-delete",
+  ],
+  [
+    "node rm with cwd on a Windows disk",
+    "node_run",
+    { node: "rig", command: "rm -f prova-collaudo.txt", cwd: "/c/Users/Pixel/Desktop" },
+    "critical-delete",
+  ],
+  ["node rm inside its sandbox", "node_run", { node: "rig", command: "rm -f prova.txt" }, null],
+  ["node reading the home", "node_run", { node: "rig", command: "ls /c/Users/Pixel" }, null],
   ["node list", "node_list", {}, null],
   ["remote ls", ...ssh("ls -la"), null, REMOTE],
   ["remote build", ...ssh("npm ci && npm run build"), null, REMOTE],
@@ -915,6 +938,15 @@ describe("what the person reads (p3.5.4)", () => {
     });
     expect(hit?.node).toBe("rig");
     expect(hit?.machine).toBeUndefined();
+  });
+
+  it("names the pinned node when the call names none (p3.7.2)", () => {
+    expect(said("node_run", { command: "reboot" }, "it", { ...LINUX, pinnedNode: "Rig" })).toEqual([
+      "Sul nodo «Rig»: spegne o riavvia la macchina",
+    ]);
+    // Not even pinned: still said to be on a node, never as if it were here.
+    const [hit] = criticalOf({ callId: "c", name: "node_run", input: { command: "reboot" } });
+    expect(hit?.node).toBe("?");
   });
 
   it("the policy gives the details with the kinds", () => {
