@@ -12,7 +12,8 @@
 # console's issue, SSH off, the OS helper, unattended-upgrades); this script also asks
 # /api/health from outside through a forwarded port, then over HTTPS with the machine's own CA
 # (printed by the self-test), and looks for the login prompt's address. --wifi adds the Wi-Fi
-# checks inside the machine (mac80211_hwsim, hostapd: redgiant-selftest-wifi).
+# checks inside the machine (mac80211_hwsim, hostapd: redgiant-selftest-wifi) and requires its
+# password checks by name (a wrong password refused, fresh and after a good join).
 # install: boots the ISO with an empty disk and the credentials that answer the installer, and
 # waits for it to write the disk and power off.
 # Uses KVM when /dev/kvm is there, otherwise QEMU's emulation (slow: minutes become tens).
@@ -153,6 +154,16 @@ case "$MODE" in
       failed=$(grep -a "REDGIANT-SELFTEST FAIL " "$SERIAL" | sed 's/\r$//; s/^.*REDGIANT-SELFTEST FAIL *//' | paste -sd ';' -)
       echo "::error::self-test failed: ${failed:-no check named (see the serial console)}"
       ok=0
+    fi
+    # With --wifi, the password checks must have run and passed (a self-test that skipped them
+    # would still say PASS). Lines may end in CR LF: fixed substrings, never "$" anchors.
+    if [ "$WIFI" = 1 ]; then
+      for c in "wifi wrong password refused on a fresh iwd" "wifi refused password not kept" \
+        "wifi not connected after a refused password" "wifi-status connected" \
+        "wifi wrong password refused after a good one" "wifi good password restored" \
+        "wifi joined again with the good password" "wifi password in no log"; do
+        grep -aqF "REDGIANT-SELFTEST ok   $c" "$SERIAL" || { echo "::error::Wi-Fi check missing or failed: $c"; ok=0; }
+      done
     fi
     # From outside the machine, through the forwarded port.
     if curl -fsS --max-time 10 "http://127.0.0.1:$PORT/api/health"; then echo; else echo "::error::/api/health not reachable from the host"; ok=0; fi

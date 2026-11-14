@@ -1,20 +1,41 @@
 # RedGiant OS self-test, Wi-Fi part (sourced by redgiant-selftest when the machine has the
 # credential redgiant.selftest.wifi=1): two simulated radios (mac80211_hwsim), hostapd on the
-# second one as a WPA2 access point, iwd on the first. Checks the three ways to join a network:
-# redgiant-wifi.txt at start (redgiant-wifi-file), and the OS helper's wifi-* commands the page
-# and the console use. hostapd comes from Debian's archive, on this test machine only.
+# second one as a WPA2 access point (with systemd-networkd's DHCP server behind it), iwd on the
+# first. Checks the three ways to join a network: redgiant-wifi.txt at start (redgiant-wifi-file),
+# and the OS helper's wifi-* commands the page and the console use; a wrong password is refused
+# and leaves nothing, on a fresh iwd and after a good join (whose settings come back). hostapd
+# comes from Debian's archive, on this test machine only.
 # shellcheck shell=bash
 wifi_ssid="RedGiant Test"
 wifi_pass="redgiant-test-pass"
-sock() { socat -t 90 - UNIX-CONNECT:/run/redgiant-helper/helper.sock; }
+wifi_file="/var/lib/iwd/$wifi_ssid.psk"
+sock() { socat -t 120 - UNIX-CONNECT:/run/redgiant-helper/helper.sock; }
 b64() { printf '%s' "$1" | base64 -w0; }
-wifi_connected() { # name: true once iwd says it is connected to it (up to 60 s)
-  local i
+# Really connected to the network, as wifi-status says it (up to 60 s): iwd's network, the card
+# associated (link up, an access point) and an address from the network. Never iwd's word alone:
+# it names the network it is still joining, a wrong password included.
+wifi_connected() {
+  local i r
   for i in $(seq 1 30); do
-    echo wifi-status | sock | jq -e --arg n "$1" '.objects.data[0] | to_entries[] | .value["net.connman.iwd.Network"] | select(. and .Name.data == $n and .Connected.data == true)' >/dev/null 2>&1 && return 0
+    r=$(echo wifi-status | sock)
+    jq -e --arg n "$1" '.link.associated == true and (.link.bssid | test("^([0-9a-f]{2}:){5}[0-9a-f]{2}$"))
+      and ([.objects.data[0][] | .["net.connman.iwd.Network"] | select(. and .Name.data == $n and .Connected.data == true)] | length == 1)
+      and ([.links[]? | select(.ifname == "wlan0") | .addr_info[]? | select(.family == "inet" and .scope != "host")] | length >= 1)' \
+      >/dev/null 2>&1 <<<"$r" && return 0
     sleep 2
   done
   return 1
+}
+# Not connected (and never was, for 15 s): what a refused password must leave.
+wifi_not_connected() {
+  local i
+  for i in $(seq 1 5); do
+    echo wifi-status | sock | jq -e '.link.associated != true' >/dev/null 2>&1 || return 1
+    sleep 3
+  done
+}
+wifi_try() { # password: the helper's reply to wifi-connect (visible network)
+  echo "wifi-connect $(b64 "$wifi_ssid") $(b64 "$1") visible" | sock
 }
 wifi_setup() {
   systemctl stop iwd.service
@@ -38,6 +59,11 @@ wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
 CONF
   hostapd -B /run/rg-hostapd.conf >/dev/null || return 1
+  # Addresses for the test network, from systemd-networkd's own DHCP server on the access point.
+  mkdir -p /run/systemd/network
+  printf '[Match]\nName=%s\n\n[Network]\nAddress=10.77.0.1/24\nDHCPServer=yes\nConfigureWithoutCarrier=yes\n\n[DHCPServer]\nPoolOffset=10\nPoolSize=40\nEmitDNS=no\nEmitRouter=no\n' \
+    "$ap_if" >"/run/systemd/network/10-rg-test-ap.network"
+  networkctl reload >/dev/null 2>&1 || systemctl restart systemd-networkd.service
   # iwd leaves the access point's radio alone.
   mkdir -p /run/systemd/system/iwd.service.d
   printf '[Service]\nExecStart=\nExecStart=/usr/libexec/iwd -P %s -I %s\n' "$ap_phy" "$ap_if" >/run/systemd/system/iwd.service.d/test.conf
@@ -47,25 +73,35 @@ CONF
 }
 if wifi_setup; then
   say "ok   wifi test network up"
+  # 0. A wrong password on a fresh iwd (nothing joined yet): refused, nothing saved.
+  wrong=$(wifi_try wrong-password-x)
+  say "wifi-connect (wrong password, fresh) reply $wrong; file $(ls "$wifi_file" 2>&1 | head -c 120)"
+  check "wifi wrong password refused on a fresh iwd" bash -c "jq -e '.ok == false and .error == \"connect_failed\"' <<<'$wrong'"
+  check "wifi refused password not kept" bash -c "[ ! -e '$wifi_file' ] && ! ls /var/lib/iwd/.redgiant-* >/dev/null 2>&1"
+  check "wifi not connected after a refused password" wifi_not_connected
   # 1. redgiant-wifi.txt on the EFI partition, as a person without a screen writes it (CR LF).
   printf '# test\r\nssid = %s\r\npassword="%s"\r\n' "$wifi_ssid" "$wifi_pass" >/boot/efi/redgiant-wifi.txt
   systemctl start redgiant-wifi-file.service
   check "wifi file read and erased" bash -c '[ ! -e /boot/efi/redgiant-wifi.txt ]'
-  check "wifi saved root only" bash -c "[ \"\$(stat -c %a:%U '/var/lib/iwd/$wifi_ssid.psk')\" = 600:root ]"
+  check "wifi saved root only" bash -c "[ \"\$(stat -c %a:%U '$wifi_file')\" = 600:root ]"
   check "wifi joined from the file" wifi_connected "$wifi_ssid"
+  say "wifi-status $(echo wifi-status | sock | jq -c '{link, address: [.links[]? | select(.ifname == "wlan0") | .addr_info[]? | select(.family == "inet") | .local]}' 2>&1)"
   # 2. The helper's commands (the page, the console).
   check "wifi-scan lists the network" bash -c "echo wifi-scan | socat -t 90 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e --arg n '$wifi_ssid' '[.objects.data[0][] | .[\"net.connman.iwd.Network\"].Name.data] | index(\$n) != null'"
-  check "wifi-forget" bash -c "echo 'wifi-forget $(b64 "$wifi_ssid")' | socat -t 90 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e .ok && [ ! -e '/var/lib/iwd/$wifi_ssid.psk' ]"
-  wrong=$(echo "wifi-connect $(b64 "$wifi_ssid") $(b64 wrong-password-x) visible" | sock)
-  say "wifi-connect (wrong password) reply $wrong; file $(ls "/var/lib/iwd/$wifi_ssid.psk" 2>&1 | head -c 120)"
-  check "wifi-connect refuses a wrong password" bash -c "jq -e '.ok == false' <<<'$wrong'"
-  check "a refused password is not kept" bash -c "[ ! -e '/var/lib/iwd/$wifi_ssid.psk' ]"
-  sleep 5
-  reply=$(echo "wifi-connect $(b64 "$wifi_ssid") $(b64 "$wifi_pass") visible" | sock)
+  check "wifi-forget" bash -c "echo 'wifi-forget $(b64 "$wifi_ssid")' | socat -t 90 - UNIX-CONNECT:/run/redgiant-helper/helper.sock | jq -e .ok && [ ! -e '$wifi_file' ]"
+  reply=$(wifi_try "$wifi_pass")
   say "wifi-connect reply $reply"
   check "wifi-connect" bash -c "jq -e '.state == \"connected\"' <<<'$reply'"
   check "wifi-status connected" wifi_connected "$wifi_ssid"
-  check "wifi password in no log" bash -c "! journalctl -b --no-pager -o cat | grep -qF '$wifi_pass'"
+  check "wifi saved without AutoConnect=false" bash -c "! grep -q '^AutoConnect=false' '$wifi_file'"
+  # 3. A new, wrong password for the network in use (a person correcting it from the page):
+  # refused, and the one that worked comes back and joins again.
+  wrong=$(wifi_try wrong-password-y)
+  say "wifi-connect (wrong password after a good one) reply $wrong"
+  check "wifi wrong password refused after a good one" bash -c "jq -e '.ok == false and .error == \"connect_failed\"' <<<'$wrong'"
+  check "wifi good password restored" bash -c "grep -qxF 'Passphrase=$wifi_pass' '$wifi_file' && ! grep -q 'wrong-password' '$wifi_file' && ! ls /var/lib/iwd/.redgiant-* >/dev/null 2>&1"
+  check "wifi joined again with the good password" wifi_connected "$wifi_ssid"
+  check "wifi password in no log" bash -c "! journalctl -b --no-pager -o cat | grep -qF -e '$wifi_pass' -e wrong-password"
   if [ "$ok" != 1 ]; then
     journalctl -b -u iwd.service --no-pager -n 25 -o cat 2>&1 | sed 's/^/REDGIANT-SELFTEST iwd: /' >/dev/console
     ls -la /var/lib/iwd 2>&1 | sed 's/^/REDGIANT-SELFTEST iwd: /' >/dev/console
