@@ -26,6 +26,7 @@ export function serve(
     hf?: AppOptions["hf"];
     winHf?: AppOptions["winHf"];
     loginOwner?: string;
+    firstAccessFrom?: AppOptions["firstAccessFrom"];
     /** The version pages are told (default the installed one, null from the source). */
     version?: string | null;
   },
@@ -42,6 +43,7 @@ export function serve(
     ...(listen.hf && { hf: listen.hf }),
     ...(listen.winHf && { winHf: listen.winHf }),
     ...(listen.loginOwner && { loginOwner: listen.loginOwner }),
+    ...(listen.firstAccessFrom && { firstAccessFrom: listen.firstAccessFrom }),
     pages,
   });
   return new Promise((ok) => {

@@ -8,18 +8,18 @@ It assumes nothing about the machine: x86_64 or arm64, with or without a graphic
 without a screen, real hardware or any hypervisor. 2 GB of memory is the minimum, 4 GB or more is
 better; the disk needs 16 GB or more.
 
-| You have                                    | Download                                    |
-| ------------------------------------------- | ------------------------------------------- |
-| A PC to dedicate to RedGiant (x86_64)       | `redgiant-os-<version>-x86_64.iso`          |
-| Proxmox (a VM; or the script, below)        | `redgiant-os-<version>-x86_64.qcow2`        |
-| Proxmox, LXC, Incus (a container)           | `redgiant-os-<version>-x86_64-lxc.tar.zst`  |
-| KVM/libvirt, UTM, a cloud (x86_64)          | `redgiant-os-<version>-x86_64.qcow2`        |
-| Hyper-V (Windows)                           | `redgiant-os-<version>-x86_64.vhdx.zip`     |
-| VirtualBox, VMware                          | `redgiant-os-<version>-x86_64.ova`          |
-| The same on arm64 (Ampere, Graviton, UTM)   | `redgiant-os-<version>-arm64.qcow2`         |
-| A Raspberry Pi 4, 400 or CM4                | `redgiant-os-<version>-arm64-raspi.img.xz`  |
-| Something that wants a raw disk             | `redgiant-os-<version>-<arch>.raw.zst`      |
-| A server that already runs Docker           | not this page: see [INSTALL.md](INSTALL.md) |
+| You have                                  | Download                                    |
+| ----------------------------------------- | ------------------------------------------- |
+| A PC to dedicate to RedGiant (x86_64)     | `redgiant-os-<version>-x86_64.iso`          |
+| Proxmox (a VM; or the script, below)      | `redgiant-os-<version>-x86_64.qcow2`        |
+| Proxmox, LXC, Incus (a container)         | `redgiant-os-<version>-x86_64-lxc.tar.zst`  |
+| KVM/libvirt, UTM, a cloud (x86_64)        | `redgiant-os-<version>-x86_64.qcow2`        |
+| Hyper-V (Windows)                         | `redgiant-os-<version>-x86_64.vhdx.zip`     |
+| VirtualBox, VMware                        | `redgiant-os-<version>-x86_64.ova`          |
+| The same on arm64 (Ampere, Graviton, UTM) | `redgiant-os-<version>-arm64.qcow2`         |
+| A Raspberry Pi 4, 400 or CM4              | `redgiant-os-<version>-arm64-raspi.img.xz`  |
+| Something that wants a raw disk           | `redgiant-os-<version>-<arch>.raw.zst`      |
+| A server that already runs Docker         | not this page: see [INSTALL.md](INSTALL.md) |
 
 All the ways to install RedGiant, RedGiant OS and the others, are on one page:
 [INSTALL.md](INSTALL.md#every-way-to-install-redgiant).
@@ -54,8 +54,8 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/Frostmoore/redgiant2/mai
 It asks for the id (the next free one by default), the storage, the network bridge and the disk
 size, shows what it will create and waits for a yes. Then it downloads the release's image,
 checks `SHA256SUMS-os` against its signature (RedGiant's update key, built into the script) and
-the image against `SHA256SUMS-os`, creates the machine, starts it and prints its address and the
-code the first start asks for. It never touches a machine that exists: an id that is taken is
+the image against `SHA256SUMS-os`, creates the machine, starts it and prints its address: open it
+and create your access (a password). It never touches a machine that exists: an id that is taken is
 refused. The same with options, without questions:
 
 ```sh
@@ -100,9 +100,8 @@ Other storage, bridge or size: `--storage local-zfs --bridge vmbr1 --disk 64 --m
 `--dry-run` shows the commands first. The script asks for the id (the next free one; an id that
 is taken is refused, nothing is changed), checks `SHA256SUMS-os` against RedGiant's update key and
 the template against `SHA256SUMS-os`, puts the template in `local:vztmpl/`, creates and starts
-the container, then prints the address (`http://<address>:7600`) and the **code the first start
-asks for** (also on the container's Console tab, and with
-`pct exec <id> -- cat /var/lib/redgiant/docker/volumes/redgiant-data/_data/setup-code.txt`).
+the container, then prints the address (`http://<address>:7600`, also on the container's Console
+tab): open it and create your access.
 
 The container is **unprivileged** with the features **`nesting=1,keyctl=1`**: Docker (RedGiant's
 server, its database and the sandboxes) runs inside it, and that is all Docker needs there; root
@@ -279,10 +278,24 @@ The first start takes a few minutes: the system fills its disk and loads RedGian
 - the address, `http://redgiant.local:7600` and the machine's IP addresses
   (phones that do not know `.local` names use the IP);
 - a QR code that opens the address on a phone;
-- the one-time code the page asks for at the first start;
 - RedGiant's status and whether an update is waiting.
 
-Press **t** to show the access link with your token (as a QR code, for one minute), **u** to
+Open the address from a phone or computer on the same network: the page says **«Create your
+access»**, you choose a password and you are in, then the first start goes on (language, models,
+backups…). Nothing to copy from the console, no token. From then on the page asks only for the
+password, and each device stays signed in while you use it. The first access can be created only
+while there is no password, and only from the local network (or your Tailscale): a page opened
+from the internet is told to open it at home.
+
+On a network you do not trust (a shared office, a hosting provider's network), require a one-time
+code as well: set `REDGIANT_SETUP_CODE=1` in `/var/lib/redgiant/stack.env` before the first start;
+the machine's screen and the Proxmox script then show the code the page asks for.
+`REDGIANT_FIRST_ACCESS=anywhere` lets the first access be created from any address (for a machine
+only reachable through a VPN that is not a private network); access from outside home always needs
+the password.
+
+Press **t** to show the link with the installation's token for apps and the command line (as a QR
+code, for one minute), **u** to
 install a waiting RedGiant update, **w** to join a Wi-Fi network. The other consoles (Alt+F2…)
 and the serial console show the address on their login prompt. There is no password login: the
 machine is managed from RedGiant.

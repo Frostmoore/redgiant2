@@ -34,7 +34,10 @@ export async function startServer(
   /** A fake Telegram Bot API to connect Demi-God's gateway to. */
   telegramApiRoot?: string,
   /** Extra parts of the app built on the core (the setup wizard, Hugging Face). */
-  extra?: (core: RedGiantCore, dir: string) => Promise<Pick<AppOptions, "setup" | "hf">>,
+  extra?: (
+    core: RedGiantCore,
+    dir: string,
+  ) => Promise<Pick<AppOptions, "setup" | "hf" | "firstAccessFrom">>,
 ) {
   const dir = await mkdtemp(join(tmpdir(), "rg-server-"));
   const { db } = await memoryDb();

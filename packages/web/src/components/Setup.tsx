@@ -1027,6 +1027,15 @@ export function Setup({ onDone }: { onDone?: () => void }) {
     if (sessionStorage.getItem("rg.viaSetupCode") !== "1") return;
     void loginMethods().then((m) => setMust(!m.password));
   }, [key]);
+  // A password chosen before the wizard (the first access, G39.7): its step is not asked again.
+  // Read once, when the wizard opens: the step list does not change under the person's feet.
+  const [hadPassword, setHadPassword] = useState(false);
+  useEffect(() => {
+    void loginMethods().then(
+      (m) => setHadPassword(m.password),
+      () => {},
+    );
+  }, []);
   useEffect(() => {
     stage.current?.scrollTo({ top: 0 });
   }, [key]);
@@ -1036,7 +1045,7 @@ export function Setup({ onDone }: { onDone?: () => void }) {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  const steps = s ? stepsOf(s) : stepsOf({ config: {} });
+  const steps = stepsOf(s ?? { config: {} }, { password: hadPassword });
   const at = Math.max(0, steps.indexOf(key));
   const move = async (to: StepKey | "next", save: boolean) => {
     if (busy || !s) return;
@@ -1049,7 +1058,7 @@ export function Setup({ onDone }: { onDone?: () => void }) {
     // The settings come back first: choosing "advanced" adds two steps after this one.
     const fresh = (await attempt(() => getApi().setup())) ?? s;
     setS(fresh);
-    const list = stepsOf(fresh);
+    const list = stepsOf(fresh, { password: hadPassword });
     const target = to === "next" ? stepAfter(list, key) : to;
     setDir(list.indexOf(target) >= list.indexOf(key) ? "r" : "l");
     setJump(false);

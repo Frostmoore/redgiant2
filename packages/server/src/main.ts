@@ -27,6 +27,7 @@ import { RedGiantCore } from "./core.js";
 import { debugLog } from "./debug-log.js";
 import { localVaultEgress, routesFileEgress } from "./egress-routes.js";
 import { startEmbeddedDatabase } from "./embedded-db.js";
+import { firstAccessFromEnv, setupCodeRequired } from "./first-access.js";
 import { FirstBoot } from "./firstboot.js";
 import { backupScheduler } from "./firstboot-routes.js";
 import { GitHosts } from "./git-hosts.js";
@@ -479,15 +480,21 @@ const running = await serve(core, new TokenAuth({ [token]: owner }), {
   hf: new HuggingFace(modelsDir),
   ...(winEngine && { winHf: new HuggingFace(winEngine.modelsDir) }),
   loginOwner: owner,
+  // Who may create the first access (G39.7): the local network, or anywhere when allowed.
+  firstAccessFrom: firstAccessFromEnv(env.REDGIANT_FIRST_ACCESS),
   webDir: env.REDGIANT_WEB_DIR ?? fileURLToPath(new URL("../../web/dist", import.meta.url)),
 });
 console.log(`RedGiant listening on ${running.url} (sandbox: ${sandbox.kind})`);
-// A first start without a screen (G39.3): the one-time code for the page opened from another
-// device of the network; REDGIANT_SETUP_CODE=0 turns it off (the installer opens the page itself).
-if (env.REDGIANT_SETUP_CODE !== "0")
-  await setup
-    .startSetupCode(Number(env.REDGIANT_PORT ?? 7600), (await core.logins.status(owner)).password)
-    .catch((err) => console.warn(`setup code: ${(err as Error).message}`));
+// A first start without a screen (G39.7): the address to open from another device of the
+// network, where the page creates the access. The one-time code of G39.3 only when asked for
+// (REDGIANT_SETUP_CODE=1, a network the administrator does not trust).
+await setup
+  .startSetupCode(
+    Number(env.REDGIANT_PORT ?? 7600),
+    (await core.logins.status(owner)).password,
+    setupCodeRequired(env.REDGIANT_SETUP_CODE),
+  )
+  .catch((err) => console.warn(`setup code: ${(err as Error).message}`));
 // Scheduled backups (G39.3) into the destination chosen in the wizard or Settings › System.
 setup.scheduler = backupScheduler(core, setup, owner, () => installedVersion(env));
 setup.scheduler.start();

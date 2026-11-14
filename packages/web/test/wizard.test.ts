@@ -88,6 +88,17 @@ describe("the wizard's steps (2026-11-06)", () => {
     expect(stepsOf({ config: {}, offer: { local: false } })).not.toContain("wzLocal");
   });
 
+  it("does not ask again for the password the first access chose (G39.7)", () => {
+    expect(stepsOf({ config: {} }, { password: true })).not.toContain("wzAccount");
+    expect(stepsOf({ config: { role: "node" } }, { password: true })).toEqual([
+      "wzWelcome",
+      "wzRole",
+      "wzMachine",
+      "wzDone",
+    ]);
+    expect(stepsOf({ config: {} }, { password: false })).toContain("wzAccount");
+  });
+
   it("the password step cannot be skipped after signing in with the setup code (G39.3)", () => {
     expect(skippable("wzAccount")).toBe(true);
     expect(skippable("wzAccount", { mustSetPassword: true })).toBe(false);

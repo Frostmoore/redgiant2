@@ -85,6 +85,7 @@ import { svgRoutes } from "./editor/svg-routes.js";
 import { MailboxNotFoundError } from "./email.js";
 import { sessionMarkdown } from "./export.js";
 import { ConflictError, FileService } from "./files.js";
+import { type FirstAccessFrom, firstAccessOf, fromLocalNetwork } from "./first-access.js";
 import { firstBootRoutes } from "./firstboot-routes.js";
 import { HuggingFace } from "./hf.js";
 import { importRoutes } from "./import-routes.js";
@@ -852,6 +853,8 @@ export interface AppOptions {
   winHf?: HuggingFace;
   /** The pages connected now (3.5.3): the launcher asks after an update before opening one. */
   pages?: OpenPages;
+  /** Who may create the first access (G39.7): the local network (default) or anywhere. */
+  firstAccessFrom?: FirstAccessFrom;
 }
 
 export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOptions = {}) {
@@ -922,6 +925,8 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
       "/api/auth/login",
       // The one-time code of a first start (G39.3) is the credential.
       "/api/auth/setup-code",
+      // The first access (G39.7): only while there is no password, from the local network.
+      "/api/auth/first-access",
       // The service sends the person back here after signing in; the state is the credential.
       "/api/extensions/oauth/callback",
     ];
@@ -981,9 +986,11 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
   // Who is asking, as far as can be trusted: Cloudflare's header (it overwrites it), the last
   // address our own proxy added, or the connection itself. The first X-Forwarded-For entry is
   // whatever the client wrote.
+  const socketAddress = (c: Context<Env>) =>
+    (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket
+      ?.remoteAddress;
   const clientAddress = (c: Context<Env>) => {
-    const socket = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)
-      ?.incoming?.socket?.remoteAddress;
+    const socket = socketAddress(c);
     return (
       c.req.header("cf-connecting-ip") ||
       c.req.header("x-forwarded-for")?.split(",").at(-1)?.trim() ||
@@ -997,16 +1004,63 @@ export function createApp(core: RedGiantCore, auth: AuthProvider, options: AppOp
     err instanceof LoginError
       ? c.json({ error: err.message, code: err.code }, err.code === "too_many" ? 429 : 400)
       : Promise.reject(err);
-  app.get("/api/auth/methods", async (c) =>
-    c.json(
+  // The first access (G39.7): what this page may do while there is no password.
+  const firstAccess = async (c: Context<Env>, hasPassword?: boolean) =>
+    options.setup
+      ? firstAccessOf({
+          hasPassword: hasPassword ?? (await core.logins.status(loginOwner)).password,
+          completed: options.setup.completed,
+          codeActive: options.setup.setupCode.required,
+          local: fromLocalNetwork(socketAddress(c), (n) => c.req.header(n)),
+          from: options.firstAccessFrom ?? "lan",
+        })
+      : null;
+  app.get("/api/auth/methods", async (c) => {
+    const status = await core.logins.status(loginOwner);
+    const first = await firstAccess(c, status.password);
+    return c.json(
       {
-        ...(await core.logins.status(loginOwner)),
+        ...status,
         // A first start waiting for its one-time code (G39.3).
         setupCode: Boolean(options.setup?.setupCode.active),
+        ...(first && { firstAccess: first }),
       },
       200,
-    ),
-  );
+    );
+  });
+  // «Create your access» (G39.7): the first password, and the page is in. Only while there is
+  // no password and the first start is not completed, from the local network (or anywhere when
+  // the administrator allows it), and never while a one-time code is required.
+  app.post("/api/auth/first-access", async (c) => {
+    const b = z
+      .object({ password: z.string().min(1).max(500) })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!b.success) return c.json({ error: "A password is needed", code: "weak" }, 400);
+    const first = await firstAccess(c);
+    if (first === "code")
+      return c.json({ error: "This installation asks for its setup code", code: "code" }, 403);
+    if (first === "not_here")
+      return c.json(
+        { error: "The first access is created from the local network", code: "not_here" },
+        403,
+      );
+    if (first !== "password")
+      return c.json({ error: "The first access is closed: sign in as usual", code: "closed" }, 403);
+    try {
+      return c.json(
+        await core.logins.createFirstPassword(
+          loginOwner,
+          b.data.password,
+          (c.req.header("user-agent") ?? "Browser").slice(0, 80),
+        ),
+        200,
+      );
+    } catch (err) {
+      if (err instanceof LoginError && err.code === "exists")
+        return c.json({ error: err.message, code: err.code }, 403);
+      return loginFailure(c, err);
+    }
+  });
   // The first start from another device (G39.3): the one-time code opens one session.
   app.post("/api/auth/setup-code", async (c) => {
     const b = z

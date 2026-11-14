@@ -200,8 +200,10 @@ there. The main settings:
   (`REDGIANT_WHISPER_API=openai`, `REDGIANT_WHISPER_KEY`, `REDGIANT_WHISPER_MODEL`).
 - **Telegram**: `REDGIANT_TELEGRAM_TOKEN` (from @BotFather), then pair your account from the web UI.
 - **Reaching it from other devices**: `REDGIANT_BIND=0.0.0.0` publishes the port on your network.
-  Put HTTPS in front of it (Caddy, Traefik, a Tailscale/Cloudflare tunnel) before exposing it to the
-  internet: the token is the only lock.
+  The first page opened from another device of the network says «Create your access»: choose a
+  password and you are in (the token stays for apps and the command line). Put HTTPS in front of it
+  (Caddy, Traefik, a Tailscale/Cloudflare tunnel) before exposing it to the internet, and set the
+  password first: see [Already have your own infrastructure](#already-have-your-own-infrastructure).
 - **What sandboxes may reach**: `docker/egress.json` (package registries, GitHub, Hugging Face…).
 
 ## Programs downloaded when needed
@@ -341,30 +343,32 @@ three winget manifest files, schema 1.12.0) are attached to the release.
 Without the installer (for development, or your own deployment), the server is configured with
 environment variables. Requirements: Node.js 22+ and pnpm (`corepack enable`).
 
-| Variable                                                            | Meaning                                                                                                                                     |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                      | Postgres connection string (required); `embedded` for a Postgres of its own in the data folder; `memory:` for a throwaway one (demos)       |
-| `REDGIANT_TOKEN`                                                    | API token, 16+ characters (required)                                                                                                        |
-| `REDGIANT_DATA_DIR`                                                 | Workspaces and platform data (default `./data`)                                                                                             |
-| `REDGIANT_PORT` / `REDGIANT_HOST`                                   | Listen address (default `0.0.0.0:7600`)                                                                                                     |
-| `ANTHROPIC_API_KEY`                                                 | Enables the Anthropic provider                                                                                                              |
-| `REDGIANT_OPENAI_BASE_URL`, `REDGIANT_OPENAI_ID`, `OPENAI_API_KEY`  | Any OpenAI-compatible server (llama.cpp, vLLM, Ollama, OpenRouter…)                                                                         |
-| `REDGIANT_DEFAULT_MODEL`                                            | `provider/model`, used when an agent and its ancestors set none                                                                             |
-| `REDGIANT_SANDBOX`                                                  | `host` (default) or `docker`, with `REDGIANT_SANDBOX_IMAGE`, `REDGIANT_SANDBOX_NETWORK`, `REDGIANT_EGRESS_URL`                              |
-| `REDGIANT_SEARXNG_URL`                                              | Enables web search through SearXNG                                                                                                          |
-| `REDGIANT_WHISPER_URL` (`_API`, `_KEY`, `_MODEL`)                   | Voice messages: whisper-asr-webservice, or an OpenAI-compatible transcription API with `_API=openai`                                        |
-| `REDGIANT_OPENAI_IMAGES_KEY` (`REDGIANT_IMAGES_MODEL`)              | Pictures with `generate_image` (OpenAI Images; default model gpt-image-2.5-flare)                                                           |
-| `REDGIANT_LLAMACPP_URL`, `REDGIANT_KV_DIR`, `REDGIANT_KV_BUDGET_MB` | A llama.cpp engine (see `docker/engine.Dockerfile`) and the directory where it saves KV caches (`--slot-save-path`, shared with the server) |
-| `REDGIANT_PGVECTOR_DIR`                                             | pgvector for the embedded Postgres (`lib/`, `share/extension/`); otherwise the one next to the server, then `tools/pgvector`                |
-| `REDGIANT_WEB_DIR`                                                  | Built web UI to serve at `/` (default `packages/web/dist`)                                                                                  |
-| `REDGIANT_TELEGRAM_TOKEN` / `REDGIANT_TELEGRAM_TOKEN_FILE`          | Bot token from BotFather: enables Demi-God on Telegram (polling by default)                                                                 |
-| `REDGIANT_TELEGRAM_WEBHOOK_SECRET`                                  | Webhook mode instead of polling: Telegram must send this secret to `/api/telegram/webhook`                                                  |
-| `REDGIANT_SOURCE_DIR`, `REDGIANT_STATE_DIR`                         | RedGiant's own source (a git checkout) and the supervisor's state: enables God's code changes; promotion needs `redgiant-supervisor`        |
-| `REDGIANT_BUILD_COMMAND`                                            | Supervisor: how to build the source (default `pnpm install --frozen-lockfile && pnpm build`)                                                |
-| `REDGIANT_METAL`                                                    | `1`: God works on the real system even with Docker sandboxes; every change it makes asks you                                                |
-| `REDGIANT_VAULT_DIR`                                                | The keychain's folder (default `keychain` in the data folder); it refuses to open inside a git repository                                   |
-| `REDGIANT_VAULT_KEY`                                                | The keychain's master key (base64 of 32 bytes) for servers; otherwise Windows, the Mac's Keychain or a 0600 file beside it keep it          |
-| `REDGIANT_EGRESS_ROUTES`                                            | The file where the server writes the egress proxy's credential routes (GitHub, Gitea, keychain credentials bound to tools)                  |
+| Variable                                                            | Meaning                                                                                                                                                                                               |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                      | Postgres connection string (required); `embedded` for a Postgres of its own in the data folder; `memory:` for a throwaway one (demos)                                                                 |
+| `REDGIANT_TOKEN`                                                    | API token, 16+ characters (required)                                                                                                                                                                  |
+| `REDGIANT_DATA_DIR`                                                 | Workspaces and platform data (default `./data`)                                                                                                                                                       |
+| `REDGIANT_PORT` / `REDGIANT_HOST`                                   | Listen address (default `0.0.0.0:7600`)                                                                                                                                                               |
+| `REDGIANT_SETUP_CODE`                                               | `1`: the first start asks for a one-time code shown on the console and in the log, for networks you do not trust (default: the page opened from the local network creates the access with a password) |
+| `REDGIANT_FIRST_ACCESS`                                             | `anywhere`: the first access («Create your access», while there is no password) may be created from any address, not only the local network and Tailscale                                             |
+| `ANTHROPIC_API_KEY`                                                 | Enables the Anthropic provider                                                                                                                                                                        |
+| `REDGIANT_OPENAI_BASE_URL`, `REDGIANT_OPENAI_ID`, `OPENAI_API_KEY`  | Any OpenAI-compatible server (llama.cpp, vLLM, Ollama, OpenRouter…)                                                                                                                                   |
+| `REDGIANT_DEFAULT_MODEL`                                            | `provider/model`, used when an agent and its ancestors set none                                                                                                                                       |
+| `REDGIANT_SANDBOX`                                                  | `host` (default) or `docker`, with `REDGIANT_SANDBOX_IMAGE`, `REDGIANT_SANDBOX_NETWORK`, `REDGIANT_EGRESS_URL`                                                                                        |
+| `REDGIANT_SEARXNG_URL`                                              | Enables web search through SearXNG                                                                                                                                                                    |
+| `REDGIANT_WHISPER_URL` (`_API`, `_KEY`, `_MODEL`)                   | Voice messages: whisper-asr-webservice, or an OpenAI-compatible transcription API with `_API=openai`                                                                                                  |
+| `REDGIANT_OPENAI_IMAGES_KEY` (`REDGIANT_IMAGES_MODEL`)              | Pictures with `generate_image` (OpenAI Images; default model gpt-image-2.5-flare)                                                                                                                     |
+| `REDGIANT_LLAMACPP_URL`, `REDGIANT_KV_DIR`, `REDGIANT_KV_BUDGET_MB` | A llama.cpp engine (see `docker/engine.Dockerfile`) and the directory where it saves KV caches (`--slot-save-path`, shared with the server)                                                           |
+| `REDGIANT_PGVECTOR_DIR`                                             | pgvector for the embedded Postgres (`lib/`, `share/extension/`); otherwise the one next to the server, then `tools/pgvector`                                                                          |
+| `REDGIANT_WEB_DIR`                                                  | Built web UI to serve at `/` (default `packages/web/dist`)                                                                                                                                            |
+| `REDGIANT_TELEGRAM_TOKEN` / `REDGIANT_TELEGRAM_TOKEN_FILE`          | Bot token from BotFather: enables Demi-God on Telegram (polling by default)                                                                                                                           |
+| `REDGIANT_TELEGRAM_WEBHOOK_SECRET`                                  | Webhook mode instead of polling: Telegram must send this secret to `/api/telegram/webhook`                                                                                                            |
+| `REDGIANT_SOURCE_DIR`, `REDGIANT_STATE_DIR`                         | RedGiant's own source (a git checkout) and the supervisor's state: enables God's code changes; promotion needs `redgiant-supervisor`                                                                  |
+| `REDGIANT_BUILD_COMMAND`                                            | Supervisor: how to build the source (default `pnpm install --frozen-lockfile && pnpm build`)                                                                                                          |
+| `REDGIANT_METAL`                                                    | `1`: God works on the real system even with Docker sandboxes; every change it makes asks you                                                                                                          |
+| `REDGIANT_VAULT_DIR`                                                | The keychain's folder (default `keychain` in the data folder); it refuses to open inside a git repository                                                                                             |
+| `REDGIANT_VAULT_KEY`                                                | The keychain's master key (base64 of 32 bytes) for servers; otherwise Windows, the Mac's Keychain or a 0600 file beside it keep it                                                                    |
+| `REDGIANT_EGRESS_ROUTES`                                            | The file where the server writes the egress proxy's credential routes (GitHub, Gitea, keychain credentials bound to tools)                                                                            |
 
 ```sh
 pnpm build

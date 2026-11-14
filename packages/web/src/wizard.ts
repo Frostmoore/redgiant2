@@ -38,40 +38,50 @@ export interface StepContext {
   role?: "full" | "node" | undefined;
   /** false: no local model fits this machine, the step is not offered. */
   local?: boolean | undefined;
+  /**
+   * The password existed when the wizard opened (G39.7: the page that created the access chose
+   * it a moment ago): its step is not offered again.
+   */
+  password?: boolean | undefined;
 }
 
 export const stepsFor = (
   mode: "standard" | "advanced" | undefined,
   o: StepContext = {},
 ): StepKey[] =>
-  // A node gets its agents, models and chats from the main RedGiant (pairing, G39.4).
-  o.role === "node"
-    ? ["wzWelcome", "wzRole", "wzAccount", "wzMachine", "wzDone"]
-    : [
-        "wzWelcome",
-        "wzRole",
-        "wzAccount",
-        "wzMachine",
-        "wzMode",
-        "wzBrain",
-        ...(o.local === false ? [] : (["wzLocal"] as const)),
-        "wzNames",
-        "wzAssign",
-        "wzImport",
-        "wzTelegram",
-        "wzStorage",
-        ...(mode === "advanced" ? ADVANCED_STEPS : []),
-        // Access from outside: offered to everyone, never needed (LAN only is a choice).
-        "wzRemote",
-        "wzSafety",
-        "wzDone",
-      ];
+  o.password
+    ? stepsFor(mode, { ...o, password: false }).filter((k) => k !== "wzAccount")
+    : // A node gets its agents, models and chats from the main RedGiant (pairing, G39.4).
+      o.role === "node"
+      ? ["wzWelcome", "wzRole", "wzAccount", "wzMachine", "wzDone"]
+      : [
+          "wzWelcome",
+          "wzRole",
+          "wzAccount",
+          "wzMachine",
+          "wzMode",
+          "wzBrain",
+          ...(o.local === false ? [] : (["wzLocal"] as const)),
+          "wzNames",
+          "wzAssign",
+          "wzImport",
+          "wzTelegram",
+          "wzStorage",
+          ...(mode === "advanced" ? ADVANCED_STEPS : []),
+          // Access from outside: offered to everyone, never needed (LAN only is a choice).
+          "wzRemote",
+          "wzSafety",
+          "wzDone",
+        ];
 
 /** The steps of a wizard's state. */
-export const stepsOf = (s: {
-  config: { mode?: "standard" | "advanced"; role?: "full" | "node" };
-  offer?: { local: boolean };
-}) => stepsFor(s.config.mode, { role: s.config.role, local: s.offer?.local });
+export const stepsOf = (
+  s: {
+    config: { mode?: "standard" | "advanced"; role?: "full" | "node" };
+    offer?: { local: boolean };
+  },
+  o: { password?: boolean } = {},
+) => stepsFor(s.config.mode, { role: s.config.role, local: s.offer?.local, password: o.password });
 
 /** Steps that may be left for later: everything works without them. */
 const SKIPPABLE: readonly StepKey[] = [

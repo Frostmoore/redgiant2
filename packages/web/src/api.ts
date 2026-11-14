@@ -2419,8 +2419,18 @@ export class Live {
   }
 }
 
-/** How this installation signs in (before any token): a password, and a code too. */
-export type LoginMethods = { password: boolean; code: boolean; setupCode?: boolean };
+/**
+ * How this installation signs in (before any token): a password, and a code too. While there is
+ * no password at a first start, `firstAccess` (G39.7) says what this page may do: create the
+ * access ("password"), type the setup code the administrator asked for ("code"), or nothing from
+ * this network ("not_here").
+ */
+export type LoginMethods = {
+  password: boolean;
+  code: boolean;
+  setupCode?: boolean;
+  firstAccess?: "password" | "code" | "not_here";
+};
 export async function loginMethods(): Promise<LoginMethods> {
   const r = await fetch("/api/auth/methods");
   return r.ok ? ((await r.json()) as LoginMethods) : { password: false, code: false };
@@ -2444,6 +2454,23 @@ export async function setupCodeLogin(code: string): Promise<string> {
   if (!r.ok || !data.token)
     throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`, data.code);
   sessionStorage.setItem("rg.viaSetupCode", "1");
+  return data.token;
+}
+
+/** «Create your access» (G39.7): the first password, for a session token. */
+export async function firstAccessLogin(password: string): Promise<string> {
+  const r = await fetch("/api/auth/first-access", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  const data = (await r.json().catch(() => ({}))) as {
+    token?: string;
+    error?: string;
+    code?: string;
+  };
+  if (!r.ok || !data.token)
+    throw new ApiError(r.status, data.error ?? `HTTP ${r.status}`, data.code);
   return data.token;
 }
 

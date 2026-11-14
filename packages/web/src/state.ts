@@ -983,6 +983,28 @@ export async function refresh(): Promise<void> {
   ]);
 }
 
+/**
+ * What a link brings after '#' (G39.7): `#token=…` from the apps, the console or the installer
+ * (a fragment never reaches the server, so no log holds it) and `#tavola=…` from Telegram. Both
+ * are taken out of the address bar at once, the rest of the fragment stays; the token is kept
+ * by `signIn` when it works.
+ */
+export function takeFromLink(): { token?: string; board?: string } {
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const token = hash.get("token")?.trim() || undefined;
+  const board = hash.get("tavola") || undefined;
+  if (!hash.has("token") && !hash.has("tavola")) return {};
+  hash.delete("token");
+  hash.delete("tavola");
+  const rest = hash.toString();
+  history.replaceState(
+    history.state,
+    "",
+    location.pathname + location.search + (rest ? `#${rest}` : ""),
+  );
+  return { ...(token && { token }), ...(board && { board }) };
+}
+
 export async function signIn(t: string): Promise<void> {
   api = new Api(t);
   await api.projects(); // throws on a wrong token

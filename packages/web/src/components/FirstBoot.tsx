@@ -281,13 +281,8 @@ export function AccountForm({
   );
 }
 
-/** Why a password pair cannot be used, or undefined when it can. */
-export function passwordProblem(value: string, again: string, needed: boolean): Key | undefined {
-  if (!value && !again) return needed ? "fbPasswordNeeded" : undefined;
-  if (value.length < 10 || /^(.)\1+$/.test(value)) return "fbPasswordWeak";
-  if (value !== again) return "fbPasswordDiffer";
-  return undefined;
-}
+/** Why a password pair cannot be used (it lives with the sign-in page, G39.7). */
+export { passwordProblem } from "./Login.js";
 
 // --- Storage and backups ----------------------------------------------------------------------
 

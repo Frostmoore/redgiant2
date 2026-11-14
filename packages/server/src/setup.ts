@@ -43,6 +43,7 @@ import { debugLog } from "./debug-log.js";
 import { discoverSystem, localOffer } from "./discovery.js";
 import { freePort } from "./embedded-db.js";
 import { ensureFfmpeg } from "./ffmpeg.js";
+import { firstAccessBanner } from "./first-access.js";
 import type { FirstBoot } from "./firstboot.js";
 import { GitHostError, type GitHosts, type GitHostsConfig } from "./git-hosts.js";
 import { detectHardware, type EngineVariant, type Hardware } from "./hardware.js";
@@ -2585,13 +2586,26 @@ export class SetupService {
   readonly setupCode: SetupCode;
 
   /**
-   * At a first start (wizard not completed, no password): a one-time code on the console and in
-   * the log, for the page opened from another device. Returns it, or null when not needed.
+   * At a first start (wizard not completed, no password): the address to open on the console
+   * and in the log (G39.7: the page creates the access, nothing to copy). Only when the
+   * administrator requires it (`REDGIANT_SETUP_CODE=1`, a network they do not trust) a one-time
+   * code too (G39.3). Returns the code, or null when there is none.
    */
-  async startSetupCode(port: number, hasPassword: boolean): Promise<string | null> {
+  async startSetupCode(
+    port: number,
+    hasPassword: boolean,
+    required = true,
+  ): Promise<string | null> {
     if (this.config.completed || hasPassword) return null;
+    const addresses = lanAddresses(networkInterfaces());
+    if (!required) {
+      // A code left by an older start is gone: the file would make the console ask for it.
+      await this.setupCode.forget();
+      console.log(firstAccessBanner(port, addresses));
+      return null;
+    }
     const code = await this.setupCode.issue();
-    console.log(setupCodeBanner(code, port, lanAddresses(networkInterfaces())));
+    console.log(setupCodeBanner(code, port, addresses));
     return code;
   }
 

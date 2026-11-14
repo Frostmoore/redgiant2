@@ -18,6 +18,7 @@ export * from "./email.js";
 export * from "./engine-errors.js";
 export * from "./export.js";
 export * from "./files.js";
+export * from "./first-access.js";
 export * from "./firstboot.js";
 export * from "./firstboot-routes.js";
 export * from "./git-hosts.js";

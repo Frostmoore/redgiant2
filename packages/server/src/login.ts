@@ -1,7 +1,7 @@
 // Signing in with a password (G24.6): what makes RedGiant safe to reach from outside home. A
-// password stored only as a scrypt hash, sessions that expire (30 days, revocable), at most five
-// wrong tries per address every 15 minutes, and an optional second check with a 6-digit code
-// from an authenticator app (TOTP, RFC 6238).
+// password stored only as a scrypt hash, sessions that expire (30 days after the last use,
+// revocable), at most five wrong tries per address every 15 minutes, and an optional second
+// check with a 6-digit code from an authenticator app (TOTP, RFC 6238).
 
 import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
@@ -36,7 +36,7 @@ export async function migrateLogin(db: SqlClient): Promise<void> {
 /** Why a sign-in failed, in a code the page explains. */
 export class LoginError extends Error {
   constructor(
-    readonly code: "wrong" | "code_needed" | "too_many" | "weak" | "no_password",
+    readonly code: "wrong" | "code_needed" | "too_many" | "weak" | "no_password" | "exists",
     message: string,
   ) {
     super(message);
@@ -153,6 +153,26 @@ export class LoginStore {
        WHERE owner_id = $1 AND revoked_at IS NULL AND id <> $2`,
       [ownerId, keep ?? ""],
     );
+  }
+
+  /**
+   * The first access (G39.7): the password, only if there is none yet (two pages racing for
+   * it: the second is refused), and a session for the page that chose it.
+   */
+  async createFirstPassword(
+    ownerId: string,
+    password: string,
+    name: string,
+  ): Promise<{ token: string; expiresAt: string }> {
+    if (password.length < 10 || /^(.)\1+$/.test(password))
+      throw new LoginError("weak", "The password needs at least 10 characters, not all the same");
+    const rows = await this.db.query<{ owner_id: string }>(
+      `INSERT INTO rg_logins (owner_id, password_hash) VALUES ($1, $2)
+       ON CONFLICT (owner_id) DO NOTHING RETURNING owner_id`,
+      [ownerId, await hashPassword(password)],
+    );
+    if (!rows.length) throw new LoginError("exists", "A password is set already: sign in with it");
+    return this.openSession(ownerId, name);
   }
 
   /** A new secret for the authenticator app (not active until confirmed with a code). */
@@ -289,7 +309,12 @@ export class LoginStore {
     if (this.now() - (this.seen.get(r.id) ?? 0) > 60_000) {
       this.seen.set(r.id, this.now());
       await this.db
-        .query("UPDATE rg_login_sessions SET last_seen_at = now() WHERE id = $1", [r.id])
+        // Remembered on the device (G39.7): a session in use moves its end forward.
+        .query(
+          `UPDATE rg_login_sessions SET last_seen_at = now(),
+             expires_at = GREATEST(expires_at, $2::timestamptz) WHERE id = $1`,
+          [r.id, new Date(this.now() + (this.o.sessionDays ?? 30) * DAY).toISOString()],
+        )
         .catch(() => {});
     }
     return { ownerId: r.owner_id };

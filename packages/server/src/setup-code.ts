@@ -43,6 +43,8 @@ export type CodeCheck = "ok" | "wrong" | "too_many" | "none";
 
 export class SetupCode {
   private code: string | null = null;
+  /** A code was asked for at this start (G39.7): used or not, the first access needs one. */
+  private issued = false;
   private readonly failures = new Map<string, number[]>();
 
   constructor(
@@ -57,6 +59,11 @@ export class SetupCode {
     return this.code !== null;
   }
 
+  /** This start asked for a code: the first access goes through it, even once it is used. */
+  get required(): boolean {
+    return this.issued;
+  }
+
   private get file() {
     return this.o.dataDir ? join(this.o.dataDir, "setup-code.txt") : undefined;
   }
@@ -65,8 +72,15 @@ export class SetupCode {
   async issue(): Promise<string> {
     const shown = newSetupCode(this.o.pick);
     this.code = normalizeCode(shown);
+    this.issued = true;
     if (this.file) await writeFile(this.file, `${shown}\n`, { mode: 0o600 }).catch(() => {});
     return shown;
+  }
+
+  /** No code at this start (G39.7, the default): none from an older start either. */
+  async forget(): Promise<void> {
+    this.issued = false;
+    await this.clear();
   }
 
   /** The code is gone: used, or the wizard completed. */

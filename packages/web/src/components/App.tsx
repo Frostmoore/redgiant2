@@ -50,6 +50,7 @@ import {
   status,
   type Tab,
   tabs,
+  takeFromLink,
   toggleExplorer,
   token,
 } from "../state.js";
@@ -338,17 +339,12 @@ export function App() {
   useSwipeAway(side, "left", () => (drawerOpen.value = false), drawerOpen.value);
 
   useEffect(() => {
-    // The installer opens the page with #token=…: signed in at once, then the address is cleaned.
-    const hash = new URLSearchParams(location.hash.slice(1));
-    const fromLink = hash.get("token");
-    if (fromLink) history.replaceState(null, "", location.pathname + location.search);
-    if (fromLink) token.value = fromLink;
-    // A board's link from Telegram (G25.4): opened once signed in, even after the password page.
-    const board = hash.get("tavola");
-    if (board) {
-      sessionStorage.setItem("rg.tavola", board);
-      history.replaceState(null, "", location.pathname + location.search);
-    }
+    // An app or the installer opens the page with #token=…: signed in at once, the address is
+    // cleaned (G39.7). A board's link from Telegram (G25.4): opened once signed in, even after
+    // the password page.
+    const link = takeFromLink();
+    if (link.token) token.value = link.token;
+    if (link.board) sessionStorage.setItem("rg.tavola", link.board);
     if (token.value)
       void signIn(token.value)
         .catch(() => signOut())

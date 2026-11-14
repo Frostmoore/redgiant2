@@ -1588,7 +1588,7 @@ const en = {
   job_error_pihole_silent: "Pi-hole started but did not answer. The details below say why.",
   loginPassword: "Password",
   loginCode: "Code from the app (6 digits)",
-  loginWithToken: "Sign in with the token",
+  loginWithToken: "For apps and the command line: the token",
   err_wrong: "Wrong password or code.",
   err_too_many: "Too many wrong tries: wait 15 minutes, then try again.",
   err_weak: "The password needs at least 10 characters.",
@@ -5861,6 +5861,17 @@ const en = {
   fbCodeWrong: "Wrong code: check it on the machine's screen.",
   fbCodeTooMany: "Too many wrong tries: wait 15 minutes.",
   fbCodeNone: "This code was used already: restart the machine for a new one.",
+  faTitle: "Create your access",
+  faLead:
+    "Welcome to RedGiant. Choose the password you will sign in with from this and your other devices: then you are in.",
+  faGo: "Create and enter",
+  faNotHereTitle: "The first access is created at home",
+  faNotHere:
+    "This RedGiant has no password yet, and its first access is created only from its own network: open this address from a phone or computer connected to the same network as the machine.",
+  loginRemembered: "This device stays signed in while you use it.",
+  loginNoPasswordTitle: "No password yet",
+  loginNoPassword:
+    "This RedGiant has no password yet. Open it from the computer it is installed on (its icon or the installer's link) and choose one in Settings › Access from outside home.",
 } as const;
 
 export type Key = keyof typeof en;
@@ -7470,7 +7481,7 @@ const it: Record<Key, string> = {
   job_error_pihole_silent: "Pi-hole è partito ma non risponde. I dettagli qui sotto dicono perché.",
   loginPassword: "Password",
   loginCode: "Codice dell'app (6 cifre)",
-  loginWithToken: "Entra con il token",
+  loginWithToken: "Per app e riga di comando: il token",
   err_wrong: "Password o codice sbagliati.",
   err_too_many: "Troppi tentativi sbagliati: aspetta 15 minuti e riprova.",
   err_weak: "La password deve avere almeno 10 caratteri.",
@@ -11802,6 +11813,17 @@ const it: Record<Key, string> = {
   fbCodeWrong: "Codice sbagliato: controllalo sullo schermo della macchina.",
   fbCodeTooMany: "Troppi tentativi sbagliati: aspetta 15 minuti.",
   fbCodeNone: "Questo codice è già stato usato: riavvia la macchina per averne uno nuovo.",
+  faTitle: "Crea il tuo accesso",
+  faLead:
+    "Benvenuto in RedGiant. Scegli la password con cui entrerai da questo e dagli altri dispositivi: poi sei dentro.",
+  faGo: "Crea ed entra",
+  faNotHereTitle: "Il primo accesso si crea da casa",
+  faNotHere:
+    "Questo RedGiant non ha ancora una password e il primo accesso si crea solo dalla sua rete: apri questo indirizzo da un telefono o un computer collegato alla stessa rete della macchina.",
+  loginRemembered: "Questo dispositivo resta dentro finché lo usi.",
+  loginNoPasswordTitle: "Ancora nessuna password",
+  loginNoPassword:
+    "Questo RedGiant non ha ancora una password. Aprilo dal computer dove è installato (dalla sua icona o dal link dell'installazione) e sceglila in Impostazioni › Accesso da fuori casa.",
 };
 
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, it };

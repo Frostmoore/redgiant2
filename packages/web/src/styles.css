@@ -19379,9 +19379,24 @@ html[data-theme="dark"] {
 }
 
 /* --- First boot anywhere (G39.3): role, machine, storage and backups, SSH, setup code ------- */
-.login-setup-code .login-title {
+.login-setup-code .login-title,
+.login-first .login-title {
   font-size: 1.35rem;
   margin: 0 0 6px;
+}
+/* «Create your access» (G39.7): the first password, then the page is in. */
+.login-first {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.login-first p {
+  margin: 0;
+  line-height: 1.45;
+}
+.login-small {
+  font-size: 0.85rem;
+  margin: 0;
 }
 .login-setup-code input {
   font-family: var(--mono);
