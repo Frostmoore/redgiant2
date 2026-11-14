@@ -8,7 +8,7 @@
 // the data folder (it has no way of its own to check a signature).
 import { verify } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { rm, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -78,6 +78,37 @@ export function installedVersion(env: NodeJS.ProcessEnv = process.env): string |
   }
 }
 
+/**
+ * The version this installation was born with, kept in `install.json` of the data folder: the
+ * page tells an update from a new installation by it (what is new is shown only after an
+ * update). Written once: at a first start with the running version; on an installation that
+ * already had a state (a password, the wizard completed) but no file, "0.0.0": it was born
+ * before this was remembered, so it has been updated since. Null when nothing is known.
+ */
+export async function rememberFirstVersion(
+  dataDir: string,
+  installed: string | null,
+  hadState: boolean,
+): Promise<string | null> {
+  const file = join(dataDir, "install.json");
+  try {
+    const v = (JSON.parse(await readFile(file, "utf8")) as { firstVersion?: unknown }).firstVersion;
+    if (typeof v === "string" && /^\d+\.\d+\.\d+$/.test(v)) return v;
+  } catch {
+    // missing or unreadable: written below
+  }
+  const first = hadState ? "0.0.0" : installed;
+  if (!first) return null;
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    await writeFile(tmp, `${JSON.stringify({ firstVersion: first })}\n`);
+    await rename(tmp, file);
+  } catch {
+    await rm(tmp, { force: true }).catch(() => {});
+  }
+  return first;
+}
+
 /** Where a breaking update's backup goes, a folder the person sees: Documents, or the data volume. */
 export function safetyBackupBase(
   install: InstallKind,
@@ -92,6 +123,8 @@ export function safetyBackupBase(
 export interface UpdateWatcherOptions {
   install: InstallKind;
   installed: string | null;
+  /** The version this installation was born with (`rememberFirstVersion`). */
+  firstVersion?: string | null;
   dataDir: string;
   backupBase: string;
   /** For tests and the CI: the API's answer for the latest release (default GitHub's). */
@@ -138,6 +171,7 @@ export class UpdateWatcher {
     return {
       install: o.install,
       installed: o.installed,
+      firstVersion: o.firstVersion ?? null,
       latest: null,
       checkedAt: null,
       state: "unknown",

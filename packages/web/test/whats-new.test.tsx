@@ -7,12 +7,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lang, t } from "../src/i18n.js";
 
 let sessions: unknown[] = [{ id: "s1" }];
+// The version the installation was born with (3.7.2); "fail": an older server without the route.
+let firstVersion: string | null | "fail" = null;
 vi.mock("../src/state.js", async (orig) => ({
   ...(await orig<typeof import("../src/state.js")>()),
-  getApi: () => ({ sessions: () => Promise.resolve(sessions) }),
+  getApi: () => ({
+    sessions: () => Promise.resolve(sessions),
+    updateStatus: () =>
+      firstVersion === "fail"
+        ? Promise.reject(new Error("404"))
+        : Promise.resolve({ firstVersion }),
+  }),
 }));
 
-const { compareVersions, ITEMS, NEWS_VERSION, newsSince, WhatsNew } = await import(
+const { compareVersions, ITEMS, NEWS_VERSION, newsSince, wasUpdated, WhatsNew } = await import(
   "../src/components/WhatsNew.js"
 );
 
@@ -20,6 +28,21 @@ beforeEach(() => {
   lang.value = "it";
   localStorage.clear();
   sessions = [{ id: "s1" }];
+  firstVersion = null;
+});
+
+describe("wasUpdated", () => {
+  const table: [string | null, number, boolean][] = [
+    [null, 0, false], // a new installation from the source, or an older server
+    [null, 2, true], // conversations already: updated
+    ["3.6.0", 0, true], // Coder: born with 3.6.0, updated, no conversation yet
+    ["0.0.0", 0, true], // born before RedGiant remembered it
+    [NEWS_VERSION, 0, false], // born with this release: a new installation
+    ["9.0.0", 0, false],
+  ];
+  it.each(table)("born %s, %d conversations -> %s", (first, n, updated) => {
+    expect(wasUpdated(first, n)).toBe(updated);
+  });
 });
 afterEach(cleanup);
 
@@ -132,8 +155,26 @@ describe("the window", () => {
     ).toBe(true);
   });
 
+  it("opens after an update even without a conversation (born with an older version)", async () => {
+    sessions = [];
+    firstVersion = "3.6.0";
+    localStorage.setItem("rg.newsSeen", "3.6.0");
+    const r = render(<WhatsNew />);
+    await waitFor(() => expect(r.container.querySelector(".whats-new")).toBeTruthy());
+    expect(localStorage.getItem("rg.newsSeen")).toBe("3.6.0");
+  });
+
+  it("an older server without the version: as before, from the conversations", async () => {
+    sessions = [];
+    firstVersion = "fail";
+    const r = render(<WhatsNew />);
+    await waitFor(() => expect(localStorage.getItem("rg.newsSeen")).toBe(NEWS_VERSION));
+    expect(r.container.querySelector(".whats-new")).toBeNull();
+  });
+
   it("stays shut for a new installation and for whoever is up to date", async () => {
     sessions = [];
+    firstVersion = NEWS_VERSION;
     const r = render(<WhatsNew />);
     await waitFor(() => expect(localStorage.getItem("rg.newsSeen")).toBe(NEWS_VERSION));
     expect(r.container.querySelector(".whats-new")).toBeNull();

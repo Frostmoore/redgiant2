@@ -22,6 +22,7 @@ import {
   IconMonitor,
   IconMoon,
   IconRefresh,
+  IconSpark,
   IconSun,
   IconTool,
   IconTrash,
@@ -50,9 +51,18 @@ import {
 } from "./SettingsKit.js";
 import { refreshUpdateStatus, updateStatus } from "./UpdateGate.js";
 import { Modal } from "./ui.js";
+import { NewsWindow, newsSince } from "./WhatsNew.js";
 
 type DebugState = { enabled: boolean; forced: boolean; bytes: number; files: number };
-type Open = "instructions" | "backup" | "search" | "voice" | "images" | "updates" | "debug";
+type Open =
+  | "instructions"
+  | "backup"
+  | "search"
+  | "voice"
+  | "images"
+  | "updates"
+  | "news"
+  | "debug";
 
 /** The browser's notifications (2026-11-05): when the page is not in view and an agent needs you. */
 function BrowserNotifications() {
@@ -300,6 +310,7 @@ export function General() {
     voice: t("servicesVoice"),
     images: t("servicesImages"),
     updates: t("updTitle"),
+    news: t("stGenNews"),
     debug: t("dbgTitle"),
   };
   const tile = (id: Open, on: boolean, icon: JSX.Element, text: string, state?: string) => (
@@ -318,7 +329,9 @@ export function General() {
       class="st-general"
       after={
         <>
-          {open && (
+          {/* Everything that is new, release by release, for whoever missed the window. */}
+          {open === "news" && <NewsWindow groups={newsSince(null)} onClose={close} />}
+          {open && open !== "news" && (
             <Modal title={titles[open]} onClose={close}>
               <div class="wz-panel-in">
                 {open === "instructions" && (
@@ -427,6 +440,7 @@ export function General() {
       <Sub title={t("stGenCare")} lead={t("stGenCareLead")} />
       <Tiles>
         {tile("updates", false, <IconRefresh size={22} />, t("updHelp"))}
+        {tile("news", false, <IconSpark size={22} />, t("stGenNewsText"))}
         {dbg &&
           tile(
             "debug",

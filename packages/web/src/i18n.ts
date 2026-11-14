@@ -22,6 +22,8 @@ const en = {
     "A task an agent gives up on is tried once more by this model, in a new conversation.",
   stGenSearchText: "Lets every agent and the Chat look things up on the web.",
   stGenOn: "on",
+  stGenNews: "What's new",
+  stGenNewsText: "Everything each release brought, newest first: also what you missed.",
   stGenCare: "Updates and diagnostics",
   stGenCareLead: "Whether a newer RedGiant is out, and a log to send when something goes wrong.",
   stGenDebugText: "Everything RedGiant does, written in a log you can download and send.",
@@ -5987,6 +5989,9 @@ const it: Record<Key, string> = {
     "Un task su cui un agente si arrende viene riprovato una volta da questo modello, in una conversazione nuova.",
   stGenSearchText: "Permette a ogni agente e alla Chat di cercare sul web.",
   stGenOn: "acceso",
+  stGenNews: "Le novità",
+  stGenNewsText:
+    "Tutto quello che ha portato ogni versione, dalla più recente: anche quello che ti sei perso.",
   stGenCare: "Aggiornamenti e diagnostica",
   stGenCareLead: "Se c'è un RedGiant più nuovo, e un registro da mandare quando qualcosa non va.",
   stGenDebugText: "Tutto quello che fa RedGiant, scritto in un registro da scaricare e mandare.",

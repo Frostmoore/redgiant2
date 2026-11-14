@@ -1,6 +1,8 @@
 // What a big update brings (the user's rule, 2026-10-26): shown once, at the first opening after
 // updating, never to whoever installs RedGiant now (they get the introduction). "Updated" means
-// this browser already had conversations before. Every item carries the release it came with
+// the installation was born with an older version (the server's `firstVersion`, 3.7.2: Coder went
+// from 3.6.0 to 3.7.1 without a conversation and saw nothing) or it already has conversations.
+// Settings › General › «What's new» shows everything again. Every item carries the release it came with
 // (3.5.12, the person: «la versione accanto a ogni voce, dalla più recente»): the window shows only
 // what is newer than the last version this browser saw, grouped by version, newest first.
 import { useEffect, useState } from "preact/hooks";
@@ -117,6 +119,15 @@ export function newsSince(
     .map(([version, list]) => ({ version, items: list }));
 }
 
+/** An update, not a new installation: born with an older version, or with conversations already. */
+export function wasUpdated(
+  firstVersion: string | null | undefined,
+  conversations: number,
+): boolean {
+  if (conversations > 0) return true;
+  return !!firstVersion && compareVersions(firstVersion, NEWS_VERSION) < 0;
+}
+
 export function WhatsNew() {
   const [groups, setGroups] = useState<ReturnType<typeof newsSince>>([]);
   useEffect(() => {
@@ -124,24 +135,40 @@ export function WhatsNew() {
     const news = newsSince(seen);
     // Nothing newer than what this browser saw (also after going back to an older release).
     if (news.length === 0) return;
-    void getApi()
-      .sessions()
-      .then(
-        (rows) => {
-          // A new installation: nothing to tell, only remember it was seen.
-          if (rows.length > 0) setGroups(news);
-          else localStorage.setItem(SEEN, NEWS_VERSION);
-        },
-        () => {},
-      );
+    const api = getApi();
+    void Promise.all([
+      api.sessions(),
+      api.updateStatus().then(
+        (s) => s.firstVersion ?? null,
+        () => null,
+      ),
+    ]).then(
+      ([rows, first]) => {
+        if (wasUpdated(first, rows.length)) setGroups(news);
+        // A new installation: nothing to tell, only remember it was seen.
+        else localStorage.setItem(SEEN, NEWS_VERSION);
+      },
+      () => {},
+    );
   }, []);
   if (groups.length === 0) return null;
   const close = () => {
     localStorage.setItem(SEEN, NEWS_VERSION);
     setGroups([]);
   };
+  return <NewsWindow groups={groups} onClose={close} />;
+}
+
+/** The window itself: the groups given, newest first (also Settings › General, with everything). */
+export function NewsWindow({
+  groups,
+  onClose,
+}: {
+  groups: ReturnType<typeof newsSince>;
+  onClose: () => void;
+}) {
   return (
-    <Modal title={t("newsTitle", { version: NEWS_VERSION })} onClose={close}>
+    <Modal title={t("newsTitle", { version: NEWS_VERSION })} onClose={onClose}>
       <div class="whats-new">
         {groups.map((g) => (
           <div key={g.version} class="news-group">
@@ -161,7 +188,7 @@ export function WhatsNew() {
         ))}
         <div class="row">
           <div class="spacer" />
-          <button type="button" class="primary" onClick={close}>
+          <button type="button" class="primary" onClick={onClose}>
             {t("newsOk")}
           </button>
         </div>

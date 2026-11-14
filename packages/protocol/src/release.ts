@@ -78,6 +78,11 @@ export const UpdateStatus = z.object({
   install: InstallKind,
   /** Null when this installation does not know its version (run from the source). */
   installed: z.string().nullable(),
+  /**
+   * The version this installation was born with ("0.0.0": before RedGiant remembered it, so
+   * updated since); null when unknown (run from the source). Optional for older servers.
+   */
+  firstVersion: z.string().nullable().optional(),
   latest: z.string().nullable(),
   checkedAt: z.string().nullable(),
   state: z.enum(["latest", "available", "unreachable", "unknown"]),

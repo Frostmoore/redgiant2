@@ -45,7 +45,13 @@ import { ensureGit } from "./portable-git.js";
 import { backgroundPuller, runtimeHooks } from "./runtime.js";
 import { serve } from "./serve.js";
 import { SetupService } from "./setup.js";
-import { installedVersion, installKind, safetyBackupBase, UpdateWatcher } from "./updates.js";
+import {
+  installedVersion,
+  installKind,
+  rememberFirstVersion,
+  safetyBackupBase,
+  UpdateWatcher,
+} from "./updates.js";
 import { WIN_ENGINE_BUILD, WinEngine } from "./win-engine.js";
 
 const env = process.env;
@@ -517,6 +523,13 @@ if (sandbox.kind === "host")
   const updates = new UpdateWatcher({
     install,
     installed: installedVersion(env),
+    // An update or a new installation, for the page's «what is new» (an installation that
+    // already had a password or a completed wizard was there before).
+    firstVersion: await rememberFirstVersion(
+      dataDir,
+      installedVersion(env),
+      setup.completed || (await core.logins.status(owner)).password,
+    ),
     dataDir,
     backupBase: safetyBackupBase(install, dataDir, env),
     ...(env.REDGIANT_UPDATE_FEED && { feed: env.REDGIANT_UPDATE_FEED }),

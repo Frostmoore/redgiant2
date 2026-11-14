@@ -92,6 +92,7 @@ describe("Settings drawn as the wizard", () => {
       "Messaggi vocali",
       "Immagini",
       "Aggiornamenti",
+      "Le novità",
       "Diagnostica",
     ]);
     // Lit by border and background when set, never with a check mark.
@@ -105,6 +106,10 @@ describe("Settings drawn as the wizard", () => {
     fireEvent.click(r.getByText("Salva"));
     await waitFor(() => expect(calls).toContain("setupInstructions"));
     expect(r.getByText("Esci")).toBeTruthy();
+    // «Le novità» shows everything again, release by release, for whoever missed the window.
+    fireEvent.click(tiles[6] as HTMLElement);
+    await waitFor(() => expect(r.container.querySelector(".whats-new")).not.toBeNull());
+    expect(r.container.querySelectorAll(".news-group").length).toBeGreaterThan(1);
     expect(calls).toEqual(expect.arrayContaining(["setup", "debugState"]));
     // The mailbox serves automations only and lives with them (2026-11-07).
     expect(calls).not.toContain("emailSettings");

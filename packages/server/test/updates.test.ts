@@ -10,7 +10,12 @@ import { join } from "node:path";
 import type { Automation, AutomationRun, FoundBackup, Job, UpdateStatus } from "@redgiant/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { BackupError, findBackups, verifyBackup } from "../src/backup.js";
-import { UpdateRequiredError, UpdateWatcher, type UpdateWatcherOptions } from "../src/updates.js";
+import {
+  rememberFirstVersion,
+  UpdateRequiredError,
+  UpdateWatcher,
+  type UpdateWatcherOptions,
+} from "../src/updates.js";
 import { startServer } from "./helpers.js";
 
 const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -76,6 +81,46 @@ const finished = async (s: Server, job: Job) => {
 };
 
 const note = { it: "Serve per la sicurezza.", en: "Needed for safety." };
+
+describe("the version an installation was born with (what is new after an update)", () => {
+  const dir = async () => {
+    const d = await mkdtemp(join(tmpdir(), "rg-born-"));
+    dirs.push(d);
+    return d;
+  };
+  const table: [string, string | null, boolean, string | null][] = [
+    ["a first start remembers the running version", "3.7.2", false, "3.7.2"],
+    ["an installation with a state but no file was born before: 0.0.0", "3.7.2", true, "0.0.0"],
+    ["from the source with nothing: nothing known, nothing written", null, false, null],
+    ["from the source with a state: born before", null, true, "0.0.0"],
+  ];
+  it.each(table)("%s", async (_, installed, hadState, want) => {
+    const d = await dir();
+    expect(await rememberFirstVersion(d, installed, hadState)).toBe(want);
+    const file = join(d, "install.json");
+    if (want === null) expect(existsSync(file)).toBe(false);
+    else expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ firstVersion: want });
+  });
+
+  it("is written once: later starts and updates keep it", async () => {
+    const d = await dir();
+    await rememberFirstVersion(d, "3.6.0", false);
+    expect(await rememberFirstVersion(d, "3.7.2", true)).toBe("3.6.0");
+    expect(await rememberFirstVersion(d, "3.8.0", false)).toBe("3.6.0");
+  });
+
+  it("a broken file is written again", async () => {
+    const d = await dir();
+    await writeFile(join(d, "install.json"), "{not json");
+    expect(await rememberFirstVersion(d, "3.7.2", true)).toBe("0.0.0");
+  });
+
+  it("the status carries it", async () => {
+    const w = await watcher({ fetch: feed("3.4.0").fetch, firstVersion: "3.6.0" });
+    expect(w.status().firstVersion).toBe("3.6.0");
+    expect((await watcher({ fetch: feed("3.4.0").fetch })).status().firstVersion).toBeNull();
+  });
+});
 
 describe("the update watcher", () => {
   it("counts a signed mandatory release, and tells the Mac app", async () => {
