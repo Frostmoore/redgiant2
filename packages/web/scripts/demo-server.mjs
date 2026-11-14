@@ -1594,6 +1594,7 @@ if (process.env.DEMO_KEYS) {
   );
   await core.email.accountOf("local", "box_demo1");
 }
+let demoHttps = Boolean(process.env.DEMO_HTTPS);
 // The setup wizard, already completed, with hooks that change nothing (no keys, no engine).
 const setup = new SetupService({
   // DEMO_KEYS: the pictures key set by the administrator (an environment variable).
@@ -1678,6 +1679,23 @@ const setup = new SetupService({
           return { ok: true, path };
         }
         if (o.op === "ssh-status") return { ok: true, on: false, keys: 0 };
+        // DEMO_HTTPS=1 (3.7.2): HTTPS in the home network already on, its certificate to trust.
+        if (o.op === "https-local") demoHttps = o.on === true;
+        if (o.op === "https-status")
+          return demoHttps
+            ? {
+                ok: true,
+                on: true,
+                enabled: true,
+                ca: Buffer.from(
+                  "-----BEGIN CERTIFICATE-----\nMIIBdemo\n-----END CERTIFICATE-----\n",
+                ).toString("base64"),
+                fingerprint:
+                  "98:33:81:41:31:D2:1F:B1:48:B1:4E:06:50:19:A5:63:88:FE:3D:4A:24:A7:5F:1D:E9:46:8E:77:84:47:04:03",
+                until: "Dec 16 00:11:48 2027 GMT",
+                names: ["redgiant.local", "192.168.1.50"],
+              }
+            : { ok: true, on: false };
         if (o.op === "tailscale")
           return {
             ok: true,
