@@ -119,6 +119,41 @@ describe("Wi-Fi as iwd says it (parseWifi)", () => {
     });
   });
 
+  // iwd names the network it is still joining (wrong password included): only the helper's
+  // `link` (associated: link up and an access point) plus an address make it "connected".
+  it.each([
+    ["joining, password not checked yet", { associated: false, bssid: null }, "192.168.1.31", null],
+    ["associated, no address yet", { associated: true, bssid: "02:00:00:00:01:00" }, null, null],
+    [
+      "associated with an address",
+      { associated: true, bssid: "02:00:00:00:01:00" },
+      "192.168.1.31",
+      "Casa",
+    ],
+    ["the helper could not tell", null, "192.168.1.31", null],
+  ])("%s", (_n, link, address, connected) => {
+    const w = parseWifi({
+      ok: true,
+      objects: iwd([{ name: "Casa", connected: true }], {
+        known: ["Casa"],
+        state: "connected",
+        connected: `${station}/0_psk`,
+      }),
+      ordered: null,
+      links: [
+        {
+          ifname: "wlan0",
+          link_type: "ether",
+          operstate: "UP",
+          addr_info: address ? [{ family: "inet", local: address }] : [],
+        },
+      ],
+      link,
+    });
+    expect(w).toMatchObject({ available: true, connected });
+    if (w.available) expect(w.networks[0]?.connected).toBe(connected !== null);
+  });
+
   it.each([
     ["no Wi-Fi card", { ok: true, objects: { type: "x", data: [{}] } }, "no_wifi"],
     ["nothing readable", { ok: true, objects: null }, "failed"],

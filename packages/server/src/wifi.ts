@@ -49,6 +49,19 @@ export function parseWifi(reply: Record<string, unknown>): WifiState {
     for (const pair of ordered)
       if (Array.isArray(pair) && typeof pair[0] === "string" && typeof pair[1] === "number")
         signal.set(pair[0], pair[1]);
+  const links = Array.isArray(reply.links) ? (reply.links as IpAddr[]) : [];
+  const v4 = (l: IpAddr) =>
+    l.addr_info?.find((a) => a.family === "inet" && a.scope !== "host")?.local ?? null;
+  const v6 = (l: IpAddr) =>
+    l.addr_info?.find((a) => a.family === "inet6" && a.scope === "global")?.local ?? null;
+  const wifiLink = links.find((l) => l.ifname === device);
+  // iwd names a network connected while it is still joining it (before the password is checked):
+  // the helper's `link` says whether the card is really associated (link up, an access point), and
+  // the network must have given an address. Without `link` (an older helper), iwd's word.
+  const link = reply.link as { associated?: unknown } | null | undefined;
+  const real =
+    link === undefined ||
+    (link?.associated === true && !!wifiLink && (v4(wifiLink) !== null || v6(wifiLink) !== null));
   const networks: WifiNetwork[] = [];
   const seen = new Set<string>();
   for (const [path, ifs] of entries) {
@@ -65,7 +78,7 @@ export function parseWifi(reply: Record<string, unknown>): WifiState {
       ssid,
       security: (SECURITY.has(type) ? type : "other") as WifiNetwork["security"],
       signal: signal.has(path) ? signalPercent(signal.get(path) ?? -10000) : 0,
-      connected: bool(n.Connected),
+      connected: real && bool(n.Connected),
       known: known.has(ssid) || !!str(n.KnownNetwork),
     });
   }
@@ -77,14 +90,11 @@ export function parseWifi(reply: Record<string, unknown>): WifiState {
       a.ssid.localeCompare(b.ssid),
   );
   const connectedPath = str(st.ConnectedNetwork);
-  const connected =
-    (connectedPath && str(objects[connectedPath]?.[`${IWD}.Network`]?.Name)) ||
-    networks.find((n) => n.connected)?.ssid ||
-    null;
-  const links = Array.isArray(reply.links) ? (reply.links as IpAddr[]) : [];
-  const v4 = (l: IpAddr) =>
-    l.addr_info?.find((a) => a.family === "inet" && a.scope !== "host")?.local ?? null;
-  const wifiLink = links.find((l) => l.ifname === device);
+  const connected = !real
+    ? null
+    : (connectedPath && str(objects[connectedPath]?.[`${IWD}.Network`]?.Name)) ||
+      networks.find((n) => n.connected)?.ssid ||
+      null;
   // A cable: an Ethernet card that is up with an address (Docker's bridges and veths are not).
   const wired = links.some(
     (l) =>

@@ -168,6 +168,64 @@ iwd_reload() {
   [ "$card" = 1 ]
 }
 
+# What the card is really doing, never iwd's word alone: iwd names a network "connected" from
+# the moment it starts joining it (Station.ConnectedNetwork, Network.Connected), before the
+# password has been checked. Associated means iwd's state is connected or roaming, the link is
+# up (the kernel opens it only once the handshake has checked the password) and there is an
+# access point (BSSID). link_of <station path> prints "<state> <operstate> <bssid|-> <device>".
+link_of() {
+  o=$(iwd_objects) || return 1
+  printf '%s' "$o" | jq -r --arg s "$1" '.data[0] as $d | $d[$s] as $x
+    | ($x["net.connman.iwd.Station"].ConnectedAccessPoint.data // "") as $ap
+    | [($x["net.connman.iwd.Station"].State.data // "unknown"),
+       "-",
+       (($d[$ap]["net.connman.iwd.BasicServiceSet"].Address.data // "-") | if . == "" then "-" else . end),
+       ($x["net.connman.iwd.Device"].Name.data // "wlan0")] | join(" ")' 2>/dev/null | {
+    read -r state _ bssid dev || exit 1
+    oper=$(ip -j link show dev "$dev" 2>/dev/null | jq -r '.[0].operstate // "unknown"' 2>/dev/null) || oper=unknown
+    [ -n "$oper" ] || oper=unknown
+    if [ "$bssid" = - ]; then
+      # iwd before the BasicServiceSet objects: its diagnostics name the access point.
+      bssid=$(busctl --json=short --timeout=5 call net.connman.iwd "$1" net.connman.iwd.StationDiagnostic GetDiagnostics 2>/dev/null |
+        jq -r '.data[0].ConnectedBss.data // "-"' 2>/dev/null) || bssid=-
+      [ -n "$bssid" ] || bssid=-
+    fi
+    printf '%s %s %s %s\n' "$state" "$oper" "$bssid" "$dev"
+  }
+}
+associated() { # <state> <operstate> <bssid>
+  case "$1" in connected | roaming) ;; *) return 1 ;; esac
+  case "$2" in UP | up) ;; *) return 1 ;; esac
+  [ "$3" != - ]
+}
+# An address the network gave (IPv4, or IPv6 beyond the link), or nothing.
+address_of() {
+  ip -j addr show dev "$1" 2>/dev/null | jq -r '[.[0].addr_info[]? | select((.family == "inet" and .scope != "host")
+    or (.family == "inet6" and .scope == "global")) | .local][0] // empty' 2>/dev/null
+}
+# Waits (up to $3 half-seconds) until the card on station $1 is associated with the network
+# object $2, and gives up at once when iwd goes back to disconnected after having tried. Sets
+# LINK_DEV and LINK_BSSID.
+wait_associated() {
+  i=0 tried=0
+  while [ $i -lt "$3" ]; do
+    if o=$(iwd_objects) && l=$(link_of "$1"); then
+      cur=$(printf '%s' "$o" | jq -r --arg s "$1" '.data[0][$s]["net.connman.iwd.Station"].ConnectedNetwork.data // ""' 2>/dev/null)
+      l_state=${l%% *} l_rest=${l#* }
+      l_oper=${l_rest%% *} l_rest=${l_rest#* }
+      LINK_BSSID=${l_rest%% *} LINK_DEV=${l_rest#* }
+      [ "$cur" = "$2" ] && associated "$l_state" "$l_oper" "$LINK_BSSID" && return 0
+      case "$l_state" in
+        connecting* | connected | roaming) tried=1 ;;
+        disconnected) [ "$tried" = 1 ] && return 1 ;;
+      esac
+    fi
+    sleep 0.5
+    i=$((i + 1))
+  done
+  return 1
+}
+
 # Wi-Fi cards switched off (or blocked by rfkill) are switched on: asking for Wi-Fi means wanting it.
 power_on() {
   rfkill unblock wifi >/dev/null 2>&1 || true
@@ -202,8 +260,18 @@ wifi_reply() {
     ordered=$(busctl --json=short --timeout=10 call net.connman.iwd "$st" net.connman.iwd.Station GetOrderedNetworks 2>/dev/null) || ordered=null
   fi
   links=$(ip -j addr show 2>/dev/null) || links=null
-  jq -cn --argjson o "$objs" --argjson r "${ordered:-null}" --argjson l "${links:-null}" \
-    '{ok: true, objects: $o, ordered: $r, links: $l}' 2>/dev/null || fail bad_output
+  # The card's real state (link_of): the page says "connected" only when it is associated.
+  assoc=null
+  if [ -n "$st" ] && l=$(link_of "$st"); then
+    l_state=${l%% *} l_rest=${l#* }
+    l_oper=${l_rest%% *} l_rest=${l_rest#* }
+    l_bssid=${l_rest%% *}
+    a=false
+    associated "$l_state" "$l_oper" "$l_bssid" && a=true
+    assoc=$(jq -cn --argjson a "$a" --arg b "$l_bssid" '{associated: $a, bssid: (if $a then $b else null end)}' 2>/dev/null) || assoc=null
+  fi
+  jq -cn --argjson o "$objs" --argjson r "${ordered:-null}" --argjson l "${links:-null}" --argjson a "${assoc:-null}" \
+    '{ok: true, objects: $o, ordered: $r, links: $l, link: $a}' 2>/dev/null || fail bad_output
   exit 0
 }
 
@@ -397,6 +465,7 @@ EOF
       kind=psk
     fi
     case "$3" in visible | hidden) ;; *) fail bad_request ;; esac
+    mode=$3
     keep=0
     if [ $# -eq 4 ]; then [ "$4" = keep ] || fail bad_request; keep=1; fi
     need jq
@@ -407,72 +476,107 @@ EOF
     file=$IWD_DIR/$(iwd_name "$ssid").$kind
     tmp=$IWD_DIR/.redgiant-new.$$
     old=$IWD_DIR/.redgiant-old.$$
+    # write_file <trial 0|1> <visible|hidden>: the network's file; on trial iwd may not join it by itself
+    # (AutoConnect=false), so the only attempt is ours and its answer is the password's.
+    write_file() {
+      {
+        if [ "$2" = hidden ] || [ "$1" = 1 ]; then
+          printf '[Settings]\n'
+          [ "$2" = hidden ] && printf 'Hidden=true\n'
+          [ "$1" = 1 ] && printf 'AutoConnect=false\n'
+          printf '\n'
+        fi
+        if [ "$kind" = psk ]; then
+          printf '[Security]\n'
+          if is_hex64 "$pass"; then
+            printf 'PreSharedKey=%s\n' "$pass"
+          else
+            printf 'Passphrase=%s\n' "$pass"
+          fi
+        fi
+      } >"$tmp"
+      chmod 0600 "$tmp"
+      mv -f "$tmp" "$file"
+    }
+    objs="" st=""
+    if command -v busctl >/dev/null 2>&1 && objs=$(iwd_objects); then
+      power_on "$objs"
+      st=$(station_of "$objs")
+    fi
+    if [ -z "$st" ]; then
+      # iwd is not running yet (the first start), or no card: saved, it joins the network when it starts.
+      write_file 0 "$mode"
+      ok ',"state":"saved"'
+    fi
     had=0
     if [ -e "$file" ]; then cp -p "$file" "$old" && had=1; fi
-    # A new password for a saved network: iwd forgets the old one first (it would keep it).
-    if command -v busctl >/dev/null 2>&1 && iwd_objects >/dev/null; then forget_known "$ssid"; fi
-    {
-      [ "$3" = hidden ] && printf '[Settings]\nHidden=true\n\n'
-      if [ "$kind" = psk ]; then
-        printf '[Security]\n'
-        if is_hex64 "$pass"; then
-          printf 'PreSharedKey=%s\n' "$pass"
-        else
-          printf 'Passphrase=%s\n' "$pass"
-        fi
-      fi
-    } >"$tmp"
-    chmod 0600 "$tmp"
-    mv -f "$tmp" "$file"
+    # Nothing of the network stays from before: iwd forgets it (it would keep the old password in
+    # memory), and the restart below drops whatever it still held (keys cached from earlier joins).
+    forget_known "$ssid"
+    write_file 1 "$mode"
+    # undo: the network as it was before (the file that worked, or none), read again by iwd.
     undo() {
+      forget_known "$ssid"
       rm -f "$file"
       [ "$had" = 1 ] && mv -f "$old" "$file"
       iwd_reload "" || true
     }
-    if ! command -v busctl >/dev/null 2>&1 || ! objs=$(iwd_objects); then
-      # iwd is not running yet (the first start): saved, it joins the network when it starts.
+    # settle: the trial file becomes the real one: iwd joins it by itself again from now on.
+    # iwd writes the setting into the file itself (seen in QEMU); when it did not, the file is
+    # written again without it (iwd reads it at its next start at the latest).
+    settle() {
       rm -f "$old"
-      ok ',"state":"saved"'
-    fi
-    power_on "$objs"
-    st=$(station_of "$objs")
-    if [ -z "$st" ]; then
-      rm -f "$old"
-      ok ',"state":"saved"'
-    fi
+      if o=$(iwd_objects); then
+        for k in $(known_of "$o" "$ssid"); do
+          busctl --timeout=10 set-property net.connman.iwd "$k" net.connman.iwd.KnownNetwork AutoConnect b true >/dev/null 2>&1 || true
+        done
+      fi
+      grep -q '^AutoConnect=false' "$file" 2>/dev/null && write_file 0 "$mode"
+      return 0
+    }
     # iwd reads its saved networks again from the files (watching its folder is not reliable:
     # in QEMU it kept a refused password in memory and then failed to load the new file).
     # Wi-Fi drops for a moment, as joining another network does anyway.
     iwd_reload "$ssid" || { undo; fail wifi_off; }
     objs=$(iwd_objects) || objs='{"data":[{}]}'
     st=$(station_of "$objs")
-    if [ "$3" = hidden ]; then
-      err=$(busctl --timeout=40 call net.connman.iwd "$st" net.connman.iwd.Station ConnectHiddenNetwork s "$ssid" 2>&1 >/dev/null) && {
-        rm -f "$old"
-        ok ',"state":"connected"'
-      }
-    else
+    net=$(network_of "$objs" "$ssid" "$kind" "$st")
+    if [ -z "$net" ]; then
+      scan "$st"
+      objs=$(iwd_objects) || objs='{"data":[{}]}'
       net=$(network_of "$objs" "$ssid" "$kind" "$st")
-      if [ -z "$net" ]; then
-        scan "$st"
-        objs=$(iwd_objects) || objs='{"data":[{}]}'
-        net=$(network_of "$objs" "$ssid" "$kind" "$st")
-      fi
-      if [ -z "$net" ]; then
-        if [ "$keep" = 1 ]; then
-          rm -f "$old"
-          ok ',"state":"saved"'
-        fi
-        undo
-        fail not_found
-      fi
-      err=$(busctl --timeout=40 call net.connman.iwd "$net" net.connman.iwd.Network Connect 2>&1 >/dev/null) && {
-        rm -f "$old"
-        ok ',"state":"connected"'
-      }
     fi
+    err=""
+    if [ -n "$net" ]; then
+      err=$(busctl --timeout=40 call net.connman.iwd "$net" net.connman.iwd.Network Connect 2>&1 >/dev/null) || err=${err:-failed}
+    elif [ "$mode" = hidden ]; then
+      err=$(busctl --timeout=40 call net.connman.iwd "$st" net.connman.iwd.Station ConnectHiddenNetwork s "$ssid" 2>&1 >/dev/null) || err=${err:-failed}
+      objs=$(iwd_objects) || objs='{"data":[{}]}'
+      net=$(network_of "$objs" "$ssid" "$kind" "$st")
+    else
+      if [ "$keep" = 1 ]; then
+        settle
+        ok ',"state":"saved"'
+      fi
+      undo
+      fail not_found
+    fi
+    # iwd's yes is not enough (it says yes to a network it is still joining): the card must be
+    # associated, link up and an access point, within 20 s.
+    if [ -z "$err" ] && [ -n "$net" ] && wait_associated "$st" "$net" 40; then
+      settle
+      # An address from the network (DHCP, router advertisements), up to 20 s more.
+      i=0
+      while [ $i -lt 40 ] && [ -z "$(address_of "$LINK_DEV")" ]; do
+        sleep 0.5
+        i=$((i + 1))
+      done
+      [ -n "$(address_of "$LINK_DEV")" ] || ok ',"state":"saved","detail":"no_address"'
+      ok ',"state":"connected"'
+    fi
+    [ -n "$err" ] || err="not associated"
     if [ "$keep" = 1 ]; then
-      rm -f "$old"
+      settle
       ok ',"state":"saved"'
     fi
     undo

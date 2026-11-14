@@ -58,21 +58,60 @@ function objects(
   return JSON.stringify({ type: "a{oa{sa{sv}}}", data: [data] });
 }
 
+// After a Connect iwd accepts, the card is associated (link up, an access point) unless "stale"
+// says iwd's yes was hollow (the wrong-password case: it answers while still joining). "joined"
+// holds the network object; restarting iwd drops it.
 const FAKE_BUSCTL = `#!/bin/sh
 D="$REDGIANT_HELPER_TEST_ROOT/fake"
 echo "busctl $*" >>"$D/calls"
 case "$*" in
-  *GetManagedObjects*) cat "$D/objects.json" ;;
+  *GetManagedObjects*)
+    if [ -e "$D/joined" ] && [ ! -e "$D/stale" ]; then
+      jq -c --arg n "$(cat "$D/joined")" '.data[0] as $d
+        | (if ($n | startswith("hidden:")) then "/net/connman/iwd/0/3/h_psk" else $n end) as $p
+        | .data[0] = ($d
+          + (if ($n | startswith("hidden:")) then {($p): {"net.connman.iwd.Network": {Name: {type: "s", data: ($n | ltrimstr("hidden:"))},
+              Type: {type: "s", data: "psk"}, Connected: {type: "b", data: true}, Device: {type: "o", data: "/net/connman/iwd/0/3"}}}} else {} end)
+          + {"/net/connman/iwd/0/3/bss0": {"net.connman.iwd.BasicServiceSet": {Address: {type: "s", data: "02:00:00:00:01:00"}}}}
+          + {"/net/connman/iwd/known/joined": {"net.connman.iwd.KnownNetwork": {Type: {type: "s", data: "psk"},
+              Name: {type: "s", data: (if ($n | startswith("hidden:")) then ($n | ltrimstr("hidden:")) else $d[$n]["net.connman.iwd.Network"].Name.data end)}}}}
+          | .["/net/connman/iwd/0/3"]["net.connman.iwd.Station"] += {State: {type: "s", data: "connected"},
+              ConnectedNetwork: {type: "o", data: $p}, ConnectedAccessPoint: {type: "o", data: "/net/connman/iwd/0/3/bss0"}})' "$D/objects.json"
+    else
+      cat "$D/objects.json"
+    fi ;;
   *GetOrderedNetworks*) echo '{"type":"a(on)","data":[[["/net/connman/iwd/0/3/0_psk",-4500]]]}' ;;
   *get-property*Scanning*) echo '{"type":"b","data":false}' ;;
-  *"Network Connect"* | *ConnectHiddenNetwork*)
+  *"Network Connect"*)
     [ -e "$D/refuse" ] && { echo "Call failed: Operation failed" >&2; exit 1; }
+    echo "$4" >"$D/joined"
+    exit 0 ;;
+  *ConnectHiddenNetwork*)
+    [ -e "$D/refuse" ] && { echo "Call failed: Operation failed" >&2; exit 1; }
+    echo "hidden:$8" >"$D/joined"
     exit 0 ;;
   *) exit 0 ;;
 esac
 `;
+// ip: the links (none), and for the Wi-Fi card its state and the address the network gave.
+const FAKE_IP = `#!/bin/sh
+D="$REDGIANT_HELPER_TEST_ROOT/fake"
+up=DOWN
+[ -e "$D/joined" ] && [ ! -e "$D/stale" ] && up=UP
+case "$*" in
+  "-j link show dev wlan0") echo "[{\\"ifname\\":\\"wlan0\\",\\"operstate\\":\\"$up\\"}]" ;;
+  "-j addr show dev wlan0")
+    if [ "$up" = UP ] && [ ! -e "$D/noaddr" ]; then
+      echo '[{"ifname":"wlan0","addr_info":[{"family":"inet","local":"192.168.1.31","scope":"global"}]}]'
+    else
+      echo '[{"ifname":"wlan0","addr_info":[]}]'
+    fi ;;
+  *) echo '[]' ;;
+esac
+`;
 const RECORD = (name: string) => `#!/bin/sh
 echo "${name} $*" >>"$REDGIANT_HELPER_TEST_ROOT/fake/calls"
+case "${name} $*" in "systemctl restart iwd"*) rm -f "$REDGIANT_HELPER_TEST_ROOT/fake/joined" ;; esac
 case "$*" in *is-active*caddy* | *is-enabled*caddy*) exit 0 ;; *is-active*) exit 3 ;; esac
 case "$*" in *ExecMainExitTimestamp*) echo "@1762920000" ;; *"-P Result"*) echo success ;; esac
 exit 0
@@ -121,7 +160,7 @@ describe("the helper's Wi-Fi commands", { skip: !tools }, () => {
     put("busctl", FAKE_BUSCTL);
     for (const p of ["systemctl", "systemd-run", "rfkill", "shutdown", "reboot", "iwctl"])
       put(p, RECORD(p));
-    put("ip", "#!/bin/sh\necho '[]'\n");
+    put("ip", FAKE_IP);
     put("sleep", "#!/bin/sh\nexit 0\n");
     writeFileSync(fake("objects.json"), objects([{ name: "Casa Rossi" }, { name: "Bar" }]));
   });
@@ -160,6 +199,32 @@ describe("the helper's Wi-Fi commands", { skip: !tools }, () => {
     expect(r).toMatchObject({ ok: false, error: "connect_failed" });
     expect(calls()).toContain("KnownNetwork Forget");
     expect(existsSync(psk("Casa Rossi"))).toBe(false);
+  });
+
+  // iwd answers Connect while it is still joining (before the password is checked): a yes with
+  // no association afterwards is a refusal, and nothing stays (QEMU, mac80211_hwsim + hostapd).
+  it("refuses when iwd says yes but the card never gets associated", async () => {
+    writeFileSync(fake("stale"), "");
+    const r = await ask(`wifi-connect ${b64("Casa Rossi")} ${b64("sbagliata!")} visible`);
+    expect(r).toMatchObject({ ok: false, error: "connect_failed" });
+    expect(existsSync(psk("Casa Rossi"))).toBe(false);
+    // Tried with a file iwd may not join by itself: the only attempt was the helper's own.
+    expect(calls()).toContain("Network Connect");
+    expect(calls()).not.toContain("AutoConnect b true");
+  });
+
+  it("joins, then lets iwd join the network by itself again", async () => {
+    const r = await ask(`wifi-connect ${b64("Casa Rossi")} ${b64("una password lunga")} visible`);
+    expect(r).toEqual({ ok: true, state: "connected" });
+    expect(calls()).toContain("set-property net.connman.iwd");
+    expect(calls()).toContain("KnownNetwork AutoConnect b true");
+  });
+
+  it("keeps a network that took the password but gave no address yet, and says so", async () => {
+    writeFileSync(fake("noaddr"), "");
+    const r = await ask(`wifi-connect ${b64("Casa Rossi")} ${b64("una password lunga")} visible`);
+    expect(r).toEqual({ ok: true, state: "saved", detail: "no_address" });
+    expect(existsSync(psk("Casa Rossi"))).toBe(true);
   });
 
   it("puts back the password that worked before when a new one is refused", async () => {
@@ -246,6 +311,8 @@ describe("the helper's Wi-Fi commands", { skip: !tools }, () => {
     expect(JSON.stringify(r.objects)).toContain("Casa Rossi");
     expect(r.ordered).toEqual({ type: "a(on)", data: [[["/net/connman/iwd/0/3/0_psk", -4500]]] });
     expect(r.links).toEqual([]);
+    // The card's real state: not associated (iwd's own words are not enough).
+    expect(r.link).toEqual({ associated: false, bssid: null });
     expect(calls()).toContain("Station Scan");
     expect(calls()).toContain("rfkill unblock wifi");
   });
